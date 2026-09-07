@@ -19,7 +19,8 @@
 //!
 //! Sensitivity, FOV, username and keybinds are configured in the `Esc` menu and
 //! persisted (`settings.rs`). Turn on **Debug Mode** there to show the egui
-//! tuning panels (`ads_tuning_ui`, top-right) for muzzle flash / smoke / gravity.
+//! tuning panels (`ads_tuning_ui`, top-right) for the ADS pose, muzzle flash,
+//! smoke, movement, weapon sway, camera shake and the sky.
 
 mod keybinds;
 mod menu;
@@ -143,14 +144,25 @@ const SEG_RELOAD: usize = 2;
 
 /// Camera shake: one shot adds `SHAKE_ADD` trauma (capped at 1), which decays at
 /// `SHAKE_DECAY` per second. The visible offset scales with `trauma²`, so it is
-/// violent immediately and gone in a fraction of a second. **Translation only**
-/// (up / down / left / right) — no rotation and no forward/back, so a scoped
-/// camera can't swing off the sniper's near lens.
+/// violent immediately and gone in a fraction of a second. The oscillation is
+/// **up / down / left / right only** — never rotation — on the `CameraShake`
+/// node, which carries the gun and the cameras together.
+///
+/// The forward / back move is separate: a single backward *kick* on each shot,
+/// on the `CameraRecoil` node, which carries only the cameras (not the gun). It
+/// snaps the eye back and eases home over ~a tenth of a second, so the scope's
+/// rear lens — which the fire animation yanks toward the face — stays in front
+/// of the eye instead of sliding past it. All of this is live-tunable
+/// (`ShakeSettings`, "Camera shake" panel section).
 const SHAKE_ADD: f32 = 1.0;
 const SHAKE_DECAY: f32 = 3.6;
 const SHAKE_FREQ: f32 = 46.0;
 /// Peak camera translation (world units) on the X and Y axes at full trauma.
 const SHAKE_POS_MAX: f32 = 0.05;
+/// Metres the camera (not the gun) snaps backward on each shot.
+const SHAKE_RECOIL_KICK: f32 = 0.05;
+/// How fast that backward kick eases back to zero (larger = snappier return).
+const SHAKE_RECOIL_RETURN: f32 = 10.0;
 
 /// Seconds for the muzzle flash to go from full to gone (it pops on instantly).
 const MUZZLE_FLASH_TIME: f32 = 0.06;
@@ -244,8 +256,12 @@ fn main() {
         .init_resource::<SegmentPlayback>()
         .init_resource::<Ads>()
         .init_resource::<AdsTuning>()
+        .init_resource::<LookDelta>()
+        .init_resource::<WeaponSwayState>()
+        .init_resource::<WeaponSwaySettings>()
         .init_resource::<Weapon>()
         .init_resource::<Shake>()
+        .init_resource::<ShakeSettings>()
         .init_resource::<MuzzleFlashSettings>()
         .init_resource::<MuzzleFlashState>()
         .init_resource::<SmokeSettings>()
@@ -299,6 +315,11 @@ fn main() {
                 debug_cursor_toggle,
             )
                 .after(update_ads),
+        )
+        // Weapon sway rides on top of the ADS pose, using this frame's turn.
+        .add_systems(
+            Update,
+            weapon_sway.after(look_around).after(apply_ads),
         )
         .run();
 }
@@ -397,10 +418,18 @@ struct PlayerHead;
 #[derive(Component)]
 struct WorldModelCamera;
 
-/// Parent of every camera and the view model. Its local transform is overwritten
-/// each frame by `camera_shake` with the current shake offset (or identity).
+/// Parent of the cameras *and* the view model. Its local transform is
+/// overwritten each frame by `camera_shake` with the up/down + side/side shake
+/// offset (or identity), so the gun and the view shake together.
 #[derive(Component)]
 struct CameraShake;
+
+/// Child of [`CameraShake`] that carries only the cameras (not the gun).
+/// `camera_shake` sets its local Z to the current backward recoil kick, pulling
+/// the eye off the scope's rear lens when a shot's fire animation drags the lens
+/// toward the face.
+#[derive(Component)]
+struct CameraRecoil;
 
 /// The HDR sky sphere; recentred on the camera every frame.
 #[derive(Component)]
@@ -602,10 +631,45 @@ struct Ads {
 /// Camera-shake state. `trauma` (0..1) is bumped on each shot and decays; it
 /// only scales an offset that is rebuilt from zero every frame, so it can never
 /// drift the aim. `phase` just advances the oscillation and resets at rest.
+/// `recoil` is the current backward (+Z local) camera offset in metres, snapped
+/// up on a shot and eased back to zero.
 #[derive(Resource, Default)]
 struct Shake {
     trauma: f32,
     phase: f32,
+    recoil: f32,
+}
+
+/// Panel-adjustable camera-shake tuning. The oscillation half mirrors the
+/// `SHAKE_*` consts; the recoil half is the forward/back kick that keeps the eye
+/// behind the scope lens when firing.
+#[derive(Resource)]
+struct ShakeSettings {
+    /// Trauma added per shot (result capped at 1).
+    trauma_per_shot: f32,
+    /// Trauma lost per second.
+    decay: f32,
+    /// Oscillation speed.
+    frequency: f32,
+    /// Peak up/down + side/side camera translation at full trauma (m).
+    pos_max: f32,
+    /// Metres the camera snaps *backward* on each shot (gun stays put).
+    recoil_kick: f32,
+    /// How fast the backward kick eases back to zero (1/s; larger = snappier).
+    recoil_return: f32,
+}
+
+impl Default for ShakeSettings {
+    fn default() -> Self {
+        Self {
+            trauma_per_shot: SHAKE_ADD,
+            decay: SHAKE_DECAY,
+            frequency: SHAKE_FREQ,
+            pos_max: SHAKE_POS_MAX,
+            recoil_kick: SHAKE_RECOIL_KICK,
+            recoil_return: SHAKE_RECOIL_RETURN,
+        }
+    }
 }
 
 /// Dev-only knobs for dialing in the ADS pose (driven by the egui panel).
@@ -626,6 +690,48 @@ impl Default for AdsTuning {
             force_full: false,
             fov_deg: ADS_FOV_DEG,
             scope_fov_deg: SCOPE_FOV_DEG,
+        }
+    }
+}
+
+/// The yaw / pitch the view actually rotated by this frame (radians), written by
+/// [`look_around`] and consumed once by [`weapon_sway`], which zeroes it again so
+/// a frame with no mouse input (or a paused game) reads as "no turn".
+#[derive(Resource, Default)]
+struct LookDelta {
+    /// `x` = yaw (positive = turned left), `y` = pitch (positive = looked up).
+    applied: Vec2,
+}
+
+/// Running weapon-sway offset (radians), a low-passed lag behind the view.
+#[derive(Resource, Default)]
+struct WeaponSwayState {
+    /// `x` = yaw offset, `y` = pitch offset, applied on top of the ADS pose.
+    offset: Vec2,
+}
+
+/// Panel-adjustable weapon sway: the view model trails the direction you turn,
+/// then springs back to centre. Scaled down as you aim in.
+#[derive(Resource)]
+struct WeaponSwaySettings {
+    /// Seconds of lag at the hip: sway angle ≈ turn rate (rad/s) × this.
+    hip_strength: f32,
+    /// Seconds of lag at full ADS. The live value lerps `hip → ads` by `Ads::t`,
+    /// so 50% aimed is exactly halfway between the two.
+    ads_strength: f32,
+    /// How fast the weapon catches back up to centre (larger = snappier).
+    return_speed: f32,
+    /// Hard cap on the sway angle in any direction (degrees).
+    max_offset_deg: f32,
+}
+
+impl Default for WeaponSwaySettings {
+    fn default() -> Self {
+        Self {
+            hip_strength: 0.1,
+            ads_strength: 0.15,
+            return_speed: 5.0,
+            max_offset_deg: 13.5,
         }
     }
 }
@@ -864,78 +970,86 @@ fn setup_player(
                     // accumulate and throw off aim.
                     head.spawn((CameraShake, Transform::IDENTITY, Visibility::default()))
                         .with_children(|rig| {
-                            // World-model camera: renders the default layer 0.
-                            rig.spawn((
-                                WorldModelCamera,
-                                Camera3d::default(),
-                                Camera {
-                                    hdr: true,
-                                    ..default()
-                                },
-                                Projection::from(PerspectiveProjection {
-                                    fov: 90.0_f32.to_radians(),
-                                    ..default()
-                                }),
-                                // Thin daytime haze so distance reads and the sky
-                                // sphere's edge isn't a hard line.
-                                DistanceFog {
-                                    color: FOG_COLOR,
-                                    directional_light_color: SUN_COLOR,
-                                    directional_light_exponent: 100.0,
-                                    falloff: FogFalloff::from_visibility(FOG_VISIBILITY_M),
-                                },
-                                Bloom {
-                                    intensity: 0.09,
-                                    ..Bloom::NATURAL
-                                },
-                            ));
+                            // The cameras — but *not* the gun — hang off
+                            // `CameraRecoil`, so the per-shot backward kick pulls
+                            // the eye off the scope lens without dragging the
+                            // sniper back with it.
+                            rig.spawn((CameraRecoil, Transform::IDENTITY, Visibility::default()))
+                                .with_children(|cams| {
+                                    // World-model camera: renders the default layer 0.
+                                    cams.spawn((
+                                        WorldModelCamera,
+                                        Camera3d::default(),
+                                        Camera {
+                                            hdr: true,
+                                            ..default()
+                                        },
+                                        Projection::from(PerspectiveProjection {
+                                            fov: 90.0_f32.to_radians(),
+                                            ..default()
+                                        }),
+                                        // Thin daytime haze so distance reads and the
+                                        // sky sphere's edge isn't a hard line.
+                                        DistanceFog {
+                                            color: FOG_COLOR,
+                                            directional_light_color: SUN_COLOR,
+                                            directional_light_exponent: 100.0,
+                                            falloff: FogFalloff::from_visibility(FOG_VISIBILITY_M),
+                                        },
+                                        Bloom {
+                                            intensity: 0.09,
+                                            ..Bloom::NATURAL
+                                        },
+                                    ));
 
-                            // Scope camera: renders the world (layer 0) plus the
-                            // reticle quad (layer 2, no view model) through a
-                            // narrow FOV into `scope_image`. `order: -1` so it runs
-                            // before the main camera; inactive until ADS.
-                            rig.spawn((
-                                ScopeCamera,
-                                Camera3d::default(),
-                                Camera {
-                                    target: scope_image.clone().into(),
-                                    order: -1,
-                                    is_active: false,
-                                    hdr: true,
-                                    clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
-                                    ..default()
-                                },
-                                Projection::from(PerspectiveProjection {
-                                    fov: SCOPE_FOV_DEG.to_radians(),
-                                    ..default()
-                                }),
-                                RenderLayers::from_layers(&[0, SCOPE_OVERLAY_LAYER]),
-                            ))
-                            .with_child((
-                                ScopeReticle,
-                                Mesh3d(reticle_mesh),
-                                MeshMaterial3d(reticle_material),
-                                Transform::from_xyz(0.0, 0.0, -RETICLE_DIST),
-                                RenderLayers::layer(SCOPE_OVERLAY_LAYER),
-                            ));
+                                    // Scope camera: renders the world (layer 0) plus
+                                    // the reticle quad (layer 2, no view model)
+                                    // through a narrow FOV into `scope_image`.
+                                    // `order: -1` so it runs before the main camera;
+                                    // inactive until ADS.
+                                    cams.spawn((
+                                        ScopeCamera,
+                                        Camera3d::default(),
+                                        Camera {
+                                            target: scope_image.clone().into(),
+                                            order: -1,
+                                            is_active: false,
+                                            hdr: true,
+                                            clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
+                                            ..default()
+                                        },
+                                        Projection::from(PerspectiveProjection {
+                                            fov: SCOPE_FOV_DEG.to_radians(),
+                                            ..default()
+                                        }),
+                                        RenderLayers::from_layers(&[0, SCOPE_OVERLAY_LAYER]),
+                                    ))
+                                    .with_child((
+                                        ScopeReticle,
+                                        Mesh3d(reticle_mesh),
+                                        MeshMaterial3d(reticle_material),
+                                        Transform::from_xyz(0.0, 0.0, -RETICLE_DIST),
+                                        RenderLayers::layer(SCOPE_OVERLAY_LAYER),
+                                    ));
 
-                            // View-model camera: renders only layer 1 (the gun),
-                            // on top. A tiny near plane lets the weapon come right
-                            // up to the lens without being clipped.
-                            rig.spawn((
-                                Camera3d::default(),
-                                Camera {
-                                    order: 1,
-                                    hdr: true,
-                                    ..default()
-                                },
-                                Projection::from(PerspectiveProjection {
-                                    fov: 70.0_f32.to_radians(),
-                                    near: 0.0001,
-                                    ..default()
-                                }),
-                                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
-                            ));
+                                    // View-model camera: renders only layer 1 (the
+                                    // gun), on top. A tiny near plane lets the weapon
+                                    // come right up to the lens without being clipped.
+                                    cams.spawn((
+                                        Camera3d::default(),
+                                        Camera {
+                                            order: 1,
+                                            hdr: true,
+                                            ..default()
+                                        },
+                                        Projection::from(PerspectiveProjection {
+                                            fov: 70.0_f32.to_radians(),
+                                            near: 0.0001,
+                                            ..default()
+                                        }),
+                                        RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                    ));
+                                });
 
                             // The sniper view model itself.
                             rig.spawn((
@@ -1187,7 +1301,10 @@ fn ads_tuning_ui(
     mut muzzle: ResMut<MuzzleFlashSettings>,
     mut smoke: ResMut<SmokeSettings>,
     mut movement: ResMut<MovementSettings>,
+    mut sway: ResMut<WeaponSwaySettings>,
+    mut shake_cfg: ResMut<ShakeSettings>,
     mut scene: ResMut<SceneTuning>,
+    shake: Res<Shake>,
     ads: Res<Ads>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -1319,6 +1436,81 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset movement").clicked() {
                     *m = MovementSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Weapon sway", |ui| {
+                let w = &mut *sway;
+                ui.label("the gun lags the way you turn, then catches up");
+                ui.add(
+                    egui::Slider::new(&mut w.hip_strength, 0.0f32..=0.15)
+                        .text("hip strength (s of lag)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=0.15)
+                        .text("ADS strength (s of lag)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.return_speed, 1.0f32..=20.0).text("catch-up speed"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=15.0).text("max offset (°)"),
+                );
+                ui.label(format!(
+                    "live strength @ ads.t {:.2} = {:.4}",
+                    ads.t,
+                    w.hip_strength.lerp(w.ads_strength, ads.t.clamp(0.0, 1.0)),
+                ));
+
+                if ui.button("Copy weapon sway to console").clicked() {
+                    info!(
+                        "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
+                         return_speed {:.4}, max_offset_deg {:.4}",
+                        w.hip_strength, w.ads_strength, w.return_speed, w.max_offset_deg,
+                    );
+                }
+                if ui.button("Reset weapon sway").clicked() {
+                    *w = WeaponSwaySettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Camera shake", |ui| {
+                let c = &mut *shake_cfg;
+                ui.label("per-shot kick — up/down + side/side only");
+                ui.add(
+                    egui::Slider::new(&mut c.trauma_per_shot, 0.0f32..=1.0).text("trauma per shot"),
+                );
+                ui.add(egui::Slider::new(&mut c.decay, 0.5f32..=12.0).text("trauma decay (/s)"));
+                ui.add(egui::Slider::new(&mut c.frequency, 5.0f32..=120.0).text("frequency"));
+                ui.add(
+                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.2).text("up/down + L/R amount (m)"),
+                );
+                ui.separator();
+                ui.label("front/back: eye punches back off the scope, then returns");
+                ui.add(
+                    egui::Slider::new(&mut c.recoil_kick, 0.0f32..=1.0).text("backward kick (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0).text("return speed (/s)"),
+                );
+                ui.label(format!("recoil now: {:.3} m", shake.recoil));
+
+                if ui.button("Copy camera shake to console").clicked() {
+                    info!(
+                        "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
+                         pos_max {:.4}, recoil_kick {:.4}, recoil_return {:.4}",
+                        c.trauma_per_shot,
+                        c.decay,
+                        c.frequency,
+                        c.pos_max,
+                        c.recoil_kick,
+                        c.recoil_return,
+                    );
+                }
+                if ui.button("Reset camera shake").clicked() {
+                    *c = ShakeSettings::default();
                 }
             });
 
@@ -1501,6 +1693,7 @@ fn look_around(
     window: Single<&Window, With<PrimaryWindow>>,
     ads: Res<Ads>,
     settings: Res<Settings>,
+    mut look_delta: ResMut<LookDelta>,
     mut player: Single<&mut Transform, (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
@@ -1519,12 +1712,17 @@ fn look_around(
         MOUSE_SENSITIVITY * settings.sensitivity * 1.0f32.lerp(ADS_SENSITIVITY_SCALE, ease(ads.t));
 
     // Yaw on the body...
-    player.rotate_y(-delta.x * sens.x);
+    let yaw = -delta.x * sens.x;
+    player.rotate_y(yaw);
 
     // ...pitch on the head, clamped so we can't flip over.
     let (_, current_pitch, _) = head.rotation.to_euler(EulerRot::YXZ);
     let new_pitch = (current_pitch - delta.y * sens.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     head.rotation = Quat::from_rotation_x(new_pitch);
+
+    // Hand the actual applied rotation to the sway (pitch measured after the
+    // clamp so pinning against the limit doesn't keep feeding it).
+    look_delta.applied = Vec2::new(yaw, new_pitch - current_pitch);
 }
 
 /// Ramp `Ads::t` toward 1 while the right mouse button is held, back toward 0
@@ -1573,6 +1771,41 @@ fn apply_ads(
     }
 
     **view_model = lerp_pose(&poses.hip, &poses.ads, e);
+}
+
+/// Make the weapon trail the direction the player turns and then catch up.
+///
+/// Runs after [`apply_ads`] has written the base pose and multiplies a small
+/// rotation about the view origin onto it. The target angle is the view's
+/// angular velocity this frame scaled by `strength` (seconds of lag), negated so
+/// the gun lags *behind* the turn; a frame-rate-independent ease pulls the live
+/// offset toward it, so releasing the turn (target → 0) lets the gun spring back.
+/// `strength` lerps `hip → ads` by `Ads::t`, so half-aimed is exactly half sway.
+fn weapon_sway(
+    time: Res<Time>,
+    tuning: Res<WeaponSwaySettings>,
+    ads: Res<Ads>,
+    mut look: ResMut<LookDelta>,
+    mut state: ResMut<WeaponSwayState>,
+    mut view_model: Single<&mut Transform, With<ViewModel>>,
+) {
+    let dt = time.delta_secs().max(1e-5);
+    let applied = look.applied;
+    look.applied = Vec2::ZERO; // consumed — a still frame reads as no turn
+
+    let strength = tuning
+        .hip_strength
+        .lerp(tuning.ads_strength, ads.t.clamp(0.0, 1.0));
+
+    let max = tuning.max_offset_deg.to_radians();
+    // `-applied / dt` is the view's angular velocity, opposite the turn.
+    let target = (-applied / dt * strength).clamp(Vec2::splat(-max), Vec2::splat(max));
+
+    let k = 1.0 - (-tuning.return_speed * dt).exp();
+    state.offset = state.offset.lerp(target, k);
+
+    let sway = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
+    **view_model = Transform::from_rotation(sway) * **view_model;
 }
 
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
@@ -1732,6 +1965,7 @@ fn weapon_system(
     mut players: Query<&mut AnimationPlayer>,
     mut weapon: ResMut<Weapon>,
     mut shake: ResMut<Shake>,
+    shake_cfg: Res<ShakeSettings>,
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
     sounds: Res<GameSounds>,
@@ -1788,7 +2022,8 @@ fn weapon_system(
 
     if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;
-        shake.trauma = (shake.trauma + SHAKE_ADD).min(1.0);
+        shake.trauma = (shake.trauma + shake_cfg.trauma_per_shot).min(1.0);
+        shake.recoil = shake_cfg.recoil_kick;
         muzzle.shots = muzzle.shots.wrapping_add(1);
         muzzle.roll = rand_roll(muzzle.shots);
         muzzle.intensity = 1.0;
@@ -2012,15 +2247,36 @@ fn update_smoke(
     }
 }
 
-/// Rebuild the `CameraShake` node's local transform from the current trauma —
-/// always from zero, so it settles back to exactly identity and never drifts aim.
+/// Rebuild the shake nodes' local transforms each frame from the current state,
+/// always from zero, so they settle back to exactly identity and never drift aim.
+///
+/// * `CameraShake` (gun + cameras): up / down + side / side oscillation, scaled
+///   by `trauma²`. Identity rotation, no Z.
+/// * `CameraRecoil` (cameras only): local +Z (straight back along the view axis)
+///   set to the current recoil kick, which snaps up on a shot and eases home.
 fn camera_shake(
     time: Res<Time>,
+    cfg: Res<ShakeSettings>,
     mut shake: ResMut<Shake>,
-    mut rig: Single<&mut Transform, With<CameraShake>>,
+    mut rig: Single<&mut Transform, (With<CameraShake>, Without<CameraRecoil>)>,
+    mut recoil_node: Single<&mut Transform, (With<CameraRecoil>, Without<CameraShake>)>,
 ) {
     let dt = time.delta_secs();
-    shake.trauma = (shake.trauma - SHAKE_DECAY * dt).max(0.0);
+
+    // --- forward / back recoil: snap back on a shot, ease home fast ---------
+    if shake.recoil > 0.0 {
+        shake.recoil *= (-cfg.recoil_return * dt).exp();
+        if shake.recoil < 1.0e-5 {
+            shake.recoil = 0.0;
+        }
+    }
+    let want_recoil = Transform::from_xyz(0.0, 0.0, shake.recoil); // +Z = backward
+    if **recoil_node != want_recoil {
+        **recoil_node = want_recoil;
+    }
+
+    // --- up / down + side / side oscillation -------------------------------
+    shake.trauma = (shake.trauma - cfg.decay * dt).max(0.0);
 
     if shake.trauma <= 0.0 {
         shake.phase = 0.0;
@@ -2030,15 +2286,15 @@ fn camera_shake(
         return;
     }
 
-    shake.phase += dt * SHAKE_FREQ;
+    shake.phase += dt * cfg.frequency;
     let s = shake.phase;
     let amt = shake.trauma * shake.trauma;
 
     // Up / down / left / right only — identity rotation, no Z, so aim and the
     // scope alignment are untouched.
     **rig = Transform::from_translation(Vec3::new(
-        (s * 1.53 + 0.4).sin() * SHAKE_POS_MAX * amt,
-        (s * 1.19 + 3.3).sin() * SHAKE_POS_MAX * amt,
+        (s * 1.53 + 0.4).sin() * cfg.pos_max * amt,
+        (s * 1.19 + 3.3).sin() * cfg.pos_max * amt,
         0.0,
     ));
 }
