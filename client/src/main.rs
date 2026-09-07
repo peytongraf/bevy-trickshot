@@ -8,13 +8,14 @@
 //! Controls (all rebindable — see `keybinds.rs`; defaults shown):
 //!   * `W` / `A` / `S` / `D` — move
 //!   * `Left Shift`          — toggle sprint
+//!   * `C`                   — crouch (still) / slide (moving); jump cancels a slide
 //!   * `B`                   — jump
 //!   * `T`                   — teleport back onto the building
 //!   * mouse                 — look around
 //!   * right mouse (hold)    — aim down sight
 //!   * left mouse            — fire
 //!   * `R`                   — reload
-//!   * `L`                   — play the next animation segment once (dev)
+//!   * `L`                   — lock / unlock the cursor (debug mode)
 //!   * `Esc`                 — open / close the settings menu (see `menu.rs`)
 //!
 //! Sensitivity, FOV, username and keybinds are configured in the `Esc` menu and
@@ -98,6 +99,17 @@ const GRAVITY: f32 = 22.0;
 const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
 const GROUND_SNAP: f32 = 0.5;
+
+/// Defaults for the "Slide" panel section.
+const CROUCH_DROP: f32 = 0.8;
+const CROUCH_SPEED: f32 = 2.5;
+const SLIDE_DUCK_SPEED: f32 = 16.0;
+const SLIDE_STAND_SPEED: f32 = 7.0;
+const SLIDE_SPEED: f32 = 9.0;
+const SLIDE_SPRINT_BONUS: f32 = 4.5;
+const SLIDE_FRICTION: f32 = 7.5;
+const SLIDE_MIN_SPEED: f32 = 1.6;
+const SLIDE_MAX_TIME: f32 = 1.6;
 
 const MOUSE_SENSITIVITY: Vec2 = Vec2::new(0.003, 0.002);
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.02;
@@ -324,7 +336,6 @@ fn main() {
             ..default()
         })
         .init_resource::<ViewModelPoses>()
-        .init_resource::<SegmentPlayback>()
         .init_resource::<Ads>()
         .init_resource::<AdsTuning>()
         .init_resource::<LookDelta>()
@@ -344,6 +355,8 @@ fn main() {
         .add_event::<GroundImpact>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
+        .init_resource::<Slide>()
+        .init_resource::<SlideSettings>()
         .init_resource::<SceneTuning>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
@@ -361,7 +374,10 @@ fn main() {
                 setup_fps_ui,
             ),
         )
-        .add_systems(OnEnter(AppState::InGame), (grab_cursor, start_ambient))
+        .add_systems(
+            OnEnter(AppState::InGame),
+            (grab_cursor, start_ambient, reset_slide),
+        )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, hud_visibility)
         // Dev tuning panels — only in-game, and only while debug mode is on.
@@ -376,6 +392,7 @@ fn main() {
                 // Gameplay input / simulation — frozen while a menu is open.
                 (
                     toggle_sprint,
+                    crouch_slide,
                     move_player,
                     teleport_home,
                     jump,
@@ -385,7 +402,6 @@ fn main() {
                     .run_if(menu::game_active),
                 look_around.run_if(menu::game_active),
                 weapon_system.run_if(menu::game_active),
-                cycle_animation_segments.run_if(menu::game_active),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
@@ -466,6 +482,74 @@ impl Default for MovementSettings {
 #[derive(Resource, Default)]
 struct Sprinting(bool);
 
+/// What the player's lower body is doing. `Standing` is the normal state;
+/// `Crouching` is a slow ducked walk; `Sliding` is a momentum slide that decays
+/// to a stop (or is cancelled with the jump key) and then stands back up.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+enum Stance {
+    #[default]
+    Standing,
+    Crouching,
+    Sliding,
+}
+
+/// Live crouch / slide state. `pose` (0 standing → 1 fully ducked) is a smoothed
+/// value that `crouch_slide` writes onto the head each frame, so ducking and
+/// standing up are eased rather than snapped.
+#[derive(Resource, Default)]
+struct Slide {
+    stance: Stance,
+    pose: f32,
+    /// Horizontal slide velocity (m/s); only meaningful while `Sliding`.
+    velocity: Vec3,
+    /// Seconds the current slide has run.
+    timer: f32,
+    /// The one-shot slide-sound entity, kept so a cancel can cut it short.
+    sound: Option<Entity>,
+    /// Set for the frame a slide/crouch swallowed the jump press, so `jump`
+    /// doesn't also launch.
+    ate_jump: bool,
+}
+
+/// Panel-adjustable crouch / slide tuning.
+#[derive(Resource)]
+struct SlideSettings {
+    /// How far the camera drops when fully crouched (m).
+    crouch_drop: f32,
+    /// Move speed while crouch-walking (m/s) — slower than `walk_speed`.
+    crouch_speed: f32,
+    /// How fast the camera ducks down entering a crouch / slide (1/s).
+    duck_speed: f32,
+    /// How fast the camera rises back up (1/s) — kept lower so it's smooth.
+    stand_speed: f32,
+    /// Slide launch speed when starting from a walk (m/s).
+    slide_speed: f32,
+    /// Added to the launch speed when the slide starts from a sprint (m/s).
+    sprint_bonus: f32,
+    /// Deceleration that bleeds a slide off (m/s²).
+    friction: f32,
+    /// The slide ends and the player stands once it drops below this (m/s).
+    min_speed: f32,
+    /// Hard cap on slide duration regardless of friction (s).
+    max_time: f32,
+}
+
+impl Default for SlideSettings {
+    fn default() -> Self {
+        Self {
+            crouch_drop: CROUCH_DROP,
+            crouch_speed: CROUCH_SPEED,
+            duck_speed: SLIDE_DUCK_SPEED,
+            stand_speed: SLIDE_STAND_SPEED,
+            slide_speed: SLIDE_SPEED,
+            sprint_bonus: SLIDE_SPRINT_BONUS,
+            friction: SLIDE_FRICTION,
+            min_speed: SLIDE_MIN_SPEED,
+            max_time: SLIDE_MAX_TIME,
+        }
+    }
+}
+
 /// The daytime look, live-tweakable from the debug panel's "Fog & Sky" section
 /// and pushed onto the fog / sun / ambient / bloom by `apply_scene_tuning`.
 /// Defaults mirror the `SUN_*` / `SKY_*` / `FOG_*` consts.
@@ -544,20 +628,7 @@ struct ViewModel;
 #[derive(Component)]
 struct ViewModelAnimation {
     graph: Handle<AnimationGraph>,
-    clip: Handle<AnimationClip>,
     index: AnimationNodeIndex,
-}
-
-/// Tracks which slice of `SEGMENTS` the next `L` press will play, and where the
-/// currently playing slice should stop.
-#[derive(Resource, Default)]
-struct SegmentPlayback {
-    /// Index into `SEGMENTS` for the next press.
-    next: usize,
-    /// Clip time (seconds) at which the playing segment should pause.
-    stop_at: Option<f32>,
-    /// Whether the one-time clip-length report has been logged.
-    logged_clip_info: bool,
 }
 
 /// Ammo counts and the animation the weapon is mid-way through, if any. While
@@ -646,6 +717,10 @@ struct GameSounds {
     rechamber: Handle<AudioSource>,
     reload: Handle<AudioSource>,
     ambient: Handle<AudioSource>,
+    aim_in: Handle<AudioSource>,
+    aim_out: Handle<AudioSource>,
+    out_of_ammo: Handle<AudioSource>,
+    slide: Handle<AudioSource>,
 }
 
 /// Linear volume of the looping nature ambience.
@@ -1160,7 +1235,7 @@ fn setup_player(
     // Build a one-clip animation graph for the sniper's baked animation.
     let clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/sniper.glb"));
-    let (graph, index) = AnimationGraph::from_clip(clip.clone());
+    let (graph, index) = AnimationGraph::from_clip(clip);
     let graph = graphs.add(graph);
 
     // Image the scope camera renders into and the scope lens samples.
@@ -1316,7 +1391,7 @@ fn setup_player(
                             // The sniper view model itself.
                             rig.spawn((
                                 ViewModel,
-                                ViewModelAnimation { graph, clip, index },
+                                ViewModelAnimation { graph, index },
                                 SceneRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/sniper.glb"),
                                 )),
@@ -1441,6 +1516,10 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         rechamber: asset_server.load("audio/rechamber.wav"),
         reload: asset_server.load("audio/reload.wav"),
         ambient: asset_server.load("audio/ambient_nature.wav"),
+        aim_in: asset_server.load("audio/aim-in-sound.mp3"),
+        aim_out: asset_server.load("audio/aim-out-sound.mp3"),
+        out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
+        slide: asset_server.load("audio/slide-sound.mp3"),
     });
 }
 
@@ -1626,10 +1705,12 @@ fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
+    mut slide_cfg: ResMut<SlideSettings>,
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
     mut anim: ResMut<AnimationSettings>,
     mut scene: ResMut<SceneTuning>,
+    binds: Res<KeyBindings>,
     shake: Res<Shake>,
     ads: Res<Ads>,
 ) -> Result {
@@ -1639,7 +1720,10 @@ fn ads_tuning_ui(
         .resizable(false)
         .vscroll(true)
         .show(ctx, |ui| {
-            ui.label("`  (backtick): free / lock the cursor");
+            ui.label(format!(
+                "{}: free / lock the cursor",
+                binds.cursor_toggle.label()
+            ));
             ui.separator();
             ui.checkbox(&mut tuning.force_full, "Force full ADS (ignore RMB)");
             ui.label(format!("ads.t = {:.2}", ads.t));
@@ -1808,6 +1892,41 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset movement").clicked() {
                     *m = MovementSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Slide", |ui| {
+                let s = &mut *slide_cfg;
+                ui.label("crouch = key while still; slide = key while moving; jump cancels");
+                ui.add(egui::Slider::new(&mut s.crouch_drop, 0.0f32..=1.5).text("crouch drop (m)"));
+                ui.add(
+                    egui::Slider::new(&mut s.crouch_speed, 0.0f32..=8.0)
+                        .text("crouch-walk speed (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.slide_speed, 0.0f32..=20.0)
+                        .text("slide launch speed (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.sprint_bonus, 0.0f32..=12.0)
+                        .text("sprint slide bonus (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.friction, 0.5f32..=25.0).text("slide friction (m/s²)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.min_speed, 0.1f32..=8.0).text("slide end speed (m/s)"),
+                );
+                ui.add(egui::Slider::new(&mut s.max_time, 0.2f32..=4.0).text("slide time cap (s)"));
+                ui.add(
+                    egui::Slider::new(&mut s.duck_speed, 2.0f32..=30.0).text("duck-down rate (/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.stand_speed, 2.0f32..=30.0).text("stand-up rate (/s)"),
+                );
+                if ui.button("Reset slide").clicked() {
+                    *s = SlideSettings::default();
                 }
             });
 
@@ -1983,20 +2102,163 @@ fn toggle_sprint(
     }
 }
 
+/// Wipe crouch / slide state so re-entering the world always starts upright.
+fn reset_slide(mut slide: ResMut<Slide>, mut head: Single<&mut Transform, With<PlayerHead>>) {
+    *slide = Slide::default();
+    head.translation.y = 0.0;
+}
+
+/// Crouch / slide state machine (Call-of-Duty style). The crouch/slide key
+/// (rebindable, `C` by default):
+/// * standing + not moving → **crouch**: a slow ducked walk, no sprinting;
+/// * standing + moving → **slide** along the current travel direction — fast at
+///   first, then friction bleeds it off and the player smoothly stands up. A
+///   slide begun from a sprint carries extra speed in; an already-crouched
+///   player can't slide.
+///
+/// The jump key stands you up out of a crouch and **cancels** a slide on the
+/// spot (`jump` itself defers whenever `stance != Standing` / `ate_jump`).
+#[allow(clippy::too_many_arguments)]
+fn crouch_slide(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    cfg: Res<SlideSettings>,
+    sounds: Res<GameSounds>,
+    mut sprinting: ResMut<Sprinting>,
+    mut slide: ResMut<Slide>,
+    player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs().max(1.0e-5);
+    slide.ate_jump = false;
+
+    let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+    let crouch_pressed = locked && binds.crouch.just_pressed(&keys, &mouse);
+    let jump_pressed = locked && binds.jump.just_pressed(&keys, &mouse);
+
+    let (transform, physics) = *player;
+    let grounded = physics.grounded;
+    let planar = Vec3::new(
+        physics.horizontal_velocity.x,
+        0.0,
+        physics.horizontal_velocity.z,
+    );
+    let speed_now = planar.length();
+    let move_held = binds.forward.pressed(&keys, &mouse)
+        || binds.back.pressed(&keys, &mouse)
+        || binds.left.pressed(&keys, &mouse)
+        || binds.right.pressed(&keys, &mouse);
+    let moving = speed_now > 0.5 || move_held;
+
+    match slide.stance {
+        Stance::Standing => {
+            if grounded && crouch_pressed {
+                if moving {
+                    let mut dir = planar.normalize_or_zero();
+                    if dir == Vec3::ZERO {
+                        let f = *transform.forward();
+                        dir = Vec3::new(f.x, 0.0, f.z).normalize_or_zero();
+                    }
+                    let launch =
+                        cfg.slide_speed + if sprinting.0 { cfg.sprint_bonus } else { 0.0 };
+                    // A slide never slows you down — momentum carries.
+                    slide.velocity = dir * launch.max(speed_now);
+                    slide.timer = 0.0;
+                    slide.stance = Stance::Sliding;
+                    sprinting.0 = false;
+                    if let Some(e) = slide.sound.take() {
+                        commands.entity(e).try_despawn();
+                    }
+                    slide.sound = Some(
+                        commands
+                            .spawn((
+                                AudioPlayer::new(sounds.slide.clone()),
+                                PlaybackSettings::DESPAWN,
+                            ))
+                            .id(),
+                    );
+                } else {
+                    slide.stance = Stance::Crouching;
+                    sprinting.0 = false;
+                }
+            }
+        }
+        Stance::Crouching => {
+            sprinting.0 = false;
+            if crouch_pressed || jump_pressed {
+                slide.stance = Stance::Standing;
+                slide.ate_jump = jump_pressed;
+            }
+        }
+        Stance::Sliding => {
+            sprinting.0 = false;
+            slide.timer += dt;
+            let spd = (slide.velocity.length() - cfg.friction * dt).max(0.0);
+            slide.velocity = slide.velocity.normalize_or_zero() * spd;
+
+            let cancelled = jump_pressed;
+            if cancelled
+                || spd < cfg.min_speed
+                || slide.timer >= cfg.max_time
+                || !grounded
+            {
+                slide.stance = Stance::Standing;
+                slide.velocity = Vec3::ZERO;
+                if cancelled {
+                    slide.ate_jump = true;
+                    if let Some(e) = slide.sound.take() {
+                        commands.entity(e).try_despawn(); // cut the slide sound short
+                    }
+                } else {
+                    slide.sound = None; // ran its course — let the sound finish
+                }
+            }
+        }
+    }
+
+    // Ease the camera toward the target duck; write the offset onto the head
+    // (which carries the cameras + gun) so it's never a jerk.
+    let target = if slide.stance == Stance::Standing {
+        0.0
+    } else {
+        1.0
+    };
+    let rate = if target > slide.pose {
+        cfg.duck_speed
+    } else {
+        cfg.stand_speed
+    };
+    slide.pose += (target - slide.pose) * (1.0 - (-rate * dt).exp());
+    if slide.pose.abs() < 1.0e-4 {
+        slide.pose = 0.0;
+    }
+    head.translation.y = -cfg.crouch_drop * slide.pose;
+}
+
 fn move_player(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     settings: Res<MovementSettings>,
+    slide_cfg: Res<SlideSettings>,
     sprinting: Res<Sprinting>,
+    slide: Res<Slide>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let (mut transform, mut physics) = player.into_inner();
 
-    // Input only steers you while your feet are on something — in the air the
-    // velocity from the moment you left the ground carries you.
-    if physics.grounded {
+    // A slide ignores steering entirely — `crouch_slide` owns the velocity and
+    // bleeds it off with friction.
+    if slide.stance == Stance::Sliding {
+        physics.horizontal_velocity = slide.velocity;
+    } else if physics.grounded {
+        // Input only steers you while your feet are on something — in the air
+        // the velocity from the moment you left the ground carries you.
         let mut direction = Vec3::ZERO;
         let forward = *transform.forward();
         let right = *transform.right();
@@ -2014,10 +2276,10 @@ fn move_player(
         }
         direction.y = 0.0;
 
-        let speed = if sprinting.0 {
-            settings.sprint_speed
-        } else {
-            settings.walk_speed
+        let speed = match slide.stance {
+            Stance::Crouching => slide_cfg.crouch_speed,
+            _ if sprinting.0 => settings.sprint_speed,
+            _ => settings.walk_speed,
         };
         physics.horizontal_velocity = direction.normalize_or_zero() * speed;
     }
@@ -2041,16 +2303,22 @@ fn teleport_home(
     }
 }
 
-/// Launches the player upward when they're standing on something.
+/// Launches the player upward when they're standing on something. While
+/// crouched or sliding the jump key is spoken for (stand up / slide-cancel — see
+/// `crouch_slide`), so this bails on anything but a plain standing jump.
 fn jump(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<MovementSettings>,
+    slide: Res<Slide>,
     mut physics: Single<&mut PlayerPhysics, With<Player>>,
 ) {
     if window.cursor_options.grab_mode == CursorGrabMode::None {
+        return;
+    }
+    if slide.stance != Stance::Standing || slide.ate_jump {
         return;
     }
     if physics.grounded && binds.jump.just_pressed(&keys, &mouse) {
@@ -2135,6 +2403,7 @@ fn look_around(
 
 /// Ramp `Ads::t` toward 1 while the right mouse button is held, back toward 0
 /// otherwise.
+#[allow(clippy::too_many_arguments)]
 fn update_ads(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -2142,15 +2411,31 @@ fn update_ads(
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     tuning: Res<AdsTuning>,
+    sounds: Res<GameSounds>,
     mut ads: ResMut<Ads>,
+    mut was_aiming: Local<bool>,
+    mut commands: Commands,
 ) {
     if tuning.force_full {
         ads.t = 1.0;
+        *was_aiming = true;
         return;
     }
 
     let aiming =
         window.cursor_options.grab_mode != CursorGrabMode::None && binds.aim.pressed(&keys, &mouse);
+
+    // One-shot cue the instant the player starts / stops aiming.
+    if aiming != *was_aiming {
+        let clip = if aiming {
+            sounds.aim_in.clone()
+        } else {
+            sounds.aim_out.clone()
+        };
+        commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+        *was_aiming = aiming;
+    }
+
     let target = if aiming { 1.0 } else { 0.0 };
     let step = time.delta_secs() / ADS_DURATION;
     ads.t = if ads.t < target {
@@ -2242,11 +2527,13 @@ fn apply_scene_tuning(
     bloom.intensity = scene.bloom_intensity;
 }
 
-/// In debug mode, `` ` `` (backtick) frees the cursor so egui sliders can be
-/// dragged, and locks it again. Also re-locks automatically if debug mode is
-/// switched off while the cursor is loose.
+/// In debug mode, the "Lock / Unlock Cursor" key (rebindable, `L` by default)
+/// frees the cursor so egui sliders can be dragged, and locks it again. Also
+/// re-locks automatically if debug mode is switched off while the cursor is loose.
 fn debug_cursor_toggle(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     settings: Res<Settings>,
     menu: Res<menu::Menu>,
     window: Single<&mut Window, With<PrimaryWindow>>,
@@ -2263,7 +2550,7 @@ fn debug_cursor_toggle(
         }
         return;
     }
-    if keys.just_pressed(KeyCode::Backquote) {
+    if binds.cursor_toggle.just_pressed(&keys, &mouse) {
         set_cursor_grabbed(&mut window, loose);
     }
 }
@@ -2537,6 +2824,12 @@ fn weapon_system(
             seg_end: SEGMENTS[SEG_SHOOT].end_secs(),
             on_finish: WeaponFinish::Nothing,
         });
+    } else if binds.fire.just_pressed(&keys, &mouse) {
+        // Trigger pulled on an empty mag — click, no bang.
+        commands.spawn((
+            AudioPlayer::new(sounds.out_of_ammo.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
     } else if binds.reload.just_pressed(&keys, &mouse) && weapon.reserve > 0 {
         // TEMP: reload allowed even with a full mag, for reload-sound testing
         commands.spawn((
@@ -3047,86 +3340,4 @@ fn update_ammo_ui(weapon: Res<Weapon>, mut text: Single<&mut Text, With<AmmoText
     if text.0 != wanted {
         text.0 = wanted;
     }
-}
-
-/// `L` plays the next `SEGMENTS` entry once, from its start frame to its end
-/// frame, then parks the animation there. Each press advances to the following
-/// segment (wrapping around), so the whole clip can be stepped through and each
-/// cut dialed in.
-fn cycle_animation_segments(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    binds: Res<KeyBindings>,
-    clips: Res<Assets<AnimationClip>>,
-    view_model: Single<&ViewModelAnimation>,
-    mut players: Query<&mut AnimationPlayer>,
-    mut state: ResMut<SegmentPlayback>,
-) {
-    let node = view_model.index;
-    let Some(mut player) = players.iter_mut().next() else {
-        return;
-    };
-
-    // One-time: report the real clip length so ANIM_FPS / SEGMENTS can be
-    // checked against reality.
-    if !state.logged_clip_info {
-        if let Some(clip) = clips.get(&view_model.clip) {
-            let duration = clip.duration();
-            info!(
-                "allanims: duration {:.4}s at assumed {} fps",
-                duration, ANIM_FPS
-            );
-            info!(
-                "allanims: if the timeline runs 0..156, real fps is ~{:.3}",
-                156.0 / duration
-            );
-            for (i, seg) in SEGMENTS.iter().enumerate() {
-                let past_end = seg.end_secs() > duration + 1e-3;
-                info!(
-                    "  [{}] {:<12} frames {:>3}..{:<3}  {:.4}s..{:.4}s{}",
-                    i,
-                    seg.name,
-                    seg.start_frame as i32,
-                    seg.end_frame as i32,
-                    seg.start_secs(),
-                    seg.end_secs(),
-                    if past_end { "  <- beyond clip end" } else { "" },
-                );
-            }
-            state.logged_clip_info = true;
-        }
-    }
-
-    // Pause the playing segment once it reaches its end frame.
-    if let Some(stop_at) = state.stop_at {
-        if let Some(active) = player.animation_mut(node) {
-            if active.is_finished() || active.seek_time() >= stop_at {
-                active.seek_to(stop_at);
-                active.pause();
-                state.stop_at = None;
-            }
-        }
-    }
-
-    if !binds.cycle_anim.just_pressed(&keys, &mouse) {
-        return;
-    }
-
-    let seg = SEGMENTS[state.next];
-    let start = seg.start_secs();
-    let end = seg.end_secs();
-
-    let active = player.play(node);
-    active.set_repeat(RepeatAnimation::Never);
-    active.set_speed(1.0);
-    active.replay();
-    active.seek_to(start);
-    active.resume();
-
-    state.stop_at = Some(end);
-    info!(
-        "L -> [{}] {} (frames {}..{}, {:.3}s..{:.3}s)",
-        state.next, seg.name, seg.start_frame as i32, seg.end_frame as i32, start, end,
-    );
-    state.next = (state.next + 1) % SEGMENTS.len();
 }

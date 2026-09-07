@@ -73,11 +73,13 @@ pub struct KeyBindings {
     pub right: Binding,
     pub jump: Binding,
     pub sprint: Binding,
+    pub crouch: Binding,
     pub fire: Binding,
     pub aim: Binding,
     pub reload: Binding,
     pub teleport_home: Binding,
-    pub cycle_anim: Binding,
+    /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
+    pub cursor_toggle: Binding,
 }
 
 impl Default for KeyBindings {
@@ -90,11 +92,13 @@ impl Default for KeyBindings {
             right: Key(KeyCode::KeyD),
             jump: Key(KeyCode::KeyB),
             sprint: Key(KeyCode::ShiftLeft),
+            // Call of Duty (Modern Warfare) PC default for crouch / slide.
+            crouch: Key(KeyCode::KeyC),
             fire: Mouse(MouseButton::Left),
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
             teleport_home: Key(KeyCode::KeyT),
-            cycle_anim: Key(KeyCode::KeyL),
+            cursor_toggle: Key(KeyCode::KeyL),
         }
     }
 }
@@ -109,11 +113,12 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Move Right", |b| &mut b.right),
     ("Jump", |b| &mut b.jump),
     ("Sprint (toggle)", |b| &mut b.sprint),
+    ("Crouch / Slide", |b| &mut b.crouch),
     ("Fire", |b| &mut b.fire),
     ("Aim Down Sight", |b| &mut b.aim),
     ("Reload", |b| &mut b.reload),
     ("Teleport to Spawn", |b| &mut b.teleport_home),
-    ("Cycle Animation (dev)", |b| &mut b.cycle_anim),
+    ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];
 
 impl KeyBindings {
