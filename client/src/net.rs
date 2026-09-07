@@ -20,9 +20,9 @@ use lightyear::prelude::input::client::InputSet;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
-use shared::{Bot, PlayerId, PlayerInput, PlayerPose};
+use shared::{Bot, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved};
 
-use crate::{AppState, PendingShot, Player, PlayerHead, WorldModelCamera};
+use crate::{AppState, GroundImpact, PendingShot, Player, PlayerHead, WorldModelCamera};
 
 /// Where a shipped build connects when `TRICKSHOT_SERVER` is unset and we're not
 /// running under `cargo`. Mirrors `updater.rs`'s `DEFAULT_REPO` convention.
@@ -91,6 +91,7 @@ impl Plugin for ClientNetPlugin {
                 follow_remote_avatars,
                 spawn_bot_avatars,
                 follow_bot_avatars,
+                receive_shots,
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -202,6 +203,29 @@ fn write_input(
             action.fire = true;
             action.fire_origin = cam.translation().to_array();
             action.fire_dir = cam.forward().as_vec3().to_array();
+        }
+    }
+}
+
+/// Drain the server's authoritative [`ShotResolved`] broadcasts. Right now the
+/// only thing the client acts on is a `Ground` outcome, which becomes a
+/// [`GroundImpact`] event so everyone sees a debris burst at the same spot.
+/// Our *own* shots are skipped here — `weapon_system` already spawned that burst
+/// locally the instant we fired.
+fn receive_shots(
+    local: Query<&LocalId, With<GameClient>>,
+    mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
+    mut impacts: EventWriter<GroundImpact>,
+) {
+    let me = local.iter().next().map(|l| l.0);
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            if Some(msg.shooter) == me {
+                continue;
+            }
+            if let ShotOutcome::Ground { point } = msg.outcome {
+                impacts.write(GroundImpact(Vec3::from_array(point)));
+            }
         }
     }
 }

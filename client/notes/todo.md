@@ -1,11 +1,13 @@
 # Todo
 
+- Add settings for hip position of sniper.
+- Add crouch and slide with slide sound plus slide canceling with change weapon jump key.
+- Add footstep sounds.
 - Add reflective surface on scope when not ads.
 - Add effect to scope so it looks like actually being aimed through a scope.
 - Add setting for hip fire accurracy.
 - Add idle sway
 - Add max shot distance for sniper.
-- Add recoil ( shoot aim up and off to a random side a small amount ).
 - Ensure that public github repo can't let random people from using the production server and run up the cost.
 - Add security features to production server like rate limiting and max concurrent user count.
 - Shot camera shake shouldn't move gun back or camera forward as much because it causes thhe player to see further into the scope past the lens

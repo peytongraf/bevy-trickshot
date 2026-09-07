@@ -131,6 +131,51 @@ fn segment_hit(
     best
 }
 
+/// Height of the flat ground plane.
+pub const GROUND_Y: f32 = 0.0;
+/// Half-extent of the ground plane on X and Z (metres).
+pub const GROUND_HALF_EXTENT: f32 = 100.0;
+/// The spawn building as an axis-aligned box; a shot that would pass through it
+/// before reaching the ground doesn't count as a ground hit. Kept in sync with
+/// the client's `BUILDING_CENTER` / `BUILDING_SIZE`.
+pub const BUILDING_MIN: Vec3 = Vec3::new(-4.0, 0.0, 4.0);
+pub const BUILDING_MAX: Vec3 = Vec3::new(4.0, 10.0, 12.0);
+
+/// Where a clean-miss shot meets the ground, or `None` if the ray points up,
+/// lands beyond the ground plane, or the building is in the way. `dir` need not
+/// be normalised.
+pub fn ground_impact(origin: Vec3, dir: Vec3) -> Option<Vec3> {
+    let dir = dir.normalize_or_zero();
+    if dir.y >= -1.0e-4 {
+        return None; // level or rising — never meets the ground ahead
+    }
+    let t = (GROUND_Y - origin.y) / dir.y;
+    if t <= 0.0 {
+        return None;
+    }
+    let point = origin + dir * t;
+    if point.x.abs() > GROUND_HALF_EXTENT || point.z.abs() > GROUND_HALF_EXTENT {
+        return None;
+    }
+    if let Some(t_box) = ray_aabb(origin, dir, BUILDING_MIN, BUILDING_MAX) {
+        if t_box < t {
+            return None; // the building stopped the bullet first
+        }
+    }
+    Some(point)
+}
+
+/// Entry distance of a ray into an axis-aligned box, or `None` if it misses.
+/// A ray that starts inside returns `0.0`.
+fn ray_aabb(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
+    let inv = dir.recip();
+    let t1 = (min - origin) * inv;
+    let t2 = (max - origin) * inv;
+    let tmin = t1.min(t2).max_element();
+    let tmax = t1.max(t2).min_element();
+    (tmax >= tmin.max(0.0)).then(|| tmin.max(0.0))
+}
+
 fn damage_for(weapon: WeaponId, distance: f32, headshot: bool) -> f32 {
     let spec = weapon.spec();
     let f = (distance / spec.max_range).clamp(0.0, 1.0);

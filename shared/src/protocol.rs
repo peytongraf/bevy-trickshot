@@ -108,6 +108,12 @@ impl MapEntities for PlayerInput {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum ShotOutcome {
     Miss,
+    /// The shot hit nothing but the ground. Every client spawns a rock/dust
+    /// burst at `point` (see the client's `spawn_ground_impact`).
+    Ground {
+        /// World-space impact point on the ground plane.
+        point: [f32; 3],
+    },
     Hit {
         /// `PeerId::to_bits()` of the player that was hit.
         target: u64,

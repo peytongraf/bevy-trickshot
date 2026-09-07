@@ -122,9 +122,24 @@ const SCOPE_RT_SIZE: u32 = 512;
 const SCOPE_FOV_DEG: f32 = 6.5;
 /// Distance (metres) the reticle quad sits in front of the scope camera.
 const RETICLE_DIST: f32 = 0.2;
-/// ADS amount below which the scope image is hidden (and its camera switched
-/// off), so no stale frame shows at the hip.
+/// ADS amount below which the scope camera is switched off, so no stale frame
+/// is rendered at the hip. The lens itself stays visible either way — see below.
 const SCOPE_SHOW_AT: f32 = 0.02;
+
+// The rear lens is one lit `StandardMaterial`. Off-aim it reads as a smooth,
+// strongly reflective coated-glass disc catching the sun; as `Ads::t` → 1 the
+// mirror sheen is dialled out and the render-to-texture sight picture (carried
+// on `emissive`) fades in, so glare can't wash out the shot.
+/// Cool anti-reflective-coating tint of the glass when not aiming.
+const LENS_TINT: (f32, f32, f32) = (0.14, 0.21, 0.34);
+/// Lens surface roughness at the hip (low = tight, mirror-like highlight) and
+/// while fully scoped (higher = the sheen spreads out and dims).
+const LENS_ROUGHNESS_HIP: f32 = 0.04;
+const LENS_ROUGHNESS_ADS: f32 = 0.55;
+/// Metalness / reflectance of the glass at the hip; both lerp toward a plain
+/// dielectric backing as the player scopes in.
+const LENS_METALLIC_HIP: f32 = 0.65;
+const LENS_REFLECTANCE_HIP: f32 = 1.0;
 /// Mouse sensitivity is scaled by this at full ADS so the zoomed view isn't
 /// twitchy.
 const ADS_SENSITIVITY_SCALE: f32 = 0.4;
@@ -198,7 +213,7 @@ const SHAKE_WEAPON_KICK: f32 = 0.2;
 /// Muzzle-climb rotation (degrees) applied to the view model at full trauma.
 const SHAKE_WEAPON_KICK_DEG: f32 = 7.5;
 /// Metres the camera (not the gun) snaps backward on each shot.
-const SHAKE_RECOIL_KICK: f32 = 1.1;
+const SHAKE_RECOIL_KICK: f32 = 0.0;
 /// How fast that backward kick eases back to zero (larger = snappier return).
 const SHAKE_RECOIL_RETURN: f32 = 8.5;
 
@@ -208,6 +223,14 @@ const MUZZLE_FLASH_TIME: f32 = 0.06;
 /// Hard cap on live smoke particles, and the most that can spawn in one frame.
 const SMOKE_MAX: usize = 500;
 const SMOKE_MAX_PER_FRAME: f32 = 8.0;
+
+/// Hard cap on live bullet-impact particles (rocks + dust together).
+const IMPACT_MAX: usize = 400;
+
+/// `rocks.png` is a loose grid of rocks; each rock sprite shows one cell of this
+/// many columns × rows so it's a single rock, not the whole sheet.
+const ROCK_COLS: u32 = 3;
+const ROCK_ROWS: u32 = 4;
 
 /// Cheap deterministic hash → a float in `[0, 1)`.
 fn rand01(seed: u32) -> f32 {
@@ -316,6 +339,9 @@ fn main() {
         .init_resource::<MuzzleFlashState>()
         .init_resource::<SmokeSettings>()
         .init_resource::<SmokeEmission>()
+        .init_resource::<RockSettings>()
+        .init_resource::<DustSettings>()
+        .add_event::<GroundImpact>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<SceneTuning>()
@@ -364,6 +390,7 @@ fn main() {
                 // settle even while paused.
                 apply_ads,
                 update_scope,
+                fade_crosshair,
                 sky_follow_camera,
                 camera_shake,
                 update_muzzle_flash,
@@ -371,6 +398,7 @@ fn main() {
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
+                (spawn_ground_impact, update_impact_particles).after(look_around),
                 update_ammo_ui,
                 update_fps_ui,
                 apply_scene_tuning,
@@ -576,6 +604,10 @@ struct AmmoText;
 #[derive(Component)]
 struct FpsText;
 
+/// The dead-centre white dot; `fade_crosshair` fades it out as the player aims in.
+#[derive(Component)]
+struct CenterDot;
+
 /// The muzzle-flash sprite quad.
 #[derive(Component)]
 struct MuzzleFlash;
@@ -684,6 +716,116 @@ impl Default for SmokeSettings {
             spawn_rate: 30.0,
             duration: 0.7,
             max_opacity: 0.2,
+        }
+    }
+}
+
+/// Server → everyone: a shot hit the ground at this world point. Consumed by
+/// `spawn_ground_impact`, which kicks up a short rock + dust burst there.
+#[derive(Event)]
+pub(crate) struct GroundImpact(pub(crate) Vec3);
+
+/// One rock or dust sprite from a ground impact. World-space, billboarded at the
+/// camera; rocks arc under `gravity`, dust drifts and swells with `drag`.
+#[derive(Component)]
+struct ImpactParticle {
+    velocity: Vec3,
+    /// Downward acceleration (m/s²). Rocks fall; dust is ~0.
+    gravity: f32,
+    /// Per-second velocity damping. Dust high (billows then stalls); rocks ~0.
+    drag: f32,
+    age: f32,
+    lifetime: f32,
+    /// Seconds to ramp opacity 0 → `peak_alpha` before the fade-out.
+    fade_in: f32,
+    roll: f32,
+    /// Roll spin (rad/s); rocks tumble, dust doesn't.
+    spin: f32,
+    /// Sprite size (m) at spawn and at end of life — dust grows, rocks hold.
+    scale0: f32,
+    scale1: f32,
+    peak_alpha: f32,
+}
+
+/// Shared quad + the two impact textures (`spawn_ground_impact` clones a fresh
+/// material per particle so each fades on its own).
+#[derive(Resource)]
+struct ImpactAssets {
+    quad: Handle<Mesh>,
+    dust: Handle<Image>,
+    rocks: Handle<Image>,
+}
+
+/// Panel-adjustable rock-debris burst for a ground hit.
+#[derive(Resource)]
+struct RockSettings {
+    /// Rocks launched per impact.
+    count: u32,
+    /// Launch speed (m/s), randomised ±45%.
+    speed: f32,
+    /// Cone half-angle off straight-up (degrees).
+    spread_deg: f32,
+    /// Downward acceleration (m/s²).
+    gravity: f32,
+    /// Peak tumble rate (rad/s).
+    spin: f32,
+    /// Sprite size (m).
+    scale: f32,
+    /// Seconds a rock lives, randomised.
+    lifetime: f32,
+}
+
+impl Default for RockSettings {
+    fn default() -> Self {
+        Self {
+            count: 9,
+            speed: 6.0,
+            spread_deg: 32.0,
+            gravity: 20.0,
+            spin: 14.0,
+            scale: 0.14,
+            lifetime: 1.1,
+        }
+    }
+}
+
+/// Panel-adjustable dust puff for a ground hit.
+#[derive(Resource)]
+struct DustSettings {
+    /// Puffs per impact.
+    count: u32,
+    /// Initial speed off the cone (m/s).
+    speed: f32,
+    /// Cone half-angle off straight-up (degrees).
+    spread_deg: f32,
+    /// Extra straight-up drift added to every puff (m/s).
+    rise: f32,
+    /// Per-second velocity damping.
+    drag: f32,
+    /// Sprite size at spawn / at end of life (m) — dust swells.
+    start_scale: f32,
+    end_scale: f32,
+    /// Seconds a puff lives.
+    lifetime: f32,
+    /// Seconds to fade in.
+    fade_in: f32,
+    /// Peak opacity.
+    opacity: f32,
+}
+
+impl Default for DustSettings {
+    fn default() -> Self {
+        Self {
+            count: 12,
+            speed: 2.4,
+            spread_deg: 58.0,
+            rise: 0.6,
+            drag: 2.6,
+            start_scale: 0.25,
+            end_scale: 1.15,
+            lifetime: 0.85,
+            fade_in: 0.04,
+            opacity: 0.5,
         }
     }
 }
@@ -842,10 +984,10 @@ struct WeaponSwaySettings {
 impl Default for WeaponSwaySettings {
     fn default() -> Self {
         Self {
-            hip_strength: 0.1,
-            ads_strength: 0.15,
-            return_speed: 5.0,
-            max_offset_deg: 13.5,
+            hip_strength: 1.1,
+            ads_strength: 0.12,
+            return_speed: 3.5,
+            max_offset_deg: 15.0,
         }
     }
 }
@@ -928,14 +1070,13 @@ fn setup_world(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    // Ground: a 200 m plane textured with a tiled 1 m grid. Baking the grid into
-    // the ground material (instead of drawing it with gizmos) keeps it in the
-    // normal depth sort, so transparent things like smoke draw over it correctly.
+    // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
+    // (see `build_ground_texture`), tiled every ~2 m.
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(100.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(images.add(build_grid_texture())),
-            uv_transform: Affine2::from_scale(Vec2::splat(200.0)),
+            base_color_texture: Some(images.add(build_ground_texture())),
+            uv_transform: Affine2::from_scale(Vec2::splat(100.0)),
             perceptual_roughness: 0.95,
             ..default()
         })),
@@ -1065,6 +1206,13 @@ fn setup_player(
     commands.insert_resource(SmokeAssets {
         mesh: meshes.add(Rectangle::new(1.0, 1.0)),
         texture: asset_server.load("textures/smoke.png"),
+    });
+
+    // Bullet-impact debris (`spawn_ground_impact` clones a material per particle).
+    commands.insert_resource(ImpactAssets {
+        quad: meshes.add(Rectangle::new(1.0, 1.0)),
+        dust: asset_server.load("textures/dust.png"),
+        rocks: asset_server.load("textures/rocks.png"),
     });
 
     commands
@@ -1235,21 +1383,25 @@ fn start_view_model_animation(
         let name_has = |needle: &str| lower_name.as_deref().is_some_and(|n| n.contains(needle));
         let is_mesh = meshes.contains(entity);
 
-        // The scope's rear lens ("lens_lens_0" in Blender): show the scope
-        // render target on it, unlit, faded in by `update_scope`.
+        // The scope's rear lens ("lens_lens_0" in Blender): a reflective glass
+        // disc at the hip, carrying the scope render target on `emissive` so
+        // `update_scope` can fade the sight picture in while scoping.
         if is_mesh && name_has("lens") {
             commands.entity(entity).insert((
                 ScopeLens,
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgba(1.0, 1.0, 1.0, 0.0),
-                    base_color_texture: Some(scope_rt.0.clone()),
+                    base_color: Color::srgb(LENS_TINT.0, LENS_TINT.1, LENS_TINT.2),
+                    emissive_texture: Some(scope_rt.0.clone()),
+                    emissive: LinearRgba::BLACK,
                     // The render target samples V-flipped on the lens; undo it.
                     uv_transform: Affine2::from_scale_angle_translation(
                         Vec2::new(1.0, -1.0),
                         0.0,
                         Vec2::new(0.0, 1.0),
                     ),
-                    unlit: true,
+                    perceptual_roughness: LENS_ROUGHNESS_HIP,
+                    metallic: LENS_METALLIC_HIP,
+                    reflectance: LENS_REFLECTANCE_HIP,
                     alpha_mode: AlphaMode::Blend,
                     double_sided: true,
                     cull_mode: None,
@@ -1358,6 +1510,7 @@ fn setup_crosshair(mut commands: Commands) {
             },
         ))
         .with_child((
+            CenterDot,
             Node {
                 width: Val::Px(5.0),
                 height: Val::Px(5.0),
@@ -1368,6 +1521,18 @@ fn setup_crosshair(mut commands: Commands) {
             BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
             BorderRadius::MAX,
         ));
+}
+
+/// Fade the centre dot out as the player aims down the scope — fully gone at
+/// full ADS, fully back at the hip — so it never sits over the sight picture.
+fn fade_crosshair(
+    ads: Res<Ads>,
+    dot: Single<(&mut BackgroundColor, &mut BorderColor), With<CenterDot>>,
+) {
+    let a = 1.0 - ease(ads.t.clamp(0.0, 1.0));
+    let (mut bg, mut border) = dot.into_inner();
+    bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
+    border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
 }
 
 /// Bottom-right ammo readout: rounds in the mag, then rounds in reserve.
@@ -1458,6 +1623,8 @@ fn ads_tuning_ui(
     mut tuning: ResMut<AdsTuning>,
     mut muzzle: ResMut<MuzzleFlashSettings>,
     mut smoke: ResMut<SmokeSettings>,
+    mut rocks: ResMut<RockSettings>,
+    mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -1591,6 +1758,41 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Impact rocks", |ui| {
+                let r = &mut *rocks;
+                ui.label("debris kicked up where a shot hits the ground");
+                ui.add(egui::Slider::new(&mut r.count, 0u32..=40).text("rocks per hit"));
+                ui.add(egui::Slider::new(&mut r.speed, 0.0f32..=20.0).text("launch speed (m/s)"));
+                ui.add(egui::Slider::new(&mut r.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
+                ui.add(egui::Slider::new(&mut r.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+                ui.add(egui::Slider::new(&mut r.spin, 0.0f32..=40.0).text("tumble (rad/s)"));
+                ui.add(egui::Slider::new(&mut r.scale, 0.01f32..=0.5).text("size (m)"));
+                ui.add(egui::Slider::new(&mut r.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                if ui.button("Reset rocks").clicked() {
+                    *r = RockSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Impact dust", |ui| {
+                let d = &mut *dust;
+                ui.label("dust cloud where a shot hits the ground");
+                ui.add(egui::Slider::new(&mut d.count, 0u32..=40).text("puffs per hit"));
+                ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=12.0).text("launch speed (m/s)"));
+                ui.add(egui::Slider::new(&mut d.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
+                ui.add(egui::Slider::new(&mut d.rise, 0.0f32..=4.0).text("extra rise (m/s)"));
+                ui.add(egui::Slider::new(&mut d.drag, 0.0f32..=10.0).text("drag (/s)"));
+                ui.add(egui::Slider::new(&mut d.start_scale, 0.02f32..=2.0).text("start size (m)"));
+                ui.add(egui::Slider::new(&mut d.end_scale, 0.02f32..=4.0).text("end size (m)"));
+                ui.add(egui::Slider::new(&mut d.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                ui.add(egui::Slider::new(&mut d.fade_in, 0.0f32..=1.0).text("fade in (s)"));
+                ui.add(egui::Slider::new(&mut d.opacity, 0.0f32..=1.0).text("opacity"));
+                if ui.button("Reset dust").clicked() {
+                    *d = DustSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Movement", |ui| {
                 let m = &mut *movement;
                 ui.add(
@@ -1614,18 +1816,18 @@ fn ads_tuning_ui(
                 let w = &mut *sway;
                 ui.label("the gun lags the way you turn, then catches up");
                 ui.add(
-                    egui::Slider::new(&mut w.hip_strength, 0.0f32..=0.15)
+                    egui::Slider::new(&mut w.hip_strength, 0.0f32..=2.0)
                         .text("hip strength (s of lag)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=0.15)
+                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=0.5)
                         .text("ADS strength (s of lag)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut w.return_speed, 1.0f32..=20.0).text("catch-up speed"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=15.0).text("max offset (°)"),
+                    egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=30.0).text("max offset (°)"),
                 );
                 ui.label(format!(
                     "live strength @ ads.t {:.2} = {:.4}",
@@ -2089,32 +2291,96 @@ fn update_scope(
     let fill = 2.0 * RETICLE_DIST * (scope_fov * 0.5).tan();
     reticle.scale = Vec3::new(fill, fill, 1.0);
 
-    let alpha = ease(ads.t);
+    // The lens is always drawn: a reflective glass disc at the hip, the sight
+    // picture while scoped. `e` crossfades between the two looks.
+    let e = ease(ads.t);
+    let k = 1.0 - e;
     for (material, mut visibility) in &mut lens {
-        *visibility = if active {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
+        *visibility = Visibility::Inherited;
         if let Some(material) = materials.get_mut(&material.0) {
-            material.base_color = Color::srgba(1.0, 1.0, 1.0, alpha);
+            // Sight picture rides on emissive: black at the hip, full while scoped.
+            material.emissive = LinearRgba::rgb(e, e, e);
+            // Glass tint fades to a black backing so the sight picture stays clean.
+            material.base_color = Color::srgba(
+                LENS_TINT.0 * k,
+                LENS_TINT.1 * k,
+                LENS_TINT.2 * k,
+                0.9f32.lerp(1.0, e),
+            );
+            // Dial the mirror sheen out as the player scopes in.
+            material.perceptual_roughness = LENS_ROUGHNESS_HIP.lerp(LENS_ROUGHNESS_ADS, e);
+            material.metallic = LENS_METALLIC_HIP * k;
+            material.reflectance = LENS_REFLECTANCE_HIP.lerp(0.5, e);
         }
     }
 }
 
-/// Build a 1-cell grid tile: mostly `ground` colour with `line`-coloured pixels
-/// along two edges, wrapped so it tiles into a full grid.
-fn build_grid_texture() -> Image {
-    const N: u32 = 256;
-    const LINE: u32 = 3;
-    let ground = [31u8, 33, 38, 255];
-    let line = [90u8, 97, 115, 255];
+/// Build a seamless tiling ground texture: layered value noise ramped between a
+/// dark and a light tarmac tone, with fine grain plus the odd lighter aggregate
+/// fleck, so the ground reads as weathered asphalt instead of a flat grid.
+fn build_ground_texture() -> Image {
+    const N: u32 = 512;
+
+    // Cheap integer-lattice hash → [0, 1).
+    fn hash(x: i32, y: i32) -> f32 {
+        let mut h = (x.wrapping_mul(374_761_393) ^ y.wrapping_mul(668_265_263)) as u32;
+        h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+        h ^= h >> 16;
+        h as f32 / u32::MAX as f32
+    }
+
+    fn smooth(t: f32) -> f32 {
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    // Value noise on a lattice that wraps every `period` cells, so a tile whose
+    // width spans a whole number of periods is seamless.
+    fn value_noise(x: f32, y: f32, period: i32) -> f32 {
+        let x0 = x.floor() as i32;
+        let y0 = y.floor() as i32;
+        let fx = smooth(x - x0 as f32);
+        let fy = smooth(y - y0 as f32);
+        let w = |v: i32| v.rem_euclid(period);
+        let a = hash(w(x0), w(y0));
+        let b = hash(w(x0 + 1), w(y0));
+        let c = hash(w(x0), w(y0 + 1));
+        let d = hash(w(x0 + 1), w(y0 + 1));
+        let top = a + (b - a) * fx;
+        let bot = c + (d - c) * fx;
+        top + (bot - top) * fy
+    }
+
+    // fBm whose octave frequencies all divide the tile, so the sum tiles too.
+    fn fbm(u: f32, v: f32) -> f32 {
+        let (mut sum, mut amp, mut freq) = (0.0, 0.5, 4.0);
+        for _ in 0..5 {
+            sum += value_noise(u * freq, v * freq, freq as i32) * amp;
+            freq *= 2.0;
+            amp *= 0.5;
+        }
+        sum
+    }
+
+    let lo = [24.0f32, 25.0, 28.0]; // wet/shadowed tarmac
+    let hi = [70.0f32, 71.0, 75.0]; // sun-bleached tarmac
+    let fleck = [118.0f32, 116.0, 120.0]; // exposed aggregate
 
     let mut data = Vec::with_capacity((N * N * 4) as usize);
     for y in 0..N {
         for x in 0..N {
-            let on_line = x < LINE || y < LINE;
-            data.extend_from_slice(if on_line { &line } else { &ground });
+            let u = x as f32 / N as f32;
+            let v = y as f32 / N as f32;
+
+            let n = fbm(u, v).clamp(0.0, 1.0);
+            let speck = value_noise(u * 96.0, v * 96.0, 96);
+            let fleck_amt = if speck > 0.86 { (speck - 0.86) / 0.14 } else { 0.0 };
+
+            let mut rgb = [0u8; 3];
+            for c in 0..3 {
+                let base = lo[c] + (hi[c] - lo[c]) * n;
+                rgb[c] = (base * (1.0 - fleck_amt) + fleck[c] * fleck_amt).round() as u8;
+            }
+            data.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
         }
     }
 
@@ -2162,21 +2428,22 @@ pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
 /// reload plays the Reload segment and then refills the mag from the reserve.
 /// Nothing new is accepted while an animation is mid-play, so shots are
 /// impossible until a reload finishes.
+#[allow(clippy::too_many_arguments)]
 fn weapon_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     view_model: Single<&ViewModelAnimation>,
+    cam: Query<&GlobalTransform, With<WorldModelCamera>>,
     mut players: Query<&mut AnimationPlayer>,
     mut weapon: ResMut<Weapon>,
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
-    shake_cfg: Res<ShakeSettings>,
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
-    sounds: Res<GameSounds>,
-    anim: Res<AnimationSettings>,
+    mut impacts: EventWriter<GroundImpact>,
+    (shake_cfg, sounds, anim): (Res<ShakeSettings>, Res<GameSounds>, Res<AnimationSettings>),
     mut commands: Commands,
 ) {
     let node = view_model.index;
@@ -2252,6 +2519,18 @@ fn weapon_system(
             AudioPlayer::new(sounds.shot.clone()),
             PlaybackSettings::DESPAWN,
         ));
+        // Predict our own ground impact locally so it lands instantly (and so it
+        // works at all in solo Practice, which never talks to the server). In a
+        // real game the server also broadcasts this shot; `net::receive_shots`
+        // drops the echo for our own peer so it isn't spawned twice.
+        if let Ok(cam) = cam.single() {
+            if let Some(p) = shared::ballistics::ground_impact(
+                cam.translation(),
+                cam.forward().as_vec3(),
+            ) {
+                impacts.write(GroundImpact(p));
+            }
+        }
         play_segment(&mut player, node, SEGMENTS[SEG_SHOOT]);
         weapon.busy = Some(WeaponBusy {
             remaining: vec![SEGMENTS[SEG_SHOOT], SEGMENTS[SEG_RECHAMBER]],
@@ -2464,6 +2743,195 @@ fn update_smoke(
         let alpha = particle.peak_alpha * envelope.clamp(0.0, 1.0);
         if let Some(material) = materials.get_mut(&material.0) {
             material.base_color = Color::srgba(1.0, 1.0, 1.0, alpha);
+        }
+    }
+}
+
+/// A unit vector inside a cone of half-angle `half` around `axis`, chosen
+/// deterministically from `seed` (uniform over the cap).
+fn cone_dir(axis: Vec3, half: f32, seed: u32) -> Vec3 {
+    let a = rand01(seed.wrapping_mul(3)) * (PI * 2.0);
+    let z = 1.0 - rand01(seed.wrapping_mul(7)) * (1.0 - half.cos());
+    let r = (1.0 - z * z).max(0.0).sqrt();
+    let local = Vec3::new(r * a.cos(), z, r * a.sin());
+    if axis.abs_diff_eq(Vec3::Y, 1.0e-4) {
+        local
+    } else {
+        Quat::from_rotation_arc(Vec3::Y, axis.normalize_or_zero()) * local
+    }
+}
+
+/// Fresh unlit blended material for one impact sprite.
+fn impact_material(texture: Handle<Image>) -> StandardMaterial {
+    StandardMaterial {
+        base_color_texture: Some(texture),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    }
+}
+
+/// Kick up a short rock + dust burst at every ground impact the server reported
+/// this frame. World-space, so it's seen from every angle and by every client.
+fn spawn_ground_impact(
+    mut events: EventReader<GroundImpact>,
+    assets: Res<ImpactAssets>,
+    rocks: Res<RockSettings>,
+    dust: Res<DustSettings>,
+    existing: Query<(), With<ImpactParticle>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+    mut seq: Local<u32>,
+) {
+    let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
+
+    for ev in events.read() {
+        // Nudge just above the surface so the sprites don't z-fight the ground.
+        let at = ev.0 + Vec3::Y * 0.02;
+        *seq = seq.wrapping_add(1);
+
+        for i in 0..rocks.count {
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
+            let s = seq
+                .wrapping_mul(2_654_435_761)
+                .wrapping_add(i.wrapping_mul(40_503))
+                .wrapping_add(0x11);
+            let dir = cone_dir(Vec3::Y, rocks.spread_deg.to_radians(), s);
+            let speed = rocks.speed * (0.55 + 0.45 * rand01(s ^ 0x9e37));
+            // `rocks.png` is a sheet of ~25 rocks; show one 1/ROCK_COLS × 1/ROCK_ROWS
+            // cell of it per particle so each sprite is a single rock, not the pile.
+            let col = (rand01(s ^ 0x3) * ROCK_COLS as f32) as u32 % ROCK_COLS;
+            let row = (rand01(s ^ 0x5) * ROCK_ROWS as f32) as u32 % ROCK_ROWS;
+            let mut material = impact_material(assets.rocks.clone());
+            material.uv_transform = Affine2::from_scale_angle_translation(
+                Vec2::new(1.0 / ROCK_COLS as f32, 1.0 / ROCK_ROWS as f32),
+                0.0,
+                Vec2::new(col as f32 / ROCK_COLS as f32, row as f32 / ROCK_ROWS as f32),
+            );
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                ImpactParticle {
+                    velocity: dir * speed,
+                    gravity: rocks.gravity,
+                    drag: 0.0,
+                    age: 0.0,
+                    lifetime: rocks.lifetime.max(0.1) * (0.7 + 0.6 * rand01(s ^ 0x1234)),
+                    fade_in: 0.0,
+                    roll: rand_roll(s ^ 0x77),
+                    spin: (rand01(s ^ 0xab) * 2.0 - 1.0) * rocks.spin,
+                    scale0: rocks.scale,
+                    scale1: rocks.scale,
+                    peak_alpha: 1.0,
+                },
+                Mesh3d(assets.quad.clone()),
+                MeshMaterial3d(materials.add(material)),
+                Transform::from_translation(at).with_scale(Vec3::splat(rocks.scale.max(1.0e-4))),
+                NoFrustumCulling,
+            ));
+        }
+
+        for i in 0..dust.count {
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
+            let s = seq
+                .wrapping_mul(40_503)
+                .wrapping_add(i.wrapping_mul(2_654_435_761))
+                .wrapping_add(0xd057);
+            let dir = cone_dir(Vec3::Y, dust.spread_deg.to_radians(), s);
+            let speed = dust.speed * (0.5 + 0.5 * rand01(s ^ 0x55));
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                ImpactParticle {
+                    velocity: dir * speed + Vec3::Y * dust.rise,
+                    gravity: 0.0,
+                    drag: dust.drag,
+                    age: 0.0,
+                    lifetime: dust.lifetime.max(0.1) * (0.75 + 0.5 * rand01(s ^ 0x9f)),
+                    fade_in: dust.fade_in.max(0.0),
+                    roll: rand_roll(s ^ 0x21),
+                    spin: 0.0,
+                    scale0: dust.start_scale,
+                    scale1: dust.end_scale,
+                    peak_alpha: dust.opacity,
+                },
+                Mesh3d(assets.quad.clone()),
+                MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
+                Transform::from_translation(at)
+                    .with_scale(Vec3::splat(dust.start_scale.max(1.0e-4))),
+                NoFrustumCulling,
+            ));
+        }
+    }
+}
+
+/// Integrate every live impact particle: gravity + drag, camera billboard with
+/// its own roll/spin, scale ramp, opacity envelope, then despawn (freeing the
+/// material) at end of life.
+fn update_impact_particles(
+    time: Res<Time>,
+    player: Single<&Transform, (With<Player>, Without<ImpactParticle>)>,
+    head: Single<&Transform, (With<PlayerHead>, Without<ImpactParticle>)>,
+    mut particles: Query<(
+        Entity,
+        &mut Transform,
+        &mut ImpactParticle,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    let cam_pos = player.translation;
+    let cam_rot = player.rotation * head.rotation;
+    let cam_up = cam_rot * Vec3::Y;
+    let cam_right_fallback = cam_rot * Vec3::X;
+
+    for (entity, mut transform, mut p, material) in &mut particles {
+        p.age += dt;
+        if p.age >= p.lifetime {
+            materials.remove(&material.0);
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        let (gravity, drag) = (p.gravity, p.drag);
+        p.velocity.y -= gravity * dt;
+        p.velocity *= (1.0 - drag * dt).max(0.0);
+        transform.translation += p.velocity * dt;
+
+        let f = (p.age / p.lifetime.max(1.0e-4)).clamp(0.0, 1.0);
+        let scale = p.scale0.lerp(p.scale1, f).max(1.0e-4);
+
+        let to_cam = cam_pos - transform.translation;
+        let roll = p.roll + p.spin * p.age;
+        if to_cam.length_squared() > 1.0e-6 {
+            let normal = to_cam.normalize();
+            let mut right = cam_up.cross(normal);
+            if right.length_squared() < 1.0e-6 {
+                right = cam_right_fallback;
+            }
+            let right = right.normalize();
+            let up = normal.cross(right);
+            let facing = Quat::from_mat3(&Mat3::from_cols(right, up, normal));
+            transform.rotation = facing * Quat::from_rotation_z(roll);
+        }
+        transform.scale = Vec3::splat(scale);
+
+        let envelope = if p.age < p.fade_in {
+            p.age / p.fade_in.max(1.0e-4)
+        } else {
+            let fade_out = (p.lifetime - p.fade_in).max(1.0e-4);
+            1.0 - (p.age - p.fade_in) / fade_out
+        };
+        if let Some(m) = materials.get_mut(&material.0) {
+            m.base_color = Color::srgba(1.0, 1.0, 1.0, p.peak_alpha * envelope.clamp(0.0, 1.0));
         }
     }
 }

@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 
 use std::collections::HashMap;
 
-use shared::ballistics::{resolve_shot, Target};
+use shared::ballistics::{ground_impact, resolve_shot, Target};
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
@@ -140,7 +140,13 @@ fn resolve_shots(
                 }
                 None => ShotOutcome::Miss,
             },
-            None => ShotOutcome::Miss,
+            None => match ground_impact(
+                Vec3::from_array(i.fire_origin),
+                Vec3::from_array(i.fire_dir),
+            ) {
+                Some(p) => ShotOutcome::Ground { point: p.to_array() },
+                None => ShotOutcome::Miss,
+            },
         };
 
         let msg = ShotResolved {
