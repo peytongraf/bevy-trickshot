@@ -42,17 +42,17 @@ production, the same private key.
 
 The Docker build context is the repo root (the server compiles `shared/`); the
 image is built from the root `Dockerfile` and `server/fly.toml` is the app config.
+**Run `fly` from the repo root** — it resolves `--config` and the Dockerfile
+relative to the path argument.
 
 ```sh
-cd server
-
 # one-time
 fly apps create bevy-trickshot-server         # or another unique name → update `app` in fly.toml
 fly ips allocate-v6                            # free dedicated IPv6 — fly routes UDP over it
-fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')"
+fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')" -a bevy-trickshot-server
 
-# every deploy (from server/, ".." = repo root as the build context)
-fly deploy ..
+# every deploy
+fly deploy . --config server/fly.toml -a bevy-trickshot-server
 ```
 
 UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free; the server binds

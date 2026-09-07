@@ -1,13 +1,14 @@
 # fly.io config for the bevy-trickshot game server.
 #
-# First-time setup (run from this `server/` directory):
+# First-time setup (run from the REPO ROOT — the Docker build context is the
+# whole workspace, and fly resolves --config/Dockerfile relative to the path arg):
 #
 #   fly apps create bevy-trickshot-server            # or another unique name; then update `app` below
 #   fly ips allocate-v6                              # free dedicated IPv6 — fly routes UDP over it
 #   fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')"
-#   fly deploy ..                                    # ".." = build context is the repo root (uses ../Dockerfile)
+#   fly deploy . --config server/fly.toml -a bevy-trickshot-server
 #
-# Every later deploy is just:  fly deploy ..
+# Every later deploy is the same `fly deploy . --config server/fly.toml -a ...`.
 #
 # Notes:
 # * UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free (used here);
