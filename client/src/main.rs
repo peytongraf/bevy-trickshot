@@ -126,14 +126,14 @@ const SEG_RELOAD: usize = 2;
 
 /// Camera shake: one shot adds `SHAKE_ADD` trauma (capped at 1), which decays at
 /// `SHAKE_DECAY` per second. The visible offset scales with `trauma²`, so it is
-/// violent immediately and gone in a fraction of a second.
+/// violent immediately and gone in a fraction of a second. **Translation only**
+/// (up / down / left / right) — no rotation and no forward/back, so a scoped
+/// camera can't swing off the sniper's near lens.
 const SHAKE_ADD: f32 = 1.0;
 const SHAKE_DECAY: f32 = 3.6;
 const SHAKE_FREQ: f32 = 46.0;
-const SHAKE_YAW_MAX: f32 = 0.022;
-const SHAKE_PITCH_MAX: f32 = 0.045;
-const SHAKE_ROLL_MAX: f32 = 0.030;
-const SHAKE_POS_MAX: f32 = 0.02;
+/// Peak camera translation (world units) on the X and Y axes at full trauma.
+const SHAKE_POS_MAX: f32 = 0.05;
 
 /// Seconds for the muzzle flash to go from full to gone (it pops on instantly).
 const MUZZLE_FLASH_TIME: f32 = 0.06;
@@ -1862,20 +1862,13 @@ fn camera_shake(
     let s = shake.phase;
     let amt = shake.trauma * shake.trauma;
 
-    **rig = Transform {
-        translation: Vec3::new(
-            (s * 1.53 + 0.4).sin() * SHAKE_POS_MAX * amt,
-            (s * 1.19 + 3.3).sin() * SHAKE_POS_MAX * amt,
-            0.0,
-        ),
-        rotation: Quat::from_euler(
-            EulerRot::YXZ,
-            s.sin() * SHAKE_YAW_MAX * amt,
-            (s * 1.37 + 1.1).sin() * SHAKE_PITCH_MAX * amt,
-            (s * 0.83 + 2.7).sin() * SHAKE_ROLL_MAX * amt,
-        ),
-        scale: Vec3::ONE,
-    };
+    // Up / down / left / right only — identity rotation, no Z, so aim and the
+    // scope alignment are untouched.
+    **rig = Transform::from_translation(Vec3::new(
+        (s * 1.53 + 0.4).sin() * SHAKE_POS_MAX * amt,
+        (s * 1.19 + 3.3).sin() * SHAKE_POS_MAX * amt,
+        0.0,
+    ));
 }
 
 /// Keep the bottom-right readout in sync with the ammo counts.
