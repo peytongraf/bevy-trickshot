@@ -124,6 +124,7 @@ fn on_create(
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
+                    score: 0,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -167,6 +168,7 @@ fn on_join(
         lobby.members.push(LobbyMember {
             peer,
             name: player_name,
+            score: 0,
         });
         info!("{peer:?} joined lobby {target:?}");
     }

@@ -139,6 +139,8 @@ pub struct GameChannel;
 pub struct LobbyMember {
     pub peer: PeerId,
     pub name: String,
+    /// Bots this member has shot during the current game.
+    pub score: u32,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -164,6 +166,32 @@ impl Lobby {
 /// other clients can label the capsule.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerName(pub String);
+
+/// A server-owned practice bot. Replicated to the members of one lobby's game so
+/// everyone sees the same bots in the same spots, and sees the same one tip over
+/// when it's shot.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Bot {
+    /// Feet position, on the ground.
+    pub pos: Vec3,
+    /// Facing (radians); also the direction it topples.
+    pub yaw: f32,
+    /// `true` until shot.
+    pub alive: bool,
+    /// `0.0` upright … `1.0` flat on the ground. Ramps up after death.
+    pub fall: f32,
+}
+
+impl Ease for Bot {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| Bot {
+            pos: Vec3::lerp(start.pos, end.pos, t),
+            yaw: lerp_angle(start.yaw, end.yaw, t),
+            alive: end.alive,
+            fall: start.fall + (end.fall - start.fall) * t,
+        })
+    }
+}
 
 /// Client → server: create a new lobby and join it as leader.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -244,6 +272,10 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<PlayerName>()
             .add_interpolation(InterpolationMode::Once);
+
+        app.register_component::<Bot>()
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
 
         app.register_component::<Lobby>();
 

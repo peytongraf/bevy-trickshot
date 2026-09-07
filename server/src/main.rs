@@ -13,6 +13,7 @@
 //! | `LIGHTYEAR_PRIVATE_KEY` | 32 comma-separated bytes, netcode key   | dev all-zero key     |
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
+mod bots;
 mod health;
 mod lobby;
 mod net;
@@ -47,5 +48,6 @@ fn main() {
         .add_plugins(net::ServerNetPlugin)
         .add_plugins(lobby::LobbyPlugin)
         .add_plugins(sim::SimPlugin)
+        .add_plugins(bots::BotsPlugin)
         .run();
 }
