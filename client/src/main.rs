@@ -36,7 +36,8 @@ use bevy::{
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
     math::{Affine2, FloatExt},
-    pbr::{CascadeShadowConfigBuilder, NotShadowCaster},
+    core_pipeline::bloom::Bloom,
+    pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
     prelude::*,
     render::{
         render_asset::RenderAssetUsages,
@@ -108,6 +109,22 @@ const SCOPE_SHOW_AT: f32 = 0.02;
 /// Mouse sensitivity is scaled by this at full ADS so the zoomed view isn't
 /// twitchy.
 const ADS_SENSITIVITY_SCALE: f32 = 0.4;
+
+// --- daylight look (bright, mostly-sunny midday) -----------------------------
+// These are calibrated against Bevy's *default* camera exposure — a genuinely
+// physical sun (~100k lux) would also need a `Exposure` retune on all three
+// cameras, which is a separate pass. Tune these in-game.
+/// Directional "sun" strength (lux).
+const SUN_LUX: f32 = 22_000.0;
+/// Sun colour — a faint warm (~6000 K).
+const SUN_COLOR: Color = Color::srgb(1.0, 0.95, 0.88);
+/// Ambient fill, tinted like a clear sky so shadows read blue rather than black.
+const SKY_AMBIENT_COLOR: Color = Color::srgb(0.60, 0.73, 0.92);
+const SKY_AMBIENT_LUX: f32 = 900.0;
+/// Distance haze — pale sky blue; this is "sunny with air", not "foggy".
+const FOG_COLOR: Color = Color::srgb(0.72, 0.80, 0.90);
+/// Roughly the distance (m) at which geometry fades fully into the haze.
+const FOG_VISIBILITY_M: f32 = 240.0;
 
 /// Frame rate the `allanims` clip was baked at in Blender. If the segment cuts
 /// below look off, check the console on startup: the game logs the clip's real
@@ -219,8 +236,8 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins((settings::SettingsPlugin, menu::MenuPlugin))
         .insert_resource(AmbientLight {
-            color: Color::WHITE,
-            brightness: 90.0,
+            color: SKY_AMBIENT_COLOR,
+            brightness: SKY_AMBIENT_LUX,
             ..default()
         })
         .init_resource::<ViewModelPoses>()
@@ -711,7 +728,8 @@ fn setup_world(
     // Sun.
     commands.spawn((
         DirectionalLight {
-            illuminance: 10_000.0,
+            illuminance: SUN_LUX,
+            color: SUN_COLOR,
             shadows_enabled: true,
             ..default()
         },
@@ -808,10 +826,26 @@ fn setup_player(
                             rig.spawn((
                                 WorldModelCamera,
                                 Camera3d::default(),
+                                Camera {
+                                    hdr: true,
+                                    ..default()
+                                },
                                 Projection::from(PerspectiveProjection {
                                     fov: 90.0_f32.to_radians(),
                                     ..default()
                                 }),
+                                // Thin daytime haze so distance reads and the sky
+                                // sphere's edge isn't a hard line.
+                                DistanceFog {
+                                    color: FOG_COLOR,
+                                    directional_light_color: SUN_COLOR,
+                                    directional_light_exponent: 30.0,
+                                    falloff: FogFalloff::from_visibility(FOG_VISIBILITY_M),
+                                },
+                                Bloom {
+                                    intensity: 0.10,
+                                    ..Bloom::NATURAL
+                                },
                             ));
 
                             // Scope camera: renders the world (layer 0) plus the
@@ -825,6 +859,7 @@ fn setup_player(
                                     target: scope_image.clone().into(),
                                     order: -1,
                                     is_active: false,
+                                    hdr: true,
                                     clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
                                     ..default()
                                 },
@@ -849,6 +884,7 @@ fn setup_player(
                                 Camera3d::default(),
                                 Camera {
                                     order: 1,
+                                    hdr: true,
                                     ..default()
                                 },
                                 Projection::from(PerspectiveProjection {
