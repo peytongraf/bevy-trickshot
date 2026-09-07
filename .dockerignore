@@ -1,0 +1,11 @@
+# Used by the root Dockerfile (fly.io server image). Build context is this dir.
+.git
+.github
+**/target
+
+# The server build never needs the client's code or its large art assets.
+client/assets
+client/sniper.glb
+client/notes
+client/README.md
+notes

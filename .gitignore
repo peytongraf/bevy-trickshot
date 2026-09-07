@@ -1,0 +1,17 @@
+/target
+**/target
+
+# Editor / OS cruft
+*.swp
+.DS_Store
+
+# fly.io
+fly.toml.bak
+.fly/
+
+# Local secrets — never commit a real netcode key
+*.env
+.env
+
+# Written by the client updater to track which assets pack is on disk
+client/assets/.version

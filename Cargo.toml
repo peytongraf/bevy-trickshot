@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = ["client", "server", "shared"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+# The networking library. Pinned to 0.23 so it lines up with Bevy 0.16, which is
+# what `client/` runs. Both `client` and `server` compile the *same* protocol out
+# of `shared/`, so keep this version in lockstep with the Bevy version below.
+lightyear = { version = "0.23", default-features = false, features = [
+    "std",
+    "client",
+    "server",
+    "replication",
+    "prediction",
+    "interpolation",
+    "netcode",
+    "input_native",
+    "udp",
+    "webtransport",
+] }
+
+# Headless Bevy feature set, shared by `shared/` and `server/`. This is the same
+# list the lightyear examples use for their dedicated servers: no render /
+# windowing / audio, so it builds in a slim container with no X11/Wayland/ALSA
+# system libraries. `client/` declares its own full-featured `bevy` line instead;
+# Cargo's v2 resolver keeps the two feature sets separate because the client and
+# server binaries don't depend on each other.
+bevy = { version = "0.16", default-features = false, features = [
+    "bevy_state",
+    "bevy_log",
+    "serialize",
+    "bevy_asset",
+    "bevy_color",
+    "multi_threaded",
+    "sysinfo_plugin",
+] }
+
+serde = { version = "1", features = ["derive"] }
+
+# Build engine/deps optimised even in dev so the client renders at a playable
+# framerate and the server ticks without hitches; our own crates stay at a low
+# opt-level to keep incremental builds fast. Profiles only take effect in the
+# workspace root, which is why these live here and not in client/Cargo.toml.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
+
+# Release builds are what ships to friends (and runs on fly.io). Strip symbols and
+# thin-LTO so the client download the auto-updater pulls stays small.
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

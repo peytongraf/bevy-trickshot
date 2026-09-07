@@ -1,0 +1,120 @@
+name: release
+
+# Cut a release:  git tag v0.4.1 && git push --tags
+# Builds the client for Linux + Windows and publishes a GitHub Release with the
+# executables, the assets pack and a manifest the in-game updater reads.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version to build (without the leading v), e.g. 0.4.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_name: linux
+            bin: bevy-trickshot
+          - os: windows-latest
+            target_name: windows
+            bin: bevy-trickshot.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            v="${{ github.event.inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          # Make CARGO_PKG_VERSION match the tag so the updater compares correctly.
+          sed -i.bak "s/^version = \".*\"/version = \"$v\"/" Cargo.toml && rm -f Cargo.toml.bak
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target_name }}
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
+
+      - name: Build client
+        run: cargo build --release --bin bevy-trickshot
+
+      - name: Zip the executable
+        shell: bash
+        run: |
+          mkdir -p dist
+          cd target/release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "../../dist/bevy-trickshot-${{ matrix.target_name }}.zip" "${{ matrix.bin }}"
+          else
+            zip -j "../../dist/bevy-trickshot-${{ matrix.target_name }}.zip" "${{ matrix.bin }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target_name }}
+          path: dist/*.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          merge-multiple: true
+          path: dist
+
+      - name: Build assets pack + manifest
+        shell: bash
+        run: |
+          cd client
+          # Content hash of the assets (stable across runs — only changes when a
+          # file changes), so friends only re-download art when it actually moved.
+          assets_hash=$(find assets -type f ! -name .version -print0 \
+            | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          zip -r ../dist/assets.zip assets -x 'assets/.version'
+          cd ..
+          printf '{\n  "version": "%s",\n  "assets_hash": "%s"\n}\n' \
+            "$VERSION" "$assets_hash" > dist/manifest.json
+          echo "manifest.json:" && cat dist/manifest.json
+          ls -la dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          files: |
+            dist/bevy-trickshot-linux.zip
+            dist/bevy-trickshot-windows.zip
+            dist/assets.zip
+            dist/manifest.json

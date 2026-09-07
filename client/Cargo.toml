@@ -1,0 +1,26 @@
+[package]
+name = "bevy-trickshot"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# `wav` is opt-in — Bevy only decodes ogg by default.
+bevy = { version = "0.16", features = ["wav"] }
+bevy_egui = "0.36"
+
+# Networking + the shared simulation/protocol. `client` mode of lightyear is
+# already enabled by the workspace dependency.
+lightyear = { workspace = true }
+shared = { path = "../shared" }
+serde = { workspace = true }
+
+# Self-update on launch — see src/updater.rs. Checks the latest GitHub Release,
+# swaps the executable in place and relaunches. Kept to small, pure-Rust crates.
+ureq = "3"
+zip = "8"
+self-replace = "1"
+semver = "1"
+serde_json = "1"
+
+# NOTE: dev/release profiles are defined in the workspace root Cargo.toml —
+# Cargo ignores `[profile]` in workspace members.
