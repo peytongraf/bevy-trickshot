@@ -14,6 +14,7 @@
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
 mod health;
+mod lobby;
 mod net;
 mod sim;
 
@@ -44,6 +45,7 @@ fn main() {
         .add_plugins(ServerPlugins { tick_duration: tick })
         .add_plugins(shared::SharedPlugin)
         .add_plugins(net::ServerNetPlugin)
+        .add_plugins(lobby::LobbyPlugin)
         .add_plugins(sim::SimPlugin)
         .run();
 }

@@ -33,6 +33,10 @@ pub struct Settings {
     pub fov: f32,
     /// Show the dev tuning panels in the top-right.
     pub debug_mode: bool,
+    /// Dev convenience: on reaching the main menu, if no lobby exists, create one.
+    pub dev_auto_create_lobby: bool,
+    /// Dev convenience: on reaching the main menu, if a lobby exists, join it.
+    pub dev_auto_join_lobby: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +46,8 @@ impl Default for Settings {
             sensitivity: SENS_DEFAULT,
             fov: FOV_DEFAULT,
             debug_mode: false,
+            dev_auto_create_lobby: false,
+            dev_auto_join_lobby: false,
         }
     }
 }

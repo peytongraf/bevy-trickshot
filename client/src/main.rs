@@ -23,9 +23,26 @@
 //! smoke, movement, weapon sway, camera shake and the sky.
 
 mod keybinds;
+mod lobby_ui;
 mod menu;
+mod net;
 mod settings;
+mod ui;
 mod updater;
+
+/// Top-level screen the client is on. Gameplay + world rendering only run in
+/// [`AppState::InGame`]; in `MainMenu` / `InLobby` the opaque lobby UI covers
+/// the (always-loaded) world and the gameplay systems are gated off.
+#[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum AppState {
+    /// Main menu / lobby browser.
+    #[default]
+    MainMenu,
+    /// In a lobby room, waiting for the leader to start.
+    InLobby,
+    /// In the shared world (or solo Practice).
+    InGame,
+}
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
@@ -34,10 +51,10 @@ use settings::Settings;
 
 use bevy::{
     animation::RepeatAnimation,
+    core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
     math::{Affine2, FloatExt},
-    core_pipeline::bloom::Bloom,
     pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
     prelude::*,
     render::{
@@ -246,7 +263,17 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
-        .add_plugins((settings::SettingsPlugin, menu::MenuPlugin))
+        .init_state::<AppState>()
+        .enable_state_scoped_entities::<AppState>()
+        // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
+        // protocol; add it before anything that spawns a `Client`.
+        .add_plugins(net::ClientNetPlugin)
+        .add_plugins((
+            ui::UiKitPlugin,
+            settings::SettingsPlugin,
+            menu::MenuPlugin,
+            lobby_ui::LobbyUiPlugin,
+        ))
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,
@@ -269,30 +296,42 @@ fn main() {
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<SceneTuning>()
+        // The world, cameras and HUD are built once at startup — spawning the 3D
+        // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
+        // swapchain, so instead the menu/lobby screens (opaque `bevy_ui`, drawn
+        // by the UI camera on top) simply cover the world until a game starts.
         .add_systems(
             Startup,
             (
                 setup_world,
                 setup_player,
                 setup_audio,
-                setup_hud_camera,
+                setup_ui_camera,
                 setup_crosshair,
                 setup_ammo_ui,
                 setup_fps_ui,
-                grab_cursor,
             ),
         )
-        // Dev tuning panels — only while debug mode is on (Settings → Controls).
+        .add_systems(OnEnter(AppState::InGame), grab_cursor)
+        .add_systems(OnEnter(AppState::MainMenu), release_cursor)
+        .add_systems(Update, hud_visibility)
+        // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
             EguiPrimaryContextPass,
-            ads_tuning_ui.run_if(menu::debug_enabled),
+            ads_tuning_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
         )
-        .add_systems(Update, update_ads)
+        .add_systems(Update, update_ads.run_if(in_state(AppState::InGame)))
         .add_systems(
             Update,
             (
                 // Gameplay input / simulation — frozen while a menu is open.
-                (toggle_sprint, move_player, teleport_home, jump, apply_gravity)
+                (
+                    toggle_sprint,
+                    move_player,
+                    teleport_home,
+                    jump,
+                    apply_gravity,
+                )
                     .chain()
                     .run_if(menu::game_active),
                 look_around.run_if(menu::game_active),
@@ -314,12 +353,16 @@ fn main() {
                 apply_scene_tuning,
                 debug_cursor_toggle,
             )
-                .after(update_ads),
+                .after(update_ads)
+                .run_if(in_state(AppState::InGame)),
         )
         // Weapon sway rides on top of the ADS pose, using this frame's turn.
         .add_systems(
             Update,
-            weapon_sway.after(look_around).after(apply_ads),
+            weapon_sway
+                .after(look_around)
+                .after(apply_ads)
+                .run_if(in_state(AppState::InGame)),
         )
         .run();
 }
@@ -330,7 +373,7 @@ fn main() {
 
 /// Root of the player rig. Carries position and yaw (horizontal look).
 #[derive(Component)]
-struct Player;
+pub(crate) struct Player;
 
 /// Player physics: horizontal velocity (input-driven on the ground, frozen in
 /// the air so a jump carries momentum), falling speed, and whether the feet are
@@ -412,7 +455,7 @@ fn color_from_parts(p: [f32; 3]) -> Color {
 /// Child of `Player`. Carries pitch (vertical look); cameras and the gun hang
 /// off of this so movement stays level with the ground.
 #[derive(Component)]
-struct PlayerHead;
+pub(crate) struct PlayerHead;
 
 /// The camera that renders the world (layer 0 only).
 #[derive(Component)]
@@ -1164,15 +1207,46 @@ pub(crate) fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), true);
 }
 
+/// Free the cursor when leaving the game for the menus.
+pub(crate) fn release_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+    set_cursor_grabbed(&mut window.into_inner(), false);
+}
+
 fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameSounds {
         shot: asset_server.load("audio/sniper_shot.wav"),
     });
 }
 
-/// A 2D camera drawn last (order 2, no clear) that hosts all the HUD, so the
-/// view-model gun (view-model camera, order 1) can't render over it.
-fn setup_hud_camera(mut commands: Commands) {
+/// The one persistent 2D camera: hosts every `bevy_ui` tree — the main menu and
+/// lobby screens as well as the in-game HUD. Drawn last (order 2, no clear) so
+/// the view-model gun (view-model camera, order 1) can't render over the HUD.
+/// Lives for the whole process; menu screens paint their own opaque background.
+/// Show the HUD (crosshair / ammo / FPS) only while actually in a game and no
+/// menu overlay is up. The world itself is always loaded but hidden behind the
+/// opaque lobby UI outside `InGame`.
+fn hud_visibility(
+    state: Res<State<AppState>>,
+    menu: Res<menu::Menu>,
+    mut hud: Query<&mut Visibility, With<menu::HudElement>>,
+) {
+    if !(state.is_changed() || menu.is_changed()) {
+        return;
+    }
+    let show = *state.get() == AppState::InGame && !menu.is_open();
+    let want = if show {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut v in &mut hud {
+        if *v != want {
+            *v = want;
+        }
+    }
+}
+
+fn setup_ui_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Camera {
@@ -1336,7 +1410,11 @@ fn ads_tuning_ui(
                     .text("yaw")
                     .step_by(0.001),
             );
-            ui.add(egui::Slider::new(&mut a.pitch, -0.6f32..=0.6).text("pitch").step_by(0.001));
+            ui.add(
+                egui::Slider::new(&mut a.pitch, -0.6f32..=0.6)
+                    .text("pitch")
+                    .step_by(0.001),
+            );
             ui.add(
                 egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
                     .text("scale")
@@ -1384,7 +1462,9 @@ fn ads_tuning_ui(
             ui.collapsing("Smoke", |ui| {
                 let sm = &mut *smoke;
                 ui.label("spawn offset (from camera)");
-                ui.add(egui::Slider::new(&mut sm.spawn_offset.x, -0.8f32..=0.8).text("x  (right +)"));
+                ui.add(
+                    egui::Slider::new(&mut sm.spawn_offset.x, -0.8f32..=0.8).text("x  (right +)"),
+                );
                 ui.add(egui::Slider::new(&mut sm.spawn_offset.y, -0.8f32..=0.8).text("y  (up +)"));
                 ui.add(
                     egui::Slider::new(&mut sm.spawn_offset.z, -3.0f32..=0.0).text("z  (forward -)"),
@@ -1394,7 +1474,9 @@ fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut sm.spread, 0.0f32..=2.0).text("spread (m/s)"));
                 ui.add(egui::Slider::new(&mut sm.fade_in, 0.0f32..=5.0).text("fade in (s)"));
                 ui.add(egui::Slider::new(&mut sm.fade_time, 0.1f32..=10.0).text("fade out (s)"));
-                ui.add(egui::Slider::new(&mut sm.spawn_rate, 0.0f32..=150.0).text("spawn rate (/s)"));
+                ui.add(
+                    egui::Slider::new(&mut sm.spawn_rate, 0.0f32..=150.0).text("spawn rate (/s)"),
+                );
                 ui.add(
                     egui::Slider::new(&mut sm.duration, 0.05f32..=5.0).text("burst duration (s)"),
                 );
@@ -1426,9 +1508,12 @@ fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Movement", |ui| {
                 let m = &mut *movement;
-                ui.add(egui::Slider::new(&mut m.walk_speed, 0.0f32..=20.0).text("walk speed (m/s)"));
                 ui.add(
-                    egui::Slider::new(&mut m.sprint_speed, 0.0f32..=30.0).text("sprint speed (m/s)"),
+                    egui::Slider::new(&mut m.walk_speed, 0.0f32..=20.0).text("walk speed (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.sprint_speed, 0.0f32..=30.0)
+                        .text("sprint speed (m/s)"),
                 );
                 ui.add(egui::Slider::new(&mut m.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
                 ui.add(
@@ -1485,7 +1570,8 @@ fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut c.decay, 0.5f32..=12.0).text("trauma decay (/s)"));
                 ui.add(egui::Slider::new(&mut c.frequency, 5.0f32..=120.0).text("frequency"));
                 ui.add(
-                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.2).text("up/down + L/R amount (m)"),
+                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.2)
+                        .text("up/down + L/R amount (m)"),
                 );
                 ui.separator();
                 ui.label("front/back: eye punches back off the scope, then returns");
@@ -1493,7 +1579,8 @@ fn ads_tuning_ui(
                     egui::Slider::new(&mut c.recoil_kick, 0.0f32..=1.0).text("backward kick (m)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0).text("return speed (/s)"),
+                    egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0)
+                        .text("return speed (/s)"),
                 );
                 ui.label(format!("recoil now: {:.3} m", shake.recoil));
 
@@ -1531,10 +1618,7 @@ fn ads_tuning_ui(
                         .text("sun-scatter tightness"),
                 );
                 ui.separator();
-                ui.add(
-                    egui::Slider::new(&mut s.sun_lux, 0.0f32..=120_000.0)
-                        .text("sun (lux)"),
-                );
+                ui.add(egui::Slider::new(&mut s.sun_lux, 0.0f32..=120_000.0).text("sun (lux)"));
                 ui.horizontal(|ui| {
                     ui.color_edit_button_rgb(&mut s.sun_color);
                     ui.label("sun colour");
@@ -1741,8 +1825,8 @@ fn update_ads(
         return;
     }
 
-    let aiming = window.cursor_options.grab_mode != CursorGrabMode::None
-        && binds.aim.pressed(&keys, &mouse);
+    let aiming =
+        window.cursor_options.grab_mode != CursorGrabMode::None && binds.aim.pressed(&keys, &mouse);
     let target = if aiming { 1.0 } else { 0.0 };
     let step = time.delta_secs() / ADS_DURATION;
     ads.t = if ads.t < target {
@@ -2172,8 +2256,7 @@ fn emit_smoke(
             },
             Mesh3d(assets.mesh.clone()),
             MeshMaterial3d(material),
-            Transform::from_translation(origin)
-                .with_scale(Vec3::splat(settings.scale.max(1.0e-4))),
+            Transform::from_translation(origin).with_scale(Vec3::splat(settings.scale.max(1.0e-4))),
             NoFrustumCulling,
         ));
     }
@@ -2384,12 +2467,7 @@ fn cycle_animation_segments(
     state.stop_at = Some(end);
     info!(
         "L -> [{}] {} (frames {}..{}, {:.3}s..{:.3}s)",
-        state.next,
-        seg.name,
-        seg.start_frame as i32,
-        seg.end_frame as i32,
-        start,
-        end,
+        state.next, seg.name, seg.start_frame as i32, seg.end_frame as i32, start, end,
     );
     state.next = (state.next + 1) % SEGMENTS.len();
 }

@@ -1,5 +1,5 @@
-//! Transport + connection lifecycle: bind the socket, accept clients, and spawn
-//! a replicated player entity for each one.
+//! Transport + connection lifecycle: bind the socket and accept clients. Player
+//! entities are created by [`crate::lobby`] when a game starts, not here.
 
 use bevy::prelude::*;
 use core::net::{Ipv6Addr, SocketAddr};
@@ -7,11 +7,10 @@ use core::time::Duration;
 
 use lightyear::connection::client::Connected;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
-use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{PlayerId, PlayerInput, PlayerPose, DEFAULT_PORT, DEV_PRIVATE_KEY, PROTOCOL_ID};
+use shared::{DEFAULT_PORT, DEV_PRIVATE_KEY, PROTOCOL_ID};
 
 pub struct ServerNetPlugin;
 
@@ -86,31 +85,15 @@ fn on_client_link(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     ));
 }
 
-/// The link is confirmed connected: spawn this client's replicated player.
+/// The link is confirmed connected. Players are no longer spawned here — a
+/// player entity is created only when its lobby's leader starts the game
+/// (see [`crate::lobby`]).
 fn on_client_connected(
     trigger: Trigger<OnAdd, Connected>,
     clients: Query<&RemoteId, With<ClientOf>>,
-    mut commands: Commands,
 ) {
-    let Ok(peer) = clients.get(trigger.target()) else {
-        return;
-    };
-    let peer = peer.0;
-    let entity = commands
-        .spawn((
-            Name::from("Player"),
-            PlayerId(peer),
-            PlayerPose::default(),
-            ActionState::<PlayerInput>::default(),
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::Single(peer)),
-            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(peer)),
-            ControlledBy {
-                owner: trigger.target(),
-                lifetime: Default::default(),
-            },
-        ))
-        .id();
-    info!("player {peer:?} connected -> entity {entity:?}");
+    if let Ok(peer) = clients.get(trigger.target()) {
+        info!("client {:?} connected", peer.0);
+    }
 }
 

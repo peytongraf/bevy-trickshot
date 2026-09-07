@@ -21,21 +21,10 @@ use bevy::window::PrimaryWindow;
 
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::settings::{Settings, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN};
-
-// ---- palette ---------------------------------------------------------------
-const BACKDROP: Color = Color::srgba(0.03, 0.04, 0.055, 0.82);
-const PANEL: Color = Color::srgb(0.072, 0.083, 0.10);
-const PANEL_SOLID: Color = Color::srgb(0.03, 0.035, 0.05);
-const ROW: Color = Color::srgb(0.11, 0.125, 0.150);
-const ROW_HOVER: Color = Color::srgb(0.17, 0.19, 0.23);
-const TRACK: Color = Color::srgb(0.16, 0.175, 0.205);
-const ACCENT: Color = Color::srgb(0.96, 0.62, 0.12);
-const ACCENT_DIM: Color = Color::srgb(0.42, 0.30, 0.10);
-const TEXT: Color = Color::srgb(0.90, 0.92, 0.94);
-const TEXT_DIM: Color = Color::srgb(0.55, 0.58, 0.63);
-
-// A real font can be dropped in later: load `assets/fonts/<x>.ttf` and thread a
-// `Handle<Font>` into `TextFont`. Until then this uses Bevy's embedded default.
+use crate::ui::{
+    field_box, label, spawn_button, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID, ROW,
+    ROW_HOVER, TEXT, TEXT_DIM, TRACK,
+};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Screen {
@@ -49,6 +38,7 @@ pub enum Tab {
     Profile,
     Controls,
     Keybinds,
+    Multiplayer,
 }
 
 #[derive(Resource)]
@@ -110,7 +100,6 @@ impl Plugin for MenuPlugin {
                     (menu_toggle, rebind_capture).chain(),
                     username_input,
                     menu_click,
-                    menu_hover,
                     slider_drag,
                     refresh_dynamic,
                     rebuild_menu,
@@ -143,13 +132,21 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
     let has_name = settings.has_username();
     match menu.screen {
         Screen::None => {
-            menu.screen = if has_name { Screen::Settings } else { Screen::Username };
+            menu.screen = if has_name {
+                Screen::Settings
+            } else {
+                Screen::Username
+            };
             menu.tab = Tab::Profile;
             menu.username_draft = settings.username.clone().unwrap_or_default();
             menu.dirty = true;
         }
         Screen::Settings => {
-            menu.screen = if has_name { Screen::None } else { Screen::Username };
+            menu.screen = if has_name {
+                Screen::None
+            } else {
+                Screen::Username
+            };
             menu.dirty = true;
         }
         Screen::Username => {
@@ -244,6 +241,8 @@ fn confirm_username(menu: &mut Menu, settings: &mut Settings) {
 enum Btn {
     SelectTab(Tab),
     ToggleDebug,
+    ToggleAutoCreate,
+    ToggleAutoJoin,
     Rebind(usize),
     ResetKeybinds,
     Step(SliderField, f32),
@@ -254,12 +253,6 @@ enum Btn {
 enum SliderField {
     Sensitivity,
     Fov,
-}
-
-#[derive(Component)]
-struct Hoverable {
-    normal: Color,
-    hover: Color,
 }
 
 #[derive(Component)]
@@ -295,6 +288,14 @@ fn menu_click(
                 menu.dirty = true;
             }
             Btn::ToggleDebug => settings.debug_mode = !settings.debug_mode,
+            Btn::ToggleAutoCreate => {
+                settings.dev_auto_create_lobby = !settings.dev_auto_create_lobby;
+                menu.dirty = true;
+            }
+            Btn::ToggleAutoJoin => {
+                settings.dev_auto_join_lobby = !settings.dev_auto_join_lobby;
+                menu.dirty = true;
+            }
             Btn::Rebind(i) => {
                 menu.rebinding = Some(*i);
                 menu.rebind_armed = false;
@@ -318,17 +319,6 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
     }
 }
 
-fn menu_hover(
-    mut q: Query<(&Interaction, &Hoverable, &mut BackgroundColor), Changed<Interaction>>,
-) {
-    for (interaction, hover, mut bg) in &mut q {
-        bg.0 = match interaction {
-            Interaction::Hovered | Interaction::Pressed => hover.hover,
-            Interaction::None => hover.normal,
-        };
-    }
-}
-
 fn slider_drag(
     tracks: Query<(&Interaction, &SliderTrack, &RelativeCursorPosition)>,
     mut settings: ResMut<Settings>,
@@ -341,11 +331,13 @@ fn slider_drag(
         let t = pos.x.clamp(0.0, 1.0);
         match track.0 {
             SliderField::Sensitivity => {
-                settings.sensitivity = (SENS_MIN + t * (SENS_MAX - SENS_MIN))
-                    .clamp(SENS_MIN, SENS_MAX);
+                settings.sensitivity =
+                    (SENS_MIN + t * (SENS_MAX - SENS_MIN)).clamp(SENS_MIN, SENS_MAX);
             }
             SliderField::Fov => {
-                settings.fov = (FOV_MIN + t * (FOV_MAX - FOV_MIN)).round().clamp(FOV_MIN, FOV_MAX);
+                settings.fov = (FOV_MIN + t * (FOV_MAX - FOV_MIN))
+                    .round()
+                    .clamp(FOV_MIN, FOV_MAX);
             }
         }
     }
@@ -353,9 +345,7 @@ fn slider_drag(
 
 fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
     match field {
-        SliderField::Sensitivity => {
-            (settings.sensitivity - SENS_MIN) / (SENS_MAX - SENS_MIN)
-        }
+        SliderField::Sensitivity => (settings.sensitivity - SENS_MIN) / (SENS_MAX - SENS_MIN),
         SliderField::Fov => (settings.fov - FOV_MIN) / (FOV_MAX - FOV_MIN),
     }
     .clamp(0.0, 1.0)
@@ -398,23 +388,20 @@ fn refresh_dynamic(
 
 fn cursor_and_hud(
     menu: Res<Menu>,
+    app_state: Res<State<crate::AppState>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
-    mut hud: Query<&mut Visibility, With<HudElement>>,
 ) {
     if !menu.is_changed() {
         return;
     }
-    let open = menu.is_open();
-    for mut window in &mut windows {
-        crate::set_cursor_grabbed(&mut window, !open);
-    }
-    let vis = if open {
-        Visibility::Hidden
-    } else {
-        Visibility::Inherited
-    };
-    for mut v in &mut hud {
-        *v = vis;
+    // Only the in-game screen owns the cursor; the main-menu / lobby screens are
+    // `bevy_ui` and always want it free, open settings overlay or not. HUD
+    // visibility is handled by `crate::hud_visibility` (it also needs the state).
+    if *app_state == crate::AppState::InGame {
+        let open = menu.is_open();
+        for mut window in &mut windows {
+            crate::set_cursor_grabbed(&mut window, !open);
+        }
     }
 }
 
@@ -458,62 +445,6 @@ fn overlay_root(solid: bool) -> impl Bundle {
         },
         BackgroundColor(if solid { PANEL_SOLID } else { BACKDROP }),
     )
-}
-
-fn label(text: impl Into<String>, size: f32, color: Color) -> impl Bundle {
-    (
-        Text::new(text),
-        TextFont {
-            font_size: size,
-            ..default()
-        },
-        TextColor(color),
-    )
-}
-
-fn field_box(width: f32) -> impl Bundle {
-    (
-        Node {
-            width: Val::Px(width),
-            height: Val::Px(44.0),
-            align_items: AlignItems::Center,
-            padding: UiRect::horizontal(Val::Px(14.0)),
-            border: UiRect::all(Val::Px(2.0)),
-            ..default()
-        },
-        BackgroundColor(ROW),
-        BorderColor(ACCENT),
-        BorderRadius::all(Val::Px(4.0)),
-    )
-}
-
-fn spawn_button(
-    parent: &mut ChildSpawnerCommands,
-    text: &str,
-    size: f32,
-    marker: Btn,
-    normal: Color,
-    hover: Color,
-    text_color: Color,
-) {
-    parent
-        .spawn((
-            Button,
-            Interaction::default(),
-            marker,
-            Hoverable { normal, hover },
-            Node {
-                padding: UiRect::axes(Val::Px(16.0), Val::Px(9.0)),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(normal),
-            BorderRadius::all(Val::Px(4.0)),
-        ))
-        .with_children(|b| {
-            b.spawn(label(text, size, text_color));
-        });
 }
 
 fn build_username(commands: &mut Commands) {
@@ -613,6 +544,7 @@ fn build_settings(commands: &mut Commands, menu: &Menu, settings: &Settings, bin
                             (Tab::Profile, "PROFILE"),
                             (Tab::Controls, "CONTROLS"),
                             (Tab::Keybinds, "KEYBINDS"),
+                            (Tab::Multiplayer, "MULTIPLAYER"),
                         ] {
                             let selected = menu.tab == tab;
                             spawn_button(
@@ -639,6 +571,7 @@ fn build_settings(commands: &mut Commands, menu: &Menu, settings: &Settings, bin
                         Tab::Profile => build_profile(content),
                         Tab::Controls => build_controls(content, settings),
                         Tab::Keybinds => build_keybinds(content, menu, binds),
+                        Tab::Multiplayer => build_multiplayer(content, settings),
                     });
                 });
 
@@ -691,7 +624,13 @@ fn build_profile(content: &mut ChildSpawnerCommands) {
 }
 
 fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
-    spawn_slider_row(content, "MOUSE SENSITIVITY", SliderField::Sensitivity, settings, 0.05);
+    spawn_slider_row(
+        content,
+        "MOUSE SENSITIVITY",
+        SliderField::Sensitivity,
+        settings,
+        0.05,
+    );
     spawn_slider_row(content, "FIELD OF VIEW", SliderField::Fov, settings, 1.0);
 
     content
@@ -736,6 +675,59 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
     ));
 }
 
+fn build_multiplayer(content: &mut ChildSpawnerCommands, settings: &Settings) {
+    content.spawn(label("DEV CONVENIENCE", 15.0, TEXT_DIM));
+    content.spawn(label(
+        "Skip clicking when launching two clients locally. On reaching the main \
+         menu: join an open lobby if one exists, otherwise create one.",
+        14.0,
+        TEXT_DIM,
+    ));
+
+    toggle_row(
+        content,
+        "AUTO-CREATE LOBBY",
+        settings.dev_auto_create_lobby,
+        Btn::ToggleAutoCreate,
+    );
+    toggle_row(
+        content,
+        "AUTO-JOIN LOBBY",
+        settings.dev_auto_join_lobby,
+        Btn::ToggleAutoJoin,
+    );
+}
+
+/// A "LABEL  [ON/OFF]" row. The menu rebuilds on click so the label stays live.
+fn toggle_row(content: &mut ChildSpawnerCommands, name: &str, on: bool, btn: Btn) {
+    content
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(16.0),
+            margin: UiRect::top(Val::Px(8.0)),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                label(name, 15.0, TEXT_DIM),
+                Node {
+                    width: Val::Px(240.0),
+                    ..default()
+                },
+            ));
+            spawn_button(
+                row,
+                if on { "ON" } else { "OFF" },
+                17.0,
+                btn,
+                ROW,
+                ROW_HOVER,
+                if on { ACCENT } else { TEXT },
+            );
+        });
+}
+
 fn spawn_slider_row(
     content: &mut ChildSpawnerCommands,
     name: &str,
@@ -758,7 +750,15 @@ fn spawn_slider_row(
                     ..default()
                 },
             ));
-            spawn_button(row, "-", 18.0, Btn::Step(field, -step), ROW, ROW_HOVER, TEXT);
+            spawn_button(
+                row,
+                "-",
+                18.0,
+                Btn::Step(field, -step),
+                ROW,
+                ROW_HOVER,
+                TEXT,
+            );
             // track
             row.spawn((
                 Button,

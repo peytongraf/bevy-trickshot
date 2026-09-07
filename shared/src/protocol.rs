@@ -130,6 +130,80 @@ pub struct ShotResolved {
 /// Reliable, unordered server → client channel for gameplay events.
 pub struct GameChannel;
 
+// ---------------------------------------------------------------------------
+// Lobbies
+// ---------------------------------------------------------------------------
+
+/// One member of a [`Lobby`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LobbyMember {
+    pub peer: PeerId,
+    pub name: String,
+}
+
+/// A lobby, spawned on the server and replicated to **every** client so the
+/// browser and the lobby room update live. `leader` is the party leader — the
+/// creator, or a promoted member if the creator left.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Lobby {
+    pub name: String,
+    pub leader: PeerId,
+    /// Once `true` the members are being moved into a game; the lobby stops
+    /// showing in the browser.
+    pub started: bool,
+    pub members: Vec<LobbyMember>,
+}
+
+impl Lobby {
+    pub fn has(&self, peer: PeerId) -> bool {
+        self.members.iter().any(|m| m.peer == peer)
+    }
+}
+
+/// A player's display name, replicated onto their in-world player entity so
+/// other clients can label the capsule.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerName(pub String);
+
+/// Client → server: create a new lobby and join it as leader.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct CreateLobby {
+    pub name: String,
+    pub player_name: String,
+}
+
+/// Client → server: join an existing lobby. `lobby` is the entity as the client
+/// knows it; lightyear maps it to the server's entity on arrival
+/// (`add_map_entities`).
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct JoinLobby {
+    pub lobby: Entity,
+    pub player_name: String,
+}
+
+impl MapEntities for JoinLobby {
+    fn map_entities<M: EntityMapper>(&mut self, mapper: &mut M) {
+        self.lobby = mapper.get_mapped(self.lobby);
+    }
+}
+
+/// Client → server: leave whatever lobby the sender is in (server derives it).
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct LeaveLobby;
+
+/// Client → server: the party leader starts the game for their lobby.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct StartGame;
+
+/// Server → client: a lobby request could not be honoured.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LobbyError {
+    pub reason: String,
+}
+
+/// Reliable channel for lobby traffic, both directions.
+pub struct LobbyChannel;
+
 /// Registers everything above. Added by [`crate::SharedPlugin`] on both ends.
 #[derive(Clone)]
 pub struct ProtocolPlugin;
@@ -141,6 +215,19 @@ impl Plugin for ProtocolPlugin {
         // messages
         app.add_message::<ShotResolved>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<LobbyError>()
+            .add_direction(NetworkDirection::ServerToClient);
+
+        // lobby actions (client -> server, as triggers so the server sees `from`)
+        app.add_trigger::<CreateLobby>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<JoinLobby>()
+            .add_map_entities()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<LeaveLobby>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<StartGame>()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)
         app.add_plugins(input::native::InputPlugin::<PlayerInput>::default());
@@ -155,11 +242,23 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
+        app.register_component::<PlayerName>()
+            .add_interpolation(InterpolationMode::Once);
+
+        app.register_component::<Lobby>();
+
         // channels
         app.add_channel::<GameChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..default()
         })
+        .add_direction(NetworkDirection::ServerToClient);
+
+        app.add_channel::<LobbyChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            ..default()
+        })
+        .add_direction(NetworkDirection::ClientToServer)
         .add_direction(NetworkDirection::ServerToClient);
     }
 }
