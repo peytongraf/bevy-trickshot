@@ -29,9 +29,13 @@ impl Plugin for LobbyUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LobbyUi>()
             .init_resource::<AutoLobby>()
+            .init_resource::<ScoreboardDirty>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
-            .add_systems(OnEnter(AppState::InGame), despawn_lobby_ui)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (despawn_lobby_ui, mark_scoreboard_dirty),
+            )
             .add_systems(
                 Update,
                 (
@@ -44,6 +48,12 @@ impl Plugin for LobbyUiPlugin {
                 )
                     .chain()
                     .run_if(in_menu),
+            )
+            .add_systems(
+                Update,
+                (watch_scores, rebuild_scoreboard)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -534,4 +544,91 @@ fn handle_clicks(
             }
         }
     }
+}
+
+// --- in-game scoreboard (left edge) ----------------------------------
+
+#[derive(Component)]
+struct Scoreboard;
+
+/// Set whenever the scoreboard needs rebuilding (a `Lobby` changed, or we just
+/// entered the game).
+#[derive(Resource, Default)]
+struct ScoreboardDirty(bool);
+
+fn mark_scoreboard_dirty(mut dirty: ResMut<ScoreboardDirty>) {
+    dirty.0 = true;
+}
+
+fn watch_scores(mut dirty: ResMut<ScoreboardDirty>, changed: Query<(), Changed<shared::Lobby>>) {
+    if !changed.is_empty() {
+        dirty.0 = true;
+    }
+}
+
+fn rebuild_scoreboard(
+    mut commands: Commands,
+    mut dirty: ResMut<ScoreboardDirty>,
+    existing: Query<Entity, With<Scoreboard>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+) {
+    if !dirty.0 {
+        return;
+    }
+    dirty.0 = false;
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+
+    // Only in a lobby game (solo Practice has no lobby → no scoreboard).
+    let Some(me) = local.iter().next().map(|l| l.0) else {
+        return;
+    };
+    let Some(lobby) = lobbies.iter().find(|l| l.has(me)) else {
+        return;
+    };
+
+    let mut rows: Vec<(&str, u32, bool)> = lobby
+        .members
+        .iter()
+        .map(|m| (m.name.as_str(), m.score, m.peer == me))
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+
+    commands
+        .spawn((
+            Scoreboard,
+            StateScoped(AppState::InGame),
+            GlobalZIndex(5),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(16.0),
+                top: Val::Px(96.0),
+                min_width: Val::Px(200.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(10.0)),
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+            BorderRadius::all(Val::Px(6.0)),
+        ))
+        .with_children(|panel| {
+            panel.spawn(label("SCORES", 14.0, TEXT_DIM));
+            for (name, score, is_me) in rows {
+                let col = if is_me { ACCENT } else { TEXT };
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        justify_content: JustifyContent::SpaceBetween,
+                        column_gap: Val::Px(16.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(label(name, 17.0, col));
+                        row.spawn(label(score.to_string(), 17.0, col));
+                    });
+            }
+        });
 }

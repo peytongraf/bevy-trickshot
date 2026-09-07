@@ -153,6 +153,7 @@ const ANIM_FPS: f32 = 24.0;
 /// Magazine capacity and the total number of magazines the player carries
 /// (current mag + reserve = `MAG_SIZE * TOTAL_MAGS`).
 const MAG_SIZE: u32 = 5;
+#[allow(dead_code)] // TEMP: unused while reserve is hard-coded for reload testing
 const TOTAL_MAGS: u32 = 6;
 
 /// Indices into `SEGMENTS`.
@@ -162,25 +163,44 @@ const SEG_RELOAD: usize = 2;
 
 /// Camera shake: one shot adds `SHAKE_ADD` trauma (capped at 1), which decays at
 /// `SHAKE_DECAY` per second. The visible offset scales with `trauma²`, so it is
-/// violent immediately and gone in a fraction of a second. The oscillation is
-/// **up / down / left / right only** — never rotation — on the `CameraShake`
-/// node, which carries the gun and the cameras together.
+/// violent immediately and gone in a fraction of a second.
 ///
-/// The forward / back move is separate: a single backward *kick* on each shot,
-/// on the `CameraRecoil` node, which carries only the cameras (not the gun). It
-/// snaps the eye back and eases home over ~a tenth of a second, so the scope's
-/// rear lens — which the fire animation yanks toward the face — stays in front
-/// of the eye instead of sliding past it. All of this is live-tunable
+/// Two things ride on trauma, both on the `CameraShake` node (gun + cameras
+/// together, so the gun stays locked to the screen while the world swings):
+/// * a small positional up/down + side/side jitter (`SHAKE_POS_MAX`), and
+/// * a **view punch** — a directional pitch-up (`SHAKE_VIEW_PUNCH_DEG`) that
+///   recovers with trauma, plus rotational chaos (`SHAKE_VIEW_JITTER_DEG`) on
+///   top. Scaled down while scoped so ADS stays controllable.
+///
+/// The gun *also* shudders relative to the camera — `weapon_recoil_shudder`
+/// punches the view model back toward the eye (`SHAKE_WEAPON_KICK`) and climbs
+/// the muzzle (`SHAKE_WEAPON_KICK_DEG`) as trauma decays. That one never touches
+/// aim.
+///
+/// The forward / back move is separate again: a single backward *kick* on each
+/// shot, on the `CameraRecoil` node, which carries only the cameras (not the
+/// gun). It snaps the eye back and eases home over ~a tenth of a second, so the
+/// scope's rear lens — which the fire animation yanks toward the face — stays in
+/// front of the eye instead of sliding past it. All of this is live-tunable
 /// (`ShakeSettings`, "Camera shake" panel section).
-const SHAKE_ADD: f32 = 1.0;
-const SHAKE_DECAY: f32 = 3.6;
-const SHAKE_FREQ: f32 = 46.0;
+const SHAKE_ADD: f32 = 0.85;
+const SHAKE_DECAY: f32 = 2.0;
+const SHAKE_FREQ: f32 = 75.0;
 /// Peak camera translation (world units) on the X and Y axes at full trauma.
-const SHAKE_POS_MAX: f32 = 0.05;
+const SHAKE_POS_MAX: f32 = 0.075;
+/// Peak upward view-punch pitch (degrees) at full trauma — the CoD "kick".
+const SHAKE_VIEW_PUNCH_DEG: f32 = 6.6;
+/// Amplitude (degrees) of the random yaw / pitch / roll chaos on top of the
+/// punch, scaled by `trauma²`.
+const SHAKE_VIEW_JITTER_DEG: f32 = 2.9;
+/// Metres the view model shudders back toward the eye at full trauma.
+const SHAKE_WEAPON_KICK: f32 = 0.2;
+/// Muzzle-climb rotation (degrees) applied to the view model at full trauma.
+const SHAKE_WEAPON_KICK_DEG: f32 = 7.5;
 /// Metres the camera (not the gun) snaps backward on each shot.
-const SHAKE_RECOIL_KICK: f32 = 0.05;
+const SHAKE_RECOIL_KICK: f32 = 1.1;
 /// How fast that backward kick eases back to zero (larger = snappier return).
-const SHAKE_RECOIL_RETURN: f32 = 10.0;
+const SHAKE_RECOIL_RETURN: f32 = 8.5;
 
 /// Seconds for the muzzle flash to go from full to gone (it pops on instantly).
 const MUZZLE_FLASH_TIME: f32 = 0.06;
@@ -288,8 +308,10 @@ fn main() {
         .init_resource::<WeaponSwayState>()
         .init_resource::<WeaponSwaySettings>()
         .init_resource::<Weapon>()
+        .init_resource::<PendingShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
+        .init_resource::<AnimationSettings>()
         .init_resource::<MuzzleFlashSettings>()
         .init_resource::<MuzzleFlashState>()
         .init_resource::<SmokeSettings>()
@@ -357,10 +379,12 @@ fn main() {
                 .after(update_ads)
                 .run_if(in_state(AppState::InGame)),
         )
-        // Weapon sway rides on top of the ADS pose, using this frame's turn.
+        // Weapon sway rides on top of the ADS pose, using this frame's turn;
+        // the recoil shudder then rides on top of the sway.
         .add_systems(
             Update,
-            weapon_sway
+            (weapon_sway, weapon_recoil_shudder)
+                .chain()
                 .after(look_around)
                 .after(apply_ads)
                 .run_if(in_state(AppState::InGame)),
@@ -460,7 +484,12 @@ pub(crate) struct PlayerHead;
 
 /// The camera that renders the world (layer 0 only).
 #[derive(Component)]
-struct WorldModelCamera;
+pub(crate) struct WorldModelCamera;
+
+/// Set to `Some` by `weapon_system` on the frame the trigger is pulled; consumed
+/// by `net::write_input`, which turns it into the tick's fire request.
+#[derive(Resource, Default)]
+pub(crate) struct PendingShot(pub Option<()>);
 
 /// Parent of the cameras *and* the view model. Its local transform is
 /// overwritten each frame by `camera_shake` with the up/down + side/side shake
@@ -533,7 +562,7 @@ impl Default for Weapon {
     fn default() -> Self {
         Self {
             mag: MAG_SIZE,
-            reserve: MAG_SIZE * (TOTAL_MAGS - 1),
+            reserve: 1000, // TEMP: high reserve for reload-sound testing
             busy: None,
         }
     }
@@ -582,6 +611,8 @@ struct MuzzleFlashState {
 #[derive(Resource)]
 struct GameSounds {
     shot: Handle<AudioSource>,
+    rechamber: Handle<AudioSource>,
+    reload: Handle<AudioSource>,
     ambient: Handle<AudioSource>,
 }
 
@@ -682,10 +713,11 @@ struct Ads {
 }
 
 /// Camera-shake state. `trauma` (0..1) is bumped on each shot and decays; it
-/// only scales an offset that is rebuilt from zero every frame, so it can never
-/// drift the aim. `phase` just advances the oscillation and resets at rest.
-/// `recoil` is the current backward (+Z local) camera offset in metres, snapped
-/// up on a shot and eased back to zero.
+/// only scales offsets that are rebuilt from zero every frame — so the shake
+/// (translation *and* the view-punch rotation) always settles back to exactly
+/// identity and can never accumulate into the aim. `phase` just advances the
+/// oscillation and resets at rest. `recoil` is the current backward (+Z local)
+/// camera offset in metres, snapped up on a shot and eased back to zero.
 #[derive(Resource, Default)]
 struct Shake {
     trauma: f32,
@@ -693,9 +725,9 @@ struct Shake {
     recoil: f32,
 }
 
-/// Panel-adjustable camera-shake tuning. The oscillation half mirrors the
-/// `SHAKE_*` consts; the recoil half is the forward/back kick that keeps the eye
-/// behind the scope lens when firing.
+/// Panel-adjustable camera-shake tuning. The oscillation + view-punch half
+/// mirrors the `SHAKE_*` consts; the recoil half is the forward/back kick that
+/// keeps the eye behind the scope lens when firing.
 #[derive(Resource)]
 struct ShakeSettings {
     /// Trauma added per shot (result capped at 1).
@@ -706,6 +738,15 @@ struct ShakeSettings {
     frequency: f32,
     /// Peak up/down + side/side camera translation at full trauma (m).
     pos_max: f32,
+    /// Peak upward view-punch pitch at full trauma (°). Rotates gun + cameras
+    /// together; scaled down while scoped.
+    view_punch_deg: f32,
+    /// Amplitude of the random yaw/pitch/roll chaos on the view punch (°).
+    view_jitter_deg: f32,
+    /// Metres the view model shudders back toward the eye at full trauma.
+    weapon_kick: f32,
+    /// Muzzle-climb rotation applied to the view model at full trauma (°).
+    weapon_kick_deg: f32,
     /// Metres the camera snaps *backward* on each shot (gun stays put).
     recoil_kick: f32,
     /// How fast the backward kick eases back to zero (1/s; larger = snappier).
@@ -719,8 +760,28 @@ impl Default for ShakeSettings {
             decay: SHAKE_DECAY,
             frequency: SHAKE_FREQ,
             pos_max: SHAKE_POS_MAX,
+            view_punch_deg: SHAKE_VIEW_PUNCH_DEG,
+            view_jitter_deg: SHAKE_VIEW_JITTER_DEG,
+            weapon_kick: SHAKE_WEAPON_KICK,
+            weapon_kick_deg: SHAKE_WEAPON_KICK_DEG,
             recoil_kick: SHAKE_RECOIL_KICK,
             recoil_return: SHAKE_RECOIL_RETURN,
+        }
+    }
+}
+
+/// Panel-adjustable playback speeds for the view-model animation segments
+/// ("Animations" panel section). `1.0` is the clip's authored speed.
+#[derive(Resource)]
+struct AnimationSettings {
+    /// Speed multiplier for the Rechamber segment played after a shot.
+    rechamber_speed: f32,
+}
+
+impl Default for AnimationSettings {
+    fn default() -> Self {
+        Self {
+            rechamber_speed: 1.7,
         }
     }
 }
@@ -1225,6 +1286,8 @@ pub(crate) fn release_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
 fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameSounds {
         shot: asset_server.load("audio/sniper_shot.wav"),
+        rechamber: asset_server.load("audio/rechamber.wav"),
+        reload: asset_server.load("audio/reload.wav"),
         ambient: asset_server.load("audio/ambient_nature.wav"),
     });
 }
@@ -1398,6 +1461,7 @@ fn ads_tuning_ui(
     mut movement: ResMut<MovementSettings>,
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
+    mut anim: ResMut<AnimationSettings>,
     mut scene: ResMut<SceneTuning>,
     shake: Res<Shake>,
     ads: Res<Ads>,
@@ -1591,13 +1655,32 @@ fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut c.decay, 0.5f32..=12.0).text("trauma decay (/s)"));
                 ui.add(egui::Slider::new(&mut c.frequency, 5.0f32..=120.0).text("frequency"));
                 ui.add(
-                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.2)
+                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.4)
                         .text("up/down + L/R amount (m)"),
+                );
+                ui.separator();
+                ui.label("view punch — rotates gun + cameras together (eased while scoped)");
+                ui.add(
+                    egui::Slider::new(&mut c.view_punch_deg, 0.0f32..=12.0)
+                        .text("view punch up (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.view_jitter_deg, 0.0f32..=6.0)
+                        .text("view punch chaos (°)"),
+                );
+                ui.separator();
+                ui.label("weapon shudder — gun kicks back toward the eye, muzzle climbs");
+                ui.add(
+                    egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4).text("weapon kick back (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.weapon_kick_deg, 0.0f32..=15.0)
+                        .text("weapon muzzle climb (°)"),
                 );
                 ui.separator();
                 ui.label("front/back: eye punches back off the scope, then returns");
                 ui.add(
-                    egui::Slider::new(&mut c.recoil_kick, 0.0f32..=1.0).text("backward kick (m)"),
+                    egui::Slider::new(&mut c.recoil_kick, 0.0f32..=2.0).text("backward kick (m)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0)
@@ -1608,17 +1691,35 @@ fn ads_tuning_ui(
                 if ui.button("Copy camera shake to console").clicked() {
                     info!(
                         "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
-                         pos_max {:.4}, recoil_kick {:.4}, recoil_return {:.4}",
+                         pos_max {:.4}, view_punch_deg {:.4}, view_jitter_deg {:.4}, \
+                         weapon_kick {:.4}, weapon_kick_deg {:.4}, recoil_kick {:.4}, \
+                         recoil_return {:.4}",
                         c.trauma_per_shot,
                         c.decay,
                         c.frequency,
                         c.pos_max,
+                        c.view_punch_deg,
+                        c.view_jitter_deg,
+                        c.weapon_kick,
+                        c.weapon_kick_deg,
                         c.recoil_kick,
                         c.recoil_return,
                     );
                 }
                 if ui.button("Reset camera shake").clicked() {
                     *c = ShakeSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Animations", |ui| {
+                let a = &mut *anim;
+                ui.add(
+                    egui::Slider::new(&mut a.rechamber_speed, 0.1f32..=4.0)
+                        .text("rechamber speed (×)"),
+                );
+                if ui.button("Reset animations").clicked() {
+                    *a = AnimationSettings::default();
                 }
             });
 
@@ -2069,11 +2170,13 @@ fn weapon_system(
     view_model: Single<&ViewModelAnimation>,
     mut players: Query<&mut AnimationPlayer>,
     mut weapon: ResMut<Weapon>,
+    mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
     shake_cfg: Res<ShakeSettings>,
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
     sounds: Res<GameSounds>,
+    anim: Res<AnimationSettings>,
     mut commands: Commands,
 ) {
     let node = view_model.index;
@@ -2102,7 +2205,18 @@ fn weapon_system(
         };
 
         match next_or_finish {
-            Ok(next) => play_segment(&mut player, node, next),
+            Ok(next) => {
+                play_segment(&mut player, node, next);
+                if next.name == SEGMENTS[SEG_RECHAMBER].name {
+                    commands.spawn((
+                        AudioPlayer::new(sounds.rechamber.clone()),
+                        PlaybackSettings::DESPAWN,
+                    ));
+                    if let Some(active) = player.animation_mut(node) {
+                        active.set_speed(anim.rechamber_speed);
+                    }
+                }
+            }
             Err(on_finish) => {
                 // Whole queue played out: park at the rest pose, apply effect.
                 if let Some(active) = player.animation_mut(node) {
@@ -2127,6 +2241,7 @@ fn weapon_system(
 
     if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;
+        pending_shot.0 = Some(()); // net::write_input turns this into a fire request
         shake.trauma = (shake.trauma + shake_cfg.trauma_per_shot).min(1.0);
         shake.recoil = shake_cfg.recoil_kick;
         muzzle.shots = muzzle.shots.wrapping_add(1);
@@ -2143,10 +2258,12 @@ fn weapon_system(
             seg_end: SEGMENTS[SEG_SHOOT].end_secs(),
             on_finish: WeaponFinish::Nothing,
         });
-    } else if binds.reload.just_pressed(&keys, &mouse)
-        && weapon.mag < MAG_SIZE
-        && weapon.reserve > 0
-    {
+    } else if binds.reload.just_pressed(&keys, &mouse) && weapon.reserve > 0 {
+        // TEMP: reload allowed even with a full mag, for reload-sound testing
+        commands.spawn((
+            AudioPlayer::new(sounds.reload.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
         play_segment(&mut player, node, SEGMENTS[SEG_RELOAD]);
         weapon.busy = Some(WeaponBusy {
             remaining: vec![SEGMENTS[SEG_RELOAD]],
@@ -2354,13 +2471,17 @@ fn update_smoke(
 /// Rebuild the shake nodes' local transforms each frame from the current state,
 /// always from zero, so they settle back to exactly identity and never drift aim.
 ///
-/// * `CameraShake` (gun + cameras): up / down + side / side oscillation, scaled
-///   by `trauma²`. Identity rotation, no Z.
+/// * `CameraShake` (gun + cameras): up / down + side / side positional jitter
+///   *and* the view punch — a directional pitch-up plus rotational chaos, both
+///   scaled by `trauma` / `trauma²` and eased down while scoped. Rotating this
+///   node turns the gun and the cameras as one, so the gun stays screen-locked
+///   while the world swings.
 /// * `CameraRecoil` (cameras only): local +Z (straight back along the view axis)
 ///   set to the current recoil kick, which snaps up on a shot and eases home.
 fn camera_shake(
     time: Res<Time>,
     cfg: Res<ShakeSettings>,
+    ads: Res<Ads>,
     mut shake: ResMut<Shake>,
     mut rig: Single<&mut Transform, (With<CameraShake>, Without<CameraRecoil>)>,
     mut recoil_node: Single<&mut Transform, (With<CameraRecoil>, Without<CameraShake>)>,
@@ -2394,13 +2515,62 @@ fn camera_shake(
     let s = shake.phase;
     let amt = shake.trauma * shake.trauma;
 
-    // Up / down / left / right only — identity rotation, no Z, so aim and the
-    // scope alignment are untouched.
-    **rig = Transform::from_translation(Vec3::new(
+    // Ease the rotational punch off as the player scopes in, so ADS stays
+    // controllable while the hip still kicks hard.
+    let ads_scale = 1.0 - 0.7 * ads.t.clamp(0.0, 1.0);
+
+    // Positional jitter: up / down + side / side, no Z.
+    let translation = Vec3::new(
         (s * 1.53 + 0.4).sin() * cfg.pos_max * amt,
         (s * 1.19 + 3.3).sin() * cfg.pos_max * amt,
         0.0,
-    ));
+    );
+
+    // View punch: a directional pitch-up that recovers with `trauma`, plus
+    // rotational chaos (`trauma²`) on top. +X rotation looks up.
+    let punch = shake.trauma * cfg.view_punch_deg.to_radians() * ads_scale;
+    let jitter = cfg.view_jitter_deg.to_radians() * amt * ads_scale;
+    let rotation = Quat::from_euler(
+        EulerRot::YXZ,
+        (s * 0.91 + 1.7).sin() * jitter,       // yaw
+        punch + (s * 0.63).sin() * jitter,     // pitch (up)
+        (s * 1.27 + 2.1).sin() * jitter * 0.6, // roll
+    );
+
+    **rig = Transform {
+        translation,
+        rotation,
+        scale: Vec3::ONE,
+    };
+}
+
+/// A short, sharp shudder layered onto the view model on top of the sway pose:
+/// the gun punches back toward the eye and the muzzle climbs, then settles as
+/// `Shake::trauma` decays. Separate from the view punch in [`camera_shake`] —
+/// this moves the gun *relative* to the camera, the way a CoD weapon recoils,
+/// and never touches aim. Pre-multiplied in camera space (+Z toward the eye,
+/// +Y up), so it is independent of the view model's own orientation.
+fn weapon_recoil_shudder(
+    cfg: Res<ShakeSettings>,
+    shake: Res<Shake>,
+    mut view_model: Single<&mut Transform, With<ViewModel>>,
+) {
+    if shake.trauma <= 0.0 {
+        return;
+    }
+    let amt = shake.trauma * shake.trauma;
+    let s = shake.phase;
+
+    let back = amt * cfg.weapon_kick;
+    let rise = amt * cfg.weapon_kick * 0.5;
+    let wobble = (s * 0.8).sin() * cfg.weapon_kick * 0.25 * amt;
+
+    let kick = Transform {
+        translation: Vec3::new(wobble, rise, back),
+        rotation: Quat::from_rotation_x(shake.trauma * cfg.weapon_kick_deg.to_radians()),
+        scale: Vec3::ONE,
+    };
+    **view_model = kick * **view_model;
 }
 
 /// Keep the bottom-right readout in sync with the ammo counts.

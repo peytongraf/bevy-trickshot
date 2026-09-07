@@ -20,9 +20,9 @@ use lightyear::prelude::input::client::InputSet;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
-use shared::{PlayerId, PlayerInput, PlayerPose};
+use shared::{Bot, PlayerId, PlayerInput, PlayerPose};
 
-use crate::{AppState, Player, PlayerHead};
+use crate::{AppState, PendingShot, Player, PlayerHead, WorldModelCamera};
 
 /// Where a shipped build connects when `TRICKSHOT_SERVER` is unset and we're not
 /// running under `cargo`. Mirrors `updater.rs`'s `DEFAULT_REPO` convention.
@@ -89,6 +89,9 @@ impl Plugin for ClientNetPlugin {
                 mark_local_input,
                 spawn_remote_avatars,
                 follow_remote_avatars,
+                spawn_bot_avatars,
+                follow_bot_avatars,
+                dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -173,10 +176,13 @@ fn mark_local_input(
     }
 }
 
-/// Copy this frame's local pose (client-authoritative) into the input packet.
+/// Copy this frame's local pose (client-authoritative) into the input packet,
+/// and — if `weapon_system` pulled the trigger — the fire request too.
 fn write_input(
     player: Query<&Transform, With<Player>>,
     head: Query<&Transform, With<PlayerHead>>,
+    cam: Query<&GlobalTransform, With<WorldModelCamera>>,
+    mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -185,7 +191,19 @@ fn write_input(
     action.translation = pt.translation.to_array();
     action.yaw = pt.rotation.to_euler(EulerRot::YXZ).0;
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
-    action.fire = false; // shot replication is out of scope for now
+    action.weapon = shared::weapon::WeaponId::Sniper.as_u8();
+    action.fire = false;
+
+    // Emit the shot from the world camera's viewpoint. Keep the pending flag if
+    // the camera isn't ready yet, rather than dropping the shot.
+    if pending.0.is_some() {
+        if let Ok(cam) = cam.single() {
+            pending.0 = None;
+            action.fire = true;
+            action.fire_origin = cam.translation().to_array();
+            action.fire_dir = cam.forward().as_vec3().to_array();
+        }
+    }
 }
 
 // --- remote players (blue capsules) -----------------------------------
@@ -240,6 +258,113 @@ fn follow_remote_avatars(
             Ok(pose) => {
                 tf.translation = pose.translation - Vec3::Y * CAPSULE_DROP;
                 tf.rotation = Quat::from_rotation_y(pose.yaw);
+            }
+            Err(_) => {
+                commands.entity(entity).try_despawn();
+            }
+        }
+    }
+}
+
+// --- bots (orange capsules that topple when shot) --------------------
+
+/// A capsule standing in for a server-owned [`shared::Bot`].
+#[derive(Component)]
+struct BotAvatar {
+    src: Entity,
+}
+
+const BOT_H: f32 = 1.8;
+const BOT_R: f32 = 0.4;
+
+fn spawn_bot_avatars(
+    bots: Query<Entity, (With<Bot>, With<Interpolated>)>,
+    avatars: Query<&BotAvatar>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
+    for src in &bots {
+        if have.contains(&src) {
+            continue;
+        }
+        commands
+            .spawn((
+                StateScoped(AppState::InGame),
+                BotAvatar { src },
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .with_child((
+                Mesh3d(meshes.add(Capsule3d::new(BOT_R, BOT_H - 2.0 * BOT_R))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.95, 0.55, 0.15),
+                    perceptual_roughness: 0.8,
+                    ..default()
+                })),
+                // Lift so the capsule stands on its feet; the parent pivots there.
+                Transform::from_xyz(0.0, BOT_H * 0.5, 0.0),
+            ));
+        info!("bot {src:?} — spawned capsule");
+    }
+}
+
+/// Dev-only (`TRICKSHOT_AUTO_FIRE` env): aim the local rig at the nearest bot
+/// and pull the trigger every ~1.2 s, so the shoot → score → respawn loop can
+/// be exercised without a human clicking.
+#[allow(clippy::type_complexity)]
+fn dev_auto_fire(
+    time: Res<Time>,
+    mut cooldown: Local<f32>,
+    bots: Query<&Bot>,
+    mut pending: ResMut<PendingShot>,
+    mut player: Query<&mut Transform, (With<Player>, Without<PlayerHead>)>,
+    mut head: Query<&mut Transform, (With<PlayerHead>, Without<Player>)>,
+) {
+    *cooldown -= time.delta_secs();
+    if *cooldown > 0.0 {
+        return;
+    }
+    let (Ok(mut pt), Ok(mut ht)) = (player.single_mut(), head.single_mut()) else {
+        return;
+    };
+    // Nearest alive bot.
+    let Some(bot) = bots
+        .iter()
+        .filter(|b| b.alive)
+        .min_by(|a, b| {
+            a.pos
+                .distance_squared(pt.translation)
+                .total_cmp(&b.pos.distance_squared(pt.translation))
+        })
+        .copied()
+    else {
+        return;
+    };
+    let f = (bot.pos + Vec3::Y * (BOT_H * 0.5) - pt.translation).normalize_or_zero();
+    if f == Vec3::ZERO {
+        return;
+    }
+    pt.rotation = Quat::from_rotation_y(f.x.atan2(f.z) + core::f32::consts::PI);
+    ht.rotation = Quat::from_rotation_x(f.y.clamp(-1.0, 1.0).asin());
+    pending.0 = Some(());
+    *cooldown = 1.2;
+}
+
+fn follow_bot_avatars(
+    bots: Query<&Bot>,
+    mut avatars: Query<(Entity, &BotAvatar, &mut Transform)>,
+    mut commands: Commands,
+) {
+    use core::f32::consts::FRAC_PI_2;
+    for (entity, avatar, mut tf) in &mut avatars {
+        match bots.get(avatar.src) {
+            Ok(bot) => {
+                tf.translation = bot.pos;
+                // Yaw to face, then pitch forward about the feet as it dies.
+                tf.rotation = Quat::from_rotation_y(bot.yaw)
+                    * Quat::from_rotation_x(bot.fall.clamp(0.0, 1.0) * FRAC_PI_2);
             }
             Err(_) => {
                 commands.entity(entity).try_despawn();
