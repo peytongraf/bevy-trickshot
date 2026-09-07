@@ -3,15 +3,19 @@
 # First-time setup (run from this `server/` directory):
 #
 #   fly apps create bevy-trickshot-server            # or another unique name; then update `app` below
-#   fly ips allocate-v4                              # UDP needs a dedicated IPv4
+#   fly ips allocate-v6                              # free dedicated IPv6 — fly routes UDP over it
 #   fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')"
 #   fly deploy ..                                    # ".." = build context is the repo root (uses ../Dockerfile)
 #
 # Every later deploy is just:  fly deploy ..
 #
-# Note: fly.io needs BOTH a udp and a tcp service on the same port for UDP to
-# route. Nothing listens on TCP, so machine health is judged by the process
-# staying up (no [checks] block, auto_stop off).
+# Notes:
+# * UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free (used here);
+#   dedicated IPv4 is ~$2/mo — add it with `fly ips allocate-v4` if a friend's
+#   connection has no IPv6.
+# * fly needs BOTH a udp and a tcp service on the same port for UDP to route.
+#   Nothing listens on TCP, so health is just "process still up" (no [checks],
+#   auto_stop off).
 
 app = "bevy-trickshot-server"
 primary_region = "iad"          # pick the region nearest you and your friends

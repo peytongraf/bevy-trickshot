@@ -48,12 +48,18 @@ cd server
 
 # one-time
 fly apps create bevy-trickshot-server         # or another unique name → update `app` in fly.toml
-fly ips allocate-v4                            # UDP requires a dedicated IPv4
+fly ips allocate-v6                            # free dedicated IPv6 — fly routes UDP over it
 fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')"
 
 # every deploy (from server/, ".." = repo root as the build context)
 fly deploy ..
 ```
+
+UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free; the server binds
+`[::]` to use it. Clients therefore reach it over IPv6
+(`bevy-trickshot-server.fly.dev:5000`, AAAA record). If a friend's connection has
+no IPv6, add `fly ips allocate-v4` (~$2/mo) and it'll work for them too — the
+`[::]` bind is dual-stack so no code change is needed.
 
 `fly.toml` keeps one machine always running (`auto_stop_machines = "off"`,
 `min_machines_running = 1`) so friends can always connect, and pairs the UDP

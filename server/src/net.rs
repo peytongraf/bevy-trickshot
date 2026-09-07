@@ -2,7 +2,7 @@
 //! a replicated player entity for each one.
 
 use bevy::prelude::*;
-use core::net::{Ipv4Addr, SocketAddr};
+use core::net::{Ipv6Addr, SocketAddr};
 use core::time::Duration;
 
 use lightyear::connection::client::Connected;
@@ -53,7 +53,9 @@ fn private_key() -> [u8; PRIVATE_KEY_BYTES] {
 }
 
 fn spawn_server(mut commands: Commands) {
-    let addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), listen_port());
+    // Bind `[::]` — dual-stack on Linux, so this serves the free dedicated IPv6
+    // that fly.io routes UDP over, and still works if an IPv4 is added later.
+    let addr = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), listen_port());
     commands.spawn((
         Name::from("GameServer"),
         NetcodeServer::new(NetcodeConfig {
@@ -110,3 +112,4 @@ fn on_client_connected(
         .id();
     info!("player {peer:?} connected -> entity {entity:?}");
 }
+
