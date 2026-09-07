@@ -115,16 +115,16 @@ const ADS_SENSITIVITY_SCALE: f32 = 0.4;
 // physical sun (~100k lux) would also need a `Exposure` retune on all three
 // cameras, which is a separate pass. Tune these in-game.
 /// Directional "sun" strength (lux).
-const SUN_LUX: f32 = 22_000.0;
+const SUN_LUX: f32 = 28_000.0;
 /// Sun colour — a faint warm (~6000 K).
 const SUN_COLOR: Color = Color::srgb(1.0, 0.95, 0.88);
 /// Ambient fill, tinted like a clear sky so shadows read blue rather than black.
 const SKY_AMBIENT_COLOR: Color = Color::srgb(0.60, 0.73, 0.92);
-const SKY_AMBIENT_LUX: f32 = 900.0;
+const SKY_AMBIENT_LUX: f32 = 200.0;
 /// Distance haze — pale sky blue; this is "sunny with air", not "foggy".
 const FOG_COLOR: Color = Color::srgb(0.72, 0.80, 0.90);
 /// Roughly the distance (m) at which geometry fades fully into the haze.
-const FOG_VISIBILITY_M: f32 = 240.0;
+const FOG_VISIBILITY_M: f32 = 1300.0;
 
 /// Frame rate the `allanims` clip was baked at in Blender. If the segment cuts
 /// below look off, check the console on startup: the game logs the clip's real
@@ -252,6 +252,7 @@ fn main() {
         .init_resource::<SmokeEmission>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
+        .init_resource::<SceneTuning>()
         .add_systems(
             Startup,
             (
@@ -294,6 +295,8 @@ fn main() {
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
                 update_ammo_ui,
                 update_fps_ui,
+                apply_scene_tuning,
+                debug_cursor_toggle,
             )
                 .after(update_ads),
         )
@@ -345,6 +348,45 @@ impl Default for MovementSettings {
 /// Sprint toggle state (Left Shift flips it).
 #[derive(Resource, Default)]
 struct Sprinting(bool);
+
+/// The daytime look, live-tweakable from the debug panel's "Fog & Sky" section
+/// and pushed onto the fog / sun / ambient / bloom by `apply_scene_tuning`.
+/// Defaults mirror the `SUN_*` / `SKY_*` / `FOG_*` consts.
+#[derive(Resource)]
+struct SceneTuning {
+    fog_visibility_m: f32,
+    fog_color: [f32; 3],
+    fog_sun_exponent: f32,
+    sun_lux: f32,
+    sun_color: [f32; 3],
+    ambient_color: [f32; 3],
+    ambient_lux: f32,
+    bloom_intensity: f32,
+}
+
+impl Default for SceneTuning {
+    fn default() -> Self {
+        Self {
+            fog_visibility_m: FOG_VISIBILITY_M,
+            fog_color: srgb_parts(FOG_COLOR),
+            fog_sun_exponent: 100.0,
+            sun_lux: SUN_LUX,
+            sun_color: srgb_parts(SUN_COLOR),
+            ambient_color: srgb_parts(SKY_AMBIENT_COLOR),
+            ambient_lux: SKY_AMBIENT_LUX,
+            bloom_intensity: 0.09,
+        }
+    }
+}
+
+fn srgb_parts(c: Color) -> [f32; 3] {
+    let s = c.to_srgba();
+    [s.red, s.green, s.blue]
+}
+
+fn color_from_parts(p: [f32; 3]) -> Color {
+    Color::srgb(p[0], p[1], p[2])
+}
 
 /// Child of `Player`. Carries pitch (vertical look); cameras and the gun hang
 /// off of this so movement stays level with the ground.
@@ -839,11 +881,11 @@ fn setup_player(
                                 DistanceFog {
                                     color: FOG_COLOR,
                                     directional_light_color: SUN_COLOR,
-                                    directional_light_exponent: 30.0,
+                                    directional_light_exponent: 100.0,
                                     falloff: FogFalloff::from_visibility(FOG_VISIBILITY_M),
                                 },
                                 Bloom {
-                                    intensity: 0.10,
+                                    intensity: 0.09,
                                     ..Bloom::NATURAL
                                 },
                             ));
@@ -1145,6 +1187,7 @@ fn ads_tuning_ui(
     mut muzzle: ResMut<MuzzleFlashSettings>,
     mut smoke: ResMut<SmokeSettings>,
     mut movement: ResMut<MovementSettings>,
+    mut scene: ResMut<SceneTuning>,
     ads: Res<Ads>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -1153,6 +1196,8 @@ fn ads_tuning_ui(
         .resizable(false)
         .vscroll(true)
         .show(ctx, |ui| {
+            ui.label("`  (backtick): free / lock the cursor");
+            ui.separator();
             ui.checkbox(&mut tuning.force_full, "Force full ADS (ignore RMB)");
             ui.label(format!("ads.t = {:.2}", ads.t));
             ui.add(
@@ -1274,6 +1319,45 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset movement").clicked() {
                     *m = MovementSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Fog & Sky", |ui| {
+                let s = &mut *scene;
+                ui.add(
+                    egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=2000.0)
+                        .logarithmic(true)
+                        .text("fog visibility (m)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(&mut s.fog_color);
+                    ui.label("fog colour");
+                });
+                ui.add(
+                    egui::Slider::new(&mut s.fog_sun_exponent, 1.0f32..=100.0)
+                        .text("sun-scatter tightness"),
+                );
+                ui.separator();
+                ui.add(
+                    egui::Slider::new(&mut s.sun_lux, 0.0f32..=120_000.0)
+                        .text("sun (lux)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(&mut s.sun_color);
+                    ui.label("sun colour");
+                });
+                ui.add(
+                    egui::Slider::new(&mut s.ambient_lux, 0.0f32..=6000.0)
+                        .text("sky ambient (lux)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(&mut s.ambient_color);
+                    ui.label("ambient colour");
+                });
+                ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
+                if ui.button("Reset fog & sky").clicked() {
+                    *s = SceneTuning::default();
                 }
             });
         });
@@ -1489,6 +1573,58 @@ fn apply_ads(
     }
 
     **view_model = lerp_pose(&poses.hip, &poses.ads, e);
+}
+
+/// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
+/// changes (also once at startup, which just re-applies the consts).
+fn apply_scene_tuning(
+    scene: Res<SceneTuning>,
+    mut ambient: ResMut<AmbientLight>,
+    mut sun: Single<&mut DirectionalLight>,
+    mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
+    mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
+) {
+    if !scene.is_changed() {
+        return;
+    }
+    ambient.color = color_from_parts(scene.ambient_color);
+    ambient.brightness = scene.ambient_lux;
+
+    sun.illuminance = scene.sun_lux;
+    sun.color = color_from_parts(scene.sun_color);
+
+    fog.color = color_from_parts(scene.fog_color);
+    fog.directional_light_color = color_from_parts(scene.sun_color);
+    fog.directional_light_exponent = scene.fog_sun_exponent;
+    fog.falloff = FogFalloff::from_visibility(scene.fog_visibility_m);
+
+    bloom.intensity = scene.bloom_intensity;
+}
+
+/// In debug mode, `` ` `` (backtick) frees the cursor so egui sliders can be
+/// dragged, and locks it again. Also re-locks automatically if debug mode is
+/// switched off while the cursor is loose.
+fn debug_cursor_toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    settings: Res<Settings>,
+    menu: Res<menu::Menu>,
+    window: Single<&mut Window, With<PrimaryWindow>>,
+) {
+    if menu.is_open() {
+        return; // the Esc menu owns the cursor
+    }
+    let mut window = window.into_inner();
+    let loose = window.cursor_options.grab_mode == CursorGrabMode::None;
+
+    if !settings.debug_mode {
+        if loose {
+            set_cursor_grabbed(&mut window, true);
+        }
+        return;
+    }
+    if keys.just_pressed(KeyCode::Backquote) {
+        set_cursor_grabbed(&mut window, loose);
+    }
 }
 
 /// Drive the render-to-texture scope: switch its camera on only while aiming,
