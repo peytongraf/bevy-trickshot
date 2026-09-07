@@ -55,18 +55,41 @@ fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".jo
 fly deploy . --config server/fly.toml -a bevy-trickshot-server
 ```
 
-UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free; the server binds
-`[::]` to use it. Clients therefore reach it over IPv6
-(`bevy-trickshot-server.fly.dev:5000`, AAAA record). If a friend's connection has
-no IPv6, add `fly ips allocate-v4` (~$2/mo) and it'll work for them too — the
-`[::]` bind is dual-stack so no code change is needed.
+After the first deploy, pin it to a single machine (this is one game shard, not a
+scale-out service):
+
+```sh
+fly scale count 1 -a bevy-trickshot-server --yes
+```
+
+### Reachability
+
+UDP on fly.io needs a *dedicated* IP. Dedicated **IPv6 is free** and that's what's
+used here — the server binds `[::]` and clients reach it at
+`bevy-trickshot-server.fly.dev:5000` (AAAA record only). A friend can therefore
+only connect if their internet has IPv6 (check at <https://test-ipv6.com>). If
+someone doesn't:
+
+```sh
+fly ips allocate-v4 -a bevy-trickshot-server    # ~$2/mo
+```
+
+No code change needed — the `[::]` bind is dual-stack.
+
+### Health check
+
+The server also opens plain TCP on the same port (fly's UDP routing wants a
+live TCP listener there). Over IPv6:
+
+```sh
+curl -6 http://bevy-trickshot-server.fly.dev:5000/     # -> "bevy-trickshot server ok"
+```
+
+### Sizing
 
 `fly.toml` keeps one machine always running (`auto_stop_machines = "off"`,
-`min_machines_running = 1`) so friends can always connect, and pairs the UDP
-service with a same-port TCP service because fly.io's UDP routing needs it.
-
-512 MB / shared-cpu-1x is plenty for a handful of players; bump `[[vm]]` in
-`fly.toml` if you add bots or more modes.
+`min_machines_running = 1`). 512 MB / shared-cpu-1x is plenty for a handful of
+players; bump `[[vm]]` in `fly.toml` if you add bots or more modes.
 
 ## Upgrade paths
 

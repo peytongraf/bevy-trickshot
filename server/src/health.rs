@@ -14,14 +14,15 @@ pub fn spawn_tcp_listener(port: u16) {
         .spawn(move || {
             // `[::]` is dual-stack on Linux, so this also covers 0.0.0.0 — which
             // is the address fly's proxy check looks for.
+            // (println!, not bevy::log — this runs before LogPlugin is installed.)
             let listener = match TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)) {
                 Ok(l) => l,
                 Err(e) => {
-                    bevy::log::warn!("tcp health listener could not bind :{port}: {e}");
+                    eprintln!("[health] tcp listener could not bind :{port}: {e}");
                     return;
                 }
             };
-            bevy::log::info!("tcp health listener on [::]:{port}");
+            println!("[health] tcp listener on [::]:{port}");
             for stream in listener.incoming() {
                 if let Ok(stream) = stream {
                     let _ = handle(stream);
