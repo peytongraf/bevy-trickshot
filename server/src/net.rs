@@ -23,7 +23,8 @@ impl Plugin for ServerNetPlugin {
     }
 }
 
-fn listen_port() -> u16 {
+/// The port to listen on: `PORT` env var, else [`shared::DEFAULT_PORT`].
+pub fn listen_port() -> u16 {
     std::env::var("PORT")
         .ok()
         .and_then(|v| v.parse().ok())

@@ -13,6 +13,7 @@
 //! | `LIGHTYEAR_PRIVATE_KEY` | 32 comma-separated bytes, netcode key   | dev all-zero key     |
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
+mod health;
 mod net;
 mod sim;
 
@@ -26,6 +27,10 @@ use lightyear::prelude::server::ServerPlugins;
 
 fn main() {
     let tick = Duration::from_secs_f64(1.0 / shared::TICK_HZ);
+
+    // fly.io routes UDP only alongside a same-port TCP service; this answers it
+    // (and doubles as a plain-HTTP health check). Harmless anywhere else.
+    health::spawn_tcp_listener(net::listen_port());
 
     App::new()
         // Headless: no window, no renderer. Throttle the outer loop to the tick
