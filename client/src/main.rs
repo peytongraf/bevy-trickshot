@@ -51,6 +51,7 @@ use settings::Settings;
 
 use bevy::{
     animation::RepeatAnimation,
+    audio::Volume,
     core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
@@ -312,7 +313,7 @@ fn main() {
                 setup_fps_ui,
             ),
         )
-        .add_systems(OnEnter(AppState::InGame), grab_cursor)
+        .add_systems(OnEnter(AppState::InGame), (grab_cursor, start_ambient))
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, hud_visibility)
         // Dev tuning panels — only in-game, and only while debug mode is on.
@@ -577,11 +578,20 @@ struct MuzzleFlashState {
     shots: u32,
 }
 
-/// Preloaded sound effects.
+/// Preloaded sounds. Loaded once at startup so playback has no first-use hitch.
 #[derive(Resource)]
 struct GameSounds {
     shot: Handle<AudioSource>,
+    ambient: Handle<AudioSource>,
 }
+
+/// Linear volume of the looping nature ambience.
+const AMBIENT_VOLUME: f32 = 0.5;
+
+/// The looping ambient-nature bed. `StateScoped(InGame)`, so it starts when the
+/// player enters the world (Practice or a game) and stops on the way out.
+#[derive(Component)]
+struct AmbientAudio;
 
 /// A single drifting, fading smoke sprite. World-space: once spawned it lives in
 /// the world, so the player can walk through it.
@@ -1215,7 +1225,18 @@ pub(crate) fn release_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
 fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameSounds {
         shot: asset_server.load("audio/sniper_shot.wav"),
+        ambient: asset_server.load("audio/ambient_nature.wav"),
     });
+}
+
+/// Start the looping outdoor ambience when the player enters the world.
+fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>) {
+    commands.spawn((
+        AmbientAudio,
+        StateScoped(AppState::InGame),
+        AudioPlayer::new(sounds.ambient.clone()),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME)),
+    ));
 }
 
 /// The one persistent 2D camera: hosts every `bevy_ui` tree — the main menu and
