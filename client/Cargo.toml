@@ -4,9 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `wav` is opt-in — Bevy only decodes ogg by default.
-bevy = { version = "0.16", features = ["wav"] }
+# `wav` is opt-in — Bevy only decodes ogg by default. `serialize` gives serde
+# impls for `KeyCode` / `MouseButton`, used by the persisted keybinds.
+bevy = { version = "0.16", features = ["wav", "serialize"] }
 bevy_egui = "0.36"
+
+# Settings persistence: locate the per-user config directory.
+dirs = "7"
 
 # Networking + the shared simulation/protocol. `client` mode of lightyear is
 # already enabled by the workspace dependency.

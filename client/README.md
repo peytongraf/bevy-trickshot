@@ -9,6 +9,12 @@ It self-updates from GitHub Releases on launch (`src/updater.rs`); the release
 flow and what a friend does to install/update are in the repo-root `README.md`
 under "Distributing the client". `cargo run` never triggers the updater.
 
+**Settings menu** (`Esc`): username, mouse sensitivity, FOV, rebindable keys, and
+a Debug Mode toggle (shows the egui tuning panels). Settings persist to
+`~/.config/bevy-trickshot/settings.json` (`%APPDATA%\bevy-trickshot\` on Windows).
+First launch with no username shows a username prompt. See `settings.rs`,
+`keybinds.rs`, `menu.rs`.
+
 A tiny first-person prototype built with [Bevy](https://bevyengine.org/) 0.16.
 
 It loads `sniper.glb` (an animated sniper view model with arms) and parents it to

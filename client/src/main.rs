@@ -5,7 +5,7 @@
 //! action back to back; `SEGMENTS` slices it into the individual animations by
 //! frame range.
 //!
-//! Controls:
+//! Controls (all rebindable — see `keybinds.rs`; defaults shown):
 //!   * `W` / `A` / `S` / `D` — move
 //!   * `Left Shift`          — toggle sprint
 //!   * `B`                   — jump
@@ -15,13 +15,21 @@
 //!   * left mouse            — fire
 //!   * `R`                   — reload
 //!   * `L`                   — play the next animation segment once (dev)
-//!   * `Esc`                 — release / recapture the mouse cursor
+//!   * `Esc`                 — open / close the settings menu (see `menu.rs`)
 //!
-//! The ADS pose is fine-tuned live from the egui panel (`Esc` to free the cursor).
+//! Sensitivity, FOV, username and keybinds are configured in the `Esc` menu and
+//! persisted (`settings.rs`). Turn on **Debug Mode** there to show the egui
+//! tuning panels (`ads_tuning_ui`, top-right) for muzzle flash / smoke / gravity.
 
+mod keybinds;
+mod menu;
+mod settings;
 mod updater;
 
 use std::f32::consts::{FRAC_PI_2, PI};
+
+use keybinds::KeyBindings;
+use settings::Settings;
 
 use bevy::{
     animation::RepeatAnimation,
@@ -76,10 +84,9 @@ const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.02;
 
 /// Seconds to go from hip to full aim-down-sight (and back).
 const ADS_DURATION: f32 = 0.13;
-/// World-camera vertical FOV (degrees) at the hip. Everything on screen — inside
-/// the scope or not — is drawn at the current FOV, so shrinking it toward the
-/// ADS value (see `AdsTuning::fov_deg`) is the scope "magnification".
-const HIP_FOV_DEG: f32 = 90.0;
+// Hip FOV is now a player setting (`Settings::fov`, default 90°). Everything on
+// screen — inside the scope or not — is drawn at the current FOV, so shrinking it
+// toward `AdsTuning::fov_deg` is the scope "magnification".
 /// Starting ADS FOV; lower is more zoom. Adjustable live in the tuning panel.
 const ADS_FOV_DEG: f32 = 9.5;
 
@@ -210,6 +217,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
+        .add_plugins((settings::SettingsPlugin, menu::MenuPlugin))
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 90.0,
@@ -240,34 +248,35 @@ fn main() {
                 grab_cursor,
             ),
         )
-        .add_systems(EguiPrimaryContextPass, ads_tuning_ui)
+        // Dev tuning panels — only while debug mode is on (Settings → Controls).
+        .add_systems(
+            EguiPrimaryContextPass,
+            ads_tuning_ui.run_if(menu::debug_enabled),
+        )
         .add_systems(Update, update_ads)
         .add_systems(
             Update,
             (
-                (
-                    toggle_sprint,
-                    move_player,
-                    teleport_home,
-                    jump,
-                    apply_gravity,
-                )
-                    .chain(),
-                look_around,
+                // Gameplay input / simulation — frozen while a menu is open.
+                (toggle_sprint, move_player, teleport_home, jump, apply_gravity)
+                    .chain()
+                    .run_if(menu::game_active),
+                look_around.run_if(menu::game_active),
+                weapon_system.run_if(menu::game_active),
+                cycle_animation_segments.run_if(menu::game_active),
+                // Visuals / HUD — keep running so shake, smoke and the scope
+                // settle even while paused.
                 apply_ads,
                 update_scope,
                 sky_follow_camera,
-                toggle_cursor_grab,
-                weapon_system,
                 camera_shake,
                 update_muzzle_flash,
                 // After `look_around` so the smoke uses this frame's aim, not
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.
-                (emit_smoke, update_smoke).after(look_around),
+                (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
                 update_ammo_ui,
                 update_fps_ui,
-                cycle_animation_segments,
             )
                 .after(update_ads),
         )
@@ -959,7 +968,7 @@ fn start_view_model_animation(
     info!("view model ready: tagged {lens_count} scope-lens mesh(es)");
 }
 
-fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), true);
 }
 
@@ -987,14 +996,17 @@ fn setup_hud_camera(mut commands: Commands) {
 /// A small white dot dead-centre for lining the scope up.
 fn setup_crosshair(mut commands: Commands) {
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
+        .spawn((
+            menu::HudElement,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
         .with_child((
             Node {
                 width: Val::Px(5.0),
@@ -1012,6 +1024,7 @@ fn setup_crosshair(mut commands: Commands) {
 fn setup_ammo_ui(mut commands: Commands) {
     commands
         .spawn((
+            menu::HudElement,
             Node {
                 position_type: PositionType::Absolute,
                 right: Val::Px(20.0),
@@ -1037,6 +1050,7 @@ fn setup_ammo_ui(mut commands: Commands) {
 fn setup_fps_ui(mut commands: Commands) {
     commands
         .spawn((
+            menu::HudElement,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(20.0),
@@ -1237,11 +1251,13 @@ fn ads_tuning_ui(
 /// Left Shift toggles between walk and sprint.
 fn toggle_sprint(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut sprinting: ResMut<Sprinting>,
 ) {
     if window.cursor_options.grab_mode != CursorGrabMode::None
-        && keys.just_pressed(KeyCode::ShiftLeft)
+        && binds.sprint.just_pressed(&keys, &mouse)
     {
         sprinting.0 = !sprinting.0;
     }
@@ -1250,6 +1266,8 @@ fn toggle_sprint(
 fn move_player(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     settings: Res<MovementSettings>,
     sprinting: Res<Sprinting>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
@@ -1262,16 +1280,16 @@ fn move_player(
         let mut direction = Vec3::ZERO;
         let forward = *transform.forward();
         let right = *transform.right();
-        if keys.pressed(KeyCode::KeyW) {
+        if binds.forward.pressed(&keys, &mouse) {
             direction += forward;
         }
-        if keys.pressed(KeyCode::KeyS) {
+        if binds.back.pressed(&keys, &mouse) {
             direction -= forward;
         }
-        if keys.pressed(KeyCode::KeyD) {
+        if binds.right.pressed(&keys, &mouse) {
             direction += right;
         }
-        if keys.pressed(KeyCode::KeyA) {
+        if binds.left.pressed(&keys, &mouse) {
             direction -= right;
         }
         direction.y = 0.0;
@@ -1287,12 +1305,14 @@ fn move_player(
     transform.translation += physics.horizontal_velocity * time.delta_secs();
 }
 
-/// `T` snaps the player back onto the roof of the building.
+/// Snaps the player back onto the roof of the building.
 fn teleport_home(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
-    if keys.just_pressed(KeyCode::KeyT) {
+    if binds.teleport_home.just_pressed(&keys, &mouse) {
         let (mut transform, mut physics) = player.into_inner();
         transform.translation = SPAWN_POS;
         physics.horizontal_velocity = Vec3::ZERO;
@@ -1301,9 +1321,11 @@ fn teleport_home(
     }
 }
 
-/// `B` launches the player upward when they're standing on something.
+/// Launches the player upward when they're standing on something.
 fn jump(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<MovementSettings>,
     mut physics: Single<&mut PlayerPhysics, With<Player>>,
@@ -1311,7 +1333,7 @@ fn jump(
     if window.cursor_options.grab_mode == CursorGrabMode::None {
         return;
     }
-    if physics.grounded && keys.just_pressed(KeyCode::KeyB) {
+    if physics.grounded && binds.jump.just_pressed(&keys, &mouse) {
         physics.vertical_velocity = settings.jump_speed;
         physics.grounded = false;
     }
@@ -1358,6 +1380,7 @@ fn look_around(
     mouse_motion: Res<AccumulatedMouseMotion>,
     window: Single<&Window, With<PrimaryWindow>>,
     ads: Res<Ads>,
+    settings: Res<Settings>,
     mut player: Single<&mut Transform, (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
@@ -1371,8 +1394,9 @@ fn look_around(
         return;
     }
 
-    // Slow the mouse down as the player zooms in.
-    let sens = MOUSE_SENSITIVITY * 1.0f32.lerp(ADS_SENSITIVITY_SCALE, ease(ads.t));
+    // Base sensitivity × the player's multiplier, slowed further as they zoom in.
+    let sens =
+        MOUSE_SENSITIVITY * settings.sensitivity * 1.0f32.lerp(ADS_SENSITIVITY_SCALE, ease(ads.t));
 
     // Yaw on the body...
     player.rotate_y(-delta.x * sens.x);
@@ -1387,7 +1411,9 @@ fn look_around(
 /// otherwise.
 fn update_ads(
     time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     tuning: Res<AdsTuning>,
     mut ads: ResMut<Ads>,
@@ -1398,7 +1424,7 @@ fn update_ads(
     }
 
     let aiming = window.cursor_options.grab_mode != CursorGrabMode::None
-        && mouse.pressed(MouseButton::Right);
+        && binds.aim.pressed(&keys, &mouse);
     let target = if aiming { 1.0 } else { 0.0 };
     let step = time.delta_secs() / ADS_DURATION;
     ads.t = if ads.t < target {
@@ -1413,13 +1439,15 @@ fn apply_ads(
     ads: Res<Ads>,
     poses: Res<ViewModelPoses>,
     tuning: Res<AdsTuning>,
+    settings: Res<Settings>,
     mut world_projection: Single<&mut Projection, With<WorldModelCamera>>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
     let e = ease(ads.t);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = HIP_FOV_DEG
+        perspective.fov = settings
+            .fov
             .to_radians()
             .lerp(tuning.fov_deg.to_radians(), e);
     }
@@ -1507,19 +1535,9 @@ fn sky_follow_camera(
     sky.translation = camera.translation();
 }
 
-fn toggle_cursor_grab(
-    keys: Res<ButtonInput<KeyCode>>,
-    window: Single<&mut Window, With<PrimaryWindow>>,
-) {
-    if !keys.just_pressed(KeyCode::Escape) {
-        return;
-    }
-    let mut window = window.into_inner();
-    let grabbed = window.cursor_options.grab_mode != CursorGrabMode::None;
-    set_cursor_grabbed(&mut window, !grabbed);
-}
-
-fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
+/// Lock/unlock the mouse to the window. Called on startup and by the menu when
+/// it opens/closes.
+pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
     if grabbed {
         window.cursor_options.grab_mode = CursorGrabMode::Locked;
         window.cursor_options.visible = false;
@@ -1529,13 +1547,14 @@ fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
     }
 }
 
-/// Fire (left mouse) and reload (`R`). Firing plays Shoot → Rechamber and spends
-/// a round; reload plays the Reload segment and then refills the mag from the
-/// reserve. Nothing new is accepted while an animation is mid-play, so shots are
+/// Fire and reload (bindings). Firing plays Shoot → Rechamber and spends a round;
+/// reload plays the Reload segment and then refills the mag from the reserve.
+/// Nothing new is accepted while an animation is mid-play, so shots are
 /// impossible until a reload finishes.
 fn weapon_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     view_model: Single<&ViewModelAnimation>,
     mut players: Query<&mut AnimationPlayer>,
@@ -1595,7 +1614,7 @@ fn weapon_system(
         return;
     }
 
-    if mouse.just_pressed(MouseButton::Left) && weapon.mag > 0 {
+    if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;
         shake.trauma = (shake.trauma + SHAKE_ADD).min(1.0);
         muzzle.shots = muzzle.shots.wrapping_add(1);
@@ -1612,7 +1631,7 @@ fn weapon_system(
             seg_end: SEGMENTS[SEG_SHOOT].end_secs(),
             on_finish: WeaponFinish::Nothing,
         });
-    } else if keys.just_pressed(KeyCode::KeyR)
+    } else if binds.reload.just_pressed(&keys, &mouse)
         && weapon.mag < MAG_SIZE
         && weapon.reserve > 0
     {
@@ -1873,6 +1892,8 @@ fn update_ammo_ui(weapon: Res<Weapon>, mut text: Single<&mut Text, With<AmmoText
 /// cut dialed in.
 fn cycle_animation_segments(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
     clips: Res<Assets<AnimationClip>>,
     view_model: Single<&ViewModelAnimation>,
     mut players: Query<&mut AnimationPlayer>,
@@ -1924,7 +1945,7 @@ fn cycle_animation_segments(
         }
     }
 
-    if !keys.just_pressed(KeyCode::KeyL) {
+    if !binds.cycle_anim.just_pressed(&keys, &mouse) {
         return;
     }
 
