@@ -83,7 +83,7 @@ const MOUSE_SENSITIVITY: Vec2 = Vec2::new(0.003, 0.002);
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.02;
 
 /// Seconds to go from hip to full aim-down-sight (and back).
-const ADS_DURATION: f32 = 0.13;
+const ADS_DURATION: f32 = 0.26;
 // Hip FOV is now a player setting (`Settings::fov`, default 90°). Everything on
 // screen — inside the scope or not — is drawn at the current FOV, so shrinking it
 // toward `AdsTuning::fov_deg` is the scope "magnification".
