@@ -7,8 +7,9 @@
 //!
 //! Controls (all rebindable — see `keybinds.rs`; defaults shown):
 //!   * `W` / `A` / `S` / `D` — move
-//!   * `Left Shift`          — toggle sprint
+//!   * `Left Shift`          — sprint (drops when you stop moving)
 //!   * `C`                   — crouch (still) / slide (moving); jump cancels a slide
+//!   * `Left Ctrl`           — prone (still) / dolphin dive (moving)
 //!   * `B`                   — jump
 //!   * `T`                   — teleport back onto the building
 //!   * mouse                 — look around
@@ -27,6 +28,7 @@ mod keybinds;
 mod lobby_ui;
 mod menu;
 mod net;
+mod practice;
 mod settings;
 mod ui;
 mod updater;
@@ -100,7 +102,7 @@ const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
 const GROUND_SNAP: f32 = 0.5;
 
-/// Defaults for the "Slide" panel section.
+/// Defaults for the "Slide" / "Dive & prone" panel sections.
 const CROUCH_DROP: f32 = 0.8;
 const CROUCH_SPEED: f32 = 2.5;
 const SLIDE_DUCK_SPEED: f32 = 16.0;
@@ -110,6 +112,14 @@ const SLIDE_SPRINT_BONUS: f32 = 4.5;
 const SLIDE_FRICTION: f32 = 7.5;
 const SLIDE_MIN_SPEED: f32 = 1.6;
 const SLIDE_MAX_TIME: f32 = 1.6;
+const PRONE_DROP: f32 = 1.35;
+const PRONE_SPEED: f32 = 0.7;
+const DIVE_SPEED: f32 = 8.5;
+const DIVE_JUMP: f32 = 8.5;
+const DIVE_TUCK_SPEED: f32 = 25.0;
+/// A dolphin dive also counts as "landed" once the tucked camera drops within
+/// this of the surface — the belly hits before the standing feet would.
+const DIVE_CLEARANCE: f32 = 0.3;
 
 const MOUSE_SENSITIVITY: Vec2 = Vec2::new(0.003, 0.002);
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.02;
@@ -329,6 +339,7 @@ fn main() {
             settings::SettingsPlugin,
             menu::MenuPlugin,
             lobby_ui::LobbyUiPlugin,
+            practice::PracticePlugin,
         ))
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
@@ -352,7 +363,10 @@ fn main() {
         .init_resource::<SmokeEmission>()
         .init_resource::<RockSettings>()
         .init_resource::<DustSettings>()
+        .init_resource::<TrickState>()
         .add_event::<GroundImpact>()
+        .add_event::<TrickScoredEvent>()
+        .add_event::<MatchEndedEvent>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<Slide>()
@@ -376,7 +390,7 @@ fn main() {
         )
         .add_systems(
             OnEnter(AppState::InGame),
-            (grab_cursor, start_ambient, reset_slide),
+            (grab_cursor, start_ambient, reset_slide, reset_trick),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, hud_visibility)
@@ -407,6 +421,8 @@ fn main() {
                 apply_ads,
                 update_scope,
                 fade_crosshair,
+                track_trick.after(look_around),
+                (spawn_score_popup, update_score_popups),
                 sky_follow_camera,
                 camera_shake,
                 update_muzzle_flash,
@@ -448,10 +464,10 @@ pub(crate) struct Player;
 /// the air so a jump carries momentum), falling speed, and whether the feet are
 /// resting on a surface.
 #[derive(Component, Default)]
-struct PlayerPhysics {
+pub(crate) struct PlayerPhysics {
     horizontal_velocity: Vec3,
     vertical_velocity: f32,
-    grounded: bool,
+    pub(crate) grounded: bool,
 }
 
 /// Panel-adjustable locomotion + gravity tuning.
@@ -484,34 +500,40 @@ struct Sprinting(bool);
 
 /// What the player's lower body is doing. `Standing` is the normal state;
 /// `Crouching` is a slow ducked walk; `Sliding` is a momentum slide that decays
-/// to a stop (or is cancelled with the jump key) and then stands back up.
+/// to a stop; `Diving` is the airborne half of a dolphin dive; `Prone` is flat
+/// on the ground.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 enum Stance {
     #[default]
     Standing,
     Crouching,
     Sliding,
+    Diving,
+    Prone,
 }
 
-/// Live crouch / slide state. `pose` (0 standing → 1 fully ducked) is a smoothed
-/// value that `crouch_slide` writes onto the head each frame, so ducking and
-/// standing up are eased rather than snapped.
+/// Live crouch / slide / dive / prone state. `drop` is the current camera Y
+/// offset from standing (metres, ≤ 0); `crouch_slide` eases it toward the target
+/// for the stance and writes it onto the head, so every stance change is a
+/// smooth move rather than a jerk.
 #[derive(Resource, Default)]
 struct Slide {
     stance: Stance,
-    pose: f32,
+    drop: f32,
     /// Horizontal slide velocity (m/s); only meaningful while `Sliding`.
     velocity: Vec3,
     /// Seconds the current slide has run.
     timer: f32,
     /// The one-shot slide-sound entity, kept so a cancel can cut it short.
     sound: Option<Entity>,
-    /// Set for the frame a slide/crouch swallowed the jump press, so `jump`
-    /// doesn't also launch.
+    /// Set for the frame a slide/crouch/prone swallowed the jump press, so
+    /// `jump` doesn't also launch.
     ate_jump: bool,
+    /// Stance a `Prone` toggle returns to — `Standing` or `Crouching`.
+    prone_from: Stance,
 }
 
-/// Panel-adjustable crouch / slide tuning.
+/// Panel-adjustable crouch / slide / dive tuning.
 #[derive(Resource)]
 struct SlideSettings {
     /// How far the camera drops when fully crouched (m).
@@ -532,6 +554,16 @@ struct SlideSettings {
     min_speed: f32,
     /// Hard cap on slide duration regardless of friction (s).
     max_time: f32,
+    /// How far the camera drops when prone (m).
+    prone_drop: f32,
+    /// Move speed while crawling prone (m/s).
+    prone_speed: f32,
+    /// Forward launch speed of a dolphin dive (m/s); a faster approach carries in.
+    dive_speed: f32,
+    /// Upward hop of a dolphin dive (m/s).
+    dive_jump: f32,
+    /// How fast the camera tucks toward prone during a dive (1/s).
+    dive_tuck_speed: f32,
 }
 
 impl Default for SlideSettings {
@@ -546,6 +578,11 @@ impl Default for SlideSettings {
             friction: SLIDE_FRICTION,
             min_speed: SLIDE_MIN_SPEED,
             max_time: SLIDE_MAX_TIME,
+            prone_drop: PRONE_DROP,
+            prone_speed: PRONE_SPEED,
+            dive_speed: DIVE_SPEED,
+            dive_jump: DIVE_JUMP,
+            dive_tuck_speed: DIVE_TUCK_SPEED,
         }
     }
 }
@@ -721,6 +758,7 @@ struct GameSounds {
     aim_out: Handle<AudioSource>,
     out_of_ammo: Handle<AudioSource>,
     slide: Handle<AudioSource>,
+    dive: Handle<AudioSource>,
 }
 
 /// Linear volume of the looping nature ambience.
@@ -925,8 +963,52 @@ struct ScopeRenderTarget(Handle<Image>);
 
 /// Aim-down-sight amount: 0 at the hip, 1 looking fully through the scope.
 #[derive(Resource, Default)]
-struct Ads {
-    t: f32,
+pub(crate) struct Ads {
+    pub(crate) t: f32,
+}
+
+/// `Ads::t` at or below this counts as "no scope" for style points.
+pub(crate) const NOSCOPE_ADS_MAX: f32 = 0.05;
+/// A yaw run of at least this many degrees before a direction reversal is
+/// "banked" toward the trick total (roughly a clean 180).
+const TRICK_MIN_RUN_DEG: f32 = 135.0;
+/// Per-frame yaw change below this (deg) is treated as not turning.
+const TRICK_TURN_EPS_DEG: f32 = 0.05;
+/// Seconds of not-really-turning that ends the current trick.
+const TRICK_IDLE_RESET_SECS: f32 = 0.4;
+
+/// Tracks the player's spin for style points: degrees turned in the current
+/// run, plus banked degrees from earlier runs of the same trick (so a 180 one
+/// way then a 180 the other still adds up). Reset on every shot fired and
+/// whenever the player stops turning for a moment.
+#[derive(Resource, Default)]
+pub(crate) struct TrickState {
+    /// Yaw last frame (radians), for the per-frame delta.
+    last_yaw: f32,
+    /// Sign of the current run (+1 / -1 / 0).
+    dir: f32,
+    /// Unsigned degrees turned in the current run.
+    run_deg: f32,
+    /// Sum of completed runs (each ≥ `TRICK_MIN_RUN_DEG`) this trick.
+    banked_deg: f32,
+    /// Any part of this trick happened airborne.
+    pub(crate) airborne: bool,
+    /// Seconds spent below the turn threshold.
+    idle: f32,
+}
+
+impl TrickState {
+    /// Total spin credited if a shot lands right now.
+    pub(crate) fn total_deg(&self) -> f32 {
+        self.banked_deg + self.run_deg
+    }
+
+    /// Start a fresh trick, keeping only the current yaw reference.
+    pub(crate) fn reset(&mut self) {
+        let yaw = self.last_yaw;
+        *self = Self::default();
+        self.last_yaw = yaw;
+    }
 }
 
 /// Camera-shake state. `trauma` (0..1) is bumped on each shot and decays; it
@@ -1190,18 +1272,8 @@ fn setup_world(
         NotShadowCaster,
     ));
 
-    // Player-sized reference dummies (1.8 m capsules) straight ahead at known
-    // distances, so the amount of zoom is easy to read. Player spawns at z = 5
-    // looking toward -Z.
-    let dummy_mesh = meshes.add(Capsule3d::new(0.3, 1.2));
-    let dummy_material = materials.add(Color::srgb(0.85, 0.42, 0.15));
-    for distance in [10.0f32, 25.0, 50.0, 100.0] {
-        commands.spawn((
-            Mesh3d(dummy_mesh.clone()),
-            MeshMaterial3d(dummy_material.clone()),
-            Transform::from_xyz(0.0, 0.9, 5.0 - distance),
-        ));
-    }
+    // Targets in the world are the bots — server-owned in a lobby game, spawned
+    // locally by `spawn_practice_bots` in solo Practice.
 
     // Sun.
     commands.spawn((
@@ -1520,6 +1592,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         aim_out: asset_server.load("audio/aim-out-sound.mp3"),
         out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
         slide: asset_server.load("audio/slide-sound.mp3"),
+        dive: asset_server.load("audio/dive-sound.mp3"),
     });
 }
 
@@ -1612,6 +1685,100 @@ fn fade_crosshair(
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
     border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
+}
+
+/// Server told us a shot scored — the shooter's client pops a CoD-style yellow
+/// stack. `lines` are `(label, points)`, top to bottom.
+#[derive(Event)]
+pub(crate) struct TrickScoredEvent {
+    pub(crate) lines: Vec<(String, u32)>,
+}
+
+/// Server told us the match clock ran out.
+#[derive(Event)]
+pub(crate) struct MatchEndedEvent {
+    pub(crate) winner: String,
+    pub(crate) score: u32,
+}
+
+/// The score-popup stack (one per scored shot; a fresh one replaces the last).
+#[derive(Component)]
+struct ScorePopup {
+    age: f32,
+}
+
+const SCORE_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
+const SCORE_POPUP_HOLD: f32 = 1.1;
+const SCORE_POPUP_TTL: f32 = 2.6;
+
+/// Spawn the yellow `+N  LABEL` stack, centred a little above the crosshair.
+fn spawn_score_popup(
+    mut events: EventReader<TrickScoredEvent>,
+    existing: Query<Entity, With<ScorePopup>>,
+    mut commands: Commands,
+) {
+    // Only the most recent shot matters if several land in one frame.
+    let Some(ev) = events.read().last() else {
+        return;
+    };
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+
+    commands
+        .spawn((
+            ScorePopup { age: 0.0 },
+            StateScoped(AppState::InGame),
+            GlobalZIndex(9),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(0.0),
+                right: Val::Percent(0.0),
+                top: Val::Percent(33.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(3.0),
+                ..default()
+            },
+        ))
+        .with_children(|col| {
+            for (label, points) in &ev.lines {
+                col.spawn((
+                    Text::new(format!("+{points}  {label}")),
+                    TextFont {
+                        font_size: 25.0,
+                        ..default()
+                    },
+                    TextColor(SCORE_YELLOW),
+                ));
+            }
+        });
+}
+
+/// Hold each popup briefly, then fade its lines out and despawn.
+fn update_score_popups(
+    time: Res<Time>,
+    mut popups: Query<(Entity, &mut ScorePopup, &Children)>,
+    mut texts: Query<&mut TextColor>,
+    mut commands: Commands,
+) {
+    for (entity, mut popup, children) in &mut popups {
+        popup.age += time.delta_secs();
+        if popup.age >= SCORE_POPUP_TTL {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let a = if popup.age < SCORE_POPUP_HOLD {
+            1.0
+        } else {
+            1.0 - (popup.age - SCORE_POPUP_HOLD) / (SCORE_POPUP_TTL - SCORE_POPUP_HOLD)
+        };
+        for child in children {
+            if let Ok(mut tc) = texts.get_mut(*child) {
+                tc.0 = SCORE_YELLOW.with_alpha(a.clamp(0.0, 1.0));
+            }
+        }
+    }
 }
 
 /// Bottom-right ammo readout: rounds in the mag, then rounds in reserve.
@@ -1931,6 +2098,35 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Dive & prone", |ui| {
+                let s = &mut *slide_cfg;
+                ui.label("prone key while still toggles prone; while moving = dolphin dive");
+                ui.add(egui::Slider::new(&mut s.prone_drop, 0.2f32..=1.6).text("prone drop (m)"));
+                ui.add(
+                    egui::Slider::new(&mut s.prone_speed, 0.0f32..=6.0).text("prone crawl (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.dive_speed, 0.0f32..=22.0)
+                        .text("dive launch speed (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.dive_jump, 0.0f32..=12.0).text("dive hop (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.dive_tuck_speed, 2.0f32..=30.0)
+                        .text("dive tuck rate (/s)"),
+                );
+                if ui.button("Reset dive & prone").clicked() {
+                    let d = SlideSettings::default();
+                    s.prone_drop = d.prone_drop;
+                    s.prone_speed = d.prone_speed;
+                    s.dive_speed = d.dive_speed;
+                    s.dive_jump = d.dive_jump;
+                    s.dive_tuck_speed = d.dive_tuck_speed;
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Weapon sway", |ui| {
                 let w = &mut *sway;
                 ui.label("the gun lags the way you turn, then catches up");
@@ -2087,7 +2283,11 @@ fn ads_tuning_ui(
 // Update systems
 // ---------------------------------------------------------------------------
 
-/// Left Shift toggles between walk and sprint.
+/// Sprint control: the sprint key flips sprint on / off, and sprint also drops
+/// on its own the moment the player stops feeding a movement key (so it never
+/// "sticks" while standing still). Entering a crouch / slide / dive / prone
+/// forces it off from `crouch_slide`; pressing sprint out of a crouch or prone
+/// stands the player up with sprint already active.
 fn toggle_sprint(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -2095,10 +2295,18 @@ fn toggle_sprint(
     window: Single<&Window, With<PrimaryWindow>>,
     mut sprinting: ResMut<Sprinting>,
 ) {
-    if window.cursor_options.grab_mode != CursorGrabMode::None
-        && binds.sprint.just_pressed(&keys, &mouse)
-    {
+    if window.cursor_options.grab_mode == CursorGrabMode::None {
+        return;
+    }
+    let move_held = binds.forward.pressed(&keys, &mouse)
+        || binds.back.pressed(&keys, &mouse)
+        || binds.left.pressed(&keys, &mouse)
+        || binds.right.pressed(&keys, &mouse);
+
+    if binds.sprint.just_pressed(&keys, &mouse) {
         sprinting.0 = !sprinting.0;
+    } else if sprinting.0 && !move_held {
+        sprinting.0 = false; // stopped moving — sprint drops
     }
 }
 
@@ -2108,16 +2316,19 @@ fn reset_slide(mut slide: ResMut<Slide>, mut head: Single<&mut Transform, With<P
     head.translation.y = 0.0;
 }
 
-/// Crouch / slide state machine (Call-of-Duty style). The crouch/slide key
-/// (rebindable, `C` by default):
-/// * standing + not moving → **crouch**: a slow ducked walk, no sprinting;
-/// * standing + moving → **slide** along the current travel direction — fast at
-///   first, then friction bleeds it off and the player smoothly stands up. A
-///   slide begun from a sprint carries extra speed in; an already-crouched
-///   player can't slide.
+/// Crouch / slide / dive / prone state machine (Call-of-Duty style).
 ///
-/// The jump key stands you up out of a crouch and **cancels** a slide on the
-/// spot (`jump` itself defers whenever `stance != Standing` / `ate_jump`).
+/// Crouch/slide key (`C` by default):
+/// * standing + still → **crouch** (slow ducked walk, no sprint);
+/// * standing + moving → **slide** along the travel direction — fast, then
+///   friction bleeds it off and the player smoothly stands. A slide from a
+///   sprint carries extra speed; you can't slide while already crouched.
+/// * jump cancels a slide on the spot / stands you up out of a crouch.
+///
+/// Prone/dive key (`Left Ctrl` by default):
+/// * still → toggle **prone** ⇄ whatever you were (standing or crouched);
+/// * standing + moving → **dolphin dive**: a forward hop that lands prone, the
+///   dive-sound firing on impact. Can't dive while crouched.
 #[allow(clippy::too_many_arguments)]
 fn crouch_slide(
     time: Res<Time>,
@@ -2129,7 +2340,7 @@ fn crouch_slide(
     sounds: Res<GameSounds>,
     mut sprinting: ResMut<Sprinting>,
     mut slide: ResMut<Slide>,
-    player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    player: Single<(&Transform, &mut PlayerPhysics), With<Player>>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
     mut commands: Commands,
 ) {
@@ -2138,9 +2349,12 @@ fn crouch_slide(
 
     let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
     let crouch_pressed = locked && binds.crouch.just_pressed(&keys, &mouse);
+    let prone_pressed = locked && binds.prone.just_pressed(&keys, &mouse);
     let jump_pressed = locked && binds.jump.just_pressed(&keys, &mouse);
+    // `toggle_sprint` (runs first) has already flipped sprint on for this press.
+    let sprint_pressed = locked && binds.sprint.just_pressed(&keys, &mouse);
 
-    let (transform, physics) = *player;
+    let (transform, mut physics) = player.into_inner();
     let grounded = physics.grounded;
     let planar = Vec3::new(
         physics.horizontal_velocity.x,
@@ -2153,20 +2367,25 @@ fn crouch_slide(
         || binds.left.pressed(&keys, &mouse)
         || binds.right.pressed(&keys, &mouse);
     let moving = speed_now > 0.5 || move_held;
+    // Direction we're travelling, falling back to facing.
+    let travel_dir = {
+        let d = planar.normalize_or_zero();
+        if d == Vec3::ZERO {
+            let f = *transform.forward();
+            Vec3::new(f.x, 0.0, f.z).normalize_or_zero()
+        } else {
+            d
+        }
+    };
 
     match slide.stance {
         Stance::Standing => {
             if grounded && crouch_pressed {
                 if moving {
-                    let mut dir = planar.normalize_or_zero();
-                    if dir == Vec3::ZERO {
-                        let f = *transform.forward();
-                        dir = Vec3::new(f.x, 0.0, f.z).normalize_or_zero();
-                    }
                     let launch =
                         cfg.slide_speed + if sprinting.0 { cfg.sprint_bonus } else { 0.0 };
                     // A slide never slows you down — momentum carries.
-                    slide.velocity = dir * launch.max(speed_now);
+                    slide.velocity = travel_dir * launch.max(speed_now);
                     slide.timer = 0.0;
                     slide.stance = Stance::Sliding;
                     sprinting.0 = false;
@@ -2185,13 +2404,37 @@ fn crouch_slide(
                     slide.stance = Stance::Crouching;
                     sprinting.0 = false;
                 }
+            } else if grounded && prone_pressed {
+                if moving {
+                    // Dolphin dive: leap forward, land prone (sound on impact).
+                    physics.horizontal_velocity = travel_dir * cfg.dive_speed.max(speed_now);
+                    physics.vertical_velocity = cfg.dive_jump;
+                    physics.grounded = false;
+                    slide.stance = Stance::Diving;
+                    slide.prone_from = Stance::Standing;
+                    sprinting.0 = false;
+                } else {
+                    slide.stance = Stance::Prone;
+                    slide.prone_from = Stance::Standing;
+                    sprinting.0 = false;
+                }
             }
         }
         Stance::Crouching => {
-            sprinting.0 = false;
-            if crouch_pressed || jump_pressed {
+            if sprint_pressed {
+                // Stand up and take off — sprint is already on from `toggle_sprint`.
+                slide.stance = Stance::Standing;
+            } else if prone_pressed {
+                // No diving out of a crouch — just drop prone.
+                slide.stance = Stance::Prone;
+                slide.prone_from = Stance::Crouching;
+                sprinting.0 = false;
+            } else if crouch_pressed || jump_pressed {
                 slide.stance = Stance::Standing;
                 slide.ate_jump = jump_pressed;
+                sprinting.0 = false;
+            } else {
+                sprinting.0 = false;
             }
         }
         Stance::Sliding => {
@@ -2218,25 +2461,53 @@ fn crouch_slide(
                 }
             }
         }
+        Stance::Diving => {
+            sprinting.0 = false;
+            if grounded {
+                // Belly hit the ground: settle prone and thump.
+                slide.stance = Stance::Prone;
+                slide.prone_from = Stance::Standing;
+                commands.spawn((
+                    AudioPlayer::new(sounds.dive.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
+            }
+        }
+        Stance::Prone => {
+            if sprint_pressed {
+                // Stand straight up and take off.
+                slide.stance = Stance::Standing;
+            } else if prone_pressed || jump_pressed || crouch_pressed {
+                slide.stance = slide.prone_from;
+                slide.ate_jump = jump_pressed;
+                sprinting.0 = false;
+            } else {
+                sprinting.0 = false;
+            }
+        }
     }
 
-    // Ease the camera toward the target duck; write the offset onto the head
-    // (which carries the cameras + gun) so it's never a jerk.
-    let target = if slide.stance == Stance::Standing {
-        0.0
-    } else {
-        1.0
+    // Ease the camera toward the target height for the stance and write it onto
+    // the head (which carries the cameras + gun), so it's never a jerk.
+    let target_drop = match slide.stance {
+        Stance::Standing => 0.0,
+        Stance::Crouching | Stance::Sliding => -cfg.crouch_drop,
+        Stance::Diving | Stance::Prone => -cfg.prone_drop,
     };
-    let rate = if target > slide.pose {
-        cfg.duck_speed
+    let rate = if target_drop < slide.drop - 1.0e-4 {
+        if slide.stance == Stance::Diving {
+            cfg.dive_tuck_speed
+        } else {
+            cfg.duck_speed
+        }
     } else {
         cfg.stand_speed
     };
-    slide.pose += (target - slide.pose) * (1.0 - (-rate * dt).exp());
-    if slide.pose.abs() < 1.0e-4 {
-        slide.pose = 0.0;
+    slide.drop += (target_drop - slide.drop) * (1.0 - (-rate * dt).exp());
+    if slide.drop.abs() < 1.0e-4 {
+        slide.drop = 0.0;
     }
-    head.translation.y = -cfg.crouch_drop * slide.pose;
+    head.translation.y = slide.drop;
 }
 
 fn move_player(
@@ -2278,6 +2549,7 @@ fn move_player(
 
         let speed = match slide.stance {
             Stance::Crouching => slide_cfg.crouch_speed,
+            Stance::Prone => slide_cfg.prone_speed,
             _ if sprinting.0 => settings.sprint_speed,
             _ => settings.walk_speed,
         };
@@ -2333,6 +2605,7 @@ fn jump(
 fn apply_gravity(
     time: Res<Time>,
     settings: Res<MovementSettings>,
+    slide: Res<Slide>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let dt = time.delta_secs();
@@ -2354,7 +2627,14 @@ fn apply_gravity(
         0.0
     };
 
-    if feet_next <= surface {
+    // A dolphin dive lands on the belly: it also counts as touching down once
+    // the tucked camera (`transform.y + slide.drop`, drop ≤ 0) gets within
+    // `DIVE_CLEARANCE` of the surface — sooner than the standing feet would.
+    let dive_landed = slide.stance == Stance::Diving
+        && transform.translation.y + slide.drop + physics.vertical_velocity * dt
+            <= surface + DIVE_CLEARANCE;
+
+    if feet_next <= surface || dive_landed {
         transform.translation.y = surface + EYE_HEIGHT;
         physics.vertical_velocity = 0.0;
         physics.grounded = true;
@@ -2399,6 +2679,56 @@ fn look_around(
     // Hand the actual applied rotation to the sway (pitch measured after the
     // clamp so pinning against the limit doesn't keep feeding it).
     look_delta.applied = Vec2::new(yaw, new_pitch - current_pitch);
+}
+
+/// Seed the spin tracker from the player's current facing so entering the world
+/// (facing -Z) doesn't register as a giant turn.
+fn reset_trick(mut trick: ResMut<TrickState>, player: Single<&Transform, With<Player>>) {
+    *trick = TrickState::default();
+    trick.last_yaw = player.rotation.to_euler(EulerRot::YXZ).0;
+}
+
+/// Accumulate the player's yaw spin for style points (see [`TrickState`]).
+fn track_trick(
+    time: Res<Time>,
+    player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    mut trick: ResMut<TrickState>,
+) {
+    let (transform, physics) = *player;
+    let yaw = transform.rotation.to_euler(EulerRot::YXZ).0;
+    let mut d = yaw - trick.last_yaw;
+    if d > PI {
+        d -= 2.0 * PI;
+    } else if d < -PI {
+        d += 2.0 * PI;
+    }
+    trick.last_yaw = yaw;
+
+    let deg = d.to_degrees();
+    if deg.abs() < TRICK_TURN_EPS_DEG {
+        trick.idle += time.delta_secs();
+        if trick.idle >= TRICK_IDLE_RESET_SECS {
+            trick.reset();
+        }
+        return;
+    }
+    trick.idle = 0.0;
+    if !physics.grounded {
+        trick.airborne = true;
+    }
+
+    let s = deg.signum();
+    if trick.dir == 0.0 || s == trick.dir {
+        trick.dir = s;
+        trick.run_deg += deg.abs();
+    } else {
+        // Direction reversed — bank a clean-enough run, then start a new one.
+        if trick.run_deg >= TRICK_MIN_RUN_DEG {
+            trick.banked_deg += trick.run_deg;
+        }
+        trick.dir = s;
+        trick.run_deg = deg.abs();
+    }
 }
 
 /// Ramp `Ads::t` toward 1 while the right mouse button is held, back toward 0
@@ -2729,7 +3059,7 @@ fn weapon_system(
     mut shake: ResMut<Shake>,
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
-    mut impacts: EventWriter<GroundImpact>,
+    mut shots: EventWriter<practice::LocalShot>,
     (shake_cfg, sounds, anim): (Res<ShakeSettings>, Res<GameSounds>, Res<AnimationSettings>),
     mut commands: Commands,
 ) {
@@ -2806,17 +3136,16 @@ fn weapon_system(
             AudioPlayer::new(sounds.shot.clone()),
             PlaybackSettings::DESPAWN,
         ));
-        // Predict our own ground impact locally so it lands instantly (and so it
-        // works at all in solo Practice, which never talks to the server). In a
+        // Hand the shot ray to `practice::resolve_local_shot`: it kicks up the
+        // ground dust locally (instant, and the only path in solo Practice) and,
+        // in Practice, resolves the hit + scoring against the offline bots. In a
         // real game the server also broadcasts this shot; `net::receive_shots`
-        // drops the echo for our own peer so it isn't spawned twice.
+        // drops the echo for our own peer so nothing double-spawns.
         if let Ok(cam) = cam.single() {
-            if let Some(p) = shared::ballistics::ground_impact(
-                cam.translation(),
-                cam.forward().as_vec3(),
-            ) {
-                impacts.write(GroundImpact(p));
-            }
+            shots.write(practice::LocalShot {
+                origin: cam.translation(),
+                dir: cam.forward().as_vec3(),
+            });
         }
         play_segment(&mut player, node, SEGMENTS[SEG_SHOOT]);
         weapon.busy = Some(WeaponBusy {

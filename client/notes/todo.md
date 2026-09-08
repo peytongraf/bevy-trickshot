@@ -1,5 +1,6 @@
 # Todo
 
+- See if it is possible for the OS key to not cause keybind behavior like cod does.
 - Add settings for hip position of sniper.
 - Add crouch and slide with slide sound plus slide canceling with change weapon jump key.
 - Add footstep sounds.
@@ -17,10 +18,6 @@
 
 ## Sound
 
-- Add ambient map sound that loops.
-- Update fps Sniper shot sound.
-- Reload sound.
-- Rechamber sound.
 - Add ui button sounds
 
 ## Refactor
@@ -39,6 +36,11 @@
 
 - Can add bullet impacts once map is created.
 
-## Gameplay Ideas
+## Points
 
-- Could get points per trickshot that are additive like +100 headshot, +100 wallbang, +100 360, +100 no scope, +100 silent shot, etc.
++100 headshot,
++100 wallbang,
++100 180 ( right or left )
++100 180 ( right or left )
++100 no scope
++100 silent shot

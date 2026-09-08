@@ -30,12 +30,14 @@ impl Plugin for LobbyUiPlugin {
         app.init_resource::<LobbyUi>()
             .init_resource::<AutoLobby>()
             .init_resource::<ScoreboardDirty>()
+            .init_resource::<LastMatch>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (despawn_lobby_ui, mark_scoreboard_dirty),
+                (despawn_lobby_ui, mark_scoreboard_dirty, spawn_match_timer),
             )
+            .add_systems(Update, catch_match_end)
             .add_systems(
                 Update,
                 (
@@ -51,8 +53,10 @@ impl Plugin for LobbyUiPlugin {
             )
             .add_systems(
                 Update,
-                (watch_scores, rebuild_scoreboard)
-                    .chain()
+                (
+                    (watch_scores, rebuild_scoreboard).chain(),
+                    update_match_timer,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -247,6 +251,29 @@ enum MenuBtn {
     Join(Entity),
     Start,
     Leave,
+    TimeDown,
+    TimeUp,
+}
+
+/// Match-length step for the leader's − / + buttons (seconds).
+const TIME_STEP_SECS: u32 = 60;
+const TIME_MIN_SECS: u32 = 60;
+const TIME_MAX_SECS: u32 = 45 * 60;
+
+/// Who won the last finished match (name, score) — shown back in the lobby room.
+#[derive(Resource, Default)]
+struct LastMatch(Option<(String, u32)>);
+
+/// A match just ended: remember the winner and force the room to re-render.
+fn catch_match_end(
+    mut ended: EventReader<crate::MatchEndedEvent>,
+    mut last: ResMut<LastMatch>,
+    mut ui: ResMut<LobbyUi>,
+) {
+    for ev in ended.read() {
+        last.0 = Some((ev.winner.clone(), ev.score));
+        ui.dirty = true;
+    }
 }
 
 fn despawn_lobby_ui(mut commands: Commands, roots: Query<Entity, With<LobbyUiRoot>>) {
@@ -259,6 +286,7 @@ fn rebuild(
     mut commands: Commands,
     mut ui: ResMut<LobbyUi>,
     state: Res<State<AppState>>,
+    last_match: Res<LastMatch>,
     roots: Query<Entity, With<LobbyUiRoot>>,
     local: Query<&LocalId, With<GameClient>>,
     connected: Query<(), (With<GameClient>, With<Connected>)>,
@@ -279,7 +307,7 @@ fn rebuild(
         AppState::MainMenu => build_browser(&mut commands, online, &lobbies),
         AppState::InLobby => {
             if let Some((_, lobby)) = me.and_then(|me| lobbies.iter().find(|(_, l)| l.has(me))) {
-                build_room(&mut commands, lobby, me);
+                build_room(&mut commands, lobby, me, last_match.0.as_ref());
             }
         }
         _ => {}
@@ -402,8 +430,14 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
         });
 }
 
-fn build_room(commands: &mut Commands, lobby: &shared::Lobby, me: Option<PeerId>) {
+fn build_room(
+    commands: &mut Commands,
+    lobby: &shared::Lobby,
+    me: Option<PeerId>,
+    last_match: Option<&(String, u32)>,
+) {
     let is_leader = me == Some(lobby.leader);
+    let mins = lobby.time_limit_secs / 60;
 
     commands
         .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
@@ -424,6 +458,35 @@ fn build_room(commands: &mut Commands, lobby: &shared::Lobby, me: Option<PeerId>
                     },
                     BackgroundColor(ACCENT),
                 ));
+
+                col.spawn(label(
+                    format!("{}   \u{2022}   {mins} MIN", lobby.mode.label()),
+                    14.0,
+                    TEXT_DIM,
+                ));
+
+                if let Some((winner, score)) = last_match {
+                    col.spawn(label(
+                        format!("LAST MATCH — {winner} won with {score}"),
+                        14.0,
+                        ACCENT,
+                    ));
+                }
+
+                // Leader-only match-length control.
+                if is_leader && !lobby.started {
+                    col.spawn(Node {
+                        column_gap: Val::Px(10.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(label("TIME LIMIT", 14.0, TEXT_DIM));
+                        spawn_button(row, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT);
+                        row.spawn(label(format!("{mins} min"), 16.0, TEXT));
+                        spawn_button(row, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT);
+                    });
+                }
 
                 col.spawn((
                     Node {
@@ -503,12 +566,25 @@ fn handle_clicks(
     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
     mut next: ResMut<NextState<AppState>>,
     settings: Res<Settings>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
     mut create: Query<&mut TriggerSender<shared::CreateLobby>, With<GameClient>>,
     mut join: Query<&mut TriggerSender<shared::JoinLobby>, With<GameClient>>,
     mut leave: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
     mut start: Query<&mut TriggerSender<shared::StartGame>, With<GameClient>>,
+    mut set_time: Query<&mut TriggerSender<shared::SetTimeLimit>, With<GameClient>>,
 ) {
     let name = player_name(&settings);
+    let my_limit = || {
+        let me = local.iter().next().map(|l| l.0)?;
+        lobbies.iter().find(|l| l.has(me)).map(|l| l.time_limit_secs)
+    };
+    let mut nudge_time = |delta: i64| {
+        if let (Some(cur), Ok(mut s)) = (my_limit(), set_time.single_mut()) {
+            let secs = (cur as i64 + delta).clamp(TIME_MIN_SECS as i64, TIME_MAX_SECS as i64) as u32;
+            s.trigger::<shared::LobbyChannel>(shared::SetTimeLimit { secs });
+        }
+    };
 
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
@@ -516,6 +592,8 @@ fn handle_clicks(
         }
         match btn {
             MenuBtn::Practice => next.set(AppState::InGame),
+            MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
+            MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
             MenuBtn::CreateLobby => {
                 if let Ok(mut s) = create.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::CreateLobby {
@@ -631,4 +709,58 @@ fn rebuild_scoreboard(
                     });
             }
         });
+}
+
+// --- match timer (top centre) --------------------------------------
+
+#[derive(Component)]
+struct MatchTimerLabel;
+
+/// One text element at the top of the screen; blank in solo Practice.
+fn spawn_match_timer(mut commands: Commands) {
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            GlobalZIndex(5),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(14.0),
+                left: Val::Percent(0.0),
+                right: Val::Percent(0.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_child((
+            MatchTimerLabel,
+            Text::new(""),
+            TextFont {
+                font_size: 30.0,
+                ..default()
+            },
+            TextColor(TEXT),
+        ));
+}
+
+fn update_match_timer(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut text: Query<&mut Text, With<MatchTimerLabel>>,
+) {
+    let Ok(mut text) = text.single_mut() else {
+        return;
+    };
+    let left = local
+        .iter()
+        .next()
+        .map(|l| l.0)
+        .and_then(|me| lobbies.iter().find(|l| l.has(me)))
+        .map(|l| l.time_left_secs);
+    let wanted = match left {
+        Some(s) => format!("{}:{:02}", s / 60, s % 60),
+        None => String::new(),
+    };
+    if text.0 != wanted {
+        text.0 = wanted;
+    }
 }

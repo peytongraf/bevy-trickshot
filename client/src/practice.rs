@@ -1,0 +1,288 @@
+//! Solo Practice: offline bots + style-point scoring, mirroring the server so
+//! practising feels identical to a real Freestyle match. The bot systems sit
+//! idle whenever the local player is in a networked lobby (the server owns the
+//! bots there); `resolve_local_shot` always runs so a missed shot still kicks
+//! up ground dust.
+
+use bevy::prelude::*;
+use lightyear::prelude::*;
+
+use shared::ballistics::{ground_impact, resolve_shot, Target};
+use shared::bots::{
+    respawn_pose, BOTS_ALIVE, BOT_DEAD_SECS, BOT_FALL_SECS, BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS,
+};
+use shared::hitbox::Capsule;
+use shared::weapon::WeaponId;
+
+use crate::net::GameClient;
+use crate::{
+    Ads, AppState, GroundImpact, Player, PlayerPhysics, TrickScoredEvent, TrickState,
+    NOSCOPE_ADS_MAX,
+};
+
+/// The local player fired: the ray to resolve against the world this frame.
+#[derive(Event)]
+pub(crate) struct LocalShot {
+    pub(crate) origin: Vec3,
+    pub(crate) dir: Vec3,
+}
+
+/// Running score in solo Practice (a lobby game keeps score on the server).
+#[derive(Resource, Default)]
+struct PracticeScore(u32);
+
+/// One offline target bot.
+#[derive(Component)]
+struct PracticeBot {
+    pos: Vec3,
+    yaw: f32,
+    /// `0.0` upright … `1.0` flat; ramps up after death.
+    fall: f32,
+    /// Seconds-since-startup the bot was shot; `None` while alive.
+    dead_at: Option<f32>,
+}
+
+/// Shared capsule + material for the offline bots.
+#[derive(Resource)]
+struct PracticeAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+}
+
+#[derive(Component)]
+struct PracticeScoreText;
+
+pub struct PracticePlugin;
+
+impl Plugin for PracticePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_event::<LocalShot>()
+            .init_resource::<PracticeScore>()
+            .add_systems(Startup, setup_practice_assets)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (reset_practice, spawn_score_text),
+            )
+            .add_systems(
+                Update,
+                (
+                    resolve_local_shot,
+                    (spawn_practice_bots, place_practice_bots, tick_practice_bots)
+                        .run_if(is_practice),
+                    update_score_text,
+                )
+                    .run_if(in_state(AppState::InGame)),
+            );
+    }
+}
+
+/// True while the local player is *not* in a networked lobby.
+fn is_practice(local: Query<&LocalId, With<GameClient>>, lobbies: Query<&shared::Lobby>) -> bool {
+    let me = local.iter().next().map(|l| l.0);
+    !me.map(|me| lobbies.iter().any(|l| l.has(me)))
+        .unwrap_or(false)
+}
+
+fn setup_practice_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.insert_resource(PracticeAssets {
+        mesh: meshes.add(Capsule3d::new(BOT_RADIUS, BOT_HEIGHT - 2.0 * BOT_RADIUS)),
+        material: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.95, 0.55, 0.15),
+            perceptual_roughness: 0.8,
+            ..default()
+        }),
+    });
+}
+
+fn reset_practice(
+    mut score: ResMut<PracticeScore>,
+    bots: Query<Entity, With<PracticeBot>>,
+    mut commands: Commands,
+) {
+    score.0 = 0;
+    for e in &bots {
+        commands.entity(e).try_despawn();
+    }
+}
+
+/// Keep the arena topped up to `BOTS_ALIVE` live bots, placed the same way the
+/// server places them (`shared::bots::respawn_pose`).
+fn spawn_practice_bots(
+    time: Res<Time>,
+    assets: Res<PracticeAssets>,
+    bots: Query<&PracticeBot>,
+    mut seq: Local<u64>,
+    mut commands: Commands,
+) {
+    let alive = bots.iter().filter(|b| b.dead_at.is_none()).count();
+    for _ in alive..BOTS_ALIVE {
+        *seq = seq.wrapping_add(1);
+        let seed = time.elapsed().as_nanos() as u64 ^ seq.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let (pos, yaw) = respawn_pose(seed);
+        commands
+            .spawn((
+                PracticeBot {
+                    pos,
+                    yaw,
+                    fall: 0.0,
+                    dead_at: None,
+                },
+                StateScoped(AppState::InGame),
+                Transform::from_translation(pos),
+                Visibility::default(),
+            ))
+            .with_child((
+                Mesh3d(assets.mesh.clone()),
+                MeshMaterial3d(assets.material.clone()),
+                Transform::from_xyz(0.0, BOT_HEIGHT * 0.5, 0.0),
+            ));
+    }
+}
+
+/// Push each bot's yaw + topple onto its transform.
+fn place_practice_bots(mut bots: Query<(&PracticeBot, &mut Transform)>) {
+    use core::f32::consts::FRAC_PI_2;
+    for (bot, mut tf) in &mut bots {
+        tf.translation = bot.pos;
+        tf.rotation = Quat::from_rotation_y(bot.yaw)
+            * Quat::from_rotation_x(bot.fall.clamp(0.0, 1.0) * FRAC_PI_2);
+    }
+}
+
+/// Topple dead bots, then despawn them so `spawn_practice_bots` refills.
+fn tick_practice_bots(
+    time: Res<Time>,
+    mut bots: Query<(Entity, &mut PracticeBot)>,
+    mut commands: Commands,
+) {
+    let now = time.elapsed_secs();
+    let step = time.delta_secs() / BOT_FALL_SECS;
+    for (entity, mut bot) in &mut bots {
+        let Some(dead_at) = bot.dead_at else {
+            continue;
+        };
+        if bot.fall < 1.0 {
+            bot.fall = (bot.fall + step).min(1.0);
+        }
+        if now - dead_at >= BOT_DEAD_SECS {
+            commands.entity(entity).try_despawn();
+        }
+    }
+}
+
+/// Every `LocalShot` kicks up ground dust where it lands; in Practice it also
+/// resolves against the offline bots and scores exactly as the server would.
+#[allow(clippy::too_many_arguments)]
+fn resolve_local_shot(
+    time: Res<Time>,
+    ads: Res<Ads>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    physics: Query<&PlayerPhysics, With<Player>>,
+    mut shots: EventReader<LocalShot>,
+    mut bots: Query<(Entity, &mut PracticeBot)>,
+    mut trick: ResMut<TrickState>,
+    mut score: ResMut<PracticeScore>,
+    mut impacts: EventWriter<GroundImpact>,
+    mut scored: EventWriter<TrickScoredEvent>,
+) {
+    let practice = {
+        let me = local.iter().next().map(|l| l.0);
+        !me.map(|me| lobbies.iter().any(|l| l.has(me)))
+            .unwrap_or(false)
+    };
+
+    for shot in shots.read() {
+        let mut hit_bot = false;
+
+        if practice {
+            let targets: Vec<Target> = bots
+                .iter()
+                .filter(|(_, b)| b.dead_at.is_none())
+                .map(|(e, b)| Target {
+                    id: e.to_bits(),
+                    body: Capsule::standing(b.pos, BOT_HEIGHT, BOT_RADIUS),
+                    head: Capsule::head(b.pos, BOT_HEIGHT, BOT_HEAD_RADIUS),
+                })
+                .collect();
+
+            if let Some(hit) =
+                resolve_shot(WeaponId::Sniper, shot.origin, shot.dir, &targets, |_, _| false)
+            {
+                if let Some((bot_e, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target) {
+                    if let Ok((_, mut bot)) = bots.get_mut(bot_e) {
+                        if bot.dead_at.is_none() {
+                            bot.dead_at = Some(time.elapsed_secs());
+                            hit_bot = true;
+
+                            let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
+                            let (total, lines) = shared::scoring::score_kill(
+                                trick.total_deg(),
+                                trick.airborne || !grounded,
+                                ads.t <= NOSCOPE_ADS_MAX,
+                            );
+                            score.0 += total;
+                            scored.write(TrickScoredEvent {
+                                lines: lines.into_iter().map(|l| (l.label, l.points)).collect(),
+                            });
+                            trick.reset();
+                        }
+                    }
+                }
+            }
+        }
+
+        if !hit_bot {
+            if let Some(p) = ground_impact(shot.origin, shot.dir) {
+                impacts.write(GroundImpact(p));
+            }
+        }
+    }
+}
+
+fn spawn_score_text(mut commands: Commands) {
+    commands.spawn((
+        PracticeScoreText,
+        StateScoped(AppState::InGame),
+        GlobalZIndex(5),
+        Text::new(""),
+        TextFont {
+            font_size: 20.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.82, 0.1)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(48.0),
+            left: Val::Px(16.0),
+            ..default()
+        },
+    ));
+}
+
+fn update_score_text(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    score: Res<PracticeScore>,
+    mut text: Query<&mut Text, With<PracticeScoreText>>,
+) {
+    let Ok(mut text) = text.single_mut() else {
+        return;
+    };
+    let me = local.iter().next().map(|l| l.0);
+    let practice = !me
+        .map(|me| lobbies.iter().any(|l| l.has(me)))
+        .unwrap_or(false);
+    let wanted = if practice {
+        format!("SCORE  {}", score.0)
+    } else {
+        String::new()
+    };
+    if text.0 != wanted {
+        text.0 = wanted;
+    }
+}

@@ -20,9 +20,14 @@ use lightyear::prelude::input::client::InputSet;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
-use shared::{Bot, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved};
+use shared::{
+    Bot, MatchOver, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved, TrickScore,
+};
 
-use crate::{AppState, GroundImpact, PendingShot, Player, PlayerHead, WorldModelCamera};
+use crate::{
+    Ads, AppState, GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics,
+    TrickScoredEvent, TrickState, WorldModelCamera, NOSCOPE_ADS_MAX,
+};
 
 /// Where a shipped build connects when `TRICKSHOT_SERVER` is unset and we're not
 /// running under `cargo`. Mirrors `updater.rs`'s `DEFAULT_REPO` convention.
@@ -92,6 +97,8 @@ impl Plugin for ClientNetPlugin {
                 spawn_bot_avatars,
                 follow_bot_avatars,
                 receive_shots,
+                receive_trick_scores,
+                receive_match_over,
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -179,10 +186,14 @@ fn mark_local_input(
 
 /// Copy this frame's local pose (client-authoritative) into the input packet,
 /// and — if `weapon_system` pulled the trigger — the fire request too.
+#[allow(clippy::too_many_arguments)]
 fn write_input(
     player: Query<&Transform, With<Player>>,
     head: Query<&Transform, With<PlayerHead>>,
     cam: Query<&GlobalTransform, With<WorldModelCamera>>,
+    physics: Query<&PlayerPhysics, With<Player>>,
+    ads: Res<Ads>,
+    mut trick: ResMut<TrickState>,
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
 ) {
@@ -203,6 +214,47 @@ fn write_input(
             action.fire = true;
             action.fire_origin = cam.translation().to_array();
             action.fire_dir = cam.forward().as_vec3().to_array();
+            // Trick metadata for server-side scoring, then reset for the next shot.
+            let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
+            action.spin_deg = trick.total_deg();
+            action.airborne = trick.airborne || !grounded;
+            action.noscope = ads.t <= NOSCOPE_ADS_MAX;
+            trick.reset();
+        }
+    }
+}
+
+/// Server → everyone: a shot scored style points. Pop the yellow stack for our
+/// own shooter id.
+fn receive_trick_scores(
+    local: Query<&LocalId, With<GameClient>>,
+    mut receivers: Query<&mut MessageReceiver<TrickScore>>,
+    mut scored: EventWriter<TrickScoredEvent>,
+) {
+    let me = local.iter().next().map(|l| l.0);
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            if Some(msg.shooter) != me {
+                continue;
+            }
+            scored.write(TrickScoredEvent {
+                lines: msg.lines.into_iter().map(|l| (l.label, l.points)).collect(),
+            });
+        }
+    }
+}
+
+/// Server → everyone in the lobby: the match clock ran out.
+fn receive_match_over(
+    mut receivers: Query<&mut MessageReceiver<MatchOver>>,
+    mut ended: EventWriter<MatchEndedEvent>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            ended.write(MatchEndedEvent {
+                winner: msg.winner_name,
+                score: msg.winner_score,
+            });
         }
     }
 }
