@@ -13,8 +13,8 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    CreateLobby, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby, LobbyError, LobbyMember,
-    MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetTimeLimit, StartGame,
+    CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby, LobbyError,
+    LobbyMember, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetTimeLimit, StartGame,
 };
 
 /// Bounds on the leader-set match length (seconds) — 1 to 45 minutes.
@@ -41,6 +41,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_join)
             .add_observer(on_leave)
             .add_observer(on_start)
+            .add_observer(on_end_game)
             .add_observer(on_set_time_limit)
             .add_observer(on_disconnect)
             .add_systems(Update, tick_match_clock);
@@ -253,6 +254,32 @@ fn on_start(
             .id();
         info!("  spawned player {entity:?} for {:?}", member.peer);
     }
+}
+
+/// The leader ends the game for the whole party: despawn every player entity in
+/// the session and disband the lobby, so all members fall back to the main menu
+/// (`cull_orphan_bots` then drops the lobby's bots). Ignored for non-leaders.
+fn on_end_game(
+    trigger: Trigger<RemoteTrigger<EndGame>>,
+    lobbies: Query<(Entity, &Lobby)>,
+    players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
+    mut commands: Commands,
+) {
+    let peer = trigger.from;
+    let Some((lobby_entity, _)) = lobbies.iter().find(|(_, l)| l.leader == peer) else {
+        return;
+    };
+
+    let despawn = |commands: &mut Commands, e: Entity| {
+        if let Ok(mut ec) = commands.get_entity(e) {
+            ec.despawn();
+        }
+    };
+    for (pe, _, _) in players.iter().filter(|(_, _, lp)| lp.lobby == lobby_entity) {
+        despawn(&mut commands, pe);
+    }
+    despawn(&mut commands, lobby_entity);
+    info!("{peer:?} ended the game for lobby {lobby_entity:?} (leave with party)");
 }
 
 /// The leader picks the match length while the lobby is still waiting.

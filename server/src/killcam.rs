@@ -86,6 +86,8 @@ fn record_frames(
                 cam_rot: i.cam_rot,
                 sound_bits: i.sound_bits,
                 anim_time: i.anim_time,
+                ads_t: i.ads_t,
+                ground_pt: i.ground_pt,
             },
         ));
         while buf.frames.len() > CAP {
