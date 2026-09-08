@@ -1,6 +1,5 @@
 # Todo
 
-- For now can hide weapon and run with no other weapon model before adding knife model.
 - See if it is possible for the OS key to not cause keybind behavior like cod does.
 - Add settings for hip position of sniper.
 - Add footstep sounds.
@@ -24,10 +23,6 @@
 ## Refactor
 
 - main file is thoasands of lines so it should be refactored.
-
-## Big Changes
-
-- Add kill cam
 
 ## Fix
 

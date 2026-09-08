@@ -31,13 +31,23 @@ impl Plugin for LobbyUiPlugin {
             .init_resource::<AutoLobby>()
             .init_resource::<ScoreboardDirty>()
             .init_resource::<LastMatch>()
+            .init_resource::<GameSession>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
             .add_systems(
                 OnEnter(AppState::InGame),
-                (despawn_lobby_ui, mark_scoreboard_dirty, spawn_match_timer),
+                (
+                    despawn_lobby_ui,
+                    mark_scoreboard_dirty,
+                    spawn_match_timer,
+                    mark_game_session,
+                ),
             )
             .add_systems(Update, catch_match_end)
+            .add_systems(
+                Update,
+                drive_ingame_exit.run_if(in_state(AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 (
@@ -179,6 +189,46 @@ fn watch_lobbies(
 /// Our peer id, once connected.
 fn local_peer(q: &Query<&LocalId, With<GameClient>>) -> Option<PeerId> {
     q.iter().next().map(|l| l.0)
+}
+
+/// Whether the current `InGame` session is a networked lobby match (vs solo
+/// Practice). Latched on entering the game so a lobby vanishing mid-match can't
+/// be mistaken for "this was always Practice".
+#[derive(Resource, Default)]
+struct GameSession {
+    networked: bool,
+}
+
+fn mark_game_session(
+    mut session: ResMut<GameSession>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+) {
+    let me = local_peer(&local);
+    session.networked = me
+        .map(|me| lobbies.iter().any(|l| l.has(me)))
+        .unwrap_or(false);
+}
+
+/// In a networked match, leave `InGame` the moment we're no longer in the lobby
+/// — because we left (the pause-menu button already set us on our way), or
+/// because the leader pulled the whole party. Solo Practice is untouched (its
+/// pause-menu "LEAVE GAME" sets the state directly), and a normally-finished
+/// match — `started` false but we're still a member — is left to the existing
+/// lobby-room flow.
+fn drive_ingame_exit(
+    session: Res<GameSession>,
+    mut next: ResMut<NextState<AppState>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+) {
+    if !session.networked {
+        return;
+    }
+    let Some(me) = local_peer(&local) else { return };
+    if !lobbies.iter().any(|l| l.has(me)) {
+        next.set(AppState::MainMenu);
+    }
 }
 
 /// Move between menu screens based on where the replicated lobby state puts us.

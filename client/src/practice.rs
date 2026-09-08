@@ -193,6 +193,7 @@ fn resolve_local_shot(
     mut trick: ResMut<TrickState>,
     mut score: ResMut<PracticeScore>,
     mut pending_cam: ResMut<PendingLocalCam>,
+    mut ground_hit: ResMut<crate::killcam::ReplayGroundImpact>,
     mut impacts: EventWriter<GroundImpact>,
     mut scored: EventWriter<TrickScoredEvent>,
 ) {
@@ -261,6 +262,9 @@ fn resolve_local_shot(
         if !hit_bot {
             if let Some(p) = ground_impact(shot.origin, shot.dir) {
                 impacts.write(GroundImpact(p));
+                // Stamp it onto this tick's `PlayerInput` too, so a networked
+                // kill cam can replay the burst for the other players watching.
+                ground_hit.0 = Some(p);
             }
         }
     }

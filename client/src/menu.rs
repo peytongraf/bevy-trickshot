@@ -18,13 +18,16 @@ use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::PrimaryWindow;
+use lightyear::prelude::*;
 
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
+use crate::net::GameClient;
 use crate::settings::{Settings, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN};
 use crate::ui::{
     field_box, label, spawn_button, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID, ROW,
     ROW_HOVER, TEXT, TEXT_DIM, TRACK,
 };
+use crate::AppState;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Screen {
@@ -247,6 +250,38 @@ enum Btn {
     ResetKeybinds,
     Step(SliderField, f32),
     ConfirmUsername,
+    /// Leave the current game and return to the main menu. In Practice that's
+    /// purely local; in an online match it also sends [`shared::LeaveLobby`],
+    /// which pulls just this player (promoting a new leader if we were one) and
+    /// lets the match continue for everyone else.
+    LeaveGame,
+    /// Party-leader only: end the match for the whole party
+    /// ([`shared::EndGame`]) — every player is pulled to the main menu.
+    LeaveWithParty,
+}
+
+/// Which leave-game buttons the pause menu should show, derived each rebuild.
+struct LeaveCtx {
+    /// We're in a game (Practice or online); show a leave control at all.
+    in_game: bool,
+    /// The game is an online lobby match (vs solo Practice).
+    online: bool,
+    /// We're the party leader of that online match.
+    is_leader: bool,
+}
+
+fn leave_ctx(
+    app_state: &State<AppState>,
+    local: &Query<&LocalId, With<GameClient>>,
+    lobbies: &Query<&shared::Lobby>,
+) -> LeaveCtx {
+    let me = local.iter().next().map(|l| l.0);
+    let my_lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
+    LeaveCtx {
+        in_game: *app_state.get() == AppState::InGame,
+        online: my_lobby.is_some(),
+        is_leader: matches!((me, my_lobby), (Some(me), Some(l)) if l.leader == me),
+    }
 }
 
 #[derive(Component, Clone, Copy, PartialEq)]
@@ -268,11 +303,17 @@ enum DynText {
     Username,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn menu_click(
     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
     mut menu: ResMut<Menu>,
     mut settings: ResMut<Settings>,
     mut binds: ResMut<KeyBindings>,
+    mut next: ResMut<NextState<AppState>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut leave_lobby: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
+    mut end_game: Query<&mut TriggerSender<shared::EndGame>, With<GameClient>>,
 ) {
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
@@ -304,6 +345,36 @@ fn menu_click(
             Btn::ResetKeybinds => *binds = KeyBindings::default(),
             Btn::Step(field, delta) => step_field(&mut settings, *field, *delta),
             Btn::ConfirmUsername => confirm_username(&mut menu, &mut settings),
+            Btn::LeaveGame => {
+                menu.screen = Screen::None;
+                menu.dirty = true;
+                let me = local.iter().next().map(|l| l.0);
+                let online = me
+                    .map(|me| lobbies.iter().any(|l| l.has(me)))
+                    .unwrap_or(false);
+                if online {
+                    // Non-leader, or leader "leave without party": ask the server
+                    // to pull just us (it promotes a new leader if needed). The
+                    // main-menu jump happens in `drive_ingame_exit` once the
+                    // server drops us — same flow as the lobby-room LEAVE button,
+                    // so there's no bounce through the lobby screen.
+                    if let Ok(mut s) = leave_lobby.single_mut() {
+                        s.trigger::<shared::LobbyChannel>(shared::LeaveLobby);
+                    }
+                } else {
+                    // Solo Practice — nothing networked to wait on.
+                    next.set(AppState::MainMenu);
+                }
+            }
+            Btn::LeaveWithParty => {
+                menu.screen = Screen::None;
+                menu.dirty = true;
+                // End the match for everyone; `drive_ingame_exit` returns each
+                // client to the main menu when the lobby disbands.
+                if let Ok(mut s) = end_game.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::EndGame);
+                }
+            }
         }
     }
 }
@@ -410,11 +481,15 @@ fn cursor_and_hud(
 #[derive(Component)]
 struct MenuRoot;
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_menu(
     mut commands: Commands,
     mut menu: ResMut<Menu>,
     settings: Res<Settings>,
     binds: Res<KeyBindings>,
+    app_state: Res<State<AppState>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
     existing: Query<Entity, With<MenuRoot>>,
 ) {
     if !menu.dirty {
@@ -427,7 +502,10 @@ fn rebuild_menu(
     match menu.screen {
         Screen::None => {}
         Screen::Username => build_username(&mut commands),
-        Screen::Settings => build_settings(&mut commands, &menu, &settings, &binds),
+        Screen::Settings => {
+            let leave = leave_ctx(&app_state, &local, &lobbies);
+            build_settings(&mut commands, &menu, &settings, &binds, &leave);
+        }
     }
 }
 
@@ -484,7 +562,13 @@ fn build_username(commands: &mut Commands) {
     });
 }
 
-fn build_settings(commands: &mut Commands, menu: &Menu, settings: &Settings, binds: &KeyBindings) {
+fn build_settings(
+    commands: &mut Commands,
+    menu: &Menu,
+    settings: &Settings,
+    binds: &KeyBindings,
+    leave: &LeaveCtx,
+) {
     commands.spawn(overlay_root(false)).with_children(|root| {
         root.spawn((
             Node {
@@ -574,6 +658,65 @@ fn build_settings(commands: &mut Commands, menu: &Menu, settings: &Settings, bin
                         Tab::Multiplayer => build_multiplayer(content, settings),
                     });
                 });
+
+            // leave-game controls (only while in a game)
+            if leave.in_game {
+                panel
+                    .spawn((
+                        Node {
+                            padding: UiRect::axes(Val::Px(28.0), Val::Px(16.0)),
+                            column_gap: Val::Px(12.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
+                    ))
+                    .with_children(|f| {
+                        if leave.online && leave.is_leader {
+                            spawn_button(
+                                f,
+                                "LEAVE WITH PARTY",
+                                16.0,
+                                Btn::LeaveWithParty,
+                                ACCENT_DIM,
+                                ACCENT,
+                                TEXT,
+                            );
+                            spawn_button(
+                                f,
+                                "LEAVE WITHOUT PARTY",
+                                16.0,
+                                Btn::LeaveGame,
+                                ROW,
+                                ROW_HOVER,
+                                TEXT,
+                            );
+                            f.spawn(label(
+                                "Leaving without the party promotes a new leader; the match \
+                                 continues.",
+                                13.0,
+                                TEXT_DIM,
+                            ));
+                        } else {
+                            spawn_button(
+                                f,
+                                "LEAVE GAME",
+                                16.0,
+                                Btn::LeaveGame,
+                                ROW,
+                                ROW_HOVER,
+                                TEXT,
+                            );
+                            if leave.online {
+                                f.spawn(label(
+                                    "The match continues for the other players.",
+                                    13.0,
+                                    TEXT_DIM,
+                                ));
+                            }
+                        }
+                    });
+            }
 
             // footer
             panel

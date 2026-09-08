@@ -198,6 +198,12 @@ const TOTAL_MAGS: u32 = 6;
 const SEG_SHOOT: usize = 0;
 const SEG_RECHAMBER: usize = 1;
 const SEG_RELOAD: usize = 2;
+const SEG_HIDE: usize = 3;
+const SEG_SHOW: usize = 4;
+
+/// Movement is this much faster in every stance while the (model-less) secondary
+/// is equipped — the knife is lighter than the sniper.
+const SECONDARY_MOVE_MULT: f32 = 1.12;
 
 /// Camera shake: one shot adds `SHAKE_ADD` trauma (capped at 1), which decays at
 /// `SHAKE_DECAY` per second. The visible offset scales with `trauma²`, so it is
@@ -392,7 +398,7 @@ fn main() {
         )
         .add_systems(
             OnEnter(AppState::InGame),
-            (grab_cursor, start_ambient, reset_slide, reset_trick),
+            (grab_cursor, start_ambient, reset_slide, reset_trick, reset_weapon),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, hud_visibility)
@@ -683,6 +689,15 @@ pub(crate) struct ViewModelAnimation {
     pub(crate) index: AnimationNodeIndex,
 }
 
+/// Which weapon slot is up. The knife has no model yet, so `Secondary` just
+/// means "sniper hidden, hands empty" (plus a small movement-speed bump).
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub(crate) enum WeaponSlot {
+    #[default]
+    Primary,
+    Secondary,
+}
+
 /// Ammo counts and the animation the weapon is mid-way through, if any. While
 /// `busy` is `Some` neither firing nor reloading is accepted.
 #[derive(Resource)]
@@ -692,6 +707,12 @@ pub(crate) struct Weapon {
     /// Rounds not in the magazine.
     reserve: u32,
     pub(crate) busy: Option<WeaponBusy>,
+    /// The slot currently equipped (switched the instant the swap key is
+    /// pressed; the Hide / Show animation then plays out via `busy`).
+    slot: WeaponSlot,
+    /// A reload / rechamber cut short by a weapon switch. Replayed from the top —
+    /// animation and sound — once the sniper is next drawn.
+    interrupted: Option<WeaponBusy>,
 }
 
 pub(crate) struct WeaponBusy {
@@ -707,7 +728,16 @@ pub(crate) struct WeaponBusy {
 enum WeaponFinish {
     Nothing,
     Reload,
+    /// Hide finished — the sniper is now stowed; drop its model.
+    Holster,
+    /// Show finished — the sniper is back out; resume any interrupted action.
+    Draw,
 }
+
+/// Tags the one-shot rechamber / reload audio entities so a weapon switch can
+/// cut them off (they otherwise self-despawn when the clip ends).
+#[derive(Component)]
+struct WeaponActionSound;
 
 impl Default for Weapon {
     fn default() -> Self {
@@ -715,6 +745,8 @@ impl Default for Weapon {
             mag: MAG_SIZE,
             reserve: 1000, // TEMP: high reserve for reload-sound testing
             busy: None,
+            slot: WeaponSlot::Primary,
+            interrupted: None,
         }
     }
 }
@@ -2333,6 +2365,25 @@ fn reset_slide(mut slide: ResMut<Slide>, mut head: Single<&mut Transform, With<P
     head.translation.y = 0.0;
 }
 
+/// Re-entering the world always starts on the sniper, model shown, animation
+/// parked at rest — so quitting mid-swap can't leave the next game weaponless.
+fn reset_weapon(
+    mut weapon: ResMut<Weapon>,
+    mut view_model: Query<(&ViewModelAnimation, &mut Visibility), With<ViewModel>>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    *weapon = Weapon::default();
+    if let Ok((vm, mut vis)) = view_model.single_mut() {
+        *vis = Visibility::Inherited;
+        if let Some(mut player) = players.iter_mut().next() {
+            if let Some(active) = player.animation_mut(vm.index) {
+                active.seek_to(0.0);
+                active.pause();
+            }
+        }
+    }
+}
+
 /// Crouch / slide / dive / prone state machine (Call-of-Duty style).
 ///
 /// Crouch/slide key (`C` by default):
@@ -2355,6 +2406,7 @@ fn crouch_slide(
     window: Single<&Window, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
     sounds: Res<GameSounds>,
+    weapon: Res<Weapon>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
     mut sprinting: ResMut<Sprinting>,
     mut slide: ResMut<Slide>,
@@ -2364,6 +2416,13 @@ fn crouch_slide(
 ) {
     let dt = time.delta_secs().max(1.0e-5);
     slide.ate_jump = false;
+    // The lighter secondary bumps slide-launch and dive speed the same way it
+    // bumps walking (see `move_player`).
+    let weapon_mult = if weapon.slot == WeaponSlot::Secondary {
+        SECONDARY_MOVE_MULT
+    } else {
+        1.0
+    };
 
     let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
     let crouch_pressed = locked && binds.crouch.just_pressed(&keys, &mouse);
@@ -2400,8 +2459,9 @@ fn crouch_slide(
         Stance::Standing => {
             if grounded && crouch_pressed {
                 if moving {
-                    let launch =
-                        cfg.slide_speed + if sprinting.0 { cfg.sprint_bonus } else { 0.0 };
+                    let launch = (cfg.slide_speed
+                        + if sprinting.0 { cfg.sprint_bonus } else { 0.0 })
+                        * weapon_mult;
                     // A slide never slows you down — momentum carries.
                     slide.velocity = travel_dir * launch.max(speed_now);
                     slide.timer = 0.0;
@@ -2426,7 +2486,8 @@ fn crouch_slide(
             } else if grounded && prone_pressed {
                 if moving {
                     // Dolphin dive: leap forward, land prone (sound on impact).
-                    physics.horizontal_velocity = travel_dir * cfg.dive_speed.max(speed_now);
+                    physics.horizontal_velocity =
+                        travel_dir * (cfg.dive_speed * weapon_mult).max(speed_now);
                     physics.vertical_velocity = cfg.dive_jump;
                     physics.grounded = false;
                     slide.stance = Stance::Diving;
@@ -2539,12 +2600,19 @@ fn move_player(
     slide_cfg: Res<SlideSettings>,
     sprinting: Res<Sprinting>,
     slide: Res<Slide>,
+    weapon: Res<Weapon>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let (mut transform, mut physics) = player.into_inner();
+    // The lighter secondary lets the player move a touch quicker in every stance.
+    let weapon_mult = if weapon.slot == WeaponSlot::Secondary {
+        SECONDARY_MOVE_MULT
+    } else {
+        1.0
+    };
 
     // A slide ignores steering entirely — `crouch_slide` owns the velocity and
-    // bleeds it off with friction.
+    // bleeds it off with friction (already scaled for the equipped weapon).
     if slide.stance == Stance::Sliding {
         physics.horizontal_velocity = slide.velocity;
     } else if physics.grounded {
@@ -2573,7 +2641,7 @@ fn move_player(
             _ if sprinting.0 => settings.sprint_speed,
             _ => settings.walk_speed,
         };
-        physics.horizontal_velocity = direction.normalize_or_zero() * speed;
+        physics.horizontal_velocity = direction.normalize_or_zero() * speed * weapon_mult;
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();
@@ -3063,19 +3131,27 @@ pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
     }
 }
 
-/// Fire and reload (bindings). Firing plays Shoot → Rechamber and spends a round;
-/// reload plays the Reload segment and then refills the mag from the reserve.
-/// Nothing new is accepted while an animation is mid-play, so shots are
-/// impossible until a reload finishes.
+/// Fire, reload and weapon-swap (bindings). Firing plays Shoot → Rechamber and
+/// spends a round; reload plays the Reload segment and then refills the mag.
+/// Swapping to the secondary plays Hide in full then drops the sniper model;
+/// swapping back plays Show in full and restarts any reload / rechamber the swap
+/// cut short. Nothing new is accepted while an animation is mid-play (except the
+/// swap key), so shots are impossible until a reload finishes.
 #[allow(clippy::too_many_arguments)]
 fn weapon_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
-    view_model: Single<&ViewModelAnimation>,
-    cam: Query<&GlobalTransform, With<WorldModelCamera>>,
-    mut players: Query<&mut AnimationPlayer>,
+    (view_model, mut view_model_vis): (
+        Single<&ViewModelAnimation>,
+        Single<&mut Visibility, With<ViewModel>>,
+    ),
+    (cam, action_sounds, mut players): (
+        Query<&GlobalTransform, With<WorldModelCamera>>,
+        Query<Entity, With<WeaponActionSound>>,
+        Query<&mut AnimationPlayer>,
+    ),
     mut weapon: ResMut<Weapon>,
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
@@ -3090,6 +3166,53 @@ fn weapon_system(
     let Some(mut player) = players.iter_mut().next() else {
         return;
     };
+    let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+
+    // Weapon swap — accepted even mid-action, so it can cut a reload / rechamber
+    // short.
+    if locked && binds.swap_weapon.just_pressed(&keys, &mouse) {
+        match weapon.slot {
+            WeaponSlot::Primary => {
+                // Stow the sniper. Cancel whatever it was doing: silence the
+                // reload / rechamber audio, and remember a reload / rechamber so
+                // it can be replayed from the top when the sniper is drawn again.
+                if let Some(mut busy) = weapon.busy.take() {
+                    for e in &action_sounds {
+                        commands.entity(e).try_despawn();
+                    }
+                    if let Some(seg) = busy.remaining.first().copied() {
+                        if seg.name == SEGMENTS[SEG_RECHAMBER].name
+                            || seg.name == SEGMENTS[SEG_RELOAD].name
+                        {
+                            busy.seg_end = seg.end_secs();
+                            weapon.interrupted = Some(busy);
+                        }
+                    }
+                }
+                weapon.slot = WeaponSlot::Secondary;
+                play_segment(&mut player, node, SEGMENTS[SEG_HIDE]);
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![SEGMENTS[SEG_HIDE]],
+                    seg_end: SEGMENTS[SEG_HIDE].end_secs(),
+                    on_finish: WeaponFinish::Holster,
+                });
+            }
+            WeaponSlot::Secondary => {
+                // Draw the sniper back: model on, play Show in full; the
+                // interrupted action (if any) restarts when Show finishes.
+                weapon.slot = WeaponSlot::Primary;
+                weapon.busy = None;
+                **view_model_vis = Visibility::Inherited;
+                play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![SEGMENTS[SEG_SHOW]],
+                    seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                    on_finish: WeaponFinish::Draw,
+                });
+            }
+        }
+        return;
+    }
 
     // Advance an in-progress action.
     if weapon.busy.is_some() {
@@ -3118,6 +3241,7 @@ fn weapon_system(
                     commands.spawn((
                         AudioPlayer::new(sounds.rechamber.clone()),
                         PlaybackSettings::DESPAWN,
+                        WeaponActionSound,
                     ));
                     snd.note(killcam::SND_RECHAMBER);
                     if let Some(active) = player.animation_mut(node) {
@@ -3132,18 +3256,53 @@ fn weapon_system(
                     active.pause();
                 }
                 weapon.busy = None;
-                if on_finish == WeaponFinish::Reload {
-                    let moved = (MAG_SIZE - weapon.mag).min(weapon.reserve);
-                    weapon.mag += moved;
-                    weapon.reserve -= moved;
+                match on_finish {
+                    WeaponFinish::Nothing => {}
+                    WeaponFinish::Reload => {
+                        let moved = (MAG_SIZE - weapon.mag).min(weapon.reserve);
+                        weapon.mag += moved;
+                        weapon.reserve -= moved;
+                    }
+                    WeaponFinish::Holster => {
+                        // Sniper fully hidden — hands are now empty.
+                        **view_model_vis = Visibility::Hidden;
+                    }
+                    WeaponFinish::Draw => {
+                        // Sniper back out: restart whatever the swap interrupted,
+                        // animation and sound from the top.
+                        if let Some(resumed) = weapon.interrupted.take() {
+                            let seg = resumed.remaining[0];
+                            play_segment(&mut player, node, seg);
+                            if seg.name == SEGMENTS[SEG_RECHAMBER].name {
+                                commands.spawn((
+                                    AudioPlayer::new(sounds.rechamber.clone()),
+                                    PlaybackSettings::DESPAWN,
+                                    WeaponActionSound,
+                                ));
+                                snd.note(killcam::SND_RECHAMBER);
+                                if let Some(active) = player.animation_mut(node) {
+                                    active.set_speed(anim.rechamber_speed);
+                                }
+                            } else if seg.name == SEGMENTS[SEG_RELOAD].name {
+                                commands.spawn((
+                                    AudioPlayer::new(sounds.reload.clone()),
+                                    PlaybackSettings::DESPAWN,
+                                    WeaponActionSound,
+                                ));
+                                snd.note(killcam::SND_RELOAD);
+                            }
+                            weapon.busy = Some(resumed);
+                        }
+                    }
                 }
             }
         }
         return;
     }
 
-    // Idle: only take input while the cursor is captured (i.e. in-game).
-    if window.cursor_options.grab_mode == CursorGrabMode::None {
+    // Idle: only take input while the cursor is captured (i.e. in-game) and the
+    // sniper is the equipped slot (the secondary has no actions yet).
+    if !locked || weapon.slot != WeaponSlot::Primary {
         return;
     }
 
@@ -3189,6 +3348,7 @@ fn weapon_system(
         commands.spawn((
             AudioPlayer::new(sounds.reload.clone()),
             PlaybackSettings::DESPAWN,
+            WeaponActionSound,
         ));
         snd.note(killcam::SND_RELOAD);
         play_segment(&mut player, node, SEGMENTS[SEG_RELOAD]);

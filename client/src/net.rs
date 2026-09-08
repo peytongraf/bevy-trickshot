@@ -200,6 +200,7 @@ fn write_input(
     ads: Res<Ads>,
     mut trick: ResMut<TrickState>,
     mut snd: ResMut<ReplaySoundBits>,
+    mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
 ) {
@@ -220,6 +221,8 @@ fn write_input(
     }
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
+    action.ads_t = ads.t;
+    action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
 
     // Emit the shot from the world camera's viewpoint. Keep the pending flag if
     // the camera isn't ready yet, rather than dropping the shot.

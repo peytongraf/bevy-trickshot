@@ -18,8 +18,9 @@ use shared::KillCamSample;
 use crate::keybinds::KeyBindings;
 use crate::settings::Settings;
 use crate::{
-    rand_roll, AppState, CameraRecoil, CameraShake, GameSounds, GroundImpact, MuzzleFlashState,
-    Player, PlayerHead, SmokeEmission, TargetBotVisual, ViewModelAnimation, Weapon, WorldModelCamera,
+    rand_roll, Ads, AppState, CameraRecoil, CameraShake, GameSounds, GroundImpact,
+    MuzzleFlashState, Player, PlayerHead, SmokeEmission, TargetBotVisual, ViewModelAnimation,
+    Weapon, WorldModelCamera,
 };
 
 /// Read the first-person weapon animation's current playhead (seconds), for
@@ -62,6 +63,13 @@ impl ReplaySoundBits {
         self.0 |= bit;
     }
 }
+
+/// The local player's most recent ground-impact point that hasn't yet been
+/// stamped onto a [`PlayerInput`]. Set by `resolve_local_shot`, drained by
+/// `write_input` so the networked kill cam can replay ground bursts. (Practice
+/// records its own bursts straight off the [`GroundImpact`] event stream.)
+#[derive(Resource, Default)]
+pub(crate) struct ReplayGroundImpact(pub(crate) Option<Vec3>);
 
 /// Rolling local recording for Practice (and the follow-through second even in a
 /// networked game isn't needed here — the server owns that path).
@@ -116,6 +124,9 @@ pub(crate) struct KillCamRun {
 struct SavedRig {
     player: Transform,
     head: Transform,
+    /// `Ads::t` at the instant playback took over, restored on teardown so live
+    /// aiming resumes exactly where it left off.
+    ads_t: f32,
 }
 
 #[derive(Component)]
@@ -165,6 +176,7 @@ pub struct KillCamPlugin;
 impl Plugin for KillCamPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ReplaySoundBits>()
+            .init_resource::<ReplayGroundImpact>()
             .init_resource::<LocalReplay>()
             .init_resource::<PendingLocalCam>()
             .init_resource::<ActiveKillCam>()
@@ -228,9 +240,10 @@ fn sound_for<'a>(sounds: &'a GameSounds, bit: u8) -> Option<&'a Handle<AudioSour
 
 // --- recording (Practice) --------------------------------------------
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn record_local_replay(
     time: Res<Time>,
+    ads: Res<Ads>,
     mut bits: ResMut<ReplaySoundBits>,
     mut replay: ResMut<LocalReplay>,
     mut impacts: EventReader<GroundImpact>,
@@ -250,6 +263,10 @@ fn record_local_replay(
             cam_rot: rot.to_array(),
             sound_bits: std::mem::take(&mut bits.0),
             anim_time: viewmodel_anim_time(&anim_players, &view_models),
+            ads_t: ads.t,
+            // Practice replays its ground bursts from `LocalReplay::impacts`
+            // (filled just below), so the per-frame slot stays empty here.
+            ground_pt: None,
         },
     ));
     for ev in impacts.read() {
@@ -336,6 +353,12 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         .enumerate()
         .map(|(i, s)| (i as f32 / hz, s))
         .collect();
+    // Ground bursts ride along in the samples (networked path): one entry per
+    // frame whose shot struck the ground, re-emitted as the playhead reaches it.
+    let impacts: Vec<(f32, Vec3)> = frames
+        .iter()
+        .filter_map(|(t, s)| s.ground_pt.map(|p| (*t, Vec3::from_array(p))))
+        .collect();
     let kill_time = frames
         .get(msg.kill_index as usize)
         .map(|(t, _)| *t)
@@ -348,7 +371,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
     active.0 = Some(KillCamRun {
         killer_name: msg.killer_name,
         frames,
-        impacts: Vec::new(),
+        impacts,
         kill_time,
         bots,
         ghosts: Vec::new(),
@@ -371,6 +394,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
 fn start_killcam(
     mut commands: Commands,
     assets: Res<KillCamAssets>,
+    ads: Res<Ads>,
     mut active: ResMut<ActiveKillCam>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
@@ -385,6 +409,7 @@ fn start_killcam(
     let mut saved = SavedRig {
         player: Transform::IDENTITY,
         head: Transform::IDENTITY,
+        ads_t: ads.t,
     };
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {
@@ -486,6 +511,7 @@ fn drive_killcam(
     mut impacts: EventWriter<GroundImpact>,
     mut active: ResMut<ActiveKillCam>,
     mut weapon: ResMut<Weapon>,
+    mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     mut ghosts: Query<(&mut KillCamGhost, &mut Transform)>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
@@ -515,6 +541,9 @@ fn drive_killcam(
                     *tf = saved.head;
                 }
             }
+            // Hand aiming back exactly where playback found it; `update_ads`
+            // (re-enabled the moment the cam clears) eases on from here.
+            ads.t = saved.ads_t;
         }
         if let (Some(node), Some(mut ap)) = (anim_node, anim_players.iter_mut().next()) {
             if let Some(a) = ap.animation_mut(node) {
@@ -544,6 +573,12 @@ fn drive_killcam(
     let (a, b, frac) = bracket(&run.frames, t);
     let cam_pos = Vec3::from_array(a.cam_pos).lerp(Vec3::from_array(b.cam_pos), frac);
     let cam_rot = Quat::from_array(a.cam_rot).slerp(Quat::from_array(b.cam_rot), frac);
+
+    // Replay the aim-down-sight amount frame-for-frame. `update_ads` is frozen
+    // while the cam runs, so `apply_ads` / `update_scope` / `weapon_sway` (which
+    // keep running) pick this up next frame and reproduce the exact scope-in /
+    // scope-out the killer performed.
+    ads.t = a.ads_t.lerp(b.ads_t, frac).clamp(0.0, 1.0);
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {
             *tf = Transform {
@@ -636,6 +671,7 @@ fn stop_killcam(
     mut active: ResMut<ActiveKillCam>,
     mut pending: ResMut<PendingLocalCam>,
     mut weapon: ResMut<Weapon>,
+    mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     mut anim_players: Query<&mut AnimationPlayer>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
@@ -659,6 +695,7 @@ fn stop_killcam(
                     *tf = saved.head;
                 }
             }
+            ads.t = saved.ads_t;
         }
         if let (Some(node), Some(mut ap)) = (
             view_models.iter().next().map(|vm| vm.index),

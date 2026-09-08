@@ -22,9 +22,10 @@ pub mod weapon;
 use bevy::prelude::*;
 
 pub use protocol::{
-    Bot, CreateLobby, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamSample, LeaveLobby, Lobby,
-    LobbyChannel, LobbyError, LobbyMember, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose,
-    ProtocolPlugin, ScoreLine, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, TrickScore,
+    Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamSample,
+    LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MatchOver, PlayerId, PlayerInput,
+    PlayerName, PlayerPose, ProtocolPlugin, ScoreLine, SetTimeLimit, ShotOutcome, ShotResolved,
+    StartGame, TrickScore,
 };
 
 /// Simulation tick rate (Hz). The client and server must agree on this.

@@ -78,6 +78,8 @@ pub struct KeyBindings {
     pub fire: Binding,
     pub aim: Binding,
     pub reload: Binding,
+    /// Toggle between the primary (sniper) and secondary (knife) slot.
+    pub swap_weapon: Binding,
     pub teleport_home: Binding,
     /// Skip the kill-cam replay.
     pub killcam_skip: Binding,
@@ -101,6 +103,7 @@ impl Default for KeyBindings {
             fire: Mouse(MouseButton::Left),
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
+            swap_weapon: Key(KeyCode::KeyQ),
             teleport_home: Key(KeyCode::KeyT),
             killcam_skip: Key(KeyCode::KeyF),
             cursor_toggle: Key(KeyCode::KeyL),
@@ -123,6 +126,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Fire", |b| &mut b.fire),
     ("Aim Down Sight", |b| &mut b.aim),
     ("Reload", |b| &mut b.reload),
+    ("Swap Weapon", |b| &mut b.swap_weapon),
     ("Teleport to Spawn", |b| &mut b.teleport_home),
     ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),

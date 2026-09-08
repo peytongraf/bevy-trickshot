@@ -121,6 +121,12 @@ pub struct PlayerInput {
     /// Playhead (seconds) of the first-person weapon's baked animation clip this
     /// tick, so the kill cam can pose the gun exactly as the player saw it.
     pub anim_time: f32,
+    /// Aim-down-sight amount this tick (`0.0` at the hip … `1.0` fully scoped),
+    /// recorded so the kill cam replays the exact scope-in / scope-out timing.
+    pub ads_t: f32,
+    /// World-space impact point of a shot that struck the ground this tick, so
+    /// the kill cam can re-emit the dust / rock burst. `None` otherwise.
+    pub ground_pt: Option<[f32; 3]>,
 }
 
 impl Default for PlayerInput {
@@ -140,6 +146,8 @@ impl Default for PlayerInput {
             cam_rot: [0.0, 0.0, 0.0, 1.0],
             sound_bits: 0,
             anim_time: 0.0,
+            ads_t: 0.0,
+            ground_pt: None,
         }
     }
 }
@@ -211,6 +219,10 @@ pub struct KillCamSample {
     pub sound_bits: u8,
     /// First-person weapon animation playhead (seconds) on this frame.
     pub anim_time: f32,
+    /// Aim-down-sight amount on this frame (`0.0` hip … `1.0` fully scoped).
+    pub ads_t: f32,
+    /// World point of a ground burst that fired on this frame, if any.
+    pub ground_pt: Option<[f32; 3]>,
 }
 
 /// A target bot as it stood the moment the kill landed.
@@ -343,6 +355,14 @@ pub struct LeaveLobby;
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct StartGame;
 
+/// Client → server: the party leader ends the running game for the **whole**
+/// party — every player entity is despawned and the lobby is disbanded, so all
+/// members drop back to the main menu. (A leader leaving *without* the party, or
+/// any non-leader leaving, sends [`LeaveLobby`] instead: that pulls just the one
+/// player and, for the leader, promotes a replacement.)
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct EndGame;
+
 /// Server → client: a lobby request could not be honoured.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LobbyError {
@@ -381,6 +401,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<LeaveLobby>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<StartGame>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<EndGame>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);
