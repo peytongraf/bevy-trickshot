@@ -17,6 +17,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::weapon::WeaponId;
 
+/// The game mode a lobby plays. New modes slot in here; both ends branch on the
+/// one the [`Lobby`] carries.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GameMode {
+    /// **Freestyle** — free-for-all: rack up the most style points (kills,
+    /// spins, no-scopes) before the clock runs out. Highest score wins.
+    #[default]
+    Freestyle,
+}
+
+impl GameMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            GameMode::Freestyle => "FREESTYLE",
+        }
+    }
+}
+
 /// Which connected peer owns a player entity. Replicated once, never changes.
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerId(pub PeerId);
@@ -84,6 +102,13 @@ pub struct PlayerInput {
     pub fire_dir: [f32; 3],
     /// Selected weapon, as [`WeaponId::as_u8`].
     pub weapon: u8,
+    /// Degrees the shooter had spun (one continuous trick) at fire time — the
+    /// server turns this into style points on a confirmed bot kill.
+    pub spin_deg: f32,
+    /// Whether any of that spin happened airborne.
+    pub airborne: bool,
+    /// Whether the shooter was fully un-scoped at fire time.
+    pub noscope: bool,
 }
 
 impl Default for PlayerInput {
@@ -96,6 +121,9 @@ impl Default for PlayerInput {
             fire_origin: [0.0; 3],
             fire_dir: [0.0, 0.0, -1.0],
             weapon: WeaponId::Sniper.as_u8(),
+            spin_deg: 0.0,
+            airborne: false,
+            noscope: false,
         }
     }
 }
@@ -133,6 +161,35 @@ pub struct ShotResolved {
     pub outcome: ShotOutcome,
 }
 
+/// One line of a scored shot's breakdown, e.g. `+50  360° SPIN`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ScoreLine {
+    pub label: String,
+    pub points: u32,
+}
+
+/// Server → everyone: a shot scored style points. The shooter's client pops the
+/// yellow stack; other clients can build a kill feed from it later.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TrickScore {
+    pub shooter: PeerId,
+    pub total: u32,
+    pub lines: Vec<ScoreLine>,
+}
+
+/// Server → everyone in a lobby: the match clock hit zero.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MatchOver {
+    pub winner_name: String,
+    pub winner_score: u32,
+}
+
+/// Client (party leader) → server: set the match length before starting.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetTimeLimit {
+    pub secs: u32,
+}
+
 /// Reliable, unordered server → client channel for gameplay events.
 pub struct GameChannel;
 
@@ -156,9 +213,15 @@ pub struct LobbyMember {
 pub struct Lobby {
     pub name: String,
     pub leader: PeerId,
+    /// The mode this lobby will play.
+    pub mode: GameMode,
     /// Once `true` the members are being moved into a game; the lobby stops
     /// showing in the browser.
     pub started: bool,
+    /// Match length the leader picked (seconds). UI clamps to 60..=2700.
+    pub time_limit_secs: u32,
+    /// Seconds left in the running match; the server counts it down.
+    pub time_left_secs: u32,
     pub members: Vec<LobbyMember>,
 }
 
@@ -251,6 +314,10 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<LobbyError>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<TrickScore>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<MatchOver>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -261,6 +328,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<LeaveLobby>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<StartGame>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

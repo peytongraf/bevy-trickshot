@@ -13,9 +13,15 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    CreateLobby, GameChannel, JoinLobby, LeaveLobby, Lobby, LobbyError, LobbyMember, PlayerId,
-    PlayerInput, PlayerName, PlayerPose, StartGame,
+    CreateLobby, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby, LobbyError, LobbyMember,
+    MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetTimeLimit, StartGame,
 };
+
+/// Bounds on the leader-set match length (seconds) — 1 to 45 minutes.
+const MIN_TIME_LIMIT: u32 = 60;
+const MAX_TIME_LIMIT: u32 = 45 * 60;
+/// Default match length for a fresh lobby (seconds).
+const DEFAULT_TIME_LIMIT: u32 = 5 * 60;
 
 /// Tags a replicated in-world player entity with the lobby it belongs to, so the
 /// session's players can be found again (rescoping / cleanup).
@@ -35,7 +41,9 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_join)
             .add_observer(on_leave)
             .add_observer(on_start)
-            .add_observer(on_disconnect);
+            .add_observer(on_set_time_limit)
+            .add_observer(on_disconnect)
+            .add_systems(Update, tick_match_clock);
     }
 }
 
@@ -120,7 +128,10 @@ fn on_create(
             Lobby {
                 name,
                 leader: peer,
+                mode: GameMode::default(),
                 started: false,
+                time_limit_secs: DEFAULT_TIME_LIMIT,
+                time_left_secs: DEFAULT_TIME_LIMIT,
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -199,10 +210,15 @@ fn on_start(
     };
 
     lobby.started = true;
+    lobby.time_left_secs = lobby.time_limit_secs;
+    for m in &mut lobby.members {
+        m.score = 0;
+    }
     let members: Vec<shared::LobbyMember> = lobby.members.clone();
     info!(
-        "lobby {lobby_entity:?} started by {peer:?} with {} member(s)",
-        members.len()
+        "lobby {lobby_entity:?} started by {peer:?} with {} member(s), {}s limit",
+        members.len(),
+        lobby.time_limit_secs,
     );
 
     let all: Vec<PeerId> = members.iter().map(|m| m.peer).collect();
@@ -236,6 +252,73 @@ fn on_start(
             ))
             .id();
         info!("  spawned player {entity:?} for {:?}", member.peer);
+    }
+}
+
+/// The leader picks the match length while the lobby is still waiting.
+fn on_set_time_limit(
+    trigger: Trigger<RemoteTrigger<SetTimeLimit>>,
+    mut lobbies: Query<&mut Lobby>,
+) {
+    let peer = trigger.from;
+    let secs = trigger
+        .trigger
+        .secs
+        .clamp(MIN_TIME_LIMIT, MAX_TIME_LIMIT);
+    if let Some(mut lobby) = lobbies
+        .iter_mut()
+        .find(|l| l.leader == peer && !l.started)
+    {
+        lobby.time_limit_secs = secs;
+        lobby.time_left_secs = secs;
+        info!("lobby time limit set to {secs}s by {peer:?}");
+    }
+}
+
+/// Count every started lobby's clock down one second at a time; at zero declare
+/// the top scorer the winner, tell everyone, and end the match (`started`
+/// flipping false drops the clients back to the lobby room).
+fn tick_match_clock(
+    time: Res<Time>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut lobbies: Query<&mut Lobby>,
+    mut acc: Local<f32>,
+) {
+    *acc += time.delta_secs();
+    if *acc < 1.0 {
+        return;
+    }
+    *acc -= 1.0;
+
+    let server = server.into_inner();
+    for mut lobby in &mut lobbies {
+        if !lobby.started || lobby.time_left_secs == 0 {
+            continue;
+        }
+        lobby.time_left_secs -= 1;
+        if lobby.time_left_secs > 0 {
+            continue;
+        }
+
+        let (winner_name, winner_score) = lobby
+            .members
+            .iter()
+            .max_by_key(|m| m.score)
+            .map(|m| (m.name.clone(), m.score))
+            .unwrap_or_default();
+        let targets: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+        let msg = MatchOver {
+            winner_name: winner_name.clone(),
+            winner_score,
+        };
+        if let Err(e) =
+            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets))
+        {
+            error!("failed to broadcast match result: {e:?}");
+        }
+        lobby.started = false;
+        info!("match over — {winner_name} wins with {winner_score}");
     }
 }
 

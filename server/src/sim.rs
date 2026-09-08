@@ -14,9 +14,11 @@ use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
     Bot, GameChannel, Lobby, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved,
+    TrickScore,
 };
 
-use crate::bots::{BotHit, LobbyBot, BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
+use crate::bots::{BotHit, LobbyBot};
+use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 
 /// Nominal player dimensions for hitbox construction. Replace with per-character
 /// values once real models exist.
@@ -117,11 +119,23 @@ fn resolve_shots(
         ) {
             Some(hit) => match kind.get(&hit.target) {
                 Some(HitKind::Bot(bot)) => {
+                    let (points, lines) =
+                        shared::scoring::score_kill(i.spin_deg, i.airborne, i.noscope);
                     bot_hits.write(BotHit {
                         bot: *bot,
                         by: shooter.0,
+                        points,
                     });
-                    info!("tick {tick}: {:?} shot a bot", shooter.0);
+                    let trick = TrickScore {
+                        shooter: shooter.0,
+                        total: points,
+                        lines,
+                    };
+                    if let Err(e) = sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
+                    {
+                        error!("failed to broadcast trick score: {e:?}");
+                    }
+                    info!("tick {tick}: {:?} killed a bot for {points} pts", shooter.0);
                     ShotOutcome::Miss
                 }
                 Some(HitKind::Player(p)) => {
