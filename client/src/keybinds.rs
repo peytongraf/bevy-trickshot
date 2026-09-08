@@ -79,6 +79,8 @@ pub struct KeyBindings {
     pub aim: Binding,
     pub reload: Binding,
     pub teleport_home: Binding,
+    /// Skip the kill-cam replay.
+    pub killcam_skip: Binding,
     /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
     pub cursor_toggle: Binding,
 }
@@ -100,6 +102,7 @@ impl Default for KeyBindings {
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
             teleport_home: Key(KeyCode::KeyT),
+            killcam_skip: Key(KeyCode::KeyF),
             cursor_toggle: Key(KeyCode::KeyL),
         }
     }
@@ -121,6 +124,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Aim Down Sight", |b| &mut b.aim),
     ("Reload", |b| &mut b.reload),
     ("Teleport to Spawn", |b| &mut b.teleport_home),
+    ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];
 

@@ -25,6 +25,7 @@
 //! smoke, movement, weapon sway, camera shake and the sky.
 
 mod keybinds;
+mod killcam;
 mod lobby_ui;
 mod menu;
 mod net;
@@ -263,7 +264,7 @@ fn rand01(seed: u32) -> f32 {
 }
 
 /// Cheap deterministic hash → a roll angle in `[-PI, PI)`.
-fn rand_roll(seed: u32) -> f32 {
+pub(crate) fn rand_roll(seed: u32) -> f32 {
     rand01(seed) * (PI * 2.0) - PI
 }
 
@@ -340,6 +341,7 @@ fn main() {
             menu::MenuPlugin,
             lobby_ui::LobbyUiPlugin,
             practice::PracticePlugin,
+            killcam::KillCamPlugin,
         ))
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
@@ -399,11 +401,15 @@ fn main() {
             EguiPrimaryContextPass,
             ads_tuning_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
         )
-        .add_systems(Update, update_ads.run_if(in_state(AppState::InGame)))
+        .add_systems(
+            Update,
+            update_ads.run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
+        )
         .add_systems(
             Update,
             (
-                // Gameplay input / simulation — frozen while a menu is open.
+                // Gameplay input / simulation — frozen while a menu is open or a
+                // kill-cam replay is playing.
                 (
                     toggle_sprint,
                     crouch_slide,
@@ -413,18 +419,18 @@ fn main() {
                     apply_gravity,
                 )
                     .chain()
-                    .run_if(menu::game_active),
-                look_around.run_if(menu::game_active),
-                weapon_system.run_if(menu::game_active),
+                    .run_if(menu::game_active.and(killcam::no_killcam)),
+                look_around.run_if(menu::game_active.and(killcam::no_killcam)),
+                weapon_system.run_if(menu::game_active.and(killcam::no_killcam)),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
                 update_scope,
                 fade_crosshair,
-                track_trick.after(look_around),
+                track_trick.after(look_around).run_if(killcam::no_killcam),
                 (spawn_score_popup, update_score_popups),
                 sky_follow_camera,
-                camera_shake,
+                camera_shake.run_if(killcam::no_killcam),
                 update_muzzle_flash,
                 // After `look_around` so the smoke uses this frame's aim, not
                 // the previous frame's — otherwise a fast turn leaves the
@@ -635,6 +641,10 @@ pub(crate) struct PlayerHead;
 #[derive(Component)]
 pub(crate) struct WorldModelCamera;
 
+/// The camera that renders the first-person gun (layer 1 only, drawn on top).
+#[derive(Component)]
+pub(crate) struct ViewModelCamera;
+
 /// Set to `Some` by `weapon_system` on the frame the trigger is pulled; consumed
 /// by `net::write_input`, which turns it into the tick's fire request.
 #[derive(Resource, Default)]
@@ -644,14 +654,14 @@ pub(crate) struct PendingShot(pub Option<()>);
 /// overwritten each frame by `camera_shake` with the up/down + side/side shake
 /// offset (or identity), so the gun and the view shake together.
 #[derive(Component)]
-struct CameraShake;
+pub(crate) struct CameraShake;
 
 /// Child of [`CameraShake`] that carries only the cameras (not the gun).
 /// `camera_shake` sets its local Z to the current backward recoil kick, pulling
 /// the eye off the scope's rear lens when a shot's fire animation drags the lens
 /// toward the face.
 #[derive(Component)]
-struct CameraRecoil;
+pub(crate) struct CameraRecoil;
 
 /// The HDR sky sphere; recentred on the camera every frame.
 #[derive(Component)]
@@ -659,27 +669,32 @@ struct SkySphere;
 
 /// The loaded sniper scene root.
 #[derive(Component)]
-struct ViewModel;
+pub(crate) struct ViewModel;
+
+/// On every target-bot visual (practice-local *and* networked avatars), so the
+/// kill cam can hide the live bots and show its own frozen snapshot instead.
+#[derive(Component)]
+pub(crate) struct TargetBotVisual;
 
 /// Handles + node index for the sniper's single animation clip.
 #[derive(Component)]
-struct ViewModelAnimation {
+pub(crate) struct ViewModelAnimation {
     graph: Handle<AnimationGraph>,
-    index: AnimationNodeIndex,
+    pub(crate) index: AnimationNodeIndex,
 }
 
 /// Ammo counts and the animation the weapon is mid-way through, if any. While
 /// `busy` is `Some` neither firing nor reloading is accepted.
 #[derive(Resource)]
-struct Weapon {
+pub(crate) struct Weapon {
     /// Rounds in the current magazine.
     mag: u32,
     /// Rounds not in the magazine.
     reserve: u32,
-    busy: Option<WeaponBusy>,
+    pub(crate) busy: Option<WeaponBusy>,
 }
 
-struct WeaponBusy {
+pub(crate) struct WeaponBusy {
     /// Segments still to play; `remaining[0]` is the one playing now.
     remaining: Vec<AnimationSegment>,
     /// Clip time (seconds) the current segment ends at.
@@ -741,24 +756,24 @@ impl Default for MuzzleFlashSettings {
 /// Live state of the flash: `intensity` snaps to 1 on a shot and decays to 0
 /// over `MUZZLE_FLASH_TIME`; `roll` is a fresh random angle per shot.
 #[derive(Resource, Default)]
-struct MuzzleFlashState {
-    intensity: f32,
-    roll: f32,
-    shots: u32,
+pub(crate) struct MuzzleFlashState {
+    pub(crate) intensity: f32,
+    pub(crate) roll: f32,
+    pub(crate) shots: u32,
 }
 
 /// Preloaded sounds. Loaded once at startup so playback has no first-use hitch.
 #[derive(Resource)]
-struct GameSounds {
-    shot: Handle<AudioSource>,
-    rechamber: Handle<AudioSource>,
-    reload: Handle<AudioSource>,
+pub(crate) struct GameSounds {
+    pub(crate) shot: Handle<AudioSource>,
+    pub(crate) rechamber: Handle<AudioSource>,
+    pub(crate) reload: Handle<AudioSource>,
     ambient: Handle<AudioSource>,
-    aim_in: Handle<AudioSource>,
-    aim_out: Handle<AudioSource>,
+    pub(crate) aim_in: Handle<AudioSource>,
+    pub(crate) aim_out: Handle<AudioSource>,
     out_of_ammo: Handle<AudioSource>,
-    slide: Handle<AudioSource>,
-    dive: Handle<AudioSource>,
+    pub(crate) slide: Handle<AudioSource>,
+    pub(crate) dive: Handle<AudioSource>,
 }
 
 /// Linear volume of the looping nature ambience.
@@ -772,7 +787,7 @@ struct AmbientAudio;
 /// A single drifting, fading smoke sprite. World-space: once spawned it lives in
 /// the world, so the player can walk through it.
 #[derive(Component)]
-struct Smoke {
+pub(crate) struct Smoke {
     velocity: Vec3,
     age: f32,
     /// Seconds to ramp 0 -> `peak_alpha` before the fade-out begins.
@@ -787,7 +802,7 @@ struct Smoke {
 /// Time (seconds) since the last shot started a smoke burst; `None` when not
 /// emitting.
 #[derive(Resource, Default)]
-struct SmokeEmission(Option<f32>);
+pub(crate) struct SmokeEmission(pub(crate) Option<f32>);
 
 /// Shared mesh + texture for smoke particles (each particle still gets its own
 /// material so it can fade independently).
@@ -841,7 +856,7 @@ pub(crate) struct GroundImpact(pub(crate) Vec3);
 /// One rock or dust sprite from a ground impact. World-space, billboarded at the
 /// camera; rocks arc under `gravity`, dust drifts and swells with `drag`.
 #[derive(Component)]
-struct ImpactParticle {
+pub(crate) struct ImpactParticle {
     velocity: Vec3,
     /// Downward acceleration (m/s²). Rocks fall; dust is ~0.
     gravity: f32,
@@ -1445,6 +1460,7 @@ fn setup_player(
                                     // gun), on top. A tiny near plane lets the weapon
                                     // come right up to the lens without being clipped.
                                     cams.spawn((
+                                        ViewModelCamera,
                                         Camera3d::default(),
                                         Camera {
                                             order: 1,
@@ -1616,12 +1632,13 @@ fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>) {
 fn hud_visibility(
     state: Res<State<AppState>>,
     menu: Res<menu::Menu>,
+    killcam: Res<killcam::ActiveKillCam>,
     mut hud: Query<&mut Visibility, With<menu::HudElement>>,
 ) {
-    if !(state.is_changed() || menu.is_changed()) {
+    if !(state.is_changed() || menu.is_changed() || killcam.is_changed()) {
         return;
     }
-    let show = *state.get() == AppState::InGame && !menu.is_open();
+    let show = *state.get() == AppState::InGame && !menu.is_open() && killcam.0.is_none();
     let want = if show {
         Visibility::Inherited
     } else {
@@ -2338,6 +2355,7 @@ fn crouch_slide(
     window: Single<&Window, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
     sounds: Res<GameSounds>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
     mut sprinting: ResMut<Sprinting>,
     mut slide: ResMut<Slide>,
     player: Single<(&Transform, &mut PlayerPhysics), With<Player>>,
@@ -2400,6 +2418,7 @@ fn crouch_slide(
                             ))
                             .id(),
                     );
+                    snd.note(killcam::SND_SLIDE);
                 } else {
                     slide.stance = Stance::Crouching;
                     sprinting.0 = false;
@@ -2471,6 +2490,7 @@ fn crouch_slide(
                     AudioPlayer::new(sounds.dive.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
+                snd.note(killcam::SND_DIVE);
             }
         }
         Stance::Prone => {
@@ -2742,6 +2762,7 @@ fn update_ads(
     window: Single<&Window, With<PrimaryWindow>>,
     tuning: Res<AdsTuning>,
     sounds: Res<GameSounds>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
     mut ads: ResMut<Ads>,
     mut was_aiming: Local<bool>,
     mut commands: Commands,
@@ -2757,12 +2778,13 @@ fn update_ads(
 
     // One-shot cue the instant the player starts / stops aiming.
     if aiming != *was_aiming {
-        let clip = if aiming {
-            sounds.aim_in.clone()
+        let (clip, bit) = if aiming {
+            (sounds.aim_in.clone(), killcam::SND_AIM_IN)
         } else {
-            sounds.aim_out.clone()
+            (sounds.aim_out.clone(), killcam::SND_AIM_OUT)
         };
         commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+        snd.note(bit);
         *was_aiming = aiming;
     }
 
@@ -3060,6 +3082,7 @@ fn weapon_system(
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<practice::LocalShot>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
     (shake_cfg, sounds, anim): (Res<ShakeSettings>, Res<GameSounds>, Res<AnimationSettings>),
     mut commands: Commands,
 ) {
@@ -3096,6 +3119,7 @@ fn weapon_system(
                         AudioPlayer::new(sounds.rechamber.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
+                    snd.note(killcam::SND_RECHAMBER);
                     if let Some(active) = player.animation_mut(node) {
                         active.set_speed(anim.rechamber_speed);
                     }
@@ -3136,6 +3160,7 @@ fn weapon_system(
             AudioPlayer::new(sounds.shot.clone()),
             PlaybackSettings::DESPAWN,
         ));
+        snd.note(killcam::SND_SHOT);
         // Hand the shot ray to `practice::resolve_local_shot`: it kicks up the
         // ground dust locally (instant, and the only path in solo Practice) and,
         // in Practice, resolves the hit + scoring against the offline bots. In a
@@ -3165,6 +3190,7 @@ fn weapon_system(
             AudioPlayer::new(sounds.reload.clone()),
             PlaybackSettings::DESPAWN,
         ));
+        snd.note(killcam::SND_RELOAD);
         play_segment(&mut player, node, SEGMENTS[SEG_RELOAD]);
         weapon.busy = Some(WeaponBusy {
             remaining: vec![SEGMENTS[SEG_RELOAD]],

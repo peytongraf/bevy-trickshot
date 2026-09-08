@@ -109,6 +109,18 @@ pub struct PlayerInput {
     pub airborne: bool,
     /// Whether the shooter was fully un-scoped at fire time.
     pub noscope: bool,
+    /// The player's true camera world transform this tick — position *and*
+    /// rotation, so camera shake, view punch, recoil and the crouch / slide drop
+    /// are all baked in. Recorded for the kill-cam replay.
+    pub cam_pos: [f32; 3],
+    /// Camera world rotation quaternion `[x, y, z, w]` (see `cam_pos`).
+    pub cam_rot: [f32; 4],
+    /// One-shot sounds the player triggered this tick, as a bitmask — replayed
+    /// in the kill cam. Bit meanings are client-internal (`killcam::SND_*`).
+    pub sound_bits: u8,
+    /// Playhead (seconds) of the first-person weapon's baked animation clip this
+    /// tick, so the kill cam can pose the gun exactly as the player saw it.
+    pub anim_time: f32,
 }
 
 impl Default for PlayerInput {
@@ -124,6 +136,10 @@ impl Default for PlayerInput {
             spin_deg: 0.0,
             airborne: false,
             noscope: false,
+            cam_pos: [0.0; 3],
+            cam_rot: [0.0, 0.0, 0.0, 1.0],
+            sound_bits: 0,
+            anim_time: 0.0,
         }
     }
 }
@@ -182,6 +198,41 @@ pub struct TrickScore {
 pub struct MatchOver {
     pub winner_name: String,
     pub winner_score: u32,
+}
+
+/// One recorded frame of a kill-cam replay (server tick rate).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KillCamSample {
+    /// Camera world position.
+    pub cam_pos: [f32; 3],
+    /// Camera world rotation quaternion `[x, y, z, w]`.
+    pub cam_rot: [f32; 4],
+    /// One-shot sounds triggered on this frame (`killcam::SND_*`).
+    pub sound_bits: u8,
+    /// First-person weapon animation playhead (seconds) on this frame.
+    pub anim_time: f32,
+}
+
+/// A target bot as it stood the moment the kill landed.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KillCamBot {
+    pub pos: [f32; 3],
+    pub yaw: f32,
+    /// This is the bot that was shot.
+    pub killed: bool,
+}
+
+/// Server → everyone in a lobby (and built locally in Practice): replay the
+/// killer's last ~3 s. `samples` are oldest-first at `TICK_HZ`; `kill_index` is
+/// the frame the shot landed on (2 s in, 1 s of follow-through after). `bots`
+/// are the targets frozen at the kill moment so the replay can show the one
+/// that was hit toppling over.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KillCam {
+    pub killer_name: String,
+    pub samples: Vec<KillCamSample>,
+    pub kill_index: u32,
+    pub bots: Vec<KillCamBot>,
 }
 
 /// Client (party leader) → server: set the match length before starting.
@@ -317,6 +368,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<TrickScore>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MatchOver>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<KillCam>()
             .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)

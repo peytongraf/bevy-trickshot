@@ -21,9 +21,11 @@ use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
 use shared::{
-    Bot, MatchOver, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved, TrickScore,
+    Bot, KillCam, MatchOver, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved,
+    TrickScore,
 };
 
+use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
     Ads, AppState, GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics,
     TrickScoredEvent, TrickState, WorldModelCamera, NOSCOPE_ADS_MAX,
@@ -99,6 +101,7 @@ impl Plugin for ClientNetPlugin {
                 receive_shots,
                 receive_trick_scores,
                 receive_match_over,
+                receive_killcam,
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -192,8 +195,11 @@ fn write_input(
     head: Query<&Transform, With<PlayerHead>>,
     cam: Query<&GlobalTransform, With<WorldModelCamera>>,
     physics: Query<&PlayerPhysics, With<Player>>,
+    anim_players: Query<&AnimationPlayer>,
+    view_models: Query<&crate::ViewModelAnimation>,
     ads: Res<Ads>,
     mut trick: ResMut<TrickState>,
+    mut snd: ResMut<ReplaySoundBits>,
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
 ) {
@@ -205,6 +211,15 @@ fn write_input(
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
     action.weapon = shared::weapon::WeaponId::Sniper.as_u8();
     action.fire = false;
+    // Kill-cam recording: full camera world transform (shake / recoil / crouch
+    // baked in), one-shot sounds since last tick, and the weapon anim playhead.
+    if let Ok(cam) = cam.single() {
+        let (_, rot, pos) = cam.to_scale_rotation_translation();
+        action.cam_pos = pos.to_array();
+        action.cam_rot = rot.to_array();
+    }
+    action.sound_bits = std::mem::take(&mut snd.0);
+    action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
 
     // Emit the shot from the world camera's viewpoint. Keep the pending flag if
     // the camera isn't ready yet, rather than dropping the shot.
@@ -255,6 +270,18 @@ fn receive_match_over(
                 winner: msg.winner_name,
                 score: msg.winner_score,
             });
+        }
+    }
+}
+
+/// Server → everyone in the lobby: the killer's last ~3 s to replay.
+fn receive_killcam(
+    mut receivers: Query<&mut MessageReceiver<KillCam>>,
+    mut active: ResMut<ActiveKillCam>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            killcam::begin_from_message(&mut active, msg);
         }
     }
 }
@@ -369,6 +396,7 @@ fn spawn_bot_avatars(
             .spawn((
                 StateScoped(AppState::InGame),
                 BotAvatar { src },
+                crate::TargetBotVisual,
                 Transform::default(),
                 Visibility::default(),
             ))

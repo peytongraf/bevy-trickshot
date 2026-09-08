@@ -14,6 +14,7 @@ use shared::bots::{
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 
+use crate::killcam::{PendingLocal, PendingLocalCam};
 use crate::net::GameClient;
 use crate::{
     Ads, AppState, GroundImpact, Player, PlayerPhysics, TrickScoredEvent, TrickState,
@@ -68,7 +69,7 @@ impl Plugin for PracticePlugin {
                 (
                     resolve_local_shot,
                     (spawn_practice_bots, place_practice_bots, tick_practice_bots)
-                        .run_if(is_practice),
+                        .run_if(is_practice.and(crate::killcam::no_killcam)),
                     update_score_text,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -77,7 +78,10 @@ impl Plugin for PracticePlugin {
 }
 
 /// True while the local player is *not* in a networked lobby.
-fn is_practice(local: Query<&LocalId, With<GameClient>>, lobbies: Query<&shared::Lobby>) -> bool {
+pub(crate) fn is_practice(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+) -> bool {
     let me = local.iter().next().map(|l| l.0);
     !me.map(|me| lobbies.iter().any(|l| l.has(me)))
         .unwrap_or(false)
@@ -131,6 +135,7 @@ fn spawn_practice_bots(
                     fall: 0.0,
                     dead_at: None,
                 },
+                crate::TargetBotVisual,
                 StateScoped(AppState::InGame),
                 Transform::from_translation(pos),
                 Visibility::default(),
@@ -187,6 +192,7 @@ fn resolve_local_shot(
     mut bots: Query<(Entity, &mut PracticeBot)>,
     mut trick: ResMut<TrickState>,
     mut score: ResMut<PracticeScore>,
+    mut pending_cam: ResMut<PendingLocalCam>,
     mut impacts: EventWriter<GroundImpact>,
     mut scored: EventWriter<TrickScoredEvent>,
 ) {
@@ -214,10 +220,26 @@ fn resolve_local_shot(
                 resolve_shot(WeaponId::Sniper, shot.origin, shot.dir, &targets, |_, _| false)
             {
                 if let Some((bot_e, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target) {
+                    // Freeze every live bot for the kill cam before the shot
+                    // registers (the hit one is still upright here).
+                    let snap: Vec<(Vec3, f32, bool)> = bots
+                        .iter()
+                        .filter(|(_, b)| b.dead_at.is_none())
+                        .map(|(e, b)| (b.pos, b.yaw, e == bot_e))
+                        .collect();
                     if let Ok((_, mut bot)) = bots.get_mut(bot_e) {
                         if bot.dead_at.is_none() {
-                            bot.dead_at = Some(time.elapsed_secs());
+                            let now = time.elapsed_secs();
+                            bot.dead_at = Some(now);
                             hit_bot = true;
+                            // Kick off this player's own kill cam a second later.
+                            if pending_cam.0.is_none() {
+                                pending_cam.0 = Some(PendingLocal {
+                                    kill_at: now,
+                                    fire_at: now + 1.0,
+                                    bots: snap,
+                                });
+                            }
 
                             let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
                             let (total, lines) = shared::scoring::score_kill(
