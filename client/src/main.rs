@@ -559,6 +559,7 @@ fn main() {
         .init_resource::<WeaponSwayState>()
         .init_resource::<WeaponSwaySettings>()
         .init_resource::<Weapon>()
+        .init_resource::<ThrowingKnife>()
         .init_resource::<PendingShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
@@ -595,6 +596,7 @@ fn main() {
                 setup_crosshair,
                 setup_ammo_ui,
                 setup_fps_ui,
+                setup_bot_assets,
             ),
         )
         .add_systems(
@@ -602,7 +604,7 @@ fn main() {
             (grab_cursor, start_ambient, reset_slide, reset_trick, reset_weapon),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
-        .add_systems(Update, hud_visibility)
+        .add_systems(Update, (hud_visibility, crosshair_root_visibility))
         .add_systems(Update, apply_master_volume)
         // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
@@ -634,7 +636,7 @@ fn main() {
                 // settle even while paused.
                 apply_ads,
                 update_scope,
-                fade_crosshair,
+                (fade_crosshair, update_crosshair_visibility),
                 track_trick.after(look_around).run_if(killcam::no_killcam),
                 (spawn_score_popup, update_score_popups),
                 sky_follow_camera,
@@ -897,6 +899,121 @@ pub(crate) struct ViewModelAnimation {
     pub(crate) index: AnimationNodeIndex,
 }
 
+/// Set by `start_view_model_animation` on the descendant entity that carries
+/// the sniper's `AnimationPlayer`. Bots have their own `AnimationPlayer`s now
+/// (see [`BotAnimationPlayer`]), so anywhere that used to assume "the"
+/// `AnimationPlayer` in the world was the sniper's needs to filter on this.
+#[derive(Component)]
+pub(crate) struct SniperAnimationPlayer;
+
+/// `models/bot.glb` is imported noticeably larger than [`shared::bots::BOT_HEIGHT`]
+/// (the invisible hitbox capsule) — scaled down so what's on screen lines up
+/// with where shots actually register.
+pub(crate) const BOT_MODEL_SCALE: f32 = 2.0 / 3.0;
+
+/// Playback speed for the death clip (`Armature|MTF_Die`) — plays out twice
+/// as fast as authored.
+pub(crate) const BOT_DIE_SPEED: f32 = 2.0;
+
+/// Graph + node indices for `models/bot.glb`'s two animations, built once at
+/// startup: `MTF_IdleAction1` (looped while alive) and `Armature|MTF_Die`
+/// (played once on death).
+#[derive(Resource, Clone)]
+pub(crate) struct BotAnimations {
+    graph: Handle<AnimationGraph>,
+    idle: AnimationNodeIndex,
+    die: AnimationNodeIndex,
+}
+
+/// Tags a bot's `SceneRoot` entity (practice bot, networked avatar, or kill-cam
+/// ghost) so `start_bot_animation` knows to wire it up once the scene finishes
+/// spawning — and so the observer can tell a bot's scene apart from any other
+/// (the sniper, the map, ...).
+#[derive(Component)]
+pub(crate) struct BotVisual;
+
+/// Set by `start_bot_animation` once it finds the `AnimationPlayer` inside a
+/// bot's spawned scene, so later systems (death handling) can reach it
+/// directly instead of re-walking the hierarchy every frame.
+#[derive(Component)]
+pub(crate) struct BotAnimationPlayer(pub(crate) Entity);
+
+/// Build the bot animation graph. Added to the same `Startup` tuple as
+/// `setup_player` / `setup_crosshair` — adding a *separate*
+/// `add_systems(Startup, ...)` call (e.g. from a plugin) perturbs that tuple's
+/// execution order enough to black out the in-game 3D view, so this must stay
+/// part of the one tuple.
+fn setup_bot_assets(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+) {
+    let idle_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(2).from_asset("models/bot.glb"));
+    let die_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(3).from_asset("models/bot.glb"));
+    let (graph, indices) = AnimationGraph::from_clips([idle_clip, die_clip]);
+    let graph = graphs.add(graph);
+    commands.insert_resource(BotAnimations {
+        graph,
+        idle: indices[0],
+        die: indices[1],
+    });
+}
+
+/// Fires once a bot's `SceneRoot` (tagged [`BotVisual`]) finishes spawning:
+/// starts the idle animation looping and remembers which descendant holds the
+/// `AnimationPlayer`, via [`BotAnimationPlayer`], for `play_bot_death` to use
+/// later.
+fn start_bot_animation(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    bots: Query<(), With<BotVisual>>,
+    mut players: Query<&mut AnimationPlayer>,
+    anims: Res<BotAnimations>,
+) {
+    let root = trigger.target();
+    if !bots.contains(root) {
+        return;
+    }
+    for entity in children.iter_descendants(root) {
+        // Same fix as the sniper view model: a skinned mesh is frustum-culled
+        // against its *rest-pose* AABB, not the animated one, so the idle
+        // sway can walk the head/body right out of a rest-pose-computed
+        // frustum — most visible zoomed in (scope), where the FOV is narrow.
+        commands.entity(entity).insert(NoFrustumCulling);
+
+        if let Ok(mut player) = players.get_mut(entity) {
+            let active = player.play(anims.idle);
+            active.set_repeat(RepeatAnimation::Forever);
+            commands
+                .entity(entity)
+                .insert(AnimationGraphHandle(anims.graph.clone()));
+            commands.entity(root).insert(BotAnimationPlayer(entity));
+        }
+    }
+}
+
+/// Switch a bot to its death animation, played once. Callers should only
+/// invoke this on the frame death is first observed (e.g. guarded by their
+/// own "already dying" flag) — a no-op if the scene hasn't finished spawning
+/// yet, in which case the bot just never animates a death, same as a shot
+/// landing before `start_bot_animation` has run.
+pub(crate) fn play_bot_death(
+    root: Entity,
+    roots: &Query<&BotAnimationPlayer>,
+    players: &mut Query<&mut AnimationPlayer>,
+    anims: &BotAnimations,
+) {
+    let Ok(target) = roots.get(root) else { return };
+    let Ok(mut player) = players.get_mut(target.0) else { return };
+    let active = player.play(anims.die);
+    active.set_repeat(RepeatAnimation::Never);
+    active.set_speed(BOT_DIE_SPEED);
+    active.replay();
+}
+
 /// Which weapon slot is up. The knife has no model yet, so `Secondary` just
 /// means "sniper hidden, hands empty" (plus a small movement-speed bump).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -967,9 +1084,36 @@ struct AmmoText;
 #[derive(Component)]
 struct FpsText;
 
-/// The dead-centre white dot; `fade_crosshair` fades it out as the player aims in.
+/// The dead-centre white dot; `fade_crosshair` fades it out as the player aims
+/// in, `update_crosshair_visibility` shows it only while the sniper is the
+/// active weapon and the throwing knife isn't held.
 #[derive(Component)]
 struct CenterDot;
+
+/// The throwing-knife reticle (four ticks with a gap in the middle); shown in
+/// place of [`CenterDot`] while [`ThrowingKnife::active`] is set.
+#[derive(Component)]
+struct ThrowingKnifeCrosshair;
+
+/// Root of the crosshair overlay (both [`CenterDot`] and
+/// [`ThrowingKnifeCrosshair`] live under it). Unlike `menu::HudElement`
+/// (which `hud_visibility` also hides the instant a kill cam starts), this
+/// root stays available through a replay — `killcam::drive_killcam` drives
+/// `Weapon::slot` and [`ThrowingKnife::active`] off the recorded samples, so
+/// the replay shows the same crosshair the shooter had at each moment. It's
+/// still hidden outside a live game or behind a menu, via
+/// `crosshair_root_visibility`.
+#[derive(Component)]
+struct CrosshairRoot;
+
+/// Hold-to-snap-out state for the throwing-knife key. Independent of
+/// [`WeaponSlot`] — it's an instant overlay on whatever's currently equipped
+/// (snap the sniper away with no Hide animation, so a shot's rechamber can be
+/// cut off for a "silent" quickscope), not a real weapon switch.
+#[derive(Resource, Default)]
+pub(crate) struct ThrowingKnife {
+    pub(crate) active: bool,
+}
 
 /// The muzzle-flash sprite quad.
 #[derive(Component)]
@@ -1897,9 +2041,13 @@ fn start_view_model_animation(
             active.set_repeat(RepeatAnimation::Never);
             active.seek_to(0.0);
             active.pause();
-            commands
-                .entity(entity)
-                .insert(AnimationGraphHandle(anim.graph.clone()));
+            commands.entity(entity).insert((
+                AnimationGraphHandle(anim.graph.clone()),
+                // Bots now carry their own `AnimationPlayer`s too, so anything
+                // that used to grab "the" `AnimationPlayer` unfiltered needs
+                // this to pick the sniper's back out.
+                SniperAnimationPlayer,
+            ));
         }
     }
 
@@ -1990,6 +2138,30 @@ fn hud_visibility(
     }
 }
 
+/// Same gating as `hud_visibility` (live game, no menu overlay) but *without*
+/// the kill-cam check — a replay should still show the crosshair the shooter
+/// had at each moment.
+fn crosshair_root_visibility(
+    state: Res<State<AppState>>,
+    menu: Res<menu::Menu>,
+    mut root: Query<&mut Visibility, With<CrosshairRoot>>,
+) {
+    if !(state.is_changed() || menu.is_changed()) {
+        return;
+    }
+    let show = *state.get() == AppState::InGame && !menu.is_open();
+    let want = if show {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut v in &mut root {
+        if *v != want {
+            *v = want;
+        }
+    }
+}
+
 fn setup_ui_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
@@ -2003,11 +2175,26 @@ fn setup_ui_camera(mut commands: Commands) {
     ));
 }
 
-/// A small white dot dead-centre for lining the scope up.
+/// A small white dot dead-centre for lining the scope up, plus the (initially
+/// hidden) throwing-knife reticle shown in its place while the knife is held.
+/// Both live under one `CrosshairRoot` so they share the same centring node
+/// and the same visibility gating (`crosshair_root_visibility`).
 fn setup_crosshair(mut commands: Commands) {
+    let bar = |width: f32, height: f32| {
+        (
+            Node {
+                width: Val::Px(width),
+                height: Val::Px(height),
+                ..default()
+            },
+            BackgroundColor(Color::WHITE),
+            BorderRadius::MAX,
+        )
+    };
+
     commands
         .spawn((
-            menu::HudElement,
+            CrosshairRoot,
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -2017,18 +2204,45 @@ fn setup_crosshair(mut commands: Commands) {
                 ..default()
             },
         ))
-        .with_child((
-            CenterDot,
-            Node {
-                width: Val::Px(5.0),
-                height: Val::Px(5.0),
-                border: UiRect::all(Val::Px(1.0)),
-                ..default()
-            },
-            BackgroundColor(Color::WHITE),
-            BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-            BorderRadius::MAX,
-        ));
+        .with_children(|root| {
+            root.spawn((
+                CenterDot,
+                Node {
+                    width: Val::Px(5.0),
+                    height: Val::Px(5.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                BorderRadius::MAX,
+            ));
+
+            root.spawn((
+                ThrowingKnifeCrosshair,
+                Visibility::Hidden,
+                Node {
+                    position_type: PositionType::Absolute,
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(8.0),
+                    ..default()
+                },
+            ))
+            .with_children(|knife| {
+                knife.spawn(bar(2.0, 40.0));
+                knife
+                    .spawn(Node {
+                        column_gap: Val::Px(16.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(bar(20.0, 2.0));
+                        row.spawn(bar(20.0, 2.0));
+                    });
+                knife.spawn(bar(2.0, 40.0));
+            });
+        });
 }
 
 /// Fade the centre dot out as the player aims down the scope — fully gone at
@@ -2041,6 +2255,39 @@ fn fade_crosshair(
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
     border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
+}
+
+/// Pick the reticle: the centre dot only while the sniper is the active
+/// weapon and the throwing knife isn't held; the throwing-knife crosshair
+/// only while it is. During a kill cam, `killcam::drive_killcam` drives
+/// `weapon.slot` / `ThrowingKnife::active` off the recorded samples, so this
+/// reproduces the same swap the shooter saw instead of a live-only readout.
+fn update_crosshair_visibility(
+    weapon: Res<Weapon>,
+    knife: Res<ThrowingKnife>,
+    mut dot: Query<&mut Visibility, (With<CenterDot>, Without<ThrowingKnifeCrosshair>)>,
+    mut reticle: Query<&mut Visibility, (With<ThrowingKnifeCrosshair>, Without<CenterDot>)>,
+) {
+    if !(weapon.is_changed() || knife.is_changed()) {
+        return;
+    }
+    let sniper_active = weapon.slot == WeaponSlot::Primary;
+    let dot_want = if sniper_active && !knife.active {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    let reticle_want = if knife.active {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if let Ok(mut v) = dot.single_mut() {
+        *v = dot_want;
+    }
+    if let Ok(mut v) = reticle.single_mut() {
+        *v = reticle_want;
+    }
 }
 
 /// Server told us a shot scored — the shooter's client pops a CoD-style yellow
@@ -2795,10 +3042,12 @@ fn reset_slide(mut slide: ResMut<Slide>, mut head: Single<&mut Transform, With<P
 /// parked at rest — so quitting mid-swap can't leave the next game weaponless.
 fn reset_weapon(
     mut weapon: ResMut<Weapon>,
+    mut knife: ResMut<ThrowingKnife>,
     mut view_model: Query<(&ViewModelAnimation, &mut Visibility), With<ViewModel>>,
-    mut players: Query<&mut AnimationPlayer>,
+    mut players: Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
 ) {
     *weapon = Weapon::default();
+    *knife = ThrowingKnife::default();
     if let Ok((vm, mut vis)) = view_model.single_mut() {
         *vis = Visibility::Inherited;
         if let Some(mut player) = players.iter_mut().next() {
@@ -3628,9 +3877,10 @@ fn weapon_system(
     (cam, action_sounds, mut players): (
         Query<&GlobalTransform, With<WorldModelCamera>>,
         Query<Entity, With<WeaponActionSound>>,
-        Query<&mut AnimationPlayer>,
+        Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
     ),
     mut weapon: ResMut<Weapon>,
+    mut knife: ResMut<ThrowingKnife>,
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
     mut muzzle: ResMut<MuzzleFlashState>,
@@ -3645,6 +3895,54 @@ fn weapon_system(
         return;
     };
     let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+
+    // Throwing knife — a separate, instant hide/show layered over whatever's
+    // equipped (doesn't touch `weapon.slot`). Pressing it snaps the sniper away
+    // with no Hide animation, so a shot's rechamber can be cut off for a
+    // "silent" quickscope; releasing it (or pressing swap-weapon while it's
+    // held) draws the sniper back out with the normal Show animation and
+    // resumes whatever the hold interrupted.
+    if locked && binds.throwing_knife.just_pressed(&keys, &mouse) && !knife.active {
+        knife.active = true;
+        if weapon.slot == WeaponSlot::Primary {
+            if let Some(mut busy) = weapon.busy.take() {
+                for e in &action_sounds {
+                    commands.entity(e).try_despawn();
+                }
+                if let Some(seg) = busy.remaining.first().copied() {
+                    if seg.name == SEGMENTS[SEG_RECHAMBER].name
+                        || seg.name == SEGMENTS[SEG_RELOAD].name
+                    {
+                        busy.seg_end = seg.end_secs();
+                        weapon.interrupted = Some(busy);
+                    }
+                }
+            }
+            if let Some(active_anim) = player.animation_mut(node) {
+                active_anim.seek_to(0.0);
+                active_anim.pause();
+            }
+            **view_model_vis = Visibility::Hidden;
+        }
+        return;
+    }
+    if knife.active {
+        let release = !binds.throwing_knife.pressed(&keys, &mouse)
+            || binds.swap_weapon.just_pressed(&keys, &mouse);
+        if release {
+            knife.active = false;
+            if weapon.slot == WeaponSlot::Primary {
+                **view_model_vis = Visibility::Inherited;
+                play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![SEGMENTS[SEG_SHOW]],
+                    seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                    on_finish: WeaponFinish::Draw,
+                });
+            }
+        }
+        return;
+    }
 
     // Weapon swap — accepted even mid-action, so it can cut a reload / rechamber
     // short.

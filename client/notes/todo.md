@@ -1,9 +1,7 @@
 # Todo
 
-- Weapon swap isn't shown on kill cam
-- Check weapon sway on kill cam
+- Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
-- Add throwing knife without actual model for now
 - Kill enemy sound when an enemy is killed isn't heard. May need to add settings for volume of individual sounds.
 - Add blood splatter from enemy when shot.
 - Add footstep sounds.

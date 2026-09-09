@@ -142,6 +142,18 @@ pub struct PlayerInput {
     /// World-space impact point of a shot that struck the ground this tick, so
     /// the kill cam can re-emit the dust / rock burst. `None` otherwise.
     pub ground_pt: Option<[f32; 3]>,
+    /// Whether the first-person weapon model is shown this tick (`false` while
+    /// holstered for the secondary slot, or snapped away for a throwing-knife
+    /// hold), so the kill cam can reproduce weapon swaps and knife-hides
+    /// instead of freezing whatever was on screen when the replay started.
+    pub weapon_visible: bool,
+    /// Whether the throwing-knife key is held this tick, so the kill cam can
+    /// show its crosshair over the recorded window.
+    pub knife_active: bool,
+    /// Whether the sniper (rather than the empty-handed secondary slot) is
+    /// the active weapon this tick, so the kill cam shows the centre dot only
+    /// over the frames where the shooter actually had it.
+    pub sniper_active: bool,
 }
 
 impl Default for PlayerInput {
@@ -166,6 +178,9 @@ impl Default for PlayerInput {
             anim_time: 0.0,
             ads_t: 0.0,
             ground_pt: None,
+            weapon_visible: true,
+            knife_active: false,
+            sniper_active: true,
         }
     }
 }
@@ -262,6 +277,12 @@ pub struct KillCamSample {
     pub ads_t: f32,
     /// World point of a ground burst that fired on this frame, if any.
     pub ground_pt: Option<[f32; 3]>,
+    /// Whether the first-person weapon model was shown on this frame.
+    pub weapon_visible: bool,
+    /// Whether the throwing-knife key was held on this frame.
+    pub knife_active: bool,
+    /// Whether the sniper was the active weapon on this frame.
+    pub sniper_active: bool,
 }
 
 /// A target bot as it stood the moment the kill landed.

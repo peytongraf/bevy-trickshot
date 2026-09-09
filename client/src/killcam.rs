@@ -15,21 +15,21 @@ use std::collections::VecDeque;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
 
-use shared::bots::{BOT_FALL_SECS, BOT_HEIGHT, BOT_RADIUS};
 use shared::KillCamSample;
 
 use crate::keybinds::KeyBindings;
 use crate::settings::Settings;
 use crate::{
-    rand_roll, Ads, AppState, CameraRecoil, CameraShake, GameSounds, GroundImpact,
-    MuzzleFlashState, Player, PlayerHead, SmokeEmission, TargetBotVisual, ViewModel,
-    ViewModelAnimation, Weapon, WorldModelCamera,
+    rand_roll, Ads, AppState, BotAnimationPlayer, BotAnimations, BotVisual, CameraRecoil,
+    CameraShake, GameSounds, GroundImpact, MuzzleFlashState, Player, PlayerHead, SmokeEmission,
+    SniperAnimationPlayer, TargetBotVisual, ViewModel, ViewModelAnimation, Weapon, WeaponSlot,
+    WorldModelCamera,
 };
 
 /// Read the first-person weapon animation's current playhead (seconds), for
 /// recording. `0.0` if the player / clip isn't ready yet.
 pub(crate) fn viewmodel_anim_time(
-    players: &Query<&AnimationPlayer>,
+    players: &Query<&AnimationPlayer, With<SniperAnimationPlayer>>,
     view_models: &Query<&ViewModelAnimation>,
 ) -> f32 {
     view_models
@@ -130,6 +130,14 @@ struct SavedRig {
     /// `Ads::t` at the instant playback took over, restored on teardown so live
     /// aiming resumes exactly where it left off.
     ads_t: f32,
+    /// Whether the view model was shown, whether the throwing knife was held,
+    /// and which slot was equipped, at the instant playback took over — all
+    /// driven by the recorded samples for the replay's duration, then
+    /// restored on teardown so live weapon state resumes exactly where it
+    /// left off.
+    weapon_visible: bool,
+    knife_active: bool,
+    slot: WeaponSlot,
 }
 
 #[derive(Component)]
@@ -140,17 +148,18 @@ struct KillCamBanner;
 struct KillCamGhost {
     pos: Vec3,
     yaw: f32,
-    /// This is the bot that was shot — topples once `elapsed >= kill_time`.
+    /// This is the bot that was shot — plays the death animation once
+    /// `elapsed >= kill_time`.
     killed: bool,
-    /// `0.0` upright … `1.0` flat.
-    fall: f32,
+    /// Set once the death animation has been kicked off, so it isn't
+    /// restarted every frame the ghost lingers.
+    die_played: bool,
 }
 
-/// Shared capsule + material for the ghost bots (built at startup).
+/// Assets built at startup for the kill-cam banner (the ghost bots themselves
+/// reuse the same `models/bot.glb` scene + [`BotAnimations`] as live bots).
 #[derive(Resource)]
 struct KillCamAssets {
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
     /// Bold condensed display face for the banner text.
     banner_font: Handle<Font>,
 }
@@ -223,19 +232,8 @@ pub(crate) fn no_killcam(active: Res<ActiveKillCam>) -> bool {
     active.0.is_none()
 }
 
-fn setup_killcam_assets(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    asset_server: Res<AssetServer>,
-) {
+fn setup_killcam_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(KillCamAssets {
-        mesh: meshes.add(Capsule3d::new(BOT_RADIUS, BOT_HEIGHT - 2.0 * BOT_RADIUS)),
-        material: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.95, 0.55, 0.15),
-            perceptual_roughness: 0.8,
-            ..default()
-        }),
         banner_font: asset_server.load(crate::HUD_FONT),
     });
 }
@@ -267,8 +265,13 @@ fn record_local_replay(
     mut impacts: EventReader<GroundImpact>,
     player: Query<&Transform, With<Player>>,
     head: Query<&Transform, With<PlayerHead>>,
-    anim_players: Query<&AnimationPlayer>,
+    anim_players: Query<&AnimationPlayer, With<SniperAnimationPlayer>>,
     view_models: Query<&ViewModelAnimation>,
+    (view_model_vis, knife, weapon): (
+        Query<&Visibility, With<ViewModel>>,
+        Res<crate::ThrowingKnife>,
+        Res<Weapon>,
+    ),
 ) {
     let (Ok(pt), Ok(ht)) = (player.single(), head.single()) else {
         return;
@@ -291,6 +294,12 @@ fn record_local_replay(
             // Practice replays its ground bursts from `LocalReplay::impacts`
             // (filled just below), so the per-frame slot stays empty here.
             ground_pt: None,
+            weapon_visible: view_model_vis
+                .iter()
+                .next()
+                .is_none_or(|v| *v != Visibility::Hidden),
+            knife_active: knife.active,
+            sniper_active: weapon.slot == WeaponSlot::Primary,
         },
     ));
     for ev in impacts.read() {
@@ -414,7 +423,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
 /// shake / recoil nodes, and put up the banner. We fly the *existing* rig along
 /// the recorded eye path, so the world camera keeps the game's exact fog /
 /// bloom / tonemapping and the first-person gun rides along in view.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn start_killcam(
     mut commands: Commands,
     assets: Res<KillCamAssets>,
@@ -423,6 +432,10 @@ fn start_killcam(
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
     stale_fx: Query<Entity, Or<(With<crate::Smoke>, With<crate::ImpactParticle>)>>,
+    view_model_vis: Query<&Visibility, (With<ViewModel>, Without<TargetBotVisual>)>,
+    knife: Res<crate::ThrowingKnife>,
+    weapon: Res<Weapon>,
+    asset_server: Res<AssetServer>,
 ) {
     let Some(run) = active.0.as_mut() else { return };
     if run.setup {
@@ -434,6 +447,12 @@ fn start_killcam(
         player: Transform::IDENTITY,
         head: Transform::IDENTITY,
         ads_t: ads.t,
+        weapon_visible: view_model_vis
+            .iter()
+            .next()
+            .is_none_or(|v| *v != Visibility::Hidden),
+        knife_active: knife.active,
+        slot: weapon.slot,
     };
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {
@@ -471,17 +490,19 @@ fn start_killcam(
                     pos,
                     yaw,
                     killed,
-                    fall: 0.0,
+                    die_played: false,
                 },
+                BotVisual,
                 StateScoped(AppState::InGame),
-                Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)),
+                Transform::from_translation(pos)
+                    .with_rotation(Quat::from_rotation_y(yaw))
+                    .with_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
                 Visibility::default(),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
+                ),
             ))
-            .with_child((
-                Mesh3d(assets.mesh.clone()),
-                MeshMaterial3d(assets.material.clone()),
-                Transform::from_xyz(0.0, BOT_HEIGHT * 0.5, 0.0),
-            ))
+            .observe(crate::start_bot_animation)
             .id();
         run.ghosts.push(ghost);
     }
@@ -557,22 +578,30 @@ fn drive_killcam(
     mut commands: Commands,
     mut impacts: EventWriter<GroundImpact>,
     mut active: ResMut<ActiveKillCam>,
-    mut weapon: ResMut<Weapon>,
+    (mut weapon, mut knife): (ResMut<Weapon>, ResMut<crate::ThrowingKnife>),
     mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     cams: (
         Single<&mut Projection, With<WorldModelCamera>>,
-        Single<&mut Transform, With<ViewModel>>,
+        Single<(&mut Transform, &mut Visibility), (With<ViewModel>, Without<TargetBotVisual>)>,
     ),
     bots: (
         // Explicit `With<KillCamGhost>` (redundant with the `&mut KillCamGhost`
         // fetch) plus `Without<ViewModel>` so Bevy can prove this is disjoint
         // from `rig` and `cams`'s view-model `Transform` access at the type
         // level, not just by knowing at runtime that the two never overlap.
-        Query<(&mut KillCamGhost, &mut Transform), (With<KillCamGhost>, Without<ViewModel>)>,
+        Query<(Entity, &mut KillCamGhost, &mut Transform), (With<KillCamGhost>, Without<ViewModel>)>,
         Query<&mut Visibility, With<TargetBotVisual>>,
+        Query<&BotAnimationPlayer>,
+        // `Without<SniperAnimationPlayer>`, disjoint from `anim.0` below the
+        // same way the ghost query above is disjoint from `cams`.
+        Query<&mut AnimationPlayer, Without<SniperAnimationPlayer>>,
+        Res<BotAnimations>,
     ),
-    anim: (Query<&mut AnimationPlayer>, Query<&ViewModelAnimation>),
+    anim: (
+        Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
+        Query<&ViewModelAnimation>,
+    ),
 ) {
     let Some(run) = active.0.as_mut() else { return };
     if !run.setup {
@@ -580,8 +609,9 @@ fn drive_killcam(
     }
     let (shake_cfg, tuning) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
-    let (mut world_projection, mut view_model) = cams;
-    let (mut ghosts, mut live_bots) = bots;
+    let (mut world_projection, view_model_single) = cams;
+    let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
+    let (mut ghosts, mut live_bots, bot_roots, mut bot_players, bot_anims) = bots;
     let (mut anim_players, view_models) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
@@ -604,6 +634,16 @@ fn drive_killcam(
             // Hand aiming back exactly where playback found it; `update_ads`
             // (re-enabled the moment the cam clears) eases on from here.
             ads.t = saved.ads_t;
+            // Same for the weapon model / throwing-knife crosshair: whatever
+            // was true live when the cam took over, not whatever the last
+            // replayed frame happened to show.
+            *view_model_vis = if saved.weapon_visible {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            knife.active = saved.knife_active;
+            weapon.slot = saved.slot;
         }
         if let (Some(node), Some(mut ap)) = (anim_node, anim_players.iter_mut().next()) {
             if let Some(a) = ap.animation_mut(node) {
@@ -679,18 +719,42 @@ fn drive_killcam(
     // gated off while a kill cam is active, so there's no double-application).
     let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
     let kick = crate::weapon_kick_pose(&shake_cfg, trauma, phase);
-    **view_model = kick * Transform::from_rotation(sway_rot) * **view_model;
+    *view_model = kick * Transform::from_rotation(sway_rot) * *view_model;
 
-    // Topple the ghost that was shot once the playhead reaches the kill moment.
-    let fall_step = time.delta_secs() / BOT_FALL_SECS;
-    for (mut ghost, mut gtf) in &mut ghosts {
-        if ghost.killed && run.elapsed >= run.kill_time && ghost.fall < 1.0 {
-            ghost.fall = (ghost.fall + fall_step).min(1.0);
+    // Play the death animation on the ghost that was shot once the playhead
+    // reaches the kill moment — once, same guard `tick_practice_bots` /
+    // `follow_bot_avatars` use for the live paths.
+    for (entity, mut ghost, mut gtf) in &mut ghosts {
+        if ghost.killed && !ghost.die_played && run.elapsed >= run.kill_time {
+            ghost.die_played = true;
+            if let Ok(target) = bot_roots.get(entity) {
+                if let Ok(mut player) = bot_players.get_mut(target.0) {
+                    let active = player.play(bot_anims.die);
+                    active.set_repeat(RepeatAnimation::Never);
+                    active.set_speed(crate::BOT_DIE_SPEED);
+                    active.replay();
+                }
+            }
         }
         gtf.translation = ghost.pos;
-        gtf.rotation = Quat::from_rotation_y(ghost.yaw)
-            * Quat::from_rotation_x(ghost.fall.clamp(0.0, 1.0) * core::f32::consts::FRAC_PI_2);
+        gtf.rotation = Quat::from_rotation_y(ghost.yaw);
     }
+
+    // Weapon visibility / throwing-knife crosshair: booleans, so nearest
+    // sample rather than a lerp — same rule the animation playhead uses below.
+    let weapon_visible = if frac < 0.5 { a.weapon_visible } else { b.weapon_visible };
+    *view_model_vis = if weapon_visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    knife.active = if frac < 0.5 { a.knife_active } else { b.knife_active };
+    let sniper_active = if frac < 0.5 { a.sniper_active } else { b.sniper_active };
+    weapon.slot = if sniper_active {
+        WeaponSlot::Primary
+    } else {
+        WeaponSlot::Secondary
+    };
 
     // Pose the first-person weapon exactly where it was: seek its baked clip to
     // the recorded playhead (nearest sample, so we don't lerp across the jumps
@@ -755,7 +819,7 @@ fn drive_killcam(
 
 /// Tear a running replay down on the way out of the game — restore the rig,
 /// drop the banner + ghosts, and hand the live bots back.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn stop_killcam(
     mut commands: Commands,
     mut active: ResMut<ActiveKillCam>,
@@ -763,11 +827,13 @@ fn stop_killcam(
     mut weapon: ResMut<Weapon>,
     mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
-    mut anim_players: Query<&mut AnimationPlayer>,
+    mut anim_players: Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
     view_models: Query<&ViewModelAnimation>,
     banner: Query<Entity, With<KillCamBanner>>,
     ghosts: Query<Entity, With<KillCamGhost>>,
+    mut view_model_vis: Query<&mut Visibility, (With<ViewModel>, Without<TargetBotVisual>)>,
+    mut knife: ResMut<crate::ThrowingKnife>,
 ) {
     pending.0 = None;
     for mut vis in &mut live_bots {
@@ -786,6 +852,15 @@ fn stop_killcam(
                 }
             }
             ads.t = saved.ads_t;
+            if let Ok(mut vis) = view_model_vis.single_mut() {
+                *vis = if saved.weapon_visible {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+            knife.active = saved.knife_active;
+            weapon.slot = saved.slot;
         }
         if let (Some(node), Some(mut ap)) = (
             view_models.iter().next().map(|vm| vm.index),

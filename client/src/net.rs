@@ -27,8 +27,9 @@ use shared::{
 
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
-    Ads, AppState, GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics,
-    TrickScoredEvent, TrickState, WorldModelCamera, NOSCOPE_ADS_MAX,
+    play_bot_death, Ads, AppState, BotAnimationPlayer, BotAnimations, BotVisual, GroundImpact,
+    MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, TrickScoredEvent, TrickState,
+    WorldModelCamera, NOSCOPE_ADS_MAX,
 };
 
 /// Where a shipped build connects when `TRICKSHOT_SERVER` is unset and we're not
@@ -195,7 +196,7 @@ fn write_input(
     head: Query<&Transform, With<PlayerHead>>,
     cam: Query<&GlobalTransform, With<WorldModelCamera>>,
     physics: Query<&PlayerPhysics, With<Player>>,
-    anim_players: Query<&AnimationPlayer>,
+    anim_players: Query<&AnimationPlayer, With<crate::SniperAnimationPlayer>>,
     view_models: Query<&crate::ViewModelAnimation>,
     ads: Res<Ads>,
     shake: Res<crate::Shake>,
@@ -206,6 +207,11 @@ fn write_input(
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
+    (view_model_vis, knife, weapon): (
+        Query<&Visibility, With<crate::ViewModel>>,
+        Res<crate::ThrowingKnife>,
+        Res<crate::Weapon>,
+    ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
         return;
@@ -228,6 +234,12 @@ fn write_input(
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.ads_t = ads.t;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
+    action.weapon_visible = view_model_vis
+        .iter()
+        .next()
+        .is_none_or(|v| *v != Visibility::Hidden);
+    action.knife_active = knife.active;
+    action.sniper_active = weapon.slot == crate::WeaponSlot::Primary;
 
     // Emit the shot from the world camera's viewpoint. Keep the pending flag if
     // the camera isn't ready yet, rather than dropping the shot.
@@ -383,23 +395,24 @@ fn follow_remote_avatars(
     }
 }
 
-// --- bots (orange capsules that topple when shot) --------------------
+// --- bots (models that play a death animation when shot) --------------
 
-/// A capsule standing in for a server-owned [`shared::Bot`].
+/// Stands in for a server-owned [`shared::Bot`], as `models/bot.glb`.
 #[derive(Component)]
 struct BotAvatar {
     src: Entity,
+    /// Set once the death animation has been kicked off, so it isn't
+    /// restarted every replicated update after the bot dies.
+    died: bool,
 }
 
 const BOT_H: f32 = 1.8;
-const BOT_R: f32 = 0.4;
 
 fn spawn_bot_avatars(
     bots: Query<Entity, (With<Bot>, With<Interpolated>)>,
     avatars: Query<&BotAvatar>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
     for src in &bots {
@@ -409,22 +422,17 @@ fn spawn_bot_avatars(
         commands
             .spawn((
                 StateScoped(AppState::InGame),
-                BotAvatar { src },
+                BotAvatar { src, died: false },
+                BotVisual,
                 crate::TargetBotVisual,
-                Transform::default(),
+                Transform::from_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
                 Visibility::default(),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
+                ),
             ))
-            .with_child((
-                Mesh3d(meshes.add(Capsule3d::new(BOT_R, BOT_H - 2.0 * BOT_R))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.95, 0.55, 0.15),
-                    perceptual_roughness: 0.8,
-                    ..default()
-                })),
-                // Lift so the capsule stands on its feet; the parent pivots there.
-                Transform::from_xyz(0.0, BOT_H * 0.5, 0.0),
-            ));
-        info!("bot {src:?} — spawned capsule");
+            .observe(crate::start_bot_animation);
+        info!("bot {src:?} — spawned");
     }
 }
 
@@ -470,19 +478,24 @@ fn dev_auto_fire(
     *cooldown = 1.2;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn follow_bot_avatars(
     bots: Query<&Bot>,
-    mut avatars: Query<(Entity, &BotAvatar, &mut Transform)>,
+    mut avatars: Query<(Entity, &mut BotAvatar, &mut Transform)>,
+    roots: Query<&BotAnimationPlayer>,
+    mut players: Query<&mut AnimationPlayer>,
+    anims: Res<BotAnimations>,
     mut commands: Commands,
 ) {
-    use core::f32::consts::FRAC_PI_2;
-    for (entity, avatar, mut tf) in &mut avatars {
+    for (entity, mut avatar, mut tf) in &mut avatars {
         match bots.get(avatar.src) {
             Ok(bot) => {
                 tf.translation = bot.pos;
-                // Yaw to face, then pitch forward about the feet as it dies.
-                tf.rotation = Quat::from_rotation_y(bot.yaw)
-                    * Quat::from_rotation_x(bot.fall.clamp(0.0, 1.0) * FRAC_PI_2);
+                tf.rotation = Quat::from_rotation_y(bot.yaw);
+                if !bot.alive && !avatar.died {
+                    avatar.died = true;
+                    play_bot_death(entity, &roots, &mut players, &anims);
+                }
             }
             Err(_) => {
                 commands.entity(entity).try_despawn();

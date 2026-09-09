@@ -80,6 +80,9 @@ pub struct KeyBindings {
     pub reload: Binding,
     /// Toggle between the primary (sniper) and secondary (knife) slot.
     pub swap_weapon: Binding,
+    /// Hold to instantly snap the current weapon away and show the throwing-knife
+    /// crosshair; release to draw the weapon back out.
+    pub throwing_knife: Binding,
     pub teleport_home: Binding,
     /// Skip the kill-cam replay.
     pub killcam_skip: Binding,
@@ -104,6 +107,7 @@ impl Default for KeyBindings {
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
             swap_weapon: Key(KeyCode::KeyQ),
+            throwing_knife: Key(KeyCode::KeyV),
             teleport_home: Key(KeyCode::KeyT),
             killcam_skip: Key(KeyCode::KeyF),
             cursor_toggle: Key(KeyCode::KeyL),
@@ -127,6 +131,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Aim Down Sight", |b| &mut b.aim),
     ("Reload", |b| &mut b.reload),
     ("Swap Weapon", |b| &mut b.swap_weapon),
+    ("Throwing Knife", |b| &mut b.throwing_knife),
     ("Teleport to Spawn", |b| &mut b.teleport_home),
     ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),

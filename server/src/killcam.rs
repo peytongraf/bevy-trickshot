@@ -94,6 +94,9 @@ fn record_frames(
                 anim_time: i.anim_time,
                 ads_t: i.ads_t,
                 ground_pt: i.ground_pt,
+                weapon_visible: i.weapon_visible,
+                knife_active: i.knife_active,
+                sniper_active: i.sniper_active,
             },
         ));
         while buf.frames.len() > CAP {

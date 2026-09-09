@@ -9,10 +9,12 @@ use lightyear::prelude::*;
 
 use shared::ballistics::{ground_impact, resolve_shot, Target};
 use shared::bots::{
-    respawn_pose, BOTS_ALIVE, BOT_DEAD_SECS, BOT_FALL_SECS, BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS,
+    respawn_pose, BOTS_ALIVE, BOT_DEAD_SECS, BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS,
 };
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
+
+use crate::{play_bot_death, BotAnimationPlayer, BotAnimations, BotVisual};
 
 use crate::killcam::{PendingLocal, PendingLocalCam};
 use crate::net::GameClient;
@@ -37,17 +39,11 @@ struct PracticeScore(u32);
 struct PracticeBot {
     pos: Vec3,
     yaw: f32,
-    /// `0.0` upright … `1.0` flat; ramps up after death.
-    fall: f32,
+    /// Set once `tick_practice_bots` has kicked off the death animation, so it
+    /// isn't restarted every frame the bot lingers as a corpse.
+    die_played: bool,
     /// Seconds-since-startup the bot was shot; `None` while alive.
     dead_at: Option<f32>,
-}
-
-/// Shared capsule + material for the offline bots.
-#[derive(Resource)]
-struct PracticeAssets {
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
 }
 
 #[derive(Component)]
@@ -59,7 +55,6 @@ impl Plugin for PracticePlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<LocalShot>()
             .init_resource::<PracticeScore>()
-            .add_systems(Startup, setup_practice_assets)
             .add_systems(
                 OnEnter(AppState::InGame),
                 (reset_practice, spawn_score_text),
@@ -87,21 +82,6 @@ pub(crate) fn is_practice(
         .unwrap_or(false)
 }
 
-fn setup_practice_assets(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.insert_resource(PracticeAssets {
-        mesh: meshes.add(Capsule3d::new(BOT_RADIUS, BOT_HEIGHT - 2.0 * BOT_RADIUS)),
-        material: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.95, 0.55, 0.15),
-            perceptual_roughness: 0.8,
-            ..default()
-        }),
-    });
-}
-
 fn reset_practice(
     mut score: ResMut<PracticeScore>,
     bots: Query<Entity, With<PracticeBot>>,
@@ -117,7 +97,7 @@ fn reset_practice(
 /// server places them (`shared::bots::respawn_pose`).
 fn spawn_practice_bots(
     time: Res<Time>,
-    assets: Res<PracticeAssets>,
+    asset_server: Res<AssetServer>,
     bots: Query<&PracticeBot>,
     mut seq: Local<u64>,
     mut commands: Commands,
@@ -132,46 +112,49 @@ fn spawn_practice_bots(
                 PracticeBot {
                     pos,
                     yaw,
-                    fall: 0.0,
+                    die_played: false,
                     dead_at: None,
                 },
+                BotVisual,
                 crate::TargetBotVisual,
                 StateScoped(AppState::InGame),
-                Transform::from_translation(pos),
+                Transform::from_translation(pos).with_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
                 Visibility::default(),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
+                ),
             ))
-            .with_child((
-                Mesh3d(assets.mesh.clone()),
-                MeshMaterial3d(assets.material.clone()),
-                Transform::from_xyz(0.0, BOT_HEIGHT * 0.5, 0.0),
-            ));
+            .observe(crate::start_bot_animation);
     }
 }
 
-/// Push each bot's yaw + topple onto its transform.
+/// Push each bot's yaw onto its transform. The death animation itself now
+/// conveys the fall, so this no longer layers a topple rotation on top.
 fn place_practice_bots(mut bots: Query<(&PracticeBot, &mut Transform)>) {
-    use core::f32::consts::FRAC_PI_2;
     for (bot, mut tf) in &mut bots {
         tf.translation = bot.pos;
-        tf.rotation = Quat::from_rotation_y(bot.yaw)
-            * Quat::from_rotation_x(bot.fall.clamp(0.0, 1.0) * FRAC_PI_2);
+        tf.rotation = Quat::from_rotation_y(bot.yaw);
     }
 }
 
-/// Topple dead bots, then despawn them so `spawn_practice_bots` refills.
+/// Kick off the death animation the first tick a bot is seen dead, then
+/// despawn it once it's lingered long enough (`spawn_practice_bots` refills).
 fn tick_practice_bots(
     time: Res<Time>,
     mut bots: Query<(Entity, &mut PracticeBot)>,
+    roots: Query<&BotAnimationPlayer>,
+    mut players: Query<&mut AnimationPlayer>,
+    anims: Res<BotAnimations>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
-    let step = time.delta_secs() / BOT_FALL_SECS;
     for (entity, mut bot) in &mut bots {
         let Some(dead_at) = bot.dead_at else {
             continue;
         };
-        if bot.fall < 1.0 {
-            bot.fall = (bot.fall + step).min(1.0);
+        if !bot.die_played {
+            bot.die_played = true;
+            play_bot_death(entity, &roots, &mut players, &anims);
         }
         if now - dead_at >= BOT_DEAD_SECS {
             commands.entity(entity).try_despawn();
