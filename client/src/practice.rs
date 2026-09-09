@@ -233,11 +233,12 @@ fn resolve_local_shot(
                             let now = time.elapsed_secs();
                             bot.dead_at = Some(now);
                             hit_bot = true;
-                            // Kick off this player's own kill cam a second later.
+                            // Kick off this player's own kill cam once enough
+                            // follow-through is buffered.
                             if pending_cam.0.is_none() {
                                 pending_cam.0 = Some(PendingLocal {
                                     kill_at: now,
-                                    fire_at: now + 1.0,
+                                    fire_at: now + crate::killcam::POST_SECS,
                                     bots: snap,
                                 });
                             }
@@ -270,20 +271,21 @@ fn resolve_local_shot(
     }
 }
 
-fn spawn_score_text(mut commands: Commands) {
+fn spawn_score_text(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         PracticeScoreText,
         StateScoped(AppState::InGame),
         GlobalZIndex(5),
         Text::new(""),
         TextFont {
-            font_size: 20.0,
+            font: asset_server.load(crate::HUD_FONT),
+            font_size: 26.0,
             ..default()
         },
-        TextColor(Color::srgb(1.0, 0.82, 0.1)),
+        TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(48.0),
+            top: Val::Percent(33.0),
             left: Val::Px(16.0),
             ..default()
         },

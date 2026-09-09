@@ -95,6 +95,11 @@ const UI_LAYER: usize = 4;
 const BODY_CAPSULE_RADIUS: f32 = 0.25;
 const BODY_CAPSULE_HEIGHT: f32 = 1.6;
 
+/// Bold condensed display face used across the in-game HUD (score, ammo, fps,
+/// score popups) and the kill-cam banner — the closest free/open stand-in for
+/// the tall all-caps look modern Call of Duty titles use for this kind of text.
+pub(crate) const HUD_FONT: &str = "fonts/BebasNeue-Regular.ttf";
+
 /// Radius of the sky sphere. Kept inside the camera far plane; the sphere
 /// follows the camera so the player never reaches its edge.
 const SKY_RADIUS: f32 = 900.0;
@@ -1794,6 +1799,7 @@ fn spawn_score_popup(
     mut events: EventReader<TrickScoredEvent>,
     existing: Query<Entity, With<ScorePopup>>,
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
 ) {
     // Only the most recent shot matters if several land in one frame.
     let Some(ev) = events.read().last() else {
@@ -1824,6 +1830,7 @@ fn spawn_score_popup(
                 col.spawn((
                     Text::new(format!("+{points}  {label}")),
                     TextFont {
+                        font: asset_server.load(HUD_FONT),
                         font_size: 25.0,
                         ..default()
                     },
@@ -1860,7 +1867,7 @@ fn update_score_popups(
 }
 
 /// Bottom-right ammo readout: rounds in the mag, then rounds in reserve.
-fn setup_ammo_ui(mut commands: Commands) {
+fn setup_ammo_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             menu::HudElement,
@@ -1878,6 +1885,7 @@ fn setup_ammo_ui(mut commands: Commands) {
             AmmoText,
             Text::new(""),
             TextFont {
+                font: asset_server.load(HUD_FONT),
                 font_size: 30.0,
                 ..default()
             },
@@ -1886,7 +1894,7 @@ fn setup_ammo_ui(mut commands: Commands) {
 }
 
 /// Top-left frames-per-second readout.
-fn setup_fps_ui(mut commands: Commands) {
+fn setup_fps_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             menu::HudElement,
@@ -1904,6 +1912,7 @@ fn setup_fps_ui(mut commands: Commands) {
             FpsText,
             Text::new(""),
             TextFont {
+                font: asset_server.load(HUD_FONT),
                 font_size: 22.0,
                 ..default()
             },

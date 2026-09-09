@@ -1,7 +1,7 @@
 //! Kill-cam recording. Every player carries a per-tick ring buffer of
 //! [`shared::KillCamSample`]s (eye pose + one-shot sound bits). On a bot kill we
-//! note the killer + tick, wait one more second so the follow-through is
-//! buffered, then ship the `[kill − 2 s, kill + 1 s]` window to the lobby.
+//! note the killer + tick, wait for the follow-through to be buffered, then
+//! ship the `[kill − 3 s, kill + 1.5 s]` window to the lobby.
 
 use std::collections::VecDeque;
 
@@ -15,8 +15,8 @@ use shared::{Bot, GameChannel, KillCam, KillCamBot, KillCamSample, Lobby, Player
 use crate::bots::{BotHit, LobbyBot};
 
 /// Samples before / after the kill (at `TICK_HZ`).
-const PRE: u64 = (shared::TICK_HZ as u64) * 2;
-const POST: u64 = shared::TICK_HZ as u64;
+const PRE: u64 = (shared::TICK_HZ as u64) * 3;
+const POST: u64 = (shared::TICK_HZ * 1.5) as u64;
 /// Ring-buffer capacity (a touch over `PRE + POST`).
 const CAP: usize = (PRE + POST + 32) as usize;
 

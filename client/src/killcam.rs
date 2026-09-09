@@ -1,4 +1,4 @@
-//! Kill-cam replay. On a bot kill the server ships the killer's last ~3 s
+//! Kill-cam replay. On a bot kill the server ships the killer's last ~4.5 s
 //! ([`shared::KillCam`]); in solo Practice the same window is cut from a local
 //! ring buffer. Playback flies the *existing* player rig along the recorded
 //! path — body position/yaw, head pitch, camera shake, recoil kick and weapon
@@ -50,10 +50,10 @@ pub(crate) const SND_AIM_IN: u8 = 1 << 5;
 pub(crate) const SND_AIM_OUT: u8 = 1 << 6;
 
 /// Seconds of replay before / after the kill.
-const PRE_SECS: f32 = 2.0;
-const POST_SECS: f32 = 1.0;
+const PRE_SECS: f32 = 3.0;
+pub(crate) const POST_SECS: f32 = 1.5;
 /// A touch more than `PRE + POST`, so the local ring always covers the window.
-const LOCAL_KEEP_SECS: f32 = 4.0;
+const LOCAL_KEEP_SECS: f32 = 5.0;
 
 /// Sounds the player triggered since the last input packet / replay frame.
 /// `write_input` drains it in a networked game; `record_local_replay` drains it
@@ -151,6 +151,8 @@ struct KillCamGhost {
 struct KillCamAssets {
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
+    /// Bold condensed display face for the banner text.
+    banner_font: Handle<Font>,
 }
 
 /// Filter for the four rig entities `start_killcam` / `drive_killcam` steer.
@@ -225,6 +227,7 @@ fn setup_killcam_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     commands.insert_resource(KillCamAssets {
         mesh: meshes.add(Capsule3d::new(BOT_RADIUS, BOT_HEIGHT - 2.0 * BOT_RADIUS)),
@@ -233,6 +236,7 @@ fn setup_killcam_assets(
             perceptual_roughness: 0.8,
             ..default()
         }),
+        banner_font: asset_server.load(crate::HUD_FONT),
     });
 }
 
@@ -308,8 +312,8 @@ fn record_local_replay(
     }
 }
 
-/// Practice: once `fire_at` passes, cut `[kill − 2 s, kill + 1 s]` from the local
-/// ring and start the replay.
+/// Practice: once `fire_at` passes, cut `[kill − 3 s, kill + 1.5 s]` from the
+/// local ring and start the replay.
 fn start_local_killcam(
     time: Res<Time>,
     settings: Res<Settings>,
@@ -515,15 +519,23 @@ fn start_killcam(
                 .with_children(|bar| {
                     bar.spawn((
                         Text::new("KILLCAM"),
-                        TextFont { font_size: 34.0, ..default() },
-                        TextColor(Color::srgb(1.0, 0.82, 0.1)),
+                        TextFont {
+                            font: assets.banner_font.clone(),
+                            font_size: 46.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.85, 0.06, 0.06)),
                     ));
                 });
             c.spawn((bar_node(false), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
                 .with_children(|bar| {
                     bar.spawn((
                         Text::new(run.killer_name.clone()),
-                        TextFont { font_size: 24.0, ..default() },
+                        TextFont {
+                            font: assets.banner_font.clone(),
+                            font_size: 32.0,
+                            ..default()
+                        },
                         TextColor(Color::WHITE),
                     ));
                 });
