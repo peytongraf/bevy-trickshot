@@ -1,6 +1,5 @@
 # Todo
 
-- Increase shadow quality.
 - Add footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.

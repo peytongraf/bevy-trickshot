@@ -1253,7 +1253,7 @@ impl Default for ViewModelPoses {
     fn default() -> Self {
         Self {
             hip: ViewModelOffset {
-                translation: Vec3::new(0.16, -0.18, -0.4),
+                translation: Vec3::new(0.13, -0.24, -0.32),
                 yaw: PI,
                 pitch: 0.0,
                 scale: 0.01,
@@ -2009,6 +2009,39 @@ fn ads_tuning_ui(
             }
             if ui.button("Reset to default").clicked() {
                 *a = ViewModelPoses::default().ads;
+            }
+
+            ui.separator();
+            ui.label("Hip pose");
+            let h = &mut poses.hip;
+            ui.add(egui::Slider::new(&mut h.translation.x, -0.4f32..=0.4).text("x  (right +)"));
+            ui.add(egui::Slider::new(&mut h.translation.y, -0.4f32..=0.4).text("y  (up +)"));
+            ui.add(egui::Slider::new(&mut h.translation.z, -0.8f32..=0.0).text("z  (forward -)"));
+            ui.add(
+                egui::Slider::new(&mut h.yaw, (-PI)..=PI)
+                    .text("yaw")
+                    .step_by(0.001),
+            );
+            ui.add(
+                egui::Slider::new(&mut h.pitch, -0.6f32..=0.6)
+                    .text("pitch")
+                    .step_by(0.001),
+            );
+            ui.add(
+                egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
+                    .text("scale")
+                    .logarithmic(true),
+            );
+
+            if ui.button("Copy hip pose to console").clicked() {
+                info!(
+                    "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
+                     yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
+                    h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
+                );
+            }
+            if ui.button("Reset hip pose to default").clicked() {
+                *h = ViewModelPoses::default().hip;
             }
 
             ui.separator();
