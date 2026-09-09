@@ -109,56 +109,68 @@ fn resolve_shots(
             });
         }
 
+        let origin = Vec3::from_array(i.fire_origin);
+        let dir = Vec3::from_array(i.fire_dir);
+
+        // The tracer's true endpoint — captured up front so it's correct even
+        // for a bot kill, which `outcome` below reports as `Miss` (bots aren't
+        // a valid `ShotOutcome::Hit` target).
+        let mut tracer_end = origin + dir.normalize_or_zero() * weapon.spec().max_range;
+
         let outcome = match resolve_shot(
             weapon,
-            Vec3::from_array(i.fire_origin),
-            Vec3::from_array(i.fire_dir),
+            origin,
+            dir,
             &targets,
             // TODO: swap for your map's occlusion test — shared::map::CollisionWorld.
             |_from, _to| false,
         ) {
-            Some(hit) => match kind.get(&hit.target) {
-                Some(HitKind::Bot(bot)) => {
-                    let (points, lines) =
-                        shared::scoring::score_kill(i.spin_deg, i.airborne, i.noscope);
-                    bot_hits.write(BotHit {
-                        bot: *bot,
-                        by: shooter.0,
-                        points,
-                    });
-                    let trick = TrickScore {
-                        shooter: shooter.0,
-                        total: points,
-                        lines,
-                    };
-                    if let Err(e) = sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
-                    {
-                        error!("failed to broadcast trick score: {e:?}");
+            Some(hit) => {
+                tracer_end = hit.point;
+                match kind.get(&hit.target) {
+                    Some(HitKind::Bot(bot)) => {
+                        let (points, lines) =
+                            shared::scoring::score_kill(i.spin_deg, i.airborne, i.noscope);
+                        bot_hits.write(BotHit {
+                            bot: *bot,
+                            by: shooter.0,
+                            points,
+                        });
+                        let trick = TrickScore {
+                            shooter: shooter.0,
+                            total: points,
+                            lines,
+                        };
+                        if let Err(e) =
+                            sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
+                        {
+                            error!("failed to broadcast trick score: {e:?}");
+                        }
+                        info!("tick {tick}: {:?} killed a bot for {points} pts", shooter.0);
+                        ShotOutcome::Miss
                     }
-                    info!("tick {tick}: {:?} killed a bot for {points} pts", shooter.0);
-                    ShotOutcome::Miss
-                }
-                Some(HitKind::Player(p)) => {
-                    info!(
-                        "tick {tick}: {:?} {} player {:?}",
-                        shooter.0,
-                        if hit.headshot { "HEADSHOT on" } else { "hit" },
-                        p,
-                    );
-                    ShotOutcome::Hit {
-                        target: p.to_bits(),
-                        headshot: hit.headshot,
-                        point: hit.point.to_array(),
-                        damage: hit.damage,
+                    Some(HitKind::Player(p)) => {
+                        info!(
+                            "tick {tick}: {:?} {} player {:?}",
+                            shooter.0,
+                            if hit.headshot { "HEADSHOT on" } else { "hit" },
+                            p,
+                        );
+                        ShotOutcome::Hit {
+                            target: p.to_bits(),
+                            headshot: hit.headshot,
+                            point: hit.point.to_array(),
+                            damage: hit.damage,
+                        }
                     }
+                    None => ShotOutcome::Miss,
                 }
-                None => ShotOutcome::Miss,
-            },
-            None => match ground_impact(
-                Vec3::from_array(i.fire_origin),
-                Vec3::from_array(i.fire_dir),
-            ) {
-                Some(p) => ShotOutcome::Ground { point: p.to_array() },
+            }
+            None => match ground_impact(origin, dir) {
+                Some(p) => {
+                    tracer_end = p;
+                    ShotOutcome::Ground { point: p.to_array() }
+                }
                 None => ShotOutcome::Miss,
             },
         };
@@ -167,6 +179,8 @@ fn resolve_shots(
             shooter: shooter.0,
             tick,
             outcome,
+            origin: origin.to_array(),
+            tracer_end: tracer_end.to_array(),
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::All) {
             error!("failed to broadcast shot result: {e:?}");

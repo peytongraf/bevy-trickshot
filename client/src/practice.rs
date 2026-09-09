@@ -196,6 +196,7 @@ fn resolve_local_shot(
     mut ground_hit: ResMut<crate::killcam::ReplayGroundImpact>,
     mut impacts: EventWriter<GroundImpact>,
     mut scored: EventWriter<TrickScoredEvent>,
+    mut tracers: EventWriter<crate::FireTracer>,
 ) {
     let practice = {
         let me = local.iter().next().map(|l| l.0);
@@ -205,6 +206,12 @@ fn resolve_local_shot(
 
     for shot in shots.read() {
         let mut hit_bot = false;
+        // The shooter's own tracer, spawned instantly (both modes) rather than
+        // waiting on the server: the exact impact point if the shot connected
+        // (Practice only — online has no local target data), else the ground
+        // point below, else a max-range whiff. Other players' tracers come off
+        // the server's authoritative `ShotResolved` (`net::receive_shots`).
+        let mut tracer_end: Option<Vec3> = None;
 
         if practice {
             let targets: Vec<Target> = bots
@@ -220,6 +227,7 @@ fn resolve_local_shot(
             if let Some(hit) =
                 resolve_shot(WeaponId::Sniper, shot.origin, shot.dir, &targets, |_, _| false)
             {
+                tracer_end = Some(hit.point);
                 if let Some((bot_e, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target) {
                     // Freeze every live bot for the kill cam before the shot
                     // registers (the hit one is still upright here).
@@ -260,14 +268,18 @@ fn resolve_local_shot(
             }
         }
 
-        if !hit_bot {
-            if let Some(p) = ground_impact(shot.origin, shot.dir) {
-                impacts.write(GroundImpact(p));
-                // Stamp it onto this tick's `PlayerInput` too, so a networked
-                // kill cam can replay the burst for the other players watching.
-                ground_hit.0 = Some(p);
-            }
+        let ground_pt = if hit_bot { None } else { ground_impact(shot.origin, shot.dir) };
+        if let Some(p) = ground_pt {
+            impacts.write(GroundImpact(p));
+            // Stamp it onto this tick's `PlayerInput` too, so a networked
+            // kill cam can replay the burst for the other players watching.
+            ground_hit.0 = Some(p);
         }
+
+        let end = tracer_end.or(ground_pt).unwrap_or_else(|| {
+            shot.origin + shot.dir.normalize_or_zero() * WeaponId::Sniper.spec().max_range
+        });
+        tracers.write(crate::FireTracer { start: shot.origin, end });
     }
 }
 

@@ -294,15 +294,17 @@ fn receive_killcam(
     }
 }
 
-/// Drain the server's authoritative [`ShotResolved`] broadcasts. Right now the
-/// only thing the client acts on is a `Ground` outcome, which becomes a
-/// [`GroundImpact`] event so everyone sees a debris burst at the same spot.
-/// Our *own* shots are skipped here — `weapon_system` already spawned that burst
-/// locally the instant we fired.
+/// Drain the server's authoritative [`ShotResolved`] broadcasts: a `Ground`
+/// outcome becomes a [`GroundImpact`] event so everyone sees a debris burst at
+/// the same spot, and every outcome fires a [`crate::FireTracer`] so everyone
+/// sees the shot's tracer along its true, server-resolved path. Our *own*
+/// shots are skipped here — `resolve_local_shot` already spawned both locally,
+/// instantly, the moment we fired.
 fn receive_shots(
     local: Query<&LocalId, With<GameClient>>,
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut impacts: EventWriter<GroundImpact>,
+    mut tracers: EventWriter<crate::FireTracer>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     for mut rx in &mut receivers {
@@ -313,6 +315,10 @@ fn receive_shots(
             if let ShotOutcome::Ground { point } = msg.outcome {
                 impacts.write(GroundImpact(Vec3::from_array(point)));
             }
+            tracers.write(crate::FireTracer {
+                start: Vec3::from_array(msg.origin),
+                end: Vec3::from_array(msg.tracer_end),
+            });
         }
     }
 }

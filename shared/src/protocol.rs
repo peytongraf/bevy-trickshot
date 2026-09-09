@@ -201,6 +201,13 @@ pub struct ShotResolved {
     /// Server tick the shot resolved on (wrapping u16).
     pub tick: u16,
     pub outcome: ShotOutcome,
+    /// Muzzle/eye world point the shot was fired from — tracer start.
+    pub origin: [f32; 3],
+    /// World point the shot's visual tracer should end at: the true impact
+    /// point (even for a bot kill, which `outcome` reports as `Miss` since
+    /// bots aren't a valid `ShotOutcome::Hit` target), or a point at the
+    /// weapon's max range for a clean miss.
+    pub tracer_end: [f32; 3],
 }
 
 /// One line of a scored shot's breakdown, e.g. `+50  360° SPIN`.

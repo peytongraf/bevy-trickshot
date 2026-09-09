@@ -1,5 +1,12 @@
 # Todo
 
+- Weapon swap isn't shown on kill cam
+- Need to make a change so that the glb file is used for collision detection.
+- Add audo tab in settings with a master volume control.
+- Add throwing knife without actual model for now
+- Start menu should use new font
+- Play kill enemy sound when an enemy is killed
+- Add blood splatter from enemy when shot.
 - Add footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.

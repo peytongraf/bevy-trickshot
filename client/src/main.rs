@@ -11,7 +11,7 @@
 //!   * `C`                   — crouch (still) / slide (moving); jump cancels a slide
 //!   * `Left Ctrl`           — prone (still) / dolphin dive (moving)
 //!   * `B`                   — jump
-//!   * `T`                   — teleport back onto the building
+//!   * `T`                   — teleport back to spawn
 //!   * mouse                 — look around
 //!   * right mouse (hold)    — aim down sight
 //!   * left mouse            — fire
@@ -104,12 +104,193 @@ pub(crate) const HUD_FONT: &str = "fonts/BebasNeue-Regular.ttf";
 /// follows the camera so the player never reaches its edge.
 const SKY_RADIUS: f32 = 900.0;
 
-/// A ~3-storey box to shoot from. Its top face is at `BUILDING_CENTER.y +
-/// BUILDING_SIZE.y / 2`.
-const BUILDING_SIZE: Vec3 = Vec3::new(8.0, 10.0, 8.0);
-const BUILDING_CENTER: Vec3 = Vec3::new(0.0, 5.0, 8.0);
-/// Where the player spawns / `T` teleports to: on the roof, at eye height.
-const SPAWN_POS: Vec3 = Vec3::new(0.0, 11.7, 8.0);
+/// Placement of `basic_map.glb` (position / yaw / uniform scale), live-tweakable
+/// from the debug panel's "Map" section and pushed onto the loaded scene by
+/// `apply_map_transform`. Rotation is yaw-only (about Y) — `map_surface_height`
+/// derives a closed-form walkable surface from the model's known geometry, and
+/// that only works for a level, unrotated-in-pitch/roll piece.
+#[derive(Resource)]
+struct MapSettings {
+    position: Vec3,
+    rotation_deg: f32,
+    scale: f32,
+}
+
+impl Default for MapSettings {
+    fn default() -> Self {
+        Self {
+            position: Vec3::new(16.0, 0.0, 8.0),
+            rotation_deg: 0.0,
+            scale: 1.0,
+        }
+    }
+}
+
+/// Marker on the spawned `basic_map.glb` scene root, so `apply_map_transform`
+/// can find it.
+#[derive(Component)]
+struct MapModel;
+
+/// One walkable piece of `basic_map.glb`'s hand-fit collision, in the model's
+/// own local space (before `MapSettings` position / yaw / scale is applied).
+/// There's no runtime mesh collision in this game (see `apply_gravity`'s
+/// building-roof check) — `map_surface_height` closed-form computes "what's
+/// the floor here" the same way, just with more pieces. `RampX` / `RampZ`
+/// linearly interpolate height along the given axis between two edges.
+enum MapSurface {
+    Flat { x: (f32, f32), z: (f32, f32), y: f32 },
+    RampX { z: (f32, f32), x_lo: f32, x_hi: f32, y_lo: f32, y_hi: f32 },
+    RampZ { x: (f32, f32), z_lo: f32, z_hi: f32, y_lo: f32, y_hi: f32 },
+}
+
+/// Hand-measured from `basic_map.glb`'s node transforms: the base cube, a ramp
+/// up onto it, a second taller cube reached by a second ramp, a third cube,
+/// and the bridge connecting the second and third. Keep in sync with the
+/// model if it's re-exported with different dimensions.
+const MAP_SURFACES: &[MapSurface] = &[
+    // First cube — top platform (widened to x: -2..6).
+    MapSurface::Flat { x: (-2.0, 6.0), z: (-2.0, 2.0), y: 4.0 },
+    // Ramp from the ground up onto the first cube (moved to its new edge).
+    MapSurface::RampZ { x: (4.0, 6.0), z_lo: -9.2, z_hi: -2.0, y_lo: 0.0, y_hi: 4.0 },
+    // Second, taller cube.
+    MapSurface::Flat { x: (-6.0, -2.0), z: (-2.0, 2.0), y: 6.0 },
+    // Ramp from the first cube's top up onto the second.
+    MapSurface::RampX { z: (0.0, 2.0), x_lo: -2.0, x_hi: 3.22, y_lo: 6.0, y_hi: 4.0 },
+    // Third cube, reached by the bridge.
+    MapSurface::Flat { x: (-20.0, -16.0), z: (-2.0, 2.0), y: 6.0 },
+    // Bridge connecting the second and third cubes.
+    MapSurface::Flat { x: (-16.0, -6.0), z: (-0.98, 0.98), y: 6.0 },
+];
+
+/// World-space height of `basic_map.glb`'s walkable surface at `(world_x,
+/// world_z)`, or `None` if that point isn't over any of it (so the caller
+/// falls through to the ground). Inverse of the position/yaw/scale transform
+/// `apply_map_transform` applies to the visual model, so collision always
+/// matches what's on screen.
+fn map_surface_height(world_x: f32, world_z: f32, map: &MapSettings) -> Option<f32> {
+    let scale = map.scale.max(1.0e-4);
+    let theta = map.rotation_deg.to_radians();
+    let (sin, cos) = (theta.sin(), theta.cos());
+    let dx = world_x - map.position.x;
+    let dz = world_z - map.position.z;
+    let lx = (dx * cos - dz * sin) / scale;
+    let lz = (dx * sin + dz * cos) / scale;
+
+    let mut best: Option<f32> = None;
+    for s in MAP_SURFACES {
+        let h = match *s {
+            MapSurface::Flat { x, z, y } => {
+                (lx >= x.0 && lx <= x.1 && lz >= z.0 && lz <= z.1).then_some(y)
+            }
+            MapSurface::RampZ { x, z_lo, z_hi, y_lo, y_hi } => {
+                (lx >= x.0 && lx <= x.1 && lz >= z_lo && lz <= z_hi).then(|| {
+                    let t = ((lz - z_lo) / (z_hi - z_lo)).clamp(0.0, 1.0);
+                    y_lo.lerp(y_hi, t)
+                })
+            }
+            MapSurface::RampX { z, x_lo, x_hi, y_lo, y_hi } => {
+                (lz >= z.0 && lz <= z.1 && lx >= x_lo.min(x_hi) && lx <= x_lo.max(x_hi)).then(
+                    || {
+                        let t = ((lx - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0);
+                        y_lo.lerp(y_hi, t)
+                    },
+                )
+            }
+        };
+        if let Some(h) = h {
+            best = Some(best.map_or(h, |b: f32| b.max(h)));
+        }
+    }
+    best.map(|h| h * scale + map.position.y)
+}
+
+#[cfg(test)]
+mod map_surface_tests {
+    use super::*;
+
+    fn settings(position: Vec3, rotation_deg: f32, scale: f32) -> MapSettings {
+        MapSettings { position, rotation_deg, scale }
+    }
+
+    #[test]
+    fn flat_cube_top() {
+        // (5.0, -1.5) is on the first cube's top but clear of both ramps'
+        // footprints, which overlap the cube's edges where they attach.
+        let map = settings(Vec3::ZERO, 0.0, 1.0);
+        assert_eq!(map_surface_height(5.0, -1.5, &map), Some(4.0));
+    }
+
+    #[test]
+    fn ramp_interpolates_between_its_edges() {
+        let map = settings(Vec3::ZERO, 0.0, 1.0);
+        assert!((map_surface_height(5.0, -9.2, &map).unwrap() - 0.0).abs() < 1.0e-3);
+        assert!((map_surface_height(5.0, -2.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
+        let mid = map_surface_height(5.0, -5.6, &map).unwrap();
+        assert!(mid > 1.5 && mid < 2.5, "expected a mid-ramp height, got {mid}");
+    }
+
+    #[test]
+    fn outside_every_footprint_is_none() {
+        let map = settings(Vec3::ZERO, 0.0, 1.0);
+        assert_eq!(map_surface_height(50.0, 50.0, &map), None);
+    }
+
+    #[test]
+    fn position_offsets_the_surface() {
+        let map = settings(Vec3::new(100.0, 5.0, 200.0), 0.0, 1.0);
+        assert_eq!(map_surface_height(105.0, 198.5, &map), Some(9.0)); // 4.0 + 5.0
+        assert_eq!(map_surface_height(0.0, 0.0, &map), None);
+    }
+
+    #[test]
+    fn scale_multiplies_footprint_and_height() {
+        let map = settings(Vec3::ZERO, 0.0, 2.0);
+        assert_eq!(map_surface_height(10.0, -3.0, &map), Some(8.0)); // local (5,-1.5) * scale
+        assert_eq!(map_surface_height(12.0, -4.0, &map), Some(8.0)); // local edge x=6,z=-2
+        assert_eq!(map_surface_height(12.1, -4.0, &map), None);
+    }
+
+    #[test]
+    fn second_ramp_connects_the_first_and_second_cube_tops() {
+        let map = settings(Vec3::ZERO, 0.0, 1.0);
+        // Low edge (x=3.22, into the first cube's footprint) is flush with its top.
+        assert!((map_surface_height(3.22, 1.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
+        // High edge (x=-2, the shared wall) is flush with the second cube's top.
+        assert!((map_surface_height(-2.0, 1.0, &map).unwrap() - 6.0).abs() < 1.0e-3);
+    }
+
+    #[test]
+    fn second_and_third_cube_tops_and_bridge_are_all_walkable() {
+        let map = settings(Vec3::ZERO, 0.0, 1.0);
+        assert_eq!(map_surface_height(-4.0, 0.0, &map), Some(6.0)); // second cube
+        assert_eq!(map_surface_height(-18.0, 0.0, &map), Some(6.0)); // third cube
+        assert_eq!(map_surface_height(-11.0, 0.0, &map), Some(6.0)); // bridge between them
+    }
+
+    #[test]
+    fn yaw_rotates_the_footprint() {
+        let map = settings(Vec3::ZERO, 90.0, 1.0);
+        assert!((map_surface_height(-9.2, -5.0, &map).unwrap() - 0.0).abs() < 1.0e-3);
+        assert!((map_surface_height(-2.0, -5.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
+    }
+}
+
+/// Push `MapSettings` onto the loaded scene whenever it changes (also once at
+/// startup, which just re-applies the defaults).
+fn apply_map_transform(map: Res<MapSettings>, model: Single<&mut Transform, With<MapModel>>) {
+    if !map.is_changed() {
+        return;
+    }
+    let mut transform = model.into_inner();
+    transform.translation = map.position;
+    transform.rotation = Quat::from_rotation_y(map.rotation_deg.to_radians());
+    transform.scale = Vec3::splat(map.scale);
+}
+
+/// Where the player spawns / `T` teleports to: ground level, facing the basic
+/// map's ramp. Follows `MapSettings`'s default placement — if you move the map
+/// far from its default, update this too.
+const SPAWN_POS: Vec3 = Vec3::new(16.0, EYE_HEIGHT, -5.0);
 /// Player camera height above the feet — used to test the feet against surfaces.
 const EYE_HEIGHT: f32 = 1.7;
 /// Defaults for the "Movement" panel section (all live-adjustable).
@@ -388,8 +569,10 @@ fn main() {
         .init_resource::<SmokeEmission>()
         .init_resource::<RockSettings>()
         .init_resource::<DustSettings>()
+        .init_resource::<TracerSettings>()
         .init_resource::<TrickState>()
         .add_event::<GroundImpact>()
+        .add_event::<FireTracer>()
         .add_event::<TrickScoredEvent>()
         .add_event::<MatchEndedEvent>()
         .init_resource::<MovementSettings>()
@@ -397,6 +580,7 @@ fn main() {
         .init_resource::<Slide>()
         .init_resource::<SlideSettings>()
         .init_resource::<SceneTuning>()
+        .init_resource::<MapSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
         // swapchain, so instead the menu/lobby screens (opaque `bevy_ui`, drawn
@@ -460,10 +644,12 @@ fn main() {
                 // sprites angled toward where the player just was.
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
                 (spawn_ground_impact, update_impact_particles).after(look_around),
+                (spawn_tracers, update_tracers),
                 update_ammo_ui,
                 update_fps_ui,
                 apply_scene_tuning,
                 apply_shadow_quality,
+                apply_map_transform,
                 debug_cursor_toggle,
             )
                 .after(update_ads)
@@ -827,6 +1013,8 @@ pub(crate) struct GameSounds {
     out_of_ammo: Handle<AudioSource>,
     pub(crate) slide: Handle<AudioSource>,
     pub(crate) dive: Handle<AudioSource>,
+    pub(crate) kill_enemy: Handle<AudioSource>,
+    pub(crate) jump_land: Handle<AudioSource>,
 }
 
 /// Linear volume of the looping nature ambience.
@@ -905,6 +1093,70 @@ impl Default for SmokeSettings {
 /// `spawn_ground_impact`, which kicks up a short rock + dust burst there.
 #[derive(Event)]
 pub(crate) struct GroundImpact(pub(crate) Vec3);
+
+/// A shot's visual tracer path, `start -> end` in world space. Fired for the
+/// local shooter's own shot the instant it's taken (`resolve_local_shot`, both
+/// game modes) and for every other player's shot off the server's
+/// authoritative `ShotResolved` broadcast (`net::receive_shots`). Consumed by
+/// `spawn_tracers`.
+#[derive(Event)]
+pub(crate) struct FireTracer {
+    pub(crate) start: Vec3,
+    pub(crate) end: Vec3,
+}
+
+/// A streak along a shot's path: a brief bright "just fired" flash, then a
+/// lingering smoke trail along the same line that widens and fades out. The
+/// sniper is instant-hitscan, so there's no real flight time to animate —
+/// both phases are a stylised read of "a shot just went through here."
+#[derive(Component)]
+struct Tracer {
+    age: f32,
+}
+
+/// Panel-adjustable tracer look (`ads_tuning_ui`'s "Tracer" section).
+#[derive(Resource)]
+struct TracerSettings {
+    /// Seconds the bright flash phase lasts.
+    flash_secs: f32,
+    /// Seconds the smoke trail then fades over.
+    smoke_secs: f32,
+    /// Flash color — bright and additive/emissive so `Bloom` (already on the
+    /// world camera) reads it as a hot, glowing streak.
+    flash_color: [f32; 3],
+    /// How many stops brighter than `flash_color` the emissive glow is.
+    flash_emissive_boost: f32,
+    /// Line radius (m) during the flash phase.
+    flash_radius: f32,
+    /// Smoke-trail color — desaturated, alpha-blended, not emissive.
+    smoke_color: [f32; 3],
+    /// Opacity the smoke trail starts at, right as the flash ends.
+    smoke_start_alpha: f32,
+    /// Line radius (m) the smoke trail has widened to by the end of its fade.
+    smoke_radius: f32,
+}
+
+impl Default for TracerSettings {
+    fn default() -> Self {
+        Self {
+            flash_secs: 0.06,
+            smoke_secs: 3.0,
+            flash_color: srgb_parts(Color::srgb(1.0, 0.8, 0.35)),
+            flash_emissive_boost: 6.0,
+            flash_radius: 0.018,
+            smoke_color: srgb_parts(Color::srgb(0.72, 0.7, 0.66)),
+            smoke_start_alpha: 0.45,
+            smoke_radius: 0.05,
+        }
+    }
+}
+
+/// Shared unit cylinder (radius 0.5, height 1) that `spawn_tracers` scales to
+/// each shot's length/width, so tracers don't allocate a fresh mesh per shot.
+#[derive(Resource)]
+struct TracerAssets {
+    mesh: Handle<Mesh>,
+}
 
 /// One rock or dust sprite from a ground impact. World-space, billboarded at the
 /// camera; rocks arc under `gravity`, dust drifts and swells with `drag`.
@@ -1307,19 +1559,12 @@ fn setup_world(
         })),
     ));
 
-    // The building the player shoots from (spawns / `T`-teleports onto its roof).
+    // The Blender-built basic map (cubes, ramps, bridge) — `apply_map_transform`
+    // positions it from `MapSettings`; walkability is a hand-fit height field,
+    // not real mesh collision (see `map_surface_height`).
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(
-            BUILDING_SIZE.x,
-            BUILDING_SIZE.y,
-            BUILDING_SIZE.z,
-        ))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.4, 0.4, 0.43),
-            perceptual_roughness: 0.9,
-            ..default()
-        })),
-        Transform::from_translation(BUILDING_CENTER),
+        MapModel,
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/basic_map.glb"))),
     ));
 
     // Sky: the equirectangular HDR mapped onto the inside of a big UV sphere
@@ -1428,6 +1673,11 @@ fn setup_player(
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
         dust: asset_server.load("textures/dust.png"),
         rocks: asset_server.load("textures/rocks.png"),
+    });
+
+    // Unit cylinder (`spawn_tracers` scales + colors it per shot).
+    commands.insert_resource(TracerAssets {
+        mesh: meshes.add(Cylinder::new(0.5, 1.0)),
     });
 
     commands
@@ -1675,6 +1925,8 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
         slide: asset_server.load("audio/slide-sound.mp3"),
         dive: asset_server.load("audio/dive-sound.mp3"),
+        kill_enemy: asset_server.load("audio/kill-enemy-sound.mp3"),
+        jump_land: asset_server.load("audio/jump-landing-sound.mp3"),
     });
 }
 
@@ -1800,6 +2052,7 @@ fn spawn_score_popup(
     existing: Query<Entity, With<ScorePopup>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    sounds: Res<GameSounds>,
 ) {
     // Only the most recent shot matters if several land in one frame.
     let Some(ev) = events.read().last() else {
@@ -1808,6 +2061,14 @@ fn spawn_score_popup(
     for e in &existing {
         commands.entity(e).despawn();
     }
+
+    // `TrickScoredEvent` only ever fires for a kill *this* client just scored
+    // (Practice resolves it locally; online, `net::receive_trick_scores`
+    // already filters the server's broadcast down to our own shooter id).
+    commands.spawn((
+        AudioPlayer::new(sounds.kill_enemy.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 
     commands
         .spawn((
@@ -1964,10 +2225,12 @@ fn ads_tuning_ui(
     mut shake_cfg: ResMut<ShakeSettings>,
     mut anim: ResMut<AnimationSettings>,
     mut scene: ResMut<SceneTuning>,
+    mut tracer: ResMut<TracerSettings>,
     binds: Res<KeyBindings>,
-    shake: Res<Shake>,
-    ads: Res<Ads>,
+    // Bundled — a system function tops out at 16 top-level params.
+    misc: (Res<Shake>, Res<Ads>, ResMut<MapSettings>),
 ) -> Result {
+    let (shake, ads, mut map) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -2078,6 +2341,77 @@ fn ads_tuning_ui(
                 }
                 if ui.button("Reset muzzle flash").clicked() {
                     *m = MuzzleFlashSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Tracer", |ui| {
+                let tr = &mut *tracer;
+                ui.label("flash (just fired)");
+                ui.add(
+                    egui::Slider::new(&mut tr.flash_secs, 0.0f32..=0.3).text("flash duration (s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.flash_radius, 0.005f32..=0.15)
+                        .text("flash radius (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.flash_emissive_boost, 0.0f32..=15.0)
+                        .text("flash glow (emissive ×)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("flash color");
+                    ui.color_edit_button_rgb(&mut tr.flash_color);
+                });
+
+                ui.label("smoke trail");
+                ui.add(
+                    egui::Slider::new(&mut tr.smoke_secs, 0.1f32..=8.0).text("fade duration (s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.smoke_start_alpha, 0.0f32..=1.0)
+                        .text("starting opacity"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.smoke_radius, 0.01f32..=0.4)
+                        .text("end radius (m)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("smoke color");
+                    ui.color_edit_button_rgb(&mut tr.smoke_color);
+                });
+
+                if ui.button("Reset tracer").clicked() {
+                    *tr = TracerSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Map", |ui| {
+                let mp = &mut *map;
+                ui.label("position");
+                ui.add(egui::Slider::new(&mut mp.position.x, -100.0f32..=100.0).text("x"));
+                ui.add(egui::Slider::new(&mut mp.position.y, -20.0f32..=20.0).text("y"));
+                ui.add(egui::Slider::new(&mut mp.position.z, -100.0f32..=100.0).text("z"));
+                ui.add(
+                    egui::Slider::new(&mut mp.rotation_deg, -180.0f32..=180.0)
+                        .text("rotation°  (yaw)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut mp.scale, 0.1f32..=5.0)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+
+                if ui.button("Copy map transform to console").clicked() {
+                    info!(
+                        "map: position Vec3::new({:.2}, {:.2}, {:.2}), rotation_deg: {:.1}, \
+                         scale: {:.3}",
+                        mp.position.x, mp.position.y, mp.position.z, mp.rotation_deg, mp.scale,
+                    );
+                }
+                if ui.button("Reset map transform").clicked() {
+                    *mp = MapSettings::default();
                 }
             });
 
@@ -2718,7 +3052,7 @@ fn move_player(
     transform.translation += physics.horizontal_velocity * time.delta_secs();
 }
 
-/// Snaps the player back onto the roof of the building.
+/// Snaps the player back to the spawn point.
 fn teleport_home(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -2758,33 +3092,36 @@ fn jump(
     }
 }
 
-/// Pull the player down and stop them on whichever surface is under them — the
-/// building roof while over its footprint, otherwise the ground. Walk off the
-/// roof edge and there's nothing under the feet, so the player falls.
+/// Pull the player down and stop them on whichever surface is under them —
+/// the basic-map cubes/ramps/bridge while over their footprint, otherwise the
+/// ground. Walk off an edge and there's nothing under the feet, so the player
+/// falls.
 fn apply_gravity(
     time: Res<Time>,
     settings: Res<MovementSettings>,
     slide: Res<Slide>,
+    map: Res<MapSettings>,
+    sounds: Res<GameSounds>,
+    mut commands: Commands,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let dt = time.delta_secs();
     let (mut transform, mut physics) = player.into_inner();
+    let was_grounded = physics.grounded;
 
     physics.vertical_velocity -= settings.gravity * dt;
 
     let feet_now = transform.translation.y - EYE_HEIGHT;
     let feet_next = feet_now + physics.vertical_velocity * dt;
 
-    let roof = BUILDING_CENTER.y + BUILDING_SIZE.y * 0.5;
-    let over_building = transform.translation.x.abs() <= BUILDING_SIZE.x * 0.5
-        && (transform.translation.z - BUILDING_CENTER.z).abs() <= BUILDING_SIZE.z * 0.5;
-    // Only land on the roof from above/at its level — not when walking through
-    // the building's base at ground height.
-    let surface = if over_building && feet_now >= roof - GROUND_SNAP {
-        roof
-    } else {
-        0.0
-    };
+    // Only land on the map's surface from above/at its level — not when
+    // walking through its base at ground height.
+    let mut surface = 0.0f32;
+    if let Some(h) = map_surface_height(transform.translation.x, transform.translation.z, &map) {
+        if feet_now >= h - GROUND_SNAP {
+            surface = surface.max(h);
+        }
+    }
 
     // A dolphin dive lands on the belly: it also counts as touching down once
     // the tucked camera (`transform.y + slide.drop`, drop ≤ 0) gets within
@@ -2800,6 +3137,15 @@ fn apply_gravity(
     } else {
         transform.translation.y = feet_next + EYE_HEIGHT;
         physics.grounded = false;
+    }
+
+    // Landing thump: airborne to grounded this frame. A dive lands on the
+    // belly and already has its own sound (`SND_DIVE`), so it's excluded here.
+    if !was_grounded && physics.grounded && !dive_landed {
+        commands.spawn((
+            AudioPlayer::new(sounds.jump_land.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
     }
 }
 
@@ -3851,6 +4197,92 @@ fn update_impact_particles(
         };
         if let Some(m) = materials.get_mut(&material.0) {
             m.base_color = Color::srgba(1.0, 1.0, 1.0, p.peak_alpha * envelope.clamp(0.0, 1.0));
+        }
+    }
+}
+
+/// Spawn a streak for each [`FireTracer`] this frame: a thin cylinder spanning
+/// `start -> end`, starting in the bright additive "flash" look — `update_tracers`
+/// carries it into the smoke phase.
+fn spawn_tracers(
+    mut events: EventReader<FireTracer>,
+    assets: Res<TracerAssets>,
+    settings: Res<TracerSettings>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    for ev in events.read() {
+        let delta = ev.end - ev.start;
+        let len = delta.length();
+        if len < 0.05 {
+            continue; // too short to read as a streak (e.g. an instant self-hit)
+        }
+        let dir = delta / len;
+        let mid = ev.start + delta * 0.5;
+        let flash = color_from_parts(settings.flash_color);
+        let material = materials.add(StandardMaterial {
+            base_color: flash,
+            emissive: LinearRgba::from(flash) * settings.flash_emissive_boost,
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            ..default()
+        });
+        commands.spawn((
+            Tracer { age: 0.0 },
+            StateScoped(AppState::InGame),
+            Mesh3d(assets.mesh.clone()),
+            MeshMaterial3d(material),
+            Transform {
+                translation: mid,
+                rotation: Quat::from_rotation_arc(Vec3::Y, dir),
+                scale: Vec3::new(settings.flash_radius * 2.0, len, settings.flash_radius * 2.0),
+            },
+            NotShadowCaster,
+        ));
+    }
+}
+
+/// Drive each tracer through its two phases — a steady bright flash, then a
+/// smoke trail that widens and fades to nothing — then despawn it and free
+/// its (per-instance) material.
+fn update_tracers(
+    time: Res<Time>,
+    settings: Res<TracerSettings>,
+    mut tracers: Query<(Entity, &mut Tracer, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    let flash_secs = settings.flash_secs.max(0.0);
+    let smoke_secs = settings.smoke_secs.max(1.0e-4);
+    let total = flash_secs + smoke_secs;
+
+    for (entity, mut tracer, mut transform, material) in &mut tracers {
+        tracer.age += dt;
+        if tracer.age >= total {
+            materials.remove(&material.0);
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let Some(m) = materials.get_mut(&material.0) else {
+            continue;
+        };
+        if tracer.age < flash_secs {
+            let flash = color_from_parts(settings.flash_color);
+            m.alpha_mode = AlphaMode::Add;
+            m.base_color = flash;
+            m.emissive = LinearRgba::from(flash) * settings.flash_emissive_boost;
+            transform.scale.x = settings.flash_radius * 2.0;
+            transform.scale.z = settings.flash_radius * 2.0;
+        } else {
+            let t = ((tracer.age - flash_secs) / smoke_secs).clamp(0.0, 1.0);
+            let smoke = color_from_parts(settings.smoke_color);
+            m.alpha_mode = AlphaMode::Blend;
+            m.emissive = LinearRgba::BLACK;
+            m.base_color = smoke.with_alpha(settings.smoke_start_alpha * (1.0 - t));
+            let radius = settings.flash_radius.lerp(settings.smoke_radius, t);
+            transform.scale.x = radius * 2.0;
+            transform.scale.z = radius * 2.0;
         }
     }
 }
