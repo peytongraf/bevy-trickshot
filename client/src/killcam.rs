@@ -1,11 +1,14 @@
 //! Kill-cam replay. On a bot kill the server ships the killer's last ~3 s
 //! ([`shared::KillCam`]); in solo Practice the same window is cut from a local
 //! ring buffer. Playback flies the *existing* player rig along the recorded
-//! camera path (full world transform, so shake / recoil / crouch are baked in),
-//! seek-drives the first-person weapon animation, re-fires the recorded one-shot
-//! sounds + muzzle flash + barrel smoke + ground bursts, and stands in ghost
-//! copies of the bots frozen at the kill so the one that was hit topples on cue.
-//! A top banner names the killer; `F` (rebindable) skips.
+//! path — body position/yaw, head pitch, camera shake, recoil kick and weapon
+//! sway are each reconstructed from their own recorded state (not one baked
+//! camera transform), so shake / recoil / sway reproduce exactly, and the FOV
+//! is the shooter's own — seek-drives the first-person weapon animation,
+//! re-fires the recorded one-shot sounds + muzzle flash + barrel smoke +
+//! ground bursts, and stands in ghost copies of the bots frozen at the kill so
+//! the one that was hit topples on cue. A letterbox bar top and bottom names
+//! "KILLCAM" / the killer; `F` (rebindable) skips.
 
 use std::collections::VecDeque;
 
@@ -19,8 +22,8 @@ use crate::keybinds::KeyBindings;
 use crate::settings::Settings;
 use crate::{
     rand_roll, Ads, AppState, CameraRecoil, CameraShake, GameSounds, GroundImpact,
-    MuzzleFlashState, Player, PlayerHead, SmokeEmission, TargetBotVisual, ViewModelAnimation,
-    Weapon, WorldModelCamera,
+    MuzzleFlashState, Player, PlayerHead, SmokeEmission, TargetBotVisual, ViewModel,
+    ViewModelAnimation, Weapon, WorldModelCamera,
 };
 
 /// Read the first-person weapon animation's current playhead (seconds), for
@@ -151,8 +154,8 @@ struct KillCamAssets {
 }
 
 /// Filter for the four rig entities `start_killcam` / `drive_killcam` steer.
-/// `Without<KillCamGhost>` keeps the `&mut Transform` access disjoint from the
-/// ghost query in `drive_killcam`.
+/// `Without<KillCamGhost>` / `Without<ViewModel>` keep the `&mut Transform`
+/// access disjoint from the ghost and view-model queries in `drive_killcam`.
 type RigFilter = (
     Or<(
         With<Player>,
@@ -161,6 +164,7 @@ type RigFilter = (
         With<CameraRecoil>,
     )>,
     Without<KillCamGhost>,
+    Without<ViewModel>,
 );
 
 /// Which of the four rig markers an entity carries.
@@ -200,6 +204,13 @@ impl Plugin for KillCamPlugin {
                     drive_killcam,
                 )
                     .chain()
+                    // `apply_ads` still runs during a replay (it eases FOV /
+                    // view-model pose off the replayed `ads.t`); `drive_killcam`
+                    // overrides the FOV and multiplies the recorded shake /
+                    // sway / recoil onto whatever `apply_ads` just wrote, the
+                    // same order the live systems apply them, so it must run
+                    // after it.
+                    .after(crate::apply_ads)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -244,23 +255,32 @@ fn sound_for<'a>(sounds: &'a GameSounds, bit: u8) -> Option<&'a Handle<AudioSour
 fn record_local_replay(
     time: Res<Time>,
     ads: Res<Ads>,
+    shake: Res<crate::Shake>,
+    sway: Res<crate::WeaponSwayState>,
+    settings: Res<Settings>,
     mut bits: ResMut<ReplaySoundBits>,
     mut replay: ResMut<LocalReplay>,
     mut impacts: EventReader<GroundImpact>,
-    cam: Query<&GlobalTransform, With<WorldModelCamera>>,
+    player: Query<&Transform, With<Player>>,
+    head: Query<&Transform, With<PlayerHead>>,
     anim_players: Query<&AnimationPlayer>,
     view_models: Query<&ViewModelAnimation>,
 ) {
-    let Ok(cam) = cam.single() else {
+    let (Ok(pt), Ok(ht)) = (player.single(), head.single()) else {
         return;
     };
     let now = time.elapsed_secs();
-    let (_, rot, pos) = cam.to_scale_rotation_translation();
     replay.frames.push_back((
         now,
         KillCamSample {
-            cam_pos: pos.to_array(),
-            cam_rot: rot.to_array(),
+            translation: pt.translation.to_array(),
+            yaw: pt.rotation.to_euler(EulerRot::YXZ).0,
+            pitch: ht.rotation.to_euler(EulerRot::YXZ).1,
+            shake_trauma: shake.trauma,
+            shake_phase: shake.phase,
+            shake_recoil: shake.recoil,
+            sway_offset: sway.offset.to_array(),
+            fov_deg: settings.fov,
             sound_bits: std::mem::take(&mut bits.0),
             anim_time: viewmodel_anim_time(&anim_players, &view_models),
             ads_t: ads.t,
@@ -422,10 +442,10 @@ fn start_killcam(
     }
     run.saved = Some(saved);
     info!(
-        "kill cam: {} frames, {} bots, first cam {:?}",
+        "kill cam: {} frames, {} bots, first pos {:?}",
         run.frames.len(),
         run.bots.len(),
-        run.frames.first().map(|(_, s)| s.cam_pos)
+        run.frames.first().map(|(_, s)| s.translation)
     );
 
     // Start from a clean slate: clear any live-play smoke / ground debris still
@@ -462,6 +482,20 @@ fn start_killcam(
         run.ghosts.push(ghost);
     }
 
+    // Cinematic letterbox: a translucent black bar top and bottom, each ~15%
+    // of the screen, "KILLCAM" centred in the top one and the killer's name
+    // centred in the bottom one.
+    let bar_node = |top: bool| Node {
+        position_type: PositionType::Absolute,
+        top: if top { Val::Percent(0.0) } else { Val::Auto },
+        bottom: if top { Val::Auto } else { Val::Percent(0.0) },
+        left: Val::Percent(0.0),
+        right: Val::Percent(0.0),
+        height: Val::Percent(15.0),
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Center,
+        ..default()
+    };
     let banner = commands
         .spawn((
             KillCamBanner,
@@ -469,31 +503,30 @@ fn start_killcam(
             GlobalZIndex(20),
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(28.0),
+                top: Val::Percent(0.0),
                 left: Val::Percent(0.0),
                 right: Val::Percent(0.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(4.0),
+                bottom: Val::Percent(0.0),
                 ..default()
             },
         ))
         .with_children(|c| {
-            c.spawn((
-                Text::new("KILLCAM"),
-                TextFont { font_size: 34.0, ..default() },
-                TextColor(Color::srgb(1.0, 0.82, 0.1)),
-            ));
-            c.spawn((
-                Text::new(format!("{}  \u{25B8}  BOT", run.killer_name)),
-                TextFont { font_size: 20.0, ..default() },
-                TextColor(Color::WHITE),
-            ));
-            c.spawn((
-                Text::new("[F] SKIP"),
-                TextFont { font_size: 15.0, ..default() },
-                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.6)),
-            ));
+            c.spawn((bar_node(true), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
+                .with_children(|bar| {
+                    bar.spawn((
+                        Text::new("KILLCAM"),
+                        TextFont { font_size: 34.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.82, 0.1)),
+                    ));
+                });
+            c.spawn((bar_node(false), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
+                .with_children(|bar| {
+                    bar.spawn((
+                        Text::new(run.killer_name.clone()),
+                        TextFont { font_size: 24.0, ..default() },
+                        TextColor(Color::WHITE),
+                    ));
+                });
         })
         .id();
     run.banner = Some(banner);
@@ -506,6 +539,8 @@ fn drive_killcam(
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     sounds: Res<GameSounds>,
+    // Bundled into tuples — a system function tops out at 16 top-level params.
+    cfg: (Res<crate::ShakeSettings>, Res<crate::AdsTuning>),
     mut fx: (ResMut<MuzzleFlashState>, ResMut<SmokeEmission>),
     mut commands: Commands,
     mut impacts: EventWriter<GroundImpact>,
@@ -513,16 +548,29 @@ fn drive_killcam(
     mut weapon: ResMut<Weapon>,
     mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
-    mut ghosts: Query<(&mut KillCamGhost, &mut Transform)>,
-    mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
-    mut anim_players: Query<&mut AnimationPlayer>,
-    view_models: Query<&ViewModelAnimation>,
+    cams: (
+        Single<&mut Projection, With<WorldModelCamera>>,
+        Single<&mut Transform, With<ViewModel>>,
+    ),
+    bots: (
+        // Explicit `With<KillCamGhost>` (redundant with the `&mut KillCamGhost`
+        // fetch) plus `Without<ViewModel>` so Bevy can prove this is disjoint
+        // from `rig` and `cams`'s view-model `Transform` access at the type
+        // level, not just by knowing at runtime that the two never overlap.
+        Query<(&mut KillCamGhost, &mut Transform), (With<KillCamGhost>, Without<ViewModel>)>,
+        Query<&mut Visibility, With<TargetBotVisual>>,
+    ),
+    anim: (Query<&mut AnimationPlayer>, Query<&ViewModelAnimation>),
 ) {
     let Some(run) = active.0.as_mut() else { return };
     if !run.setup {
         return; // start_killcam hasn't run yet
     }
+    let (shake_cfg, tuning) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
+    let (mut world_projection, mut view_model) = cams;
+    let (mut ghosts, mut live_bots) = bots;
+    let (mut anim_players, view_models) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
     run.elapsed += time.delta_secs();
@@ -565,31 +613,61 @@ fn drive_killcam(
         return;
     }
 
-    // Fly the rig along the recorded camera path. The recorded transform is the
-    // world camera's full global transform (shake / recoil / crouch already
-    // baked in), so we drop it straight onto the rig root and hold every node
-    // below it at identity.
+    // Fly the rig along the recorded path: body position/yaw, head pitch, and
+    // the shake / recoil nodes each get their own recorded local pose (run
+    // through the same pure formulas the live game uses), rather than
+    // collapsing everything onto one rigid world transform — that's what lets
+    // this reproduce camera shake, weapon recoil and weapon sway exactly
+    // instead of just flying a pre-baked camera path.
     let t = run.elapsed.min(duration);
     let (a, b, frac) = bracket(&run.frames, t);
-    let cam_pos = Vec3::from_array(a.cam_pos).lerp(Vec3::from_array(b.cam_pos), frac);
-    let cam_rot = Quat::from_array(a.cam_rot).slerp(Quat::from_array(b.cam_rot), frac);
+    let translation = Vec3::from_array(a.translation).lerp(Vec3::from_array(b.translation), frac);
+    let yaw_rot = Quat::from_rotation_y(a.yaw).slerp(Quat::from_rotation_y(b.yaw), frac);
+    let pitch_rot = Quat::from_rotation_x(a.pitch).slerp(Quat::from_rotation_x(b.pitch), frac);
+    let trauma = a.shake_trauma.lerp(b.shake_trauma, frac);
+    let phase = a.shake_phase.lerp(b.shake_phase, frac);
+    let recoil = a.shake_recoil.lerp(b.shake_recoil, frac);
+    let sway = Vec2::from_array(a.sway_offset).lerp(Vec2::from_array(b.sway_offset), frac);
+    let fov_deg = a.fov_deg.lerp(b.fov_deg, frac);
 
     // Replay the aim-down-sight amount frame-for-frame. `update_ads` is frozen
-    // while the cam runs, so `apply_ads` / `update_scope` / `weapon_sway` (which
-    // keep running) pick this up next frame and reproduce the exact scope-in /
-    // scope-out the killer performed.
+    // while the cam runs, so `apply_ads` / `update_scope` (which keep running)
+    // pick this up next frame and reproduce the exact scope-in / scope-out the
+    // killer performed.
     ads.t = a.ads_t.lerp(b.ads_t, frac).clamp(0.0, 1.0);
+
+    let shake_pose = crate::shake_camera_pose(&shake_cfg, ads.t, trauma, phase);
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {
             *tf = Transform {
-                translation: cam_pos,
-                rotation: cam_rot,
+                translation,
+                rotation: yaw_rot,
                 scale: Vec3::ONE,
             };
-        } else if is_head || is_shake || is_recoil {
-            *tf = Transform::IDENTITY;
+        } else if is_head {
+            *tf = Transform::from_rotation(pitch_rot);
+        } else if is_shake {
+            *tf = shake_pose;
+        } else if is_recoil {
+            *tf = Transform::from_xyz(0.0, 0.0, recoil);
         }
     }
+
+    // FOV: override whatever `apply_ads` just wrote (the *viewer's* hip FOV)
+    // with the FOV the shooter actually had, blended by the same replayed
+    // `ads.t`.
+    if let Projection::Perspective(perspective) = world_projection.as_mut() {
+        perspective.fov = crate::ads_fov_rad(fov_deg, &tuning, ads.t);
+    }
+
+    // Weapon sway + recoil shudder: `apply_ads` already wrote the base hip/ads
+    // pose onto the view model this frame (live, off the replayed `ads.t`);
+    // multiply the recorded sway and kick on top, in the same order the live
+    // `weapon_sway` / `weapon_recoil_shudder` systems apply them (both are
+    // gated off while a kill cam is active, so there's no double-application).
+    let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
+    let kick = crate::weapon_kick_pose(&shake_cfg, trauma, phase);
+    **view_model = kick * Transform::from_rotation(sway_rot) * **view_model;
 
     // Topple the ghost that was shot once the playhead reaches the kill moment.
     let fall_step = time.delta_secs() / BOT_FALL_SECS;

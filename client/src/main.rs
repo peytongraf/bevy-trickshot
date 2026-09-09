@@ -465,14 +465,17 @@ fn main() {
                 .run_if(in_state(AppState::InGame)),
         )
         // Weapon sway rides on top of the ADS pose, using this frame's turn;
-        // the recoil shudder then rides on top of the sway.
+        // the recoil shudder then rides on top of the sway. Both stop during a
+        // kill cam — `killcam::drive_killcam` reproduces them from the
+        // recorded sway / shake state instead, so replay isn't stacked on top
+        // of these reading live (frozen) state.
         .add_systems(
             Update,
             (weapon_sway, weapon_recoil_shudder)
                 .chain()
                 .after(look_around)
                 .after(apply_ads)
-                .run_if(in_state(AppState::InGame)),
+                .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         )
         .run();
 }
@@ -1078,17 +1081,17 @@ impl TrickState {
 /// oscillation and resets at rest. `recoil` is the current backward (+Z local)
 /// camera offset in metres, snapped up on a shot and eased back to zero.
 #[derive(Resource, Default)]
-struct Shake {
-    trauma: f32,
-    phase: f32,
-    recoil: f32,
+pub(crate) struct Shake {
+    pub(crate) trauma: f32,
+    pub(crate) phase: f32,
+    pub(crate) recoil: f32,
 }
 
 /// Panel-adjustable camera-shake tuning. The oscillation + view-punch half
 /// mirrors the `SHAKE_*` consts; the recoil half is the forward/back kick that
 /// keeps the eye behind the scope lens when firing.
 #[derive(Resource)]
-struct ShakeSettings {
+pub(crate) struct ShakeSettings {
     /// Trauma added per shot (result capped at 1).
     trauma_per_shot: f32,
     /// Trauma lost per second.
@@ -1147,7 +1150,7 @@ impl Default for AnimationSettings {
 
 /// Dev-only knobs for dialing in the ADS pose (driven by the egui panel).
 #[derive(Resource)]
-struct AdsTuning {
+pub(crate) struct AdsTuning {
     /// Pin ADS to fully aimed regardless of the right mouse button, so the pose
     /// can be tuned with the cursor free.
     force_full: bool,
@@ -1178,9 +1181,9 @@ struct LookDelta {
 
 /// Running weapon-sway offset (radians), a low-passed lag behind the view.
 #[derive(Resource, Default)]
-struct WeaponSwayState {
+pub(crate) struct WeaponSwayState {
     /// `x` = yaw offset, `y` = pitch offset, applied on top of the ADS pose.
-    offset: Vec2,
+    pub(crate) offset: Vec2,
 }
 
 /// Panel-adjustable weapon sway: the view model trails the direction you turn,
@@ -2925,7 +2928,15 @@ fn update_ads(
 }
 
 /// Blend the world-camera FOV and the view-model pose between hip and ADS.
-fn apply_ads(
+/// Pure: the world camera's vertical FOV (radians) for a given hip FOV setting,
+/// blended toward the ADS zoom by `ads_t`. Shared by the live [`apply_ads`]
+/// system and the kill-cam replay, so a replay renders at the *shooter's* hip
+/// FOV instead of the viewer's own.
+pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f32 {
+    hip_fov_deg.to_radians().lerp(tuning.fov_deg.to_radians(), ease(ads_t))
+}
+
+pub(crate) fn apply_ads(
     ads: Res<Ads>,
     poses: Res<ViewModelPoses>,
     tuning: Res<AdsTuning>,
@@ -2936,10 +2947,7 @@ fn apply_ads(
     let e = ease(ads.t);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = settings
-            .fov
-            .to_radians()
-            .lerp(tuning.fov_deg.to_radians(), e);
+        perspective.fov = ads_fov_rad(settings.fov, &tuning, ads.t);
     }
 
     **view_model = lerp_pose(&poses.hip, &poses.ads, e);
@@ -3838,14 +3846,56 @@ fn update_impact_particles(
     }
 }
 
+/// Pure: the `CameraShake` node's local transform for a given shake state — the
+/// positional jitter and view punch — a directional pitch-up plus rotational
+/// chaos, both scaled by `trauma` / `trauma²` and eased down while scoped. At
+/// rest (`trauma <= 0`) this is exactly identity.
+///
+/// Shared by the live [`camera_shake`] system and the kill-cam replay
+/// (`killcam::drive_killcam`), so a replayed `(trauma, phase)` reproduces
+/// on-screen exactly what the shooter saw.
+pub(crate) fn shake_camera_pose(cfg: &ShakeSettings, ads_t: f32, trauma: f32, phase: f32) -> Transform {
+    if trauma <= 0.0 {
+        return Transform::IDENTITY;
+    }
+    let s = phase;
+    let amt = trauma * trauma;
+
+    // Ease the rotational punch off as the player scopes in, so ADS stays
+    // controllable while the hip still kicks hard.
+    let ads_scale = 1.0 - 0.7 * ads_t.clamp(0.0, 1.0);
+
+    // Positional jitter: up / down + side / side, no Z.
+    let translation = Vec3::new(
+        (s * 1.53 + 0.4).sin() * cfg.pos_max * amt,
+        (s * 1.19 + 3.3).sin() * cfg.pos_max * amt,
+        0.0,
+    );
+
+    // View punch: a directional pitch-up that recovers with `trauma`, plus
+    // rotational chaos (`trauma²`) on top. +X rotation looks up.
+    let punch = trauma * cfg.view_punch_deg.to_radians() * ads_scale;
+    let jitter = cfg.view_jitter_deg.to_radians() * amt * ads_scale;
+    let rotation = Quat::from_euler(
+        EulerRot::YXZ,
+        (s * 0.91 + 1.7).sin() * jitter,       // yaw
+        punch + (s * 0.63).sin() * jitter,     // pitch (up)
+        (s * 1.27 + 2.1).sin() * jitter * 0.6, // roll
+    );
+
+    Transform {
+        translation,
+        rotation,
+        scale: Vec3::ONE,
+    }
+}
+
 /// Rebuild the shake nodes' local transforms each frame from the current state,
 /// always from zero, so they settle back to exactly identity and never drift aim.
 ///
-/// * `CameraShake` (gun + cameras): up / down + side / side positional jitter
-///   *and* the view punch — a directional pitch-up plus rotational chaos, both
-///   scaled by `trauma` / `trauma²` and eased down while scoped. Rotating this
-///   node turns the gun and the cameras as one, so the gun stays screen-locked
-///   while the world swings.
+/// * `CameraShake` (gun + cameras): the positional jitter and view punch from
+///   [`shake_camera_pose`]. Rotating this node turns the gun and the cameras as
+///   one, so the gun stays screen-locked while the world swings.
 /// * `CameraRecoil` (cameras only): local +Z (straight back along the view axis)
 ///   set to the current recoil kick, which snaps up on a shot and eases home.
 fn camera_shake(
@@ -3872,46 +3922,16 @@ fn camera_shake(
 
     // --- up / down + side / side oscillation -------------------------------
     shake.trauma = (shake.trauma - cfg.decay * dt).max(0.0);
-
-    if shake.trauma <= 0.0 {
+    if shake.trauma > 0.0 {
+        shake.phase += dt * cfg.frequency;
+    } else {
         shake.phase = 0.0;
-        if **rig != Transform::IDENTITY {
-            **rig = Transform::IDENTITY;
-        }
-        return;
     }
 
-    shake.phase += dt * cfg.frequency;
-    let s = shake.phase;
-    let amt = shake.trauma * shake.trauma;
-
-    // Ease the rotational punch off as the player scopes in, so ADS stays
-    // controllable while the hip still kicks hard.
-    let ads_scale = 1.0 - 0.7 * ads.t.clamp(0.0, 1.0);
-
-    // Positional jitter: up / down + side / side, no Z.
-    let translation = Vec3::new(
-        (s * 1.53 + 0.4).sin() * cfg.pos_max * amt,
-        (s * 1.19 + 3.3).sin() * cfg.pos_max * amt,
-        0.0,
-    );
-
-    // View punch: a directional pitch-up that recovers with `trauma`, plus
-    // rotational chaos (`trauma²`) on top. +X rotation looks up.
-    let punch = shake.trauma * cfg.view_punch_deg.to_radians() * ads_scale;
-    let jitter = cfg.view_jitter_deg.to_radians() * amt * ads_scale;
-    let rotation = Quat::from_euler(
-        EulerRot::YXZ,
-        (s * 0.91 + 1.7).sin() * jitter,       // yaw
-        punch + (s * 0.63).sin() * jitter,     // pitch (up)
-        (s * 1.27 + 2.1).sin() * jitter * 0.6, // roll
-    );
-
-    **rig = Transform {
-        translation,
-        rotation,
-        scale: Vec3::ONE,
-    };
+    let want = shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase);
+    if **rig != want {
+        **rig = want;
+    }
 }
 
 /// A short, sharp shudder layered onto the view model on top of the sway pose:
@@ -3920,26 +3940,33 @@ fn camera_shake(
 /// this moves the gun *relative* to the camera, the way a CoD weapon recoils,
 /// and never touches aim. Pre-multiplied in camera space (+Z toward the eye,
 /// +Y up), so it is independent of the view model's own orientation.
-fn weapon_recoil_shudder(
-    cfg: Res<ShakeSettings>,
-    shake: Res<Shake>,
-    mut view_model: Single<&mut Transform, With<ViewModel>>,
-) {
-    if shake.trauma <= 0.0 {
-        return;
+/// Pure: the shudder kick premultiplied onto the view model — the gun punches
+/// back toward the eye and the muzzle climbs, scaled by `trauma`. Shared by the
+/// live [`weapon_recoil_shudder`] system and the kill-cam replay.
+pub(crate) fn weapon_kick_pose(cfg: &ShakeSettings, trauma: f32, phase: f32) -> Transform {
+    if trauma <= 0.0 {
+        return Transform::IDENTITY;
     }
-    let amt = shake.trauma * shake.trauma;
-    let s = shake.phase;
+    let amt = trauma * trauma;
+    let s = phase;
 
     let back = amt * cfg.weapon_kick;
     let rise = amt * cfg.weapon_kick * 0.5;
     let wobble = (s * 0.8).sin() * cfg.weapon_kick * 0.25 * amt;
 
-    let kick = Transform {
+    Transform {
         translation: Vec3::new(wobble, rise, back),
-        rotation: Quat::from_rotation_x(shake.trauma * cfg.weapon_kick_deg.to_radians()),
+        rotation: Quat::from_rotation_x(trauma * cfg.weapon_kick_deg.to_radians()),
         scale: Vec3::ONE,
-    };
+    }
+}
+
+fn weapon_recoil_shudder(
+    cfg: Res<ShakeSettings>,
+    shake: Res<Shake>,
+    mut view_model: Single<&mut Transform, With<ViewModel>>,
+) {
+    let kick = weapon_kick_pose(&cfg, shake.trauma, shake.phase);
     **view_model = kick * **view_model;
 }
 

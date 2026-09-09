@@ -17,6 +17,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::weapon::WeaponId;
 
+/// Fallback hip FOV (degrees) for a fresh `PlayerInput` before the client's
+/// first tick fills in its real `Settings::fov`. Mirrors the client's own
+/// `FOV_DEFAULT`.
+const DEFAULT_FOV_DEG: f32 = 90.0;
+
 /// The game mode a lobby plays. New modes slot in here; both ends branch on the
 /// one the [`Lobby`] carries.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -109,12 +114,22 @@ pub struct PlayerInput {
     pub airborne: bool,
     /// Whether the shooter was fully un-scoped at fire time.
     pub noscope: bool,
-    /// The player's true camera world transform this tick — position *and*
-    /// rotation, so camera shake, view punch, recoil and the crouch / slide drop
-    /// are all baked in. Recorded for the kill-cam replay.
-    pub cam_pos: [f32; 3],
-    /// Camera world rotation quaternion `[x, y, z, w]` (see `cam_pos`).
-    pub cam_rot: [f32; 4],
+    /// Camera-shake state this tick (`Shake::trauma` / `phase` / `recoil` on the
+    /// client) — small and fully reproduces the positional jitter, view punch
+    /// and forward recoil kick when replayed through the same formula the live
+    /// game uses. Recorded for the kill-cam replay; `translation` / `yaw` /
+    /// `pitch` above already carry the base pose, so this only needs to add the
+    /// shake/recoil *delta* rather than a redundant absolute camera transform.
+    pub shake_trauma: f32,
+    pub shake_phase: f32,
+    pub shake_recoil: f32,
+    /// Weapon-sway offset this tick (`WeaponSwayState::offset`: yaw, pitch) —
+    /// replayed the same way, so the gun's turn-lag is exact rather than just
+    /// easing back to neutral during playback.
+    pub sway_offset: [f32; 2],
+    /// The player's hip field-of-view setting this tick, so the kill cam renders
+    /// at the FOV the shooter actually had, not the viewer's own.
+    pub fov_deg: f32,
     /// One-shot sounds the player triggered this tick, as a bitmask — replayed
     /// in the kill cam. Bit meanings are client-internal (`killcam::SND_*`).
     pub sound_bits: u8,
@@ -142,8 +157,11 @@ impl Default for PlayerInput {
             spin_deg: 0.0,
             airborne: false,
             noscope: false,
-            cam_pos: [0.0; 3],
-            cam_rot: [0.0, 0.0, 0.0, 1.0],
+            shake_trauma: 0.0,
+            shake_phase: 0.0,
+            shake_recoil: 0.0,
+            sway_offset: [0.0; 2],
+            fov_deg: DEFAULT_FOV_DEG,
             sound_bits: 0,
             anim_time: 0.0,
             ads_t: 0.0,
@@ -208,13 +226,27 @@ pub struct MatchOver {
     pub winner_score: u32,
 }
 
-/// One recorded frame of a kill-cam replay (server tick rate).
+/// One recorded frame of a kill-cam replay (server tick rate). Self-contained:
+/// the base pose (`translation` / `yaw` / `pitch`) plus the shake / recoil /
+/// sway state needed to reconstruct the exact camera + weapon transforms the
+/// shooter saw, by running the same pose formulas the live game uses.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct KillCamSample {
-    /// Camera world position.
-    pub cam_pos: [f32; 3],
-    /// Camera world rotation quaternion `[x, y, z, w]`.
-    pub cam_rot: [f32; 4],
+    /// Player-root world position this frame.
+    pub translation: [f32; 3],
+    /// Player-root (body) yaw.
+    pub yaw: f32,
+    /// Head pitch.
+    pub pitch: f32,
+    /// Camera-shake state (see `PlayerInput::shake_trauma` and friends) —
+    /// reproduces the positional jitter, view punch and recoil kick exactly.
+    pub shake_trauma: f32,
+    pub shake_phase: f32,
+    pub shake_recoil: f32,
+    /// Weapon-sway offset (yaw, pitch) this frame.
+    pub sway_offset: [f32; 2],
+    /// The shooter's hip FOV setting, so the replay renders at their FOV.
+    pub fov_deg: f32,
     /// One-shot sounds triggered on this frame (`killcam::SND_*`).
     pub sound_bits: u8,
     /// First-person weapon animation playhead (seconds) on this frame.

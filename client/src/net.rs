@@ -198,6 +198,9 @@ fn write_input(
     anim_players: Query<&AnimationPlayer>,
     view_models: Query<&crate::ViewModelAnimation>,
     ads: Res<Ads>,
+    shake: Res<crate::Shake>,
+    sway: Res<crate::WeaponSwayState>,
+    settings: Res<crate::settings::Settings>,
     mut trick: ResMut<TrickState>,
     mut snd: ResMut<ReplaySoundBits>,
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
@@ -212,13 +215,15 @@ fn write_input(
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
     action.weapon = shared::weapon::WeaponId::Sniper.as_u8();
     action.fire = false;
-    // Kill-cam recording: full camera world transform (shake / recoil / crouch
-    // baked in), one-shot sounds since last tick, and the weapon anim playhead.
-    if let Ok(cam) = cam.single() {
-        let (_, rot, pos) = cam.to_scale_rotation_translation();
-        action.cam_pos = pos.to_array();
-        action.cam_rot = rot.to_array();
-    }
+    // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
+    // FOV, so a replay can reproduce shake / recoil / sway and render at this
+    // player's FOV instead of re-deriving an absolute camera transform that
+    // would just duplicate `translation` / `yaw` / `pitch` above.
+    action.shake_trauma = shake.trauma;
+    action.shake_phase = shake.phase;
+    action.shake_recoil = shake.recoil;
+    action.sway_offset = sway.offset.to_array();
+    action.fov_deg = settings.fov;
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.ads_t = ads.t;

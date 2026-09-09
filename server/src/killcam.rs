@@ -82,8 +82,14 @@ fn record_frames(
         buf.frames.push_back((
             clock.0,
             KillCamSample {
-                cam_pos: i.cam_pos,
-                cam_rot: i.cam_rot,
+                translation: i.translation,
+                yaw: i.yaw,
+                pitch: i.pitch,
+                shake_trauma: i.shake_trauma,
+                shake_phase: i.shake_phase,
+                shake_recoil: i.shake_recoil,
+                sway_offset: i.sway_offset,
+                fov_deg: i.fov_deg,
                 sound_bits: i.sound_bits,
                 anim_time: i.anim_time,
                 ads_t: i.ads_t,
