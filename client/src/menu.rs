@@ -14,7 +14,9 @@
 
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonState;
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::PrimaryWindow;
@@ -22,7 +24,7 @@ use lightyear::prelude::*;
 
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
-use crate::settings::{Settings, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN};
+use crate::settings::{Settings, ShadowQuality, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN};
 use crate::ui::{
     field_box, label, spawn_button, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID, ROW,
     ROW_HOVER, TEXT, TEXT_DIM, TRACK,
@@ -40,6 +42,7 @@ pub enum Screen {
 pub enum Tab {
     Profile,
     Controls,
+    Graphics,
     Keybinds,
     Multiplayer,
 }
@@ -109,7 +112,8 @@ impl Plugin for MenuPlugin {
                     cursor_and_hud,
                 )
                     .chain(),
-            );
+            )
+            .add_systems(Update, scroll_hovered);
     }
 }
 
@@ -246,6 +250,7 @@ enum Btn {
     ToggleDebug,
     ToggleAutoCreate,
     ToggleAutoJoin,
+    SetShadowQuality(ShadowQuality),
     Rebind(usize),
     ResetKeybinds,
     Step(SliderField, f32),
@@ -335,6 +340,10 @@ fn menu_click(
             }
             Btn::ToggleAutoJoin => {
                 settings.dev_auto_join_lobby = !settings.dev_auto_join_lobby;
+                menu.dirty = true;
+            }
+            Btn::SetShadowQuality(q) => {
+                settings.shadow_quality = *q;
                 menu.dirty = true;
             }
             Btn::Rebind(i) => {
@@ -457,6 +466,28 @@ fn refresh_dynamic(
     }
 }
 
+/// Scrolls whichever scrollable node the pointer is currently over (e.g. the
+/// keybinds list) in response to the mouse wheel.
+fn scroll_hovered(
+    mut wheel: EventReader<MouseWheel>,
+    hover_map: Res<HoverMap>,
+    mut scrollable: Query<&mut ScrollPosition>,
+) {
+    for ev in wheel.read() {
+        let dy = match ev.unit {
+            MouseScrollUnit::Line => ev.y * 21.0,
+            MouseScrollUnit::Pixel => ev.y,
+        };
+        for pointer_map in hover_map.values() {
+            for &entity in pointer_map.keys() {
+                if let Ok(mut pos) = scrollable.get_mut(entity) {
+                    pos.offset_y -= dy;
+                }
+            }
+        }
+    }
+}
+
 fn cursor_and_hud(
     menu: Res<Menu>,
     app_state: Res<State<crate::AppState>>,
@@ -569,16 +600,19 @@ fn build_settings(
     binds: &KeyBindings,
     leave: &LeaveCtx,
 ) {
-    commands.spawn(overlay_root(false)).with_children(|root| {
-        root.spawn((
+    commands
+        .spawn((
+            MenuRoot,
+            GlobalZIndex(50),
             Node {
-                width: Val::Px(900.0),
-                height: Val::Px(580.0),
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
-            BackgroundColor(PANEL),
-            BorderRadius::all(Val::Px(8.0)),
+            // Translucent full-screen panel: the game stays dimly visible behind it.
+            BackgroundColor(BACKDROP),
         ))
         .with_children(|panel| {
             // header
@@ -627,6 +661,7 @@ fn build_settings(
                         for (tab, name) in [
                             (Tab::Profile, "PROFILE"),
                             (Tab::Controls, "CONTROLS"),
+                            (Tab::Graphics, "GRAPHICS"),
                             (Tab::Keybinds, "KEYBINDS"),
                             (Tab::Multiplayer, "MULTIPLAYER"),
                         ] {
@@ -654,6 +689,7 @@ fn build_settings(
                     .with_children(|content| match menu.tab {
                         Tab::Profile => build_profile(content),
                         Tab::Controls => build_controls(content, settings),
+                        Tab::Graphics => build_graphics(content, settings),
                         Tab::Keybinds => build_keybinds(content, menu, binds),
                         Tab::Multiplayer => build_multiplayer(content, settings),
                     });
@@ -733,7 +769,6 @@ fn build_settings(
                     f.spawn(label("Changes save automatically", 14.0, TEXT_DIM));
                 });
         });
-    });
 }
 
 fn build_profile(content: &mut ChildSpawnerCommands) {
@@ -813,6 +848,37 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
         });
     content.spawn(label(
         "Debug mode shows the muzzle-flash / smoke / gravity tuning panels (top-right).",
+        14.0,
+        TEXT_DIM,
+    ));
+}
+
+fn build_graphics(content: &mut ChildSpawnerCommands, settings: &Settings) {
+    content.spawn(label("SHADOW MAP", 15.0, TEXT_DIM));
+    content
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(8.0),
+            ..default()
+        })
+        .with_children(|row| {
+            for quality in ShadowQuality::ALL {
+                let selected = settings.shadow_quality == quality;
+                spawn_button(
+                    row,
+                    quality.label(),
+                    15.0,
+                    Btn::SetShadowQuality(quality),
+                    if selected { ACCENT_DIM } else { ROW },
+                    ROW_HOVER,
+                    if selected { ACCENT } else { TEXT },
+                );
+            }
+        });
+    content.spawn(label(
+        "Adjusts the resolution and draw distance of shadows cast by the sun. Higher \
+         settings look more accurate at longer range but cost more performance. Disabled \
+         removes shadows entirely.",
         14.0,
         TEXT_DIM,
     ));
@@ -947,11 +1013,17 @@ fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBi
         TEXT_DIM,
     ));
     content
-        .spawn(Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(4.0),
-            ..default()
-        })
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(4.0),
+                flex_grow: 1.0,
+                min_height: Val::Px(0.0),
+                overflow: Overflow::scroll_y(),
+                ..default()
+            },
+            ScrollPosition::default(),
+        ))
         .with_children(|list| {
             for (i, (name, _)) in SLOTS.iter().enumerate() {
                 list.spawn((

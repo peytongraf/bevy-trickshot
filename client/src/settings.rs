@@ -21,6 +21,39 @@ pub const SENS_MIN: f32 = 0.10;
 pub const SENS_MAX: f32 = 3.0;
 pub const SENS_DEFAULT: f32 = 1.0;
 
+/// Shadow map quality, named and tiered the way Call of Duty's "Shadow Map"
+/// graphics option is (Disabled / Low / Normal / High / Extra).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum ShadowQuality {
+    Disabled,
+    Low,
+    Normal,
+    #[default]
+    High,
+    Extra,
+}
+
+impl ShadowQuality {
+    pub const ALL: [ShadowQuality; 5] = [
+        ShadowQuality::Disabled,
+        ShadowQuality::Low,
+        ShadowQuality::Normal,
+        ShadowQuality::High,
+        ShadowQuality::Extra,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ShadowQuality::Disabled => "DISABLED",
+            ShadowQuality::Low => "LOW",
+            ShadowQuality::Normal => "NORMAL",
+            ShadowQuality::High => "HIGH",
+            ShadowQuality::Extra => "EXTRA",
+        }
+    }
+}
+
+
 /// Non-keybind settings. Keybinds live in [`KeyBindings`] and are saved to the
 /// same file (see [`SettingsFile`]).
 #[derive(Resource, Clone, Debug, Serialize, Deserialize)]
@@ -37,6 +70,8 @@ pub struct Settings {
     pub dev_auto_create_lobby: bool,
     /// Dev convenience: on reaching the main menu, if a lobby exists, join it.
     pub dev_auto_join_lobby: bool,
+    /// Shadow map resolution / cascade tier — the performance/quality trade-off.
+    pub shadow_quality: ShadowQuality,
 }
 
 impl Default for Settings {
@@ -48,6 +83,7 @@ impl Default for Settings {
             debug_mode: false,
             dev_auto_create_lobby: false,
             dev_auto_join_lobby: false,
+            shadow_quality: ShadowQuality::default(),
         }
     }
 }

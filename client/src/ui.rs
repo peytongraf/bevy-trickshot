@@ -9,7 +9,7 @@ use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
 // ---- palette --------------------------------------------------------------
-pub const BACKDROP: Color = Color::srgba(0.03, 0.04, 0.055, 0.82);
+pub const BACKDROP: Color = Color::srgba(0.03, 0.04, 0.055, 0.9);
 pub const PANEL: Color = Color::srgb(0.072, 0.083, 0.10);
 pub const PANEL_SOLID: Color = Color::srgb(0.03, 0.035, 0.05);
 pub const ROW: Color = Color::srgb(0.11, 0.125, 0.150);

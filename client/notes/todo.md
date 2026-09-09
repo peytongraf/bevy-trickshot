@@ -1,14 +1,16 @@
 # Todo
 
-- See if it is possible for the OS key to not cause keybind behavior like cod does.
-- Add settings for hip position of sniper.
-- Add footstep sounds.
-- Add effect to scope so it looks like actually being aimed through a scope.
-- Add setting for hip fire accurracy.
-- Add idle sway
-- Add max shot distance for sniper.
-- Add realistic shot tracer ( should look like a line of smoke ).
 - Increase shadow quality.
+- Add footstep sounds.
+- Add max shot distance for sniper.
+- Add setting for hip fire accurracy.
+- Add settings for hip position of sniper.
+- See if it is possible for the OS key to not cause keybind behavior like cod does.
+- Update kill cam ui by adding bezel around the outside to make it more obvious
+- Add idle sway
+- Add realistic shot tracer ( should look like a line of smoke ).
+- Add effect to scope so it looks like actually being aimed through a scope.
+- Kill cam still doesn't show other players, weapon sway, and the sniper doesn't shake or kick back.
 - Add basic map with things to jump off of.
 
 ## Security
@@ -31,6 +33,7 @@
 ## Ideas
 
 - Can add bullet impacts once map is created.
+- Add grappling hook or teleportation where the player can aim on a teleport point that will highlight when aimed on and a keybind can teleport the player to it.
 
 ## Points
 

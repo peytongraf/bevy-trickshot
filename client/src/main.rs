@@ -51,7 +51,7 @@ pub enum AppState {
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use keybinds::KeyBindings;
-use settings::Settings;
+use settings::{Settings, ShadowQuality};
 
 use bevy::{
     animation::RepeatAnimation,
@@ -60,7 +60,10 @@ use bevy::{
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
     math::{Affine2, FloatExt},
-    pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
+    pbr::{
+        CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap, DistanceFog,
+        FogFalloff, NotShadowCaster,
+    },
     prelude::*,
     render::{
         render_asset::RenderAssetUsages,
@@ -79,9 +82,18 @@ const VIEW_MODEL_RENDER_LAYER: usize = 1;
 /// Render layer for the reticle quad — only the scope camera renders it, so the
 /// crosshair lives inside the scope image and nowhere else.
 const SCOPE_OVERLAY_LAYER: usize = 2;
+/// Render layer for the player's body capsule — a shadow-only stand-in so the
+/// sun casts a humanoid shadow instead of just the floating sniper + arms.
+/// No camera renders this layer; only the sun's `RenderLayers` includes it.
+const PLAYER_BODY_LAYER: usize = 3;
 /// Empty render layer for the HUD camera, which renders after everything else
 /// (including the view-model camera) so the UI is never covered by the gun.
 const UI_LAYER: usize = 4;
+
+/// Body capsule dimensions (metres) — a rough humanoid silhouette for the
+/// shadow, not a real collider.
+const BODY_CAPSULE_RADIUS: f32 = 0.25;
+const BODY_CAPSULE_HEIGHT: f32 = 1.6;
 
 /// Radius of the sky sphere. Kept inside the camera far plane; the sphere
 /// follows the camera so the player never reaches its edge.
@@ -446,6 +458,7 @@ fn main() {
                 update_ammo_ui,
                 update_fps_ui,
                 apply_scene_tuning,
+                apply_shadow_quality,
                 debug_cursor_toggle,
             )
                 .after(update_ads)
@@ -1337,8 +1350,8 @@ fn setup_world(
             ..default()
         }
         .build(),
-        // Light both the world and the view model.
-        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER]),
+        // Light the world, the view model, and the (invisible) body capsule.
+        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER, PLAYER_BODY_LAYER]),
     ));
 }
 
@@ -1417,6 +1430,19 @@ fn setup_player(
             Visibility::default(),
         ))
         .with_children(|player| {
+            // Invisible body capsule: no camera renders `PLAYER_BODY_LAYER`, but
+            // the sun does, so it casts a humanoid shadow instead of a floating
+            // gun + arms.
+            player.spawn((
+                Mesh3d(meshes.add(Capsule3d::new(
+                    BODY_CAPSULE_RADIUS,
+                    BODY_CAPSULE_HEIGHT - 2.0 * BODY_CAPSULE_RADIUS,
+                ))),
+                MeshMaterial3d(materials.add(Color::srgb(0.5, 0.5, 0.5))),
+                Transform::from_xyz(0.0, BODY_CAPSULE_HEIGHT / 2.0 - EYE_HEIGHT, 0.0),
+                RenderLayers::layer(PLAYER_BODY_LAYER),
+            ));
+
             player
                 .spawn((PlayerHead, Transform::IDENTITY, Visibility::default()))
                 .with_children(|head| {
@@ -2945,6 +2971,41 @@ fn apply_scene_tuning(
     fog.falloff = FogFalloff::from_visibility(scene.fog_visibility_m);
 
     bloom.intensity = scene.bloom_intensity;
+}
+
+/// Pushes `Settings::shadow_quality` onto the sun's shadow map whenever it
+/// changes. Mirrors Call of Duty's "Shadow Map" option: Disabled turns shadows
+/// off outright, and each tier up trades performance for resolution / cascade
+/// count / draw distance.
+fn apply_shadow_quality(
+    settings: Res<Settings>,
+    mut shadow_map: ResMut<DirectionalLightShadowMap>,
+    mut sun: Single<(&mut DirectionalLight, &mut CascadeShadowConfig)>,
+    mut applied: Local<Option<ShadowQuality>>,
+) {
+    if applied.is_some_and(|q| q == settings.shadow_quality) {
+        return;
+    }
+    *applied = Some(settings.shadow_quality);
+
+    let (light, cascades) = &mut *sun;
+    let (enabled, size, num_cascades, maximum_distance) = match settings.shadow_quality {
+        ShadowQuality::Disabled => (false, shadow_map.size, 1, 40.0),
+        ShadowQuality::Low => (true, 512, 1, 40.0),
+        ShadowQuality::Normal => (true, 1024, 2, 80.0),
+        ShadowQuality::High => (true, 2048, 4, 120.0),
+        ShadowQuality::Extra => (true, 4096, 4, 160.0),
+    };
+
+    light.shadows_enabled = enabled;
+    shadow_map.size = size;
+    **cascades = CascadeShadowConfigBuilder {
+        num_cascades,
+        first_cascade_far_bound: 20.0,
+        maximum_distance,
+        ..default()
+    }
+    .build();
 }
 
 /// In debug mode, the "Lock / Unlock Cursor" key (rebindable, `L` by default)
