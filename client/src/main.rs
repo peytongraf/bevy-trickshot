@@ -121,7 +121,7 @@ impl Default for MapSettings {
         Self {
             position: Vec3::new(16.0, 0.0, 8.0),
             rotation_deg: 0.0,
-            scale: 1.0,
+            scale: 2.0,
         }
     }
 }
@@ -290,7 +290,7 @@ fn apply_map_transform(map: Res<MapSettings>, model: Single<&mut Transform, With
 /// Where the player spawns / `T` teleports to: ground level, facing the basic
 /// map's ramp. Follows `MapSettings`'s default placement — if you move the map
 /// far from its default, update this too.
-const SPAWN_POS: Vec3 = Vec3::new(16.0, EYE_HEIGHT, -5.0);
+const SPAWN_POS: Vec3 = Vec3::new(26.0, EYE_HEIGHT, -15.0);
 /// Player camera height above the feet — used to test the feet against surfaces.
 const EYE_HEIGHT: f32 = 1.7;
 /// Defaults for the "Movement" panel section (all live-adjustable).
@@ -603,6 +603,7 @@ fn main() {
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, hud_visibility)
+        .add_systems(Update, apply_master_volume)
         // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
             EguiPrimaryContextPass,
@@ -1931,13 +1932,33 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 /// Start the looping outdoor ambience when the player enters the world.
-fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>) {
+fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>, settings: Res<Settings>) {
     commands.spawn((
         AmbientAudio,
         StateScoped(AppState::InGame),
         AudioPlayer::new(sounds.ambient.clone()),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME)),
+        PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume)),
     ));
+}
+
+/// Push `Settings::master_volume` onto Bevy's `GlobalVolume`, which scales
+/// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
+/// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
+/// audio that's already playing, though, so the looping ambience needs its own
+/// direct nudge here too.
+fn apply_master_volume(
+    settings: Res<Settings>,
+    mut global_volume: ResMut<GlobalVolume>,
+    mut ambient: Query<&mut AudioSink, With<AmbientAudio>>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    global_volume.volume = Volume::Linear(settings.master_volume);
+    for mut sink in &mut ambient {
+        sink.set_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume));
+    }
 }
 
 /// The one persistent 2D camera: hosts every `bevy_ui` tree — the main menu and

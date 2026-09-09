@@ -21,6 +21,10 @@ pub const SENS_MIN: f32 = 0.10;
 pub const SENS_MAX: f32 = 3.0;
 pub const SENS_DEFAULT: f32 = 1.0;
 
+pub const VOLUME_MIN: f32 = 0.0;
+pub const VOLUME_MAX: f32 = 1.0;
+pub const VOLUME_DEFAULT: f32 = 1.0;
+
 /// Shadow map quality, named and tiered the way Call of Duty's "Shadow Map"
 /// graphics option is (Disabled / Low / Normal / High / Extra).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -72,6 +76,8 @@ pub struct Settings {
     pub dev_auto_join_lobby: bool,
     /// Shadow map resolution / cascade tier — the performance/quality trade-off.
     pub shadow_quality: ShadowQuality,
+    /// Master volume, linear `0.0` (silent) .. `1.0` (full).
+    pub master_volume: f32,
 }
 
 impl Default for Settings {
@@ -84,6 +90,7 @@ impl Default for Settings {
             dev_auto_create_lobby: false,
             dev_auto_join_lobby: false,
             shadow_quality: ShadowQuality::default(),
+            master_volume: VOLUME_DEFAULT,
         }
     }
 }

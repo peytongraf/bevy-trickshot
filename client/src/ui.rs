@@ -59,6 +59,25 @@ pub fn label(text: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     )
 }
 
+/// A text node set in [`crate::HUD_FONT`] — the bold condensed face used for
+/// the in-game HUD (score / ammo / fps) and the main-menu / lobby screens.
+pub fn label_hud(
+    asset_server: &AssetServer,
+    text: impl Into<String>,
+    size: f32,
+    color: Color,
+) -> impl Bundle {
+    (
+        Text::new(text),
+        TextFont {
+            font: asset_server.load(crate::HUD_FONT),
+            font_size: size,
+            ..default()
+        },
+        TextColor(color),
+    )
+}
+
 /// A bordered input-looking box, `width` px wide.
 pub fn field_box(width: f32) -> impl Bundle {
     (
@@ -104,6 +123,39 @@ pub fn spawn_button<M: Component>(
         ))
         .with_children(|b| {
             b.spawn(label(text, size, text_color));
+        });
+}
+
+/// [`spawn_button`], but its label is set in [`crate::HUD_FONT`] (see
+/// [`label_hud`]).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_button_hud<M: Component>(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    size: f32,
+    marker: M,
+    normal: Color,
+    hover: Color,
+    text_color: Color,
+) {
+    parent
+        .spawn((
+            Button,
+            Interaction::default(),
+            marker,
+            Hoverable { normal, hover },
+            Node {
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(9.0)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(normal),
+            BorderRadius::all(Val::Px(4.0)),
+        ))
+        .with_children(|b| {
+            b.spawn(label_hud(asset_server, text, size, text_color));
         });
 }
 

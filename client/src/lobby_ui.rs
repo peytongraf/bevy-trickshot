@@ -18,8 +18,8 @@ use lightyear::prelude::*;
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
-    label, overlay_root, spawn_button, ACCENT, PANEL, PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM,
-    TRACK,
+    label, label_hud, overlay_root, spawn_button_hud, ACCENT, PANEL, PANEL_SOLID, ROW, ROW_HOVER,
+    TEXT, TEXT_DIM, TRACK,
 };
 use crate::AppState;
 
@@ -332,11 +332,13 @@ fn despawn_lobby_ui(mut commands: Commands, roots: Query<Entity, With<LobbyUiRoo
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild(
     mut commands: Commands,
     mut ui: ResMut<LobbyUi>,
     state: Res<State<AppState>>,
     last_match: Res<LastMatch>,
+    asset_server: Res<AssetServer>,
     roots: Query<Entity, With<LobbyUiRoot>>,
     local: Query<&LocalId, With<GameClient>>,
     connected: Query<(), (With<GameClient>, With<Connected>)>,
@@ -354,17 +356,22 @@ fn rebuild(
     let online = !connected.is_empty();
 
     match state.get() {
-        AppState::MainMenu => build_browser(&mut commands, online, &lobbies),
+        AppState::MainMenu => build_browser(&mut commands, &asset_server, online, &lobbies),
         AppState::InLobby => {
             if let Some((_, lobby)) = me.and_then(|me| lobbies.iter().find(|(_, l)| l.has(me))) {
-                build_room(&mut commands, lobby, me, last_match.0.as_ref());
+                build_room(&mut commands, &asset_server, lobby, me, last_match.0.as_ref());
             }
         }
         _ => {}
     }
 }
 
-fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity, &shared::Lobby)>) {
+fn build_browser(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    online: bool,
+    lobbies: &Query<(Entity, &shared::Lobby)>,
+) {
     let open: Vec<(Entity, &shared::Lobby)> = lobbies.iter().filter(|(_, l)| !l.started).collect();
 
     commands
@@ -377,7 +384,7 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                 ..default()
             })
             .with_children(|col| {
-                col.spawn(label("BEVY TRICKSHOT", 46.0, TEXT));
+                col.spawn(label_hud(asset_server, "BEVY TRICKSHOT", 46.0, TEXT));
                 col.spawn((
                     Node {
                         width: Val::Px(90.0),
@@ -386,7 +393,8 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                     },
                     BackgroundColor(ACCENT),
                 ));
-                col.spawn(label(
+                col.spawn(label_hud(
+                    asset_server,
                     if online { "CONNECTED" } else { "CONNECTING…" },
                     14.0,
                     if online { TEXT_DIM } else { ACCENT },
@@ -406,7 +414,7 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                     BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| {
-                    panel.spawn(label("LOBBIES", 15.0, TEXT_DIM));
+                    panel.spawn(label_hud(asset_server, "LOBBIES", 15.0, TEXT_DIM));
                     if open.is_empty() {
                         panel
                             .spawn(Node {
@@ -416,7 +424,7 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                                 ..default()
                             })
                             .with_children(|e| {
-                                e.spawn(label("NO LOBBIES AVAILABLE", 20.0, TEXT_DIM));
+                                e.spawn(label_hud(asset_server, "NO LOBBIES AVAILABLE", 20.0, TEXT_DIM));
                             });
                     } else {
                         for (entity, lobby) in &open {
@@ -440,8 +448,9 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                                     BorderRadius::all(Val::Px(5.0)),
                                 ))
                                 .with_children(|row| {
-                                    row.spawn(label(lobby.name.clone(), 18.0, TEXT));
-                                    row.spawn(label(
+                                    row.spawn(label_hud(asset_server, lobby.name.clone(), 18.0, TEXT));
+                                    row.spawn(label_hud(
+                                        asset_server,
                                         format!("{}/8", lobby.members.len()),
                                         16.0,
                                         TEXT_DIM,
@@ -457,8 +466,9 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                     ..default()
                 })
                 .with_children(|row| {
-                    spawn_button(
+                    spawn_button_hud(
                         row,
+                        asset_server,
                         "CREATE LOBBY",
                         20.0,
                         MenuBtn::CreateLobby,
@@ -466,8 +476,9 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
                         ACCENT,
                         PANEL_SOLID,
                     );
-                    spawn_button(
+                    spawn_button_hud(
                         row,
+                        asset_server,
                         "PRACTICE",
                         20.0,
                         MenuBtn::Practice,
@@ -482,6 +493,7 @@ fn build_browser(commands: &mut Commands, online: bool, lobbies: &Query<(Entity,
 
 fn build_room(
     commands: &mut Commands,
+    asset_server: &AssetServer,
     lobby: &shared::Lobby,
     me: Option<PeerId>,
     last_match: Option<&(String, u32)>,
@@ -499,7 +511,7 @@ fn build_room(
                 ..default()
             })
             .with_children(|col| {
-                col.spawn(label(lobby.name.to_uppercase(), 34.0, TEXT));
+                col.spawn(label_hud(asset_server, lobby.name.to_uppercase(), 34.0, TEXT));
                 col.spawn((
                     Node {
                         width: Val::Px(70.0),
@@ -509,14 +521,16 @@ fn build_room(
                     BackgroundColor(ACCENT),
                 ));
 
-                col.spawn(label(
+                col.spawn(label_hud(
+                    asset_server,
                     format!("{}   \u{2022}   {mins} MIN", lobby.mode.label()),
                     14.0,
                     TEXT_DIM,
                 ));
 
                 if let Some((winner, score)) = last_match {
-                    col.spawn(label(
+                    col.spawn(label_hud(
+                        asset_server,
                         format!("LAST MATCH — {winner} won with {score}"),
                         14.0,
                         ACCENT,
@@ -531,10 +545,14 @@ fn build_room(
                         ..default()
                     })
                     .with_children(|row| {
-                        row.spawn(label("TIME LIMIT", 14.0, TEXT_DIM));
-                        spawn_button(row, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT);
-                        row.spawn(label(format!("{mins} min"), 16.0, TEXT));
-                        spawn_button(row, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT);
+                        row.spawn(label_hud(asset_server, "TIME LIMIT", 14.0, TEXT_DIM));
+                        spawn_button_hud(
+                            row, asset_server, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT,
+                        );
+                        row.spawn(label_hud(asset_server, format!("{mins} min"), 16.0, TEXT));
+                        spawn_button_hud(
+                            row, asset_server, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT,
+                        );
                     });
                 }
 
@@ -550,7 +568,8 @@ fn build_room(
                     BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| {
-                    panel.spawn(label(
+                    panel.spawn(label_hud(
+                        asset_server,
                         format!("PARTY  ({}/8)", lobby.members.len()),
                         15.0,
                         TEXT_DIM,
@@ -570,17 +589,18 @@ fn build_room(
                             ))
                             .with_children(|row| {
                                 if m.peer == lobby.leader {
-                                    row.spawn(label("\u{2605}", 18.0, ACCENT)); // ★
+                                    row.spawn(label_hud(asset_server, "\u{2605}", 18.0, ACCENT)); // ★
                                 }
-                                row.spawn(label(m.name.clone(), 18.0, TEXT));
+                                row.spawn(label_hud(asset_server, m.name.clone(), 18.0, TEXT));
                             });
                     }
                 });
 
                 if is_leader {
-                    col.spawn(label("You are the party leader.", 13.0, TEXT_DIM));
+                    col.spawn(label_hud(asset_server, "You are the party leader.", 13.0, TEXT_DIM));
                 } else {
-                    col.spawn(label(
+                    col.spawn(label_hud(
+                        asset_server,
                         "Waiting for the party leader to start…",
                         13.0,
                         TEXT_DIM,
@@ -593,8 +613,9 @@ fn build_room(
                 })
                 .with_children(|row| {
                     if is_leader {
-                        spawn_button(
+                        spawn_button_hud(
                             row,
+                            asset_server,
                             "START GAME",
                             20.0,
                             MenuBtn::Start,
@@ -603,7 +624,7 @@ fn build_room(
                             PANEL_SOLID,
                         );
                     }
-                    spawn_button(row, "LEAVE", 20.0, MenuBtn::Leave, ROW, ROW_HOVER, TEXT);
+                    spawn_button_hud(row, asset_server, "LEAVE", 20.0, MenuBtn::Leave, ROW, ROW_HOVER, TEXT);
                 });
             });
         });
