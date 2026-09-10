@@ -1,27 +1,31 @@
 # Todo
 
-- ~~Blood splatter isn't shown in kill cam.~~ (done — recorded + re-emitted like ground bursts; new `PlayerInput.blood_pt` / `KillCamSample.blood_pt` carry the networked path.)
-- ~~Tracers aren't being shown in kill cam but instead are being shown where they currently are, not where they were.~~ (done — stale live tracers cleared on cam start; the killer's own tracer recorded as `(start, end)` and re-drawn at the replayed shot moment via `PlayerInput.tracer` / `KillCamSample.tracer`.)
+- Add volume setting controls for all audio.
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
 - Kill enemy sound when an enemy is killed isn't heard. May need to add settings for volume of individual sounds.
-- ~~Add blood splatter from enemy when shot.~~ (done — `spawn_blood_impact`, "Blood splatter" panel section, replayed in the kill cam.)
-- Add footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.
-- Add settings for hip position of sniper.
+- Add colat plus colat detection. Bullet should slow when hitting a target.
 - See if it is possible for the OS key to not cause keybind behavior like cod does.
-- Update kill cam ui by adding bezel around the outside to make it more obvious
 - Add idle sway
-- Add realistic shot tracer ( should look like a line of smoke ).
 - Add effect to scope so it looks like actually being aimed through a scope.
-- Kill cam still doesn't show other players, weapon sway, and the sniper doesn't shake or kick back.
-- Add basic map with things to jump off of.
+
+# Done
+
+- ~~Add footstep sounds.~~ (done — `footsteps` system, distance-accumulator cadence per stance (crouch/walk/sprint/prone), random clip + pitch jitter, "Footsteps" panel section.)
+- ~~Add blood splatter from enemy when shot.~~ (done — `spawn_blood_impact`, "Blood splatter" panel section, replayed in the kill cam.)
+- ~~Blood splatter isn't shown in kill cam.~~ (done — recorded + re-emitted like ground bursts; new `PlayerInput.blood_pt` / `KillCamSample.blood_pt` carry the networked path.)
+- ~~Tracers aren't being shown in kill cam but instead are being shown where they currently are, not where they were.~~ (done — stale live tracers cleared on cam start; the killer's own tracer recorded as `(start, end)` and re-drawn at the replayed shot moment via `PlayerInput.tracer` / `KillCamSample.tracer`.)
 
 ## Security
 
 - Ensure that public github repo can't let random people from using the production server and run up the cost.
 - Add security features to production server like rate limiting and max concurrent user count.
+
+## Performance
+
+- Check shader preloading like cod
 
 ## Sound
 

@@ -138,9 +138,25 @@ struct MapModel;
 /// the floor here" the same way, just with more pieces. `RampX` / `RampZ`
 /// linearly interpolate height along the given axis between two edges.
 enum MapSurface {
-    Flat { x: (f32, f32), z: (f32, f32), y: f32 },
-    RampX { z: (f32, f32), x_lo: f32, x_hi: f32, y_lo: f32, y_hi: f32 },
-    RampZ { x: (f32, f32), z_lo: f32, z_hi: f32, y_lo: f32, y_hi: f32 },
+    Flat {
+        x: (f32, f32),
+        z: (f32, f32),
+        y: f32,
+    },
+    RampX {
+        z: (f32, f32),
+        x_lo: f32,
+        x_hi: f32,
+        y_lo: f32,
+        y_hi: f32,
+    },
+    RampZ {
+        x: (f32, f32),
+        z_lo: f32,
+        z_hi: f32,
+        y_lo: f32,
+        y_hi: f32,
+    },
 }
 
 /// Hand-measured from `basic_map.glb`'s node transforms: the base cube, a ramp
@@ -149,17 +165,45 @@ enum MapSurface {
 /// model if it's re-exported with different dimensions.
 const MAP_SURFACES: &[MapSurface] = &[
     // First cube — top platform (widened to x: -2..6).
-    MapSurface::Flat { x: (-2.0, 6.0), z: (-2.0, 2.0), y: 4.0 },
+    MapSurface::Flat {
+        x: (-2.0, 6.0),
+        z: (-2.0, 2.0),
+        y: 4.0,
+    },
     // Ramp from the ground up onto the first cube (moved to its new edge).
-    MapSurface::RampZ { x: (4.0, 6.0), z_lo: -9.2, z_hi: -2.0, y_lo: 0.0, y_hi: 4.0 },
+    MapSurface::RampZ {
+        x: (4.0, 6.0),
+        z_lo: -9.2,
+        z_hi: -2.0,
+        y_lo: 0.0,
+        y_hi: 4.0,
+    },
     // Second, taller cube.
-    MapSurface::Flat { x: (-6.0, -2.0), z: (-2.0, 2.0), y: 6.0 },
+    MapSurface::Flat {
+        x: (-6.0, -2.0),
+        z: (-2.0, 2.0),
+        y: 6.0,
+    },
     // Ramp from the first cube's top up onto the second.
-    MapSurface::RampX { z: (0.0, 2.0), x_lo: -2.0, x_hi: 3.22, y_lo: 6.0, y_hi: 4.0 },
+    MapSurface::RampX {
+        z: (0.0, 2.0),
+        x_lo: -2.0,
+        x_hi: 3.22,
+        y_lo: 6.0,
+        y_hi: 4.0,
+    },
     // Third cube, reached by the bridge.
-    MapSurface::Flat { x: (-20.0, -16.0), z: (-2.0, 2.0), y: 6.0 },
+    MapSurface::Flat {
+        x: (-20.0, -16.0),
+        z: (-2.0, 2.0),
+        y: 6.0,
+    },
     // Bridge connecting the second and third cubes.
-    MapSurface::Flat { x: (-16.0, -6.0), z: (-0.98, 0.98), y: 6.0 },
+    MapSurface::Flat {
+        x: (-16.0, -6.0),
+        z: (-0.98, 0.98),
+        y: 6.0,
+    },
 ];
 
 /// World-space height of `basic_map.glb`'s walkable surface at `(world_x,
@@ -182,20 +226,28 @@ fn map_surface_height(world_x: f32, world_z: f32, map: &MapSettings) -> Option<f
             MapSurface::Flat { x, z, y } => {
                 (lx >= x.0 && lx <= x.1 && lz >= z.0 && lz <= z.1).then_some(y)
             }
-            MapSurface::RampZ { x, z_lo, z_hi, y_lo, y_hi } => {
-                (lx >= x.0 && lx <= x.1 && lz >= z_lo && lz <= z_hi).then(|| {
-                    let t = ((lz - z_lo) / (z_hi - z_lo)).clamp(0.0, 1.0);
+            MapSurface::RampZ {
+                x,
+                z_lo,
+                z_hi,
+                y_lo,
+                y_hi,
+            } => (lx >= x.0 && lx <= x.1 && lz >= z_lo && lz <= z_hi).then(|| {
+                let t = ((lz - z_lo) / (z_hi - z_lo)).clamp(0.0, 1.0);
+                y_lo.lerp(y_hi, t)
+            }),
+            MapSurface::RampX {
+                z,
+                x_lo,
+                x_hi,
+                y_lo,
+                y_hi,
+            } => (lz >= z.0 && lz <= z.1 && lx >= x_lo.min(x_hi) && lx <= x_lo.max(x_hi)).then(
+                || {
+                    let t = ((lx - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0);
                     y_lo.lerp(y_hi, t)
-                })
-            }
-            MapSurface::RampX { z, x_lo, x_hi, y_lo, y_hi } => {
-                (lz >= z.0 && lz <= z.1 && lx >= x_lo.min(x_hi) && lx <= x_lo.max(x_hi)).then(
-                    || {
-                        let t = ((lx - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0);
-                        y_lo.lerp(y_hi, t)
-                    },
-                )
-            }
+                },
+            ),
         };
         if let Some(h) = h {
             best = Some(best.map_or(h, |b: f32| b.max(h)));
@@ -209,7 +261,11 @@ mod map_surface_tests {
     use super::*;
 
     fn settings(position: Vec3, rotation_deg: f32, scale: f32) -> MapSettings {
-        MapSettings { position, rotation_deg, scale }
+        MapSettings {
+            position,
+            rotation_deg,
+            scale,
+        }
     }
 
     #[test]
@@ -226,7 +282,10 @@ mod map_surface_tests {
         assert!((map_surface_height(5.0, -9.2, &map).unwrap() - 0.0).abs() < 1.0e-3);
         assert!((map_surface_height(5.0, -2.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
         let mid = map_surface_height(5.0, -5.6, &map).unwrap();
-        assert!(mid > 1.5 && mid < 2.5, "expected a mid-ramp height, got {mid}");
+        assert!(
+            mid > 1.5 && mid < 2.5,
+            "expected a mid-ramp height, got {mid}"
+        );
     }
 
     #[test]
@@ -300,6 +359,9 @@ const GRAVITY: f32 = 22.0;
 const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
 const GROUND_SNAP: f32 = 0.5;
+
+/// How many `audio/footsteps/footstep_N.wav` clips there are (1-indexed).
+const FOOTSTEP_CLIPS: usize = 10;
 
 /// Defaults for the "Slide" / "Dive & prone" panel sections.
 const CROUCH_DROP: f32 = 0.8;
@@ -582,6 +644,8 @@ fn main() {
         .init_resource::<Sprinting>()
         .init_resource::<Slide>()
         .init_resource::<SlideSettings>()
+        .init_resource::<FootstepSettings>()
+        .init_resource::<FootstepState>()
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
@@ -603,7 +667,13 @@ fn main() {
         )
         .add_systems(
             OnEnter(AppState::InGame),
-            (grab_cursor, start_ambient, reset_slide, reset_trick, reset_weapon),
+            (
+                grab_cursor,
+                start_ambient,
+                reset_slide,
+                reset_trick,
+                reset_weapon,
+            ),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
@@ -629,6 +699,9 @@ fn main() {
                     teleport_home,
                     jump,
                     apply_gravity,
+                    // Reads this frame's velocity + grounded state, so last in
+                    // the chain.
+                    footsteps,
                 )
                     .chain()
                     .run_if(menu::game_active.and(killcam::no_killcam)),
@@ -648,7 +721,11 @@ fn main() {
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
-                (spawn_ground_impact, spawn_blood_impact, update_impact_particles)
+                (
+                    spawn_ground_impact,
+                    spawn_blood_impact,
+                    update_impact_particles,
+                )
                     .after(look_around),
                 (spawn_tracers, update_tracers),
                 update_ammo_ui,
@@ -810,6 +887,66 @@ impl Default for SlideSettings {
             dive_tuck_speed: DIVE_TUCK_SPEED,
         }
     }
+}
+
+/// Panel-adjustable footstep audio ("Footsteps" panel section). One step plays
+/// every `*_stride` metres travelled on foot, so cadence rises with speed and
+/// each stance (crouch / walk / sprint / prone) gets its own pace and loudness —
+/// the Call-of-Duty model.
+#[derive(Resource)]
+struct FootstepSettings {
+    /// Master on / off for footstep audio.
+    enabled: bool,
+    /// Overall volume, multiplying every per-stance level below.
+    volume: f32,
+    /// Metres travelled between steps, per stance.
+    walk_stride: f32,
+    sprint_stride: f32,
+    crouch_stride: f32,
+    prone_stride: f32,
+    /// Per-stance loudness (linear, before `volume`).
+    walk_volume: f32,
+    sprint_volume: f32,
+    crouch_volume: f32,
+    prone_volume: f32,
+    /// Random playback-rate (pitch) spread, ± this around 1.0, so repeats of the
+    /// same clip don't sound identical.
+    pitch_jitter: f32,
+    /// Planar speed (m/s) below which the player counts as stopped.
+    min_speed: f32,
+}
+
+impl Default for FootstepSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            volume: 3.0,
+            walk_stride: 2.0,
+            sprint_stride: 2.5,
+            crouch_stride: 1.5,
+            prone_stride: 1.2,
+            walk_volume: 0.5,
+            sprint_volume: 0.85,
+            crouch_volume: 0.28,
+            prone_volume: 0.2,
+            pitch_jitter: 0.12,
+            min_speed: 0.5,
+        }
+    }
+}
+
+/// Running footstep cadence state for the local player.
+#[derive(Resource, Default)]
+struct FootstepState {
+    /// Distance (m) covered since the last step.
+    accum: f32,
+    /// Whether the player was moving on foot last frame — a fresh start fires a
+    /// step immediately rather than after a full stride of silence.
+    was_moving: bool,
+    /// Index of the last clip played, so the next pick avoids an instant repeat.
+    last: usize,
+    /// Bumped each step, seeds the clip pick + pitch jitter.
+    seq: u32,
 }
 
 /// The daytime look, live-tweakable from the debug panel's "Fog & Sky" section
@@ -1010,7 +1147,9 @@ pub(crate) fn play_bot_death(
     anims: &BotAnimations,
 ) {
     let Ok(target) = roots.get(root) else { return };
-    let Ok(mut player) = players.get_mut(target.0) else { return };
+    let Ok(mut player) = players.get_mut(target.0) else {
+        return;
+    };
     let active = player.play(anims.die);
     active.set_repeat(RepeatAnimation::Never);
     active.set_speed(BOT_DIE_SPEED);
@@ -1163,6 +1302,9 @@ pub(crate) struct GameSounds {
     pub(crate) dive: Handle<AudioSource>,
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
+    /// `audio/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
+    /// per step.
+    pub(crate) footsteps: Vec<Handle<AudioSource>>,
 }
 
 /// Linear volume of the looping nature ambience.
@@ -2140,6 +2282,9 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         dive: asset_server.load("audio/dive-sound.mp3"),
         kill_enemy: asset_server.load("audio/kill-enemy-sound.mp3"),
         jump_land: asset_server.load("audio/jump-landing-sound.mp3"),
+        footsteps: (1..=FOOTSTEP_CLIPS)
+            .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
+            .collect(),
     });
 }
 
@@ -2149,8 +2294,7 @@ fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>, settings: Res<
         AmbientAudio,
         StateScoped(AppState::InGame),
         AudioPlayer::new(sounds.ambient.clone()),
-        PlaybackSettings::LOOP
-            .with_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume)),
     ));
 }
 
@@ -2552,7 +2696,7 @@ fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    mut slide_cfg: ResMut<SlideSettings>,
+    (mut slide_cfg, mut footsteps): (ResMut<SlideSettings>, ResMut<FootstepSettings>),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
     mut anim: ResMut<AnimationSettings>,
@@ -2560,7 +2704,12 @@ fn ads_tuning_ui(
     mut tracer: ResMut<TracerSettings>,
     binds: Res<KeyBindings>,
     // Bundled — a system function tops out at 16 top-level params.
-    misc: (Res<Shake>, Res<Ads>, ResMut<MapSettings>, ResMut<BloodSettings>),
+    misc: (
+        Res<Shake>,
+        Res<Ads>,
+        ResMut<MapSettings>,
+        ResMut<BloodSettings>,
+    ),
 ) -> Result {
     let (shake, ads, mut map, mut blood) = misc;
     let ctx = contexts.ctx_mut()?;
@@ -2705,8 +2854,7 @@ fn ads_tuning_ui(
                         .text("starting opacity"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut tr.smoke_radius, 0.01f32..=0.4)
-                        .text("end radius (m)"),
+                    egui::Slider::new(&mut tr.smoke_radius, 0.01f32..=0.4).text("end radius (m)"),
                 );
                 ui.horizontal(|ui| {
                     ui.label("smoke color");
@@ -2852,6 +3000,32 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Footsteps", |ui| {
+                let f = &mut *footsteps;
+                ui.checkbox(&mut f.enabled, "enabled");
+                ui.add(egui::Slider::new(&mut f.volume, 0.0f32..=10.0).text("overall volume"));
+                ui.label("stride — metres per step (lower = faster cadence)");
+                ui.add(egui::Slider::new(&mut f.walk_stride, 0.5f32..=5.0).text("walk"));
+                ui.add(egui::Slider::new(&mut f.sprint_stride, 0.5f32..=5.0).text("sprint"));
+                ui.add(egui::Slider::new(&mut f.crouch_stride, 0.5f32..=5.0).text("crouch"));
+                ui.add(egui::Slider::new(&mut f.prone_stride, 0.5f32..=5.0).text("prone"));
+                ui.label("per-stance volume");
+                ui.add(egui::Slider::new(&mut f.walk_volume, 0.0f32..=1.0).text("walk"));
+                ui.add(egui::Slider::new(&mut f.sprint_volume, 0.0f32..=1.0).text("sprint"));
+                ui.add(egui::Slider::new(&mut f.crouch_volume, 0.0f32..=1.0).text("crouch"));
+                ui.add(egui::Slider::new(&mut f.prone_volume, 0.0f32..=1.0).text("prone"));
+                ui.add(
+                    egui::Slider::new(&mut f.pitch_jitter, 0.0f32..=0.5).text("pitch jitter (±)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut f.min_speed, 0.0f32..=3.0).text("stopped below (m/s)"),
+                );
+                if ui.button("Reset footsteps").clicked() {
+                    *f = FootstepSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Movement", |ui| {
                 let m = &mut *movement;
                 ui.add(
@@ -2917,9 +3091,7 @@ fn ads_tuning_ui(
                     egui::Slider::new(&mut s.dive_speed, 0.0f32..=22.0)
                         .text("dive launch speed (m/s)"),
                 );
-                ui.add(
-                    egui::Slider::new(&mut s.dive_jump, 0.0f32..=12.0).text("dive hop (m/s)"),
-                );
+                ui.add(egui::Slider::new(&mut s.dive_jump, 0.0f32..=12.0).text("dive hop (m/s)"));
                 ui.add(
                     egui::Slider::new(&mut s.dive_tuck_speed, 2.0f32..=30.0)
                         .text("dive tuck rate (/s)"),
@@ -2996,7 +3168,8 @@ fn ads_tuning_ui(
                 ui.separator();
                 ui.label("weapon shudder — gun kicks back toward the eye, muzzle climbs");
                 ui.add(
-                    egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4).text("weapon kick back (m)"),
+                    egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4)
+                        .text("weapon kick back (m)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut c.weapon_kick_deg, 0.0f32..=15.0)
@@ -3285,11 +3458,7 @@ fn crouch_slide(
             slide.velocity = slide.velocity.normalize_or_zero() * spd;
 
             let cancelled = jump_pressed;
-            if cancelled
-                || spd < cfg.min_speed
-                || slide.timer >= cfg.max_time
-                || !grounded
-            {
+            if cancelled || spd < cfg.min_speed || slide.timer >= cfg.max_time || !grounded {
                 slide.stance = Stance::Standing;
                 slide.velocity = Vec3::ZERO;
                 if cancelled {
@@ -3406,6 +3575,106 @@ fn move_player(
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();
+}
+
+/// Spawn one random footstep clip: a fresh pick that isn't an instant repeat, at
+/// `volume`, with a small random pitch wobble so back-to-back steps differ.
+fn play_footstep(
+    commands: &mut Commands,
+    clips: &[Handle<AudioSource>],
+    state: &mut FootstepState,
+    volume: f32,
+    pitch_jitter: f32,
+) {
+    if clips.is_empty() {
+        return;
+    }
+    state.seq = state.seq.wrapping_add(1);
+    let s = state.seq.wrapping_mul(2_654_435_761).wrapping_add(0xf007);
+    let mut idx = (rand01(s) * clips.len() as f32) as usize % clips.len();
+    if clips.len() > 1 && idx == state.last {
+        idx = (idx + 1) % clips.len();
+    }
+    state.last = idx;
+    let pitch = 1.0 + (rand01(s ^ 0x5bd1_e995) * 2.0 - 1.0) * pitch_jitter;
+    commands.spawn((
+        AudioPlayer::new(clips[idx].clone()),
+        PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(volume.max(0.0)))
+            .with_speed(pitch.clamp(0.1, 4.0)),
+    ));
+}
+
+/// Footstep cadence for the local player, Call-of-Duty style: a distance
+/// accumulator releases a step every `stride` metres, so the pace tracks the
+/// player's actual speed and each stance (crouch-walk / walk / sprint / prone)
+/// gets its own stride length and loudness. No steps while airborne, sliding,
+/// diving or standing still; the first step after a standstill fires at once.
+#[allow(clippy::too_many_arguments)]
+fn footsteps(
+    time: Res<Time>,
+    cfg: Res<FootstepSettings>,
+    sounds: Res<GameSounds>,
+    slide: Res<Slide>,
+    sprinting: Res<Sprinting>,
+    physics: Single<&PlayerPhysics, With<Player>>,
+    mut state: ResMut<FootstepState>,
+    mut commands: Commands,
+) {
+    let planar = Vec3::new(
+        physics.horizontal_velocity.x,
+        0.0,
+        physics.horizontal_velocity.z,
+    );
+    let speed = planar.length();
+    let on_foot = cfg.enabled
+        && physics.grounded
+        && !matches!(slide.stance, Stance::Sliding | Stance::Diving)
+        && speed > cfg.min_speed;
+    if !on_foot {
+        state.accum = 0.0;
+        state.was_moving = false;
+        return;
+    }
+
+    let (stride, stance_vol) = match slide.stance {
+        Stance::Crouching => (cfg.crouch_stride, cfg.crouch_volume),
+        Stance::Prone => (cfg.prone_stride, cfg.prone_volume),
+        _ if sprinting.0 => (cfg.sprint_stride, cfg.sprint_volume),
+        _ => (cfg.walk_stride, cfg.walk_volume),
+    };
+    let stride = stride.max(0.1);
+    let volume = (stance_vol * cfg.volume).max(0.0);
+
+    if !state.was_moving {
+        state.was_moving = true;
+        state.accum = 0.0;
+        play_footstep(
+            &mut commands,
+            &sounds.footsteps,
+            &mut state,
+            volume,
+            cfg.pitch_jitter,
+        );
+        return;
+    }
+
+    state.accum += speed * time.delta_secs();
+    // `while`, not `if`, so a big frame hitch at speed still spaces steps evenly
+    // rather than dropping them; cap the catch-up so it can't spam on a stall.
+    let mut budget = 4;
+    while state.accum >= stride && budget > 0 {
+        state.accum -= stride;
+        budget -= 1;
+        play_footstep(
+            &mut commands,
+            &sounds.footsteps,
+            &mut state,
+            volume,
+            cfg.pitch_jitter,
+        );
+    }
+    state.accum = state.accum.min(stride);
 }
 
 /// Snaps the player back to the spawn point.
@@ -3644,7 +3913,9 @@ fn update_ads(
 /// system and the kill-cam replay, so a replay renders at the *shooter's* hip
 /// FOV instead of the viewer's own.
 pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f32 {
-    hip_fov_deg.to_radians().lerp(tuning.fov_deg.to_radians(), ease(ads_t))
+    hip_fov_deg
+        .to_radians()
+        .lerp(tuning.fov_deg.to_radians(), ease(ads_t))
 }
 
 pub(crate) fn apply_ads(
@@ -3893,7 +4164,11 @@ fn build_ground_texture() -> Image {
 
             let n = fbm(u, v).clamp(0.0, 1.0);
             let speck = value_noise(u * 96.0, v * 96.0, 96);
-            let fleck_amt = if speck > 0.86 { (speck - 0.86) / 0.14 } else { 0.0 };
+            let fleck_amt = if speck > 0.86 {
+                (speck - 0.86) / 0.14
+            } else {
+                0.0
+            };
 
             let mut rgb = [0u8; 3];
             for c in 0..3 {
@@ -4709,7 +4984,11 @@ fn spawn_tracers(
             Transform {
                 translation: mid,
                 rotation: Quat::from_rotation_arc(Vec3::Y, dir),
-                scale: Vec3::new(settings.flash_radius * 2.0, len, settings.flash_radius * 2.0),
+                scale: Vec3::new(
+                    settings.flash_radius * 2.0,
+                    len,
+                    settings.flash_radius * 2.0,
+                ),
             },
             NotShadowCaster,
         ));
@@ -4722,7 +5001,12 @@ fn spawn_tracers(
 fn update_tracers(
     time: Res<Time>,
     settings: Res<TracerSettings>,
-    mut tracers: Query<(Entity, &mut Tracer, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
+    mut tracers: Query<(
+        Entity,
+        &mut Tracer,
+        &mut Transform,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
@@ -4769,7 +5053,12 @@ fn update_tracers(
 /// Shared by the live [`camera_shake`] system and the kill-cam replay
 /// (`killcam::drive_killcam`), so a replayed `(trauma, phase)` reproduces
 /// on-screen exactly what the shooter saw.
-pub(crate) fn shake_camera_pose(cfg: &ShakeSettings, ads_t: f32, trauma: f32, phase: f32) -> Transform {
+pub(crate) fn shake_camera_pose(
+    cfg: &ShakeSettings,
+    ads_t: f32,
+    trauma: f32,
+    phase: f32,
+) -> Transform {
     if trauma <= 0.0 {
         return Transform::IDENTITY;
     }
