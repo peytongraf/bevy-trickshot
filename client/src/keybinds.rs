@@ -84,6 +84,8 @@ pub struct KeyBindings {
     /// crosshair; release to draw the weapon back out.
     pub throwing_knife: Binding,
     pub teleport_home: Binding,
+    /// Save the player's current position as the point `teleport_home` returns to.
+    pub save_teleport_point: Binding,
     /// Skip the kill-cam replay.
     pub killcam_skip: Binding,
     /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
@@ -109,6 +111,7 @@ impl Default for KeyBindings {
             swap_weapon: Key(KeyCode::KeyQ),
             throwing_knife: Key(KeyCode::KeyV),
             teleport_home: Key(KeyCode::KeyT),
+            save_teleport_point: Key(KeyCode::KeyG),
             killcam_skip: Key(KeyCode::KeyF),
             cursor_toggle: Key(KeyCode::KeyL),
         }
@@ -132,7 +135,8 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Reload", |b| &mut b.reload),
     ("Swap Weapon", |b| &mut b.swap_weapon),
     ("Throwing Knife", |b| &mut b.throwing_knife),
-    ("Teleport to Spawn", |b| &mut b.teleport_home),
+    ("Teleport to Point", |b| &mut b.teleport_home),
+    ("Save Teleport Point", |b| &mut b.save_teleport_point),
     ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];

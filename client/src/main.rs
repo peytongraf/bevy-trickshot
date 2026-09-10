@@ -11,7 +11,8 @@
 //!   * `C`                   — crouch (still) / slide (moving); jump cancels a slide
 //!   * `Left Ctrl`           — prone (still) / dolphin dive (moving)
 //!   * `B`                   — jump
-//!   * `T`                   — teleport back to spawn
+//!   * `T`                   — teleport to the saved point (spawn by default)
+//!   * `G`                   — save the current position as the teleport point
 //!   * mouse                 — look around
 //!   * right mouse (hold)    — aim down sight
 //!   * left mouse            — fire
@@ -346,10 +347,23 @@ fn apply_map_transform(map: Res<MapSettings>, model: Single<&mut Transform, With
     transform.scale = Vec3::splat(map.scale);
 }
 
-/// Where the player spawns / `T` teleports to: ground level, facing the basic
-/// map's ramp. Follows `MapSettings`'s default placement — if you move the map
-/// far from its default, update this too.
+/// Where the player spawns, and the initial [`TeleportPoint`] the teleport key
+/// returns to. Ground level, facing the basic map's ramp. Follows
+/// `MapSettings`'s default placement — if you move the map far from its default,
+/// update this too.
 const SPAWN_POS: Vec3 = Vec3::new(26.0, EYE_HEIGHT, -15.0);
+
+/// The position the teleport key snaps the player back to. Starts at
+/// [`SPAWN_POS`]; the "save teleport point" key resets it to wherever the player
+/// is standing. Runtime-only — back to spawn on each launch.
+#[derive(Resource)]
+struct TeleportPoint(Vec3);
+
+impl Default for TeleportPoint {
+    fn default() -> Self {
+        Self(SPAWN_POS)
+    }
+}
 /// Player camera height above the feet — used to test the feet against surfaces.
 const EYE_HEIGHT: f32 = 1.7;
 /// Defaults for the "Movement" panel section (all live-adjustable).
@@ -501,9 +515,12 @@ const SHAKE_WEAPON_KICK: f32 = 0.2;
 /// Muzzle-climb rotation (degrees) applied to the view model at full trauma.
 const SHAKE_WEAPON_KICK_DEG: f32 = 7.5;
 /// Metres the camera (not the gun) snaps backward on each shot.
-const SHAKE_RECOIL_KICK: f32 = 0.0;
+const SHAKE_RECOIL_KICK: f32 = 0.05;
 /// How fast that backward kick eases back to zero (larger = snappier return).
-const SHAKE_RECOIL_RETURN: f32 = 8.5;
+const SHAKE_RECOIL_RETURN: f32 = 5.0;
+/// Fraction of the camera shake that survives at full ADS; it ramps linearly
+/// back to the full effect (`1.0`) at the hip so scoped aim stays controllable.
+const SHAKE_ADS_SCALE: f32 = 0.15;
 
 /// Seconds for the muzzle flash to go from full to gone (it pops on instantly).
 const MUZZLE_FLASH_TIME: f32 = 0.06;
@@ -531,6 +548,38 @@ fn rand01(seed: u32) -> f32 {
 /// Cheap deterministic hash → a roll angle in `[-PI, PI)`.
 pub(crate) fn rand_roll(seed: u32) -> f32 {
     rand01(seed) * (PI * 2.0) - PI
+}
+
+/// No-scope inaccuracy ("No-scope spread" panel section). Each shot is thrown
+/// off the aim point by a random up/down + left/right angle; the cap on that
+/// angle is `hip_max_deg` at the hip and eases to `0` at full ADS, so a fully
+/// scoped shot always lands dead on. The random draw can still come out small,
+/// which is what lets an occasional hip shot connect.
+#[derive(Resource)]
+struct NoScopeSpread {
+    /// Largest up/down or left/right offset at the hip, in degrees.
+    hip_max_deg: f32,
+    /// Accuracy curve: `1` = linear falloff, `>1` keeps the spread wide through
+    /// a partial ADS and then tightens fast as it approaches full ADS.
+    curve: f32,
+}
+
+impl Default for NoScopeSpread {
+    fn default() -> Self {
+        Self {
+            hip_max_deg: 4.0,
+            curve: 2.5,
+        }
+    }
+}
+
+/// The per-axis half-angle (radians) a shot may be thrown off the aim point at
+/// the given ADS amount — `cfg.hip_max_deg` at `ads_t == 0`, easing to `0` at
+/// `ads_t == 1` along `1 - ads_t^curve`.
+fn noscope_spread_angle(cfg: &NoScopeSpread, ads_t: f32) -> f32 {
+    let t = ads_t.clamp(0.0, 1.0);
+    let scale = (1.0 - t.powf(cfg.curve.max(0.01))).clamp(0.0, 1.0);
+    cfg.hip_max_deg.to_radians() * scale
 }
 
 /// The individual animations packed into the single `allanims` clip, as
@@ -619,6 +668,10 @@ fn main() {
         .init_resource::<LookDelta>()
         .init_resource::<WeaponSwayState>()
         .init_resource::<WeaponSwaySettings>()
+        .init_resource::<CrosshairSwayState>()
+        .init_resource::<CrosshairSettings>()
+        .init_resource::<TeleportPoint>()
+        .init_resource::<NoScopeSpread>()
         .init_resource::<Weapon>()
         .init_resource::<ThrowingKnife>()
         .init_resource::<PendingShot>()
@@ -708,15 +761,16 @@ fn main() {
                 )
                     .chain()
                     .run_if(menu::game_active.and(killcam::no_killcam)),
-                look_around.run_if(menu::game_active.and(killcam::no_killcam)),
+                (look_around, save_teleport_point)
+                    .run_if(menu::game_active.and(killcam::no_killcam)),
                 weapon_system.run_if(menu::game_active.and(killcam::no_killcam)),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
-                update_scope,
+                update_scope.after(crosshair_sway),
                 (fade_crosshair, update_crosshair_visibility),
                 track_trick.after(look_around).run_if(killcam::no_killcam),
-                (spawn_score_popup, update_score_popups),
+                (spawn_score_popup, update_score_popups, update_teleport_toast),
                 sky_follow_camera,
                 camera_shake.run_if(killcam::no_killcam),
                 update_muzzle_flash,
@@ -753,6 +807,21 @@ fn main() {
                 .after(look_around)
                 .after(apply_ads)
                 .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
+        )
+        // The scope reticle trails the aim (`crosshair_sway`); `update_scope`
+        // then renders it with that offset. `consume_look_delta` clears this
+        // frame's turn once both sway readers have had it — `look_around`
+        // early-returns on a still frame without clearing it itself. These run
+        // through a kill cam too, so the reticle eases back to centre on replay.
+        .add_systems(
+            Update,
+            (
+                crosshair_sway.after(look_around),
+                consume_look_delta
+                    .after(weapon_sway)
+                    .after(crosshair_sway),
+            )
+                .run_if(in_state(AppState::InGame)),
         )
         .run();
 }
@@ -1004,10 +1073,12 @@ pub(crate) struct WorldModelCamera;
 #[derive(Component)]
 pub(crate) struct ViewModelCamera;
 
-/// Set to `Some` by `weapon_system` on the frame the trigger is pulled; consumed
-/// by `net::write_input`, which turns it into the tick's fire request.
+/// Set by `weapon_system` on the frame the trigger is pulled; consumed by
+/// `net::write_input`, which turns it into the tick's fire request. Carries the
+/// world-space shot direction — already thrown off by no-scope inaccuracy (see
+/// [`NoScopeSpread`]) — so the local hit resolution and the server agree.
 #[derive(Resource, Default)]
-pub(crate) struct PendingShot(pub Option<()>);
+pub(crate) struct PendingShot(pub Option<Vec3>);
 
 /// Parent of the cameras *and* the view model. Its local transform is
 /// overwritten each frame by `camera_shake` with the up/down + side/side shake
@@ -1305,6 +1376,7 @@ pub(crate) struct GameSounds {
     pub(crate) dive: Handle<AudioSource>,
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
+    pub(crate) teleport: Handle<AudioSource>,
     /// `audio/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
@@ -1331,6 +1403,7 @@ struct SoundVolumes {
     dive: f32,
     kill_enemy: f32,
     jump_land: f32,
+    teleport: f32,
 }
 
 impl Default for SoundVolumes {
@@ -1347,6 +1420,7 @@ impl Default for SoundVolumes {
             dive: 1.0,
             kill_enemy: 5.5,
             jump_land: 0.5,
+            teleport: 1.0,
         }
     }
 }
@@ -1367,6 +1441,7 @@ impl SoundVolumes {
             (sounds.dive.id(), self.dive),
             (sounds.kill_enemy.id(), self.kill_enemy),
             (sounds.jump_land.id(), self.jump_land),
+            (sounds.teleport.id(), self.teleport),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -1782,6 +1857,9 @@ pub(crate) struct ShakeSettings {
     recoil_kick: f32,
     /// How fast the backward kick eases back to zero (1/s; larger = snappier).
     recoil_return: f32,
+    /// Fraction of the camera shake left at full ADS (`0` = none, `1` = full).
+    /// Ramps linearly to the full effect as the player aims back out.
+    ads_scale: f32,
 }
 
 impl Default for ShakeSettings {
@@ -1797,6 +1875,7 @@ impl Default for ShakeSettings {
             weapon_kick_deg: SHAKE_WEAPON_KICK_DEG,
             recoil_kick: SHAKE_RECOIL_KICK,
             recoil_return: SHAKE_RECOIL_RETURN,
+            ads_scale: SHAKE_ADS_SCALE,
         }
     }
 }
@@ -1830,6 +1909,9 @@ pub(crate) struct AdsTuning {
     /// Milliseconds to go from hip to full aim-down-sight (and back), the way
     /// Call of Duty reports ADS time. Lower = snappier.
     ads_duration_ms: f32,
+    /// Shape of the hip↔ADS blend: `0` = linear, `1` = full ease-in-out
+    /// (smootherstep). Applied to the view-model pose and the FOV zoom.
+    ads_ease: f32,
     /// `Ads::t` at which the magnified sight picture starts fading onto the
     /// glass. Below this the lens just reads as reflective glass and the scope
     /// camera tracks the world FOV, so aiming in is a clean zoom-and-raise
@@ -1845,14 +1927,17 @@ impl Default for AdsTuning {
             fov_deg: ADS_FOV_DEG,
             scope_fov_deg: SCOPE_FOV_DEG,
             ads_duration_ms: ADS_DURATION * 1000.0,
-            scope_picture_at: 0.7,
+            ads_ease: 0.8,
+            scope_picture_at: 0.25,
         }
     }
 }
 
 /// The yaw / pitch the view actually rotated by this frame (radians), written by
-/// [`look_around`] and consumed once by [`weapon_sway`], which zeroes it again so
-/// a frame with no mouse input (or a paused game) reads as "no turn".
+/// [`look_around`]. Read by [`weapon_sway`] and [`crosshair_sway`], then zeroed
+/// by [`consume_look_delta`] so a frame with no mouse input (or a paused game)
+/// reads as "no turn" — `look_around` early-returns on a still frame without
+/// touching it.
 #[derive(Resource, Default)]
 struct LookDelta {
     /// `x` = yaw (positive = turned left), `y` = pitch (positive = looked up).
@@ -1888,6 +1973,53 @@ impl Default for WeaponSwaySettings {
             ads_strength: 0.12,
             return_speed: 3.5,
             max_offset_deg: 15.0,
+        }
+    }
+}
+
+/// Running scope-reticle lag (radians of scope view), low-passed toward the
+/// turn target by [`crosshair_sway`].
+#[derive(Resource, Default)]
+struct CrosshairSwayState {
+    /// `x` = yaw drift, `y` = pitch drift, added to the reticle while scoped.
+    offset: Vec2,
+}
+
+/// Panel-adjustable scope-reticle behaviour: size on the glass, the CoD-style
+/// aim-in drift (starts toward one corner and slides to centre as you scope in),
+/// the turn lag (the crosshair trails the aim a beat behind the gun's own
+/// [`WeaponSwaySettings`] sway), and whether the HUD centre dot ever fades.
+#[derive(Resource)]
+struct CrosshairSettings {
+    /// Reticle size multiplier (`1.0` = fills the scope view exactly; `>1` pushes
+    /// the crosshair's outer ends past the glass edge).
+    scale: f32,
+    /// Where the reticle sits at `Ads::t == 0`, as a fraction of the scope's
+    /// half-view — it eases to centre by full ADS. Positive `x` = left, positive
+    /// `y` = up, so the default starts the crosshair toward the upper-left like a
+    /// CoD scope. The scope camera counter-aims by the same amount so the target
+    /// stays under the reticle.
+    aim_in_frac: Vec2,
+    /// Keep the HUD centre dot at full opacity instead of fading it out as the
+    /// sight picture comes in.
+    center_dot_always: bool,
+    /// Turn-lag: seconds of lag — reticle drift ≈ turn rate (rad/s) × this.
+    strength: f32,
+    /// How fast the reticle eases back to centre (smaller = trails longer).
+    return_speed: f32,
+    /// Hard cap on the turn-lag drift, in degrees of the scope camera's view.
+    max_offset_deg: f32,
+}
+
+impl Default for CrosshairSettings {
+    fn default() -> Self {
+        Self {
+            scale: 1.2,
+            aim_in_frac: Vec2::new(3.0, 3.0),
+            center_dot_always: false,
+            strength: 0.01,
+            return_speed: 12.0,
+            max_offset_deg: 0.3,
         }
     }
 }
@@ -1953,10 +2085,18 @@ impl Default for ViewModelPoses {
     }
 }
 
-/// Smoothstep easing for the ADS blend.
+/// Smoothstep easing, used for the scope sight-picture fade.
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+/// The hip↔ADS blend curve. `amount` blends from a straight line (`0`) to
+/// smootherstep (`1`), so the aim-in slows into both ends by a tunable degree.
+fn ads_ease(t: f32, amount: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let smootherstep = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    t + (smootherstep - t) * amount.clamp(0.0, 1.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -2356,6 +2496,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         dive: asset_server.load("audio/dive-sound.mp3"),
         kill_enemy: asset_server.load("audio/kill-enemy-sound.mp3"),
         jump_land: asset_server.load("audio/jump-landing-sound.mp3"),
+        teleport: asset_server.load("audio/teleport.wav"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
             .collect(),
@@ -2562,9 +2703,14 @@ fn setup_crosshair(mut commands: Commands) {
 fn fade_crosshair(
     ads: Res<Ads>,
     tuning: Res<AdsTuning>,
+    crosshair: Res<CrosshairSettings>,
     dot: Single<(&mut BackgroundColor, &mut BorderColor), With<CenterDot>>,
 ) {
-    let a = 1.0 - scope_picture_amount(ads.t, &tuning);
+    let a = if crosshair.center_dot_always {
+        1.0
+    } else {
+        1.0 - scope_picture_amount(ads.t, &tuning)
+    };
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
     border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
@@ -2792,6 +2938,7 @@ fn update_fps_ui(
 
 /// lil-gui-style panel for dialing in the ADS pose. Press `Esc` to free the
 /// cursor, drag the sliders, `Esc` again to get back into the game.
+#[allow(clippy::type_complexity)]
 fn ads_tuning_ui(
     mut contexts: EguiContexts,
     mut poses: ResMut<ViewModelPoses>,
@@ -2801,10 +2948,11 @@ fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
+        ResMut<CrosshairSettings>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -2818,9 +2966,10 @@ fn ads_tuning_ui(
         Res<Ads>,
         ResMut<MapSettings>,
         ResMut<BloodSettings>,
+        ResMut<NoScopeSpread>,
     ),
 ) -> Result {
-    let (shake, ads, mut map, mut blood) = misc;
+    let (shake, ads, mut map, mut blood, mut noscope) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -2861,12 +3010,17 @@ fn ads_tuning_ui(
                         .max_decimals(0),
                 );
                 ui.add(
+                    egui::Slider::new(&mut tuning.ads_ease, 0.0f32..=1.0)
+                        .text("easing  (0 = linear, 1 = ease in/out)"),
+                );
+                ui.add(
                     egui::Slider::new(&mut tuning.scope_picture_at, 0.0f32..=0.95)
                         .text("scope picture in at (ads.t)  (higher = later)"),
                 );
                 if ui.button("Reset ADS speed").clicked() {
                     let d = AdsTuning::default();
                     tuning.ads_duration_ms = d.ads_duration_ms;
+                    tuning.ads_ease = d.ads_ease;
                     tuning.scope_picture_at = d.scope_picture_at;
                 }
             });
@@ -3184,6 +3338,7 @@ fn ads_tuning_ui(
                     ("dive", &mut v.dive),
                     ("kill enemy", &mut v.kill_enemy),
                     ("jump land", &mut v.jump_land),
+                    ("teleport", &mut v.teleport),
                 ] {
                     ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                 }
@@ -3310,6 +3465,46 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Crosshair", |ui| {
+                let c = &mut *crosshair_cfg;
+
+                ui.label("size on the glass");
+                ui.add(
+                    egui::Slider::new(&mut c.scale, 0.3f32..=3.0)
+                        .text("scale  (>1 pushes the ends past the edge)"),
+                );
+
+                ui.label("aim-in drift — starts off-centre, slides to the middle");
+                ui.add(
+                    egui::Slider::new(&mut c.aim_in_frac.x, -1.5f32..=3.0)
+                        .text("start X  (+ = left)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.aim_in_frac.y, -1.5f32..=3.0)
+                        .text("start Y  (+ = up)"),
+                );
+
+                ui.label("turn lag — trails the aim a beat behind the gun");
+                ui.add(
+                    egui::Slider::new(&mut c.strength, 0.0f32..=0.3).text("strength (s of lag)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.return_speed, 0.5f32..=12.0)
+                        .text("catch-up speed  (lower = trails longer)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.max_offset_deg, 0.0f32..=6.0)
+                        .text("max offset (° of scope view)"),
+                );
+
+                ui.checkbox(&mut c.center_dot_always, "keep centre dot on (no fade)");
+
+                if ui.button("Reset crosshair").clicked() {
+                    *c = CrosshairSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Camera shake", |ui| {
                 let c = &mut *shake_cfg;
                 ui.label("per-shot kick — up/down + side/side only");
@@ -3322,8 +3517,14 @@ fn ads_tuning_ui(
                     egui::Slider::new(&mut c.pos_max, 0.0f32..=0.4)
                         .text("up/down + L/R amount (m)"),
                 );
+                ui.add(
+                    egui::Slider::new(&mut c.ads_scale, 0.0f32..=1.0).text(
+                        "ADS scale — jitter + punch + shudder left at full ADS \
+                         (ramps to full at the hip)",
+                    ),
+                );
                 ui.separator();
-                ui.label("view punch — rotates gun + cameras together (eased while scoped)");
+                ui.label("view punch — rotates gun + cameras together (scaled by ADS scale)");
                 ui.add(
                     egui::Slider::new(&mut c.view_punch_deg, 0.0f32..=12.0)
                         .text("view punch up (°)"),
@@ -3333,7 +3534,10 @@ fn ads_tuning_ui(
                         .text("view punch chaos (°)"),
                 );
                 ui.separator();
-                ui.label("weapon shudder — gun kicks back toward the eye, muzzle climbs");
+                ui.label(
+                    "weapon shudder — gun kicks back toward the eye, muzzle climbs \
+                     (scaled by ADS scale)",
+                );
                 ui.add(
                     egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4)
                         .text("weapon kick back (m)"),
@@ -3358,7 +3562,7 @@ fn ads_tuning_ui(
                         "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
                          pos_max {:.4}, view_punch_deg {:.4}, view_jitter_deg {:.4}, \
                          weapon_kick {:.4}, weapon_kick_deg {:.4}, recoil_kick {:.4}, \
-                         recoil_return {:.4}",
+                         recoil_return {:.4}, ads_scale {:.4}",
                         c.trauma_per_shot,
                         c.decay,
                         c.frequency,
@@ -3369,10 +3573,33 @@ fn ads_tuning_ui(
                         c.weapon_kick_deg,
                         c.recoil_kick,
                         c.recoil_return,
+                        c.ads_scale,
                     );
                 }
                 if ui.button("Reset camera shake").clicked() {
                     *c = ShakeSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("No-scope spread", |ui| {
+                let n = &mut *noscope;
+                ui.label("random up/down + L/R miss angle — wide at the hip, gone at full ADS");
+                ui.add(
+                    egui::Slider::new(&mut n.hip_max_deg, 0.0f32..=15.0)
+                        .text("max miss at hip (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut n.curve, 1.0f32..=6.0)
+                        .text("accuracy curve  (1 = linear, higher = tightens late)"),
+                );
+                ui.label(format!(
+                    "cap now @ ads.t {:.2}: ±{:.2}°",
+                    ads.t,
+                    noscope_spread_angle(n, ads.t).to_degrees(),
+                ));
+                if ui.button("Reset no-scope spread").clicked() {
+                    *n = NoScopeSpread::default();
                 }
             });
 
@@ -3844,19 +4071,106 @@ fn footsteps(
     state.accum = state.accum.min(stride);
 }
 
-/// Snaps the player back to the spawn point.
+/// Snaps the player back to the current [`TeleportPoint`] and plays the teleport
+/// sound.
 fn teleport_home(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
+    point: Res<TeleportPoint>,
+    sounds: Res<GameSounds>,
+    mut commands: Commands,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     if binds.teleport_home.just_pressed(&keys, &mouse) {
         let (mut transform, mut physics) = player.into_inner();
-        transform.translation = SPAWN_POS;
+        transform.translation = point.0;
         physics.horizontal_velocity = Vec3::ZERO;
         physics.vertical_velocity = 0.0;
         physics.grounded = true;
+        commands.spawn((
+            AudioPlayer::new(sounds.teleport.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
+    }
+}
+
+/// Reset the [`TeleportPoint`] to the player's current position and flash a
+/// "Teleport point saved" toast in the centre of the screen.
+fn save_teleport_point(
+    (keys, mouse): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
+    binds: Res<KeyBindings>,
+    asset_server: Res<AssetServer>,
+    mut point: ResMut<TeleportPoint>,
+    player: Single<&Transform, With<Player>>,
+    existing: Query<Entity, With<TeleportToast>>,
+    mut commands: Commands,
+) {
+    if !binds.save_teleport_point.just_pressed(&keys, &mouse) {
+        return;
+    }
+    point.0 = player.translation;
+
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    commands
+        .spawn((
+            TeleportToast { age: 0.0 },
+            StateScoped(AppState::InGame),
+            GlobalZIndex(9),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(0.0),
+                right: Val::Percent(0.0),
+                top: Val::Percent(47.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_child((
+            Text::new("Teleport point saved"),
+            TextFont {
+                font: asset_server.load(HUD_FONT),
+                font_size: 30.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ));
+}
+
+/// The centre-screen "Teleport point saved" message: held briefly, then faded.
+#[derive(Component)]
+struct TeleportToast {
+    age: f32,
+}
+
+const TELEPORT_TOAST_HOLD: f32 = 1.0;
+const TELEPORT_TOAST_TTL: f32 = 1.8;
+
+/// Hold the toast, then fade it out and despawn — mirrors [`update_score_popups`].
+fn update_teleport_toast(
+    time: Res<Time>,
+    mut toasts: Query<(Entity, &mut TeleportToast, &Children)>,
+    mut texts: Query<&mut TextColor>,
+    mut commands: Commands,
+) {
+    for (entity, mut toast, children) in &mut toasts {
+        toast.age += time.delta_secs();
+        if toast.age >= TELEPORT_TOAST_TTL {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let a = if toast.age < TELEPORT_TOAST_HOLD {
+            1.0
+        } else {
+            1.0 - (toast.age - TELEPORT_TOAST_HOLD) / (TELEPORT_TOAST_TTL - TELEPORT_TOAST_HOLD)
+        };
+        for child in children {
+            if let Ok(mut tc) = texts.get_mut(*child) {
+                tc.0 = Color::WHITE.with_alpha(a.clamp(0.0, 1.0));
+            }
+        }
     }
 }
 
@@ -4084,7 +4398,7 @@ fn update_ads(
 pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f32 {
     hip_fov_deg
         .to_radians()
-        .lerp(tuning.fov_deg.to_radians(), ease(ads_t))
+        .lerp(tuning.fov_deg.to_radians(), ads_ease(ads_t, tuning.ads_ease))
 }
 
 /// How far the magnified scope picture has faded in: `0` until `Ads::t` reaches
@@ -4103,7 +4417,7 @@ pub(crate) fn apply_ads(
     mut world_projection: Single<&mut Projection, With<WorldModelCamera>>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
-    let e = ease(ads.t);
+    let e = ads_ease(ads.t, tuning.ads_ease);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
         perspective.fov = ads_fov_rad(settings.fov, &tuning, ads.t);
@@ -4120,17 +4434,18 @@ pub(crate) fn apply_ads(
 /// the gun lags *behind* the turn; a frame-rate-independent ease pulls the live
 /// offset toward it, so releasing the turn (target → 0) lets the gun spring back.
 /// `strength` lerps `hip → ads` by `Ads::t`, so half-aimed is exactly half sway.
+/// [`consume_look_delta`] clears this frame's turn once this and [`crosshair_sway`]
+/// have read it.
 fn weapon_sway(
     time: Res<Time>,
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
-    mut look: ResMut<LookDelta>,
+    look: Res<LookDelta>,
     mut state: ResMut<WeaponSwayState>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
     let dt = time.delta_secs().max(1e-5);
     let applied = look.applied;
-    look.applied = Vec2::ZERO; // consumed — a still frame reads as no turn
 
     let strength = tuning
         .hip_strength
@@ -4145,6 +4460,36 @@ fn weapon_sway(
 
     let sway = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
     **view_model = Transform::from_rotation(sway) * **view_model;
+}
+
+/// Trail the scope reticle behind the player's aim while scoped, then let it
+/// ease back to centre — see [`CrosshairSettings`]. Same maths as [`weapon_sway`]
+/// on a softer spring and scaled by `Ads::t`, so the crosshair visibly lags the
+/// gun model instead of moving locked to it. [`update_scope`] reads
+/// [`CrosshairSwayState`] and offsets the reticle quad by it.
+fn crosshair_sway(
+    time: Res<Time>,
+    tuning: Res<CrosshairSettings>,
+    ads: Res<Ads>,
+    look: Res<LookDelta>,
+    mut state: ResMut<CrosshairSwayState>,
+) {
+    let dt = time.delta_secs().max(1e-5);
+    let scoped = ads.t.clamp(0.0, 1.0);
+    let max = tuning.max_offset_deg.to_radians();
+    // `-applied / dt` is the view's angular velocity, opposite the turn.
+    let target = (-look.applied / dt * tuning.strength * scoped)
+        .clamp(Vec2::splat(-max), Vec2::splat(max));
+
+    let k = 1.0 - (-tuning.return_speed * dt).exp();
+    state.offset = state.offset.lerp(target, k);
+}
+
+/// Clear this frame's [`LookDelta`] after [`weapon_sway`] and [`crosshair_sway`]
+/// have read it. `look_around` early-returns on a still frame without writing,
+/// so without this the last turn would keep feeding the sways forever.
+fn consume_look_delta(mut look: ResMut<LookDelta>) {
+    look.applied = Vec2::ZERO;
 }
 
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
@@ -4237,13 +4582,18 @@ fn debug_cursor_toggle(
 }
 
 /// Drive the render-to-texture scope: switch its camera on only while aiming,
-/// keep its magnification in sync, and fade the scope image in on the lens.
+/// keep its magnification in sync, slide the reticle in from the corner, and
+/// fade the scope image in on the lens.
+#[allow(clippy::type_complexity)]
 fn update_scope(
-    ads: Res<Ads>,
+    (ads, sway, crosshair): (Res<Ads>, Res<CrosshairSwayState>, Res<CrosshairSettings>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
-    scope_camera: Single<(&mut Camera, &mut Projection), With<ScopeCamera>>,
-    mut reticle: Single<&mut Transform, With<ScopeReticle>>,
+    scope_camera: Single<
+        (&mut Camera, &mut Projection, &mut Transform),
+        (With<ScopeCamera>, Without<ScopeReticle>),
+    >,
+    mut reticle: Single<&mut Transform, (With<ScopeReticle>, Without<ScopeCamera>)>,
     mut lens: Query<(&MeshMaterial3d<StandardMaterial>, &mut Visibility), With<ScopeLens>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -4254,8 +4604,10 @@ fn update_scope(
     // transition reads as a plain zoom-and-raise rather than a second,
     // wrongly-zoomed copy of the target sliding in.
     let picture = scope_picture_amount(ads.t, &tuning);
+    // Follows the pose blend, so the drift below tracks the glass coming up.
+    let e = ads_ease(ads.t, tuning.ads_ease);
 
-    let (mut camera, mut projection) = scope_camera.into_inner();
+    let (mut camera, mut projection, mut cam_transform) = scope_camera.into_inner();
     camera.is_active = active;
     // Before the picture comes in, keep the scope camera at the world FOV so the
     // render target matches the view *behind* the glass 1:1; converge to the
@@ -4266,9 +4618,30 @@ fn update_scope(
         perspective.fov = scope_fov;
     }
 
-    // Keep the reticle quad exactly filling the scope camera's view (square RT).
-    let fill = 2.0 * RETICLE_DIST * (scope_fov * 0.5).tan();
-    reticle.scale = Vec3::new(fill, fill, 1.0);
+    // CoD-style aim-in drift: at the hip the reticle starts toward a corner
+    // (`aim_in_frac` of the scope's half-view) and the scope camera looks that
+    // way too, so the point the eye is already aiming at stays pinned under the
+    // reticle while the glass slides up into it. Eases to zero by full ADS.
+    let half_fov = scope_fov * 0.5;
+    let aim_in = Vec2::new(
+        half_fov * crosshair.aim_in_frac.x,
+        half_fov * crosshair.aim_in_frac.y,
+    ) * (1.0 - e);
+    cam_transform.rotation = Quat::from_euler(EulerRot::YXZ, -aim_in.x, -aim_in.y, 0.0);
+
+    // Fill the scope camera's square view (`scale` lets the crosshair art run
+    // past the glass edge), then offset the whole reticle: the aim-in drift plus
+    // `crosshair_sway`'s turn lag, which trails a beat behind the gun model.
+    // Rotating the quad about the camera mirrors how `weapon_sway` moves the gun.
+    let fill = 2.0 * RETICLE_DIST * half_fov.tan() * crosshair.scale.max(0.01);
+    let offset = sway.offset + aim_in;
+    let drift = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
+    **reticle = Transform::from_rotation(drift)
+        * Transform {
+            translation: Vec3::new(0.0, 0.0, -RETICLE_DIST),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::new(fill, fill, 1.0),
+        };
 
     // The lens is always drawn: a reflective glass disc at the hip, the sight
     // picture while scoped. `e` crossfades between the two looks, tied to the
@@ -4415,7 +4788,7 @@ pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
 /// swapping back plays Show in full and restarts any reload / rechamber the swap
 /// cut short. Nothing new is accepted while an animation is mid-play (except the
 /// swap key), so shots are impossible until a reload finishes.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn weapon_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -4438,7 +4811,13 @@ fn weapon_system(
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<practice::LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    (shake_cfg, sounds, anim): (Res<ShakeSettings>, Res<GameSounds>, Res<AnimationSettings>),
+    (shake_cfg, sounds, anim, ads, spread_cfg): (
+        Res<ShakeSettings>,
+        Res<GameSounds>,
+        Res<AnimationSettings>,
+        Res<Ads>,
+        Res<NoScopeSpread>,
+    ),
     mut commands: Commands,
 ) {
     let node = view_model.index;
@@ -4635,7 +5014,6 @@ fn weapon_system(
 
     if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;
-        pending_shot.0 = Some(()); // net::write_input turns this into a fire request
         shake.trauma = (shake.trauma + shake_cfg.trauma_per_shot).min(1.0);
         shake.recoil = shake_cfg.recoil_kick;
         muzzle.shots = muzzle.shots.wrapping_add(1);
@@ -4647,15 +5025,33 @@ fn weapon_system(
             PlaybackSettings::DESPAWN,
         ));
         snd.note(killcam::SND_SHOT);
+
+        // Aim direction, thrown off the crosshair by no-scope inaccuracy: a
+        // random up/down + left/right angle, each up to `noscope_spread_angle`
+        // (wide at the hip, zero at full ADS). `write_input` and
+        // `resolve_local_shot` both take this exact ray so local feedback and
+        // the server hit agree.
+        let cam_gt = cam.single().ok();
+        let dir = cam_gt
+            .map(|cam| {
+                let max = noscope_spread_angle(&spread_cfg, ads.t);
+                let yaw = (rand01(muzzle.shots.wrapping_mul(0x9E37_79B9)) * 2.0 - 1.0) * max;
+                let pitch =
+                    (rand01(muzzle.shots.wrapping_mul(0x85EB_CA6B) ^ 0xDEAD_BEEF) * 2.0 - 1.0) * max;
+                cam.rotation() * Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0) * Vec3::NEG_Z
+            })
+            .unwrap_or(Vec3::NEG_Z);
+        pending_shot.0 = Some(dir); // net::write_input turns this into a fire request
+
         // Hand the shot ray to `practice::resolve_local_shot`: it kicks up the
         // ground dust locally (instant, and the only path in solo Practice) and,
         // in Practice, resolves the hit + scoring against the offline bots. In a
         // real game the server also broadcasts this shot; `net::receive_shots`
         // drops the echo for our own peer so nothing double-spawns.
-        if let Ok(cam) = cam.single() {
+        if let Some(cam) = cam_gt {
             shots.write(practice::LocalShot {
                 origin: cam.translation(),
-                dir: cam.forward().as_vec3(),
+                dir,
             });
         }
         play_segment(&mut player, node, SEGMENTS[SEG_SHOOT]);
@@ -5235,6 +5631,13 @@ fn update_tracers(
     }
 }
 
+/// The one multiplier that scales *every* per-shot shake — camera positional
+/// jitter, view punch, and the weapon shudder — down as the player scopes in:
+/// `1.0` at the hip, ramping linearly to `cfg.ads_scale` at full ADS.
+pub(crate) fn shake_ads_scale(cfg: &ShakeSettings, ads_t: f32) -> f32 {
+    1.0 - (1.0 - cfg.ads_scale.clamp(0.0, 1.0)) * ads_t.clamp(0.0, 1.0)
+}
+
 /// Pure: the `CameraShake` node's local transform for a given shake state — the
 /// positional jitter and view punch — a directional pitch-up plus rotational
 /// chaos, both scaled by `trauma` / `trauma²` and eased down while scoped. At
@@ -5255,14 +5658,14 @@ pub(crate) fn shake_camera_pose(
     let s = phase;
     let amt = trauma * trauma;
 
-    // Ease the rotational punch off as the player scopes in, so ADS stays
-    // controllable while the hip still kicks hard.
-    let ads_scale = 1.0 - 0.7 * ads_t.clamp(0.0, 1.0);
+    // Scale the whole shake down as the player scopes in, so ADS stays
+    // controllable while the hip still kicks hard (see [`shake_ads_scale`]).
+    let ads_scale = shake_ads_scale(cfg, ads_t);
 
     // Positional jitter: up / down + side / side, no Z.
     let translation = Vec3::new(
-        (s * 1.53 + 0.4).sin() * cfg.pos_max * amt,
-        (s * 1.19 + 3.3).sin() * cfg.pos_max * amt,
+        (s * 1.53 + 0.4).sin() * cfg.pos_max * amt * ads_scale,
+        (s * 1.19 + 3.3).sin() * cfg.pos_max * amt * ads_scale,
         0.0,
     );
 
@@ -5335,32 +5738,40 @@ fn camera_shake(
 /// and never touches aim. Pre-multiplied in camera space (+Z toward the eye,
 /// +Y up), so it is independent of the view model's own orientation.
 /// Pure: the shudder kick premultiplied onto the view model — the gun punches
-/// back toward the eye and the muzzle climbs, scaled by `trauma`. Shared by the
-/// live [`weapon_recoil_shudder`] system and the kill-cam replay.
-pub(crate) fn weapon_kick_pose(cfg: &ShakeSettings, trauma: f32, phase: f32) -> Transform {
+/// back toward the eye and the muzzle climbs, scaled by `trauma` and by the same
+/// [`shake_ads_scale`] as the camera shake. Shared by the live
+/// [`weapon_recoil_shudder`] system and the kill-cam replay.
+pub(crate) fn weapon_kick_pose(
+    cfg: &ShakeSettings,
+    ads_t: f32,
+    trauma: f32,
+    phase: f32,
+) -> Transform {
     if trauma <= 0.0 {
         return Transform::IDENTITY;
     }
     let amt = trauma * trauma;
     let s = phase;
+    let ads_scale = shake_ads_scale(cfg, ads_t);
 
-    let back = amt * cfg.weapon_kick;
-    let rise = amt * cfg.weapon_kick * 0.5;
-    let wobble = (s * 0.8).sin() * cfg.weapon_kick * 0.25 * amt;
+    let back = amt * cfg.weapon_kick * ads_scale;
+    let rise = amt * cfg.weapon_kick * 0.5 * ads_scale;
+    let wobble = (s * 0.8).sin() * cfg.weapon_kick * 0.25 * amt * ads_scale;
 
     Transform {
         translation: Vec3::new(wobble, rise, back),
-        rotation: Quat::from_rotation_x(trauma * cfg.weapon_kick_deg.to_radians()),
+        rotation: Quat::from_rotation_x(trauma * cfg.weapon_kick_deg.to_radians() * ads_scale),
         scale: Vec3::ONE,
     }
 }
 
 fn weapon_recoil_shudder(
     cfg: Res<ShakeSettings>,
+    ads: Res<Ads>,
     shake: Res<Shake>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
-    let kick = weapon_kick_pose(&cfg, shake.trauma, shake.phase);
+    let kick = weapon_kick_pose(&cfg, ads.t, shake.trauma, shake.phase);
     **view_model = kick * **view_model;
 }
 

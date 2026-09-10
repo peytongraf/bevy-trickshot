@@ -1,22 +1,19 @@
 # Todo
 
-- Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
-- Need to make a change so that the glb file is used for collision detection.
-- Kill enemy sound when an enemy is killed isn't heard. ("Sound volumes" panel now has a per-sound `kill enemy` slider up to 10x — check whether it's a level issue or the sound isn't firing.)
+- Teleport point should save direction the player is facing / looking.
+- Enable auto reload, check if rechamber animation should happen after last round is fired of a mag and if it should happen after a new mag is reloaded.
+- Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
+- Add idle sway of sniper
+- Add aiming idle sway
+- Killcam not playing footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.
 - Add colat plus colat detection. Bullet should slow when hitting a target.
 - See if it is possible for the OS key to not cause keybind behavior like cod does.
-- Add idle sway
+
 - Add effect to scope so it looks like actually being aimed through a scope.
-
-# Done
-
-- ~~Add volume setting controls for all audio.~~ (done — "Sound volumes" panel section: per-sound 0-10x multiplier for shot / rechamber / reload / ambient / aim in-out / out of ammo / slide / dive / kill enemy / jump land. One-shots scaled in `apply_sound_volumes`, ambient folded into `apply_master_volume`. Footsteps keep their own "Footsteps" section.)
-- ~~Add footstep sounds.~~ (done — `footsteps` system, distance-accumulator cadence per stance (crouch/walk/sprint/prone), random clip + pitch jitter, "Footsteps" panel section.)
-- ~~Add blood splatter from enemy when shot.~~ (done — `spawn_blood_impact`, "Blood splatter" panel section, replayed in the kill cam.)
-- ~~Blood splatter isn't shown in kill cam.~~ (done — recorded + re-emitted like ground bursts; new `PlayerInput.blood_pt` / `KillCamSample.blood_pt` carry the networked path.)
-- ~~Tracers aren't being shown in kill cam but instead are being shown where they currently are, not where they were.~~ (done — stale live tracers cleared on cam start; the killer's own tracer recorded as `(start, end)` and re-drawn at the replayed shot moment via `PlayerInput.tracer` / `KillCamSample.tracer`.)
+- Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
+- Need to make a change so that the glb file is used for collision detection.
 
 ## Security
 
@@ -31,10 +28,11 @@
 
 - Add ui button sounds
 - Add footstep sounds for other players
+- Add teleport sound and save teleport sound
 
 ## Refactor
 
-- main file is thoasands of lines so it should be refactored.
+- main file is thousands of lines so it should be refactored.
 
 ## Fix
 
@@ -44,8 +42,9 @@
 
 - Can add bullet impacts once map is created.
 - Add grappling hook or teleportation where the player can aim on a teleport point that will highlight when aimed on and a keybind can teleport the player to it.
+- Could add breath hold to reduce aiming idle sway then the breath sound effect with the sudden increase in sway
 
-## Points
+## Scoring Points
 
 - Could add sounds for the highest score line per shotso headshot could have a sound, no scope could have a sound, etc. It would play the sound that has the highest score since there can be multiple at a time. Sounds can be things like a mario type level up or coin sound, a chaching sound, a taco bell bell toll sound, etc.
 
@@ -55,5 +54,5 @@
 +100 silent shot ( need to add throwing knife )
 +100 midair weapon swap ( need to add knife )
 +100 throwing knife ( could be a multiplier for the entire set of points where sniper shot is double or some other amount)
-+100 headshot,
-+100 wallbang,
++100 headshot
++100 wallbang

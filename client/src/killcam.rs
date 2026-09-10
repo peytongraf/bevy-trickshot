@@ -811,7 +811,7 @@ fn drive_killcam(
     // `weapon_sway` / `weapon_recoil_shudder` systems apply them (both are
     // gated off while a kill cam is active, so there's no double-application).
     let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
-    let kick = crate::weapon_kick_pose(&shake_cfg, trauma, phase);
+    let kick = crate::weapon_kick_pose(&shake_cfg, ads.t, trauma, phase);
     *view_model = kick * Transform::from_rotation(sway_rot) * *view_model;
 
     // Play the death animation on the ghost that was shot once the playhead

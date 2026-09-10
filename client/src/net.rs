@@ -252,14 +252,15 @@ fn write_input(
     action.knife_active = knife.active;
     action.sniper_active = weapon.slot == crate::WeaponSlot::Primary;
 
-    // Emit the shot from the world camera's viewpoint. Keep the pending flag if
-    // the camera isn't ready yet, rather than dropping the shot.
-    if pending.0.is_some() {
+    // Emit the shot from the world camera's viewpoint, along the direction
+    // `weapon_system` computed (crosshair aim plus no-scope inaccuracy). Keep the
+    // pending flag if the camera isn't ready yet, rather than dropping the shot.
+    if let Some(dir) = pending.0 {
         if let Ok(cam) = cam.single() {
             pending.0 = None;
             action.fire = true;
             action.fire_origin = cam.translation().to_array();
-            action.fire_dir = cam.forward().as_vec3().to_array();
+            action.fire_dir = dir.to_array();
             // Trick metadata for server-side scoring, then reset for the next shot.
             let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
             action.spin_deg = trick.total_deg();
@@ -491,7 +492,7 @@ fn dev_auto_fire(
     }
     pt.rotation = Quat::from_rotation_y(f.x.atan2(f.z) + core::f32::consts::PI);
     ht.rotation = Quat::from_rotation_x(f.y.clamp(-1.0, 1.0).asin());
-    pending.0 = Some(());
+    pending.0 = Some(f); // dev aimbot: straight at the bot, no inaccuracy
     *cooldown = 1.2;
 }
 
