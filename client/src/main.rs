@@ -416,11 +416,13 @@ const SCOPE_SHOW_AT: f32 = 0.02;
 /// Cool anti-reflective-coating tint of the glass when not aiming.
 const LENS_TINT: (f32, f32, f32) = (0.14, 0.21, 0.34);
 /// Lens surface roughness at the hip (low = tight, mirror-like highlight) and
-/// while fully scoped (higher = the sheen spreads out and dims).
+/// while fully scoped (fully matte — with `reflectance` at 0 there's no sun
+/// glint on the glass once aimed in).
 const LENS_ROUGHNESS_HIP: f32 = 0.04;
-const LENS_ROUGHNESS_ADS: f32 = 0.55;
-/// Metalness / reflectance of the glass at the hip; both lerp toward a plain
-/// dielectric backing as the player scopes in.
+const LENS_ROUGHNESS_ADS: f32 = 1.0;
+/// Metalness / reflectance of the glass at the hip; both fall to zero as the
+/// player scopes in, leaving a non-reflective black backing behind the sight
+/// picture so the sun can't glint off the lens while aimed in.
 const LENS_METALLIC_HIP: f32 = 0.65;
 const LENS_REFLECTANCE_HIP: f32 = 1.0;
 
@@ -1828,6 +1830,12 @@ pub(crate) struct AdsTuning {
     /// Milliseconds to go from hip to full aim-down-sight (and back), the way
     /// Call of Duty reports ADS time. Lower = snappier.
     ads_duration_ms: f32,
+    /// `Ads::t` at which the magnified sight picture starts fading onto the
+    /// glass. Below this the lens just reads as reflective glass and the scope
+    /// camera tracks the world FOV, so aiming in is a clean zoom-and-raise
+    /// instead of a second, pre-zoomed image of the target sliding into place.
+    /// `0.0` = old behaviour (picture fades in across the whole blend).
+    scope_picture_at: f32,
 }
 
 impl Default for AdsTuning {
@@ -1837,6 +1845,7 @@ impl Default for AdsTuning {
             fov_deg: ADS_FOV_DEG,
             scope_fov_deg: SCOPE_FOV_DEG,
             ads_duration_ms: ADS_DURATION * 1000.0,
+            scope_picture_at: 0.7,
         }
     }
 }
@@ -2547,13 +2556,15 @@ fn setup_crosshair(mut commands: Commands) {
         });
 }
 
-/// Fade the centre dot out as the player aims down the scope — fully gone at
-/// full ADS, fully back at the hip — so it never sits over the sight picture.
+/// Fade the centre dot out as the player aims down the scope — fully gone once
+/// the sight picture has come in, fully back at the hip — so it never sits over
+/// the sight picture but still gives an aim reference through the raise.
 fn fade_crosshair(
     ads: Res<Ads>,
+    tuning: Res<AdsTuning>,
     dot: Single<(&mut BackgroundColor, &mut BorderColor), With<CenterDot>>,
 ) {
-    let a = 1.0 - ease(ads.t.clamp(0.0, 1.0));
+    let a = 1.0 - scope_picture_amount(ads.t, &tuning);
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
     border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
@@ -2849,8 +2860,14 @@ fn ads_tuning_ui(
                         .suffix(" ms")
                         .max_decimals(0),
                 );
+                ui.add(
+                    egui::Slider::new(&mut tuning.scope_picture_at, 0.0f32..=0.95)
+                        .text("scope picture in at (ads.t)  (higher = later)"),
+                );
                 if ui.button("Reset ADS speed").clicked() {
-                    tuning.ads_duration_ms = AdsTuning::default().ads_duration_ms;
+                    let d = AdsTuning::default();
+                    tuning.ads_duration_ms = d.ads_duration_ms;
+                    tuning.scope_picture_at = d.scope_picture_at;
                 }
             });
 
@@ -4070,6 +4087,14 @@ pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f
         .lerp(tuning.fov_deg.to_radians(), ease(ads_t))
 }
 
+/// How far the magnified scope picture has faded in: `0` until `Ads::t` reaches
+/// `scope_picture_at`, easing to `1` by full ADS. Keeps the raise reading as a
+/// plain zoom-and-lift instead of a second, pre-zoomed image of the target.
+pub(crate) fn scope_picture_amount(ads_t: f32, tuning: &AdsTuning) -> f32 {
+    let span = (1.0 - tuning.scope_picture_at).max(1e-3);
+    ease(((ads_t - tuning.scope_picture_at) / span).clamp(0.0, 1.0))
+}
+
 pub(crate) fn apply_ads(
     ads: Res<Ads>,
     poses: Res<ViewModelPoses>,
@@ -4216,6 +4241,7 @@ fn debug_cursor_toggle(
 fn update_scope(
     ads: Res<Ads>,
     tuning: Res<AdsTuning>,
+    settings: Res<Settings>,
     scope_camera: Single<(&mut Camera, &mut Projection), With<ScopeCamera>>,
     mut reticle: Single<&mut Transform, With<ScopeReticle>>,
     mut lens: Query<(&MeshMaterial3d<StandardMaterial>, &mut Visibility), With<ScopeLens>>,
@@ -4223,9 +4249,19 @@ fn update_scope(
 ) {
     let active = ads.t > SCOPE_SHOW_AT;
 
+    // How far the magnified sight picture has come in: held off until the optic
+    // is nearly centred on the eye, then ramped to full by `ads.t == 1`, so the
+    // transition reads as a plain zoom-and-raise rather than a second,
+    // wrongly-zoomed copy of the target sliding in.
+    let picture = scope_picture_amount(ads.t, &tuning);
+
     let (mut camera, mut projection) = scope_camera.into_inner();
     camera.is_active = active;
-    let scope_fov = tuning.scope_fov_deg.to_radians();
+    // Before the picture comes in, keep the scope camera at the world FOV so the
+    // render target matches the view *behind* the glass 1:1; converge to the
+    // real scope magnification as the picture arrives.
+    let world_fov = ads_fov_rad(settings.fov, &tuning, ads.t);
+    let scope_fov = world_fov.lerp(tuning.scope_fov_deg.to_radians(), picture);
     if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = scope_fov;
     }
@@ -4235,8 +4271,9 @@ fn update_scope(
     reticle.scale = Vec3::new(fill, fill, 1.0);
 
     // The lens is always drawn: a reflective glass disc at the hip, the sight
-    // picture while scoped. `e` crossfades between the two looks.
-    let e = ease(ads.t);
+    // picture while scoped. `e` crossfades between the two looks, tied to the
+    // picture ramp so the glass stays mirror-like until the picture is due.
+    let e = picture;
     let k = 1.0 - e;
     for (material, mut visibility) in &mut lens {
         *visibility = Visibility::Inherited;
@@ -4250,10 +4287,11 @@ fn update_scope(
                 LENS_TINT.2 * k,
                 0.9f32.lerp(1.0, e),
             );
-            // Dial the mirror sheen out as the player scopes in.
+            // Dial the mirror sheen out as the player scopes in — reflectance to
+            // zero at full ADS so the sun leaves no glint on the glass.
             material.perceptual_roughness = LENS_ROUGHNESS_HIP.lerp(LENS_ROUGHNESS_ADS, e);
             material.metallic = LENS_METALLIC_HIP * k;
-            material.reflectance = LENS_REFLECTANCE_HIP.lerp(0.5, e);
+            material.reflectance = LENS_REFLECTANCE_HIP * k;
         }
     }
 }
