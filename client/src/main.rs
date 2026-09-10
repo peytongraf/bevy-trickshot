@@ -646,6 +646,7 @@ fn main() {
         .init_resource::<SlideSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
+        .init_resource::<SoundVolumes>()
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
@@ -678,6 +679,9 @@ fn main() {
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
         .add_systems(Update, apply_master_volume)
+        // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
+        // frame's `PostUpdate` and can scale them before they've really played.
+        .add_systems(Last, apply_sound_volumes)
         // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
             EguiPrimaryContextPass,
@@ -1309,6 +1313,66 @@ pub(crate) struct GameSounds {
 
 /// Linear volume of the looping nature ambience.
 const AMBIENT_VOLUME: f32 = 0.5;
+
+/// Panel-adjustable per-sound volume multipliers ("Sound volumes" panel
+/// section). `1.0` leaves a sound at its built-in level; every one-shot is
+/// scaled by its entry when it spawns (`apply_sound_volumes`), and the ambient
+/// bed by `ambient` (folded into `apply_master_volume`). Footsteps have their
+/// own controls in the "Footsteps" section and aren't here.
+#[derive(Resource)]
+struct SoundVolumes {
+    shot: f32,
+    rechamber: f32,
+    reload: f32,
+    ambient: f32,
+    aim_in: f32,
+    aim_out: f32,
+    out_of_ammo: f32,
+    slide: f32,
+    dive: f32,
+    kill_enemy: f32,
+    jump_land: f32,
+}
+
+impl Default for SoundVolumes {
+    fn default() -> Self {
+        Self {
+            shot: 1.0,
+            rechamber: 1.0,
+            reload: 1.0,
+            ambient: 1.0,
+            aim_in: 1.0,
+            aim_out: 1.0,
+            out_of_ammo: 1.0,
+            slide: 1.0,
+            dive: 1.0,
+            kill_enemy: 1.0,
+            jump_land: 1.0,
+        }
+    }
+}
+
+impl SoundVolumes {
+    /// The multiplier for `handle`, or `None` if it isn't a one-shot this
+    /// resource covers (footstep clips, the ambient loop).
+    fn oneshot_for(&self, handle: &Handle<AudioSource>, sounds: &GameSounds) -> Option<f32> {
+        let id = handle.id();
+        [
+            (sounds.shot.id(), self.shot),
+            (sounds.rechamber.id(), self.rechamber),
+            (sounds.reload.id(), self.reload),
+            (sounds.aim_in.id(), self.aim_in),
+            (sounds.aim_out.id(), self.aim_out),
+            (sounds.out_of_ammo.id(), self.out_of_ammo),
+            (sounds.slide.id(), self.slide),
+            (sounds.dive.id(), self.dive),
+            (sounds.kill_enemy.id(), self.kill_enemy),
+            (sounds.jump_land.id(), self.jump_land),
+        ]
+        .into_iter()
+        .find_map(|(hid, vol)| (hid == id).then_some(vol))
+    }
+}
 
 /// The looping ambient-nature bed. `StateScoped(InGame)`, so it starts when the
 /// player enters the world (Practice or a game) and stops on the way out.
@@ -2289,12 +2353,19 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 /// Start the looping outdoor ambience when the player enters the world.
-fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>, settings: Res<Settings>) {
+fn start_ambient(
+    mut commands: Commands,
+    sounds: Res<GameSounds>,
+    settings: Res<Settings>,
+    vols: Res<SoundVolumes>,
+) {
     commands.spawn((
         AmbientAudio,
         StateScoped(AppState::InGame),
         AudioPlayer::new(sounds.ambient.clone()),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(
+            AMBIENT_VOLUME * vols.ambient * settings.master_volume,
+        )),
     ));
 }
 
@@ -2302,18 +2373,40 @@ fn start_ambient(mut commands: Commands, sounds: Res<GameSounds>, settings: Res<
 /// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
 /// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
 /// audio that's already playing, though, so the looping ambience needs its own
-/// direct nudge here too.
+/// direct nudge here too — also picking up the "Sound volumes" panel's ambient
+/// multiplier.
 fn apply_master_volume(
     settings: Res<Settings>,
+    vols: Res<SoundVolumes>,
     mut global_volume: ResMut<GlobalVolume>,
     mut ambient: Query<&mut AudioSink, With<AmbientAudio>>,
 ) {
-    if !settings.is_changed() {
+    if !settings.is_changed() && !vols.is_changed() {
         return;
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
     for mut sink in &mut ambient {
-        sink.set_volume(Volume::Linear(AMBIENT_VOLUME * settings.master_volume));
+        sink.set_volume(Volume::Linear(
+            AMBIENT_VOLUME * vols.ambient * settings.master_volume,
+        ));
+    }
+}
+
+/// Scale each freshly-started one-shot to its "Sound volumes" multiplier.
+/// bevy_audio bakes `PlaybackSettings::volume * GlobalVolume` into the sink when
+/// it starts it, so we re-derive the same product with the per-sound factor
+/// mixed in. Sounds not covered here (footsteps, the ambient loop) are left be.
+fn apply_sound_volumes(
+    sounds: Option<Res<GameSounds>>,
+    vols: Res<SoundVolumes>,
+    global_volume: Res<GlobalVolume>,
+    mut fresh: Query<(&AudioPlayer, &mut AudioSink), Added<AudioSink>>,
+) {
+    let Some(sounds) = sounds else { return };
+    for (player, mut sink) in &mut fresh {
+        if let Some(mult) = vols.oneshot_for(&player.0, &sounds) {
+            sink.set_volume(Volume::Linear(mult.max(0.0)) * global_volume.volume);
+        }
     }
 }
 
@@ -2696,7 +2789,11 @@ fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps): (ResMut<SlideSettings>, ResMut<FootstepSettings>),
+    (mut slide_cfg, mut footsteps, mut sound_vol): (
+        ResMut<SlideSettings>,
+        ResMut<FootstepSettings>,
+        ResMut<SoundVolumes>,
+    ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
     mut anim: ResMut<AnimationSettings>,
@@ -3022,6 +3119,30 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset footsteps").clicked() {
                     *f = FootstepSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Sound volumes", |ui| {
+                let v = &mut *sound_vol;
+                ui.label("per-sound multiplier (1 = built-in level)");
+                for (label, slot) in [
+                    ("shot", &mut v.shot),
+                    ("rechamber", &mut v.rechamber),
+                    ("reload", &mut v.reload),
+                    ("ambient", &mut v.ambient),
+                    ("aim in", &mut v.aim_in),
+                    ("aim out", &mut v.aim_out),
+                    ("out of ammo", &mut v.out_of_ammo),
+                    ("slide", &mut v.slide),
+                    ("dive", &mut v.dive),
+                    ("kill enemy", &mut v.kill_enemy),
+                    ("jump land", &mut v.jump_land),
+                ] {
+                    ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
+                }
+                if ui.button("Reset sound volumes").clicked() {
+                    *v = SoundVolumes::default();
                 }
             });
 

@@ -1,9 +1,8 @@
 # Todo
 
-- Add volume setting controls for all audio.
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
-- Kill enemy sound when an enemy is killed isn't heard. May need to add settings for volume of individual sounds.
+- Kill enemy sound when an enemy is killed isn't heard. ("Sound volumes" panel now has a per-sound `kill enemy` slider up to 10x — check whether it's a level issue or the sound isn't firing.)
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.
 - Add colat plus colat detection. Bullet should slow when hitting a target.
@@ -13,6 +12,7 @@
 
 # Done
 
+- ~~Add volume setting controls for all audio.~~ (done — "Sound volumes" panel section: per-sound 0-10x multiplier for shot / rechamber / reload / ambient / aim in-out / out of ammo / slide / dive / kill enemy / jump land. One-shots scaled in `apply_sound_volumes`, ambient folded into `apply_master_volume`. Footsteps keep their own "Footsteps" section.)
 - ~~Add footstep sounds.~~ (done — `footsteps` system, distance-accumulator cadence per stance (crouch/walk/sprint/prone), random clip + pitch jitter, "Footsteps" panel section.)
 - ~~Add blood splatter from enemy when shot.~~ (done — `spawn_blood_impact`, "Blood splatter" panel section, replayed in the kill cam.)
 - ~~Blood splatter isn't shown in kill cam.~~ (done — recorded + re-emitted like ground bursts; new `PlayerInput.blood_pt` / `KillCamSample.blood_pt` carry the networked path.)
@@ -30,6 +30,7 @@
 ## Sound
 
 - Add ui button sounds
+- Add footstep sounds for other players
 
 ## Refactor
 
