@@ -21,6 +21,12 @@ pub const SENS_MIN: f32 = 0.10;
 pub const SENS_MAX: f32 = 3.0;
 pub const SENS_DEFAULT: f32 = 1.0;
 
+/// ADS sensitivity is a multiplier on the look speed at full aim-down-sight,
+/// relative to the hip. `1.0` = no slow-down; the default eases the zoomed view.
+pub const ADS_SENS_MIN: f32 = 0.10;
+pub const ADS_SENS_MAX: f32 = 2.0;
+pub const ADS_SENS_DEFAULT: f32 = 0.4;
+
 pub const VOLUME_MIN: f32 = 0.0;
 pub const VOLUME_MAX: f32 = 1.0;
 pub const VOLUME_DEFAULT: f32 = 1.0;
@@ -66,6 +72,8 @@ pub struct Settings {
     pub username: Option<String>,
     /// Multiplier applied to the base mouse sensitivity.
     pub sensitivity: f32,
+    /// Multiplier on look sensitivity at full ADS, relative to the hip.
+    pub ads_sensitivity: f32,
     /// Hip (non-ADS) vertical FOV, degrees.
     pub fov: f32,
     /// Show the dev tuning panels in the top-right.
@@ -85,6 +93,7 @@ impl Default for Settings {
         Self {
             username: None,
             sensitivity: SENS_DEFAULT,
+            ads_sensitivity: ADS_SENS_DEFAULT,
             fov: FOV_DEFAULT,
             debug_mode: false,
             dev_auto_create_lobby: false,

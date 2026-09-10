@@ -3,8 +3,8 @@
 //!
 //! * `Esc` opens/closes the settings menu (or the username screen if no name is
 //!   set yet). While either is open the game is frozen and the cursor is free.
-//! * Categories: **Profile** (username), **Controls** (sensitivity, FOV, debug
-//!   toggle), **Keybinds** (rebind any action).
+//! * Categories: **Profile** (username), **Controls** (sensitivity, ADS
+//!   sensitivity, FOV, debug toggle), **Keybinds** (rebind any action).
 //! * `debug_mode` gates the existing egui tuning panels (`ads_tuning_ui`).
 //!
 //! The UI is rebuilt from scratch whenever `menu.dirty` is set (tab / screen /
@@ -25,7 +25,8 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    Settings, ShadowQuality, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
+    Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN,
+    VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
     field_box, label, spawn_button, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID, ROW,
@@ -295,6 +296,7 @@ fn leave_ctx(
 #[derive(Component, Clone, Copy, PartialEq)]
 enum SliderField {
     Sensitivity,
+    AdsSensitivity,
     Fov,
     MasterVolume,
 }
@@ -397,6 +399,10 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
         SliderField::Sensitivity => {
             settings.sensitivity = (settings.sensitivity + delta).clamp(SENS_MIN, SENS_MAX);
         }
+        SliderField::AdsSensitivity => {
+            settings.ads_sensitivity =
+                (settings.ads_sensitivity + delta).clamp(ADS_SENS_MIN, ADS_SENS_MAX);
+        }
         SliderField::Fov => {
             settings.fov = (settings.fov + delta).clamp(FOV_MIN, FOV_MAX).round();
         }
@@ -422,6 +428,10 @@ fn slider_drag(
                 settings.sensitivity =
                     (SENS_MIN + t * (SENS_MAX - SENS_MIN)).clamp(SENS_MIN, SENS_MAX);
             }
+            SliderField::AdsSensitivity => {
+                settings.ads_sensitivity = (ADS_SENS_MIN + t * (ADS_SENS_MAX - ADS_SENS_MIN))
+                    .clamp(ADS_SENS_MIN, ADS_SENS_MAX);
+            }
             SliderField::Fov => {
                 settings.fov = (FOV_MIN + t * (FOV_MAX - FOV_MIN))
                     .round()
@@ -438,6 +448,9 @@ fn slider_drag(
 fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
     match field {
         SliderField::Sensitivity => (settings.sensitivity - SENS_MIN) / (SENS_MAX - SENS_MIN),
+        SliderField::AdsSensitivity => {
+            (settings.ads_sensitivity - ADS_SENS_MIN) / (ADS_SENS_MAX - ADS_SENS_MIN)
+        }
         SliderField::Fov => (settings.fov - FOV_MIN) / (FOV_MAX - FOV_MIN),
         SliderField::MasterVolume => {
             (settings.master_volume - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
@@ -449,6 +462,7 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
 fn field_value_text(settings: &Settings, field: SliderField) -> String {
     match field {
         SliderField::Sensitivity => format!("{:.2}", settings.sensitivity),
+        SliderField::AdsSensitivity => format!("{:.2}", settings.ads_sensitivity),
         SliderField::Fov => format!("{:.0}", settings.fov),
         SliderField::MasterVolume => format!("{:.0}%", settings.master_volume * 100.0),
     }
@@ -824,6 +838,13 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
         content,
         "MOUSE SENSITIVITY",
         SliderField::Sensitivity,
+        settings,
+        0.05,
+    );
+    spawn_slider_row(
+        content,
+        "ADS SENSITIVITY",
+        SliderField::AdsSensitivity,
         settings,
         0.05,
     );

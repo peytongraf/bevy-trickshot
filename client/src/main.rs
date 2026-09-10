@@ -386,7 +386,7 @@ const MOUSE_SENSITIVITY: Vec2 = Vec2::new(0.003, 0.002);
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.02;
 
 /// Seconds to go from hip to full aim-down-sight (and back).
-const ADS_DURATION: f32 = 0.26;
+const ADS_DURATION: f32 = 0.4;
 // Hip FOV is now a player setting (`Settings::fov`, default 90°). Everything on
 // screen — inside the scope or not — is drawn at the current FOV, so shrinking it
 // toward `AdsTuning::fov_deg` is the scope "magnification".
@@ -423,9 +423,6 @@ const LENS_ROUGHNESS_ADS: f32 = 0.55;
 /// dielectric backing as the player scopes in.
 const LENS_METALLIC_HIP: f32 = 0.65;
 const LENS_REFLECTANCE_HIP: f32 = 1.0;
-/// Mouse sensitivity is scaled by this at full ADS so the zoomed view isn't
-/// twitchy.
-const ADS_SENSITIVITY_SCALE: f32 = 0.4;
 
 // --- daylight look (bright, mostly-sunny midday) -----------------------------
 // These are calibrated against Bevy's *default* camera exposure — a genuinely
@@ -1339,15 +1336,15 @@ impl Default for SoundVolumes {
         Self {
             shot: 1.0,
             rechamber: 1.0,
-            reload: 1.0,
-            ambient: 1.0,
+            reload: 1.5,
+            ambient: 2.5,
             aim_in: 1.0,
             aim_out: 1.0,
             out_of_ammo: 1.0,
             slide: 1.0,
             dive: 1.0,
-            kill_enemy: 1.0,
-            jump_land: 1.0,
+            kill_enemy: 5.5,
+            jump_land: 0.5,
         }
     }
 }
@@ -1828,6 +1825,9 @@ pub(crate) struct AdsTuning {
     fov_deg: f32,
     /// Scope camera FOV (degrees). Lower = more magnification inside the scope.
     scope_fov_deg: f32,
+    /// Milliseconds to go from hip to full aim-down-sight (and back), the way
+    /// Call of Duty reports ADS time. Lower = snappier.
+    ads_duration_ms: f32,
 }
 
 impl Default for AdsTuning {
@@ -1836,6 +1836,7 @@ impl Default for AdsTuning {
             force_full: false,
             fov_deg: ADS_FOV_DEG,
             scope_fov_deg: SCOPE_FOV_DEG,
+            ads_duration_ms: ADS_DURATION * 1000.0,
         }
     }
 }
@@ -1926,7 +1927,7 @@ impl Default for ViewModelPoses {
     fn default() -> Self {
         Self {
             hip: ViewModelOffset {
-                translation: Vec3::new(0.13, -0.24, -0.32),
+                translation: Vec3::new(0.13, -0.24, -0.4),
                 yaw: PI,
                 pitch: 0.0,
                 scale: 0.01,
@@ -2822,80 +2823,108 @@ fn ads_tuning_ui(
             ui.separator();
             ui.checkbox(&mut tuning.force_full, "Force full ADS (ignore RMB)");
             ui.label(format!("ads.t = {:.2}", ads.t));
-            ui.add(
-                egui::Slider::new(&mut tuning.fov_deg, 3.0f32..=45.0)
-                    .text("main ADS FOV°  (lower = more zoom)"),
-            );
-            ui.add(
-                egui::Slider::new(&mut tuning.scope_fov_deg, 1.0f32..=30.0)
-                    .text("scope FOV°  (lower = more magnification)"),
-            );
-            ui.separator();
-
-            let a = &mut poses.ads;
-            ui.add(egui::Slider::new(&mut a.translation.x, -0.4f32..=0.4).text("x  (right +)"));
-            ui.add(egui::Slider::new(&mut a.translation.y, -0.4f32..=0.4).text("y  (up +)"));
-            ui.add(egui::Slider::new(&mut a.translation.z, -0.8f32..=0.0).text("z  (forward -)"));
-            ui.add(
-                egui::Slider::new(&mut a.yaw, (-PI)..=PI)
-                    .text("yaw")
-                    .step_by(0.001),
-            );
-            ui.add(
-                egui::Slider::new(&mut a.pitch, -0.6f32..=0.6)
-                    .text("pitch")
-                    .step_by(0.001),
-            );
-            ui.add(
-                egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
-                    .text("scale")
-                    .logarithmic(true),
-            );
 
             ui.separator();
-            if ui.button("Copy pose to console").clicked() {
-                info!(
-                    "ads: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                     yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                    a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.scale,
+            ui.collapsing("FOV", |ui| {
+                ui.add(
+                    egui::Slider::new(&mut tuning.fov_deg, 3.0f32..=45.0)
+                        .text("main ADS FOV°  (lower = more zoom)"),
                 );
-            }
-            if ui.button("Reset to default").clicked() {
-                *a = ViewModelPoses::default().ads;
-            }
+                ui.add(
+                    egui::Slider::new(&mut tuning.scope_fov_deg, 1.0f32..=30.0)
+                        .text("scope FOV°  (lower = more magnification)"),
+                );
+                if ui.button("Reset FOV").clicked() {
+                    let d = AdsTuning::default();
+                    tuning.fov_deg = d.fov_deg;
+                    tuning.scope_fov_deg = d.scope_fov_deg;
+                }
+            });
 
             ui.separator();
-            ui.label("Hip pose");
-            let h = &mut poses.hip;
-            ui.add(egui::Slider::new(&mut h.translation.x, -0.4f32..=0.4).text("x  (right +)"));
-            ui.add(egui::Slider::new(&mut h.translation.y, -0.4f32..=0.4).text("y  (up +)"));
-            ui.add(egui::Slider::new(&mut h.translation.z, -0.8f32..=0.0).text("z  (forward -)"));
-            ui.add(
-                egui::Slider::new(&mut h.yaw, (-PI)..=PI)
-                    .text("yaw")
-                    .step_by(0.001),
-            );
-            ui.add(
-                egui::Slider::new(&mut h.pitch, -0.6f32..=0.6)
-                    .text("pitch")
-                    .step_by(0.001),
-            );
-            ui.add(
-                egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
-                    .text("scale")
-                    .logarithmic(true),
-            );
-
-            if ui.button("Copy hip pose to console").clicked() {
-                info!(
-                    "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                     yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                    h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
+            ui.collapsing("ADS speed", |ui| {
+                ui.add(
+                    egui::Slider::new(&mut tuning.ads_duration_ms, 20.0f32..=1000.0)
+                        .text("ADS time (ms)  (lower = snappier)")
+                        .suffix(" ms")
+                        .max_decimals(0),
                 );
-            }
-            if ui.button("Reset hip pose to default").clicked() {
-                *h = ViewModelPoses::default().hip;
-            }
+                if ui.button("Reset ADS speed").clicked() {
+                    tuning.ads_duration_ms = AdsTuning::default().ads_duration_ms;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("ADS pose", |ui| {
+                let a = &mut poses.ads;
+                ui.add(egui::Slider::new(&mut a.translation.x, -0.4f32..=0.4).text("x  (right +)"));
+                ui.add(egui::Slider::new(&mut a.translation.y, -0.4f32..=0.4).text("y  (up +)"));
+                ui.add(
+                    egui::Slider::new(&mut a.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.yaw, (-PI)..=PI)
+                        .text("yaw")
+                        .step_by(0.001),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.pitch, -0.6f32..=0.6)
+                        .text("pitch")
+                        .step_by(0.001),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+
+                if ui.button("Copy pose to console").clicked() {
+                    info!(
+                        "ads: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
+                         yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
+                        a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.scale,
+                    );
+                }
+                if ui.button("Reset to default").clicked() {
+                    *a = ViewModelPoses::default().ads;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Hip pose", |ui| {
+                let h = &mut poses.hip;
+                ui.add(egui::Slider::new(&mut h.translation.x, -0.4f32..=0.4).text("x  (right +)"));
+                ui.add(egui::Slider::new(&mut h.translation.y, -0.4f32..=0.4).text("y  (up +)"));
+                ui.add(
+                    egui::Slider::new(&mut h.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut h.yaw, (-PI)..=PI)
+                        .text("yaw")
+                        .step_by(0.001),
+                );
+                ui.add(
+                    egui::Slider::new(&mut h.pitch, -0.6f32..=0.6)
+                        .text("pitch")
+                        .step_by(0.001),
+                );
+                ui.add(
+                    egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+
+                if ui.button("Copy hip pose to console").clicked() {
+                    info!(
+                        "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
+                         yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
+                        h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
+                    );
+                }
+                if ui.button("Reset hip pose to default").clicked() {
+                    *h = ViewModelPoses::default().hip;
+                }
+            });
 
             ui.separator();
             ui.collapsing("Muzzle flash", |ui| {
@@ -3914,9 +3943,11 @@ fn look_around(
         return;
     }
 
-    // Base sensitivity × the player's multiplier, slowed further as they zoom in.
-    let sens =
-        MOUSE_SENSITIVITY * settings.sensitivity * 1.0f32.lerp(ADS_SENSITIVITY_SCALE, ease(ads.t));
+    // Base sensitivity × the player's multiplier, eased toward the player's ADS
+    // sensitivity multiplier as they zoom in.
+    let sens = MOUSE_SENSITIVITY
+        * settings.sensitivity
+        * 1.0f32.lerp(settings.ads_sensitivity, ease(ads.t));
 
     // Yaw on the body...
     let yaw = -delta.x * sens.x;
@@ -4020,7 +4051,7 @@ fn update_ads(
     }
 
     let target = if aiming { 1.0 } else { 0.0 };
-    let step = time.delta_secs() / ADS_DURATION;
+    let step = time.delta_secs() / (tuning.ads_duration_ms.max(1.0) / 1000.0);
     ads.t = if ads.t < target {
         (ads.t + step).min(target)
     } else {
