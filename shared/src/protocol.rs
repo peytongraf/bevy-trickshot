@@ -142,6 +142,13 @@ pub struct PlayerInput {
     /// World-space impact point of a shot that struck the ground this tick, so
     /// the kill cam can re-emit the dust / rock burst. `None` otherwise.
     pub ground_pt: Option<[f32; 3]>,
+    /// World-space point a bot was hit this tick, so the kill cam can re-emit
+    /// the blood squirt. `None` otherwise.
+    pub blood_pt: Option<[f32; 3]>,
+    /// `[start, end]` world points of a shot's tracer fired this tick, so the
+    /// kill cam re-draws it along its true path at the replayed shot moment
+    /// rather than leaving the live one hanging in the world. `None` otherwise.
+    pub tracer: Option<[[f32; 3]; 2]>,
     /// Whether the first-person weapon model is shown this tick (`false` while
     /// holstered for the secondary slot, or snapped away for a throwing-knife
     /// hold), so the kill cam can reproduce weapon swaps and knife-hides
@@ -178,6 +185,8 @@ impl Default for PlayerInput {
             anim_time: 0.0,
             ads_t: 0.0,
             ground_pt: None,
+            blood_pt: None,
+            tracer: None,
             weapon_visible: true,
             knife_active: false,
             sniper_active: true,
@@ -277,6 +286,10 @@ pub struct KillCamSample {
     pub ads_t: f32,
     /// World point of a ground burst that fired on this frame, if any.
     pub ground_pt: Option<[f32; 3]>,
+    /// World point of a blood squirt (bot hit) on this frame, if any.
+    pub blood_pt: Option<[f32; 3]>,
+    /// `[start, end]` world points of a shot tracer fired on this frame, if any.
+    pub tracer: Option<[[f32; 3]; 2]>,
     /// Whether the first-person weapon model was shown on this frame.
     pub weapon_visible: bool,
     /// Whether the throwing-knife key was held on this frame.

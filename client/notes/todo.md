@@ -1,9 +1,11 @@
 # Todo
 
+- ~~Blood splatter isn't shown in kill cam.~~ (done — recorded + re-emitted like ground bursts; new `PlayerInput.blood_pt` / `KillCamSample.blood_pt` carry the networked path.)
+- ~~Tracers aren't being shown in kill cam but instead are being shown where they currently are, not where they were.~~ (done — stale live tracers cleared on cam start; the killer's own tracer recorded as `(start, end)` and re-drawn at the replayed shot moment via `PlayerInput.tracer` / `KillCamSample.tracer`.)
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
 - Kill enemy sound when an enemy is killed isn't heard. May need to add settings for volume of individual sounds.
-- Add blood splatter from enemy when shot.
+- ~~Add blood splatter from enemy when shot.~~ (done — `spawn_blood_impact`, "Blood splatter" panel section, replayed in the kill cam.)
 - Add footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.

@@ -27,8 +27,9 @@ use shared::{
 
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
-    play_bot_death, Ads, AppState, BotAnimationPlayer, BotAnimations, BotVisual, GroundImpact,
-    MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, TrickScoredEvent, TrickState,
+    play_bot_death, Ads, AppState, BloodImpact, BotAnimationPlayer, BotAnimations, BotVisual,
+    GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, TrickScoredEvent,
+    TrickState,
     WorldModelCamera, NOSCOPE_ADS_MAX,
 };
 
@@ -203,8 +204,13 @@ fn write_input(
     sway: Res<crate::WeaponSwayState>,
     settings: Res<crate::settings::Settings>,
     mut trick: ResMut<TrickState>,
-    mut snd: ResMut<ReplaySoundBits>,
-    mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
+    // Kill-cam recording resources, bundled — a system tops out at 16 params.
+    (mut snd, mut ground_hit, mut blood_hit, mut tracer_rec): (
+        ResMut<ReplaySoundBits>,
+        ResMut<killcam::ReplayGroundImpact>,
+        ResMut<killcam::ReplayBloodImpact>,
+        ResMut<killcam::ReplayTracer>,
+    ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
     (view_model_vis, knife, weapon): (
@@ -234,6 +240,11 @@ fn write_input(
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.ads_t = ads.t;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
+    action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
+    action.tracer = tracer_rec
+        .0
+        .take()
+        .map(|(s, e)| [s.to_array(), e.to_array()]);
     action.weapon_visible = view_model_vis
         .iter()
         .next()
@@ -312,16 +323,22 @@ fn receive_killcam(
 /// sees the shot's tracer along its true, server-resolved path. Our *own*
 /// shots are skipped here — `resolve_local_shot` already spawned both locally,
 /// instantly, the moment we fired.
+///
+/// While a kill cam is playing the messages are still drained (so they don't
+/// dump in a batch when it ends) but their effects are dropped — the replay
+/// paints only the killer's own recorded tracers / bursts.
 fn receive_shots(
     local: Query<&LocalId, With<GameClient>>,
+    active: Res<ActiveKillCam>,
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut impacts: EventWriter<GroundImpact>,
     mut tracers: EventWriter<crate::FireTracer>,
 ) {
     let me = local.iter().next().map(|l| l.0);
+    let killcam_playing = active.0.is_some();
     for mut rx in &mut receivers {
         for msg in rx.receive() {
-            if Some(msg.shooter) == me {
+            if killcam_playing || Some(msg.shooter) == me {
                 continue;
             }
             if let ShotOutcome::Ground { point } = msg.outcome {
@@ -485,6 +502,8 @@ fn follow_bot_avatars(
     roots: Query<&BotAnimationPlayer>,
     mut players: Query<&mut AnimationPlayer>,
     anims: Res<BotAnimations>,
+    mut blood: EventWriter<BloodImpact>,
+    mut blood_rec: ResMut<killcam::ReplayBloodImpact>,
     mut commands: Commands,
 ) {
     for (entity, mut avatar, mut tf) in &mut avatars {
@@ -495,6 +514,14 @@ fn follow_bot_avatars(
                 if !bot.alive && !avatar.died {
                     avatar.died = true;
                     play_bot_death(entity, &roots, &mut players, &anims);
+                    // The server's `ShotResolved` reports a bot kill as a plain
+                    // miss with no hit point, so squirt an upward blood burst
+                    // from the bot's chest rather than a directed one.
+                    let point = bot.pos + Vec3::Y * (BOT_H * 0.55);
+                    blood.write(BloodImpact { point, dir: Vec3::Y });
+                    // Stamp it for this client's next input packet so a kill cam
+                    // built from our stream replays the squirt.
+                    blood_rec.0 = Some(point);
                 }
             }
             Err(_) => {

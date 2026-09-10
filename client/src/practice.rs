@@ -177,7 +177,9 @@ fn resolve_local_shot(
     mut score: ResMut<PracticeScore>,
     mut pending_cam: ResMut<PendingLocalCam>,
     mut ground_hit: ResMut<crate::killcam::ReplayGroundImpact>,
+    mut tracer_rec: ResMut<crate::killcam::ReplayTracer>,
     mut impacts: EventWriter<GroundImpact>,
+    mut blood: EventWriter<crate::BloodImpact>,
     mut scored: EventWriter<TrickScoredEvent>,
     mut tracers: EventWriter<crate::FireTracer>,
 ) {
@@ -224,6 +226,11 @@ fn resolve_local_shot(
                             let now = time.elapsed_secs();
                             bot.dead_at = Some(now);
                             hit_bot = true;
+                            // Squirt blood out along the shot from the hit point.
+                            blood.write(crate::BloodImpact {
+                                point: hit.point,
+                                dir: shot.dir.normalize_or_zero(),
+                            });
                             // Kick off this player's own kill cam once enough
                             // follow-through is buffered.
                             if pending_cam.0.is_none() {
@@ -263,6 +270,10 @@ fn resolve_local_shot(
             shot.origin + shot.dir.normalize_or_zero() * WeaponId::Sniper.spec().max_range
         });
         tracers.write(crate::FireTracer { start: shot.origin, end });
+        // Stamp it onto this tick's `PlayerInput` too, so a networked kill cam
+        // re-draws the tracer along its true path instead of leaving the live
+        // one hanging in the world. (Practice records off the event above.)
+        tracer_rec.0 = Some((shot.origin, end));
     }
 }
 

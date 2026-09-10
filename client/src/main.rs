@@ -570,9 +570,11 @@ fn main() {
         .init_resource::<SmokeEmission>()
         .init_resource::<RockSettings>()
         .init_resource::<DustSettings>()
+        .init_resource::<BloodSettings>()
         .init_resource::<TracerSettings>()
         .init_resource::<TrickState>()
         .add_event::<GroundImpact>()
+        .add_event::<BloodImpact>()
         .add_event::<FireTracer>()
         .add_event::<TrickScoredEvent>()
         .add_event::<MatchEndedEvent>()
@@ -646,7 +648,8 @@ fn main() {
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
-                (spawn_ground_impact, update_impact_particles).after(look_around),
+                (spawn_ground_impact, spawn_blood_impact, update_impact_particles)
+                    .after(look_around),
                 (spawn_tracers, update_tracers),
                 update_ammo_ui,
                 update_fps_ui,
@@ -1255,7 +1258,7 @@ pub(crate) struct FireTracer {
 /// sniper is instant-hitscan, so there's no real flight time to animate —
 /// both phases are a stylised read of "a shot just went through here."
 #[derive(Component)]
-struct Tracer {
+pub(crate) struct Tracer {
     age: f32,
 }
 
@@ -1323,15 +1326,20 @@ pub(crate) struct ImpactParticle {
     scale0: f32,
     scale1: f32,
     peak_alpha: f32,
+    /// RGB the sprite's blended material is tinted with (multiplies the
+    /// texture) — white for rocks / dust, `BloodSettings::color` for blood.
+    tint: [f32; 3],
 }
 
-/// Shared quad + the two impact textures (`spawn_ground_impact` clones a fresh
-/// material per particle so each fades on its own).
+/// Shared quad + the impact textures (`spawn_ground_impact` / `spawn_blood_impact`
+/// clone a fresh material per particle so each fades on its own). `blood` is a
+/// transparent PNG whose droplets already carry their own colour.
 #[derive(Resource)]
 struct ImpactAssets {
     quad: Handle<Mesh>,
     dust: Handle<Image>,
     rocks: Handle<Image>,
+    blood: Handle<Image>,
 }
 
 /// Panel-adjustable rock-debris burst for a ground hit.
@@ -1404,6 +1412,60 @@ impl Default for DustSettings {
             lifetime: 0.85,
             fade_in: 0.04,
             opacity: 0.5,
+        }
+    }
+}
+
+/// A shot connected with a bot at `point`, travelling along `dir` (unit).
+/// Consumed by `spawn_blood_impact`, which squirts a blood burst out along the
+/// shot from that point. Written by `practice::resolve_local_shot` for the
+/// local shooter's own hits and by `net::follow_bot_avatars` when a
+/// server-owned bot drops.
+#[derive(Event)]
+pub(crate) struct BloodImpact {
+    pub(crate) point: Vec3,
+    pub(crate) dir: Vec3,
+}
+
+/// Panel-adjustable blood squirt for a bot hit (`ads_tuning_ui`'s "Blood
+/// splatter" section).
+#[derive(Resource)]
+struct BloodSettings {
+    /// Droplets launched per hit.
+    count: u32,
+    /// Squirt speed (m/s), randomised.
+    speed: f32,
+    /// Spray cone half-angle around the shot direction (degrees).
+    spread_deg: f32,
+    /// Downward acceleration (m/s²) — droplets arc down.
+    gravity: f32,
+    /// Per-second velocity damping.
+    drag: f32,
+    /// Droplet sprite size at spawn (m), randomised.
+    scale: f32,
+    /// How much a droplet grows over its life (× `scale`).
+    growth: f32,
+    /// Seconds a droplet lives, randomised.
+    lifetime: f32,
+    /// Peak opacity, multiplying the texture's own alpha.
+    opacity: f32,
+    /// Multiplies the texture's colour — white keeps the PNG's own dark red.
+    color: [f32; 3],
+}
+
+impl Default for BloodSettings {
+    fn default() -> Self {
+        Self {
+            count: 40,
+            speed: 6.0,
+            spread_deg: 50.0,
+            gravity: 17.0,
+            drag: 1.4,
+            scale: 0.2,
+            growth: 2.0,
+            lifetime: 1.0,
+            opacity: 0.8,
+            color: srgb_parts(Color::WHITE),
         }
     }
 }
@@ -1813,11 +1875,13 @@ fn setup_player(
         texture: asset_server.load("textures/smoke.png"),
     });
 
-    // Bullet-impact debris (`spawn_ground_impact` clones a material per particle).
+    // Bullet-impact debris (`spawn_ground_impact` / `spawn_blood_impact` clone a
+    // material per particle).
     commands.insert_resource(ImpactAssets {
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
         dust: asset_server.load("textures/dust.png"),
         rocks: asset_server.load("textures/rocks.png"),
+        blood: asset_server.load("textures/blood-splatter-texture.png"),
     });
 
     // Unit cylinder (`spawn_tracers` scales + colors it per shot).
@@ -2496,9 +2560,9 @@ fn ads_tuning_ui(
     mut tracer: ResMut<TracerSettings>,
     binds: Res<KeyBindings>,
     // Bundled — a system function tops out at 16 top-level params.
-    misc: (Res<Shake>, Res<Ads>, ResMut<MapSettings>),
+    misc: (Res<Shake>, Res<Ads>, ResMut<MapSettings>, ResMut<BloodSettings>),
 ) -> Result {
-    let (shake, ads, mut map) = misc;
+    let (shake, ads, mut map, mut blood) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -2762,6 +2826,28 @@ fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut d.opacity, 0.0f32..=1.0).text("opacity"));
                 if ui.button("Reset dust").clicked() {
                     *d = DustSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Blood splatter", |ui| {
+                let b = &mut *blood;
+                ui.label("squirted from a bot along the shot where it hits");
+                ui.add(egui::Slider::new(&mut b.count, 0u32..=60).text("droplets per hit"));
+                ui.add(egui::Slider::new(&mut b.speed, 0.0f32..=25.0).text("squirt speed (m/s)"));
+                ui.add(egui::Slider::new(&mut b.spread_deg, 0.0f32..=90.0).text("spray cone (°)"));
+                ui.add(egui::Slider::new(&mut b.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+                ui.add(egui::Slider::new(&mut b.drag, 0.0f32..=10.0).text("drag (/s)"));
+                ui.add(egui::Slider::new(&mut b.scale, 0.01f32..=0.8).text("droplet size (m)"));
+                ui.add(egui::Slider::new(&mut b.growth, 1.0f32..=4.0).text("grow ×  (over life)"));
+                ui.add(egui::Slider::new(&mut b.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                ui.add(egui::Slider::new(&mut b.opacity, 0.0f32..=1.0).text("opacity"));
+                ui.horizontal(|ui| {
+                    ui.label("tint  (white = texture as-is)");
+                    ui.color_edit_button_rgb(&mut b.color);
+                });
+                if ui.button("Reset blood").clicked() {
+                    *b = BloodSettings::default();
                 }
             });
 
@@ -4411,6 +4497,7 @@ fn spawn_ground_impact(
                     scale0: rocks.scale,
                     scale1: rocks.scale,
                     peak_alpha: 1.0,
+                    tint: [1.0, 1.0, 1.0],
                 },
                 Mesh3d(assets.quad.clone()),
                 MeshMaterial3d(materials.add(material)),
@@ -4444,11 +4531,78 @@ fn spawn_ground_impact(
                     scale0: dust.start_scale,
                     scale1: dust.end_scale,
                     peak_alpha: dust.opacity,
+                    tint: [1.0, 1.0, 1.0],
                 },
                 Mesh3d(assets.quad.clone()),
                 MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
                 Transform::from_translation(at)
                     .with_scale(Vec3::splat(dust.start_scale.max(1.0e-4))),
+                NoFrustumCulling,
+            ));
+        }
+    }
+}
+
+/// Squirt a short blood burst out of a bot the instant a shot connects, along
+/// the shot's travel direction from the hit point. World-space, so every client
+/// and camera angle sees it. Mirrors `spawn_ground_impact`.
+fn spawn_blood_impact(
+    mut events: EventReader<BloodImpact>,
+    assets: Res<ImpactAssets>,
+    blood: Res<BloodSettings>,
+    existing: Query<(), With<ImpactParticle>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+    mut seq: Local<u32>,
+) {
+    let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
+
+    for ev in events.read() {
+        let jet = ev.dir.normalize_or(Vec3::NEG_Y);
+        *seq = seq.wrapping_add(1);
+
+        for i in 0..blood.count {
+            if budget == 0 {
+                break;
+            }
+            budget -= 1;
+            let s = seq
+                .wrapping_mul(2_246_822_519)
+                .wrapping_add(i.wrapping_mul(83_492_791))
+                .wrapping_add(0xb100d);
+            let dir = cone_dir(jet, blood.spread_deg.to_radians(), s);
+            let speed = blood.speed * (0.35 + 0.65 * rand01(s ^ 0x9e37));
+            // `blood-splatter-texture.png` is one wide field of droplets on
+            // transparent; show a small random window into it per particle so
+            // each droplet sprite is a handful of specks, not the whole field.
+            // Bias toward the dense centre-left so a window is never empty.
+            let win = Vec2::new(0.16, 0.26);
+            let uv_off = Vec2::new(
+                0.10 + rand01(s ^ 0x3).powf(1.5) * (0.62 - win.x),
+                0.05 + rand01(s ^ 0x5) * (0.88 - win.y),
+            );
+            let mut material = impact_material(assets.blood.clone());
+            material.uv_transform = Affine2::from_scale_angle_translation(win, 0.0, uv_off);
+            let scale0 = (blood.scale * (0.6 + 0.8 * rand01(s ^ 0x2c))).max(1.0e-4);
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                ImpactParticle {
+                    velocity: dir * speed,
+                    gravity: blood.gravity,
+                    drag: blood.drag,
+                    age: 0.0,
+                    lifetime: blood.lifetime.max(0.1) * (0.7 + 0.6 * rand01(s ^ 0x1234)),
+                    fade_in: 0.0,
+                    roll: rand_roll(s ^ 0x77),
+                    spin: 0.0,
+                    scale0,
+                    scale1: scale0 * blood.growth.max(0.1),
+                    peak_alpha: blood.opacity,
+                    tint: blood.color,
+                },
+                Mesh3d(assets.quad.clone()),
+                MeshMaterial3d(materials.add(material)),
+                Transform::from_translation(ev.point).with_scale(Vec3::splat(scale0)),
                 NoFrustumCulling,
             ));
         }
@@ -4515,7 +4669,8 @@ fn update_impact_particles(
             1.0 - (p.age - p.fade_in) / fade_out
         };
         if let Some(m) = materials.get_mut(&material.0) {
-            m.base_color = Color::srgba(1.0, 1.0, 1.0, p.peak_alpha * envelope.clamp(0.0, 1.0));
+            let [tr, tg, tb] = p.tint;
+            m.base_color = Color::srgba(tr, tg, tb, p.peak_alpha * envelope.clamp(0.0, 1.0));
         }
     }
 }
