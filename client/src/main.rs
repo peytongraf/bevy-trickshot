@@ -353,15 +353,26 @@ fn apply_map_transform(map: Res<MapSettings>, model: Single<&mut Transform, With
 /// update this too.
 const SPAWN_POS: Vec3 = Vec3::new(26.0, EYE_HEIGHT, -15.0);
 
-/// The position the teleport key snaps the player back to. Starts at
-/// [`SPAWN_POS`]; the "save teleport point" key resets it to wherever the player
-/// is standing. Runtime-only — back to spawn on each launch.
+/// The position and facing the teleport key snaps the player back to. Starts
+/// at [`SPAWN_POS`] facing -Z (the spawn orientation); the "save teleport
+/// point" key resets it to wherever the player is standing and looking.
+/// Runtime-only — back to spawn on each launch.
 #[derive(Resource)]
-struct TeleportPoint(Vec3);
+struct TeleportPoint {
+    position: Vec3,
+    /// Body yaw (rotation about Y), radians — matches `Player`'s `Transform`.
+    yaw: f32,
+    /// Head pitch, radians — matches `PlayerHead`'s `Transform`.
+    pitch: f32,
+}
 
 impl Default for TeleportPoint {
     fn default() -> Self {
-        Self(SPAWN_POS)
+        Self {
+            position: SPAWN_POS,
+            yaw: 0.0,
+            pitch: 0.0,
+        }
     }
 }
 /// Player camera height above the feet — used to test the feet against surfaces.
@@ -4071,8 +4082,8 @@ fn footsteps(
     state.accum = state.accum.min(stride);
 }
 
-/// Snaps the player back to the current [`TeleportPoint`] and plays the teleport
-/// sound.
+/// Snaps the player back to the current [`TeleportPoint`], restoring the
+/// saved facing, and plays the teleport sound.
 fn teleport_home(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -4080,11 +4091,14 @@ fn teleport_home(
     point: Res<TeleportPoint>,
     sounds: Res<GameSounds>,
     mut commands: Commands,
-    player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+    mut player: Single<(&mut Transform, &mut PlayerPhysics), (With<Player>, Without<PlayerHead>)>,
+    mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
     if binds.teleport_home.just_pressed(&keys, &mouse) {
-        let (mut transform, mut physics) = player.into_inner();
-        transform.translation = point.0;
+        let (transform, physics) = &mut *player;
+        transform.translation = point.position;
+        transform.rotation = Quat::from_rotation_y(point.yaw);
+        head.rotation = Quat::from_rotation_x(point.pitch);
         physics.horizontal_velocity = Vec3::ZERO;
         physics.vertical_velocity = 0.0;
         physics.grounded = true;
@@ -4095,21 +4109,24 @@ fn teleport_home(
     }
 }
 
-/// Reset the [`TeleportPoint`] to the player's current position and flash a
-/// "Teleport point saved" toast in the centre of the screen.
+/// Reset the [`TeleportPoint`] to the player's current position and facing,
+/// and flash a "Teleport point saved" toast in the centre of the screen.
 fn save_teleport_point(
     (keys, mouse): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
     binds: Res<KeyBindings>,
     asset_server: Res<AssetServer>,
     mut point: ResMut<TeleportPoint>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<&Transform, (With<Player>, Without<PlayerHead>)>,
+    head: Single<&Transform, (With<PlayerHead>, Without<Player>)>,
     existing: Query<Entity, With<TeleportToast>>,
     mut commands: Commands,
 ) {
     if !binds.save_teleport_point.just_pressed(&keys, &mouse) {
         return;
     }
-    point.0 = player.translation;
+    point.position = player.translation;
+    point.yaw = player.rotation.to_euler(EulerRot::YXZ).0;
+    point.pitch = head.rotation.to_euler(EulerRot::YXZ).1;
 
     for e in &existing {
         commands.entity(e).despawn();

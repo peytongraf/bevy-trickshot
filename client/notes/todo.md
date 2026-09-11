@@ -1,6 +1,3 @@
-# Todo
-
-- Teleport point should save direction the player is facing / looking.
 - Enable auto reload, check if rechamber animation should happen after last round is fired of a mag and if it should happen after a new mag is reloaded.
 - Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
 - Add idle sway of sniper
@@ -14,6 +11,10 @@
 - Add effect to scope so it looks like actually being aimed through a scope.
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
+
+# Done
+
+- Teleport point should save direction the player is facing / looking.
 
 ## Security
 
