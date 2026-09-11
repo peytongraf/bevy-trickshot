@@ -114,14 +114,26 @@ fn queue_killcams(
     bots: Query<(Entity, &Bot, &LobbyBot)>,
     mut pending: ResMut<PendingCams>,
 ) {
+    // Group this tick's kills by shooter first — a collateral shot fires one
+    // `BotHit` per pierced bot, all in the same tick, and should become one
+    // kill cam with every one of them falling together, not a separate replay
+    // per bot.
+    let mut by_shooter: Vec<(PeerId, Vec<Entity>)> = Vec::new();
     for ev in hits.read() {
-        let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(ev.by)) else {
+        match by_shooter.iter_mut().find(|(shooter, _)| *shooter == ev.by) {
+            Some((_, bots)) => bots.push(ev.bot),
+            None => by_shooter.push((ev.by, vec![ev.bot])),
+        }
+    }
+
+    for (killer, killed_bots) in by_shooter {
+        let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(killer)) else {
             continue;
         };
         let name = lobby
             .members
             .iter()
-            .find(|m| m.peer == ev.by)
+            .find(|m| m.peer == killer)
             .map(|m| m.name.clone())
             .unwrap_or_else(|| "Someone".to_string());
         // Freeze every bot in the killer's game as it stands now.
@@ -131,11 +143,11 @@ fn queue_killcams(
             .map(|(e, b, _)| KillCamBot {
                 pos: b.pos.to_array(),
                 yaw: b.yaw,
-                killed: e == ev.bot,
+                killed: killed_bots.contains(&e),
             })
             .collect();
         pending.0.push(PendingCam {
-            killer: ev.by,
+            killer,
             killer_name: name,
             kill_seq: clock.0,
             bots: snap,

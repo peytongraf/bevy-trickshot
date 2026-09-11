@@ -88,17 +88,30 @@ pub fn resolve_shot(
     None
 }
 
-/// Ray test over the bounded segment `origin .. origin + max_dist * dir`.
-fn segment_hit(
-    weapon: WeaponId,
+/// Extra range (metres) a hitscan bullet burns punching through a pierced
+/// target — modelling the energy lost, so a lined-up chain of bots can't
+/// collateral forever regardless of `WeaponSpec::max_range`. Purely a range
+/// cost; damage falloff (`damage_for`) is unaffected, since bots die to any
+/// hit anyway and this only needs to cap *how far* the chain can reach.
+pub const PIERCE_RANGE_COST_M: f32 = 15.0;
+
+/// Nearest target along `origin + t·dir` (`t` in `0..=max_dist`) not already in
+/// `exclude`, or `None` on a clean miss / everything excluded / blocked.
+/// Shared by [`segment_hit`] (single hit) and [`resolve_shot_pierce`] (chases
+/// this leg by leg, excluding what it's already pierced).
+fn nearest_unpierced(
     origin: Vec3,
     dir: Vec3,
     max_dist: f32,
     targets: &[Target],
+    exclude: &[u64],
     blocked: &mut impl FnMut(Vec3, Vec3) -> bool,
-) -> Option<ShotHit> {
-    let mut best: Option<ShotHit> = None;
+) -> Option<(u64, bool, f32, Vec3)> {
+    let mut best: Option<(u64, bool, f32, Vec3)> = None;
     for t in targets {
+        if exclude.contains(&t.id) {
+            continue;
+        }
         // If the ray passes through the head hitbox at all it's a headshot — the
         // head is the smaller, more specific target and it overlaps the top of
         // the body capsule. Generous headshots suit a trickshot game; tighten
@@ -111,24 +124,92 @@ fn segment_hit(
             (None, Some(body_dist)) => (body_dist, false),
             (None, None) => continue,
         };
-        if dist > max_dist {
+        if dist > max_dist || best.is_some_and(|(_, _, best_dist, _)| dist >= best_dist) {
             continue;
         }
         let point = origin + dir * dist;
         if blocked(origin, point) {
             continue;
         }
-        if best.map_or(true, |b| dist < b.distance) {
-            best = Some(ShotHit {
-                target: t.id,
-                headshot,
-                point,
-                distance: dist,
-                damage: damage_for(weapon, dist, headshot),
-            });
-        }
+        best = Some((t.id, headshot, dist, point));
     }
     best
+}
+
+/// Ray test over the bounded segment `origin .. origin + max_dist * dir`.
+fn segment_hit(
+    weapon: WeaponId,
+    origin: Vec3,
+    dir: Vec3,
+    max_dist: f32,
+    targets: &[Target],
+    blocked: &mut impl FnMut(Vec3, Vec3) -> bool,
+) -> Option<ShotHit> {
+    let (target, headshot, dist, point) =
+        nearest_unpierced(origin, dir, max_dist, targets, &[], blocked)?;
+    Some(ShotHit {
+        target,
+        headshot,
+        point,
+        distance: dist,
+        damage: damage_for(weapon, dist, headshot),
+    })
+}
+
+/// Resolve a single hitscan bullet allowing it to pierce through however many
+/// targets lie along its path — Call-of-Duty "collateral" style: a hit doesn't
+/// stop the bullet, it just spends [`PIERCE_RANGE_COST_M`] of the remaining
+/// range and keeps going. The chain ends when the bullet runs out of range, is
+/// stopped by map geometry, or has nothing left in front of it. Occlusion is
+/// tested leg by leg (last hit → next candidate), so a wall between two
+/// targets stops the chain there even if a farther target would otherwise be
+/// reachable.
+///
+/// Returns every hit, nearest first — empty on a clean miss. Projectile
+/// weapons (bullet drop / travel time) don't pierce: this just falls back to
+/// [`resolve_shot`]'s single hit for those, wrapped in a `Vec`.
+pub fn resolve_shot_pierce(
+    weapon: WeaponId,
+    origin: Vec3,
+    dir: Vec3,
+    targets: &[Target],
+    mut blocked: impl FnMut(Vec3, Vec3) -> bool,
+) -> Vec<ShotHit> {
+    let dir = dir.normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return Vec::new();
+    }
+    let spec = weapon.spec();
+    if !weapon.is_hitscan() {
+        return resolve_shot(weapon, origin, dir, targets, blocked)
+            .into_iter()
+            .collect();
+    }
+
+    let mut hits: Vec<ShotHit> = Vec::new();
+    let mut pierced: Vec<u64> = Vec::new();
+    let mut leg_start = origin;
+    let mut budget = spec.max_range;
+
+    while budget > 0.0 {
+        let Some((target, headshot, leg_dist, point)) =
+            nearest_unpierced(leg_start, dir, budget, targets, &pierced, &mut blocked)
+        else {
+            break;
+        };
+        pierced.push(target);
+        let distance = (point - origin).length();
+        hits.push(ShotHit {
+            target,
+            headshot,
+            point,
+            distance,
+            damage: damage_for(weapon, distance, headshot),
+        });
+        budget -= leg_dist + PIERCE_RANGE_COST_M;
+        leg_start = point;
+    }
+    hits
 }
 
 /// Height of the flat ground plane.
@@ -219,5 +300,84 @@ mod tests {
         .expect("should hit");
         assert!(hit.headshot);
         assert!(hit.damage >= WeaponId::Sniper.spec().base_damage * 1.9);
+    }
+
+    #[test]
+    fn pierce_hits_every_lined_up_target_nearest_first() {
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -10.0)),
+            dummy(2, Vec3::new(0.0, 0.0, -20.0)),
+            dummy(3, Vec3::new(0.0, 0.0, -30.0)),
+        ];
+        let hits = resolve_shot_pierce(
+            WeaponId::Sniper,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::NEG_Z,
+            &targets,
+            |_, _| false,
+        );
+        let ids: Vec<u64> = hits.iter().map(|h| h.target).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+        // Nearest-first and strictly increasing, since each is farther along
+        // the same ray.
+        assert!(hits.windows(2).all(|w| w[0].distance < w[1].distance));
+    }
+
+    #[test]
+    fn pierce_stops_at_map_geometry_between_targets() {
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -10.0)),
+            dummy(2, Vec3::new(0.0, 0.0, -20.0)),
+        ];
+        // A "wall" that blocks any leg starting past the first target, so the
+        // bullet should never reach the second.
+        let hits = resolve_shot_pierce(
+            WeaponId::Sniper,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::NEG_Z,
+            &targets,
+            |a: Vec3, _b: Vec3| a.z < -5.0,
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].target, 1);
+    }
+
+    #[test]
+    fn pierce_gives_up_once_out_of_range() {
+        // Sniper max range is 300 m; three targets 149 m apart put the third
+        // just past what's left once each pierce burns `PIERCE_RANGE_COST_M`.
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -1.0)),
+            dummy(2, Vec3::new(0.0, 0.0, -150.0)),
+            dummy(3, Vec3::new(0.0, 0.0, -299.0)),
+        ];
+        let hits = resolve_shot_pierce(
+            WeaponId::Sniper,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::NEG_Z,
+            &targets,
+            |_, _| false,
+        );
+        let ids: Vec<u64> = hits.iter().map(|h| h.target).collect();
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn pierce_falls_back_to_single_hit_for_projectile_weapons() {
+        // The Marksman has travel time / drop, so it doesn't pierce — even
+        // lined-up targets should only ever yield the first hit.
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -10.0)),
+            dummy(2, Vec3::new(0.0, 0.0, -20.0)),
+        ];
+        let hits = resolve_shot_pierce(
+            WeaponId::Marksman,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::NEG_Z,
+            &targets,
+            |_, _| false,
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].target, 1);
     }
 }

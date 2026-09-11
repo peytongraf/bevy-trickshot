@@ -33,7 +33,14 @@ impl WeaponId {
     pub const fn spec(self) -> WeaponSpec {
         match self {
             WeaponId::Sniper => WeaponSpec {
-                max_range: 600.0,
+                // A modern CoD sniper (this is an AX-50-style bolt action) is
+                // hitscan with no felt "out of range" — its maps are always
+                // smaller than the rifle's reach, so a shot only ever misses
+                // from bad aim. 300 m clears this map's full ground-plane
+                // diagonal (~283 m) with room to spare, so it reads the same
+                // way in practice while still being a real, tunable cap
+                // instead of the arbitrary 600 m this used to be.
+                max_range: 300.0,
                 muzzle_velocity: f32::INFINITY,
                 gravity: 0.0,
                 base_damage: 100.0,

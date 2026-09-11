@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 
 use std::collections::HashMap;
 
-use shared::ballistics::{ground_impact, resolve_shot, Target};
+use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
@@ -117,39 +117,82 @@ fn resolve_shots(
         // a valid `ShotOutcome::Hit` target).
         let mut tracer_end = origin + dir.normalize_or_zero() * weapon.spec().max_range;
 
-        let outcome = match resolve_shot(
+        // Collateral: the bullet keeps going after a bot (Call-of-Duty style),
+        // so a single shot can pierce through several — `hits` is every one it
+        // reached, nearest first.
+        let hits = resolve_shot_pierce(
             weapon,
             origin,
             dir,
             &targets,
             // TODO: swap for your map's occlusion test — shared::map::CollisionWorld.
             |_from, _to| false,
-        ) {
-            Some(hit) => {
-                tracer_end = hit.point;
-                match kind.get(&hit.target) {
-                    Some(HitKind::Bot(bot)) => {
-                        let (points, lines) =
-                            shared::scoring::score_kill(i.spin_deg, i.airborne, i.noscope);
+        );
+
+        let outcome = match hits.last() {
+            Some(last) => {
+                tracer_end = last.point;
+
+                // Every bot the shot pierced becomes its own `BotHit` (each
+                // needs to die + topple independently), but the shot's score
+                // is worked out once for the whole chain and multiplied by how
+                // many it hit — crediting it again per bot would double it, so
+                // only the first `BotHit` carries the points. The distance
+                // multiplier goes off the nearest (first) bot the shot hit —
+                // that's "how far the shot was", regardless of how much
+                // farther it happened to pierce.
+                let bots_hit: Vec<(Entity, f32)> = hits
+                    .iter()
+                    .filter_map(|hit| match kind.get(&hit.target) {
+                        Some(HitKind::Bot(bot)) => Some((*bot, hit.distance)),
+                        _ => None,
+                    })
+                    .collect();
+                if let Some(&(_, distance)) = bots_hit.first() {
+                    let (points, lines) = shared::scoring::score_multi_kill(
+                        i.spin_deg,
+                        i.airborne,
+                        i.noscope,
+                        bots_hit.len() as u32,
+                        distance,
+                        weapon.spec().max_range,
+                    );
+                    for (idx, (bot, _)) in bots_hit.iter().enumerate() {
                         bot_hits.write(BotHit {
                             bot: *bot,
                             by: shooter.0,
-                            points,
+                            points: if idx == 0 { points } else { 0 },
                         });
-                        let trick = TrickScore {
-                            shooter: shooter.0,
-                            total: points,
-                            lines,
-                        };
-                        if let Err(e) =
-                            sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
-                        {
-                            error!("failed to broadcast trick score: {e:?}");
-                        }
-                        info!("tick {tick}: {:?} killed a bot for {points} pts", shooter.0);
-                        ShotOutcome::Miss
                     }
-                    Some(HitKind::Player(p)) => {
+                    let trick = TrickScore {
+                        shooter: shooter.0,
+                        total: points,
+                        lines,
+                    };
+                    if let Err(e) =
+                        sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
+                    {
+                        error!("failed to broadcast trick score: {e:?}");
+                    }
+                    if bots_hit.len() > 1 {
+                        info!(
+                            "tick {tick}: {:?} got a {}-bot COLLATERAL for {points} pts",
+                            shooter.0,
+                            bots_hit.len(),
+                        );
+                    } else {
+                        info!("tick {tick}: {:?} killed a bot for {points} pts", shooter.0);
+                    }
+                }
+
+                // A player hit (if the pierced chain reached one) is still
+                // reported for hit-marker / damage feedback — the nearest one,
+                // same as before piercing existed.
+                match hits.iter().find_map(|hit| match kind.get(&hit.target) {
+                    Some(HitKind::Player(p)) => Some((p, hit)),
+                    _ => None,
+                }) {
+                    Some((p, hit)) => {
                         info!(
                             "tick {tick}: {:?} {} player {:?}",
                             shooter.0,
