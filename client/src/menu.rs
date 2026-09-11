@@ -252,6 +252,7 @@ fn confirm_username(menu: &mut Menu, settings: &mut Settings) {
 enum Btn {
     SelectTab(Tab),
     ToggleDebug,
+    ToggleAutoReload,
     ToggleAutoCreate,
     ToggleAutoJoin,
     SetShadowQuality(ShadowQuality),
@@ -340,6 +341,10 @@ fn menu_click(
                 menu.dirty = true;
             }
             Btn::ToggleDebug => settings.debug_mode = !settings.debug_mode,
+            Btn::ToggleAutoReload => {
+                settings.auto_reload = !settings.auto_reload;
+                menu.dirty = true;
+            }
             Btn::ToggleAutoCreate => {
                 settings.dev_auto_create_lobby = !settings.dev_auto_create_lobby;
                 menu.dirty = true;
@@ -849,6 +854,19 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
         0.05,
     );
     spawn_slider_row(content, "FIELD OF VIEW", SliderField::Fov, settings, 1.0);
+
+    toggle_row(
+        content,
+        "AUTO RELOAD",
+        settings.auto_reload,
+        Btn::ToggleAutoReload,
+    );
+    content.spawn(label(
+        "Automatically start reloading after the shot that empties the magazine, \
+         instead of waiting for you to press reload.",
+        14.0,
+        TEXT_DIM,
+    ));
 
     content
         .spawn(Node {

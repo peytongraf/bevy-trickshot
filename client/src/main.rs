@@ -4799,9 +4799,16 @@ pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
     }
 }
 
-/// Fire, reload and weapon-swap (bindings). Firing plays Shoot → Rechamber and
-/// spends a round; reload plays the Reload segment and then refills the mag.
-/// Swapping to the secondary plays Hide in full then drops the sniper model;
+/// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
+/// Shoot → Rechamber to cycle the bolt. The shot that empties the mag leaves
+/// the spent case sitting in the chamber (nothing left in the mag to cycle
+/// into it) and, since the Reload clip only swaps the magazine and never
+/// touches the bolt, that reload always ends with a Rechamber to load the
+/// first round of the fresh mag — either right away (auto-reload) or once a
+/// manual reload is pressed. Reloading with a round already chambered (mag
+/// still has rounds) skips that trailing Rechamber; refilling the mag/reserve
+/// counters happens once the whole queue finishes. Swapping to the secondary
+/// plays Hide in full then drops the sniper model;
 /// swapping back plays Show in full and restarts any reload / rechamber the swap
 /// cut short. Nothing new is accepted while an animation is mid-play (except the
 /// swap key), so shots are impossible until a reload finishes.
@@ -4828,12 +4835,13 @@ fn weapon_system(
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<practice::LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    (shake_cfg, sounds, anim, ads, spread_cfg): (
+    (shake_cfg, sounds, anim, ads, spread_cfg, settings): (
         Res<ShakeSettings>,
         Res<GameSounds>,
         Res<AnimationSettings>,
         Res<Ads>,
         Res<NoScopeSpread>,
+        Res<Settings>,
     ),
     mut commands: Commands,
 ) {
@@ -4970,6 +4978,14 @@ fn weapon_system(
                     if let Some(active) = player.animation_mut(node) {
                         active.set_speed(anim.rechamber_speed);
                     }
+                } else if next.name == SEGMENTS[SEG_RELOAD].name {
+                    // Auto-reload rolling straight out of the Shoot segment.
+                    commands.spawn((
+                        AudioPlayer::new(sounds.reload.clone()),
+                        PlaybackSettings::DESPAWN,
+                        WeaponActionSound,
+                    ));
+                    snd.note(killcam::SND_RELOAD);
                 }
             }
             Err(on_finish) => {
@@ -5072,10 +5088,37 @@ fn weapon_system(
             });
         }
         play_segment(&mut player, node, SEGMENTS[SEG_SHOOT]);
+
+        // Bolt-action cycle. After a shot that leaves rounds in the mag, work
+        // the bolt (Rechamber) to eject the spent case and feed the next round.
+        // The shot that empties the mag leaves the spent case sitting in the
+        // chamber — the Reload clip only swaps the magazine, it never touches
+        // the bolt — so with auto-reload on we go Shoot → Reload → Rechamber,
+        // working the bolt only once the fresh mag is seated (that one motion
+        // both ejects the old case and feeds the first round of the new mag).
+        // With auto-reload off the sniper just holds on the fired pose until a
+        // manual reload.
+        let (remaining, on_finish) = if weapon.mag > 0 {
+            (
+                vec![SEGMENTS[SEG_SHOOT], SEGMENTS[SEG_RECHAMBER]],
+                WeaponFinish::Nothing,
+            )
+        } else if settings.auto_reload && weapon.reserve > 0 {
+            (
+                vec![
+                    SEGMENTS[SEG_SHOOT],
+                    SEGMENTS[SEG_RELOAD],
+                    SEGMENTS[SEG_RECHAMBER],
+                ],
+                WeaponFinish::Reload,
+            )
+        } else {
+            (vec![SEGMENTS[SEG_SHOOT]], WeaponFinish::Nothing)
+        };
         weapon.busy = Some(WeaponBusy {
-            remaining: vec![SEGMENTS[SEG_SHOOT], SEGMENTS[SEG_RECHAMBER]],
+            remaining,
             seg_end: SEGMENTS[SEG_SHOOT].end_secs(),
-            on_finish: WeaponFinish::Nothing,
+            on_finish,
         });
     } else if binds.fire.just_pressed(&keys, &mouse) {
         // Trigger pulled on an empty mag — click, no bang.
@@ -5092,8 +5135,18 @@ fn weapon_system(
         ));
         snd.note(killcam::SND_RELOAD);
         play_segment(&mut player, node, SEGMENTS[SEG_RELOAD]);
+        // `mag == 0` only when the last round was fired and never rechambered
+        // (there's no separate "round chambered" flag — an empty mag is the
+        // one moment the chamber is guaranteed empty too), so the bolt still
+        // needs working after the fresh mag goes in. Reloading with a round
+        // already chambered (mag > 0, the TEMP full-mag case above) is a
+        // tactical swap — the chamber's already loaded, so no bolt work.
+        let mut remaining = vec![SEGMENTS[SEG_RELOAD]];
+        if weapon.mag == 0 {
+            remaining.push(SEGMENTS[SEG_RECHAMBER]);
+        }
         weapon.busy = Some(WeaponBusy {
-            remaining: vec![SEGMENTS[SEG_RELOAD]],
+            remaining,
             seg_end: SEGMENTS[SEG_RELOAD].end_secs(),
             on_finish: WeaponFinish::Reload,
         });

@@ -86,6 +86,10 @@ pub struct Settings {
     pub shadow_quality: ShadowQuality,
     /// Master volume, linear `0.0` (silent) .. `1.0` (full).
     pub master_volume: f32,
+    /// Roll straight into the reload animation after the shot that empties the
+    /// magazine, instead of leaving the sniper on an empty chamber until the
+    /// player presses reload.
+    pub auto_reload: bool,
 }
 
 impl Default for Settings {
@@ -100,6 +104,7 @@ impl Default for Settings {
             dev_auto_join_lobby: false,
             shadow_quality: ShadowQuality::default(),
             master_volume: VOLUME_DEFAULT,
+            auto_reload: true,
         }
     }
 }
