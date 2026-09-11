@@ -11,8 +11,10 @@
 //! "KILLCAM" / the killer; `F` (rebindable) skips.
 
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
+use bevy::audio::Volume;
 use bevy::prelude::*;
 
 use shared::KillCamSample;
@@ -48,6 +50,7 @@ pub(crate) const SND_SLIDE: u8 = 1 << 3;
 pub(crate) const SND_DIVE: u8 = 1 << 4;
 pub(crate) const SND_AIM_IN: u8 = 1 << 5;
 pub(crate) const SND_AIM_OUT: u8 = 1 << 6;
+pub(crate) const SND_FOOTSTEP: u8 = 1 << 7;
 
 /// Seconds of replay before / after the kill.
 const PRE_SECS: f32 = 3.0;
@@ -136,6 +139,9 @@ pub(crate) struct KillCamRun {
     elapsed: f32,
     /// Index of the next frame whose sounds still need firing.
     sound_cursor: usize,
+    /// Clip index the last replayed footstep used, so [`pick_footstep`] can
+    /// avoid an instant repeat the same way live `play_footstep` does.
+    footstep_last: usize,
     /// Index of the next ground burst to re-emit.
     impact_cursor: usize,
     /// Index of the next blood squirt to re-emit.
@@ -288,6 +294,26 @@ fn sound_for<'a>(sounds: &'a GameSounds, bit: u8) -> Option<&'a Handle<AudioSour
         SND_AIM_OUT => &sounds.aim_out,
         _ => return None,
     })
+}
+
+/// Pick a random footstep clip for kill-cam playback: a fresh pick that isn't
+/// an instant repeat of `last`, mirroring live `play_footstep`'s anti-repeat
+/// rule (just seeded off `seed` instead of a running RNG sequence).
+fn pick_footstep(
+    clips: &[Handle<AudioSource>],
+    last: &mut usize,
+    seed: u32,
+) -> Option<Handle<AudioSource>> {
+    if clips.is_empty() {
+        return None;
+    }
+    let t = (rand_roll(seed) + PI) / (2.0 * PI);
+    let mut idx = ((t * clips.len() as f32) as usize).min(clips.len() - 1);
+    if clips.len() > 1 && idx == *last {
+        idx = (idx + 1) % clips.len();
+    }
+    *last = idx;
+    Some(clips[idx].clone())
 }
 
 // --- recording (Practice) --------------------------------------------
@@ -445,6 +471,7 @@ fn start_local_killcam(
         ghosts: Vec::new(),
         elapsed: 0.0,
         sound_cursor: 0,
+        footstep_last: 0,
         impact_cursor: 0,
         blood_cursor: 0,
         tracer_cursor: 0,
@@ -505,6 +532,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         ghosts: Vec::new(),
         elapsed: 0.0,
         sound_cursor: 0,
+        footstep_last: 0,
         impact_cursor: 0,
         blood_cursor: 0,
         tracer_cursor: 0,
@@ -691,7 +719,11 @@ fn drive_killcam(
     binds: Res<KeyBindings>,
     sounds: Res<GameSounds>,
     // Bundled into tuples — a system function tops out at 16 top-level params.
-    cfg: (Res<crate::ShakeSettings>, Res<crate::AdsTuning>),
+    cfg: (
+        Res<crate::ShakeSettings>,
+        Res<crate::AdsTuning>,
+        Res<crate::FootstepSettings>,
+    ),
     mut fx: (ResMut<MuzzleFlashState>, ResMut<SmokeEmission>),
     mut commands: Commands,
     // Re-emitted as the playhead reaches each recorded time.
@@ -730,7 +762,7 @@ fn drive_killcam(
     if !run.setup {
         return; // start_killcam hasn't run yet
     }
-    let (shake_cfg, tuning) = cfg;
+    let (shake_cfg, tuning, footstep_cfg) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
     let (mut world_projection, view_model_single) = cams;
@@ -916,6 +948,23 @@ fn drive_killcam(
                 if let Some(clip) = sound_for(&sounds, bit) {
                     commands.spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN));
                 }
+            }
+        }
+        // Footsteps aren't one fixed clip (live play picks randomly from
+        // `sounds.footsteps`), so they don't go through `sound_for` — replay
+        // the same random-pick-without-repeat + pitch-jitter live play does.
+        if bits & SND_FOOTSTEP != 0 {
+            let seed = run.sound_cursor as u32;
+            if let Some(clip) = pick_footstep(&sounds.footsteps, &mut run.footstep_last, seed) {
+                let pitch = 1.0 + (rand_roll(seed ^ 0x5bd1_e995) / PI) * footstep_cfg.pitch_jitter;
+                commands.spawn((
+                    AudioPlayer::new(clip),
+                    PlaybackSettings::DESPAWN
+                        .with_volume(Volume::Linear(
+                            (footstep_cfg.volume * footstep_cfg.walk_volume).max(0.0),
+                        ))
+                        .with_speed(pitch.clamp(0.1, 4.0)),
+                ));
             }
         }
         // The shot frame also drives the muzzle flash + barrel smoke, the same

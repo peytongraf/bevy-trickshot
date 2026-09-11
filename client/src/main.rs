@@ -653,6 +653,36 @@ fn play_segment(player: &mut AnimationPlayer, node: AnimationNodeIndex, seg: Ani
     active.resume();
 }
 
+/// A weapon action (fire / swap-to-secondary) cut a busy queue short — stash
+/// whatever bolt-cycle work is still outstanding as `weapon.interrupted` so it
+/// forces its way back in (from the top) once the sniper is drawn again.
+///
+/// The already-fired `Shoot` segment itself never needs replaying, only
+/// whatever comes after it, so that's dropped off the front first — otherwise
+/// interrupting *while `Shoot` is still playing* (e.g. holding the throwing
+/// knife the instant a shot goes off) would see `Shoot` still sitting at
+/// `remaining[0]`, fail the "is it a Rechamber/Reload" check below, and the
+/// queue — Rechamber and all — would just be dropped, leaving the chamber
+/// permanently uncycled. Once `Shoot` is stripped, a queue fronted by
+/// `Rechamber` or `Reload` (which may itself chain into a trailing
+/// `Rechamber`) is preserved; anything else (nothing left, or a mid-play
+/// Hide/Show) is simply abandoned, same as before.
+fn stash_interrupted(weapon: &mut Weapon, mut busy: WeaponBusy) {
+    while busy
+        .remaining
+        .first()
+        .is_some_and(|seg| seg.name == SEGMENTS[SEG_SHOOT].name)
+    {
+        busy.remaining.remove(0);
+    }
+    if let Some(seg) = busy.remaining.first().copied() {
+        if seg.name == SEGMENTS[SEG_RECHAMBER].name || seg.name == SEGMENTS[SEG_RELOAD].name {
+            busy.seg_end = seg.end_secs();
+            weapon.interrupted = Some(busy);
+        }
+    }
+}
+
 fn main() {
     // Check for a newer release and, if there is one, replace this executable and
     // relaunch before Bevy starts. No-op under `cargo run`. See src/updater.rs.
@@ -4262,6 +4292,7 @@ fn footsteps(
     sprinting: Res<Sprinting>,
     physics: Single<&PlayerPhysics, With<Player>>,
     mut state: ResMut<FootstepState>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
     mut commands: Commands,
 ) {
     let planar = Vec3::new(
@@ -4299,6 +4330,7 @@ fn footsteps(
             volume,
             cfg.pitch_jitter,
         );
+        snd.note(killcam::SND_FOOTSTEP);
         return;
     }
 
@@ -4316,6 +4348,7 @@ fn footsteps(
             volume,
             cfg.pitch_jitter,
         );
+        snd.note(killcam::SND_FOOTSTEP);
     }
     state.accum = state.accum.min(stride);
 }
@@ -5161,18 +5194,11 @@ fn weapon_system(
     if locked && binds.throwing_knife.just_pressed(&keys, &mouse) && !knife.active {
         knife.active = true;
         if weapon.slot == WeaponSlot::Primary {
-            if let Some(mut busy) = weapon.busy.take() {
+            if let Some(busy) = weapon.busy.take() {
                 for e in &action_sounds {
                     commands.entity(e).try_despawn();
                 }
-                if let Some(seg) = busy.remaining.first().copied() {
-                    if seg.name == SEGMENTS[SEG_RECHAMBER].name
-                        || seg.name == SEGMENTS[SEG_RELOAD].name
-                    {
-                        busy.seg_end = seg.end_secs();
-                        weapon.interrupted = Some(busy);
-                    }
-                }
+                stash_interrupted(&mut weapon, busy);
             }
             if let Some(active_anim) = player.animation_mut(node) {
                 active_anim.seek_to(0.0);
@@ -5208,18 +5234,11 @@ fn weapon_system(
                 // Stow the sniper. Cancel whatever it was doing: silence the
                 // reload / rechamber audio, and remember a reload / rechamber so
                 // it can be replayed from the top when the sniper is drawn again.
-                if let Some(mut busy) = weapon.busy.take() {
+                if let Some(busy) = weapon.busy.take() {
                     for e in &action_sounds {
                         commands.entity(e).try_despawn();
                     }
-                    if let Some(seg) = busy.remaining.first().copied() {
-                        if seg.name == SEGMENTS[SEG_RECHAMBER].name
-                            || seg.name == SEGMENTS[SEG_RELOAD].name
-                        {
-                            busy.seg_end = seg.end_secs();
-                            weapon.interrupted = Some(busy);
-                        }
-                    }
+                    stash_interrupted(&mut weapon, busy);
                 }
                 weapon.slot = WeaponSlot::Secondary;
                 play_segment(&mut player, node, SEGMENTS[SEG_HIDE]);
