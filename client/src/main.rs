@@ -593,6 +593,18 @@ fn noscope_spread_angle(cfg: &NoScopeSpread, ads_t: f32) -> f32 {
     cfg.hip_max_deg.to_radians() * scale
 }
 
+/// Cheap "breathing" motion shared by [`idle_weapon_sway`] and [`update_scope`]'s
+/// aim sway: two sine waves at different frequencies per axis trace a slow
+/// Lissajous loop instead of a straight back-and-forth line, which reads as
+/// more organic than a single shared frequency would.
+fn breathing_offset(clock: f32, freq_hz: Vec2, amp_rad: Vec2) -> Vec2 {
+    Vec2::new(
+        (clock * freq_hz.x * std::f32::consts::TAU).sin() * amp_rad.x,
+        (clock * freq_hz.y * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2).sin()
+            * amp_rad.y,
+    )
+}
+
 /// The individual animations packed into the single `allanims` clip, as
 /// `[start, end)` frame ranges lifted straight from the Blender timeline.
 /// Adjust these until every section is exactly right, then rebuild.
@@ -679,7 +691,11 @@ fn main() {
         .init_resource::<LookDelta>()
         .init_resource::<WeaponSwayState>()
         .init_resource::<WeaponSwaySettings>()
+        .init_resource::<IdleSwayState>()
+        .init_resource::<IdleSwaySettings>()
         .init_resource::<CrosshairSwayState>()
+        .init_resource::<AimSwayState>()
+        .init_resource::<AimSwaySettings>()
         .init_resource::<CrosshairSettings>()
         .init_resource::<TeleportPoint>()
         .init_resource::<NoScopeSpread>()
@@ -807,13 +823,14 @@ fn main() {
                 .run_if(in_state(AppState::InGame)),
         )
         // Weapon sway rides on top of the ADS pose, using this frame's turn;
-        // the recoil shudder then rides on top of the sway. Both stop during a
-        // kill cam — `killcam::drive_killcam` reproduces them from the
+        // idle sway then layers a "breathing" drift on top while the player's
+        // still, and the recoil shudder rides on top of both. All three stop
+        // during a kill cam — `killcam::drive_killcam` reproduces them from the
         // recorded sway / shake state instead, so replay isn't stacked on top
         // of these reading live (frozen) state.
         .add_systems(
             Update,
-            (weapon_sway, weapon_recoil_shudder)
+            (weapon_sway, idle_weapon_sway, weapon_recoil_shudder)
                 .chain()
                 .after(look_around)
                 .after(apply_ads)
@@ -1988,6 +2005,42 @@ impl Default for WeaponSwaySettings {
     }
 }
 
+/// Running clock + blend for [`idle_weapon_sway`].
+#[derive(Resource, Default)]
+struct IdleSwayState {
+    /// Seconds, advanced only while `blend` is above ~0 so the motion doesn't
+    /// jump mid-cycle when it resumes after a walk.
+    clock: f32,
+    /// Eases `0` (moving) → `1` (settled at rest).
+    blend: f32,
+}
+
+/// Panel-adjustable idle sway: a slow procedural "breathing" drift added to the
+/// view model on top of [`WeaponSwaySettings`] while the player stands still —
+/// that one only reacts to turning, this one is present even dead still. Fades
+/// in on stopping / out on moving, and fades toward zero approaching full ADS,
+/// where [`AimSwaySettings`] takes over the job of keeping the aim alive.
+#[derive(Resource)]
+struct IdleSwaySettings {
+    /// Peak yaw/pitch drift (degrees), fully settled at the hip.
+    amplitude_deg: Vec2,
+    /// Cycles per second of the yaw / pitch drift — different so the weapon
+    /// traces a slow loop instead of a straight back-and-forth line.
+    frequency_hz: Vec2,
+    /// How fast the effect blends in/out around a stop/start (larger = snappier).
+    blend_speed: f32,
+}
+
+impl Default for IdleSwaySettings {
+    fn default() -> Self {
+        Self {
+            amplitude_deg: Vec2::new(0.35, 0.22),
+            frequency_hz: Vec2::new(0.18, 0.26),
+            blend_speed: 2.5,
+        }
+    }
+}
+
 /// Running scope-reticle lag (radians of scope view), low-passed toward the
 /// turn target by [`crosshair_sway`].
 #[derive(Resource, Default)]
@@ -2031,6 +2084,34 @@ impl Default for CrosshairSettings {
             strength: 0.01,
             return_speed: 12.0,
             max_offset_deg: 0.3,
+        }
+    }
+}
+
+/// Running clock for [`update_scope`]'s aim-sway drift.
+#[derive(Resource, Default)]
+struct AimSwayState {
+    clock: f32,
+}
+
+/// Panel-adjustable "aiming idle sway": a slow breathing drift on the scope
+/// reticle while aiming down sights, scaled up toward full ADS instead of down
+/// (the opposite of [`IdleSwaySettings`], which fades out approaching ADS).
+/// Purely visual — the world camera itself never moves, so it never touches
+/// where a shot actually lands (see [`weapon_system`]'s aim ray).
+#[derive(Resource)]
+struct AimSwaySettings {
+    /// Peak yaw/pitch drift (degrees of scope view) at full ADS.
+    amplitude_deg: Vec2,
+    /// Cycles per second of the yaw / pitch drift.
+    frequency_hz: Vec2,
+}
+
+impl Default for AimSwaySettings {
+    fn default() -> Self {
+        Self {
+            amplitude_deg: Vec2::new(0.12, 0.09),
+            frequency_hz: Vec2::new(0.2, 0.31),
         }
     }
 }
@@ -2978,9 +3059,11 @@ fn ads_tuning_ui(
         ResMut<MapSettings>,
         ResMut<BloodSettings>,
         ResMut<NoScopeSpread>,
+        ResMut<IdleSwaySettings>,
+        ResMut<AimSwaySettings>,
     ),
 ) -> Result {
-    let (shake, ads, mut map, mut blood, mut noscope) = misc;
+    let (shake, ads, mut map, mut blood, mut noscope, mut idle_sway, mut aim_sway) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -3472,6 +3555,60 @@ fn ads_tuning_ui(
                 }
                 if ui.button("Reset weapon sway").clicked() {
                     *w = WeaponSwaySettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Idle sway", |ui| {
+                let s = &mut *idle_sway;
+                ui.label("weapon 'breathing' drift while standing still, hip only");
+                ui.add(
+                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=2.0)
+                        .text("amplitude X (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=2.0)
+                        .text("amplitude Y (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
+                        .text("frequency X (Hz)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
+                        .text("frequency Y (Hz)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.blend_speed, 0.2f32..=10.0)
+                        .text("blend speed (stop / go)"),
+                );
+                if ui.button("Reset idle sway").clicked() {
+                    *s = IdleSwaySettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Aim sway", |ui| {
+                let s = &mut *aim_sway;
+                ui.label("reticle 'breathing' drift while aiming, scales up into ADS");
+                ui.add(
+                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0)
+                        .text("amplitude X (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=1.0)
+                        .text("amplitude Y (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
+                        .text("frequency X (Hz)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
+                        .text("frequency Y (Hz)"),
+                );
+                if ui.button("Reset aim sway").clicked() {
+                    *s = AimSwaySettings::default();
                 }
             });
 
@@ -4479,6 +4616,40 @@ fn weapon_sway(
     **view_model = Transform::from_rotation(sway) * **view_model;
 }
 
+/// Layer a slow procedural "breathing" drift onto the view model while the
+/// player stands still — runs after [`weapon_sway`] and multiplies its own
+/// offset on top of that one's. Blends toward zero the instant the player
+/// moves (and back in once they settle) and fades out approaching full ADS,
+/// where [`update_scope`]'s aim sway takes over instead.
+fn idle_weapon_sway(
+    time: Res<Time>,
+    tuning: Res<IdleSwaySettings>,
+    ads: Res<Ads>,
+    player: Single<&PlayerPhysics, With<Player>>,
+    mut state: ResMut<IdleSwayState>,
+    mut view_model: Single<&mut Transform, With<ViewModel>>,
+) {
+    let dt = time.delta_secs();
+    let idle = player.grounded && player.horizontal_velocity.length() < 0.1;
+    let target = if idle { 1.0 } else { 0.0 };
+    let k = 1.0 - (-tuning.blend_speed * dt).exp();
+    state.blend = state.blend.lerp(target, k);
+
+    if state.blend > 1e-3 {
+        state.clock += dt;
+    }
+
+    let amp = Vec2::new(
+        tuning.amplitude_deg.x.to_radians(),
+        tuning.amplitude_deg.y.to_radians(),
+    ) * state.blend
+        * (1.0 - ads.t.clamp(0.0, 1.0));
+    let offset = breathing_offset(state.clock, tuning.frequency_hz, amp);
+
+    let sway = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
+    **view_model = Transform::from_rotation(sway) * **view_model;
+}
+
 /// Trail the scope reticle behind the player's aim while scoped, then let it
 /// ease back to centre — see [`CrosshairSettings`]. Same maths as [`weapon_sway`]
 /// on a softer spring and scaled by `Ads::t`, so the crosshair visibly lags the
@@ -4603,7 +4774,14 @@ fn debug_cursor_toggle(
 /// fade the scope image in on the lens.
 #[allow(clippy::type_complexity)]
 fn update_scope(
-    (ads, sway, crosshair): (Res<Ads>, Res<CrosshairSwayState>, Res<CrosshairSettings>),
+    (ads, sway, crosshair, aim_sway_cfg, time, mut aim_sway): (
+        Res<Ads>,
+        Res<CrosshairSwayState>,
+        Res<CrosshairSettings>,
+        Res<AimSwaySettings>,
+        Res<Time>,
+        ResMut<AimSwayState>,
+    ),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     scope_camera: Single<
@@ -4646,12 +4824,23 @@ fn update_scope(
     ) * (1.0 - e);
     cam_transform.rotation = Quat::from_euler(EulerRot::YXZ, -aim_in.x, -aim_in.y, 0.0);
 
+    // "Aiming idle sway" — a slow breathing drift on the reticle, scaled up
+    // toward full ADS (the opposite fade direction of `IdleSwaySettings`'s
+    // weapon-model sway, which hands off to this one as ADS comes up).
+    aim_sway.clock += time.delta_secs();
+    let aim_amp = Vec2::new(
+        aim_sway_cfg.amplitude_deg.x.to_radians(),
+        aim_sway_cfg.amplitude_deg.y.to_radians(),
+    ) * e;
+    let breathing = breathing_offset(aim_sway.clock, aim_sway_cfg.frequency_hz, aim_amp);
+
     // Fill the scope camera's square view (`scale` lets the crosshair art run
-    // past the glass edge), then offset the whole reticle: the aim-in drift plus
-    // `crosshair_sway`'s turn lag, which trails a beat behind the gun model.
+    // past the glass edge), then offset the whole reticle: the aim-in drift,
+    // `crosshair_sway`'s turn lag (which trails a beat behind the gun model),
+    // and the aim-sway breathing drift above.
     // Rotating the quad about the camera mirrors how `weapon_sway` moves the gun.
     let fill = 2.0 * RETICLE_DIST * half_fov.tan() * crosshair.scale.max(0.01);
-    let offset = sway.offset + aim_in;
+    let offset = sway.offset + aim_in + breathing;
     let drift = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
     **reticle = Transform::from_rotation(drift)
         * Transform {
