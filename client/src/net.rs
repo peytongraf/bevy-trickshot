@@ -285,6 +285,7 @@ fn receive_trick_scores(
                 continue;
             }
             scored.write(TrickScoredEvent {
+                total: msg.total,
                 lines: msg.lines.into_iter().map(|l| (l.label, l.points)).collect(),
             });
         }

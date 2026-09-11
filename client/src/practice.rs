@@ -260,17 +260,23 @@ fn resolve_local_shot(
 
                     // The shot's own trick score (kill + spin + no-scope) is
                     // worked out once for the whole pull of the trigger, then
-                    // multiplied by how many bots it hit — see
-                    // `shared::scoring::score_multi_kill`.
+                    // scaled by distance and multiplied by how many bots it
+                    // hit — see `shared::scoring::score_multi_kill`. Distance
+                    // goes off the nearest bot hit (every target here is a
+                    // bot, so that's just the shot's overall nearest hit).
                     let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
+                    let distance = hits.first().map(|h| h.distance).unwrap_or(0.0);
                     let (total, lines) = shared::scoring::score_multi_kill(
                         trick.total_deg(),
                         trick.airborne || !grounded,
                         ads.t <= NOSCOPE_ADS_MAX,
                         bots_killed,
+                        distance,
+                        WeaponId::Sniper.spec().max_range,
                     );
                     score.0 += total;
                     scored.write(TrickScoredEvent {
+                        total,
                         lines: lines.into_iter().map(|l| (l.label, l.points)).collect(),
                     });
                     trick.reset();

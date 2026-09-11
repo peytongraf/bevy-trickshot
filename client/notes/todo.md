@@ -1,6 +1,4 @@
 - Killcam not playing footstep sounds.
-- See if it is possible for the OS key to not cause keybind behavior like cod does.
-
 - Add effect to scope so it looks like actually being aimed through a scope.
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
@@ -43,6 +41,7 @@
 - Can add bullet impacts once map is created.
 - Add grappling hook or teleportation where the player can aim on a teleport point that will highlight when aimed on and a keybind can teleport the player to it.
 - Could add breath hold to reduce aiming idle sway then the breath sound effect with the sudden increase in sway
+- See if it is possible for the OS key to not cause keybind behavior like cod does.
 
 ## Scoring Points
 

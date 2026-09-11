@@ -693,7 +693,6 @@ fn main() {
         .init_resource::<WeaponSwaySettings>()
         .init_resource::<IdleSwayState>()
         .init_resource::<IdleSwaySettings>()
-        .init_resource::<CrosshairSwayState>()
         .init_resource::<AimSwayState>()
         .init_resource::<AimSwaySettings>()
         .init_resource::<CrosshairSettings>()
@@ -794,9 +793,14 @@ fn main() {
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
-                update_scope.after(crosshair_sway),
+                update_scope.after(aim_idle_sway),
                 (fade_crosshair, update_crosshair_visibility),
-                track_trick.after(look_around).run_if(killcam::no_killcam),
+                // Must read `LookDelta` before `consume_look_delta` (registered
+                // in a separate `add_systems` below) zeroes it for the frame.
+                track_trick
+                    .after(look_around)
+                    .before(consume_look_delta)
+                    .run_if(killcam::no_killcam),
                 (spawn_score_popup, update_score_popups, update_teleport_toast),
                 sky_follow_camera,
                 camera_shake.run_if(killcam::no_killcam),
@@ -824,31 +828,33 @@ fn main() {
         )
         // Weapon sway rides on top of the ADS pose, using this frame's turn;
         // idle sway then layers a "breathing" drift on top while the player's
-        // still, and the recoil shudder rides on top of both. All three stop
-        // during a kill cam — `killcam::drive_killcam` reproduces them from the
-        // recorded sway / shake state instead, so replay isn't stacked on top
-        // of these reading live (frozen) state.
+        // still, and the recoil shudder rides on top of both — all cosmetic,
+        // the view model only. `aim_idle_sway` is the odd one out: it rotates
+        // the *real* `WorldModelCamera` (see its doc comment), which
+        // `update_scope` then reads to keep the scope camera's picture in
+        // lockstep. All four stop during a kill cam — `killcam::drive_killcam`
+        // reproduces the cosmetic ones from the recorded sway / shake state
+        // instead (so replay isn't stacked on top of these reading live,
+        // frozen state), and a viewer's own live aim sway must never leak into
+        // someone else's replay.
         .add_systems(
             Update,
-            (weapon_sway, idle_weapon_sway, weapon_recoil_shudder)
-                .chain()
+            (
+                (weapon_sway, idle_weapon_sway, weapon_recoil_shudder).chain(),
+                aim_idle_sway,
+            )
                 .after(look_around)
                 .after(apply_ads)
                 .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         )
-        // The scope reticle trails the aim (`crosshair_sway`); `update_scope`
-        // then renders it with that offset. `consume_look_delta` clears this
-        // frame's turn once both sway readers have had it — `look_around`
-        // early-returns on a still frame without clearing it itself. These run
-        // through a kill cam too, so the reticle eases back to centre on replay.
+        // `consume_look_delta` clears this frame's turn once `weapon_sway` and
+        // `track_trick` (ordered `.before(consume_look_delta)` above) have had
+        // it — `look_around` early-returns on a still frame without clearing
+        // it itself.
         .add_systems(
             Update,
-            (
-                crosshair_sway.after(look_around),
-                consume_look_delta
-                    .after(weapon_sway)
-                    .after(crosshair_sway),
-            )
+            consume_look_delta
+                .after(weapon_sway)
                 .run_if(in_state(AppState::InGame)),
         )
         .run();
@@ -1792,7 +1798,7 @@ struct ScopeLens;
 
 /// The second camera that renders the magnified world into the scope texture.
 #[derive(Component)]
-struct ScopeCamera;
+pub(crate) struct ScopeCamera;
 
 /// The `crosshair.png` quad in front of the scope camera; only that camera sees
 /// it, so the reticle appears in the scope image and nowhere else.
@@ -1825,8 +1831,6 @@ const TRICK_IDLE_RESET_SECS: f32 = 0.4;
 /// whenever the player stops turning for a moment.
 #[derive(Resource, Default)]
 pub(crate) struct TrickState {
-    /// Yaw last frame (radians), for the per-frame delta.
-    last_yaw: f32,
     /// Sign of the current run (+1 / -1 / 0).
     dir: f32,
     /// Unsigned degrees turned in the current run.
@@ -1845,11 +1849,9 @@ impl TrickState {
         self.banked_deg + self.run_deg
     }
 
-    /// Start a fresh trick, keeping only the current yaw reference.
+    /// Start a fresh trick.
     pub(crate) fn reset(&mut self) {
-        let yaw = self.last_yaw;
         *self = Self::default();
-        self.last_yaw = yaw;
     }
 }
 
@@ -1969,10 +1971,11 @@ impl Default for AdsTuning {
 }
 
 /// The yaw / pitch the view actually rotated by this frame (radians), written by
-/// [`look_around`]. Read by [`weapon_sway`] and [`crosshair_sway`], then zeroed
-/// by [`consume_look_delta`] so a frame with no mouse input (or a paused game)
-/// reads as "no turn" — `look_around` early-returns on a still frame without
-/// touching it.
+/// [`look_around`]. Read by [`weapon_sway`] and [`track_trick`] (the yaw
+/// component — the exact, unwrapped turn, immune to the aliasing a
+/// `Transform`-based diff would have), then zeroed by [`consume_look_delta`]
+/// so a frame with no mouse input (or a paused game) reads as "no turn" —
+/// `look_around` early-returns on a still frame without touching it.
 #[derive(Resource, Default)]
 struct LookDelta {
     /// `x` = yaw (positive = turned left), `y` = pitch (positive = looked up).
@@ -1987,27 +1990,41 @@ pub(crate) struct WeaponSwayState {
 }
 
 /// Panel-adjustable weapon sway: the view model trails the direction you turn,
-/// then springs back to centre. Scaled down as you aim in.
+/// then springs back to centre — angling *away* from the turn (look left, the
+/// gun tips right) the way modern Call of Duty titles show it. A translation
+/// rides along with the same lag angle, so the gun also shifts a touch the
+/// same way it tips, instead of just rotating in place. This is the only
+/// visible "you're moving the mouse" feedback while scoped, on the model
+/// itself — the scope reticle never moves at all (see [`update_scope`]).
 #[derive(Resource)]
 struct WeaponSwaySettings {
     /// Seconds of lag at the hip: sway angle ≈ turn rate (rad/s) × this.
     hip_strength: f32,
     /// Seconds of lag at full ADS. The live value lerps `hip → ads` by `Ads::t`,
-    /// so 50% aimed is exactly halfway between the two.
+    /// so 50% aimed is exactly halfway between the two. Kept noticeably higher
+    /// than it needs to be at the hip, since scoped is where this now carries
+    /// all the "you're touching the mouse" feedback the reticle used to.
     ads_strength: f32,
     /// How fast the weapon catches back up to centre (larger = snappier).
     return_speed: f32,
     /// Hard cap on the sway angle in any direction (degrees).
     max_offset_deg: f32,
+    /// Metres of translation per radian of the current lag angle, at the hip.
+    hip_shift_m: f32,
+    /// Metres of translation per radian of the current lag angle, at full ADS
+    /// — bigger than `hip_shift_m` so the shift reads clearly once scoped.
+    ads_shift_m: f32,
 }
 
 impl Default for WeaponSwaySettings {
     fn default() -> Self {
         Self {
             hip_strength: 1.1,
-            ads_strength: 0.12,
+            ads_strength: 0.35,
             return_speed: 3.5,
             max_offset_deg: 15.0,
+            hip_shift_m: 0.01,
+            ads_shift_m: 0.05,
         }
     }
 }
@@ -2048,18 +2065,12 @@ impl Default for IdleSwaySettings {
     }
 }
 
-/// Running scope-reticle lag (radians of scope view), low-passed toward the
-/// turn target by [`crosshair_sway`].
-#[derive(Resource, Default)]
-struct CrosshairSwayState {
-    /// `x` = yaw drift, `y` = pitch drift, added to the reticle while scoped.
-    offset: Vec2,
-}
-
 /// Panel-adjustable scope-reticle behaviour: size on the glass, the CoD-style
-/// aim-in drift (starts toward one corner and slides to centre as you scope in),
-/// the turn lag (the crosshair trails the aim a beat behind the gun's own
-/// [`WeaponSwaySettings`] sway), and whether the HUD centre dot ever fades.
+/// aim-in drift (starts toward one corner and slides to centre as you scope
+/// in), and whether the HUD centre dot ever fades. The reticle otherwise never
+/// moves — see [`update_scope`] — so the crosshair reads as pinned to the dead
+/// centre of the screen the instant the raise finishes, exactly like the
+/// gun-sway-instead-of-crosshair-sway newer Call of Duty titles use.
 #[derive(Resource)]
 struct CrosshairSettings {
     /// Reticle size multiplier (`1.0` = fills the scope view exactly; `>1` pushes
@@ -2074,12 +2085,6 @@ struct CrosshairSettings {
     /// Keep the HUD centre dot at full opacity instead of fading it out as the
     /// sight picture comes in.
     center_dot_always: bool,
-    /// Turn-lag: seconds of lag — reticle drift ≈ turn rate (rad/s) × this.
-    strength: f32,
-    /// How fast the reticle eases back to centre (smaller = trails longer).
-    return_speed: f32,
-    /// Hard cap on the turn-lag drift, in degrees of the scope camera's view.
-    max_offset_deg: f32,
 }
 
 impl Default for CrosshairSettings {
@@ -2088,24 +2093,32 @@ impl Default for CrosshairSettings {
             scale: 1.2,
             aim_in_frac: Vec2::new(3.0, 3.0),
             center_dot_always: false,
-            strength: 0.01,
-            return_speed: 12.0,
-            max_offset_deg: 0.3,
         }
     }
 }
 
-/// Running clock for [`update_scope`]'s aim-sway drift.
+/// Running clock + live offset for [`aim_idle_sway`], shared with
+/// [`update_scope`] so the scope camera's own framing rotates by the same
+/// amount as the real aim.
 #[derive(Resource, Default)]
-struct AimSwayState {
+pub(crate) struct AimSwayState {
     clock: f32,
+    /// Current yaw/pitch drift (radians), written by [`aim_idle_sway`].
+    /// `pub(crate)` so `killcam::start_killcam` can zero it — nothing else
+    /// runs to reset it once [`aim_idle_sway`] is gated off for a replay.
+    pub(crate) offset: Vec2,
 }
 
-/// Panel-adjustable "aiming idle sway": a slow breathing drift on the scope
-/// reticle while aiming down sights, scaled up toward full ADS instead of down
-/// (the opposite of [`IdleSwaySettings`], which fades out approaching ADS).
-/// Purely visual — the world camera itself never moves, so it never touches
-/// where a shot actually lands (see [`weapon_system`]'s aim ray).
+/// Panel-adjustable "aiming idle sway": a slow breathing drift on the
+/// player's *actual* aim while scoped, scaled up toward full ADS instead of
+/// down (the opposite of [`IdleSwaySettings`], which fades out approaching
+/// ADS). Unlike every other sway in this file, this one really does move the
+/// world camera — [`aim_idle_sway`] rotates it directly, so it changes where a
+/// shot actually lands (see [`weapon_system`]'s aim ray) — while the scope
+/// reticle itself stays pinned to the centre of the screen. That combination
+/// is the point: the reticle never moves, but the *world drifts under it*,
+/// exactly like a real scope's picture drifts with natural body sway while
+/// the reticle stays fixed to the optic.
 #[derive(Resource)]
 struct AimSwaySettings {
     /// Peak yaw/pitch drift (degrees of scope view) at full ADS.
@@ -2850,9 +2863,12 @@ fn update_crosshair_visibility(
 }
 
 /// Server told us a shot scored — the shooter's client pops a CoD-style yellow
-/// stack. `lines` are `(label, points)`, top to bottom.
+/// stack. `total` is the shot's combined points (shown as its own line at the
+/// top); `lines` are the itemised `(label, points)` that added up to it, top
+/// to bottom below that.
 #[derive(Event)]
 pub(crate) struct TrickScoredEvent {
+    pub(crate) total: u32,
     pub(crate) lines: Vec<(String, u32)>,
 }
 
@@ -2914,6 +2930,18 @@ fn spawn_score_popup(
             },
         ))
         .with_children(|col| {
+            // The combined total leads the stack, bigger than the breakdown
+            // below it, so it reads as the headline with the itemised lines
+            // explaining where it came from.
+            col.spawn((
+                Text::new(format!("+{}  TOTAL", ev.total)),
+                TextFont {
+                    font: asset_server.load(HUD_FONT),
+                    font_size: 32.0,
+                    ..default()
+                },
+                TextColor(SCORE_YELLOW),
+            ));
             for (label, points) in &ev.lines {
                 col.spawn((
                     Text::new(format!("+{points}  {label}")),
@@ -3533,13 +3561,16 @@ fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Weapon sway", |ui| {
                 let w = &mut *sway;
-                ui.label("the gun lags the way you turn, then catches up");
+                ui.label(
+                    "the gun angles away from the turn and catches up — this is the ADS \
+                     sway now (the scope reticle itself never moves, see Crosshair)",
+                );
                 ui.add(
                     egui::Slider::new(&mut w.hip_strength, 0.0f32..=2.0)
                         .text("hip strength (s of lag)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=0.5)
+                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=1.0)
                         .text("ADS strength (s of lag)"),
                 );
                 ui.add(
@@ -3547,6 +3578,15 @@ fn ads_tuning_ui(
                 );
                 ui.add(
                     egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=30.0).text("max offset (°)"),
+                );
+                ui.label("shift — the gun also translates the way it's angled");
+                ui.add(
+                    egui::Slider::new(&mut w.hip_shift_m, 0.0f32..=0.1)
+                        .text("hip shift (m per rad of lag)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.ads_shift_m, 0.0f32..=0.2)
+                        .text("ADS shift (m per rad of lag)"),
                 );
                 ui.label(format!(
                     "live strength @ ads.t {:.2} = {:.4}",
@@ -3557,8 +3597,14 @@ fn ads_tuning_ui(
                 if ui.button("Copy weapon sway to console").clicked() {
                     info!(
                         "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
-                         return_speed {:.4}, max_offset_deg {:.4}",
-                        w.hip_strength, w.ads_strength, w.return_speed, w.max_offset_deg,
+                         return_speed {:.4}, max_offset_deg {:.4}, hip_shift_m {:.4}, \
+                         ads_shift_m {:.4}",
+                        w.hip_strength,
+                        w.ads_strength,
+                        w.return_speed,
+                        w.max_offset_deg,
+                        w.hip_shift_m,
+                        w.ads_shift_m,
                     );
                 }
                 if ui.button("Reset weapon sway").clicked() {
@@ -3598,7 +3644,11 @@ fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Aim sway", |ui| {
                 let s = &mut *aim_sway;
-                ui.label("reticle 'breathing' drift while aiming, scales up into ADS");
+                ui.label(
+                    "REAL aim breathing while scoped (scales up into ADS) — actually turns \
+                     the camera, so it moves where a shot lands. The reticle stays pinned to \
+                     the screen; the world drifts under it instead.",
+                );
                 ui.add(
                     egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0)
                         .text("amplitude X (°)"),
@@ -3639,18 +3689,10 @@ fn ads_tuning_ui(
                     egui::Slider::new(&mut c.aim_in_frac.y, -1.5f32..=3.0)
                         .text("start Y  (+ = up)"),
                 );
-
-                ui.label("turn lag — trails the aim a beat behind the gun");
-                ui.add(
-                    egui::Slider::new(&mut c.strength, 0.0f32..=0.3).text("strength (s of lag)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.return_speed, 0.5f32..=12.0)
-                        .text("catch-up speed  (lower = trails longer)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.max_offset_deg, 0.0f32..=6.0)
-                        .text("max offset (° of scope view)"),
+                ui.label(
+                    "that raise slide is the reticle's only motion — no turn lag any more, \
+                     it's pinned to dead centre once scoped (see Weapon sway / Aim sway \
+                     instead: that's where the sway went).",
                 );
 
                 ui.checkbox(&mut c.center_dot_always, "keep centre dot on (no fade)");
@@ -4507,30 +4549,31 @@ fn look_around(
     look_delta.applied = Vec2::new(yaw, new_pitch - current_pitch);
 }
 
-/// Seed the spin tracker from the player's current facing so entering the world
-/// (facing -Z) doesn't register as a giant turn.
-fn reset_trick(mut trick: ResMut<TrickState>, player: Single<&Transform, With<Player>>) {
+fn reset_trick(mut trick: ResMut<TrickState>) {
     *trick = TrickState::default();
-    trick.last_yaw = player.rotation.to_euler(EulerRot::YXZ).0;
 }
 
 /// Accumulate the player's yaw spin for style points (see [`TrickState`]).
+///
+/// Reads the exact yaw turned this frame straight from [`LookDelta`] — the
+/// unwrapped value `look_around` just applied via `rotate_y` — rather than
+/// diffing two `Transform::rotation` readings frame to frame. A `Transform`'s
+/// yaw is wrapped to `(-180°, 180°]`, so re-deriving a delta from it can only
+/// ever recover a turn *modulo 360°, folded to its shortest equivalent*: a
+/// hard spin that turns the player more than 180° in a single frame (easy to
+/// do at real trickshot speed, especially at higher sensitivity) reads back as
+/// a much smaller turn *the other way*. That looked like a phantom direction
+/// reversal, which got banked as an extra "run" on top of the real spin —
+/// turning one clean 360 into wildly inflated totals like 1260°.
+/// [`LookDelta::applied`] can't alias like that: it's the exact value applied,
+/// never round-tripped through a wrapped angle.
 fn track_trick(
     time: Res<Time>,
-    player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    look: Res<LookDelta>,
+    physics: Single<&PlayerPhysics, With<Player>>,
     mut trick: ResMut<TrickState>,
 ) {
-    let (transform, physics) = *player;
-    let yaw = transform.rotation.to_euler(EulerRot::YXZ).0;
-    let mut d = yaw - trick.last_yaw;
-    if d > PI {
-        d -= 2.0 * PI;
-    } else if d < -PI {
-        d += 2.0 * PI;
-    }
-    trick.last_yaw = yaw;
-
-    let deg = d.to_degrees();
+    let deg = look.applied.x.to_degrees();
     if deg.abs() < TRICK_TURN_EPS_DEG {
         trick.idle += time.delta_secs();
         if trick.idle >= TRICK_IDLE_RESET_SECS {
@@ -4642,13 +4685,16 @@ pub(crate) fn apply_ads(
 /// Make the weapon trail the direction the player turns and then catch up.
 ///
 /// Runs after [`apply_ads`] has written the base pose and multiplies a small
-/// rotation about the view origin onto it. The target angle is the view's
-/// angular velocity this frame scaled by `strength` (seconds of lag), negated so
-/// the gun lags *behind* the turn; a frame-rate-independent ease pulls the live
-/// offset toward it, so releasing the turn (target → 0) lets the gun spring back.
-/// `strength` lerps `hip → ads` by `Ads::t`, so half-aimed is exactly half sway.
-/// [`consume_look_delta`] clears this frame's turn once this and [`crosshair_sway`]
-/// have read it.
+/// rotation (plus a proportional translation — see [`WeaponSwaySettings`])
+/// about the view origin onto it. The target angle is the view's angular
+/// velocity this frame scaled by `strength` (seconds of lag), negated so the
+/// gun lags *behind* the turn — turn left and the offset goes negative, which
+/// tips the gun right and (via the shift below) nudges it right too, matching
+/// modern CoD's ADS sway. A frame-rate-independent ease pulls the live offset
+/// toward the target, so releasing the turn (target → 0) lets the gun spring
+/// back. `strength`/shift both lerp `hip → ads` by `Ads::t`.
+/// [`consume_look_delta`] clears this frame's turn once this and
+/// [`track_trick`] have read it.
 fn weapon_sway(
     time: Res<Time>,
     tuning: Res<WeaponSwaySettings>,
@@ -4659,10 +4705,9 @@ fn weapon_sway(
 ) {
     let dt = time.delta_secs().max(1e-5);
     let applied = look.applied;
+    let t = ads.t.clamp(0.0, 1.0);
 
-    let strength = tuning
-        .hip_strength
-        .lerp(tuning.ads_strength, ads.t.clamp(0.0, 1.0));
+    let strength = tuning.hip_strength.lerp(tuning.ads_strength, t);
 
     let max = tuning.max_offset_deg.to_radians();
     // `-applied / dt` is the view's angular velocity, opposite the turn.
@@ -4672,7 +4717,11 @@ fn weapon_sway(
     state.offset = state.offset.lerp(target, k);
 
     let sway = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
-    **view_model = Transform::from_rotation(sway) * **view_model;
+    // Shift the same way the gun is currently tipped, so the two read as one
+    // coherent motion instead of a rotation with an unrelated wobble on top.
+    let shift_m = tuning.hip_shift_m.lerp(tuning.ads_shift_m, t);
+    let shift = Vec3::new(-state.offset.x, -state.offset.y, 0.0) * shift_m;
+    **view_model = Transform::from_translation(shift) * Transform::from_rotation(sway) * **view_model;
 }
 
 /// Layer a slow procedural "breathing" drift onto the view model while the
@@ -4709,32 +4758,42 @@ fn idle_weapon_sway(
     **view_model = Transform::from_rotation(sway) * **view_model;
 }
 
-/// Trail the scope reticle behind the player's aim while scoped, then let it
-/// ease back to centre — see [`CrosshairSettings`]. Same maths as [`weapon_sway`]
-/// on a softer spring and scaled by `Ads::t`, so the crosshair visibly lags the
-/// gun model instead of moving locked to it. [`update_scope`] reads
-/// [`CrosshairSwayState`] and offsets the reticle quad by it.
-fn crosshair_sway(
+/// Advance the aim-breathing clock and rotate the *real* world camera by it —
+/// see [`AimSwaySettings`]. Sets (never accumulates) [`WorldModelCamera`]'s
+/// local rotation directly, the same "replaced every frame" rule
+/// [`CameraShake`] uses, so it can never drift. [`update_scope`] reads the
+/// resulting [`AimSwayState::offset`] back to rotate the scope camera by the
+/// identical amount, so the magnified picture drifts in lockstep with the
+/// real aim while the reticle itself stays fixed to the screen.
+///
+/// Gated off during a kill cam (like [`weapon_sway`]) since it writes real
+/// camera state that `killcam::drive_killcam` doesn't know about — otherwise
+/// a *viewer's own* current breathing would leak into their view of someone
+/// else's replay. `killcam::start_killcam` resets both cameras' rotation to
+/// identity when a replay begins, since nothing here will while it's gated
+/// off.
+fn aim_idle_sway(
     time: Res<Time>,
-    tuning: Res<CrosshairSettings>,
+    tuning: Res<AimSwaySettings>,
     ads: Res<Ads>,
-    look: Res<LookDelta>,
-    mut state: ResMut<CrosshairSwayState>,
+    mut state: ResMut<AimSwayState>,
+    mut world_cam: Single<&mut Transform, With<WorldModelCamera>>,
 ) {
-    let dt = time.delta_secs().max(1e-5);
-    let scoped = ads.t.clamp(0.0, 1.0);
-    let max = tuning.max_offset_deg.to_radians();
-    // `-applied / dt` is the view's angular velocity, opposite the turn.
-    let target = (-look.applied / dt * tuning.strength * scoped)
-        .clamp(Vec2::splat(-max), Vec2::splat(max));
+    state.clock += time.delta_secs();
 
-    let k = 1.0 - (-tuning.return_speed * dt).exp();
-    state.offset = state.offset.lerp(target, k);
+    let e = ads.t.clamp(0.0, 1.0);
+    let amp = Vec2::new(
+        tuning.amplitude_deg.x.to_radians(),
+        tuning.amplitude_deg.y.to_radians(),
+    ) * e;
+    state.offset = breathing_offset(state.clock, tuning.frequency_hz, amp);
+
+    world_cam.rotation = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
 }
 
-/// Clear this frame's [`LookDelta`] after [`weapon_sway`] and [`crosshair_sway`]
-/// have read it. `look_around` early-returns on a still frame without writing,
-/// so without this the last turn would keep feeding the sways forever.
+/// Clear this frame's [`LookDelta`] after [`weapon_sway`] and [`track_trick`]
+/// have read it. `look_around` early-returns on a still frame without
+/// writing, so without this the last turn would keep feeding them forever.
 fn consume_look_delta(mut look: ResMut<LookDelta>) {
     look.applied = Vec2::ZERO;
 }
@@ -4831,16 +4890,18 @@ fn debug_cursor_toggle(
 /// Drive the render-to-texture scope: switch its camera on only while aiming,
 /// keep its magnification in sync, slide the reticle in from the corner, and
 /// fade the scope image in on the lens.
+///
+/// The reticle quad itself only ever moves for that corner-to-centre raise
+/// slide (`aim_in`) — once the raise finishes it is pinned to the dead centre
+/// of the screen and stays there, full stop. The scope *camera*, though, still
+/// picks up [`AimSwayState::offset`] (written by [`aim_idle_sway`] onto the
+/// real [`WorldModelCamera`]) so the magnified picture drifts by the exact
+/// same amount as the real aim: the world moves under the reticle instead of
+/// the reticle moving over the world, which is what actually sells "you're
+/// looking through a real optic, and holding it takes real effort."
 #[allow(clippy::type_complexity)]
 fn update_scope(
-    (ads, sway, crosshair, aim_sway_cfg, time, mut aim_sway): (
-        Res<Ads>,
-        Res<CrosshairSwayState>,
-        Res<CrosshairSettings>,
-        Res<AimSwaySettings>,
-        Res<Time>,
-        ResMut<AimSwayState>,
-    ),
+    (ads, aim_sway, crosshair): (Res<Ads>, Res<AimSwayState>, Res<CrosshairSettings>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     scope_camera: Single<
@@ -4875,38 +4936,30 @@ fn update_scope(
     // CoD-style aim-in drift: at the hip the reticle starts toward a corner
     // (`aim_in_frac` of the scope's half-view) and the scope camera looks that
     // way too, so the point the eye is already aiming at stays pinned under the
-    // reticle while the glass slides up into it. Eases to zero by full ADS.
+    // reticle while the glass slides up into it. Eases to zero by full ADS —
+    // composed with the real aim-sway rotation so the scope camera ends up
+    // rotated by exactly the same amount as `WorldModelCamera` once the raise
+    // finishes (aim_in == 0), and the picture it renders lines up with the
+    // real aim.
     let half_fov = scope_fov * 0.5;
     let aim_in = Vec2::new(
         half_fov * crosshair.aim_in_frac.x,
         half_fov * crosshair.aim_in_frac.y,
     ) * (1.0 - e);
-    cam_transform.rotation = Quat::from_euler(EulerRot::YXZ, -aim_in.x, -aim_in.y, 0.0);
-
-    // "Aiming idle sway" — a slow breathing drift on the reticle, scaled up
-    // toward full ADS (the opposite fade direction of `IdleSwaySettings`'s
-    // weapon-model sway, which hands off to this one as ADS comes up).
-    aim_sway.clock += time.delta_secs();
-    let aim_amp = Vec2::new(
-        aim_sway_cfg.amplitude_deg.x.to_radians(),
-        aim_sway_cfg.amplitude_deg.y.to_radians(),
-    ) * e;
-    let breathing = breathing_offset(aim_sway.clock, aim_sway_cfg.frequency_hz, aim_amp);
+    let aim_in_rot = Quat::from_euler(EulerRot::YXZ, -aim_in.x, -aim_in.y, 0.0);
+    let aim_sway_rot = Quat::from_euler(EulerRot::YXZ, aim_sway.offset.x, aim_sway.offset.y, 0.0);
+    cam_transform.rotation = aim_sway_rot * aim_in_rot;
 
     // Fill the scope camera's square view (`scale` lets the crosshair art run
-    // past the glass edge), then offset the whole reticle: the aim-in drift,
-    // `crosshair_sway`'s turn lag (which trails a beat behind the gun model),
-    // and the aim-sway breathing drift above.
-    // Rotating the quad about the camera mirrors how `weapon_sway` moves the gun.
+    // past the glass edge) and pin the reticle to dead centre — no sway, no
+    // breathing, nothing but the fixed forward offset. It only ever needs
+    // resizing, never re-aiming.
     let fill = 2.0 * RETICLE_DIST * half_fov.tan() * crosshair.scale.max(0.01);
-    let offset = sway.offset + aim_in + breathing;
-    let drift = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
-    **reticle = Transform::from_rotation(drift)
-        * Transform {
-            translation: Vec3::new(0.0, 0.0, -RETICLE_DIST),
-            rotation: Quat::IDENTITY,
-            scale: Vec3::new(fill, fill, 1.0),
-        };
+    **reticle = Transform {
+        translation: Vec3::new(0.0, 0.0, -RETICLE_DIST),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::new(fill, fill, 1.0),
+    };
 
     // The lens is always drawn: a reflective glass disc at the hip, the sight
     // picture while scoped. `e` crossfades between the two looks, tied to the

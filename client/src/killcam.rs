@@ -20,10 +20,10 @@ use shared::KillCamSample;
 use crate::keybinds::KeyBindings;
 use crate::settings::Settings;
 use crate::{
-    rand_roll, Ads, AppState, BloodImpact, BotAnimationPlayer, BotAnimations, BotVisual,
-    CameraRecoil, CameraShake, FireTracer, GameSounds, GroundImpact, MuzzleFlashState, Player,
-    PlayerHead, SmokeEmission, SniperAnimationPlayer, TargetBotVisual, Tracer, ViewModel,
-    ViewModelAnimation, Weapon, WeaponSlot, WorldModelCamera,
+    rand_roll, Ads, AimSwayState, AppState, BloodImpact, BotAnimationPlayer, BotAnimations,
+    BotVisual, CameraRecoil, CameraShake, FireTracer, GameSounds, GroundImpact, MuzzleFlashState,
+    Player, PlayerHead, ScopeCamera, SmokeEmission, SniperAnimationPlayer, TargetBotVisual,
+    Tracer, ViewModel, ViewModelAnimation, Weapon, WeaponSlot, WorldModelCamera,
 };
 
 /// Read the first-person weapon animation's current playhead (seconds), for
@@ -210,6 +210,17 @@ type RigTags = (
     Has<PlayerHead>,
     Has<CameraShake>,
     Has<CameraRecoil>,
+);
+
+/// Disjointness proof for `world_cam` / `scope_cam` in [`start_killcam`]
+/// against `rig`'s `RigFilter` — both touch `&mut Transform`, and Bevy can
+/// only skip the runtime overlap check if every query rules out every marker
+/// the others could match.
+type AimCamFilter = (
+    Without<Player>,
+    Without<PlayerHead>,
+    Without<CameraShake>,
+    Without<CameraRecoil>,
 );
 
 pub struct KillCamPlugin;
@@ -522,12 +533,32 @@ fn start_killcam(
     knife: Res<crate::ThrowingKnife>,
     weapon: Res<Weapon>,
     asset_server: Res<AssetServer>,
+    // `aim_idle_sway` (real camera rotation, gated off during a replay) is the
+    // only thing that ever touches these — reset them here so a viewer's own
+    // last live breathing doesn't leak into the replay for its whole duration.
+    mut world_cam: Query<
+        &mut Transform,
+        (With<WorldModelCamera>, Without<ScopeCamera>, AimCamFilter),
+    >,
+    mut scope_cam: Query<
+        &mut Transform,
+        (With<ScopeCamera>, Without<WorldModelCamera>, AimCamFilter),
+    >,
+    mut aim_sway: ResMut<AimSwayState>,
 ) {
     let Some(run) = active.0.as_mut() else { return };
     if run.setup {
         return;
     }
     run.setup = true;
+
+    if let Ok(mut tf) = world_cam.single_mut() {
+        tf.rotation = Quat::IDENTITY;
+    }
+    if let Ok(mut tf) = scope_cam.single_mut() {
+        tf.rotation = Quat::IDENTITY;
+    }
+    aim_sway.offset = Vec2::ZERO;
 
     let mut saved = SavedRig {
         player: Transform::IDENTITY,
