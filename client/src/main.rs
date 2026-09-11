@@ -1093,6 +1093,13 @@ fn color_from_parts(p: [f32; 3]) -> Color {
 #[derive(Component)]
 pub(crate) struct PlayerHead;
 
+/// The invisible shadow-only body capsule, another direct child of `Player`
+/// (a sibling of `PlayerHead`, not under it — it must stay level and shouldn't
+/// pitch with the camera). [`crouch_slide`] repositions/reshapes it each frame
+/// via [`body_capsule_pose`] to match the current crouch/prone depth.
+#[derive(Component)]
+struct PlayerBodyCapsule;
+
 /// The camera that renders the world (layer 0 only).
 #[derive(Component)]
 pub(crate) struct WorldModelCamera;
@@ -2349,6 +2356,7 @@ fn setup_player(
             // the sun does, so it casts a humanoid shadow instead of a floating
             // gun + arms.
             player.spawn((
+                PlayerBodyCapsule,
                 Mesh3d(meshes.add(Capsule3d::new(
                     BODY_CAPSULE_RADIUS,
                     BODY_CAPSULE_HEIGHT - 2.0 * BODY_CAPSULE_RADIUS,
@@ -3860,6 +3868,49 @@ fn reset_weapon(
     }
 }
 
+/// Local transform (relative to `Player`) for the shadow-only body capsule at
+/// a given crouch/prone depth. `drop` is [`Slide::drop`] — `0` standing, easing
+/// to `-cfg.crouch_drop` crouched/sliding, then on to `-cfg.prone_drop`
+/// prone/diving — so the capsule settles in step with the camera instead of
+/// popping between poses.
+///
+/// Standing → crouched squashes the capsule's height (bottom anchored to the
+/// ground, so it reads as bent knees rather than sinking through the floor).
+/// Crouched → prone rotates it flat, long axis forward, resting on its belly.
+/// Both legs of the blend share the same ground line (`-EYE_HEIGHT` in
+/// `Player`-local space, matching the standing pose already spawned in
+/// `setup_player`) so nothing ever floats or clips.
+fn body_capsule_pose(drop: f32, cfg: &SlideSettings) -> Transform {
+    let depth = -drop; // 0 standing .. crouch_drop crouched .. prone_drop prone
+    let crouch_t = (depth / cfg.crouch_drop.max(1.0e-4)).clamp(0.0, 1.0);
+    let prone_t = ((depth - cfg.crouch_drop) / (cfg.prone_drop - cfg.crouch_drop).max(1.0e-4))
+        .clamp(0.0, 1.0);
+
+    // Standing (scale 1, upright) eased toward a squashed crouch as `crouch_t`
+    // climbs to 1 — never thinner than twice the radius, so it doesn't invert.
+    let crouched_height = (BODY_CAPSULE_HEIGHT - cfg.crouch_drop).max(BODY_CAPSULE_RADIUS * 2.0);
+    let height = BODY_CAPSULE_HEIGHT.lerp(crouched_height, crouch_t);
+    let upright = Transform {
+        translation: Vec3::new(0.0, height / 2.0 - EYE_HEIGHT, 0.0),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::new(1.0, height / BODY_CAPSULE_HEIGHT, 1.0),
+    };
+
+    // Flat on the ground, long axis along local -Z (forward) so it points the
+    // way the player (and thus this capsule's parent) is facing.
+    let prone = Transform {
+        translation: Vec3::new(0.0, BODY_CAPSULE_RADIUS - EYE_HEIGHT, 0.0),
+        rotation: Quat::from_rotation_x(-FRAC_PI_2),
+        scale: Vec3::ONE,
+    };
+
+    Transform {
+        translation: upright.translation.lerp(prone.translation, prone_t),
+        rotation: upright.rotation.slerp(prone.rotation, prone_t),
+        scale: upright.scale.lerp(prone.scale, prone_t),
+    }
+}
+
 /// Crouch / slide / dive / prone state machine (Call-of-Duty style).
 ///
 /// Crouch/slide key (`C` by default):
@@ -3888,6 +3939,10 @@ fn crouch_slide(
     mut slide: ResMut<Slide>,
     player: Single<(&Transform, &mut PlayerPhysics), With<Player>>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
+    mut capsule: Single<
+        &mut Transform,
+        (With<PlayerBodyCapsule>, Without<Player>, Without<PlayerHead>),
+    >,
     mut commands: Commands,
 ) {
     let dt = time.delta_secs().max(1.0e-5);
@@ -4061,6 +4116,10 @@ fn crouch_slide(
         slide.drop = 0.0;
     }
     head.translation.y = slide.drop;
+
+    // The (invisible, shadow-only) body capsule follows the same drop, so its
+    // shadow reads as crouched / prone instead of always standing tall.
+    **capsule = body_capsule_pose(slide.drop, &cfg);
 }
 
 fn move_player(

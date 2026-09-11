@@ -1,4 +1,3 @@
-- Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
 - Killcam not playing footstep sounds.
 - Add max shot distance for sniper.
 - Add setting for hip fire accurracy.
@@ -15,6 +14,7 @@
 - Enable auto reload, check if rechamber animation should happen after last round is fired of a mag and if it should happen after a new mag is reloaded.
 - Add idle sway of sniper
 - Add aiming idle sway
+- Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
 
 ## Security
 
