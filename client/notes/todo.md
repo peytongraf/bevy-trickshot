@@ -1,7 +1,4 @@
 - Killcam not playing footstep sounds.
-- Add max shot distance for sniper.
-- Add setting for hip fire accurracy.
-- Add colat plus colat detection. Bullet should slow when hitting a target.
 - See if it is possible for the OS key to not cause keybind behavior like cod does.
 
 - Add effect to scope so it looks like actually being aimed through a scope.
@@ -15,6 +12,8 @@
 - Add idle sway of sniper
 - Add aiming idle sway
 - Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
+- Add max shot distance for sniper.
+- Add colat plus colat detection. Bullet should slow when hitting a target.
 
 ## Security
 

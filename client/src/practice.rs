@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use shared::ballistics::{ground_impact, resolve_shot, Target};
+use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
 use shared::bots::{
     respawn_pose, BOTS_ALIVE, BOT_DEAD_SECS, BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS,
 };
@@ -209,51 +209,71 @@ fn resolve_local_shot(
                 })
                 .collect();
 
-            if let Some(hit) =
-                resolve_shot(WeaponId::Sniper, shot.origin, shot.dir, &targets, |_, _| false)
-            {
-                tracer_end = Some(hit.point);
-                if let Some((bot_e, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target) {
-                    // Freeze every live bot for the kill cam before the shot
-                    // registers (the hit one is still upright here).
-                    let snap: Vec<(Vec3, f32, bool)> = bots
-                        .iter()
-                        .filter(|(_, b)| b.dead_at.is_none())
-                        .map(|(e, b)| (b.pos, b.yaw, e == bot_e))
-                        .collect();
+            // Collateral: pierce through as many bots as the shot can reach
+            // (Call-of-Duty style) instead of stopping at the first one hit.
+            let hits =
+                resolve_shot_pierce(WeaponId::Sniper, shot.origin, shot.dir, &targets, |_, _| false);
+
+            if let Some(last) = hits.last() {
+                tracer_end = Some(last.point);
+
+                // Freeze every live bot for the kill cam before any of them
+                // die, marking every one this shot reached as killed — a
+                // collateral topples them all in the same replay.
+                let snap: Vec<(Vec3, f32, bool)> = bots
+                    .iter()
+                    .filter(|(_, b)| b.dead_at.is_none())
+                    .map(|(e, b)| (b.pos, b.yaw, hits.iter().any(|h| h.target == e.to_bits())))
+                    .collect();
+
+                let now = time.elapsed_secs();
+                let mut bots_killed = 0u32;
+                for hit in &hits {
+                    let Some((bot_e, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target)
+                    else {
+                        continue;
+                    };
                     if let Ok((_, mut bot)) = bots.get_mut(bot_e) {
                         if bot.dead_at.is_none() {
-                            let now = time.elapsed_secs();
                             bot.dead_at = Some(now);
                             hit_bot = true;
-                            // Squirt blood out along the shot from the hit point.
+                            bots_killed += 1;
+                            // Squirt blood out along the shot from this hit's point.
                             blood.write(crate::BloodImpact {
                                 point: hit.point,
                                 dir: shot.dir.normalize_or_zero(),
                             });
-                            // Kick off this player's own kill cam once enough
-                            // follow-through is buffered.
-                            if pending_cam.0.is_none() {
-                                pending_cam.0 = Some(PendingLocal {
-                                    kill_at: now,
-                                    fire_at: now + crate::killcam::POST_SECS,
-                                    bots: snap,
-                                });
-                            }
-
-                            let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
-                            let (total, lines) = shared::scoring::score_kill(
-                                trick.total_deg(),
-                                trick.airborne || !grounded,
-                                ads.t <= NOSCOPE_ADS_MAX,
-                            );
-                            score.0 += total;
-                            scored.write(TrickScoredEvent {
-                                lines: lines.into_iter().map(|l| (l.label, l.points)).collect(),
-                            });
-                            trick.reset();
                         }
                     }
+                }
+
+                if bots_killed > 0 {
+                    // Kick off this player's own kill cam once enough
+                    // follow-through is buffered.
+                    if pending_cam.0.is_none() {
+                        pending_cam.0 = Some(PendingLocal {
+                            kill_at: now,
+                            fire_at: now + crate::killcam::POST_SECS,
+                            bots: snap,
+                        });
+                    }
+
+                    // The shot's own trick score (kill + spin + no-scope) is
+                    // worked out once for the whole pull of the trigger, then
+                    // multiplied by how many bots it hit — see
+                    // `shared::scoring::score_multi_kill`.
+                    let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
+                    let (total, lines) = shared::scoring::score_multi_kill(
+                        trick.total_deg(),
+                        trick.airborne || !grounded,
+                        ads.t <= NOSCOPE_ADS_MAX,
+                        bots_killed,
+                    );
+                    score.0 += total;
+                    scored.write(TrickScoredEvent {
+                        lines: lines.into_iter().map(|l| (l.label, l.points)).collect(),
+                    });
+                    trick.reset();
                 }
             }
         }
