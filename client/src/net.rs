@@ -7,8 +7,8 @@
 //!
 //! Responsibilities: connect + hold the [`ReplicationReceiver`]; once
 //! `AppState::InGame`, ship the local player's pose in the input packet
-//! (`write_input`) and render every other player as a blue capsule
-//! (`spawn_remote_avatars` / `follow_remote_avatars`).
+//! (`write_input`) and render every other player as a `models/soldier.glb`
+//! avatar (`spawn_remote_avatars` / `follow_remote_avatars`).
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
@@ -354,58 +354,62 @@ fn receive_shots(
     }
 }
 
-// --- remote players (blue capsules) -----------------------------------
+// --- remote players (models/soldier.glb, idleWgun looping) ------------
 
-/// A capsule standing in for another player; follows their interpolated pose.
+/// A `models/soldier.glb` avatar standing in for another player; follows their
+/// interpolated pose.
 #[derive(Component)]
 struct RemoteAvatar {
     src: Entity,
 }
 
-/// Eye height of the local rig; the replicated pose is at eye level, the capsule
-/// mesh is centred on the body.
-const CAPSULE_DROP: f32 = 0.8;
-
-/// Spawn a capsule for every interpolated (i.e. *other*-player) `PlayerPose`
-/// entity that doesn't have one yet. Polled rather than an `OnAdd` observer so
-/// it doesn't matter whether `Interpolated` or `PlayerPose` lands first.
+/// Spawn a soldier avatar for every interpolated (i.e. *other*-player)
+/// `PlayerPose` entity that doesn't have one yet. Polled rather than an
+/// `OnAdd` observer so it doesn't matter whether `Interpolated` or
+/// `PlayerPose` lands first.
 fn spawn_remote_avatars(
     remotes: Query<Entity, (With<PlayerPose>, With<Interpolated>)>,
     avatars: Query<&RemoteAvatar>,
+    remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
     for src in &remotes {
         if have.contains(&src) {
             continue;
         }
-        commands.spawn((
-            StateScoped(AppState::InGame),
-            RemoteAvatar { src },
-            Mesh3d(meshes.add(Capsule3d::new(0.35, 1.1))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.22, 0.48, 1.0),
-                perceptual_roughness: 0.7,
-                ..default()
-            })),
-            Transform::default(),
-        ));
-        info!("remote player {src:?} — spawned capsule");
+        commands
+            .spawn((
+                StateScoped(AppState::InGame),
+                RemoteAvatar { src },
+                crate::SoldierVisual,
+                Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
+                Visibility::default(),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
+                ),
+            ))
+            .observe(crate::start_soldier_animation);
+        info!("remote player {src:?} — spawned soldier avatar");
     }
 }
 
 fn follow_remote_avatars(
     poses: Query<&PlayerPose>,
+    remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     mut avatars: Query<(Entity, &RemoteAvatar, &mut Transform)>,
     mut commands: Commands,
 ) {
     for (entity, avatar, mut tf) in &mut avatars {
         match poses.get(avatar.src) {
             Ok(pose) => {
-                tf.translation = pose.translation - Vec3::Y * CAPSULE_DROP;
+                // The replicated pose is at eye level; the model's origin is
+                // at its feet (same convention `bot.pos` uses), so drop by
+                // the same eye height the local rig's own ground-snap uses.
+                tf.translation = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
                 tf.rotation = Quat::from_rotation_y(pose.yaw);
+                tf.scale = Vec3::splat(remote_avatar_settings.scale);
             }
             Err(_) => {
                 commands.entity(entity).try_despawn();

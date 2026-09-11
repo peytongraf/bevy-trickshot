@@ -757,6 +757,7 @@ fn main() {
         .init_resource::<SoundVolumes>()
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
+        .init_resource::<RemoteAvatarSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
         // swapchain, so instead the menu/lobby screens (opaque `bevy_ui`, drawn
@@ -772,6 +773,7 @@ fn main() {
                 setup_ammo_ui,
                 setup_fps_ui,
                 setup_bot_assets,
+                setup_soldier_assets,
             ),
         )
         .add_systems(
@@ -1299,6 +1301,95 @@ pub(crate) fn play_bot_death(
     active.set_repeat(RepeatAnimation::Never);
     active.set_speed(BOT_DIE_SPEED);
     active.replay();
+}
+
+/// Tags a remote player's `SceneRoot` entity (`models/soldier.glb`) so
+/// `start_soldier_animation` can tell it apart from any other spawned scene.
+#[derive(Component)]
+pub(crate) struct SoldierVisual;
+
+/// Graph + idle node index for `models/soldier.glb`'s `idleWgun` clip — the
+/// only one of its 18 animations wired up so far (walk / run / shoot / reload
+/// / death / ... can follow the same pattern as `BotAnimations` once the
+/// networked pose carries enough state to pick between them). Built once at
+/// startup.
+#[derive(Resource, Clone)]
+pub(crate) struct SoldierAnimations {
+    graph: Handle<AnimationGraph>,
+    idle: AnimationNodeIndex,
+}
+
+/// Set by `start_soldier_animation` once it finds the `AnimationPlayer` inside
+/// a remote-player avatar's spawned scene. Mirrors [`BotAnimationPlayer`],
+/// kept as its own type since it points into a different graph. Not read
+/// anywhere yet — only `idleWgun` loops for now — but will be once other
+/// clips (walk / shoot / death / ...) need switching to directly, the same
+/// way `play_bot_death` uses `BotAnimationPlayer`.
+#[derive(Component)]
+#[allow(dead_code)]
+pub(crate) struct SoldierAnimationPlayer(pub(crate) Entity);
+
+/// Panel-adjustable uniform scale for the `models/soldier.glb` remote-player
+/// avatar ("Remote players" debug-panel section), applied by
+/// `net::follow_remote_avatars`. Live-tweakable rather than a baked constant
+/// like `BOT_MODEL_SCALE` — the model's authored size relative to a real
+/// player isn't known up front.
+#[derive(Resource)]
+pub(crate) struct RemoteAvatarSettings {
+    pub(crate) scale: f32,
+}
+
+impl Default for RemoteAvatarSettings {
+    fn default() -> Self {
+        Self { scale: 21.0 }
+    }
+}
+
+/// Build the remote-player animation graph. Added to the same `Startup` tuple
+/// as `setup_bot_assets` — see its comment for why a separate
+/// `add_systems(Startup, ...)` (even from a plugin) can't be used instead.
+fn setup_soldier_assets(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+) {
+    let idle_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/soldier.glb"));
+    let (graph, idle) = AnimationGraph::from_clip(idle_clip);
+    let graph = graphs.add(graph);
+    commands.insert_resource(SoldierAnimations { graph, idle });
+}
+
+/// Fires once a remote-player avatar's `SceneRoot` (tagged [`SoldierVisual`])
+/// finishes spawning: starts the idle animation looping and remembers which
+/// descendant holds the `AnimationPlayer`, via [`SoldierAnimationPlayer`].
+/// Mirrors `start_bot_animation`.
+fn start_soldier_animation(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    soldiers: Query<(), With<SoldierVisual>>,
+    mut players: Query<&mut AnimationPlayer>,
+    anims: Res<SoldierAnimations>,
+) {
+    let root = trigger.target();
+    if !soldiers.contains(root) {
+        return;
+    }
+    for entity in children.iter_descendants(root) {
+        // Same fix as the bot / sniper view model: a skinned mesh is
+        // frustum-culled against its *rest-pose* AABB, not the animated one.
+        commands.entity(entity).insert(NoFrustumCulling);
+
+        if let Ok(mut player) = players.get_mut(entity) {
+            let active = player.play(anims.idle);
+            active.set_repeat(RepeatAnimation::Forever);
+            commands
+                .entity(entity)
+                .insert(AnimationGraphHandle(anims.graph.clone()));
+            commands.entity(root).insert(SoldierAnimationPlayer(entity));
+        }
+    }
 }
 
 /// Which weapon slot is up. The knife has no model yet, so `Secondary` just
@@ -3127,9 +3218,19 @@ fn ads_tuning_ui(
         ResMut<NoScopeSpread>,
         ResMut<IdleSwaySettings>,
         ResMut<AimSwaySettings>,
+        ResMut<RemoteAvatarSettings>,
     ),
 ) -> Result {
-    let (shake, ads, mut map, mut blood, mut noscope, mut idle_sway, mut aim_sway) = misc;
+    let (
+        shake,
+        ads,
+        mut map,
+        mut blood,
+        mut noscope,
+        mut idle_sway,
+        mut aim_sway,
+        mut remote_avatar,
+    ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -3349,6 +3450,20 @@ fn ads_tuning_ui(
                 }
                 if ui.button("Reset map transform").clicked() {
                     *mp = MapSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Remote players", |ui| {
+                let ra = &mut *remote_avatar;
+                ui.label("models/soldier.glb");
+                ui.add(
+                    egui::Slider::new(&mut ra.scale, 0.01f32..=100.0)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+                if ui.button("Reset remote player scale").clicked() {
+                    *ra = RemoteAvatarSettings::default();
                 }
             });
 
