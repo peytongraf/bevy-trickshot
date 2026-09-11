@@ -5,14 +5,6 @@
 
 # Done
 
-- Teleport point should save direction the player is facing / looking.
-- Enable auto reload, check if rechamber animation should happen after last round is fired of a mag and if it should happen after a new mag is reloaded.
-- Add idle sway of sniper
-- Add aiming idle sway
-- Since the players capsule is visible in the shadow, the capsule should shrink when crouching and lay down sideways when prone.
-- Add max shot distance for sniper.
-- Add colat plus colat detection. Bullet should slow when hitting a target.
-
 ## Security
 
 - Ensure that public github repo can't let random people from using the production server and run up the cost.

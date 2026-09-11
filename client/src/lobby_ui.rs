@@ -18,8 +18,8 @@ use lightyear::prelude::*;
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
-    label, label_hud, overlay_root, spawn_button_hud, ACCENT, PANEL, PANEL_SOLID, ROW, ROW_HOVER,
-    TEXT, TEXT_DIM, TRACK,
+    label, label_hud, overlay_root, spawn_button_hud, ui_sound, UiSound, ACCENT, PANEL,
+    PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK,
 };
 use crate::AppState;
 
@@ -437,6 +437,7 @@ fn build_browser(
                                         normal: ROW,
                                         hover: ROW_HOVER,
                                     },
+                                    ui_sound(UiSound::MENU),
                                     Node {
                                         width: Val::Percent(100.0),
                                         padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
@@ -475,6 +476,7 @@ fn build_browser(
                         ACCENT,
                         ACCENT,
                         PANEL_SOLID,
+                        UiSound::MENU,
                     );
                     spawn_button_hud(
                         row,
@@ -485,6 +487,7 @@ fn build_browser(
                         ROW,
                         ROW_HOVER,
                         TEXT,
+                        UiSound::MENU,
                     );
                 });
             });
@@ -548,10 +551,12 @@ fn build_room(
                         row.spawn(label_hud(asset_server, "TIME LIMIT", 14.0, TEXT_DIM));
                         spawn_button_hud(
                             row, asset_server, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT,
+                            UiSound::MENU,
                         );
                         row.spawn(label_hud(asset_server, format!("{mins} min"), 16.0, TEXT));
                         spawn_button_hud(
                             row, asset_server, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT,
+                            UiSound::MENU,
                         );
                     });
                 }
@@ -622,9 +627,20 @@ fn build_room(
                             ACCENT,
                             ACCENT,
                             PANEL_SOLID,
+                            UiSound::MENU,
                         );
                     }
-                    spawn_button_hud(row, asset_server, "LEAVE", 20.0, MenuBtn::Leave, ROW, ROW_HOVER, TEXT);
+                    spawn_button_hud(
+                        row,
+                        asset_server,
+                        "LEAVE",
+                        20.0,
+                        MenuBtn::Leave,
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::MENU_BACK,
+                    );
                 });
             });
         });

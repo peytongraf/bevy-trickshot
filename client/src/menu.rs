@@ -29,8 +29,8 @@ use crate::settings::{
     VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    field_box, label, spawn_button, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID, ROW,
-    ROW_HOVER, TEXT, TEXT_DIM, TRACK,
+    field_box, label, spawn_button, UiSound, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID,
+    ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK,
 };
 use crate::AppState;
 
@@ -623,6 +623,7 @@ fn build_username(commands: &mut Commands) {
                 ACCENT,
                 ACCENT,
                 PANEL_SOLID,
+                UiSound::MENU,
             );
         });
     });
@@ -710,6 +711,7 @@ fn build_settings(
                                 if selected { ROW_HOVER } else { PANEL },
                                 ROW_HOVER,
                                 if selected { ACCENT } else { TEXT_DIM },
+                                UiSound::BUTTON,
                             );
                         }
                     });
@@ -754,6 +756,7 @@ fn build_settings(
                                 ACCENT_DIM,
                                 ACCENT,
                                 TEXT,
+                                UiSound::BUTTON_BACK,
                             );
                             spawn_button(
                                 f,
@@ -763,6 +766,7 @@ fn build_settings(
                                 ROW,
                                 ROW_HOVER,
                                 TEXT,
+                                UiSound::BUTTON_BACK,
                             );
                             f.spawn(label(
                                 "Leaving without the party promotes a new leader; the match \
@@ -779,6 +783,7 @@ fn build_settings(
                                 ROW,
                                 ROW_HOVER,
                                 TEXT,
+                                UiSound::BUTTON_BACK,
                             );
                             if leave.online {
                                 f.spawn(label(
@@ -829,6 +834,7 @@ fn build_profile(content: &mut ChildSpawnerCommands) {
                 ACCENT,
                 ACCENT,
                 PANEL_SOLID,
+                UiSound::BUTTON,
             );
         });
     content.spawn(label(
@@ -892,6 +898,7 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
                 ROW,
                 ROW_HOVER,
                 if settings.debug_mode { ACCENT } else { TEXT },
+                UiSound::BUTTON,
             );
             // keep the toggle label live without a rebuild
             row.spawn((
@@ -945,6 +952,7 @@ fn build_graphics(content: &mut ChildSpawnerCommands, settings: &Settings) {
                     if selected { ACCENT_DIM } else { ROW },
                     ROW_HOVER,
                     if selected { ACCENT } else { TEXT },
+                    UiSound::BUTTON,
                 );
             }
         });
@@ -1006,6 +1014,7 @@ fn toggle_row(content: &mut ChildSpawnerCommands, name: &str, on: bool, btn: Btn
                 ROW,
                 ROW_HOVER,
                 if on { ACCENT } else { TEXT },
+                UiSound::BUTTON,
             );
         });
 }
@@ -1040,6 +1049,7 @@ fn spawn_slider_row(
                 ROW,
                 ROW_HOVER,
                 TEXT,
+                UiSound::BUTTON,
             );
             // track
             row.spawn((
@@ -1067,7 +1077,16 @@ fn spawn_slider_row(
                     BorderRadius::all(Val::Px(5.0)),
                 ));
             });
-            spawn_button(row, "+", 18.0, Btn::Step(field, step), ROW, ROW_HOVER, TEXT);
+            spawn_button(
+                row,
+                "+",
+                18.0,
+                Btn::Step(field, step),
+                ROW,
+                ROW_HOVER,
+                TEXT,
+                UiSound::BUTTON,
+            );
             row.spawn((
                 label(field_value_text(settings, field), 18.0, TEXT),
                 DynText::SliderValue(field),
@@ -1125,6 +1144,7 @@ fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBi
                         if capturing { ACCENT_DIM } else { TRACK },
                         ROW_HOVER,
                         if capturing { ACCENT } else { TEXT },
+                        UiSound::BUTTON,
                     );
                 });
             }
@@ -1137,5 +1157,6 @@ fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBi
         ROW,
         ROW_HOVER,
         TEXT_DIM,
+        UiSound::BUTTON,
     );
 }
