@@ -26,16 +26,22 @@ const DEFAULT_FOV_DEG: f32 = 90.0;
 /// one the [`Lobby`] carries.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum GameMode {
-    /// **Freestyle** — free-for-all: rack up the most style points (kills,
-    /// spins, no-scopes) before the clock runs out. Highest score wins.
+    /// **Freestyle** — free-for-all against bots: rack up the most style
+    /// points (kills, spins, no-scopes) before the clock runs out. Highest
+    /// score wins.
     #[default]
     Freestyle,
+    /// **Free For All** — real PvP, Call-of-Duty style: first player to the
+    /// lobby's kill limit wins, or whoever has the most kills when the clock
+    /// runs out. No bots.
+    FreeForAll,
 }
 
 impl GameMode {
     pub fn label(self) -> &'static str {
         match self {
             GameMode::Freestyle => "FREESTYLE",
+            GameMode::FreeForAll => "FREE FOR ALL",
         }
     }
 }
@@ -416,6 +422,30 @@ pub struct SetTimeLimit {
     pub secs: u32,
 }
 
+/// Client (party leader) → server: pick the lobby's game mode before starting.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetGameMode {
+    pub mode: GameMode,
+}
+
+/// Client (party leader) → server: set [`GameMode::FreeForAll`]'s kill limit
+/// before starting.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetKillLimit {
+    pub kills: u32,
+}
+
+/// Server → client: only sent to the victim of a [`GameMode::FreeForAll`]
+/// kill, once they're allowed to respawn — a spawn point their client should
+/// teleport its player rig to. See `client::net::flush_pending_respawn`,
+/// which waits for the paired kill-cam (see [`KillCam`]) to finish playing
+/// before applying it.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerRespawn {
+    pub pos: [f32; 3],
+    pub yaw: f32,
+}
+
 /// Reliable, unordered server → client channel for gameplay events.
 pub struct GameChannel;
 
@@ -428,7 +458,8 @@ pub struct GameChannel;
 pub struct LobbyMember {
     pub peer: PeerId,
     pub name: String,
-    /// Bots this member has shot during the current game.
+    /// `Freestyle`: style points from bots this member has shot. `FreeForAll`:
+    /// this member's kill count. Whichever the lobby's `mode` is.
     pub score: u32,
 }
 
@@ -448,6 +479,9 @@ pub struct Lobby {
     pub time_limit_secs: u32,
     /// Seconds left in the running match; the server counts it down.
     pub time_left_secs: u32,
+    /// [`GameMode::FreeForAll`]'s win condition: first member to this many
+    /// kills (`LobbyMember::score`) ends the match. Unused by `Freestyle`.
+    pub kill_limit: u32,
     pub members: Vec<LobbyMember>,
 }
 
@@ -556,6 +590,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<RemoteSound>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<PlayerRespawn>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -570,6 +606,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<EndGame>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetTimeLimit>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetGameMode>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetKillLimit>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

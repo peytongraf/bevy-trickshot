@@ -12,6 +12,7 @@
 //! The tree is rebuilt from scratch whenever [`LobbyUi::dirty`] is set (state
 //! change or any replicated `Lobby` change), mirroring `menu.rs`.
 
+use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
@@ -303,12 +304,21 @@ enum MenuBtn {
     Leave,
     TimeDown,
     TimeUp,
+    KillDown,
+    KillUp,
+    SetMode(shared::GameMode),
 }
 
 /// Match-length step for the leader's − / + buttons (seconds).
 const TIME_STEP_SECS: u32 = 60;
 const TIME_MIN_SECS: u32 = 60;
 const TIME_MAX_SECS: u32 = 45 * 60;
+
+/// `FreeForAll` kill-limit step for the leader's − / + buttons. Mirrors
+/// `server::lobby::{MIN,MAX}_KILL_LIMIT`.
+const KILL_STEP: u32 = 5;
+const KILL_MIN: u32 = 5;
+const KILL_MAX: u32 = 100;
 
 /// Who won the last finished match (name, score) — shown back in the lobby room.
 #[derive(Resource, Default)]
@@ -494,6 +504,29 @@ fn build_browser(
         });
 }
 
+/// One segmented mode-picker button — accent-solid when `mode` is the
+/// lobby's current selection, a plain row button otherwise.
+fn spawn_mode_button(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    mode: shared::GameMode,
+    current: shared::GameMode,
+) {
+    let selected = mode == current;
+    spawn_button_hud(
+        row,
+        asset_server,
+        text,
+        15.0,
+        MenuBtn::SetMode(mode),
+        if selected { ACCENT } else { ROW },
+        if selected { ACCENT } else { ROW_HOVER },
+        if selected { PANEL_SOLID } else { TEXT },
+        UiSound::MENU,
+    );
+}
+
 fn build_room(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -503,6 +536,7 @@ fn build_room(
 ) {
     let is_leader = me == Some(lobby.leader);
     let mins = lobby.time_limit_secs / 60;
+    let is_ffa = lobby.mode == shared::GameMode::FreeForAll;
 
     commands
         .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
@@ -526,7 +560,15 @@ fn build_room(
 
                 col.spawn(label_hud(
                     asset_server,
-                    format!("{}   \u{2022}   {mins} MIN", lobby.mode.label()),
+                    if is_ffa {
+                        format!(
+                            "{}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS",
+                            lobby.mode.label(),
+                            lobby.kill_limit,
+                        )
+                    } else {
+                        format!("{}   \u{2022}   {mins} MIN", lobby.mode.label())
+                    },
                     14.0,
                     TEXT_DIM,
                 ));
@@ -540,8 +582,31 @@ fn build_room(
                     ));
                 }
 
-                // Leader-only match-length control.
+                // Leader-only controls, while the lobby is still waiting.
                 if is_leader && !lobby.started {
+                    col.spawn(Node {
+                        column_gap: Val::Px(10.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(label_hud(asset_server, "MODE", 14.0, TEXT_DIM));
+                        spawn_mode_button(
+                            row,
+                            asset_server,
+                            "FREESTYLE",
+                            shared::GameMode::Freestyle,
+                            lobby.mode,
+                        );
+                        spawn_mode_button(
+                            row,
+                            asset_server,
+                            "FREE FOR ALL",
+                            shared::GameMode::FreeForAll,
+                            lobby.mode,
+                        );
+                    });
+
                     col.spawn(Node {
                         column_gap: Val::Px(10.0),
                         align_items: AlignItems::Center,
@@ -559,6 +624,31 @@ fn build_room(
                             UiSound::MENU,
                         );
                     });
+
+                    if is_ffa {
+                        col.spawn(Node {
+                            column_gap: Val::Px(10.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn(label_hud(asset_server, "KILL LIMIT", 14.0, TEXT_DIM));
+                            spawn_button_hud(
+                                row, asset_server, "\u{2212}", 18.0, MenuBtn::KillDown, ROW,
+                                ROW_HOVER, TEXT, UiSound::MENU,
+                            );
+                            row.spawn(label_hud(
+                                asset_server,
+                                format!("{} kills", lobby.kill_limit),
+                                16.0,
+                                TEXT,
+                            ));
+                            spawn_button_hud(
+                                row, asset_server, "+", 18.0, MenuBtn::KillUp, ROW, ROW_HOVER, TEXT,
+                                UiSound::MENU,
+                            );
+                        });
+                    }
                 }
 
                 col.spawn((
@@ -648,7 +738,7 @@ fn build_room(
 
 // --- input ------------------------------------------------------------
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn handle_clicks(
     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
     mut next: ResMut<NextState<AppState>>,
@@ -660,16 +750,24 @@ fn handle_clicks(
     mut leave: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
     mut start: Query<&mut TriggerSender<shared::StartGame>, With<GameClient>>,
     mut set_time: Query<&mut TriggerSender<shared::SetTimeLimit>, With<GameClient>>,
+    mut set_kills: Query<&mut TriggerSender<shared::SetKillLimit>, With<GameClient>>,
+    mut set_mode: Query<&mut TriggerSender<shared::SetGameMode>, With<GameClient>>,
 ) {
     let name = player_name(&settings);
-    let my_limit = || {
+    let my_lobby = || {
         let me = local.iter().next().map(|l| l.0)?;
-        lobbies.iter().find(|l| l.has(me)).map(|l| l.time_limit_secs)
+        lobbies.iter().find(|l| l.has(me))
     };
     let mut nudge_time = |delta: i64| {
-        if let (Some(cur), Ok(mut s)) = (my_limit(), set_time.single_mut()) {
+        if let (Some(cur), Ok(mut s)) = (my_lobby().map(|l| l.time_limit_secs), set_time.single_mut()) {
             let secs = (cur as i64 + delta).clamp(TIME_MIN_SECS as i64, TIME_MAX_SECS as i64) as u32;
             s.trigger::<shared::LobbyChannel>(shared::SetTimeLimit { secs });
+        }
+    };
+    let mut nudge_kills = |delta: i64| {
+        if let (Some(cur), Ok(mut s)) = (my_lobby().map(|l| l.kill_limit), set_kills.single_mut()) {
+            let kills = (cur as i64 + delta).clamp(KILL_MIN as i64, KILL_MAX as i64) as u32;
+            s.trigger::<shared::LobbyChannel>(shared::SetKillLimit { kills });
         }
     };
 
@@ -681,6 +779,13 @@ fn handle_clicks(
             MenuBtn::Practice => next.set(AppState::InGame),
             MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
+            MenuBtn::KillDown => nudge_kills(-(KILL_STEP as i64)),
+            MenuBtn::KillUp => nudge_kills(KILL_STEP as i64),
+            MenuBtn::SetMode(mode) => {
+                if let Ok(mut s) = set_mode.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetGameMode { mode: *mode });
+                }
+            }
             MenuBtn::CreateLobby => {
                 if let Ok(mut s) = create.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::CreateLobby {
@@ -780,7 +885,12 @@ fn rebuild_scoreboard(
             BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|panel| {
-            panel.spawn(label("SCORES", 14.0, TEXT_DIM));
+            let header = if lobby.mode == shared::GameMode::FreeForAll {
+                "KILLS"
+            } else {
+                "SCORES"
+            };
+            panel.spawn(label(header, 14.0, TEXT_DIM));
             for (name, score, is_me) in rows {
                 let col = if is_me { ACCENT } else { TEXT };
                 panel

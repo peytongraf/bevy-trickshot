@@ -13,11 +13,12 @@ use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
-    Bot, GameChannel, Lobby, PlayerId, PlayerInput, PlayerPose, RemoteSound, ShotOutcome,
+    Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerInput, PlayerPose, RemoteSound, ShotOutcome,
     ShotResolved, TrickScore,
 };
 
 use crate::bots::{BotHit, LobbyBot};
+use crate::pvp::{PlayerCombat, PlayerHit};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 
 /// Nominal player dimensions for hitbox construction. Replace with per-character
@@ -25,6 +26,11 @@ use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 const PLAYER_HEIGHT: f32 = 1.8;
 const PLAYER_RADIUS: f32 = 0.35;
 const HEAD_RADIUS: f32 = 0.12;
+
+/// `PlayerPose::translation` is the owner's eye/camera position, not their
+/// feet (see `client::net::follow_remote_avatars`, which subtracts this same
+/// height to place the remote avatar model) — must track `client::EYE_HEIGHT`.
+const EYE_HEIGHT: f32 = 1.7;
 
 /// What a resolved hit landed on.
 enum HitKind {
@@ -110,15 +116,28 @@ fn resolve_shots(
     shooters: Query<(&PlayerId, &ActionState<PlayerInput>)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     bots: Query<(Entity, &Bot, &LobbyBot)>,
+    combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
     mut bot_hits: EventWriter<BotHit>,
+    mut player_hits: EventWriter<PlayerHit>,
 ) {
     let tick = timeline.tick().0;
     let server = server.into_inner();
 
+    // A `FreeForAll` player mid-respawn (`PlayerCombat::alive == false`) can
+    // neither shoot nor be shot; `Freestyle` players never get a
+    // `PlayerCombat` at all, so they're always "alive" here.
+    let is_alive = |peer: PeerId| {
+        combats
+            .iter()
+            .find(|(id, _)| id.0 == peer)
+            .map(|(_, c)| c.alive)
+            .unwrap_or(true)
+    };
+
     for (shooter, input) in &shooters {
         let i = &input.0;
-        if !i.fire {
+        if !i.fire || !is_alive(shooter.0) {
             continue;
         }
         let Some(weapon) = WeaponId::from_u8(i.weapon) else {
@@ -133,28 +152,32 @@ fn resolve_shots(
         let mut targets: Vec<Target> = Vec::new();
 
         for (id, pose) in &poses {
-            if id.0 == shooter.0 || !lobby.has(id.0) {
+            if id.0 == shooter.0 || !lobby.has(id.0) || !is_alive(id.0) {
                 continue;
             }
             let key = id.0.to_bits();
             kind.insert(key, HitKind::Player(id.0));
+            let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
             targets.push(Target {
                 id: key,
-                body: Capsule::standing(pose.translation, PLAYER_HEIGHT, PLAYER_RADIUS),
-                head: Capsule::head(pose.translation, PLAYER_HEIGHT, HEAD_RADIUS),
+                body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
+                head: Capsule::head(feet, PLAYER_HEIGHT, HEAD_RADIUS),
             });
         }
-        for (entity, bot, lb) in &bots {
-            if lb.lobby != lobby_e || !bot.alive {
-                continue;
+        // No bots in `FreeForAll` — it's pure PvP.
+        if lobby.mode == GameMode::Freestyle {
+            for (entity, bot, lb) in &bots {
+                if lb.lobby != lobby_e || !bot.alive {
+                    continue;
+                }
+                let key = entity.to_bits();
+                kind.insert(key, HitKind::Bot(entity));
+                targets.push(Target {
+                    id: key,
+                    body: Capsule::standing(bot.pos, BOT_HEIGHT, BOT_RADIUS),
+                    head: Capsule::head(bot.pos, BOT_HEIGHT, BOT_HEAD_RADIUS),
+                });
             }
-            let key = entity.to_bits();
-            kind.insert(key, HitKind::Bot(entity));
-            targets.push(Target {
-                id: key,
-                body: Capsule::standing(bot.pos, BOT_HEIGHT, BOT_RADIUS),
-                head: Capsule::head(bot.pos, BOT_HEIGHT, BOT_HEAD_RADIUS),
-            });
         }
 
         let origin = Vec3::from_array(i.fire_origin);
@@ -247,6 +270,13 @@ fn resolve_shots(
                             if hit.headshot { "HEADSHOT on" } else { "hit" },
                             p,
                         );
+                        if lobby.mode == GameMode::FreeForAll {
+                            player_hits.write(PlayerHit {
+                                victim: *p,
+                                killer: shooter.0,
+                                damage: hit.damage,
+                            });
+                        }
                         ShotOutcome::Hit {
                             target: p.to_bits(),
                             headshot: hit.headshot,

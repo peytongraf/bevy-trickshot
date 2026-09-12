@@ -23,8 +23,8 @@ use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
 use shared::{
-    Bot, KillCam, MatchOver, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved,
-    TrickScore,
+    Bot, KillCam, MatchOver, PlayerId, PlayerInput, PlayerPose, PlayerRespawn, ShotOutcome,
+    ShotResolved, TrickScore,
 };
 
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
@@ -85,6 +85,7 @@ impl Plugin for ClientNetPlugin {
         app.add_plugins(shared::SharedPlugin);
 
         app.init_resource::<PendingMatchEnd>();
+        app.init_resource::<PendingRespawn>();
         app.add_systems(Startup, connect);
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
@@ -110,12 +111,17 @@ impl Plugin for ClientNetPlugin {
                 receive_trick_scores,
                 receive_match_over,
                 receive_killcam,
+                receive_respawn,
                 // Must see this frame's `receive_killcam` (if the server's
                 // "best play" `KillCam` and `MatchOver` land in the same
                 // frame) before deciding whether a kill cam is holding the
                 // results screen off — the tuple above isn't `.chain()`ed,
                 // so this ordering needs to be explicit.
                 flush_pending_match_end.after(receive_killcam),
+                // Same reasoning: don't decide a `FreeForAll` kill cam isn't
+                // coming until this frame's `receive_killcam` has had a
+                // chance to start one.
+                flush_pending_respawn.after(receive_killcam),
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -393,6 +399,71 @@ fn flush_pending_match_end(
         winner: msg.winner_name,
         score: msg.winner_score,
     });
+}
+
+/// Holds a received [`PlayerRespawn`] until it's safe to apply — mirrors
+/// [`PendingMatchEnd`]'s wait-for-the-paired-kill-cam shape: the respawn
+/// message and the kill cam of our own death ride the same reliable but
+/// *unordered* `GameChannel`, and the cam is buffered ~1.5 s server-side (see
+/// `server::killcam::flush_killcams`), so it can easily arrive after this.
+#[derive(Resource, Default)]
+struct PendingRespawn {
+    to: Option<(Vec3, f32)>,
+    /// Set once a kill cam has been seen to start since `to` arrived, so we
+    /// know to wait for it to *finish* rather than teleport out from under it.
+    seen_killcam: bool,
+    /// Seconds spent waiting for that kill cam to even start. If none shows up
+    /// in time (the recorded window can be too short to send at all), stop
+    /// waiting and just respawn.
+    waited_secs: f32,
+}
+
+/// However long to wait for the paired kill cam to *start* before giving up
+/// on it and respawning anyway.
+const RESPAWN_KILLCAM_TIMEOUT_SECS: f32 = 3.0;
+
+/// Server → the victim only ([`GameMode::FreeForAll`]): we're allowed to
+/// respawn, and here's where.
+fn receive_respawn(
+    mut receivers: Query<&mut MessageReceiver<PlayerRespawn>>,
+    mut pending: ResMut<PendingRespawn>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            pending.to = Some((Vec3::from_array(msg.pos), msg.yaw));
+            pending.seen_killcam = false;
+            pending.waited_secs = 0.0;
+        }
+    }
+}
+
+/// Once it's safe — the paired kill cam (if one ever arrives) has both
+/// started and finished, or enough time has passed that it evidently isn't
+/// coming — teleport the local player rig to the stored respawn point.
+fn flush_pending_respawn(
+    time: Res<Time>,
+    mut pending: ResMut<PendingRespawn>,
+    active: Res<ActiveKillCam>,
+    player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+) {
+    let Some((pos, yaw)) = pending.to else {
+        return;
+    };
+    if active.0.is_some() {
+        pending.seen_killcam = true;
+        return;
+    }
+    if !pending.seen_killcam {
+        pending.waited_secs += time.delta_secs();
+        if pending.waited_secs < RESPAWN_KILLCAM_TIMEOUT_SECS {
+            return;
+        }
+    }
+    let (mut transform, mut physics) = player.into_inner();
+    transform.translation = pos;
+    transform.rotation = Quat::from_rotation_y(yaw);
+    *physics = PlayerPhysics::default();
+    pending.to = None;
 }
 
 /// Server → everyone in the lobby: the killer's last ~3 s to replay.

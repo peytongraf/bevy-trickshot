@@ -18,6 +18,7 @@ mod health;
 mod killcam;
 mod lobby;
 mod net;
+mod pvp;
 mod sim;
 
 use bevy::app::ScheduleRunnerPlugin;
@@ -50,6 +51,7 @@ fn main() {
         .add_plugins(lobby::LobbyPlugin)
         .add_plugins(sim::SimPlugin)
         .add_plugins(bots::BotsPlugin)
+        .add_plugins(pvp::PvpPlugin)
         .add_plugins(killcam::KillCamPlugin)
         .run();
 }

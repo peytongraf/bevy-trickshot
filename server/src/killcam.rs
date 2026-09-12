@@ -16,6 +16,7 @@ use shared::{
 };
 
 use crate::bots::{BotHit, LobbyBot};
+use crate::pvp::PlayerKilled;
 
 /// Samples before / after the kill (at `TICK_HZ`).
 const PRE: u64 = (shared::TICK_HZ as u64) * 3;
@@ -41,8 +42,14 @@ struct PendingCam {
     players: Vec<KillCamPlayer>,
     /// Points this shot scored (`shared::scoring::score_multi_kill`'s total)
     /// — compared against `BestPlays` once the replay window is flushed.
+    /// Always `0` for a `FreeForAll` kill (no style scoring there, and no
+    /// best-play replay).
     points: u32,
     lobby: Entity,
+    /// Who to send the replay to once it's ready: the whole lobby (bot
+    /// kills — a shared highlight), or just this one peer (`FreeForAll`
+    /// — only the victim watches how they died).
+    target: Option<PeerId>,
 }
 
 #[derive(Resource, Default)]
@@ -138,67 +145,84 @@ fn record_frames(
 
 fn queue_killcams(
     clock: Res<ReplayClock>,
-    mut hits: EventReader<BotHit>,
+    mut bot_hits: EventReader<BotHit>,
+    mut player_kills: EventReader<PlayerKilled>,
     lobbies: Query<(Entity, &Lobby)>,
     bots: Query<(Entity, &Bot, &LobbyBot)>,
     players: Query<(&PlayerId, &PlayerPose)>,
     mut pending: ResMut<PendingCams>,
 ) {
-    // Group this tick's kills by shooter first — a collateral shot fires one
-    // `BotHit` per pierced bot, all in the same tick, and should become one
-    // kill cam with every one of them falling together, not a separate replay
-    // per bot. Only the first `BotHit` of a pierced chain carries non-zero
-    // `points` (see `resolve_shots`), so summing is equivalent to taking it.
+    // Group this tick's bot kills by shooter first — a collateral shot fires
+    // one `BotHit` per pierced bot, all in the same tick, and should become
+    // one kill cam with every one of them falling together, not a separate
+    // replay per bot. Only the first `BotHit` of a pierced chain carries
+    // non-zero `points` (see `resolve_shots`), so summing is equivalent to
+    // taking it.
     let mut by_shooter: Vec<(PeerId, Vec<Entity>, u32)> = Vec::new();
-    for ev in hits.read() {
+    for ev in bot_hits.read() {
         match by_shooter.iter_mut().find(|(shooter, ..)| *shooter == ev.by) {
-            Some((_, bots, points)) => {
-                bots.push(ev.bot);
+            Some((_, killed, points)) => {
+                killed.push(ev.bot);
                 *points += ev.points;
             }
             None => by_shooter.push((ev.by, vec![ev.bot], ev.points)),
         }
     }
 
-    for (killer, killed_bots, points) in by_shooter {
-        let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(killer)) else {
-            continue;
+    // Freezes the killer's lobby (bots + every other member) as it stands
+    // now and queues one replay window for it. `target = None` broadcasts to
+    // the whole lobby (a bot kill — a shared highlight); `Some(peer)` sends
+    // it to just that one peer (a `FreeForAll` kill — only the victim
+    // watches how they died).
+    let mut queue_one =
+        |killer: PeerId, killed_bots: &[Entity], points: u32, target: Option<PeerId>| {
+            let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(killer)) else {
+                return;
+            };
+            let name = lobby
+                .members
+                .iter()
+                .find(|m| m.peer == killer)
+                .map(|m| m.name.clone())
+                .unwrap_or_else(|| "Someone".to_string());
+            let snap: Vec<KillCamBot> = bots
+                .iter()
+                .filter(|(_, _, lb)| lb.lobby == lobby_e)
+                .map(|(e, b, _)| KillCamBot {
+                    pos: b.pos.to_array(),
+                    yaw: b.yaw,
+                    killed: killed_bots.contains(&e),
+                })
+                .collect();
+            // Freeze every other lobby member too — the killer excluded,
+            // since the replay is a first-person fly-through of their own
+            // view. For a `FreeForAll` kill this includes the victim, which
+            // is exactly who needs to see themselves get shot.
+            let player_snap: Vec<KillCamPlayer> = players
+                .iter()
+                .filter(|(id, _)| id.0 != killer && lobby.has(id.0))
+                .map(|(_, pose)| KillCamPlayer {
+                    pos: pose.translation.to_array(),
+                    yaw: pose.yaw,
+                })
+                .collect();
+            pending.0.push(PendingCam {
+                killer,
+                killer_name: name,
+                kill_seq: clock.0,
+                players: player_snap,
+                bots: snap,
+                points,
+                lobby: lobby_e,
+                target,
+            });
         };
-        let name = lobby
-            .members
-            .iter()
-            .find(|m| m.peer == killer)
-            .map(|m| m.name.clone())
-            .unwrap_or_else(|| "Someone".to_string());
-        // Freeze every bot in the killer's game as it stands now.
-        let snap: Vec<KillCamBot> = bots
-            .iter()
-            .filter(|(_, _, lb)| lb.lobby == lobby_e)
-            .map(|(e, b, _)| KillCamBot {
-                pos: b.pos.to_array(),
-                yaw: b.yaw,
-                killed: killed_bots.contains(&e),
-            })
-            .collect();
-        // Freeze every other lobby member too — the killer excluded, since
-        // the replay is a first-person fly-through of their own view.
-        let player_snap: Vec<KillCamPlayer> = players
-            .iter()
-            .filter(|(id, _)| id.0 != killer && lobby.has(id.0))
-            .map(|(_, pose)| KillCamPlayer {
-                pos: pose.translation.to_array(),
-                yaw: pose.yaw,
-            })
-            .collect();
-        pending.0.push(PendingCam {
-            killer,
-            killer_name: name,
-            kill_seq: clock.0,
-            players: player_snap,
-            bots: snap,
-            points,
-            lobby: lobby_e,
-        });
+
+    for (killer, killed_bots, points) in &by_shooter {
+        queue_one(*killer, killed_bots, *points, None);
+    }
+    for ev in player_kills.read() {
+        queue_one(ev.killer, &[], 0, Some(ev.victim));
     }
 }
 
@@ -240,11 +264,14 @@ fn flush_killcams(
             return false; // nothing worth showing
         }
 
-        let targets: Vec<PeerId> = lobbies
-            .iter()
-            .find(|l| l.has(cam.killer))
-            .map(|l| l.members.iter().map(|m| m.peer).collect())
-            .unwrap_or_default();
+        let targets: Vec<PeerId> = match cam.target {
+            Some(peer) => vec![peer],
+            None => lobbies
+                .iter()
+                .find(|l| l.has(cam.killer))
+                .map(|l| l.members.iter().map(|m| m.peer).collect())
+                .unwrap_or_default(),
+        };
 
         let msg = KillCam {
             killer_name: cam.killer_name.clone(),

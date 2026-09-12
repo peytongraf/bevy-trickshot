@@ -1,6 +1,10 @@
 ## Added
 
 - Add knife and throwing knife models
+- Add tab to show leaderboard
+- Update readme
+- Add ping ui beside fps
+- Add bots ( using remote player model ) that can be added to game modes
 
 ---
 

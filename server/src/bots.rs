@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 
 use shared::bots::{respawn_pose, BOTS_ALIVE, BOT_DEAD_SECS, BOT_FALL_SECS};
-use shared::{Bot, Lobby};
+use shared::{Bot, GameMode, Lobby};
 
 /// A hit on a bot, written by [`crate::sim::resolve_shots`].
 #[derive(Event)]
@@ -56,7 +56,8 @@ fn ensure_bots(
     mut commands: Commands,
 ) {
     for (lobby_e, lobby) in &lobbies {
-        if !lobby.started {
+        // `FreeForAll` is pure PvP — no bots.
+        if !lobby.started || lobby.mode != GameMode::Freestyle {
             continue;
         }
         let have = bots.iter().filter(|b| b.lobby == lobby_e).count();
