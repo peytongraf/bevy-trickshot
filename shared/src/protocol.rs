@@ -54,6 +54,26 @@ pub struct PlayerPose {
     pub yaw: f32,
     /// Look pitch, radians.
     pub pitch: f32,
+    /// Aim-down-sight amount (`0.0` at the hip … `1.0` fully scoped), copied
+    /// from the owner's `PlayerInput::ads_t` so remote avatars can play an
+    /// aiming animation.
+    pub ads_t: f32,
+    /// Whether the owner's stance is `Crouching`, copied from
+    /// `PlayerInput::crouching` so remote avatars can play a crouch
+    /// animation. Discrete, so `Ease` below just takes `end.crouching`
+    /// rather than blending it, same as `Bot::alive`.
+    pub crouching: bool,
+    /// Whether the owner's weapon is mid-reload, copied from
+    /// `PlayerInput::reloading` so remote avatars can play the reload
+    /// animation once. Discrete, same as `crouching`.
+    pub reloading: bool,
+    /// Whether the owner is mid-jump (from launch until landing), copied from
+    /// `PlayerInput::jumping` so remote avatars can play the jump animation.
+    /// Discrete, same as `crouching`. Sustained across the whole jump arc
+    /// rather than a single-tick pulse — a value that's only ever true for
+    /// one tick can get silently collapsed away by interpolation catch-up on
+    /// other clients before they ever see it.
+    pub jumping: bool,
 }
 
 impl Default for PlayerPose {
@@ -62,6 +82,10 @@ impl Default for PlayerPose {
             translation: Vec3::ZERO,
             yaw: 0.0,
             pitch: 0.0,
+            ads_t: 0.0,
+            crouching: false,
+            reloading: false,
+            jumping: false,
         }
     }
 }
@@ -72,6 +96,10 @@ impl Ease for PlayerPose {
             translation: Vec3::lerp(start.translation, end.translation, t),
             yaw: lerp_angle(start.yaw, end.yaw, t),
             pitch: start.pitch + (end.pitch - start.pitch) * t,
+            ads_t: start.ads_t + (end.ads_t - start.ads_t) * t,
+            crouching: end.crouching,
+            reloading: end.reloading,
+            jumping: end.jumping,
         })
     }
 }
@@ -161,6 +189,12 @@ pub struct PlayerInput {
     /// the active weapon this tick, so the kill cam shows the centre dot only
     /// over the frames where the shooter actually had it.
     pub sniper_active: bool,
+    /// Whether the player's stance is `Crouching` this tick.
+    pub crouching: bool,
+    /// Whether the weapon is mid-reload this tick.
+    pub reloading: bool,
+    /// Whether the player is mid-jump (from launch until landing) this tick.
+    pub jumping: bool,
 }
 
 impl Default for PlayerInput {
@@ -190,6 +224,9 @@ impl Default for PlayerInput {
             weapon_visible: true,
             knife_active: false,
             sniper_active: true,
+            crouching: false,
+            reloading: false,
+            jumping: false,
         }
     }
 }

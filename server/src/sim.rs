@@ -47,6 +47,10 @@ fn apply_client_pose(mut players: Query<(&mut PlayerPose, &ActionState<PlayerInp
         pose.translation = Vec3::from_array(i.translation);
         pose.yaw = i.yaw;
         pose.pitch = i.pitch;
+        pose.ads_t = i.ads_t;
+        pose.crouching = i.crouching;
+        pose.reloading = i.reloading;
+        pose.jumping = i.jumping;
     }
 }
 

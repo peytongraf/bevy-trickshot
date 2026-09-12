@@ -50,12 +50,13 @@ pub enum AppState {
 }
 
 use std::f32::consts::{FRAC_PI_2, PI};
+use std::time::Duration;
 
 use keybinds::KeyBindings;
 use settings::{Settings, ShadowQuality};
 
 use bevy::{
-    animation::RepeatAnimation,
+    animation::{RepeatAnimation, prelude::AnimationTransitions},
     audio::Volume,
     core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
@@ -378,8 +379,8 @@ impl Default for TeleportPoint {
 /// Player camera height above the feet — used to test the feet against surfaces.
 const EYE_HEIGHT: f32 = 1.7;
 /// Defaults for the "Movement" panel section (all live-adjustable).
-const WALK_SPEED: f32 = 6.0;
-const SPRINT_SPEED: f32 = 10.5;
+const WALK_SPEED: f32 = 3.0;
+const SPRINT_SPEED: f32 = 8.0;
 const GRAVITY: f32 = 22.0;
 const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
@@ -750,6 +751,7 @@ fn main() {
         .add_event::<MatchEndedEvent>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
+        .init_resource::<Jumping>()
         .init_resource::<Slide>()
         .init_resource::<SlideSettings>()
         .init_resource::<FootstepSettings>()
@@ -758,6 +760,7 @@ fn main() {
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<RemoteAvatarSettings>()
+        .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
         // swapchain, so instead the menu/lobby screens (opaque `bevy_ui`, drawn
@@ -937,6 +940,19 @@ impl Default for MovementSettings {
 /// Sprint toggle state (Left Shift flips it).
 #[derive(Resource, Default)]
 struct Sprinting(bool);
+
+/// True from the moment `jump` launches until `apply_gravity` detects a
+/// landing. Read (not drained) by `net::write_input` into
+/// `PlayerInput::jumping`, so remote avatars can play the jump animation.
+///
+/// Sustained across the whole jump arc rather than a single-tick pulse
+/// deliberately: `PlayerPose`'s interpolation on other clients only keeps the
+/// *last* of any confirmed ticks it has to skip over to catch up (see
+/// `lightyear_interpolation::update_interpolate_status`'s `pop_until_tick`),
+/// so a value that's only ever true for one tick can silently vanish before a
+/// remote client ever sees it — same reasoning as `crouching`/`reloading`.
+#[derive(Resource, Default)]
+pub(crate) struct Jumping(pub(crate) bool);
 
 /// What the player's lower body is doing. `Standing` is the normal state;
 /// `Crouching` is a slow ducked walk; `Sliding` is a momentum slide that decays
@@ -1308,25 +1324,117 @@ pub(crate) fn play_bot_death(
 #[derive(Component)]
 pub(crate) struct SoldierVisual;
 
-/// Graph + idle node index for `models/soldier.glb`'s `idleWgun` clip — the
-/// only one of its 18 animations wired up so far (walk / run / shoot / reload
-/// / death / ... can follow the same pattern as `BotAnimations` once the
-/// networked pose carries enough state to pick between them). Built once at
-/// startup.
+/// Which of `models/soldier.glb`'s movement/aim clips a remote avatar should
+/// be playing, picked from its interpolated pose's frame-to-frame speed and
+/// `ads_t` by `net::animate_remote_avatars`. `AimWalk`/`AimSprint` both play
+/// `runAndShooting` — there's no separate walking-while-aiming clip — split
+/// out only so each can get its own playback speed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum SoldierAnimState {
+    #[default]
+    Idle,
+    Walk,
+    Sprint,
+    /// Aiming, not moving: `shooting`, looped.
+    Aim,
+    /// Aiming while walking: `runAndShooting`, looped at the walk speed.
+    AimWalk,
+    /// Aiming while sprinting: `runAndShooting`, looped at the sprint speed.
+    AimSprint,
+    /// Crouched, not moving: `crouch`, looped.
+    Crouch,
+    /// Crouch-walking: `crouchWalk`, looped.
+    CrouchWalk,
+    /// Reloading: `reload`, played once — takes priority over every other
+    /// state above, and drops back to whichever of those applies once
+    /// `pose.reloading` clears.
+    Reload,
+    /// Airborne from a jump: `jump`, played once at launch and held on its
+    /// last frame for the rest of the jump arc (`pose.jumping` stays true
+    /// until landing) — takes priority over everything, including `Reload`.
+    Jump,
+}
+
+/// Graph + node indices for `models/soldier.glb`'s `idleWgun` / `walk` /
+/// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
+/// / `jump` clips — 9 of its 18 animations wired up so far (death / ... can
+/// follow the same pattern as `BotAnimations` once the networked pose
+/// carries enough state to pick between them). Built once at startup.
 #[derive(Resource, Clone)]
 pub(crate) struct SoldierAnimations {
     graph: Handle<AnimationGraph>,
     idle: AnimationNodeIndex,
+    walk: AnimationNodeIndex,
+    sprint: AnimationNodeIndex,
+    aim_idle: AnimationNodeIndex,
+    aim_move: AnimationNodeIndex,
+    crouch: AnimationNodeIndex,
+    crouch_walk: AnimationNodeIndex,
+    reload: AnimationNodeIndex,
+    jump: AnimationNodeIndex,
+}
+
+impl SoldierAnimations {
+    pub(crate) fn node_for(&self, state: SoldierAnimState) -> AnimationNodeIndex {
+        match state {
+            SoldierAnimState::Idle => self.idle,
+            SoldierAnimState::Walk => self.walk,
+            SoldierAnimState::Sprint => self.sprint,
+            SoldierAnimState::Aim => self.aim_idle,
+            SoldierAnimState::AimWalk | SoldierAnimState::AimSprint => self.aim_move,
+            SoldierAnimState::Crouch => self.crouch,
+            SoldierAnimState::CrouchWalk => self.crouch_walk,
+            SoldierAnimState::Reload => self.reload,
+            SoldierAnimState::Jump => self.jump,
+        }
+    }
+}
+
+/// Playback-speed multipliers for the remote-player walk/sprint/aim clips,
+/// calibrated for a remote player moving at exactly the default
+/// `WALK_SPEED`/`SPRINT_SPEED` (hand-tuned so the feet don't slide). Exposed
+/// on the "Remote players" debug-panel section for re-tuning if the clips
+/// themselves change; `net::animate_remote_avatars` scales these by how far
+/// `MovementSettings.walk_speed`/`sprint_speed` (the "Movement" panel's
+/// player-speed controls) have been moved away from those defaults, so
+/// dialing player speed up or down keeps the feet matching the ground
+/// without needing separate, redundant animation-speed sliders.
+///
+/// `runAndShooting` has no walking-only counterpart, so `base_aim_walk_speed`
+/// and `base_aim_sprint_speed` both drive that same clip — split into two
+/// settings only because it needs a different speed depending on whether the
+/// remote player is walking or sprinting while aiming.
+///
+/// `base_crouch_walk_speed` is calibrated against `SlideSettings.crouch_speed`
+/// (the "Slide" panel's crouch-move-speed control) the same way the others
+/// are calibrated against `WALK_SPEED`/`SPRINT_SPEED`.
+#[derive(Resource, Clone, Copy)]
+pub(crate) struct SoldierAnimSettings {
+    pub(crate) base_walk_speed: f32,
+    pub(crate) base_sprint_speed: f32,
+    pub(crate) base_aim_walk_speed: f32,
+    pub(crate) base_aim_sprint_speed: f32,
+    pub(crate) base_crouch_walk_speed: f32,
+}
+
+impl Default for SoldierAnimSettings {
+    fn default() -> Self {
+        Self {
+            base_walk_speed: 2.2,
+            base_sprint_speed: 1.4,
+            base_aim_walk_speed: 0.8,
+            base_aim_sprint_speed: 1.5,
+            base_crouch_walk_speed: 1.4,
+        }
+    }
 }
 
 /// Set by `start_soldier_animation` once it finds the `AnimationPlayer` inside
 /// a remote-player avatar's spawned scene. Mirrors [`BotAnimationPlayer`],
-/// kept as its own type since it points into a different graph. Not read
-/// anywhere yet — only `idleWgun` loops for now — but will be once other
-/// clips (walk / shoot / death / ...) need switching to directly, the same
+/// kept as its own type since it points into a different graph. Read by
+/// `net::animate_remote_avatars` to switch between idle/walk/sprint, the same
 /// way `play_bot_death` uses `BotAnimationPlayer`.
 #[derive(Component)]
-#[allow(dead_code)]
 pub(crate) struct SoldierAnimationPlayer(pub(crate) Entity);
 
 /// Panel-adjustable uniform scale for the `models/soldier.glb` remote-player
@@ -1353,11 +1461,51 @@ fn setup_soldier_assets(
     asset_server: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
+    // Indices into `models/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
+    // 3 run, 4 shooting, 6 runAndShooting, 10 jump, 11 crouch, 12 crouchWalk,
+    // 13 reload.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/soldier.glb"));
-    let (graph, idle) = AnimationGraph::from_clip(idle_clip);
+    let walk_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(1).from_asset("models/soldier.glb"));
+    let sprint_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(3).from_asset("models/soldier.glb"));
+    let aim_idle_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(4).from_asset("models/soldier.glb"));
+    let aim_move_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(6).from_asset("models/soldier.glb"));
+    let crouch_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(11).from_asset("models/soldier.glb"));
+    let crouch_walk_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(12).from_asset("models/soldier.glb"));
+    let reload_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(13).from_asset("models/soldier.glb"));
+    let jump_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(10).from_asset("models/soldier.glb"));
+    let (graph, indices) = AnimationGraph::from_clips([
+        idle_clip,
+        walk_clip,
+        sprint_clip,
+        aim_idle_clip,
+        aim_move_clip,
+        crouch_clip,
+        crouch_walk_clip,
+        reload_clip,
+        jump_clip,
+    ]);
     let graph = graphs.add(graph);
-    commands.insert_resource(SoldierAnimations { graph, idle });
+    commands.insert_resource(SoldierAnimations {
+        graph,
+        idle: indices[0],
+        walk: indices[1],
+        sprint: indices[2],
+        aim_idle: indices[3],
+        aim_move: indices[4],
+        crouch: indices[5],
+        crouch_walk: indices[6],
+        reload: indices[7],
+        jump: indices[8],
+    });
 }
 
 /// Fires once a remote-player avatar's `SceneRoot` (tagged [`SoldierVisual`])
@@ -1382,11 +1530,14 @@ fn start_soldier_animation(
         commands.entity(entity).insert(NoFrustumCulling);
 
         if let Ok(mut player) = players.get_mut(entity) {
-            let active = player.play(anims.idle);
-            active.set_repeat(RepeatAnimation::Forever);
-            commands
-                .entity(entity)
-                .insert(AnimationGraphHandle(anims.graph.clone()));
+            let mut transitions = AnimationTransitions::new();
+            transitions
+                .play(&mut player, anims.idle, Duration::ZERO)
+                .set_repeat(RepeatAnimation::Forever);
+            commands.entity(entity).insert((
+                AnimationGraphHandle(anims.graph.clone()),
+                transitions,
+            ));
             commands.entity(root).insert(SoldierAnimationPlayer(entity));
         }
     }
@@ -3219,6 +3370,7 @@ fn ads_tuning_ui(
         ResMut<IdleSwaySettings>,
         ResMut<AimSwaySettings>,
         ResMut<RemoteAvatarSettings>,
+        ResMut<SoldierAnimSettings>,
     ),
 ) -> Result {
     let (
@@ -3230,6 +3382,7 @@ fn ads_tuning_ui(
         mut idle_sway,
         mut aim_sway,
         mut remote_avatar,
+        mut soldier_anim,
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -3464,6 +3617,35 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset remote player scale").clicked() {
                     *ra = RemoteAvatarSettings::default();
+                }
+
+                ui.separator();
+                ui.label("Player walk/sprint speed also drives these clips — see \"Movement\".");
+                let sa = &mut *soldier_anim;
+                ui.add(
+                    egui::Slider::new(&mut sa.base_walk_speed, 0.1f32..=8.0)
+                        .text(format!("walk anim speed (× at {WALK_SPEED} m/s)")),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sa.base_sprint_speed, 0.1f32..=8.0)
+                        .text(format!("sprint anim speed (× at {SPRINT_SPEED} m/s)")),
+                );
+                ui.label("No walk-and-shoot clip — runAndShooting covers both aiming states:");
+                ui.add(
+                    egui::Slider::new(&mut sa.base_aim_walk_speed, 0.1f32..=8.0)
+                        .text(format!("aim+walk anim speed (× at {WALK_SPEED} m/s)")),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sa.base_aim_sprint_speed, 0.1f32..=8.0)
+                        .text(format!("aim+sprint anim speed (× at {SPRINT_SPEED} m/s)")),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sa.base_crouch_walk_speed, 0.1f32..=8.0).text(format!(
+                        "crouch walk anim speed (× at {CROUCH_SPEED} m/s)"
+                    )),
+                );
+                if ui.button("Reset remote player anim speed").clicked() {
+                    *sa = SoldierAnimSettings::default();
                 }
             });
 
@@ -4580,6 +4762,7 @@ fn update_teleport_toast(
 /// Launches the player upward when they're standing on something. While
 /// crouched or sliding the jump key is spoken for (stand up / slide-cancel — see
 /// `crouch_slide`), so this bails on anything but a plain standing jump.
+#[allow(clippy::too_many_arguments)]
 fn jump(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -4587,6 +4770,7 @@ fn jump(
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<MovementSettings>,
     slide: Res<Slide>,
+    mut jumping: ResMut<Jumping>,
     mut physics: Single<&mut PlayerPhysics, With<Player>>,
 ) {
     if window.cursor_options.grab_mode == CursorGrabMode::None {
@@ -4598,6 +4782,7 @@ fn jump(
     if physics.grounded && binds.jump.just_pressed(&keys, &mouse) {
         physics.vertical_velocity = settings.jump_speed;
         physics.grounded = false;
+        jumping.0 = true;
     }
 }
 
@@ -4605,6 +4790,7 @@ fn jump(
 /// the basic-map cubes/ramps/bridge while over their footprint, otherwise the
 /// ground. Walk off an edge and there's nothing under the feet, so the player
 /// falls.
+#[allow(clippy::too_many_arguments)]
 fn apply_gravity(
     time: Res<Time>,
     settings: Res<MovementSettings>,
@@ -4612,6 +4798,7 @@ fn apply_gravity(
     map: Res<MapSettings>,
     sounds: Res<GameSounds>,
     mut commands: Commands,
+    mut jumping: ResMut<Jumping>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let dt = time.delta_secs();
@@ -4646,6 +4833,10 @@ fn apply_gravity(
     } else {
         transform.translation.y = feet_next + EYE_HEIGHT;
         physics.grounded = false;
+    }
+
+    if !was_grounded && physics.grounded {
+        jumping.0 = false;
     }
 
     // Landing thump: airborne to grounded this frame. A dive lands on the

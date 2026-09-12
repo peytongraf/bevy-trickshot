@@ -1,3 +1,4 @@
+- Add end game screen with play again button
 - Killcam not playing footstep sounds.
 - Add effect to scope so it looks like actually being aimed through a scope.
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.

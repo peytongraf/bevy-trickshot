@@ -14,6 +14,7 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::net::{SocketAddr, ToSocketAddrs};
 
+use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
 use bevy::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, NetcodeClient, NetcodeConfig};
 use lightyear::prelude::input::client::InputSet;
@@ -98,6 +99,7 @@ impl Plugin for ClientNetPlugin {
                 mark_local_input,
                 spawn_remote_avatars,
                 follow_remote_avatars,
+                animate_remote_avatars,
                 spawn_bot_avatars,
                 follow_bot_avatars,
                 receive_shots,
@@ -200,6 +202,7 @@ fn write_input(
     anim_players: Query<&AnimationPlayer, With<crate::SniperAnimationPlayer>>,
     view_models: Query<&crate::ViewModelAnimation>,
     ads: Res<Ads>,
+    slide: Res<crate::Slide>,
     shake: Res<crate::Shake>,
     sway: Res<crate::WeaponSwayState>,
     settings: Res<crate::settings::Settings>,
@@ -213,10 +216,11 @@ fn write_input(
     ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
-    (view_model_vis, knife, weapon): (
+    (view_model_vis, knife, weapon, jumping): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<crate::Weapon>,
+        Res<crate::Jumping>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -239,6 +243,7 @@ fn write_input(
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.ads_t = ads.t;
+    action.crouching = slide.stance == crate::Stance::Crouching;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
     action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
     action.tracer = tracer_rec
@@ -251,6 +256,11 @@ fn write_input(
         .is_none_or(|v| *v != Visibility::Hidden);
     action.knife_active = knife.active;
     action.sniper_active = weapon.slot == crate::WeaponSlot::Primary;
+    action.reloading = weapon
+        .busy
+        .as_ref()
+        .is_some_and(|b| b.on_finish == crate::WeaponFinish::Reload);
+    action.jumping = jumping.0;
 
     // Emit the shot from the world camera's viewpoint, along the direction
     // `weapon_system` computed (crosshair aim plus no-scope inaccuracy). Keep the
@@ -363,6 +373,16 @@ struct RemoteAvatar {
     src: Entity,
 }
 
+/// Tracks a remote avatar's previous position and currently-playing animation
+/// so `animate_remote_avatars` can tell idle/walk/sprint apart from
+/// frame-to-frame movement speed and only call `AnimationPlayer::play` on a
+/// change (it starts on `idleWgun`, matching `start_soldier_animation`).
+#[derive(Component, Default)]
+struct RemoteAvatarMotion {
+    prev_translation: Option<Vec3>,
+    state: crate::SoldierAnimState,
+}
+
 /// Spawn a soldier avatar for every interpolated (i.e. *other*-player)
 /// `PlayerPose` entity that doesn't have one yet. Polled rather than an
 /// `OnAdd` observer so it doesn't matter whether `Interpolated` or
@@ -383,6 +403,7 @@ fn spawn_remote_avatars(
             .spawn((
                 StateScoped(AppState::InGame),
                 RemoteAvatar { src },
+                RemoteAvatarMotion::default(),
                 crate::SoldierVisual,
                 Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
                 Visibility::default(),
@@ -408,12 +429,147 @@ fn follow_remote_avatars(
                 // at its feet (same convention `bot.pos` uses), so drop by
                 // the same eye height the local rig's own ground-snap uses.
                 tf.translation = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
-                tf.rotation = Quat::from_rotation_y(pose.yaw);
+                // `soldier.glb`'s forward faces +Z, opposite the local rig's
+                // -Z convention that `pose.yaw` is authored in, so flip it.
+                tf.rotation = Quat::from_rotation_y(pose.yaw + std::f32::consts::PI);
                 tf.scale = Vec3::splat(remote_avatar_settings.scale);
             }
             Err(_) => {
                 commands.entity(entity).try_despawn();
             }
+        }
+    }
+}
+
+/// Switches each remote avatar between `idleWgun`/`walk`/`run`/`shooting`/
+/// `runAndShooting`/`crouch`/`crouchWalk` based on how fast its interpolated
+/// pose is actually moving frame-to-frame and whether it's aiming
+/// (`pose.ads_t`) or crouching (`pose.crouching`), and keeps each clip's
+/// playback speed tied to the current `MovementSettings`/`SlideSettings`
+/// speeds (the "Movement"/"Slide" debug-panel sliders) so the feet still
+/// match the ground after those are changed, without a separate "animation
+/// speed" control to keep in sync by hand.
+#[allow(clippy::too_many_arguments)]
+fn animate_remote_avatars(
+    poses: Query<&PlayerPose>,
+    time: Res<Time>,
+    anims: Res<crate::SoldierAnimations>,
+    anim_settings: Res<crate::SoldierAnimSettings>,
+    movement: Res<crate::MovementSettings>,
+    slide_cfg: Res<crate::SlideSettings>,
+    mut avatars: Query<(&RemoteAvatar, &mut RemoteAvatarMotion, &crate::SoldierAnimationPlayer)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+) {
+    const BLEND_DURATION: Duration = Duration::from_millis(200);
+    /// `ads_t` at or above this counts as "aiming" for animation purposes.
+    const AIM_THRESHOLD: f32 = 0.5;
+
+    let dt = time.delta_secs();
+    if dt <= 0.0 {
+        return;
+    }
+
+    let walk_enter = movement.walk_speed * 0.5;
+    let sprint_enter = (movement.walk_speed + movement.sprint_speed) * 0.5;
+    let crouch_walk_enter = slide_cfg.crouch_speed * 0.5;
+    // `SoldierAnimSettings`'s multipliers are calibrated at the *default*
+    // WALK_SPEED/SPRINT_SPEED/CROUCH_SPEED, so scale them by how far the live
+    // movement/slide settings have drifted from those defaults.
+    let walk_anim_speed = anim_settings.base_walk_speed * (movement.walk_speed / crate::WALK_SPEED);
+    let sprint_anim_speed =
+        anim_settings.base_sprint_speed * (movement.sprint_speed / crate::SPRINT_SPEED);
+    let aim_walk_anim_speed =
+        anim_settings.base_aim_walk_speed * (movement.walk_speed / crate::WALK_SPEED);
+    let aim_sprint_anim_speed =
+        anim_settings.base_aim_sprint_speed * (movement.sprint_speed / crate::SPRINT_SPEED);
+    let crouch_walk_anim_speed =
+        anim_settings.base_crouch_walk_speed * (slide_cfg.crouch_speed / crate::CROUCH_SPEED);
+
+    for (avatar, mut motion, anim_player) in &mut avatars {
+        let Ok(pose) = poses.get(avatar.src) else {
+            continue;
+        };
+
+        let speed = match motion.prev_translation {
+            Some(prev) => (pose.translation.xz() - prev.xz()).length() / dt,
+            None => 0.0,
+        };
+        motion.prev_translation = Some(pose.translation);
+
+        // Jumping/reloading take priority over everything else. Both are
+        // sustained flags (true for the whole jump arc / whole reload), but
+        // the `new_state != motion.state` guard below only calls `play()` on
+        // the entry edge, so each still plays its clip once — holding the
+        // last frame — for as long as the flag stays true. Once it clears,
+        // the state below is picked again on the very next frame. `Jump`
+        // outranks even `Reload` since landing mid-reload should still show
+        // the jump/land motion.
+        let new_state = if pose.jumping {
+            crate::SoldierAnimState::Jump
+        } else if pose.reloading {
+            crate::SoldierAnimState::Reload
+        } else if pose.crouching {
+            // Crouching has no aiming variant of its own (`crouch`/
+            // `crouchWalk` only), so it takes priority over the aim states.
+            if speed >= crouch_walk_enter {
+                crate::SoldierAnimState::CrouchWalk
+            } else {
+                crate::SoldierAnimState::Crouch
+            }
+        } else {
+            let move_state = if speed >= sprint_enter {
+                crate::SoldierAnimState::Sprint
+            } else if speed >= walk_enter {
+                crate::SoldierAnimState::Walk
+            } else {
+                crate::SoldierAnimState::Idle
+            };
+            let aiming = pose.ads_t >= AIM_THRESHOLD;
+            match (aiming, move_state) {
+                (true, crate::SoldierAnimState::Idle) => crate::SoldierAnimState::Aim,
+                (true, crate::SoldierAnimState::Walk) => crate::SoldierAnimState::AimWalk,
+                (true, crate::SoldierAnimState::Sprint) => crate::SoldierAnimState::AimSprint,
+                (false, state) => state,
+                // `move_state` is only ever Idle/Walk/Sprint.
+                (true, _) => unreachable!(),
+            }
+        };
+
+        let Ok((mut player, mut transitions)) = players.get_mut(anim_player.0) else {
+            continue;
+        };
+
+        if new_state != motion.state {
+            motion.state = new_state;
+            let repeat = match new_state {
+                crate::SoldierAnimState::Reload | crate::SoldierAnimState::Jump => {
+                    RepeatAnimation::Never
+                }
+                _ => RepeatAnimation::Forever,
+            };
+            // `AnimationTransitions::play` fades the previous node's weight
+            // down to 0 over `BLEND_DURATION` (and stops it once it reaches
+            // 0) while the new node fades in, instead of a hard cut.
+            transitions
+                .play(&mut player, anims.node_for(new_state), BLEND_DURATION)
+                .set_repeat(repeat);
+        }
+
+        // Re-applied every frame (not just on a state change) so a live edit
+        // to the "Movement" walk/sprint sliders takes effect immediately.
+        if let Some(active) = player.animation_mut(anims.node_for(motion.state)) {
+            active.set_speed(match motion.state {
+                crate::SoldierAnimState::Idle
+                | crate::SoldierAnimState::Aim
+                | crate::SoldierAnimState::Crouch
+                | crate::SoldierAnimState::Reload
+                | crate::SoldierAnimState::Jump => 1.0,
+                crate::SoldierAnimState::Walk => walk_anim_speed,
+                crate::SoldierAnimState::Sprint => sprint_anim_speed,
+                crate::SoldierAnimState::AimWalk => aim_walk_anim_speed,
+                crate::SoldierAnimState::AimSprint => aim_sprint_anim_speed,
+                crate::SoldierAnimState::CrouchWalk => crouch_walk_anim_speed,
+            });
         }
     }
 }
