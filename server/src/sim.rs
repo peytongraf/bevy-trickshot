@@ -51,6 +51,7 @@ fn apply_client_pose(mut players: Query<(&mut PlayerPose, &ActionState<PlayerInp
         pose.crouching = i.crouching;
         pose.reloading = i.reloading;
         pose.jumping = i.jumping;
+        pose.sliding = i.sliding;
     }
 }
 

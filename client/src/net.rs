@@ -244,6 +244,7 @@ fn write_input(
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.ads_t = ads.t;
     action.crouching = slide.stance == crate::Stance::Crouching;
+    action.sliding = slide.stance == crate::Stance::Sliding;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
     action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
     action.tracer = tracer_rec
@@ -442,13 +443,14 @@ fn follow_remote_avatars(
 }
 
 /// Switches each remote avatar between `idleWgun`/`walk`/`run`/`shooting`/
-/// `runAndShooting`/`crouch`/`crouchWalk` based on how fast its interpolated
-/// pose is actually moving frame-to-frame and whether it's aiming
-/// (`pose.ads_t`) or crouching (`pose.crouching`), and keeps each clip's
-/// playback speed tied to the current `MovementSettings`/`SlideSettings`
-/// speeds (the "Movement"/"Slide" debug-panel sliders) so the feet still
-/// match the ground after those are changed, without a separate "animation
-/// speed" control to keep in sync by hand.
+/// `runAndShooting`/`crouch`/`crouchWalk`/`strafeRight`/`strafeLeft`/
+/// `backpaddle` based on how fast — and in which direction relative to its
+/// own facing — its interpolated pose is actually moving frame-to-frame, and
+/// whether it's aiming (`pose.ads_t`) or crouching (`pose.crouching`). Keeps
+/// each clip's playback speed tied to the current `MovementSettings`/
+/// `SlideSettings` speeds (the "Movement"/"Slide" debug-panel sliders) so the
+/// feet still match the ground after those are changed, without a separate
+/// "animation speed" control to keep in sync by hand.
 #[allow(clippy::too_many_arguments)]
 fn animate_remote_avatars(
     poses: Query<&PlayerPose>,
@@ -484,15 +486,35 @@ fn animate_remote_avatars(
         anim_settings.base_aim_sprint_speed * (movement.sprint_speed / crate::SPRINT_SPEED);
     let crouch_walk_anim_speed =
         anim_settings.base_crouch_walk_speed * (slide_cfg.crouch_speed / crate::CROUCH_SPEED);
+    // `strafeRight`/`strafeLeft`/`backpaddle` only ever play at walk pace, so
+    // these are calibrated against the *effective* strafe/backward speed
+    // (walk speed × the direction multiplier) rather than walk speed alone.
+    let strafe_anim_speed = anim_settings.base_strafe_speed
+        * ((movement.walk_speed * movement.strafe_speed_mult)
+            / (crate::WALK_SPEED * crate::STRAFE_SPEED_MULT));
+    let backpaddle_anim_speed = anim_settings.base_backpaddle_speed
+        * ((movement.walk_speed * movement.backward_speed_mult)
+            / (crate::WALK_SPEED * crate::BACKWARD_SPEED_MULT));
 
     for (avatar, mut motion, anim_player) in &mut avatars {
         let Ok(pose) = poses.get(avatar.src) else {
             continue;
         };
 
-        let speed = match motion.prev_translation {
-            Some(prev) => (pose.translation.xz() - prev.xz()).length() / dt,
-            None => 0.0,
+        // Decompose frame-to-frame movement into the pose's own forward/right
+        // basis (not just overall planar speed), so a pure sideways or
+        // backward step can be told apart from a forward one.
+        let (speed, forward_speed, right_speed) = match motion.prev_translation {
+            Some(prev) => {
+                let delta = pose.translation - prev;
+                let facing = Quat::from_rotation_y(pose.yaw);
+                let fwd = facing * Vec3::NEG_Z;
+                let right = facing * Vec3::X;
+                let f = delta.dot(fwd) / dt;
+                let r = delta.dot(right) / dt;
+                (f.hypot(r), f, r)
+            }
+            None => (0.0, 0.0, 0.0),
         };
         motion.prev_translation = Some(pose.translation);
 
@@ -508,30 +530,61 @@ fn animate_remote_avatars(
             crate::SoldierAnimState::Jump
         } else if pose.reloading {
             crate::SoldierAnimState::Reload
+        } else if pose.sliding {
+            // No dedicated slide clip — always the static crouch pose,
+            // regardless of slide speed (never `crouchWalk`).
+            crate::SoldierAnimState::Crouch
         } else if pose.crouching {
-            // Crouching has no aiming variant of its own (`crouch`/
-            // `crouchWalk` only), so it takes priority over the aim states.
+            // Crouching has no aiming/strafe variant of its own (`crouch`/
+            // `crouchWalk` only), so it takes priority over everything below.
             if speed >= crouch_walk_enter {
                 crate::SoldierAnimState::CrouchWalk
             } else {
                 crate::SoldierAnimState::Crouch
             }
-        } else {
-            let move_state = if speed >= sprint_enter {
-                crate::SoldierAnimState::Sprint
+        } else if pose.ads_t >= AIM_THRESHOLD {
+            // Aiming has no strafe/backpaddle variant either (only
+            // `shooting`/`runAndShooting`), so direction doesn't matter here.
+            if speed >= sprint_enter {
+                crate::SoldierAnimState::AimSprint
             } else if speed >= walk_enter {
-                crate::SoldierAnimState::Walk
+                crate::SoldierAnimState::AimWalk
             } else {
-                crate::SoldierAnimState::Idle
-            };
-            let aiming = pose.ads_t >= AIM_THRESHOLD;
-            match (aiming, move_state) {
-                (true, crate::SoldierAnimState::Idle) => crate::SoldierAnimState::Aim,
-                (true, crate::SoldierAnimState::Walk) => crate::SoldierAnimState::AimWalk,
-                (true, crate::SoldierAnimState::Sprint) => crate::SoldierAnimState::AimSprint,
-                (false, state) => state,
-                // `move_state` is only ever Idle/Walk/Sprint.
-                (true, _) => unreachable!(),
+                crate::SoldierAnimState::Aim
+            }
+        } else if speed < walk_enter {
+            crate::SoldierAnimState::Idle
+        } else {
+            let abs_forward = forward_speed.abs();
+            let abs_right = right_speed.abs();
+            // "Pure" meaning the other axis's component is negligible — the
+            // model only has dedicated clips for straight forward/back/side
+            // movement, not diagonals.
+            if abs_right < walk_enter {
+                if forward_speed < 0.0 {
+                    crate::SoldierAnimState::Backward
+                } else if speed >= sprint_enter {
+                    crate::SoldierAnimState::Sprint
+                } else {
+                    crate::SoldierAnimState::Walk
+                }
+            } else if abs_forward < walk_enter {
+                if right_speed > 0.0 {
+                    crate::SoldierAnimState::StrafeRight
+                } else {
+                    crate::SoldierAnimState::StrafeLeft
+                }
+            } else if forward_speed >= 0.0 {
+                // Diagonal forward+strafe: no dedicated clip, closest is the
+                // plain forward walk/run.
+                if speed >= sprint_enter {
+                    crate::SoldierAnimState::Sprint
+                } else {
+                    crate::SoldierAnimState::Walk
+                }
+            } else {
+                // Diagonal backward+strafe: closest is backpaddle.
+                crate::SoldierAnimState::Backward
             }
         };
 
@@ -569,6 +622,10 @@ fn animate_remote_avatars(
                 crate::SoldierAnimState::AimWalk => aim_walk_anim_speed,
                 crate::SoldierAnimState::AimSprint => aim_sprint_anim_speed,
                 crate::SoldierAnimState::CrouchWalk => crouch_walk_anim_speed,
+                crate::SoldierAnimState::StrafeRight | crate::SoldierAnimState::StrafeLeft => {
+                    strafe_anim_speed
+                }
+                crate::SoldierAnimState::Backward => backpaddle_anim_speed,
             });
         }
     }

@@ -381,6 +381,10 @@ const EYE_HEIGHT: f32 = 1.7;
 /// Defaults for the "Movement" panel section (all live-adjustable).
 const WALK_SPEED: f32 = 3.0;
 const SPRINT_SPEED: f32 = 8.0;
+/// Multiplier on speed while strafing (left/right, no forward/back held).
+const STRAFE_SPEED_MULT: f32 = 0.8;
+/// Multiplier on speed while moving backward.
+const BACKWARD_SPEED_MULT: f32 = 0.8;
 const GRAVITY: f32 = 22.0;
 const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
@@ -920,6 +924,14 @@ struct MovementSettings {
     walk_speed: f32,
     /// Horizontal speed while sprinting (m/s).
     sprint_speed: f32,
+    /// Multiplier applied to speed while strafing (left/right held, neither
+    /// forward nor back) — forward held takes priority over this even if
+    /// also strafing, so this only ever kicks in for a pure sideways step.
+    strafe_speed_mult: f32,
+    /// Multiplier applied to speed while moving backward (back held) —
+    /// takes priority over the strafe multiplier if both back and a strafe
+    /// key are held, since forward/back matters more for aim/visibility.
+    backward_speed_mult: f32,
     /// Downward acceleration magnitude (m/s²).
     gravity: f32,
     /// Upward launch speed when jumping (m/s).
@@ -931,6 +943,8 @@ impl Default for MovementSettings {
         Self {
             walk_speed: WALK_SPEED,
             sprint_speed: SPRINT_SPEED,
+            strafe_speed_mult: STRAFE_SPEED_MULT,
+            backward_speed_mult: BACKWARD_SPEED_MULT,
             gravity: GRAVITY,
             jump_speed: JUMP_SPEED,
         }
@@ -1353,13 +1367,20 @@ pub(crate) enum SoldierAnimState {
     /// last frame for the rest of the jump arc (`pose.jumping` stays true
     /// until landing) — takes priority over everything, including `Reload`.
     Jump,
+    /// Strafing right with no forward/back component: `strafeRight`, looped.
+    StrafeRight,
+    /// Strafing left with no forward/back component: `strafeLeft`, looped.
+    StrafeLeft,
+    /// Moving backward with no strafe component: `backpaddle`, looped.
+    Backward,
 }
 
 /// Graph + node indices for `models/soldier.glb`'s `idleWgun` / `walk` /
 /// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
-/// / `jump` clips — 9 of its 18 animations wired up so far (death / ... can
-/// follow the same pattern as `BotAnimations` once the networked pose
-/// carries enough state to pick between them). Built once at startup.
+/// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` clips — 12 of its 18
+/// animations wired up so far (death / ... can follow the same pattern as
+/// `BotAnimations` once the networked pose carries enough state to pick
+/// between them). Built once at startup.
 #[derive(Resource, Clone)]
 pub(crate) struct SoldierAnimations {
     graph: Handle<AnimationGraph>,
@@ -1372,6 +1393,9 @@ pub(crate) struct SoldierAnimations {
     crouch_walk: AnimationNodeIndex,
     reload: AnimationNodeIndex,
     jump: AnimationNodeIndex,
+    strafe_right: AnimationNodeIndex,
+    strafe_left: AnimationNodeIndex,
+    backward: AnimationNodeIndex,
 }
 
 impl SoldierAnimations {
@@ -1386,6 +1410,9 @@ impl SoldierAnimations {
             SoldierAnimState::CrouchWalk => self.crouch_walk,
             SoldierAnimState::Reload => self.reload,
             SoldierAnimState::Jump => self.jump,
+            SoldierAnimState::StrafeRight => self.strafe_right,
+            SoldierAnimState::StrafeLeft => self.strafe_left,
+            SoldierAnimState::Backward => self.backward,
         }
     }
 }
@@ -1408,6 +1435,14 @@ impl SoldierAnimations {
 /// `base_crouch_walk_speed` is calibrated against `SlideSettings.crouch_speed`
 /// (the "Slide" panel's crouch-move-speed control) the same way the others
 /// are calibrated against `WALK_SPEED`/`SPRINT_SPEED`.
+///
+/// `base_strafe_speed`/`base_backpaddle_speed` are calibrated against the
+/// *effective* strafe/backward speed at the default settings — i.e.
+/// `WALK_SPEED * STRAFE_SPEED_MULT` / `WALK_SPEED * BACKWARD_SPEED_MULT` —
+/// since `strafeRight`/`strafeLeft`/`backpaddle` only ever play at walk pace
+/// (no separate sprint-strafe clip exists), scaled by how far
+/// `MovementSettings.strafe_speed_mult`/`backward_speed_mult` (the
+/// "Movement" panel's controls) have moved away from their defaults.
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct SoldierAnimSettings {
     pub(crate) base_walk_speed: f32,
@@ -1415,6 +1450,8 @@ pub(crate) struct SoldierAnimSettings {
     pub(crate) base_aim_walk_speed: f32,
     pub(crate) base_aim_sprint_speed: f32,
     pub(crate) base_crouch_walk_speed: f32,
+    pub(crate) base_strafe_speed: f32,
+    pub(crate) base_backpaddle_speed: f32,
 }
 
 impl Default for SoldierAnimSettings {
@@ -1425,6 +1462,8 @@ impl Default for SoldierAnimSettings {
             base_aim_walk_speed: 0.8,
             base_aim_sprint_speed: 1.5,
             base_crouch_walk_speed: 1.4,
+            base_strafe_speed: 2.0,
+            base_backpaddle_speed: 1.5,
         }
     }
 }
@@ -1462,8 +1501,8 @@ fn setup_soldier_assets(
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
     // Indices into `models/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
-    // 3 run, 4 shooting, 6 runAndShooting, 10 jump, 11 crouch, 12 crouchWalk,
-    // 13 reload.
+    // 3 run, 4 shooting, 6 runAndShooting, 7 strafeRight, 8 strafeLeft,
+    // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -1482,6 +1521,12 @@ fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(13).from_asset("models/soldier.glb"));
     let jump_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(10).from_asset("models/soldier.glb"));
+    let strafe_right_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(7).from_asset("models/soldier.glb"));
+    let strafe_left_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(8).from_asset("models/soldier.glb"));
+    let backward_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(9).from_asset("models/soldier.glb"));
     let (graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
@@ -1492,6 +1537,9 @@ fn setup_soldier_assets(
         crouch_walk_clip,
         reload_clip,
         jump_clip,
+        strafe_right_clip,
+        strafe_left_clip,
+        backward_clip,
     ]);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
@@ -1505,6 +1553,9 @@ fn setup_soldier_assets(
         crouch_walk: indices[6],
         reload: indices[7],
         jump: indices[8],
+        strafe_right: indices[9],
+        strafe_left: indices[10],
+        backward: indices[11],
     });
 }
 
@@ -3644,6 +3695,18 @@ fn ads_tuning_ui(
                         "crouch walk anim speed (× at {CROUCH_SPEED} m/s)"
                     )),
                 );
+                ui.add(
+                    egui::Slider::new(&mut sa.base_strafe_speed, 0.1f32..=8.0).text(format!(
+                        "strafe anim speed (× at {} m/s)",
+                        WALK_SPEED * STRAFE_SPEED_MULT
+                    )),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sa.base_backpaddle_speed, 0.1f32..=8.0).text(format!(
+                        "backpaddle anim speed (× at {} m/s)",
+                        WALK_SPEED * BACKWARD_SPEED_MULT
+                    )),
+                );
                 if ui.button("Reset remote player anim speed").clicked() {
                     *sa = SoldierAnimSettings::default();
                 }
@@ -3813,6 +3876,14 @@ fn ads_tuning_ui(
                 ui.add(
                     egui::Slider::new(&mut m.sprint_speed, 0.0f32..=30.0)
                         .text("sprint speed (m/s)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.strafe_speed_mult, 0.1f32..=1.5)
+                        .text("strafe speed (×)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.backward_speed_mult, 0.1f32..=1.5)
+                        .text("backward speed (×)"),
                 );
                 ui.add(egui::Slider::new(&mut m.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
                 ui.add(
@@ -4521,16 +4592,20 @@ fn move_player(
         let mut direction = Vec3::ZERO;
         let forward = *transform.forward();
         let right = *transform.right();
-        if binds.forward.pressed(&keys, &mouse) {
+        let forward_held = binds.forward.pressed(&keys, &mouse);
+        let back_held = binds.back.pressed(&keys, &mouse);
+        let right_held = binds.right.pressed(&keys, &mouse);
+        let left_held = binds.left.pressed(&keys, &mouse);
+        if forward_held {
             direction += forward;
         }
-        if binds.back.pressed(&keys, &mouse) {
+        if back_held {
             direction -= forward;
         }
-        if binds.right.pressed(&keys, &mouse) {
+        if right_held {
             direction += right;
         }
-        if binds.left.pressed(&keys, &mouse) {
+        if left_held {
             direction -= right;
         }
         direction.y = 0.0;
@@ -4541,7 +4616,19 @@ fn move_player(
             _ if sprinting.0 => settings.sprint_speed,
             _ => settings.walk_speed,
         };
-        physics.horizontal_velocity = direction.normalize_or_zero() * speed * weapon_mult;
+        // Forward held always moves at full speed, even mixed with a strafe
+        // key; back held is the next priority (a pure sideways step is the
+        // only case the strafe multiplier applies to).
+        let dir_mult = if forward_held {
+            1.0
+        } else if back_held {
+            settings.backward_speed_mult
+        } else if right_held || left_held {
+            settings.strafe_speed_mult
+        } else {
+            1.0
+        };
+        physics.horizontal_velocity = direction.normalize_or_zero() * speed * weapon_mult * dir_mult;
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();

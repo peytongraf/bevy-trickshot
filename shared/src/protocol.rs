@@ -74,6 +74,13 @@ pub struct PlayerPose {
     /// one tick can get silently collapsed away by interpolation catch-up on
     /// other clients before they ever see it.
     pub jumping: bool,
+    /// Whether the owner's stance is `Sliding`, copied from
+    /// `PlayerInput::sliding` so remote avatars can play the crouch
+    /// animation during a slide (there's no dedicated slide clip). Discrete,
+    /// same as `crouching`; kept separate from it (rather than folded in)
+    /// since a slide should always show the static crouch pose, never
+    /// `crouchWalk`, regardless of slide speed.
+    pub sliding: bool,
 }
 
 impl Default for PlayerPose {
@@ -86,6 +93,7 @@ impl Default for PlayerPose {
             crouching: false,
             reloading: false,
             jumping: false,
+            sliding: false,
         }
     }
 }
@@ -100,6 +108,7 @@ impl Ease for PlayerPose {
             crouching: end.crouching,
             reloading: end.reloading,
             jumping: end.jumping,
+            sliding: end.sliding,
         })
     }
 }
@@ -195,6 +204,8 @@ pub struct PlayerInput {
     pub reloading: bool,
     /// Whether the player is mid-jump (from launch until landing) this tick.
     pub jumping: bool,
+    /// Whether the player's stance is `Sliding` this tick.
+    pub sliding: bool,
 }
 
 impl Default for PlayerInput {
@@ -227,6 +238,7 @@ impl Default for PlayerInput {
             crouching: false,
             reloading: false,
             jumping: false,
+            sliding: false,
         }
     }
 }
