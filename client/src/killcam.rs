@@ -147,6 +147,12 @@ pub(crate) struct KillCamRun {
     tracers: Vec<(f32, Vec3, Vec3)>,
     /// Seconds-from-start the shot landed — when the hit ghost starts to topple.
     kill_time: f32,
+    /// The end-of-match "best play" replay, sent by the server right before
+    /// [`shared::MatchOver`] (see `net::flush_pending_match_end`, which holds
+    /// the results screen off until this replay finishes). Ramps into slow
+    /// motion around `kill_time` — see `slowmo_speed` — instead of playing at
+    /// a flat 1×, and its banner reads "BEST PLAY" instead of "KILLCAM".
+    pub(crate) best_play: bool,
     /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
     bots: Vec<(Vec3, f32, bool)>,
     /// Other players (never the killer) frozen at the kill: `(pos, yaw)`.
@@ -491,6 +497,7 @@ fn start_local_killcam(
         bloods,
         tracers,
         kill_time,
+        best_play: false,
         bots,
         players: Vec::new(),
         ghosts: Vec::new(),
@@ -558,6 +565,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         bloods,
         tracers,
         kill_time,
+        best_play: msg.best_play,
         bots,
         players,
         ghosts: Vec::new(),
@@ -741,14 +749,19 @@ fn start_killcam(
         .with_children(|c| {
             c.spawn((bar_node(true), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
                 .with_children(|bar| {
+                    let (text, color) = if run.best_play {
+                        ("BEST PLAY", Color::srgb(0.96, 0.62, 0.12))
+                    } else {
+                        ("KILLCAM", Color::srgb(0.85, 0.06, 0.06))
+                    };
                     bar.spawn((
-                        Text::new("KILLCAM"),
+                        Text::new(text),
                         TextFont {
                             font: assets.banner_font.clone(),
                             font_size: 46.0,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.85, 0.06, 0.06)),
+                        TextColor(color),
                     ));
                 });
             c.spawn((bar_node(false), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
@@ -828,7 +841,17 @@ fn drive_killcam(
     let (mut anim_players, view_models) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
-    run.elapsed += time.delta_secs();
+    // "Best play" ramps into slow motion around the kill — advancing the
+    // replay timeline itself by less than real time, rather than just
+    // slowing down some separate "playback rate" knob, is what makes the
+    // camera/animation motion and any sound triggered during the dip both
+    // stretch out together for free.
+    let speed_mult = if run.best_play {
+        slowmo_speed(run.elapsed, run.kill_time)
+    } else {
+        1.0
+    };
+    run.elapsed += time.delta_secs() * speed_mult;
     let skipped = binds.killcam_skip.just_pressed(&keys, &mouse);
 
     let anim_node = view_models.iter().next().map(|vm| vm.index);
@@ -1004,7 +1027,15 @@ fn drive_killcam(
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {
-                    commands.spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN));
+                    // During "best play"'s slow-mo dip, `speed_mult` < 1 both
+                    // stretches the clip out and drops its pitch — rodio's
+                    // playback-speed control resamples rather than just
+                    // scaling gain, so slower really does sound lower and
+                    // longer, not just quieter-for-longer.
+                    commands.spawn((
+                        AudioPlayer::new(clip.clone()),
+                        PlaybackSettings::DESPAWN.with_speed(speed_mult),
+                    ));
                 }
             }
         }
@@ -1021,7 +1052,7 @@ fn drive_killcam(
                         .with_volume(Volume::Linear(
                             (footstep_cfg.volume * footstep_cfg.walk_volume).max(0.0),
                         ))
-                        .with_speed(pitch.clamp(0.1, 4.0)),
+                        .with_speed((pitch * speed_mult).clamp(0.1, 4.0)),
                 ));
             }
         }
@@ -1129,6 +1160,25 @@ fn stop_killcam(
 }
 
 // --- helpers -------------------------------------------------------
+
+/// How many replay-timeline seconds pass per real second, for the "best play"
+/// slow-mo ramp: normal speed outside `kill_time ± RAMP_SECS`, ramping linearly
+/// down to `SLOWEST` at `kill_time - RAMP_SECS`, holding it at `kill_time`
+/// itself, then ramping back up to normal by `kill_time + RAMP_SECS`.
+fn slowmo_speed(t: f32, kill_time: f32) -> f32 {
+    const RAMP_SECS: f32 = 1.0;
+    const SLOWEST: f32 = 1.0 / 3.0;
+    let dt = t - kill_time;
+    if dt <= -RAMP_SECS || dt >= RAMP_SECS {
+        1.0
+    } else if dt <= 0.0 {
+        let frac = (dt + RAMP_SECS) / RAMP_SECS; // 0 at -RAMP_SECS, 1 at 0
+        1.0 + (SLOWEST - 1.0) * frac
+    } else {
+        let frac = dt / RAMP_SECS; // 0 at 0, 1 at +RAMP_SECS
+        SLOWEST + (1.0 - SLOWEST) * frac
+    }
+}
 
 /// The two frames bracketing time `t`, plus the 0..1 fraction between them.
 fn bracket(frames: &[(f32, KillCamSample)], t: f32) -> (KillCamSample, KillCamSample, f32) {

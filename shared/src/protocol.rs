@@ -320,6 +320,11 @@ pub struct TrickScore {
 pub struct MatchOver {
     pub winner_name: String,
     pub winner_score: u32,
+    /// True if a best-play [`KillCam`] was also sent this tick. `GameChannel`
+    /// is unordered, so the client can't infer this from arrival order —
+    /// without an explicit flag it could show the results screen before (or
+    /// instead of) a best-play replay that's still in flight.
+    pub best_play_sent: bool,
 }
 
 /// One recorded frame of a kill-cam replay (server tick rate). Self-contained:
@@ -397,6 +402,12 @@ pub struct KillCam {
     pub kill_index: u32,
     pub bots: Vec<KillCamBot>,
     pub players: Vec<KillCamPlayer>,
+    /// True only for the single highest-scoring shot of the match, resent
+    /// right before [`MatchOver`] once the clock hits zero. The client plays
+    /// this one with a slow-mo ramp around the kill and a "BEST PLAY" banner
+    /// instead of "KILLCAM", and holds the match-results screen off until it
+    /// finishes.
+    pub best_play: bool,
 }
 
 /// Client (party leader) → server: set the match length before starting.

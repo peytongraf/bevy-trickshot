@@ -84,6 +84,7 @@ impl Plugin for ClientNetPlugin {
         });
         app.add_plugins(shared::SharedPlugin);
 
+        app.init_resource::<PendingMatchEnd>();
         app.add_systems(Startup, connect);
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
@@ -109,6 +110,12 @@ impl Plugin for ClientNetPlugin {
                 receive_trick_scores,
                 receive_match_over,
                 receive_killcam,
+                // Must see this frame's `receive_killcam` (if the server's
+                // "best play" `KillCam` and `MatchOver` land in the same
+                // frame) before deciding whether a kill cam is holding the
+                // results screen off — the tuple above isn't `.chain()`ed,
+                // so this ordering needs to be explicit.
+                flush_pending_match_end.after(receive_killcam),
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -306,19 +313,86 @@ fn receive_trick_scores(
     }
 }
 
-/// Server → everyone in the lobby: the match clock ran out.
+/// Holds a received [`MatchOver`] until it's safe to show the results screen
+/// — see `flush_pending_match_end`.
+#[derive(Resource, Default)]
+struct PendingMatchEnd {
+    msg: Option<MatchOver>,
+    /// Set from `msg.best_play_sent` once `msg` arrives: whether we should
+    /// expect a best-play [`KillCam`] and hold off until it's actually
+    /// played, rather than just "no kill cam is active *right now*" — the
+    /// two messages ride the same reliable but *unordered* `GameChannel`, so
+    /// `MatchOver` can arrive before the replay it's paired with.
+    expect_best_play: bool,
+    /// Set once that expected best-play replay has been observed to start,
+    /// so `flush_pending_match_end` stops waiting for it to *arrive* and
+    /// starts waiting for it (or whatever else is playing) to *finish*.
+    best_play_seen: bool,
+    /// Seconds spent waiting on `expect_best_play` so far. `receive_killcam`
+    /// silently drops an incoming replay if one is already active
+    /// (`killcam::begin_from_message`), so if the best play happens to lose
+    /// that race — or is simply lost — this could otherwise wait forever;
+    /// past `BEST_PLAY_TIMEOUT_SECS` we give up and show results anyway.
+    waited_secs: f32,
+}
+
+/// However long the slow-mo ramp can stretch a best-play replay's ~4.5 s
+/// window out to, plus real headroom for network delay — see
+/// `PendingMatchEnd::waited_secs`.
+const BEST_PLAY_TIMEOUT_SECS: f32 = 12.0;
+
+/// Server → everyone in the lobby: the match clock ran out. Doesn't fire
+/// [`MatchEndedEvent`] directly — see [`PendingMatchEnd`].
 fn receive_match_over(
     mut receivers: Query<&mut MessageReceiver<MatchOver>>,
-    mut ended: EventWriter<MatchEndedEvent>,
+    mut pending: ResMut<PendingMatchEnd>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
-            ended.write(MatchEndedEvent {
-                winner: msg.winner_name,
-                score: msg.winner_score,
-            });
+            pending.expect_best_play = msg.best_play_sent;
+            pending.best_play_seen = false;
+            pending.waited_secs = 0.0;
+            pending.msg = Some(msg);
         }
     }
+}
+
+/// Fires [`MatchEndedEvent`] once it's safe to: immediately if the match had
+/// no best play (nobody scored), otherwise only after that replay has both
+/// started and finished — see [`PendingMatchEnd`].
+fn flush_pending_match_end(
+    time: Res<Time>,
+    mut pending: ResMut<PendingMatchEnd>,
+    active: Res<killcam::ActiveKillCam>,
+    mut ended: EventWriter<MatchEndedEvent>,
+) {
+    if pending.msg.is_none() {
+        return;
+    }
+    if pending.expect_best_play && !pending.best_play_seen {
+        match &active.0 {
+            // It's arrived and started — now just wait for it (below) like
+            // any other in-flight cam.
+            Some(run) if run.best_play => pending.best_play_seen = true,
+            // Hasn't arrived yet (`GameChannel` is unordered) — keep waiting
+            // rather than risk showing results before, or instead of, it —
+            // unless it's been long enough that it's evidently not coming.
+            _ => {
+                pending.waited_secs += time.delta_secs();
+                if pending.waited_secs < BEST_PLAY_TIMEOUT_SECS {
+                    return;
+                }
+            }
+        }
+    }
+    if active.0.is_some() {
+        return;
+    }
+    let msg = pending.msg.take().unwrap();
+    ended.write(MatchEndedEvent {
+        winner: msg.winner_name,
+        score: msg.winner_score,
+    });
 }
 
 /// Server → everyone in the lobby: the killer's last ~3 s to replay.

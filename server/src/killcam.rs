@@ -39,10 +39,34 @@ struct PendingCam {
     kill_seq: u64,
     bots: Vec<KillCamBot>,
     players: Vec<KillCamPlayer>,
+    /// Points this shot scored (`shared::scoring::score_multi_kill`'s total)
+    /// — compared against `BestPlays` once the replay window is flushed.
+    points: u32,
+    lobby: Entity,
 }
 
 #[derive(Resource, Default)]
 struct PendingCams(Vec<PendingCam>);
+
+/// The single highest-scoring kill cam seen so far this match, per lobby —
+/// replayed to everyone (with `KillCam::best_play` set) right before
+/// [`shared::MatchOver`] when the clock hits zero. Cleared the moment it's
+/// sent, so a lobby that plays another match from the same room starts fresh.
+#[derive(Resource, Default)]
+pub(crate) struct BestPlays(std::collections::HashMap<Entity, BestPlay>);
+
+pub(crate) struct BestPlay {
+    points: u32,
+    msg: KillCam,
+}
+
+impl BestPlays {
+    /// Take (and clear) the best play recorded for `lobby`, if any scoring
+    /// shot happened this match.
+    pub(crate) fn take(&mut self, lobby: Entity) -> Option<KillCam> {
+        self.0.remove(&lobby).map(|b| b.msg)
+    }
+}
 
 pub struct KillCamPlugin;
 
@@ -50,6 +74,7 @@ impl Plugin for KillCamPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ReplayClock>()
             .init_resource::<PendingCams>()
+            .init_resource::<BestPlays>()
             .add_systems(
                 FixedUpdate,
                 (
@@ -122,16 +147,20 @@ fn queue_killcams(
     // Group this tick's kills by shooter first — a collateral shot fires one
     // `BotHit` per pierced bot, all in the same tick, and should become one
     // kill cam with every one of them falling together, not a separate replay
-    // per bot.
-    let mut by_shooter: Vec<(PeerId, Vec<Entity>)> = Vec::new();
+    // per bot. Only the first `BotHit` of a pierced chain carries non-zero
+    // `points` (see `resolve_shots`), so summing is equivalent to taking it.
+    let mut by_shooter: Vec<(PeerId, Vec<Entity>, u32)> = Vec::new();
     for ev in hits.read() {
-        match by_shooter.iter_mut().find(|(shooter, _)| *shooter == ev.by) {
-            Some((_, bots)) => bots.push(ev.bot),
-            None => by_shooter.push((ev.by, vec![ev.bot])),
+        match by_shooter.iter_mut().find(|(shooter, ..)| *shooter == ev.by) {
+            Some((_, bots, points)) => {
+                bots.push(ev.bot);
+                *points += ev.points;
+            }
+            None => by_shooter.push((ev.by, vec![ev.bot], ev.points)),
         }
     }
 
-    for (killer, killed_bots) in by_shooter {
+    for (killer, killed_bots, points) in by_shooter {
         let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(killer)) else {
             continue;
         };
@@ -167,6 +196,8 @@ fn queue_killcams(
             kill_seq: clock.0,
             players: player_snap,
             bots: snap,
+            points,
+            lobby: lobby_e,
         });
     }
 }
@@ -176,6 +207,7 @@ fn flush_killcams(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut pending: ResMut<PendingCams>,
+    mut best_plays: ResMut<BestPlays>,
     buffers: Query<(&PlayerId, &ReplayBuffer)>,
     lobbies: Query<&Lobby>,
 ) {
@@ -220,9 +252,24 @@ fn flush_killcams(
             kill_index,
             bots: cam.bots.clone(),
             players: cam.players.clone(),
+            best_play: false,
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
             error!("failed to send kill cam: {e:?}");
+        }
+
+        // Track the match's best (highest-scoring) shot per lobby, so it can
+        // be replayed for everyone right before `MatchOver`. 0-point shots
+        // (a miss that still happened to graze a bot) don't count as a "play".
+        if cam.points > 0 {
+            let best = best_plays.0.entry(cam.lobby).or_insert(BestPlay {
+                points: 0,
+                msg: msg.clone(),
+            });
+            if cam.points >= best.points {
+                best.points = cam.points;
+                best.msg = msg;
+            }
         }
         false
     });

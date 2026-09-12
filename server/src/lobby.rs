@@ -309,7 +309,8 @@ fn tick_match_clock(
     time: Res<Time>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut lobbies: Query<&mut Lobby>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    mut best_plays: ResMut<crate::killcam::BestPlays>,
     mut acc: Local<f32>,
 ) {
     *acc += time.delta_secs();
@@ -319,7 +320,7 @@ fn tick_match_clock(
     *acc -= 1.0;
 
     let server = server.into_inner();
-    for mut lobby in &mut lobbies {
+    for (lobby_e, mut lobby) in &mut lobbies {
         if !lobby.started || lobby.time_left_secs == 0 {
             continue;
         }
@@ -335,9 +336,27 @@ fn tick_match_clock(
             .map(|m| (m.name.clone(), m.score))
             .unwrap_or_default();
         let targets: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+
+        // Replay the match's best (highest-scoring) shot for everyone before
+        // the results screen. `GameChannel` is unordered, so `MatchOver`
+        // below carries an explicit `best_play_sent` flag rather than relying
+        // on this being received first — the client holds the results screen
+        // off until it's actually seen the flagged replay play out (see
+        // `net::flush_pending_match_end`).
+        let mut best_play = best_plays.take(lobby_e);
+        if let Some(best) = &mut best_play {
+            best.best_play = true;
+            if let Err(e) =
+                sender.send::<_, GameChannel>(best, server, &NetworkTarget::Only(targets.clone()))
+            {
+                error!("failed to broadcast best play: {e:?}");
+            }
+        }
+
         let msg = MatchOver {
             winner_name: winner_name.clone(),
             winner_score,
+            best_play_sent: best_play.is_some(),
         };
         if let Err(e) =
             sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets))
