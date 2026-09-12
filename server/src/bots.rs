@@ -70,7 +70,7 @@ fn ensure_bots(
             let seed = (time.elapsed().as_nanos() as u64)
                 ^ seq.wrapping_mul(0x9e37_79b9_7f4a_7c15)
                 ^ lobby_e.to_bits();
-            let (pos, yaw) = respawn_pose(seed);
+            let (pos, yaw) = respawn_pose(seed, lobby.map);
             commands.spawn((
                 Name::from("Bot"),
                 LobbyBot { lobby: lobby_e },

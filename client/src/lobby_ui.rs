@@ -42,6 +42,7 @@ impl Plugin for LobbyUiPlugin {
                     mark_scoreboard_dirty,
                     spawn_match_timer,
                     mark_game_session,
+                    sync_current_map,
                 ),
             )
             .add_systems(Update, catch_match_end)
@@ -211,6 +212,21 @@ fn mark_game_session(
         .unwrap_or(false);
 }
 
+/// Pick up our lobby's selected map on the way into `InGame` — solo Practice
+/// has no lobby, so it always falls back to the default (`BasicMap`).
+fn sync_current_map(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut current: ResMut<crate::CurrentMap>,
+) {
+    let me = local_peer(&local);
+    let map = me
+        .and_then(|me| lobbies.iter().find(|l| l.has(me)))
+        .map(|l| l.map)
+        .unwrap_or_default();
+    current.set_if_neq(crate::CurrentMap(map));
+}
+
 /// In a networked match, leave `InGame` the moment we're no longer in the lobby
 /// — because we left (the pause-menu button already set us on our way), or
 /// because the leader pulled the whole party. Solo Practice is untouched (its
@@ -307,6 +323,7 @@ enum MenuBtn {
     KillDown,
     KillUp,
     SetMode(shared::GameMode),
+    SetMap(shared::MapId),
 }
 
 /// Match-length step for the leader's − / + buttons (seconds).
@@ -527,6 +544,28 @@ fn spawn_mode_button(
     );
 }
 
+/// One segmented map-picker button — same look as [`spawn_mode_button`].
+fn spawn_map_button(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    map: shared::MapId,
+    current: shared::MapId,
+) {
+    let selected = map == current;
+    spawn_button_hud(
+        row,
+        asset_server,
+        text,
+        15.0,
+        MenuBtn::SetMap(map),
+        if selected { ACCENT } else { ROW },
+        if selected { ACCENT } else { ROW_HOVER },
+        if selected { PANEL_SOLID } else { TEXT },
+        UiSound::MENU,
+    );
+}
+
 fn build_room(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -562,12 +601,17 @@ fn build_room(
                     asset_server,
                     if is_ffa {
                         format!(
-                            "{}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS",
+                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS",
                             lobby.mode.label(),
+                            lobby.map.label(),
                             lobby.kill_limit,
                         )
                     } else {
-                        format!("{}   \u{2022}   {mins} MIN", lobby.mode.label())
+                        format!(
+                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN",
+                            lobby.mode.label(),
+                            lobby.map.label(),
+                        )
                     },
                     14.0,
                     TEXT_DIM,
@@ -604,6 +648,29 @@ fn build_room(
                             "FREE FOR ALL",
                             shared::GameMode::FreeForAll,
                             lobby.mode,
+                        );
+                    });
+
+                    col.spawn(Node {
+                        column_gap: Val::Px(10.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(label_hud(asset_server, "MAP", 14.0, TEXT_DIM));
+                        spawn_map_button(
+                            row,
+                            asset_server,
+                            "BASIC MAP",
+                            shared::MapId::BasicMap,
+                            lobby.map,
+                        );
+                        spawn_map_button(
+                            row,
+                            asset_server,
+                            "SHIPMENT",
+                            shared::MapId::Shipment,
+                            lobby.map,
                         );
                     });
 
@@ -752,6 +819,7 @@ fn handle_clicks(
     mut set_time: Query<&mut TriggerSender<shared::SetTimeLimit>, With<GameClient>>,
     mut set_kills: Query<&mut TriggerSender<shared::SetKillLimit>, With<GameClient>>,
     mut set_mode: Query<&mut TriggerSender<shared::SetGameMode>, With<GameClient>>,
+    mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
 ) {
     let name = player_name(&settings);
     let my_lobby = || {
@@ -784,6 +852,11 @@ fn handle_clicks(
             MenuBtn::SetMode(mode) => {
                 if let Ok(mut s) = set_mode.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetGameMode { mode: *mode });
+                }
+            }
+            MenuBtn::SetMap(map) => {
+                if let Ok(mut s) = set_map.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetMap { map: *map });
                 }
             }
             MenuBtn::CreateLobby => {

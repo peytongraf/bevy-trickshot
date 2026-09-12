@@ -3,6 +3,9 @@
 
 use bevy::math::Vec3;
 
+use crate::map;
+use crate::protocol::MapId;
+
 /// Bot hitbox dimensions (fed to [`crate::hitbox::Capsule`]).
 pub const BOT_HEIGHT: f32 = 1.8;
 pub const BOT_RADIUS: f32 = 0.4;
@@ -81,22 +84,45 @@ pub fn rand01(seed: u64) -> f32 {
     (splitmix64(seed) >> 40) as f32 / (1u64 << 24) as f32
 }
 
+/// How many times to reroll a candidate that lands inside a `map` wall
+/// before giving up and using the last try anyway.
+const WALL_RETRIES: u32 = 8;
+
+/// Clearance kept from a map's walls, mirroring
+/// `crate::spawns::WALL_CLEARANCE`.
+const WALL_CLEARANCE: f32 = 1.0;
+
 /// A ground position around [`BOT_AREA_CENTER`] — uniformly distributed by
 /// area within a randomly (weighted) picked [`DistanceTier`] — plus a random
-/// facing.
-pub fn respawn_pose(seed: u64) -> (Vec3, f32) {
+/// facing. Rerolled (same tier, fresh sample) if it lands inside one of
+/// `map`'s walls or outside `map`'s playable interior, so `Freestyle` bots
+/// never spawn stuck inside a Shipment container or beyond its outer walls —
+/// the farthest tier's 90 m radius reaches well past them.
+pub fn respawn_pose(seed: u64, map: MapId) -> (Vec3, f32) {
     let tier = pick_tier(rand01(seed ^ 0xc3));
-    // Uniform-by-area sampling within an annulus [min_radius, max_radius]:
-    // r = sqrt(u * (max² - min²) + min²). `min_radius == 0.0` (the innermost
-    // tier) reduces to the usual disc case, r = max * sqrt(u).
-    let u = rand01(seed);
-    let r = (u * (tier.max_radius * tier.max_radius - tier.min_radius * tier.min_radius)
-        + tier.min_radius * tier.min_radius)
-        .sqrt();
-    let a = rand01(seed ^ 0xa1) * core::f32::consts::TAU;
-    let pos = BOT_AREA_CENTER + Vec3::new(r * a.cos(), 0.0, r * a.sin());
+    for i in 0..WALL_RETRIES {
+        let s = seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        // Uniform-by-area sampling within an annulus [min_radius, max_radius]:
+        // r = sqrt(u * (max² - min²) + min²). `min_radius == 0.0` (the
+        // innermost tier) reduces to the usual disc case, r = max * sqrt(u).
+        let u = rand01(s);
+        let r = (u * (tier.max_radius * tier.max_radius - tier.min_radius * tier.min_radius)
+            + tier.min_radius * tier.min_radius)
+            .sqrt();
+        let a = rand01(s ^ 0xa1) * core::f32::consts::TAU;
+        let pos = BOT_AREA_CENTER + Vec3::new(r * a.cos(), 0.0, r * a.sin());
+        let yaw = rand01(s ^ 0xb2) * core::f32::consts::TAU;
+        if !map::point_blocked(map, pos.x, pos.z, WALL_CLEARANCE, map::SHIPMENT_SCALE)
+            && map::in_bounds(map, pos.x, pos.z, map::SHIPMENT_SCALE)
+        {
+            return (pos, yaw);
+        }
+    }
+    // Every retry failed (the farther tiers reach well past `Shipment`'s
+    // walls) — `BOT_AREA_CENTER` itself is always safe on every map, unlike
+    // any of the rejected candidates above.
     let yaw = rand01(seed ^ 0xb2) * core::f32::consts::TAU;
-    (pos, yaw)
+    (BOT_AREA_CENTER, yaw)
 }
 
 #[cfg(test)]
@@ -113,7 +139,7 @@ mod tests {
     fn respawn_pose_never_lands_outside_the_farthest_tier() {
         let max_radius = DISTANCE_TIERS.last().unwrap().max_radius;
         for seed in 0..2000u64 {
-            let (pos, _) = respawn_pose(seed);
+            let (pos, _) = respawn_pose(seed, MapId::BasicMap);
             let r = (pos - BOT_AREA_CENTER).length();
             assert!(r <= max_radius + 1.0e-3, "seed {seed} landed at radius {r}");
         }
@@ -127,7 +153,7 @@ mod tests {
         let mut counts = [0u32; 3];
         const N: u64 = 5000;
         for seed in 0..N {
-            let (pos, _) = respawn_pose(seed);
+            let (pos, _) = respawn_pose(seed, MapId::BasicMap);
             let r = (pos - BOT_AREA_CENTER).length();
             let idx = DISTANCE_TIERS
                 .iter()
@@ -141,6 +167,17 @@ mod tests {
                 (frac - tier.weight).abs() < 0.05,
                 "tier weight {} got fraction {frac}",
                 tier.weight
+            );
+        }
+    }
+
+    #[test]
+    fn respawn_pose_never_lands_outside_the_shipment_walls() {
+        for seed in 0..2000u64 {
+            let (pos, _) = respawn_pose(seed, MapId::Shipment);
+            assert!(
+                map::in_bounds(MapId::Shipment, pos.x, pos.z, map::SHIPMENT_SCALE),
+                "seed {seed} landed outside the map at {pos:?}"
             );
         }
     }

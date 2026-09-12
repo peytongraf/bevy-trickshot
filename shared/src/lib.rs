@@ -25,9 +25,9 @@ use bevy::prelude::*;
 pub use protocol::{
     Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamPlayer,
     KillCamSample,
-    LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MatchOver, PlayerId, PlayerInput,
+    LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
     PlayerName, PlayerPose, PlayerRespawn, ProtocolPlugin, RemoteSound, ScoreLine, SetGameMode,
-    SetKillLimit, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, TrickScore,
+    SetKillLimit, SetMap, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, TrickScore,
 };
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
@@ -38,7 +38,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0006;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0007;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

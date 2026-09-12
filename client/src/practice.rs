@@ -106,7 +106,8 @@ fn spawn_practice_bots(
     for _ in alive..BOTS_ALIVE {
         *seq = seq.wrapping_add(1);
         let seed = time.elapsed().as_nanos() as u64 ^ seq.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        let (pos, yaw) = respawn_pose(seed);
+        // Solo Practice always plays on the basic map — no lobby to pick another.
+        let (pos, yaw) = respawn_pose(seed, shared::MapId::BasicMap);
         commands
             .spawn((
                 PracticeBot {

@@ -133,6 +133,12 @@ impl Default for MapSettings {
 #[derive(Component)]
 struct MapModel;
 
+/// Marker on the always-spawned procedural asphalt ground plane, so
+/// [`sync_ground_visibility`] can hide it for maps that ship their own ground
+/// (`shipment.glb`'s `Ground` node).
+#[derive(Component)]
+struct ProceduralGround;
+
 /// One walkable piece of `basic_map.glb`'s hand-fit collision, in the model's
 /// own local space (before `MapSettings` position / yaw / scale is applied).
 /// There's no runtime mesh collision in this game (see `apply_gravity`'s
@@ -336,16 +342,172 @@ mod map_surface_tests {
     }
 }
 
-/// Push `MapSettings` onto the loaded scene whenever it changes (also once at
-/// startup, which just re-applies the defaults).
-fn apply_map_transform(map: Res<MapSettings>, model: Single<&mut Transform, With<MapModel>>) {
-    if !map.is_changed() {
+/// Push `MapSettings` onto the loaded `basic_map.glb` scene every frame it's
+/// the selected map — cheap (one `Transform` write), and unconditional so a
+/// freshly re-spawned model (see `sync_map_model`, after switching away from
+/// and back to this map) always picks the placement back up, rather than only
+/// on the next tweak to `MapSettings` itself.
+fn apply_map_transform(
+    current: Res<CurrentMap>,
+    map: Res<MapSettings>,
+    mut model: Query<&mut Transform, With<MapModel>>,
+) {
+    if current.0 != shared::MapId::BasicMap {
         return;
     }
-    let mut transform = model.into_inner();
+    let Ok(mut transform) = model.single_mut() else {
+        return;
+    };
     transform.translation = map.position;
     transform.rotation = Quat::from_rotation_y(map.rotation_deg.to_radians());
     transform.scale = Vec3::splat(map.scale);
+}
+
+/// The map the current lobby (or, in solo Practice, the default) is playing
+/// on — drives which `SceneRoot` [`sync_map_model`] keeps spawned under
+/// [`MapModel`], and which collision data [`resolve_wall_collisions`] and
+/// `apply_gravity`'s surface check (`MapSettings`, `basic_map`-only for now)
+/// use. Set once on [`AppState::InGame`] entry by
+/// `lobby_ui::sync_current_map`; defaults to `BasicMap` before that ever runs.
+#[derive(Resource, Default, PartialEq)]
+pub(crate) struct CurrentMap(pub shared::MapId);
+
+/// Live-tunable uniform scale for `shipment.glb` — see
+/// `shared::map::SHIPMENT_SCALE`, which this defaults to and which the
+/// server's own spawn/respawn placement always uses. Adjustable from the
+/// debug panel's "Shipment map" section so you can dial in a different
+/// number by eye; [`apply_shipment_transform`] and
+/// [`resolve_wall_collisions`] both read the live value here, so the
+/// rendered model and its collision stay in lockstep while tuning. Once
+/// you've settled on a number, update the `shared` constant to match —
+/// otherwise a fresh session (or the server's own placement) falls back to
+/// the old default.
+#[derive(Resource)]
+pub(crate) struct ShipmentSettings {
+    pub scale: f32,
+}
+
+impl Default for ShipmentSettings {
+    fn default() -> Self {
+        Self {
+            scale: shared::map::SHIPMENT_SCALE,
+        }
+    }
+}
+
+/// Push [`ShipmentSettings`] onto the loaded `shipment.glb` scene every frame
+/// it's the selected map — mirrors [`apply_map_transform`]'s reasoning
+/// (unconditional, not gated on a change flag, so a freshly re-spawned model
+/// always picks the current scale back up).
+fn apply_shipment_transform(
+    current: Res<CurrentMap>,
+    settings: Res<ShipmentSettings>,
+    mut model: Query<&mut Transform, With<MapModel>>,
+) {
+    if current.0 != shared::MapId::Shipment {
+        return;
+    }
+    let Ok(mut transform) = model.single_mut() else {
+        return;
+    };
+    transform.scale = Vec3::splat(settings.scale);
+}
+
+/// Keep exactly one `MapModel` scene spawned, matching [`CurrentMap`] — swaps
+/// it out (despawn old, spawn new) whenever the selection changes. Runs
+/// unconditionally (not gated on `AppState`) so the world behind the menu/
+/// lobby UI is already showing the right map by the time a game starts, the
+/// same "always loaded" behaviour `setup_world` used to provide for the one
+/// map that used to exist.
+fn sync_map_model(
+    current: Res<CurrentMap>,
+    asset_server: Res<AssetServer>,
+    existing: Query<Entity, With<MapModel>>,
+    mut commands: Commands,
+) {
+    if !current.is_changed() {
+        return;
+    }
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    let path = match current.0 {
+        shared::MapId::BasicMap => "models/basic_map.glb",
+        shared::MapId::Shipment => "models/shipment.glb",
+    };
+    commands.spawn((
+        MapModel,
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+    ));
+}
+
+/// Hide the always-spawned procedural asphalt ground ([`ProceduralGround`])
+/// for maps that ship their own ground — so far just `Shipment`, whose
+/// `shipment.glb` has its own `Ground` node, now fully enclosed by its own
+/// walls; leaving the big generic plane visible outside them would show
+/// asphalt stretching past the yard's edge. Unconditional each frame, same
+/// reasoning as [`apply_map_transform`].
+fn sync_ground_visibility(
+    current: Res<CurrentMap>,
+    mut ground: Query<&mut Visibility, With<ProceduralGround>>,
+) {
+    let Ok(mut vis) = ground.single_mut() else {
+        return;
+    };
+    *vis = match current.0 {
+        shared::MapId::BasicMap => Visibility::Inherited,
+        shared::MapId::Shipment => Visibility::Hidden,
+    };
+}
+
+/// Keep the player out of the selected map's walls (`shared::map::walls`,
+/// hand-measured from `shipment.glb`'s containers — `basic_map.glb` has
+/// none) — run right after [`move_player`] each frame. Player and box are
+/// both treated as their XZ footprint only (a circle of
+/// [`BODY_CAPSULE_RADIUS`] vs. an AABB — scaled by [`ShipmentSettings`],
+/// matching whatever `apply_shipment_transform` is rendering — expanded by
+/// that same radius); a circle already inside a box (e.g. a bad spawn) is
+/// pushed back out along whichever edge is nearest, rather than left stuck.
+fn resolve_wall_collisions(
+    current: Res<CurrentMap>,
+    shipment: Res<ShipmentSettings>,
+    mut player: Single<&mut Transform, With<Player>>,
+) {
+    let walls = shared::map::walls(current.0);
+    if walls.is_empty() {
+        return;
+    }
+    let scale = shipment.scale;
+    let mut x = player.translation.x;
+    let mut z = player.translation.z;
+    for wall in walls {
+        let (min_x, max_x) = (
+            wall.x.0 * scale - BODY_CAPSULE_RADIUS,
+            wall.x.1 * scale + BODY_CAPSULE_RADIUS,
+        );
+        let (min_z, max_z) = (
+            wall.z.0 * scale - BODY_CAPSULE_RADIUS,
+            wall.z.1 * scale + BODY_CAPSULE_RADIUS,
+        );
+        if x <= min_x || x >= max_x || z <= min_z || z >= max_z {
+            continue;
+        }
+        let push = [x - min_x, max_x - x, z - min_z, max_z - z];
+        let nearest = push
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+            .unwrap();
+        match nearest {
+            0 => x = min_x,
+            1 => x = max_x,
+            2 => z = min_z,
+            _ => z = max_z,
+        }
+    }
+    player.translation.x = x;
+    player.translation.z = z;
 }
 
 /// Where the player spawns, and the initial [`TeleportPoint`] the teleport key
@@ -763,6 +925,8 @@ fn main() {
         .init_resource::<SoundVolumes>()
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
+        .init_resource::<CurrentMap>()
+        .init_resource::<ShipmentSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
@@ -807,6 +971,9 @@ fn main() {
         .add_systems(OnEnter(AppState::InLobby), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
         .add_systems(Update, apply_master_volume)
+        // Unconditional (not gated on `AppState`) so the map (and its ground)
+        // behind the menu/lobby UI is already right the instant a game starts.
+        .add_systems(Update, (sync_map_model, sync_ground_visibility))
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
         // frame's `PostUpdate` and can scale them before they've really played.
         .add_systems(Last, apply_sound_volumes)
@@ -828,6 +995,7 @@ fn main() {
                     toggle_sprint,
                     crouch_slide,
                     move_player,
+                    resolve_wall_collisions,
                     teleport_home,
                     jump,
                     apply_gravity,
@@ -870,7 +1038,7 @@ fn main() {
                 update_fps_ui,
                 apply_scene_tuning,
                 apply_shadow_quality,
-                apply_map_transform,
+                (apply_map_transform, apply_shipment_transform),
                 debug_cursor_toggle,
             )
                 .after(update_ads)
@@ -2587,8 +2755,11 @@ fn setup_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
-    // (see `build_ground_texture`), tiled every ~2 m.
+    // (see `build_ground_texture`), tiled every ~2 m. Hidden by
+    // `sync_ground_visibility` for maps that ship their own ground (so far
+    // just `shipment.glb`'s `Ground` node).
     commands.spawn((
+        ProceduralGround,
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(100.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(images.add(build_ground_texture())),
@@ -2598,13 +2769,12 @@ fn setup_world(
         })),
     ));
 
-    // The Blender-built basic map (cubes, ramps, bridge) — `apply_map_transform`
-    // positions it from `MapSettings`; walkability is a hand-fit height field,
-    // not real mesh collision (see `map_surface_height`).
-    commands.spawn((
-        MapModel,
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/basic_map.glb"))),
-    ));
+    // The selected map's model is kept in sync by `sync_map_model` (not
+    // spawned here) so it can be swapped per-lobby; `apply_map_transform`
+    // positions `basic_map.glb` from `MapSettings` (walkability there is a
+    // hand-fit height field, not real mesh collision — see
+    // `map_surface_height`), while `shipment.glb` sits at the identity
+    // transform and blocks its containers via `resolve_wall_collisions`.
 
     // Sky: the equirectangular HDR mapped onto the inside of a big UV sphere
     // that follows the camera (see `sky_follow_camera`). Not a true cubemap
@@ -3468,6 +3638,7 @@ fn ads_tuning_ui(
         Res<Shake>,
         Res<Ads>,
         ResMut<MapSettings>,
+        ResMut<ShipmentSettings>,
         ResMut<BloodSettings>,
         ResMut<NoScopeSpread>,
         ResMut<IdleSwaySettings>,
@@ -3481,6 +3652,7 @@ fn ads_tuning_ui(
         shake,
         ads,
         mut map,
+        mut shipment,
         mut blood,
         mut noscope,
         mut idle_sway,
@@ -3708,6 +3880,29 @@ fn ads_tuning_ui(
                 }
                 if ui.button("Reset map transform").clicked() {
                     *mp = MapSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Shipment map", |ui| {
+                let sh = &mut *shipment;
+                ui.label("models/shipment.glb — spawned at the origin, scale only");
+                ui.add(
+                    egui::Slider::new(&mut sh.scale, 0.05f32..=2.0)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+                ui.label(
+                    "Only affects this client's own rendering + collision — the server's \
+                     spawn/respawn placement always uses shared::map::SHIPMENT_SCALE, so \
+                     update that constant to match once you've found the right number.",
+                );
+
+                if ui.button("Copy shipment scale to console").clicked() {
+                    info!("shipment: SHIPMENT_SCALE = {:.3};", sh.scale);
+                }
+                if ui.button("Reset shipment scale").clicked() {
+                    *sh = ShipmentSettings::default();
                 }
             });
 

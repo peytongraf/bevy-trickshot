@@ -117,7 +117,7 @@ fn apply_player_hits(
             .map(|(_, pose)| pose.translation)
             .collect();
         let seed = time.elapsed().as_nanos() as u64 ^ ev.victim.to_bits();
-        let (pos, yaw) = shared::spawns::spawn_point(seed, &others);
+        let (pos, yaw) = shared::spawns::spawn_point(seed, &others, lobby.map);
 
         let msg = PlayerRespawn {
             pos: pos.to_array(),

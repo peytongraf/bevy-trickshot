@@ -46,6 +46,28 @@ impl GameMode {
     }
 }
 
+/// Which map a lobby plays on. New maps slot in here; the client branches on
+/// the one the [`Lobby`] carries to decide which scene to load (see
+/// `client::CurrentMap`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum MapId {
+    /// `models/basic_map.glb` — cubes, ramps and a bridge.
+    #[default]
+    BasicMap,
+    /// `models/shipment.glb` — a Call-of-Duty-style Shipment recreation:
+    /// ground plane plus shipping-container walls.
+    Shipment,
+}
+
+impl MapId {
+    pub fn label(self) -> &'static str {
+        match self {
+            MapId::BasicMap => "BASIC MAP",
+            MapId::Shipment => "SHIPMENT",
+        }
+    }
+}
+
 /// Which connected peer owns a player entity. Replicated once, never changes.
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerId(pub PeerId);
@@ -428,6 +450,12 @@ pub struct SetGameMode {
     pub mode: GameMode,
 }
 
+/// Client (party leader) → server: pick the lobby's map before starting.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetMap {
+    pub map: MapId,
+}
+
 /// Client (party leader) → server: set [`GameMode::FreeForAll`]'s kill limit
 /// before starting.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -472,6 +500,8 @@ pub struct Lobby {
     pub leader: PeerId,
     /// The mode this lobby will play.
     pub mode: GameMode,
+    /// The map this lobby will play on.
+    pub map: MapId,
     /// Once `true` the members are being moved into a game; the lobby stops
     /// showing in the browser.
     pub started: bool,
@@ -608,6 +638,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetGameMode>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetKillLimit>()
             .add_direction(NetworkDirection::ClientToServer);

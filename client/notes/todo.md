@@ -1,10 +1,15 @@
 ## Added
 
+- Add spawn points for maps
 - Add knife and throwing knife models
 - Add tab to show leaderboard
 - Update readme
 - Add ping ui beside fps
 - Add bots ( using remote player model ) that can be added to game modes
+- Add camera change when killed where it looks at the direction you were shot from like on cod then shows you die in third person then plays kill cam
+- Add hitmarkers
+- Add heart beat sound and red around screen when health low
+- Add dot over other players head when playing trickshot mode that goes to the correct side of the screen when looking away from them
 
 ---
 

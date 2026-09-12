@@ -14,8 +14,8 @@ use lightyear::prelude::*;
 
 use shared::{
     CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby, LobbyError,
-    LobbyMember, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetGameMode,
-    SetKillLimit, SetTimeLimit, StartGame,
+    LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetGameMode,
+    SetKillLimit, SetMap, SetTimeLimit, StartGame,
 };
 
 /// Bounds on the leader-set match length (seconds) — 1 to 45 minutes.
@@ -51,6 +51,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_end_game)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
+            .add_observer(on_set_map)
             .add_observer(on_set_kill_limit)
             .add_observer(on_disconnect)
             .add_systems(Update, tick_match_clock);
@@ -139,6 +140,7 @@ fn on_create(
                 name,
                 leader: peer,
                 mode: GameMode::default(),
+                map: MapId::default(),
                 started: false,
                 time_limit_secs: DEFAULT_TIME_LIMIT,
                 time_left_secs: DEFAULT_TIME_LIMIT,
@@ -254,7 +256,7 @@ fn on_start(
                 let seed = time.elapsed().as_nanos() as u64
                     ^ member.peer.to_bits()
                     ^ lobby_entity.to_bits();
-                let (pos, yaw) = shared::spawns::spawn_point(seed, &taken_spawns);
+                let (pos, yaw) = shared::spawns::spawn_point(seed, &taken_spawns, lobby.map);
                 taken_spawns.push(pos);
                 PlayerPose {
                     translation: pos,
@@ -343,6 +345,16 @@ fn on_set_game_mode(trigger: Trigger<RemoteTrigger<SetGameMode>>, mut lobbies: Q
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.mode = mode;
         info!("lobby mode set to {mode:?} by {peer:?}");
+    }
+}
+
+/// The leader picks the lobby's map while it's still waiting.
+fn on_set_map(trigger: Trigger<RemoteTrigger<SetMap>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let map = trigger.trigger.map;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        lobby.map = map;
+        info!("lobby map set to {map:?} by {peer:?}");
     }
 }
 
