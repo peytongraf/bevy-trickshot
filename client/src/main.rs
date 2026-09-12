@@ -57,7 +57,7 @@ use settings::{Settings, ShadowQuality};
 
 use bevy::{
     animation::{RepeatAnimation, prelude::AnimationTransitions},
-    audio::Volume,
+    audio::{SpatialListener, Volume},
     core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
@@ -764,6 +764,7 @@ fn main() {
         .init_resource::<SceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<RemoteAvatarSettings>()
+        .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
@@ -1817,6 +1818,36 @@ impl SoundVolumes {
 #[derive(Component)]
 struct AmbientAudio;
 
+/// Tags a sound spawned by `net::receive_remote_sounds` for another player's
+/// action (reload, footstep, shot, ...), positioned at their world location.
+/// `apply_sound_volumes` skips these — their volume is already fully baked in
+/// at spawn time (category volume × distance falloff × the "Remote sounds"
+/// panel's master volume × global volume), since re-deriving it post-spawn
+/// would need the same distance calculation all over again for no benefit.
+#[derive(Component)]
+pub(crate) struct RemoteSoundEmitter;
+
+/// Distance falloff for other players' positional sounds ("Remote sounds"
+/// debug-panel section). Applied by `net::receive_remote_sounds` on top of
+/// this same clip's normal `SoundVolumes` category multiplier.
+#[derive(Resource, Clone, Copy)]
+pub(crate) struct RemoteSoundSettings {
+    /// Overall gain on every remote-player sound, on top of its usual
+    /// per-category volume.
+    pub(crate) volume: f32,
+    /// Distance (m) at which a remote sound has faded to silence.
+    pub(crate) max_distance: f32,
+}
+
+impl Default for RemoteSoundSettings {
+    fn default() -> Self {
+        Self {
+            volume: 1.0,
+            max_distance: 60.0,
+        }
+    }
+}
+
 /// A single drifting, fading smoke sprite. World-space: once spawned it lives in
 /// the world, so the player can walk through it.
 #[derive(Component)]
@@ -2741,6 +2772,17 @@ fn setup_player(
                                             intensity: 0.09,
                                             ..Bloom::NATURAL
                                         },
+                                        // The player's "ears" for remote-player
+                                        // positional sounds (`net::receive_remote_sounds`).
+                                        // Offsets deliberately reversed from
+                                        // `SpatialListener::new`'s default
+                                        // (left at +X, right at -X) — with the
+                                        // "correct" orientation, sounds panned
+                                        // opposite the source's actual side.
+                                        SpatialListener {
+                                            left_ear_offset: Vec3::X * 0.15,
+                                            right_ear_offset: Vec3::X * -0.15,
+                                        },
                                     ));
 
                                     // Scope camera: renders the world (layer 0) plus
@@ -2987,7 +3029,7 @@ fn apply_sound_volumes(
     sounds: Option<Res<GameSounds>>,
     vols: Res<SoundVolumes>,
     global_volume: Res<GlobalVolume>,
-    mut fresh: Query<(&AudioPlayer, &mut AudioSink), Added<AudioSink>>,
+    mut fresh: Query<(&AudioPlayer, &mut AudioSink), (Added<AudioSink>, Without<RemoteSoundEmitter>)>,
 ) {
     let Some(sounds) = sounds else { return };
     for (player, mut sink) in &mut fresh {
@@ -3422,6 +3464,7 @@ fn ads_tuning_ui(
         ResMut<AimSwaySettings>,
         ResMut<RemoteAvatarSettings>,
         ResMut<SoldierAnimSettings>,
+        ResMut<RemoteSoundSettings>,
     ),
 ) -> Result {
     let (
@@ -3434,6 +3477,7 @@ fn ads_tuning_ui(
         mut aim_sway,
         mut remote_avatar,
         mut soldier_anim,
+        mut remote_sound,
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -3709,6 +3753,20 @@ fn ads_tuning_ui(
                 );
                 if ui.button("Reset remote player anim speed").clicked() {
                     *sa = SoldierAnimSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Remote sounds", |ui| {
+                ui.label("Other players' footsteps/jump/slide/reload/rechamber/shot/dive.");
+                let rs = &mut *remote_sound;
+                ui.add(egui::Slider::new(&mut rs.volume, 0.0f32..=3.0).text("volume (×)"));
+                ui.add(
+                    egui::Slider::new(&mut rs.max_distance, 5.0f32..=300.0)
+                        .text("max distance (m)"),
+                );
+                if ui.button("Reset remote sounds").clicked() {
+                    *rs = RemoteSoundSettings::default();
                 }
             });
 
@@ -4886,6 +4944,7 @@ fn apply_gravity(
     sounds: Res<GameSounds>,
     mut commands: Commands,
     mut jumping: ResMut<Jumping>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let dt = time.delta_secs();
@@ -4933,6 +4992,7 @@ fn apply_gravity(
             AudioPlayer::new(sounds.jump_land.clone()),
             PlaybackSettings::DESPAWN,
         ));
+        snd.note(killcam::SND_JUMP_LAND);
     }
 }
 

@@ -13,8 +13,8 @@ use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
-    Bot, GameChannel, Lobby, PlayerId, PlayerInput, PlayerPose, ShotOutcome, ShotResolved,
-    TrickScore,
+    Bot, GameChannel, Lobby, PlayerId, PlayerInput, PlayerPose, RemoteSound, ShotOutcome,
+    ShotResolved, TrickScore,
 };
 
 use crate::bots::{BotHit, LobbyBot};
@@ -36,7 +36,10 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, (apply_client_pose, resolve_shots).chain());
+        app.add_systems(
+            FixedUpdate,
+            (apply_client_pose, resolve_shots, broadcast_remote_sounds).chain(),
+        );
     }
 }
 
@@ -52,6 +55,46 @@ fn apply_client_pose(mut players: Query<(&mut PlayerPose, &ActionState<PlayerInp
         pose.reloading = i.reloading;
         pose.jumping = i.jumping;
         pose.sliding = i.sliding;
+    }
+}
+
+/// Relay each player's one-shot sound bits (already sent every tick for the
+/// kill cam — see `KillCam`) live to the rest of their lobby, stamped with
+/// their current position, so other clients can play them back positionally.
+/// Never sent back to the player who triggered them; they already hear their
+/// own local, non-spatial version of these sounds.
+fn broadcast_remote_sounds(
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    players: Query<(&PlayerId, &PlayerPose, &ActionState<PlayerInput>)>,
+    lobbies: Query<&Lobby>,
+) {
+    let server = server.into_inner();
+    for (id, pose, input) in &players {
+        let bits = input.0.sound_bits;
+        if bits == 0 {
+            continue;
+        }
+        let Some(lobby) = lobbies.iter().find(|l| l.has(id.0)) else {
+            continue;
+        };
+        let targets: Vec<PeerId> = lobby
+            .members
+            .iter()
+            .map(|m| m.peer)
+            .filter(|&peer| peer != id.0)
+            .collect();
+        if targets.is_empty() {
+            continue;
+        }
+        let msg = RemoteSound {
+            player: id.0,
+            bits,
+            position: pose.translation.to_array(),
+        };
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
+            error!("failed to broadcast remote sound: {e:?}");
+        }
     }
 }
 

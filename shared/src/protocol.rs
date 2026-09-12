@@ -167,9 +167,12 @@ pub struct PlayerInput {
     /// The player's hip field-of-view setting this tick, so the kill cam renders
     /// at the FOV the shooter actually had, not the viewer's own.
     pub fov_deg: f32,
-    /// One-shot sounds the player triggered this tick, as a bitmask — replayed
-    /// in the kill cam. Bit meanings are client-internal (`killcam::SND_*`).
-    pub sound_bits: u8,
+    /// One-shot sounds the player triggered this tick, as a bitmask —
+    /// replayed in the kill cam, and also broadcast live to the rest of the
+    /// lobby (see `RemoteSound`) so they hear this player's actions
+    /// positionally. Bit meanings are client-internal (`killcam::SND_*`).
+    /// `u16` rather than `u8` since all 8 low bits are already spoken for.
+    pub sound_bits: u16,
     /// Playhead (seconds) of the first-person weapon's baked animation clip this
     /// tick, so the kill cam can pose the gun exactly as the player saw it.
     pub anim_time: f32,
@@ -283,6 +286,19 @@ pub struct ShotResolved {
     pub tracer_end: [f32; 3],
 }
 
+/// Server → everyone else in the lobby: a player triggered one or more
+/// one-shot sounds (`killcam::SND_*`) this tick, so it can be played back
+/// positionally at `position` on every other client. Never sent to the
+/// player who triggered it — they already hear their own local, non-spatial
+/// version of these sounds.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct RemoteSound {
+    pub player: PeerId,
+    pub bits: u16,
+    /// World point the sound should play from (the player's pose position).
+    pub position: [f32; 3],
+}
+
 /// One line of a scored shot's breakdown, e.g. `+50  360° SPIN`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ScoreLine {
@@ -328,7 +344,7 @@ pub struct KillCamSample {
     /// The shooter's hip FOV setting, so the replay renders at their FOV.
     pub fov_deg: f32,
     /// One-shot sounds triggered on this frame (`killcam::SND_*`).
-    pub sound_bits: u8,
+    pub sound_bits: u16,
     /// First-person weapon animation playhead (seconds) on this frame.
     pub anim_time: f32,
     /// Aim-down-sight amount on this frame (`0.0` hip … `1.0` fully scoped).
@@ -512,6 +528,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<MatchOver>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KillCam>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<RemoteSound>()
             .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)

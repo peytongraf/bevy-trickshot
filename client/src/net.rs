@@ -15,6 +15,7 @@ use core::time::Duration;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
+use bevy::audio::{SpatialScale, Volume};
 use bevy::prelude::*;
 use lightyear::prelude::client::{ClientPlugins, NetcodeClient, NetcodeConfig};
 use lightyear::prelude::input::client::InputSet;
@@ -103,6 +104,7 @@ impl Plugin for ClientNetPlugin {
                 spawn_bot_avatars,
                 follow_bot_avatars,
                 receive_shots,
+                receive_remote_sounds,
                 receive_trick_scores,
                 receive_match_over,
                 receive_killcam,
@@ -361,6 +363,84 @@ fn receive_shots(
                 start: Vec3::from_array(msg.origin),
                 end: Vec3::from_array(msg.tracer_end),
             });
+        }
+    }
+}
+
+/// Server → everyone else in the shooter's lobby: play another player's
+/// one-shot sounds (footstep/jump/slide/reload/rechamber/shot/dive)
+/// positionally at their reported position, falling off with distance. The
+/// server already excludes the triggering player from the message's targets
+/// (they hear their own local, non-spatial version instead), but the `me`
+/// check here is a cheap defensive backstop.
+#[allow(clippy::too_many_arguments)]
+fn receive_remote_sounds(
+    local: Query<&LocalId, With<GameClient>>,
+    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
+    mut receivers: Query<&mut MessageReceiver<shared::RemoteSound>>,
+    sounds: Res<crate::GameSounds>,
+    sound_vol: Res<crate::SoundVolumes>,
+    remote_sound: Res<crate::RemoteSoundSettings>,
+    global_volume: Res<GlobalVolume>,
+    mut footstep_seed: Local<u32>,
+    mut footstep_last: Local<std::collections::HashMap<PeerId, usize>>,
+    mut commands: Commands,
+) {
+    let me = local.iter().next().map(|l| l.0);
+    let Ok(ear) = listener.single() else {
+        return;
+    };
+    let ear = ear.translation();
+
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            if Some(msg.player) == me {
+                continue;
+            }
+            let pos = Vec3::from_array(msg.position);
+            let distance = ear.distance(pos);
+            if distance >= remote_sound.max_distance {
+                continue;
+            }
+            // Linear fade to silence at `max_distance`, squared for a
+            // steeper near-field/far-field falloff than a straight ramp.
+            let falloff = (1.0 - distance / remote_sound.max_distance).powi(2);
+
+            for bit in killcam::ALL_SND_BITS {
+                if msg.bits & bit == 0 {
+                    continue;
+                }
+                let clip = if bit == killcam::SND_FOOTSTEP {
+                    *footstep_seed = footstep_seed.wrapping_add(1);
+                    let last = footstep_last.entry(msg.player).or_default();
+                    killcam::pick_footstep(&sounds.footsteps, last, *footstep_seed)
+                } else {
+                    killcam::sound_for(&sounds, bit).cloned()
+                };
+                let Some(clip) = clip else { continue };
+                let category = sound_vol.oneshot_for(&clip, &sounds).unwrap_or(1.0);
+                let mult = (category * falloff * remote_sound.volume).max(0.0);
+                let volume = Volume::Linear(mult) * global_volume.volume;
+                commands.spawn((
+                    crate::RemoteSoundEmitter,
+                    AudioPlayer::new(clip),
+                    Transform::from_translation(pos),
+                    PlaybackSettings::DESPAWN
+                        .with_spatial(true)
+                        // rodio's spatial source attenuates each ear by
+                        // `1 / distance²` in *raw* world units (see
+                        // `rodio::source::spatial::Spatial::set_positions`),
+                        // uncapped below 1 unit — at our meter-scale world
+                        // that's already ~1% volume by 10m, drowning out the
+                        // falloff we actually want to control below. Shrink
+                        // the distance rodio sees so its own curve stays
+                        // near-flat (panning only) across the whole hearing
+                        // range, leaving `falloff` above as the sole thing
+                        // that actually decides loudness by distance.
+                        .with_spatial_scale(SpatialScale::new(0.01))
+                        .with_volume(volume),
+                ));
+            }
         }
     }
 }

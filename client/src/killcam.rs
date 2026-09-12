@@ -43,14 +43,29 @@ pub(crate) fn viewmodel_anim_time(
 }
 
 /// One-shot sound bits, packed into `PlayerInput::sound_bits` / recorded locally.
-pub(crate) const SND_SHOT: u8 = 1 << 0;
-pub(crate) const SND_RELOAD: u8 = 1 << 1;
-pub(crate) const SND_RECHAMBER: u8 = 1 << 2;
-pub(crate) const SND_SLIDE: u8 = 1 << 3;
-pub(crate) const SND_DIVE: u8 = 1 << 4;
-pub(crate) const SND_AIM_IN: u8 = 1 << 5;
-pub(crate) const SND_AIM_OUT: u8 = 1 << 6;
-pub(crate) const SND_FOOTSTEP: u8 = 1 << 7;
+pub(crate) const SND_SHOT: u16 = 1 << 0;
+pub(crate) const SND_RELOAD: u16 = 1 << 1;
+pub(crate) const SND_RECHAMBER: u16 = 1 << 2;
+pub(crate) const SND_SLIDE: u16 = 1 << 3;
+pub(crate) const SND_DIVE: u16 = 1 << 4;
+pub(crate) const SND_AIM_IN: u16 = 1 << 5;
+pub(crate) const SND_AIM_OUT: u16 = 1 << 6;
+pub(crate) const SND_FOOTSTEP: u16 = 1 << 7;
+/// The jump-landing thump (`GameSounds::jump_land`) — there's no separate
+/// jump-launch sound, only landing.
+pub(crate) const SND_JUMP_LAND: u16 = 1 << 8;
+/// All bits currently in use, for iterating a `sound_bits` mask.
+pub(crate) const ALL_SND_BITS: [u16; 9] = [
+    SND_SHOT,
+    SND_RELOAD,
+    SND_RECHAMBER,
+    SND_SLIDE,
+    SND_DIVE,
+    SND_AIM_IN,
+    SND_AIM_OUT,
+    SND_FOOTSTEP,
+    SND_JUMP_LAND,
+];
 
 /// Seconds of replay before / after the kill.
 const PRE_SECS: f32 = 3.0;
@@ -62,10 +77,10 @@ const LOCAL_KEEP_SECS: f32 = 5.0;
 /// `write_input` drains it in a networked game; `record_local_replay` drains it
 /// in Practice.
 #[derive(Resource, Default)]
-pub(crate) struct ReplaySoundBits(pub(crate) u8);
+pub(crate) struct ReplaySoundBits(pub(crate) u16);
 
 impl ReplaySoundBits {
-    pub(crate) fn note(&mut self, bit: u8) {
+    pub(crate) fn note(&mut self, bit: u16) {
         self.0 |= bit;
     }
 }
@@ -283,7 +298,10 @@ fn setup_killcam_assets(mut commands: Commands, asset_server: Res<AssetServer>) 
     });
 }
 
-fn sound_for<'a>(sounds: &'a GameSounds, bit: u8) -> Option<&'a Handle<AudioSource>> {
+/// Maps a single `SND_*` bit to its clip — every bit except [`SND_FOOTSTEP`]
+/// (footsteps pick randomly, see [`pick_footstep`]). Shared by kill-cam replay
+/// and `net::receive_remote_sounds`.
+pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSource>> {
     Some(match bit {
         SND_SHOT => &sounds.shot,
         SND_RELOAD => &sounds.reload,
@@ -292,14 +310,16 @@ fn sound_for<'a>(sounds: &'a GameSounds, bit: u8) -> Option<&'a Handle<AudioSour
         SND_DIVE => &sounds.dive,
         SND_AIM_IN => &sounds.aim_in,
         SND_AIM_OUT => &sounds.aim_out,
+        SND_JUMP_LAND => &sounds.jump_land,
         _ => return None,
     })
 }
 
-/// Pick a random footstep clip for kill-cam playback: a fresh pick that isn't
-/// an instant repeat of `last`, mirroring live `play_footstep`'s anti-repeat
-/// rule (just seeded off `seed` instead of a running RNG sequence).
-fn pick_footstep(
+/// Pick a random footstep clip: a fresh pick that isn't an instant repeat of
+/// `last`, mirroring live `play_footstep`'s anti-repeat rule (just seeded off
+/// `seed` instead of a running RNG sequence). Shared by kill-cam replay and
+/// `net::receive_remote_sounds`.
+pub(crate) fn pick_footstep(
     clips: &[Handle<AudioSource>],
     last: &mut usize,
     seed: u32,
@@ -943,6 +963,7 @@ fn drive_killcam(
             SND_DIVE,
             SND_AIM_IN,
             SND_AIM_OUT,
+            SND_JUMP_LAND,
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {

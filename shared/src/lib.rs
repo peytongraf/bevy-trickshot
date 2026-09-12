@@ -24,8 +24,8 @@ use bevy::prelude::*;
 pub use protocol::{
     Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamSample,
     LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, ProtocolPlugin, ScoreLine, SetTimeLimit, ShotOutcome, ShotResolved,
-    StartGame, TrickScore,
+    PlayerName, PlayerPose, ProtocolPlugin, RemoteSound, ScoreLine, SetTimeLimit, ShotOutcome,
+    ShotResolved, StartGame, TrickScore,
 };
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
