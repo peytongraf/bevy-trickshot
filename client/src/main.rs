@@ -795,6 +795,16 @@ fn main() {
             ),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
+        // `InLobby` never used to be reachable straight from `InGame` (only
+        // leaving early went through `MainMenu`), so this had no counterpart
+        // until the match-results screen's CONTINUE button started calling
+        // `next.set(AppState::InLobby)` directly. Without it the cursor stays
+        // grabbed: `menu::cursor_and_hud` only reacts to `Menu` changes, and
+        // on the frame CONTINUE fires, `AppState` is still `InGame` (state
+        // transitions apply at end-of-frame) while the menu just closed, so
+        // it explicitly re-grabs — then never runs again since nothing else
+        // touches `Menu` afterward.
+        .add_systems(OnEnter(AppState::InLobby), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
         .add_systems(Update, apply_master_volume)
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this

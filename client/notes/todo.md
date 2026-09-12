@@ -1,6 +1,13 @@
-- Remote player model of current player showing in kill cam
-- Cursor not showing at end of game screen
+## Added
 
+- Add knife and throwing knife models
+
+---
+
+- Add jumpshot points
+- Cursor not showing at end of game screen
+- Player who isn't party members screen still shows end game screen with continue button even after a game starts.
+- Add different optic options.
 - Add end game screen with play again button
 - Add ramped slow mo final kill of the game
 - Killcam not playing footstep sounds.
