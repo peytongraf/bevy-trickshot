@@ -29,8 +29,8 @@ use crate::settings::{
     VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    field_box, label, spawn_button, UiSound, ACCENT, ACCENT_DIM, BACKDROP, PANEL, PANEL_SOLID,
-    ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK,
+    field_box, label, label_hud, spawn_button, spawn_button_hud, UiSound, ACCENT, ACCENT_DIM,
+    BACKDROP, DEFEAT, PANEL, PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK, VICTORY,
 };
 use crate::AppState;
 
@@ -39,6 +39,10 @@ pub enum Screen {
     None,
     Username,
     Settings,
+    /// The match just ended — shows VICTORY/DEFEAT and the final scoreboard.
+    /// Only dismissed by its own CONTINUE button (see `Btn::ContinueFromResults`),
+    /// not `Esc`, so the result can't be skipped past by accident.
+    MatchResults,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -112,6 +116,7 @@ impl Plugin for MenuPlugin {
                     menu_click,
                     slider_drag,
                     refresh_dynamic,
+                    show_match_results,
                     rebuild_menu,
                     cursor_and_hud,
                 )
@@ -125,6 +130,15 @@ fn startup_menu(mut menu: ResMut<Menu>, settings: Res<Settings>) {
     if !settings.has_username() {
         menu.screen = Screen::Username;
         menu.username_draft.clear();
+        menu.dirty = true;
+    }
+}
+
+/// The match clock ran out: show the results screen. Takes over from
+/// whatever was open (there's nothing sensible to resume mid-results).
+fn show_match_results(mut ended: EventReader<crate::MatchEndedEvent>, mut menu: ResMut<Menu>) {
+    if ended.read().next().is_some() {
+        menu.screen = Screen::MatchResults;
         menu.dirty = true;
     }
 }
@@ -166,6 +180,8 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
                 menu.dirty = true;
             }
         }
+        // Dismissed only by its own CONTINUE button.
+        Screen::MatchResults => {}
     }
 }
 
@@ -268,6 +284,8 @@ enum Btn {
     /// Party-leader only: end the match for the whole party
     /// ([`shared::EndGame`]) — every player is pulled to the main menu.
     LeaveWithParty,
+    /// Dismiss the match-results screen and head back to the lobby room.
+    ContinueFromResults,
 }
 
 /// Which leave-game buttons the pause menu should show, derived each rebuild.
@@ -394,6 +412,15 @@ fn menu_click(
                 if let Ok(mut s) = end_game.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::EndGame);
                 }
+            }
+            Btn::ContinueFromResults => {
+                menu.screen = Screen::None;
+                menu.dirty = true;
+                // The server already flipped `Lobby.started` false; nothing
+                // else drives this transition today (a normally-finished
+                // match, unlike leaving, doesn't disband the lobby), so this
+                // button is what actually returns everyone to the room.
+                next.set(AppState::InLobby);
             }
         }
     }
@@ -554,6 +581,7 @@ fn rebuild_menu(
     settings: Res<Settings>,
     binds: Res<KeyBindings>,
     app_state: Res<State<AppState>>,
+    asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
     existing: Query<Entity, With<MenuRoot>>,
@@ -572,6 +600,7 @@ fn rebuild_menu(
             let leave = leave_ctx(&app_state, &local, &lobbies);
             build_settings(&mut commands, &menu, &settings, &binds, &leave);
         }
+        Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
     }
 }
 
@@ -627,6 +656,112 @@ fn build_username(commands: &mut Commands) {
             );
         });
     });
+}
+
+/// The match-just-ended screen: VICTORY/DEFEAT for the local player plus the
+/// lobby's final scoreboard, sorted highest-first. Reads scores straight off
+/// the still-replicated `Lobby.members` (the server flips `started` false at
+/// match end but doesn't clear membership) rather than trusting a name-string
+/// match against `MatchOver`, since two players could share a name.
+fn build_match_results(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    local: &Query<&LocalId, With<GameClient>>,
+    lobbies: &Query<&shared::Lobby>,
+) {
+    let me = local.iter().next().map(|l| l.0);
+    let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
+
+    let mut rows: Vec<(String, u32, bool)> = lobby
+        .map(|l| {
+            l.members
+                .iter()
+                .map(|m| (m.name.clone(), m.score, Some(m.peer) == me))
+                .collect()
+        })
+        .unwrap_or_default();
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let top_score = rows.first().map(|r| r.1).unwrap_or(0);
+    let top_name = rows.first().map(|r| r.0.clone()).unwrap_or_default();
+    // A tie for the top score still counts as first place.
+    let won = rows.iter().any(|(_, score, is_me)| *is_me && *score == top_score);
+
+    let (headline, color) = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };
+
+    commands
+        .spawn(overlay_root(true))
+        .with_children(|root| {
+            root.spawn(Node {
+                width: Val::Px(520.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                padding: UiRect::all(Val::Px(40.0)),
+                row_gap: Val::Px(16.0),
+                ..default()
+            })
+            .with_children(|card| {
+                card.spawn(label_hud(asset_server, headline, 64.0, color));
+                card.spawn((
+                    Node {
+                        width: Val::Px(90.0),
+                        height: Val::Px(5.0),
+                        ..default()
+                    },
+                    BackgroundColor(color),
+                ));
+                card.spawn(label(
+                    format!("{top_name} wins with {top_score} points"),
+                    16.0,
+                    TEXT_DIM,
+                ));
+
+                card.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::all(Val::Px(14.0)),
+                        row_gap: Val::Px(6.0),
+                        ..default()
+                    },
+                    BackgroundColor(PANEL_SOLID),
+                    BorderRadius::all(Val::Px(8.0)),
+                ))
+                .with_children(|panel| {
+                    for (name, score, is_me) in &rows {
+                        let col = if *is_me { ACCENT } else { TEXT };
+                        panel
+                            .spawn((
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    flex_direction: FlexDirection::Row,
+                                    justify_content: JustifyContent::SpaceBetween,
+                                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(TRACK),
+                                BorderRadius::all(Val::Px(6.0)),
+                            ))
+                            .with_children(|row| {
+                                row.spawn(label(name.clone(), 17.0, col));
+                                row.spawn(label(score.to_string(), 17.0, col));
+                            });
+                    }
+                });
+
+                spawn_button_hud(
+                    card,
+                    asset_server,
+                    "CONTINUE",
+                    20.0,
+                    Btn::ContinueFromResults,
+                    ACCENT_DIM,
+                    ACCENT,
+                    TEXT,
+                    UiSound::MENU,
+                );
+            });
+        });
 }
 
 fn build_settings(

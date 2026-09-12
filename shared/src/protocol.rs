@@ -372,17 +372,31 @@ pub struct KillCamBot {
     pub killed: bool,
 }
 
+/// Another player (not the killer) as they stood the moment the kill landed —
+/// frozen for the replay the same way bots are, since there's no per-tick
+/// recording of every *other* player's pose to draw a full timeline from.
+/// Never includes the killer themselves (the replay is a first-person fly-
+/// through of the killer's own recorded view, so they'd have no body to show).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KillCamPlayer {
+    pub pos: [f32; 3],
+    pub yaw: f32,
+}
+
 /// Server → everyone in a lobby (and built locally in Practice): replay the
 /// killer's last ~3 s. `samples` are oldest-first at `TICK_HZ`; `kill_index` is
 /// the frame the shot landed on (2 s in, 1 s of follow-through after). `bots`
 /// are the targets frozen at the kill moment so the replay can show the one
-/// that was hit toppling over.
+/// that was hit toppling over. `players` are every other lobby member frozen
+/// the same way, so the replay doesn't leave their live remote avatars
+/// wandering through what's meant to be a snapshot of the past.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KillCam {
     pub killer_name: String,
     pub samples: Vec<KillCamSample>,
     pub kill_index: u32,
     pub bots: Vec<KillCamBot>,
+    pub players: Vec<KillCamPlayer>,
 }
 
 /// Client (party leader) → server: set the match length before starting.

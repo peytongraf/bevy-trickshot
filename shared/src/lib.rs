@@ -22,7 +22,8 @@ pub mod weapon;
 use bevy::prelude::*;
 
 pub use protocol::{
-    Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamSample,
+    Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot, KillCamPlayer,
+    KillCamSample,
     LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MatchOver, PlayerId, PlayerInput,
     PlayerName, PlayerPose, ProtocolPlugin, RemoteSound, ScoreLine, SetTimeLimit, ShotOutcome,
     ShotResolved, StartGame, TrickScore,

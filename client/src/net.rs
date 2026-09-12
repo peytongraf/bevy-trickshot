@@ -101,6 +101,7 @@ impl Plugin for ClientNetPlugin {
                 spawn_remote_avatars,
                 follow_remote_avatars,
                 animate_remote_avatars,
+                hide_remote_avatars_during_killcam,
                 spawn_bot_avatars,
                 follow_bot_avatars,
                 receive_shots,
@@ -518,6 +519,29 @@ fn follow_remote_avatars(
             Err(_) => {
                 commands.entity(entity).try_despawn();
             }
+        }
+    }
+}
+
+/// Hides every live remote-player avatar for the duration of a kill cam, and
+/// restores them once it ends. A kill cam is a fly-through of a frozen
+/// moment in the past (`start_killcam` stands in static `models/soldier.glb`
+/// ghosts at each other player's recorded position — see
+/// `killcam::start_killcam`) — without this, these *live*, continuously
+/// updated avatars would keep wandering through that snapshot and could end
+/// up right on top of the replay camera, blocking the view entirely.
+fn hide_remote_avatars_during_killcam(
+    active: Res<killcam::ActiveKillCam>,
+    mut avatars: Query<&mut Visibility, With<RemoteAvatar>>,
+) {
+    let want = if active.0.is_some() {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut vis in &mut avatars {
+        if *vis != want {
+            *vis = want;
         }
     }
 }

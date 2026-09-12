@@ -149,7 +149,11 @@ pub(crate) struct KillCamRun {
     kill_time: f32,
     /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
     bots: Vec<(Vec3, f32, bool)>,
-    /// Ghost bot entities spawned for the replay (despawned on teardown).
+    /// Other players (never the killer) frozen at the kill: `(pos, yaw)`.
+    /// Empty in Practice — there are no other real players to freeze.
+    players: Vec<(Vec3, f32)>,
+    /// Ghost bot/player entities spawned for the replay (despawned on
+    /// teardown).
     ghosts: Vec<Entity>,
     elapsed: f32,
     /// Index of the next frame whose sounds still need firing.
@@ -488,6 +492,7 @@ fn start_local_killcam(
         tracers,
         kill_time,
         bots,
+        players: Vec::new(),
         ghosts: Vec::new(),
         elapsed: 0.0,
         sound_cursor: 0,
@@ -541,6 +546,11 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         .iter()
         .map(|b| (Vec3::from_array(b.pos), b.yaw, b.killed))
         .collect();
+    let players = msg
+        .players
+        .iter()
+        .map(|p| (Vec3::from_array(p.pos), p.yaw))
+        .collect();
     active.0 = Some(KillCamRun {
         killer_name: msg.killer_name,
         frames,
@@ -549,6 +559,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         tracers,
         kill_time,
         bots,
+        players,
         ghosts: Vec::new(),
         elapsed: 0.0,
         sound_cursor: 0,
@@ -581,6 +592,7 @@ fn start_killcam(
     knife: Res<crate::ThrowingKnife>,
     weapon: Res<Weapon>,
     asset_server: Res<AssetServer>,
+    remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     // `aim_idle_sway` (real camera rotation, gated off during a replay) is the
     // only thing that ever touches these — reset them here so a viewer's own
     // last live breathing doesn't leak into the replay for its whole duration.
@@ -669,6 +681,31 @@ fn start_killcam(
                 ),
             ))
             .observe(crate::start_bot_animation)
+            .id();
+        run.ghosts.push(ghost);
+    }
+
+    // Same idea for every other player frozen at the kill — a static
+    // `models/soldier.glb` ghost, never the killer (whose own view this
+    // replay flies through in first person, so they'd have no body to show).
+    // Their *live* remote avatars are hidden for the whole replay by
+    // `net::hide_remote_avatars_during_killcam` so they can't wander through
+    // — and potentially right into the camera of — what's meant to be a
+    // frozen snapshot of the past.
+    for &(pos, yaw) in &run.players {
+        let ghost = commands
+            .spawn((
+                crate::SoldierVisual,
+                StateScoped(AppState::InGame),
+                Transform::from_translation(pos - Vec3::Y * crate::EYE_HEIGHT)
+                    .with_rotation(Quat::from_rotation_y(yaw + core::f32::consts::PI))
+                    .with_scale(Vec3::splat(remote_avatar_settings.scale)),
+                Visibility::default(),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
+                ),
+            ))
+            .observe(crate::start_soldier_animation)
             .id();
         run.ghosts.push(ghost);
     }

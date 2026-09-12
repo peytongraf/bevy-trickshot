@@ -10,7 +10,10 @@ use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{Bot, GameChannel, KillCam, KillCamBot, KillCamSample, Lobby, PlayerId, PlayerInput};
+use shared::{
+    Bot, GameChannel, KillCam, KillCamBot, KillCamPlayer, KillCamSample, Lobby, PlayerId,
+    PlayerInput, PlayerPose,
+};
 
 use crate::bots::{BotHit, LobbyBot};
 
@@ -35,6 +38,7 @@ struct PendingCam {
     killer_name: String,
     kill_seq: u64,
     bots: Vec<KillCamBot>,
+    players: Vec<KillCamPlayer>,
 }
 
 #[derive(Resource, Default)]
@@ -112,6 +116,7 @@ fn queue_killcams(
     mut hits: EventReader<BotHit>,
     lobbies: Query<(Entity, &Lobby)>,
     bots: Query<(Entity, &Bot, &LobbyBot)>,
+    players: Query<(&PlayerId, &PlayerPose)>,
     mut pending: ResMut<PendingCams>,
 ) {
     // Group this tick's kills by shooter first — a collateral shot fires one
@@ -146,10 +151,21 @@ fn queue_killcams(
                 killed: killed_bots.contains(&e),
             })
             .collect();
+        // Freeze every other lobby member too — the killer excluded, since
+        // the replay is a first-person fly-through of their own view.
+        let player_snap: Vec<KillCamPlayer> = players
+            .iter()
+            .filter(|(id, _)| id.0 != killer && lobby.has(id.0))
+            .map(|(_, pose)| KillCamPlayer {
+                pos: pose.translation.to_array(),
+                yaw: pose.yaw,
+            })
+            .collect();
         pending.0.push(PendingCam {
             killer,
             killer_name: name,
             kill_seq: clock.0,
+            players: player_snap,
             bots: snap,
         });
     }
@@ -203,6 +219,7 @@ fn flush_killcams(
             samples: window,
             kill_index,
             bots: cam.bots.clone(),
+            players: cam.players.clone(),
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
             error!("failed to send kill cam: {e:?}");

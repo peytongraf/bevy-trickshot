@@ -1,3 +1,6 @@
+- Remote player model of current player showing in kill cam
+- Cursor not showing at end of game screen
+
 - Add end game screen with play again button
 - Add ramped slow mo final kill of the game
 - Killcam not playing footstep sounds.

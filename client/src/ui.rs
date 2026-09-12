@@ -19,6 +19,10 @@ pub const ACCENT: Color = Color::srgb(0.96, 0.62, 0.12);
 pub const ACCENT_DIM: Color = Color::srgb(0.42, 0.30, 0.10);
 pub const TEXT: Color = Color::srgb(0.90, 0.92, 0.94);
 pub const TEXT_DIM: Color = Color::srgb(0.55, 0.58, 0.63);
+/// "VICTORY" headline — the match-results screen (`menu.rs`).
+pub const VICTORY: Color = Color::srgb(0.16, 0.85, 0.62);
+/// "DEFEAT" headline — matches the kill-cam banner's red.
+pub const DEFEAT: Color = Color::srgb(0.85, 0.06, 0.06);
 
 /// Installs the shared hover-tint and button-sound systems. Added once from
 /// `main`.
