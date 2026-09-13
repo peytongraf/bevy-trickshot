@@ -56,7 +56,7 @@ use keybinds::KeyBindings;
 use settings::{Settings, ShadowQuality};
 
 use bevy::{
-    animation::{RepeatAnimation, prelude::AnimationTransitions},
+    animation::{prelude::AnimationTransitions, RepeatAnimation},
     audio::{SpatialListener, Volume},
     core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
@@ -77,6 +77,7 @@ use bevy::{
     window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_rapier3d::prelude::*;
 
 /// Render layer used by the view model (the gun + arms) and its dedicated
 /// camera, so the weapon never clips into world geometry.
@@ -108,9 +109,10 @@ const SKY_RADIUS: f32 = 900.0;
 
 /// Placement of `basic_map.glb` (position / yaw / uniform scale), live-tweakable
 /// from the debug panel's "Map" section and pushed onto the loaded scene by
-/// `apply_map_transform`. Rotation is yaw-only (about Y) — `map_surface_height`
-/// derives a closed-form walkable surface from the model's known geometry, and
-/// that only works for a level, unrotated-in-pitch/roll piece.
+/// `apply_map_transform`. Rotation is yaw-only (about Y) — the collider
+/// `sync_map_model` generates from the mesh moves with this transform too, but
+/// `apply_gravity`'s ground raycast assumes "up" stays world-up, which a
+/// pitch/roll tilt would break.
 #[derive(Resource)]
 struct MapSettings {
     position: Vec3,
@@ -128,219 +130,44 @@ impl Default for MapSettings {
     }
 }
 
-/// Marker on the spawned `basic_map.glb` scene root, so `apply_map_transform`
-/// can find it.
+/// Marker on every entity [`sync_map_model`] spawns for the current map
+/// ([`MapModel`] and, if there is one, [`MapVisualModel`]) — lets
+/// [`apply_map_transform`] / [`apply_shipment_transform`] move both with one
+/// query instead of naming each marker (and instead of `Or<(With<A>,
+/// With<B>)>`, which drags clippy's `type_complexity` lint in for no benefit
+/// here).
+#[derive(Component)]
+struct MapGeometry;
+
+/// Marker on the spawned collision-blockout scene root (`basic_map.glb`, or
+/// `shipment.glb` for `Shipment`) — the mesh `sync_map_model`'s
+/// `AsyncSceneCollider` actually generates `apply_gravity` /
+/// `resolve_wall_collisions`'s colliders from. Stays visible until
+/// [`reveal_map_visual`] hides it, once the matching [`MapVisualModel`] (if
+/// any) has actually finished loading — not just because one was requested,
+/// so a slow or failed visual load leaves the player looking at the
+/// (correctly-colliding, if ugly) blockout instead of nothing at all. Its
+/// colliders stay active regardless of `Visibility` either way.
 #[derive(Component)]
 struct MapModel;
+
+/// Marker on the optional, nicer-looking scene spawned *in addition to* the
+/// matching [`MapModel`] for maps that have one — so far just `Shipment`'s
+/// `shipment_visual.glb`, sitting on top of `shipment.glb`'s collision
+/// blockout (hidden once this finishes loading — see [`reveal_map_visual`]).
+/// Purely visual: no collider, and its `Transform` is kept identical to
+/// `MapModel`'s ([`apply_map_transform`] / [`apply_shipment_transform`] move
+/// both, via [`MapGeometry`]), so it lines up with the blockout's geometry —
+/// and therefore with collision — as long as whoever builds it keeps the two
+/// aligned in whatever tool exported them.
+#[derive(Component)]
+struct MapVisualModel;
 
 /// Marker on the always-spawned procedural asphalt ground plane, so
 /// [`sync_ground_visibility`] can hide it for maps that ship their own ground
 /// (`shipment.glb`'s `Ground` node).
 #[derive(Component)]
 struct ProceduralGround;
-
-/// One walkable piece of `basic_map.glb`'s hand-fit collision, in the model's
-/// own local space (before `MapSettings` position / yaw / scale is applied).
-/// There's no runtime mesh collision in this game (see `apply_gravity`'s
-/// building-roof check) — `map_surface_height` closed-form computes "what's
-/// the floor here" the same way, just with more pieces. `RampX` / `RampZ`
-/// linearly interpolate height along the given axis between two edges.
-enum MapSurface {
-    Flat {
-        x: (f32, f32),
-        z: (f32, f32),
-        y: f32,
-    },
-    RampX {
-        z: (f32, f32),
-        x_lo: f32,
-        x_hi: f32,
-        y_lo: f32,
-        y_hi: f32,
-    },
-    RampZ {
-        x: (f32, f32),
-        z_lo: f32,
-        z_hi: f32,
-        y_lo: f32,
-        y_hi: f32,
-    },
-}
-
-/// Hand-measured from `basic_map.glb`'s node transforms: the base cube, a ramp
-/// up onto it, a second taller cube reached by a second ramp, a third cube,
-/// and the bridge connecting the second and third. Keep in sync with the
-/// model if it's re-exported with different dimensions.
-const MAP_SURFACES: &[MapSurface] = &[
-    // First cube — top platform (widened to x: -2..6).
-    MapSurface::Flat {
-        x: (-2.0, 6.0),
-        z: (-2.0, 2.0),
-        y: 4.0,
-    },
-    // Ramp from the ground up onto the first cube (moved to its new edge).
-    MapSurface::RampZ {
-        x: (4.0, 6.0),
-        z_lo: -9.2,
-        z_hi: -2.0,
-        y_lo: 0.0,
-        y_hi: 4.0,
-    },
-    // Second, taller cube.
-    MapSurface::Flat {
-        x: (-6.0, -2.0),
-        z: (-2.0, 2.0),
-        y: 6.0,
-    },
-    // Ramp from the first cube's top up onto the second.
-    MapSurface::RampX {
-        z: (0.0, 2.0),
-        x_lo: -2.0,
-        x_hi: 3.22,
-        y_lo: 6.0,
-        y_hi: 4.0,
-    },
-    // Third cube, reached by the bridge.
-    MapSurface::Flat {
-        x: (-20.0, -16.0),
-        z: (-2.0, 2.0),
-        y: 6.0,
-    },
-    // Bridge connecting the second and third cubes.
-    MapSurface::Flat {
-        x: (-16.0, -6.0),
-        z: (-0.98, 0.98),
-        y: 6.0,
-    },
-];
-
-/// World-space height of `basic_map.glb`'s walkable surface at `(world_x,
-/// world_z)`, or `None` if that point isn't over any of it (so the caller
-/// falls through to the ground). Inverse of the position/yaw/scale transform
-/// `apply_map_transform` applies to the visual model, so collision always
-/// matches what's on screen.
-fn map_surface_height(world_x: f32, world_z: f32, map: &MapSettings) -> Option<f32> {
-    let scale = map.scale.max(1.0e-4);
-    let theta = map.rotation_deg.to_radians();
-    let (sin, cos) = (theta.sin(), theta.cos());
-    let dx = world_x - map.position.x;
-    let dz = world_z - map.position.z;
-    let lx = (dx * cos - dz * sin) / scale;
-    let lz = (dx * sin + dz * cos) / scale;
-
-    let mut best: Option<f32> = None;
-    for s in MAP_SURFACES {
-        let h = match *s {
-            MapSurface::Flat { x, z, y } => {
-                (lx >= x.0 && lx <= x.1 && lz >= z.0 && lz <= z.1).then_some(y)
-            }
-            MapSurface::RampZ {
-                x,
-                z_lo,
-                z_hi,
-                y_lo,
-                y_hi,
-            } => (lx >= x.0 && lx <= x.1 && lz >= z_lo && lz <= z_hi).then(|| {
-                let t = ((lz - z_lo) / (z_hi - z_lo)).clamp(0.0, 1.0);
-                y_lo.lerp(y_hi, t)
-            }),
-            MapSurface::RampX {
-                z,
-                x_lo,
-                x_hi,
-                y_lo,
-                y_hi,
-            } => (lz >= z.0 && lz <= z.1 && lx >= x_lo.min(x_hi) && lx <= x_lo.max(x_hi)).then(
-                || {
-                    let t = ((lx - x_lo) / (x_hi - x_lo)).clamp(0.0, 1.0);
-                    y_lo.lerp(y_hi, t)
-                },
-            ),
-        };
-        if let Some(h) = h {
-            best = Some(best.map_or(h, |b: f32| b.max(h)));
-        }
-    }
-    best.map(|h| h * scale + map.position.y)
-}
-
-#[cfg(test)]
-mod map_surface_tests {
-    use super::*;
-
-    fn settings(position: Vec3, rotation_deg: f32, scale: f32) -> MapSettings {
-        MapSettings {
-            position,
-            rotation_deg,
-            scale,
-        }
-    }
-
-    #[test]
-    fn flat_cube_top() {
-        // (5.0, -1.5) is on the first cube's top but clear of both ramps'
-        // footprints, which overlap the cube's edges where they attach.
-        let map = settings(Vec3::ZERO, 0.0, 1.0);
-        assert_eq!(map_surface_height(5.0, -1.5, &map), Some(4.0));
-    }
-
-    #[test]
-    fn ramp_interpolates_between_its_edges() {
-        let map = settings(Vec3::ZERO, 0.0, 1.0);
-        assert!((map_surface_height(5.0, -9.2, &map).unwrap() - 0.0).abs() < 1.0e-3);
-        assert!((map_surface_height(5.0, -2.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
-        let mid = map_surface_height(5.0, -5.6, &map).unwrap();
-        assert!(
-            mid > 1.5 && mid < 2.5,
-            "expected a mid-ramp height, got {mid}"
-        );
-    }
-
-    #[test]
-    fn outside_every_footprint_is_none() {
-        let map = settings(Vec3::ZERO, 0.0, 1.0);
-        assert_eq!(map_surface_height(50.0, 50.0, &map), None);
-    }
-
-    #[test]
-    fn position_offsets_the_surface() {
-        let map = settings(Vec3::new(100.0, 5.0, 200.0), 0.0, 1.0);
-        assert_eq!(map_surface_height(105.0, 198.5, &map), Some(9.0)); // 4.0 + 5.0
-        assert_eq!(map_surface_height(0.0, 0.0, &map), None);
-    }
-
-    #[test]
-    fn scale_multiplies_footprint_and_height() {
-        let map = settings(Vec3::ZERO, 0.0, 2.0);
-        assert_eq!(map_surface_height(10.0, -3.0, &map), Some(8.0)); // local (5,-1.5) * scale
-        assert_eq!(map_surface_height(12.0, -4.0, &map), Some(8.0)); // local edge x=6,z=-2
-        assert_eq!(map_surface_height(12.1, -4.0, &map), None);
-    }
-
-    #[test]
-    fn second_ramp_connects_the_first_and_second_cube_tops() {
-        let map = settings(Vec3::ZERO, 0.0, 1.0);
-        // Low edge (x=3.22, into the first cube's footprint) is flush with its top.
-        assert!((map_surface_height(3.22, 1.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
-        // High edge (x=-2, the shared wall) is flush with the second cube's top.
-        assert!((map_surface_height(-2.0, 1.0, &map).unwrap() - 6.0).abs() < 1.0e-3);
-    }
-
-    #[test]
-    fn second_and_third_cube_tops_and_bridge_are_all_walkable() {
-        let map = settings(Vec3::ZERO, 0.0, 1.0);
-        assert_eq!(map_surface_height(-4.0, 0.0, &map), Some(6.0)); // second cube
-        assert_eq!(map_surface_height(-18.0, 0.0, &map), Some(6.0)); // third cube
-        assert_eq!(map_surface_height(-11.0, 0.0, &map), Some(6.0)); // bridge between them
-    }
-
-    #[test]
-    fn yaw_rotates_the_footprint() {
-        let map = settings(Vec3::ZERO, 90.0, 1.0);
-        assert!((map_surface_height(-9.2, -5.0, &map).unwrap() - 0.0).abs() < 1.0e-3);
-        assert!((map_surface_height(-2.0, -5.0, &map).unwrap() - 4.0).abs() < 1.0e-3);
-    }
-}
 
 /// Push `MapSettings` onto the loaded `basic_map.glb` scene every frame it's
 /// the selected map — cheap (one `Transform` write), and unconditional so a
@@ -350,38 +177,38 @@ mod map_surface_tests {
 fn apply_map_transform(
     current: Res<CurrentMap>,
     map: Res<MapSettings>,
-    mut model: Query<&mut Transform, With<MapModel>>,
+    mut models: Query<&mut Transform, With<MapGeometry>>,
 ) {
     if current.0 != shared::MapId::BasicMap {
         return;
     }
-    let Ok(mut transform) = model.single_mut() else {
-        return;
-    };
-    transform.translation = map.position;
-    transform.rotation = Quat::from_rotation_y(map.rotation_deg.to_radians());
-    transform.scale = Vec3::splat(map.scale);
+    for mut transform in &mut models {
+        transform.translation = map.position;
+        transform.rotation = Quat::from_rotation_y(map.rotation_deg.to_radians());
+        transform.scale = Vec3::splat(map.scale);
+    }
 }
 
 /// The map the current lobby (or, in solo Practice, the default) is playing
 /// on — drives which `SceneRoot` [`sync_map_model`] keeps spawned under
-/// [`MapModel`], and which collision data [`resolve_wall_collisions`] and
-/// `apply_gravity`'s surface check (`MapSettings`, `basic_map`-only for now)
-/// use. Set once on [`AppState::InGame`] entry by
-/// `lobby_ui::sync_current_map`; defaults to `BasicMap` before that ever runs.
+/// [`MapModel`] (and its auto-generated `Collider`s, which is all the ground/
+/// wall collision in [`apply_gravity`] / [`resolve_wall_collisions`] needs).
+/// Set once on [`AppState::InGame`] entry by `lobby_ui::sync_current_map`;
+/// defaults to `BasicMap` before that ever runs.
 #[derive(Resource, Default, PartialEq)]
 pub(crate) struct CurrentMap(pub shared::MapId);
 
 /// Live-tunable uniform scale for `shipment.glb` — see
 /// `shared::map::SHIPMENT_SCALE`, which this defaults to and which the
 /// server's own spawn/respawn placement always uses. Adjustable from the
-/// debug panel's "Shipment map" section so you can dial in a different
-/// number by eye; [`apply_shipment_transform`] and
-/// [`resolve_wall_collisions`] both read the live value here, so the
-/// rendered model and its collision stay in lockstep while tuning. Once
-/// you've settled on a number, update the `shared` constant to match —
-/// otherwise a fresh session (or the server's own placement) falls back to
-/// the old default.
+/// debug panel's "Shipment map" section so you can dial in a different number
+/// by eye; [`apply_shipment_transform`] reads the live value here, and
+/// because the model's own `Collider`s are children of the `Transform` this
+/// writes, `apply_gravity` / `resolve_wall_collisions` automatically collide
+/// against whatever scale is currently showing — nothing else to keep in
+/// sync. Once you've settled on a number, update the `shared` constant to
+/// match — otherwise a fresh session (or the server's own placement) falls
+/// back to the old default.
 #[derive(Resource)]
 pub(crate) struct ShipmentSettings {
     pub scale: f32,
@@ -395,34 +222,78 @@ impl Default for ShipmentSettings {
     }
 }
 
-/// Push [`ShipmentSettings`] onto the loaded `shipment.glb` scene every frame
-/// it's the selected map — mirrors [`apply_map_transform`]'s reasoning
-/// (unconditional, not gated on a change flag, so a freshly re-spawned model
-/// always picks the current scale back up).
+/// Push [`ShipmentSettings`] onto both the loaded `shipment.glb`
+/// collision blockout and, if it's currently spawned, its
+/// `shipment_visual.glb` overlay — every frame it's the selected map, so the
+/// two stay at the same scale as each other (mirrors
+/// [`apply_map_transform`]'s reasoning: unconditional, not gated on a change
+/// flag, so freshly re-spawned models always pick the current scale back
+/// up).
 fn apply_shipment_transform(
     current: Res<CurrentMap>,
     settings: Res<ShipmentSettings>,
-    mut model: Query<&mut Transform, With<MapModel>>,
+    mut models: Query<&mut Transform, With<MapGeometry>>,
 ) {
     if current.0 != shared::MapId::Shipment {
         return;
     }
-    let Ok(mut transform) = model.single_mut() else {
-        return;
-    };
-    transform.scale = Vec3::splat(settings.scale);
+    for mut transform in &mut models {
+        transform.scale = Vec3::splat(settings.scale);
+    }
 }
 
-/// Keep exactly one `MapModel` scene spawned, matching [`CurrentMap`] — swaps
-/// it out (despawn old, spawn new) whenever the selection changes. Runs
+/// Collider shape used for every mesh node in a map's `.glb` — an exact
+/// triangle mesh, so collision always matches the visual geometry exactly,
+/// including concave/open shapes: a container built from a few wall meshes
+/// and a ceiling joined together, missing a wall or two on purpose so a
+/// player can walk in, stays walk-in-able, rather than getting filled solid.
+/// (`ComputedColliderShape::ConvexHull` — the previous default for anything
+/// other than a node named `"Ground"` — can only ever produce a *convex*
+/// shape, so it silently filled in any such opening; there's no Blender-side
+/// fix for that, it's a property of convex hulls in general.) Every map's
+/// collision blockout is static — nothing here moves at runtime beyond
+/// `MapSettings`/`ShipmentSettings`'s whole-scene placement — so trimesh's
+/// usual downside (expensive to move) doesn't apply, and slopes/ramps built
+/// into a mesh (a node named `"Ground"`, or any other) produce real walkable
+/// geometry for free, the same way.
+fn map_collider_shape() -> ComputedColliderShape {
+    ComputedColliderShape::TriMesh(TriMeshFlags::MERGE_DUPLICATE_VERTICES)
+}
+
+/// The optional nicer-looking scene shown *instead of* `map`'s collision
+/// blockout — `None` means the blockout is what's on screen (`basic_map.glb`
+/// today; every map starts out this way before it has real art). Add an
+/// entry here once a map gets a `MapVisualModel` of its own.
+fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
+    match map {
+        shared::MapId::BasicMap => None,
+        shared::MapId::Shipment => Some("models/shipment_visual.glb"),
+    }
+}
+
+/// Keep exactly one `MapModel` (plus, if [`map_visual_path`] has one, one
+/// `MapVisualModel`) scene spawned, matching [`CurrentMap`] — swaps them out
+/// (despawn old, spawn new) whenever the selection changes. Runs
 /// unconditionally (not gated on `AppState`) so the world behind the menu/
 /// lobby UI is already showing the right map by the time a game starts, the
 /// same "always loaded" behaviour `setup_world` used to provide for the one
 /// map that used to exist.
+///
+/// The `AsyncSceneCollider` on `MapModel` is the whole reason a new map
+/// needs zero hand-authored collision data: once the scene finishes loading,
+/// rapier walks every mesh node and builds a real [`map_collider_shape`]
+/// `Collider` from its actual geometry. Export a `.glb`, point a `MapId` at
+/// it here, and `apply_gravity` / `resolve_wall_collisions` (neither of
+/// which know or care which map is loaded) just work — a map plays
+/// correctly on nothing but its blockout, so
+/// a `MapVisualModel` is an optional, purely cosmetic layer on top: it never
+/// gets a collider, and `MapModel` is only hidden (rather than despawned)
+/// once [`reveal_map_visual`] confirms the replacement actually made it on
+/// screen, so collision keeps coming from the same blockout either way.
 fn sync_map_model(
     current: Res<CurrentMap>,
     asset_server: Res<AssetServer>,
-    existing: Query<Entity, With<MapModel>>,
+    existing: Query<Entity, With<MapGeometry>>,
     mut commands: Commands,
 ) {
     if !current.is_changed() {
@@ -437,77 +308,183 @@ fn sync_map_model(
     };
     commands.spawn((
         MapModel,
+        MapGeometry,
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+        AsyncSceneCollider {
+            shape: Some(map_collider_shape()),
+            named_shapes: default(),
+        },
     ));
+    if let Some(visual_path) = map_visual_path(current.0) {
+        commands
+            .spawn((
+                MapVisualModel,
+                MapGeometry,
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(visual_path))),
+            ))
+            .observe(reveal_map_visual);
+    }
+}
+
+/// Fires once a [`MapVisualModel`]'s `SceneRoot` finishes spawning — only
+/// *then* hides the matching [`MapModel`] blockout, rather than hiding it
+/// eagerly the moment a visual override is merely requested. `shipment_visual
+/// .glb` is a much heavier asset than the blockout it replaces (a full
+/// container pack's worth of meshes and textures vs. a handful of untextured
+/// boxes), so if it's slow to load, still loading, or — for whatever
+/// reason — never resolves, this keeps the player looking at the (correctly
+/// colliding, if plain) blockout instead of bare sky.
+fn reveal_map_visual(
+    trigger: Trigger<SceneInstanceReady>,
+    visuals: Query<(), With<MapVisualModel>>,
+    mut blockout: Query<&mut Visibility, With<MapModel>>,
+) {
+    if !visuals.contains(trigger.target()) {
+        return;
+    }
+    if let Ok(mut vis) = blockout.single_mut() {
+        *vis = Visibility::Hidden;
+    }
 }
 
 /// Hide the always-spawned procedural asphalt ground ([`ProceduralGround`])
-/// for maps that ship their own ground — so far just `Shipment`, whose
-/// `shipment.glb` has its own `Ground` node, now fully enclosed by its own
-/// walls; leaving the big generic plane visible outside them would show
-/// asphalt stretching past the yard's edge. Unconditional each frame, same
-/// reasoning as [`apply_map_transform`].
+/// — and disable its `Collider` (`ColliderDisabled`) — for maps that ship
+/// their own ground: so far just `Shipment`, whose `shipment.glb` has its
+/// own `Ground` node, now fully enclosed by its own walls. Leaving the big
+/// generic plane visible outside them would show asphalt stretching past
+/// the yard's edge; leaving its *collider* active underneath a map with its
+/// own ground would stack two flat, coincident colliders at the same
+/// height, and `apply_gravity`'s raycast can then land on either one from
+/// one frame to the next — flipping which of two near-identical surface
+/// heights it reports for the same spot re-triggers grounded-edge detection
+/// (and so the landing sound) every time, even standing still on flat
+/// ground. Only reacts to an actual map change ([`ProceduralGround`] is
+/// spawned once in `setup_world` and never respawned, unlike [`MapModel`],
+/// so there's no freshly-respawned entity to recover state for on other
+/// frames).
 fn sync_ground_visibility(
     current: Res<CurrentMap>,
-    mut ground: Query<&mut Visibility, With<ProceduralGround>>,
+    ground: Query<Entity, With<ProceduralGround>>,
+    mut commands: Commands,
 ) {
-    let Ok(mut vis) = ground.single_mut() else {
+    if !current.is_changed() {
+        return;
+    }
+    let Ok(entity) = ground.single() else {
         return;
     };
-    *vis = match current.0 {
-        shared::MapId::BasicMap => Visibility::Inherited,
-        shared::MapId::Shipment => Visibility::Hidden,
-    };
+    let has_own_ground = current.0 == shared::MapId::Shipment;
+    let mut ground = commands.entity(entity);
+    if has_own_ground {
+        ground.insert((Visibility::Hidden, ColliderDisabled));
+    } else {
+        ground.insert(Visibility::Inherited).remove::<ColliderDisabled>();
+    }
 }
 
-/// Keep the player out of the selected map's walls (`shared::map::walls`,
-/// hand-measured from `shipment.glb`'s containers — `basic_map.glb` has
-/// none) — run right after [`move_player`] each frame. Player and box are
-/// both treated as their XZ footprint only (a circle of
-/// [`BODY_CAPSULE_RADIUS`] vs. an AABB — scaled by [`ShipmentSettings`],
-/// matching whatever `apply_shipment_transform` is rendering — expanded by
-/// that same radius); a circle already inside a box (e.g. a bad spawn) is
-/// pushed back out along whichever edge is nearest, rather than left stuck.
+/// How far above the current feet position [`resolve_wall_collisions`]'s
+/// probe capsule starts — clear of flush-flat ground or a shallow ramp, so
+/// sweeping across it never reads as hitting a wall. Containers/crates stand
+/// much taller than this, so their sides are still caught.
+const WALL_PROBE_CLEARANCE: f32 = 0.3;
+
+/// Keep the player out of the selected map's solid geometry — the same
+/// mesh-derived `Collider`s [`sync_map_model`] generates for whatever's
+/// loaded, so there's no per-map wall list to maintain. Runs right after
+/// [`move_player`] each frame: sweeps a short vertical capsule (from
+/// [`WALL_PROBE_CLEARANCE`] above the feet up to head height) along this
+/// frame's horizontal move, one axis at a time so sliding along a wall hit at
+/// an angle still works (see [`sweep_axis`]).
 fn resolve_wall_collisions(
-    current: Res<CurrentMap>,
-    shipment: Res<ShipmentSettings>,
-    mut player: Single<&mut Transform, With<Player>>,
+    time: Res<Time>,
+    rapier: ReadRapierContext,
+    mut player: Single<(&mut Transform, &PlayerPhysics), With<Player>>,
 ) {
-    let walls = shared::map::walls(current.0);
-    if walls.is_empty() {
+    let Ok(rapier) = rapier.single() else {
+        return;
+    };
+    let (transform, physics) = &mut *player;
+    let dt = time.delta_secs();
+    let delta = Vec3::new(
+        physics.horizontal_velocity.x * dt,
+        0.0,
+        physics.horizontal_velocity.z * dt,
+    );
+    if delta.length_squared() < 1.0e-10 {
         return;
     }
-    let scale = shipment.scale;
-    let mut x = player.translation.x;
-    let mut z = player.translation.z;
-    for wall in walls {
-        let (min_x, max_x) = (
-            wall.x.0 * scale - BODY_CAPSULE_RADIUS,
-            wall.x.1 * scale + BODY_CAPSULE_RADIUS,
-        );
-        let (min_z, max_z) = (
-            wall.z.0 * scale - BODY_CAPSULE_RADIUS,
-            wall.z.1 * scale + BODY_CAPSULE_RADIUS,
-        );
-        if x <= min_x || x >= max_x || z <= min_z || z >= max_z {
-            continue;
-        }
-        let push = [x - min_x, max_x - x, z - min_z, max_z - z];
-        let nearest = push
-            .iter()
-            .enumerate()
-            .min_by(|a, b| a.1.total_cmp(b.1))
-            .map(|(i, _)| i)
-            .unwrap();
-        match nearest {
-            0 => x = min_x,
-            1 => x = max_x,
-            2 => z = min_z,
-            _ => z = max_z,
-        }
+    // `move_player`, right before this in the system chain, already
+    // integrated this frame's move into `transform` — back it out to recover
+    // the (already-valid, non-penetrating) position the sweep starts from.
+    let start = transform.translation - delta;
+    let feet = start.y - EYE_HEIGHT;
+    let probe_bottom = feet + WALL_PROBE_CLEARANCE;
+    let probe_top = feet + BODY_CAPSULE_HEIGHT;
+    let half_height = ((probe_top - probe_bottom) / 2.0 - BODY_CAPSULE_RADIUS).max(0.01);
+    let probe = Collider::capsule_y(half_height, BODY_CAPSULE_RADIUS);
+
+    let mut pos = Vec3::new(start.x, (probe_bottom + probe_top) / 2.0, start.z);
+    pos += sweep_axis(&rapier, pos, Vec3::new(delta.x, 0.0, 0.0), &probe);
+    pos += sweep_axis(&rapier, pos, Vec3::new(0.0, 0.0, delta.z), &probe);
+    transform.translation.x = pos.x;
+    transform.translation.z = pos.z;
+}
+
+/// Sweeps `probe` from `origin` along `delta`, stopping just short of the
+/// first wall-like hit and returning how far it actually got to move. A hit
+/// whose surface normal is mostly vertical is a floor or a shallow ramp, not
+/// a wall — `resolve_wall_collisions` only moves horizontally, so that kind
+/// of hit doesn't block it; the sweep instead steps past it and keeps going
+/// with whatever distance remains, up to a few times, so grazing the ground
+/// can't fully stall horizontal movement.
+fn sweep_axis(rapier: &RapierContext, origin: Vec3, delta: Vec3, probe: &Collider) -> Vec3 {
+    if delta.length_squared() < 1.0e-10 {
+        return Vec3::ZERO;
     }
-    player.translation.x = x;
-    player.translation.z = z;
+    // `stop_at_penetration: false` matters here: once a frame's sweep stops
+    // the player flush against a wall (within `target_distance`), *every*
+    // subsequent frame starts already touching it. With `true`, a touching
+    // start is always reported as an immediate (`time_of_impact: 0`) hit
+    // regardless of which way `delta` points, which pins the player against
+    // the wall forever — stepping away can't out-run its own starting
+    // contact. `false` discards that trivial hit specifically when `delta`
+    // is separating (moving away) and searches forward for a real impact
+    // instead, so walking away from a wall you're resting on works, while
+    // walking further into it still blocks immediately.
+    let options = ShapeCastOptions {
+        max_time_of_impact: 1.0,
+        target_distance: 0.01,
+        stop_at_penetration: false,
+        compute_impact_geometry_on_penetration: true,
+    };
+    let mut pos = origin;
+    let mut remaining = delta;
+    let mut travelled = Vec3::ZERO;
+    for _ in 0..4 {
+        if remaining.length_squared() < 1.0e-10 {
+            break;
+        }
+        let Some((_, hit)) = rapier.cast_shape(
+            pos,
+            Quat::IDENTITY,
+            remaining,
+            probe,
+            options,
+            QueryFilter::default(),
+        ) else {
+            travelled += remaining;
+            break;
+        };
+        let blocking = hit.details.map(|d| d.normal1.y.abs() < 0.5).unwrap_or(true);
+        let step = remaining * hit.time_of_impact;
+        travelled += step;
+        if blocking {
+            break;
+        }
+        pos += step;
+        remaining -= step;
+    }
+    travelled
 }
 
 /// Where the player spawns, and the initial [`TeleportPoint`] the teleport key
@@ -767,8 +744,7 @@ fn noscope_spread_angle(cfg: &NoScopeSpread, ads_t: f32) -> f32 {
 fn breathing_offset(clock: f32, freq_hz: Vec2, amp_rad: Vec2) -> Vec2 {
     Vec2::new(
         (clock * freq_hz.x * std::f32::consts::TAU).sin() * amp_rad.x,
-        (clock * freq_hz.y * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2).sin()
-            * amp_rad.y,
+        (clock * freq_hz.y * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2).sin() * amp_rad.y,
     )
 }
 
@@ -864,6 +840,10 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
+        // Collision only (see the `bevy_rapier3d` dependency comment) — no
+        // `RigidBody` is ever spawned, so `PhysicsSet::StepSimulation` has
+        // nothing to integrate each frame, just static colliders to query.
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<AppState>()
         .enable_state_scoped_entities::<AppState>()
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
@@ -1019,7 +999,11 @@ fn main() {
                     .after(look_around)
                     .before(consume_look_delta)
                     .run_if(killcam::no_killcam),
-                (spawn_score_popup, update_score_popups, update_teleport_toast),
+                (
+                    spawn_score_popup,
+                    update_score_popups,
+                    update_teleport_toast,
+                ),
                 sky_follow_camera,
                 camera_shake.run_if(killcam::no_killcam),
                 update_muzzle_flash,
@@ -1764,10 +1748,9 @@ fn start_soldier_animation(
             transitions
                 .play(&mut player, anims.idle, Duration::ZERO)
                 .set_repeat(RepeatAnimation::Forever);
-            commands.entity(entity).insert((
-                AnimationGraphHandle(anims.graph.clone()),
-                transitions,
-            ));
+            commands
+                .entity(entity)
+                .insert((AnimationGraphHandle(anims.graph.clone()), transitions));
             commands.entity(root).insert(SoldierAnimationPlayer(entity));
         }
     }
@@ -2755,9 +2738,13 @@ fn setup_world(
     mut images: ResMut<Assets<Image>>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
-    // (see `build_ground_texture`), tiled every ~2 m. Hidden by
-    // `sync_ground_visibility` for maps that ship their own ground (so far
-    // just `shipment.glb`'s `Ground` node).
+    // (see `build_ground_texture`), tiled every ~2 m. Hidden, and its
+    // `Collider` disabled, by `sync_ground_visibility` for maps that ship
+    // their own ground (so far just `shipment.glb`'s `Ground` node) — active
+    // otherwise, as the fallback floor `apply_gravity`'s raycast lands on
+    // off the edge of any map's own mesh collision (or on a map, like
+    // `basic_map.glb`, that never had a ground mesh of its own to begin
+    // with).
     commands.spawn((
         ProceduralGround,
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(100.0)))),
@@ -2767,14 +2754,14 @@ fn setup_world(
             perceptual_roughness: 0.95,
             ..default()
         })),
+        Collider::halfspace(Vec3::Y).expect("Vec3::Y is already a unit vector"),
     ));
 
     // The selected map's model is kept in sync by `sync_map_model` (not
-    // spawned here) so it can be swapped per-lobby; `apply_map_transform`
-    // positions `basic_map.glb` from `MapSettings` (walkability there is a
-    // hand-fit height field, not real mesh collision — see
-    // `map_surface_height`), while `shipment.glb` sits at the identity
-    // transform and blocks its containers via `resolve_wall_collisions`.
+    // spawned here) so it can be swapped per-lobby — its `AsyncSceneCollider`
+    // generates real mesh collision for whichever `.glb` that loads, so
+    // `apply_gravity` and `resolve_wall_collisions` work the same way for
+    // every map without any hand-authored per-map data.
 
     // Sky: the equirectangular HDR mapped onto the inside of a big UV sphere
     // that follows the camera (see `sky_follow_camera`). Not a true cubemap
@@ -3209,7 +3196,10 @@ fn apply_sound_volumes(
     sounds: Option<Res<GameSounds>>,
     vols: Res<SoundVolumes>,
     global_volume: Res<GlobalVolume>,
-    mut fresh: Query<(&AudioPlayer, &mut AudioSink), (Added<AudioSink>, Without<RemoteSoundEmitter>)>,
+    mut fresh: Query<
+        (&AudioPlayer, &mut AudioSink),
+        (Added<AudioSink>, Without<RemoteSoundEmitter>),
+    >,
 ) {
     let Some(sounds) = sounds else { return };
     for (player, mut sink) in &mut fresh {
@@ -3940,9 +3930,8 @@ fn ads_tuning_ui(
                         .text(format!("aim+sprint anim speed (× at {SPRINT_SPEED} m/s)")),
                 );
                 ui.add(
-                    egui::Slider::new(&mut sa.base_crouch_walk_speed, 0.1f32..=8.0).text(format!(
-                        "crouch walk anim speed (× at {CROUCH_SPEED} m/s)"
-                    )),
+                    egui::Slider::new(&mut sa.base_crouch_walk_speed, 0.1f32..=8.0)
+                        .text(format!("crouch walk anim speed (× at {CROUCH_SPEED} m/s)")),
                 );
                 ui.add(
                     egui::Slider::new(&mut sa.base_strafe_speed, 0.1f32..=8.0).text(format!(
@@ -4278,12 +4267,10 @@ fn ads_tuning_ui(
                 let s = &mut *idle_sway;
                 ui.label("weapon 'breathing' drift while standing still, hip only");
                 ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=2.0)
-                        .text("amplitude X (°)"),
+                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=2.0).text("amplitude X (°)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=2.0)
-                        .text("amplitude Y (°)"),
+                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=2.0).text("amplitude Y (°)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
@@ -4311,12 +4298,10 @@ fn ads_tuning_ui(
                      the screen; the world drifts under it instead.",
                 );
                 ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0)
-                        .text("amplitude X (°)"),
+                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0).text("amplitude X (°)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=1.0)
-                        .text("amplitude Y (°)"),
+                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=1.0).text("amplitude Y (°)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
@@ -4376,12 +4361,10 @@ fn ads_tuning_ui(
                     egui::Slider::new(&mut c.pos_max, 0.0f32..=0.4)
                         .text("up/down + L/R amount (m)"),
                 );
-                ui.add(
-                    egui::Slider::new(&mut c.ads_scale, 0.0f32..=1.0).text(
-                        "ADS scale — jitter + punch + shudder left at full ADS \
+                ui.add(egui::Slider::new(&mut c.ads_scale, 0.0f32..=1.0).text(
+                    "ADS scale — jitter + punch + shudder left at full ADS \
                          (ramps to full at the hip)",
-                    ),
-                );
+                ));
                 ui.separator();
                 ui.label("view punch — rotates gun + cameras together (scaled by ADS scale)");
                 ui.add(
@@ -4644,7 +4627,11 @@ fn crouch_slide(
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
     mut capsule: Single<
         &mut Transform,
-        (With<PlayerBodyCapsule>, Without<Player>, Without<PlayerHead>),
+        (
+            With<PlayerBodyCapsule>,
+            Without<Player>,
+            Without<PlayerHead>,
+        ),
     >,
     mut commands: Commands,
 ) {
@@ -4891,7 +4878,8 @@ fn move_player(
         } else {
             1.0
         };
-        physics.horizontal_velocity = direction.normalize_or_zero() * speed * weapon_mult * dir_mult;
+        physics.horizontal_velocity =
+            direction.normalize_or_zero() * speed * weapon_mult * dir_mult;
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();
@@ -5136,16 +5124,23 @@ fn jump(
     }
 }
 
+/// Max distance [`apply_gravity`]'s ground raycast searches below the feet —
+/// generous enough to cover a fall from anywhere on any of this game's maps,
+/// down to the always-present fallback floor (`setup_world`'s
+/// `ProceduralGround` collider) if the map's own mesh doesn't cover a point.
+const GROUND_RAY_MAX_DIST: f32 = 500.0;
+
 /// Pull the player down and stop them on whichever surface is under them —
-/// the basic-map cubes/ramps/bridge while over their footprint, otherwise the
-/// ground. Walk off an edge and there's nothing under the feet, so the player
-/// falls.
+/// found with a raycast straight down against the current map's mesh
+/// collider (see `sync_map_model`), so this works the same way for every map
+/// without any per-map data. Walk off an edge and there's nothing under the
+/// feet, so the player falls.
 #[allow(clippy::too_many_arguments)]
 fn apply_gravity(
     time: Res<Time>,
     settings: Res<MovementSettings>,
     slide: Res<Slide>,
-    map: Res<MapSettings>,
+    rapier: ReadRapierContext,
     sounds: Res<GameSounds>,
     mut commands: Commands,
     mut jumping: ResMut<Jumping>,
@@ -5162,11 +5157,24 @@ fn apply_gravity(
     let feet_next = feet_now + physics.vertical_velocity * dt;
 
     // Only land on the map's surface from above/at its level — not when
-    // walking through its base at ground height.
-    let mut surface = 0.0f32;
-    if let Some(h) = map_surface_height(transform.translation.x, transform.translation.z, &map) {
-        if feet_now >= h - GROUND_SNAP {
-            surface = surface.max(h);
+    // walking through its base at ground height. Cast down from a
+    // `GROUND_SNAP` margin above the current feet, so a surface further below
+    // only counts once the fall actually reaches it.
+    let mut surface = f32::NEG_INFINITY;
+    if let Ok(rapier) = rapier.single() {
+        let origin = Vec3::new(
+            transform.translation.x,
+            feet_now + GROUND_SNAP,
+            transform.translation.z,
+        );
+        if let Some((_, toi)) = rapier.cast_ray(
+            origin,
+            Vec3::NEG_Y,
+            GROUND_RAY_MAX_DIST,
+            true,
+            QueryFilter::default(),
+        ) {
+            surface = origin.y - toi;
         }
     }
 
@@ -5343,9 +5351,10 @@ fn update_ads(
 /// system and the kill-cam replay, so a replay renders at the *shooter's* hip
 /// FOV instead of the viewer's own.
 pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f32 {
-    hip_fov_deg
-        .to_radians()
-        .lerp(tuning.fov_deg.to_radians(), ads_ease(ads_t, tuning.ads_ease))
+    hip_fov_deg.to_radians().lerp(
+        tuning.fov_deg.to_radians(),
+        ads_ease(ads_t, tuning.ads_ease),
+    )
 }
 
 /// How far the magnified scope picture has faded in: `0` until `Ads::t` reaches
@@ -5412,7 +5421,8 @@ fn weapon_sway(
     // coherent motion instead of a rotation with an unrelated wobble on top.
     let shift_m = tuning.hip_shift_m.lerp(tuning.ads_shift_m, t);
     let shift = Vec3::new(-state.offset.x, -state.offset.y, 0.0) * shift_m;
-    **view_model = Transform::from_translation(shift) * Transform::from_rotation(sway) * **view_model;
+    **view_model =
+        Transform::from_translation(shift) * Transform::from_rotation(sway) * **view_model;
 }
 
 /// Layer a slow procedural "breathing" drift onto the view model while the
@@ -6047,8 +6057,9 @@ fn weapon_system(
             .map(|cam| {
                 let max = noscope_spread_angle(&spread_cfg, ads.t);
                 let yaw = (rand01(muzzle.shots.wrapping_mul(0x9E37_79B9)) * 2.0 - 1.0) * max;
-                let pitch =
-                    (rand01(muzzle.shots.wrapping_mul(0x85EB_CA6B) ^ 0xDEAD_BEEF) * 2.0 - 1.0) * max;
+                let pitch = (rand01(muzzle.shots.wrapping_mul(0x85EB_CA6B) ^ 0xDEAD_BEEF) * 2.0
+                    - 1.0)
+                    * max;
                 cam.rotation() * Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0) * Vec3::NEG_Z
             })
             .unwrap_or(Vec3::NEG_Z);

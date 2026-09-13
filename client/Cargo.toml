@@ -4,10 +4,22 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `wav` / `mp3` are opt-in — Bevy only decodes ogg by default. `serialize` gives
-# serde impls for `KeyCode` / `MouseButton`, used by the persisted keybinds.
-bevy = { version = "0.16", features = ["wav", "mp3", "serialize"] }
+# `wav` / `mp3` are opt-in — Bevy only decodes ogg by default. `jpeg` is opt-in
+# the same way — Bevy only decodes PNG/KTX2/etc. by default — and map visual
+# models (e.g. `shipment_visual.glb`, a Sketchfab container pack) commonly
+# embed JPEG textures alongside PNGs to keep file size down; without this,
+# every JPEG texture in a glTF silently fails to load and drags the whole
+# scene down with it (see `bevy_gltf::loader`'s "invalid image mime type:
+# image/jpeg" warning). `serialize` gives serde impls for `KeyCode` /
+# `MouseButton`, used by the persisted keybinds.
+bevy = { version = "0.16", features = ["wav", "mp3", "jpeg", "serialize"] }
 bevy_egui = "0.36"
+# Collision only: static colliders auto-generated from each map's `.glb` mesh
+# data (`AsyncSceneCollider`, wired up in `sync_map_model`) plus the raycasts/
+# shapecasts `apply_gravity` and `resolve_wall_collisions` run against them —
+# no rigid-body simulation. Pinned to 0.30, the last release built against
+# Bevy 0.16 (matches the `bevy` line above); bump both together.
+bevy_rapier3d = { version = "0.30", default-features = false, features = ["dim3", "async-collider"] }
 
 # Settings persistence: locate the per-user config directory.
 dirs = "7"

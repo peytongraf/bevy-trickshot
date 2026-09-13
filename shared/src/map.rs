@@ -12,26 +12,39 @@ use crate::protocol::MapId;
 /// An axis-aligned collision box in world-space X/Z — the Y axis is ignored
 /// since every wall in this game is taller than a player, so it blocks at
 /// every height a player could reach, not just at foot level. Used to keep
-/// players out of `shipment.glb`'s shipping containers ([`client`]'s
-/// `resolve_wall_collisions`) and to keep [`crate::spawns::spawn_point`] /
-/// [`crate::bots::respawn_pose`] from placing someone inside one.
+/// [`crate::spawns::spawn_point`] / [`crate::bots::respawn_pose`] from
+/// placing someone inside `shipment.glb`'s shipping containers/crates — the
+/// client's own movement collision collides against the model's mesh
+/// directly instead (see [`SHIPMENT_WALLS`]'s doc comment).
 #[derive(Clone, Copy)]
 pub struct WallBox {
     pub x: (f32, f32),
     pub z: (f32, f32),
 }
 
-/// `basic_map.glb` has no walls to block — only its walkable-surface height
-/// field (client-only `MAP_SURFACES`) matters there.
+/// `basic_map.glb` has no walls to block — its walkable surface (like every
+/// map's) instead comes from a `Collider` generated straight from the
+/// model's own mesh data; see `sync_map_model` in the client.
 const BASIC_MAP_WALLS: &[WallBox] = &[];
 
-/// Hand-measured from `shipment.glb`'s own node transforms (translation ×
-/// scale, swapping the local X/Z half-extents on the nodes with a 90° yaw):
-/// the eight shipping containers (four near the edges, four interior) plus
-/// the four thin walls now ringing the whole yard. These are the model's
-/// **native** measurements — i.e. at [`WallBox`]'s implicit scale of `1.0` —
-/// so every caller must run them through [`walls`]'s `scale` first; nothing
-/// here is pre-scaled.
+/// Hand-measured from `shipment.glb`'s own node transforms — translation and
+/// rotated XZ half-extents, an axis-aligned box around each node's actual
+/// footprint, exact for the yaw-only 0°/90° containers and a conservative
+/// over-approximation for the crates at arbitrary yaw: the eight shipping
+/// containers (four near the edges, four interior), the eight small crates
+/// scattered around the yard, and the four thin walls ringing the whole
+/// yard. These are the model's **native** measurements — i.e. at
+/// [`WallBox`]'s implicit scale of `1.0` — so every caller must run them
+/// through [`walls`]'s `scale` first; nothing here is pre-scaled.
+///
+/// Only used server-side, to keep `crate::spawns::spawn_point` /
+/// `crate::bots::respawn_pose` from placing someone inside one of these — the
+/// client's own movement collision (walking into a container, walking up a
+/// ramp, ...) no longer uses this at all: it collides against a `Collider`
+/// generated straight from `shipment.glb`'s mesh data (see `sync_map_model`
+/// in the client), so it doesn't need this list kept in
+/// sync with the model by hand. This one still does, because the server runs
+/// headless and never loads the `.glb` itself.
 const SHIPMENT_WALLS: &[WallBox] = &[
     // Containers.
     WallBox { x: (-52.0, -36.0), z: (-9.0, 12.0) },
@@ -42,6 +55,15 @@ const SHIPMENT_WALLS: &[WallBox] = &[
     WallBox { x: (-21.5, -5.5), z: (-24.0, -3.0) },
     WallBox { x: (-20.5, -4.5), z: (6.5, 27.5) },
     WallBox { x: (4.0, 20.0), z: (7.5, 28.5) },
+    // Crates.
+    WallBox { x: (48.7, 53.7), z: (-18.2, -12.2) },
+    WallBox { x: (48.7, 53.7), z: (18.5, 29.1) },
+    WallBox { x: (29.4, 45.8), z: (34.8, 47.4) },
+    WallBox { x: (-39.2, -30.0), z: (21.9, 29.8) },
+    WallBox { x: (-36.3, -30.9), z: (36.3, 41.4) },
+    WallBox { x: (-41.7, -28.6), z: (-41.2, -25.0) },
+    WallBox { x: (20.6, 30.1), z: (-46.0, -38.9) },
+    WallBox { x: (35.5, 42.5), z: (-43.5, -34.0) },
     // Outer boundary walls (+Z, -Z, +X, -X).
     WallBox { x: (-52.0, 55.0), z: (58.0, 60.0) },
     WallBox { x: (-52.0, 55.0), z: (-57.0, -55.0) },
