@@ -3868,7 +3868,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         rechamber: asset_server.load("audio/rechamber.wav"),
         reload: asset_server.load("audio/reload.wav"),
         ambient: asset_server.load("audio/ambient_nature.wav"),
-        shipment_ambient: asset_server.load("audio/shipment_ambient.wav"),
+        shipment_ambient: asset_server.load("audio/shipment_ambient.ogg"),
         aim_in: asset_server.load("audio/aim-in-sound.mp3"),
         aim_out: asset_server.load("audio/aim-out-sound.mp3"),
         out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
