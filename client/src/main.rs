@@ -59,7 +59,7 @@ use bevy::{
     animation::{prelude::AnimationTransitions, RepeatAnimation},
     audio::{SpatialListener, Volume},
     core_pipeline::bloom::Bloom,
-    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
+    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     input::mouse::AccumulatedMouseMotion,
     math::{Affine2, FloatExt},
     pbr::{
@@ -164,10 +164,267 @@ struct MapModel;
 struct MapVisualModel;
 
 /// Marker on the always-spawned procedural asphalt ground plane, so
-/// [`sync_ground_visibility`] can hide it for maps that ship their own ground
+/// [`sync_shipment_only_visibility`] can hide it for maps that ship their own ground
 /// (`shipment.glb`'s `Ground` node).
 #[derive(Component)]
 struct ProceduralGround;
+
+/// Marker on the always-spawned ocean plane ringing `shipment.glb`'s yard
+/// just below its ground level — the MW3 Shipment cargo-ship setting this
+/// map's remaking. Shown only for `Shipment` ([`sync_shipment_only_visibility`]);
+/// `basic_map.glb` has no nautical setting to speak of. No collider — it
+/// sits outside the yard's walls, so a player can never actually reach it.
+#[derive(Component)]
+struct WaterPlane;
+
+/// How far below Shipment's ground level (`y = 0`) [`WaterPlane`] sits by
+/// default — just enough to read as "the deck's edge drops off into the
+/// sea" without a visible gap between the two. Live-tunable via
+/// [`WaterSettings`]'s debug-panel "Water" section.
+const WATER_LEVEL_DROP: f32 = 3.0;
+
+/// [`WaterPlane`]'s material handle, so [`apply_water_settings`] /
+/// [`scroll_water_normal`] can look it up in `Assets<StandardMaterial>` and
+/// mutate it — a plain `Query` can't mutate a shared material asset, only
+/// the handle pointing at one.
+#[derive(Component, Clone)]
+struct WaterMaterial(Handle<StandardMaterial>);
+
+/// How many `water_normal.png` tiles span [`WaterPlane`]'s full width by
+/// default — picked by eye so ripples read as roughly wave-sized rather
+/// than either a single stretched blur or distractingly tiny repetition.
+const WATER_NORMAL_TILING: f32 = 60.0;
+
+/// Metres/second-equivalent [`WaterPlane`]'s normal map drifts by default,
+/// in UV space (a fraction of one tile per second along each axis) — enough
+/// to read as gently moving water without any actual wave simulation.
+const WATER_SCROLL_SPEED: Vec2 = Vec2::new(-0.022, 0.007);
+
+/// Live-tunable "Water" debug-panel section — see [`apply_water_settings`]
+/// (level/tint/roughness/reflectance) and [`scroll_water_normal`] (ripple
+/// tiling/scroll speed) for where each field actually takes effect.
+#[derive(Resource)]
+struct WaterSettings {
+    level_drop: f32,
+    tint: [f32; 3],
+    alpha: f32,
+    roughness: f32,
+    reflectance: f32,
+    normal_tiling: f32,
+    scroll_speed: Vec2,
+}
+
+impl Default for WaterSettings {
+    fn default() -> Self {
+        Self {
+            level_drop: WATER_LEVEL_DROP,
+            // Placeholder dark blue — "Copy water settings to console" (the
+            // debug panel's "Water" section) prints the exact tint you've
+            // actually dialled in, once you have it, to replace this.
+            tint: srgb_parts(Color::srgb(0.01, 0.03, 0.09)),
+            alpha: 0.98,
+            roughness: 0.13,
+            reflectance: 0.53,
+            normal_tiling: WATER_NORMAL_TILING,
+            scroll_speed: WATER_SCROLL_SPEED,
+        }
+    }
+}
+
+/// Push [`WaterSettings`] onto [`WaterPlane`]'s `Transform` and material
+/// every frame — mirrors `apply_shipment_transform`'s reasoning: cheap, and
+/// unconditional so a value tweaked while the plane is hidden still takes
+/// effect the instant `sync_shipment_only_visibility` reveals it.
+fn apply_water_settings(
+    settings: Res<WaterSettings>,
+    mut plane: Query<(&mut Transform, &WaterMaterial), With<WaterPlane>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Ok((mut transform, water)) = plane.single_mut() else {
+        return;
+    };
+    transform.translation.y = -settings.level_drop;
+    let Some(material) = materials.get_mut(&water.0) else {
+        return;
+    };
+    let [r, g, b] = settings.tint;
+    material.base_color = Color::srgba(r, g, b, settings.alpha);
+    material.perceptual_roughness = settings.roughness;
+    material.reflectance = settings.reflectance;
+}
+
+/// Animates [`WaterPlane`]'s ripples by scrolling its normal map over time —
+/// cosmetic only, so it runs unconditionally rather than being gated on the
+/// plane's current visibility (the cost of updating one `Affine2` is trivial
+/// either way, and this keeps the ripples already in motion the instant the
+/// plane becomes visible instead of starting from a frozen frame).
+fn scroll_water_normal(
+    time: Res<Time>,
+    settings: Res<WaterSettings>,
+    water: Query<&WaterMaterial>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Ok(water) = water.single() else {
+        return;
+    };
+    let Some(material) = materials.get_mut(&water.0) else {
+        return;
+    };
+    let scroll = settings.scroll_speed * time.elapsed_secs();
+    material.uv_transform =
+        Affine2::from_scale_angle_translation(Vec2::splat(settings.normal_tiling), 0.0, scroll);
+}
+
+/// Marker for one of `shipment.glb`'s debug-controllable mast/crane-mounted
+/// floodlights, lighting the yard the way the real MW3 Shipment's deck
+/// lights do (their light spreads out from the fixture in the cone/
+/// "triangle" shape any spotlight does, especially visible against this
+/// map's heavy fog — see [`ShipmentSceneTuning`]). `.0` indexes into
+/// [`ShipmentLightSettings::lights`] — `0` for the first light, `1` for the
+/// second, and so on if a third ever gets added (one more array entry, one
+/// more `commands.spawn` in `setup_world` with the next index — no new
+/// marker type needed). Shown only for `Shipment` — folded into
+/// [`sync_shipment_only_visibility`] alongside [`ProceduralGround`] and
+/// [`WaterPlane`]'s toggles.
+#[derive(Component)]
+struct ShipmentSpotLight(usize);
+
+/// One floodlight's position/aim/cone — see [`ShipmentLightSettings`] (which
+/// holds one of these per [`ShipmentSpotLight`]) for how it's used.
+/// `yaw_deg` / `pitch_deg` use this file's usual
+/// `Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)` convention (see e.g.
+/// `look_around`) — a `SpotLight` shines along its transform's local -Z
+/// (forward), so together with `position` this fully determines where it
+/// points. `inner_angle_deg` / `outer_angle_deg` are the cone's half-angles
+/// (`SpotLight`'s own convention, matching real fixtures' "beam angle"):
+/// equal values give a hard-edged cone, a gap between them a soft penumbra.
+#[derive(Clone)]
+struct ShipmentLight {
+    position: Vec3,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    inner_angle_deg: f32,
+    outer_angle_deg: f32,
+    shadows_enabled: bool,
+}
+
+/// Live-tunable floodlights for `shipment.glb` — debug panel's "Shipment
+/// Lights" section, applied every frame to the matching [`ShipmentSpotLight`]
+/// by [`apply_shipment_lights`]. `markers_visible` gates
+/// [`ShipmentLightMarker`] (the position/aim gizmos) on top of the debug
+/// panel itself being open — off by default, since the gizmos are purely a
+/// placement aid, not something to leave on once a light's dialled in.
+#[derive(Resource)]
+struct ShipmentLightSettings {
+    lights: [ShipmentLight; 2],
+    markers_visible: bool,
+}
+
+impl Default for ShipmentLightSettings {
+    fn default() -> Self {
+        Self {
+            lights: [
+                ShipmentLight {
+                    position: Vec3::new(16.0, 19.0, 1.0),
+                    yaw_deg: 85.0,
+                    pitch_deg: -30.0,
+                    color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
+                    intensity: 10_000_000.0,
+                    range: 62.0,
+                    inner_angle_deg: 89.0,
+                    outer_angle_deg: 89.0,
+                    shadows_enabled: true,
+                },
+                ShipmentLight {
+                    position: Vec3::new(-15.0, 18.0, 3.0),
+                    yaw_deg: -75.0,
+                    pitch_deg: -35.0,
+                    color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
+                    intensity: 10_000_000.0,
+                    range: 62.0,
+                    inner_angle_deg: 89.0,
+                    outer_angle_deg: 89.0,
+                    shadows_enabled: true,
+                },
+            ],
+            markers_visible: false,
+        }
+    }
+}
+
+/// Push each [`ShipmentLight`] in [`ShipmentLightSettings`] onto its matching
+/// [`ShipmentSpotLight`] every frame — mirrors `apply_shipment_transform`'s
+/// reasoning: cheap, and unconditional so a value tweaked while the lights
+/// are hidden still takes effect the instant [`sync_shipment_only_visibility`]
+/// reveals them.
+fn apply_shipment_lights(
+    settings: Res<ShipmentLightSettings>,
+    mut lights: Query<(&ShipmentSpotLight, &mut Transform, &mut SpotLight)>,
+) {
+    for (index, mut transform, mut spot) in &mut lights {
+        let Some(cfg) = settings.lights.get(index.0) else {
+            continue;
+        };
+        transform.translation = cfg.position;
+        transform.rotation = Quat::from_euler(
+            EulerRot::YXZ,
+            cfg.yaw_deg.to_radians(),
+            cfg.pitch_deg.to_radians(),
+            0.0,
+        );
+        spot.color = color_from_parts(cfg.color);
+        spot.intensity = cfg.intensity;
+        spot.range = cfg.range;
+        spot.inner_angle = cfg.inner_angle_deg.to_radians();
+        spot.outer_angle = cfg.outer_angle_deg.to_radians();
+        spot.shadows_enabled = cfg.shadows_enabled;
+    }
+}
+
+/// Marker for a [`ShipmentSpotLight`]'s debug-only gizmo (a bulb + aim rod,
+/// spawned as its children in `setup_world`) — see [`sync_light_marker_visibility`]
+/// for why its `Visibility` needs its own active management beyond just
+/// following its parent light around. Shared by every light's gizmo, not
+/// just one — [`sync_light_marker_visibility`] doesn't need to know how many
+/// lights there are, only which entities are "a marker."
+#[derive(Component)]
+struct ShipmentLightMarker;
+
+/// Radius of a [`ShipmentLightMarker`]'s "bulb" sphere.
+const LIGHT_MARKER_BULB_RADIUS: f32 = 0.5;
+/// Length and thickness of a [`ShipmentLightMarker`]'s aim-direction rod —
+/// sized to be obvious without being huge next to a container-scale map.
+const LIGHT_MARKER_ROD_LENGTH: f32 = 4.0;
+const LIGHT_MARKER_ROD_THICKNESS: f32 = 0.15;
+
+/// Shows every [`ShipmentLightMarker`] only while the debug panel is open
+/// *and* [`ShipmentLightSettings::markers_visible`] is on — a floating
+/// bulb-and-rod gizmo has no business appearing in normal play, or even in
+/// debug mode once a light's already positioned. Set unconditionally each
+/// frame (not gated on a change flag) so toggling either back off actually
+/// hides the gizmos again rather than freezing whatever state they were
+/// last set to. Being children of their [`ShipmentSpotLight`] (an
+/// `Inherited` visibility, which this only ever sets them to or away from)
+/// means [`sync_shipment_only_visibility`]'s map-based hide of the parent
+/// still applies on top of this — a gizmo needs the debug panel open, its
+/// toggle on, *and* `Shipment` selected to actually show.
+fn sync_light_marker_visibility(
+    settings: Res<Settings>,
+    lights: Res<ShipmentLightSettings>,
+    mut marker: Query<&mut Visibility, With<ShipmentLightMarker>>,
+) {
+    let target = if settings.debug_mode && lights.markers_visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut vis in &mut marker {
+        *vis = target;
+    }
+}
 
 /// Push `MapSettings` onto the loaded `basic_map.glb` scene every frame it's
 /// the selected map — cheap (one `Transform` write), and unconditional so a
@@ -358,27 +615,45 @@ fn reveal_map_visual(
 /// one frame to the next — flipping which of two near-identical surface
 /// heights it reports for the same spot re-triggers grounded-edge detection
 /// (and so the landing sound) every time, even standing still on flat
-/// ground. Only reacts to an actual map change ([`ProceduralGround`] is
-/// spawned once in `setup_world` and never respawned, unlike [`MapModel`],
-/// so there's no freshly-respawned entity to recover state for on other
-/// frames).
-fn sync_ground_visibility(
+/// ground.
+///
+/// The reverse toggle runs alongside it for [`WaterPlane`] and
+/// [`ShipmentSpotLight`] — visible only for maps with a nautical setting to
+/// speak of (`Shipment`'s MW3-style cargo ship; hidden for `basic_map.glb`).
+///
+/// All three are only touched on an actual map change: [`ProceduralGround`],
+/// [`WaterPlane`] and [`ShipmentSpotLight`] are spawned once in `setup_world`
+/// and never respawned, unlike [`MapModel`], so there's no freshly-respawned
+/// entity to recover state for on other frames.
+fn sync_shipment_only_visibility(
     current: Res<CurrentMap>,
     ground: Query<Entity, With<ProceduralGround>>,
+    water: Query<Entity, With<WaterPlane>>,
+    light: Query<Entity, With<ShipmentSpotLight>>,
     mut commands: Commands,
 ) {
     if !current.is_changed() {
         return;
     }
-    let Ok(entity) = ground.single() else {
-        return;
-    };
-    let has_own_ground = current.0 == shared::MapId::Shipment;
-    let mut ground = commands.entity(entity);
-    if has_own_ground {
-        ground.insert((Visibility::Hidden, ColliderDisabled));
+    let is_shipment = current.0 == shared::MapId::Shipment;
+    if let Ok(entity) = ground.single() {
+        let mut ground = commands.entity(entity);
+        if is_shipment {
+            ground.insert((Visibility::Hidden, ColliderDisabled));
+        } else {
+            ground.insert(Visibility::Inherited).remove::<ColliderDisabled>();
+        }
+    }
+    let shipment_only_visibility = if is_shipment {
+        Visibility::Inherited
     } else {
-        ground.insert(Visibility::Inherited).remove::<ColliderDisabled>();
+        Visibility::Hidden
+    };
+    if let Ok(entity) = water.single() {
+        commands.entity(entity).insert(shipment_only_visibility);
+    }
+    for entity in &light {
+        commands.entity(entity).insert(shipment_only_visibility);
     }
 }
 
@@ -904,9 +1179,12 @@ fn main() {
         .init_resource::<FootstepState>()
         .init_resource::<SoundVolumes>()
         .init_resource::<SceneTuning>()
+        .init_resource::<ShipmentSceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<CurrentMap>()
         .init_resource::<ShipmentSettings>()
+        .init_resource::<WaterSettings>()
+        .init_resource::<ShipmentLightSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
@@ -932,7 +1210,7 @@ fn main() {
             OnEnter(AppState::InGame),
             (
                 grab_cursor,
-                start_ambient,
+                start_ambient.after(lobby_ui::sync_current_map),
                 reset_slide,
                 reset_trick,
                 reset_weapon,
@@ -953,7 +1231,10 @@ fn main() {
         .add_systems(Update, apply_master_volume)
         // Unconditional (not gated on `AppState`) so the map (and its ground)
         // behind the menu/lobby UI is already right the instant a game starts.
-        .add_systems(Update, (sync_map_model, sync_ground_visibility))
+        .add_systems(
+            Update,
+            (sync_map_model, sync_shipment_only_visibility, sync_sky_texture),
+        )
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
         // frame's `PostUpdate` and can scale them before they've really played.
         .add_systems(Last, apply_sound_volumes)
@@ -1004,7 +1285,7 @@ fn main() {
                     update_score_popups,
                     update_teleport_toast,
                 ),
-                sky_follow_camera,
+                (sky_follow_camera, scroll_water_normal),
                 camera_shake.run_if(killcam::no_killcam),
                 update_muzzle_flash,
                 // After `look_around` so the smoke uses this frame's aim, not
@@ -1022,7 +1303,13 @@ fn main() {
                 update_fps_ui,
                 apply_scene_tuning,
                 apply_shadow_quality,
-                (apply_map_transform, apply_shipment_transform),
+                (
+                    apply_map_transform,
+                    apply_shipment_transform,
+                    apply_water_settings,
+                    apply_shipment_lights,
+                    sync_light_marker_visibility,
+                ),
                 debug_cursor_toggle,
             )
                 .after(update_ads)
@@ -1280,8 +1567,10 @@ struct FootstepState {
     seq: u32,
 }
 
-/// The daytime look, live-tweakable from the debug panel's "Fog & Sky" section
-/// and pushed onto the fog / sun / ambient / bloom by `apply_scene_tuning`.
+/// `basic_map.glb`'s daytime look, live-tweakable from the debug panel's
+/// "Fog & Sky (Basic Map)" section and pushed onto the fog / sun / ambient /
+/// bloom by `apply_scene_tuning` whenever that's the selected map — see
+/// [`ShipmentSceneTuning`] for `Shipment`'s (separately tunable) look.
 /// Defaults mirror the `SUN_*` / `SKY_*` / `FOG_*` consts.
 #[derive(Resource)]
 struct SceneTuning {
@@ -1307,6 +1596,32 @@ impl Default for SceneTuning {
             ambient_lux: SKY_AMBIENT_LUX,
             bloom_intensity: 0.09,
         }
+    }
+}
+
+/// `shipment.glb`'s look — same shape as [`SceneTuning`] (see that struct's
+/// fields), just a separate resource so `Shipment` can be tuned to its own
+/// MW3-style setting (dark, foggy, overcast — near dawn/dusk under heavy
+/// cloud, out on open water) without touching `basic_map.glb`'s daytime one.
+/// Live-tweakable from the debug panel's "Fog & Sky (Shipment)" section;
+/// `apply_scene_tuning` pushes whichever of the two is currently selected
+/// ([`CurrentMap`]) onto the shared fog / sun / ambient / bloom.
+#[derive(Resource)]
+struct ShipmentSceneTuning(SceneTuning);
+
+impl Default for ShipmentSceneTuning {
+    fn default() -> Self {
+        Self(SceneTuning {
+            fog_visibility_m: 600.0,
+            // r24 g30 b37 (0-255) — a dark, cool overcast grey.
+            fog_color: srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0)),
+            fog_sun_exponent: 1.0,
+            sun_lux: 100.0,
+            sun_color: srgb_parts(Color::srgb(0.75, 0.78, 0.85)),
+            ambient_color: srgb_parts(Color::srgb(0.35, 0.38, 0.42)),
+            ambient_lux: 100.0,
+            bloom_intensity: 0.02,
+        })
     }
 }
 
@@ -1362,6 +1677,48 @@ pub(crate) struct CameraRecoil;
 /// The HDR sky sphere; recentred on the camera every frame.
 #[derive(Component)]
 struct SkySphere;
+
+/// [`SkySphere`]'s material handle, so [`sync_sky_texture`] can look it up in
+/// `Assets<StandardMaterial>` and swap its `base_color_texture` per map — a
+/// plain `Query` can't mutate a shared material asset, only the handle
+/// pointing at one (mirrors [`WaterMaterial`]).
+#[derive(Component)]
+struct SkyMaterial(Handle<StandardMaterial>);
+
+/// The equirectangular HDR [`SkySphere`] shows for `map` — a clear-sky
+/// backdrop for `basic_map.glb`'s open field, an overcast one for
+/// `shipment.glb`'s cargo-ship-at-sea setting (a bright sunny sky reads a
+/// bit odd out over open, ostensibly rougher water).
+fn sky_texture_path(map: shared::MapId) -> &'static str {
+    match map {
+        shared::MapId::BasicMap => "skybox/citrus_orchard_puresky_8k.hdr",
+        shared::MapId::Shipment => "skybox/overcast_soil_puresky_8k.hdr",
+    }
+}
+
+/// Swaps [`SkySphere`]'s HDR to match [`CurrentMap`] (see
+/// [`sky_texture_path`]) — only reacts to an actual map change, same
+/// reasoning as [`sync_shipment_only_visibility`] (the sphere is spawned once in
+/// `setup_world` and never respawned). `AssetServer::load` dedupes by path,
+/// so switching back and forth between maps after the first load of each
+/// doesn't re-read either file from disk.
+fn sync_sky_texture(
+    current: Res<CurrentMap>,
+    asset_server: Res<AssetServer>,
+    sky: Query<&SkyMaterial>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !current.is_changed() {
+        return;
+    }
+    let Ok(sky) = sky.single() else {
+        return;
+    };
+    let Some(material) = materials.get_mut(&sky.0) else {
+        return;
+    };
+    material.base_color_texture = Some(asset_server.load(sky_texture_path(current.0)));
+}
 
 /// The loaded sniper scene root.
 #[derive(Component)]
@@ -1895,6 +2252,10 @@ pub(crate) struct GameSounds {
     pub(crate) rechamber: Handle<AudioSource>,
     pub(crate) reload: Handle<AudioSource>,
     ambient: Handle<AudioSource>,
+    /// `Shipment`'s own ambience bed — a cargo ship out on open water, so
+    /// nothing like `ambient`'s outdoor-nature loop. `start_ambient` picks
+    /// between the two by [`CurrentMap`]; `basic_map.glb` keeps `ambient`.
+    shipment_ambient: Handle<AudioSource>,
     pub(crate) aim_in: Handle<AudioSource>,
     pub(crate) aim_out: Handle<AudioSource>,
     out_of_ammo: Handle<AudioSource>,
@@ -1908,20 +2269,23 @@ pub(crate) struct GameSounds {
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
 }
 
-/// Linear volume of the looping nature ambience.
+/// Linear volume shared by both ambience loops (`ambient` and
+/// `shipment_ambient`) before their own "Sound volumes" multiplier.
 const AMBIENT_VOLUME: f32 = 0.5;
 
 /// Panel-adjustable per-sound volume multipliers ("Sound volumes" panel
 /// section). `1.0` leaves a sound at its built-in level; every one-shot is
-/// scaled by its entry when it spawns (`apply_sound_volumes`), and the ambient
-/// bed by `ambient` (folded into `apply_master_volume`). Footsteps have their
-/// own controls in the "Footsteps" section and aren't here.
+/// scaled by its entry when it spawns (`apply_sound_volumes`), and whichever
+/// ambience loop is currently playing by `ambient` / `shipment_ambient`
+/// (folded into `apply_master_volume`). Footsteps have their own controls in
+/// the "Footsteps" section and aren't here.
 #[derive(Resource)]
 struct SoundVolumes {
     shot: f32,
     rechamber: f32,
     reload: f32,
     ambient: f32,
+    shipment_ambient: f32,
     aim_in: f32,
     aim_out: f32,
     out_of_ammo: f32,
@@ -1939,6 +2303,7 @@ impl Default for SoundVolumes {
             rechamber: 1.0,
             reload: 1.5,
             ambient: 2.5,
+            shipment_ambient: 2.5,
             aim_in: 1.0,
             aim_out: 1.0,
             out_of_ammo: 1.0,
@@ -2736,10 +3101,12 @@ fn setup_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    water: Res<WaterSettings>,
+    light: Res<ShipmentLightSettings>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
     // (see `build_ground_texture`), tiled every ~2 m. Hidden, and its
-    // `Collider` disabled, by `sync_ground_visibility` for maps that ship
+    // `Collider` disabled, by `sync_shipment_only_visibility` for maps that ship
     // their own ground (so far just `shipment.glb`'s `Ground` node) — active
     // otherwise, as the fallback floor `apply_gravity`'s raycast lands on
     // off the edge of any map's own mesh collision (or on a map, like
@@ -2757,6 +3124,140 @@ fn setup_world(
         Collider::halfspace(Vec3::Y).expect("Vec3::Y is already a unit vector"),
     ));
 
+    // Ocean: a big, tinted, semi-transparent plane just below Shipment's
+    // ground level, ringing the yard the way MW3 Shipment's cargo-ship
+    // setting does. `water_normal.png` supplies rippling detail via a
+    // normal map — loaded `is_srgb: false` since it encodes surface
+    // directions, not colour (the default `true` would gamma-decode the
+    // vectors and distort them), and with `Repeat` addressing so
+    // `scroll_water_normal`'s `uv_transform` can both tile it across the
+    // plane and animate it drifting over time; the default sampler clamps
+    // instead (see `build_ground_texture`, which needs the same override
+    // for the same reason). No collider: the plane sits outside the yard's
+    // walls, unreachable during normal play. Spawned hidden to match the
+    // default map (`BasicMap`, no nautical setting); `sync_shipment_only_visibility`
+    // shows it for `Shipment`. Initial transform/material values come from
+    // `WaterSettings` (its `Default`, at this point) so there's one source
+    // of truth instead of duplicating numbers that `apply_water_settings`
+    // would immediately overwrite on the first `Update` anyway.
+    let water_normal = asset_server.load_with_settings(
+        "textures/water_normal.png",
+        |settings: &mut ImageLoaderSettings| {
+            settings.is_srgb = false;
+            settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                address_mode_u: ImageAddressMode::Repeat,
+                address_mode_v: ImageAddressMode::Repeat,
+                ..default()
+            });
+        },
+    );
+    let [r, g, b] = water.tint;
+    let water_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(r, g, b, water.alpha),
+        perceptual_roughness: water.roughness,
+        reflectance: water.reflectance,
+        alpha_mode: AlphaMode::Blend,
+        normal_map_texture: Some(water_normal),
+        ..default()
+    });
+    // `Plane3d`'s generated mesh has positions/normals/UVs but no tangents
+    // (see `bevy_mesh`'s plane primitive) — `normal_map_texture` needs them
+    // to know which way "into the surface" faces, so without this the
+    // normal map is silently ignored and the plane renders as flat as if it
+    // had none (a glTF-loaded mesh missing tangents gets these computed
+    // automatically by `bevy_gltf`'s loader; a procedural mesh like this one
+    // doesn't go through that loader, so it needs this explicit call
+    // instead).
+    let mut water_mesh: Mesh = Plane3d::new(Vec3::Y, Vec2::splat(300.0)).into();
+    water_mesh
+        .generate_tangents()
+        .expect("a flat, UV-mapped, indexed plane always has enough data to derive tangents");
+    commands.spawn((
+        WaterPlane,
+        Mesh3d(meshes.add(water_mesh)),
+        MeshMaterial3d(water_material.clone()),
+        WaterMaterial(water_material),
+        Transform::from_xyz(0.0, -water.level_drop, 0.0),
+        Visibility::Hidden,
+    ));
+
+    // Shipment floodlights: spotlights mounted high on the cargo ship,
+    // lighting the yard below — see `ShipmentLightSettings` for why each
+    // one's initial transform/params come from that resource rather than
+    // being hardcoded here (same reasoning as the water plane above them).
+    // Hidden for `BasicMap`; `sync_shipment_only_visibility` shows them for
+    // `Shipment`. The bulb/rod gizmo mesh + material (see
+    // `ShipmentLightMarker`) are built once and shared (`.clone()`d) across
+    // every light's pair, rather than once per light — they're geometrically
+    // identical, so there's nothing light-specific to bake into either.
+    let marker_bulb_mesh = meshes.add(Sphere::new(LIGHT_MARKER_BULB_RADIUS));
+    let marker_bulb_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.9, 0.2),
+        unlit: true,
+        ..default()
+    });
+    let marker_rod_mesh = meshes.add(Cuboid::new(
+        LIGHT_MARKER_ROD_THICKNESS,
+        LIGHT_MARKER_ROD_THICKNESS,
+        LIGHT_MARKER_ROD_LENGTH,
+    ));
+    let marker_rod_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.2, 0.9, 1.0),
+        unlit: true,
+        ..default()
+    });
+    for (index, cfg) in light.lights.iter().enumerate() {
+        commands
+            .spawn((
+                ShipmentSpotLight(index),
+                SpotLight {
+                    color: color_from_parts(cfg.color),
+                    intensity: cfg.intensity,
+                    range: cfg.range,
+                    inner_angle: cfg.inner_angle_deg.to_radians(),
+                    outer_angle: cfg.outer_angle_deg.to_radians(),
+                    shadows_enabled: cfg.shadows_enabled,
+                    ..default()
+                },
+                Transform {
+                    translation: cfg.position,
+                    rotation: Quat::from_euler(
+                        EulerRot::YXZ,
+                        cfg.yaw_deg.to_radians(),
+                        cfg.pitch_deg.to_radians(),
+                        0.0,
+                    ),
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|light| {
+                // Debug-only gizmo — a bulb at the fixture and a rod
+                // pointing along its beam direction, so the position/aim
+                // controls in the "Shipment Lights" panel have something
+                // visible to calibrate against. `unlit` so it reads clearly
+                // regardless of how dark/foggy the scene itself is.
+                light.spawn((
+                    ShipmentLightMarker,
+                    Mesh3d(marker_bulb_mesh.clone()),
+                    MeshMaterial3d(marker_bulb_material.clone()),
+                    Visibility::Hidden,
+                ));
+                light.spawn((
+                    ShipmentLightMarker,
+                    Mesh3d(marker_rod_mesh.clone()),
+                    MeshMaterial3d(marker_rod_material.clone()),
+                    // A `Cuboid`'s local Z already spans the rod's length,
+                    // centred on its parent's origin — shift it half a
+                    // length forward (local -Z, `SpotLight`'s own shine
+                    // direction) so it starts at the bulb and extends
+                    // outward instead of piercing through it.
+                    Transform::from_xyz(0.0, 0.0, -LIGHT_MARKER_ROD_LENGTH / 2.0),
+                    Visibility::Hidden,
+                ));
+            });
+    }
+
     // The selected map's model is kept in sync by `sync_map_model` (not
     // spawned here) so it can be swapped per-lobby — its `AsyncSceneCollider`
     // generates real mesh collision for whichever `.glb` that loads, so
@@ -2765,16 +3266,22 @@ fn setup_world(
 
     // Sky: the equirectangular HDR mapped onto the inside of a big UV sphere
     // that follows the camera (see `sky_follow_camera`). Not a true cubemap
-    // skybox, but it needs no offline conversion and reads fine as a backdrop.
+    // skybox, but it needs no offline conversion and reads fine as a
+    // backdrop. Which HDR shows depends on the map (`sky_texture_path`) —
+    // `sync_sky_texture` swaps it on `CurrentMap` changes; this is just the
+    // initial load for whichever map is selected at startup (`BasicMap` by
+    // default).
+    let sky_material = materials.add(StandardMaterial {
+        base_color_texture: Some(asset_server.load(sky_texture_path(shared::MapId::default()))),
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
     commands.spawn((
         SkySphere,
         Mesh3d(meshes.add(Sphere::new(SKY_RADIUS).mesh().uv(128, 64))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(asset_server.load("skybox/citrus_orchard_puresky_8k.hdr")),
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        })),
+        MeshMaterial3d(sky_material.clone()),
+        SkyMaterial(sky_material),
         // Bevy's UV sphere has its poles on +Z/-Z; rotate so the equirect map's
         // zenith points up and its nadir points down.
         Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
@@ -3134,6 +3641,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         rechamber: asset_server.load("audio/rechamber.wav"),
         reload: asset_server.load("audio/reload.wav"),
         ambient: asset_server.load("audio/ambient_nature.wav"),
+        shipment_ambient: asset_server.load("audio/shipment_ambient.wav"),
         aim_in: asset_server.load("audio/aim-in-sound.mp3"),
         aim_out: asset_server.load("audio/aim-out-sound.mp3"),
         out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
@@ -3148,19 +3656,29 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-/// Start the looping outdoor ambience when the player enters the world.
+/// Start the map's looping ambience bed when the player enters the world —
+/// `basic_map.glb`'s outdoor-nature loop, or `shipment.glb`'s own cargo-ship
+/// one, by [`CurrentMap`]. Ordered `.after(lobby_ui::sync_current_map)`
+/// (both run on `OnEnter(AppState::InGame)`) so this always sees the map
+/// just selected, not whatever `CurrentMap` was left at after the previous
+/// match.
 fn start_ambient(
     mut commands: Commands,
     sounds: Res<GameSounds>,
     settings: Res<Settings>,
     vols: Res<SoundVolumes>,
+    current: Res<CurrentMap>,
 ) {
+    let (clip, volume_mult) = match current.0 {
+        shared::MapId::BasicMap => (sounds.ambient.clone(), vols.ambient),
+        shared::MapId::Shipment => (sounds.shipment_ambient.clone(), vols.shipment_ambient),
+    };
     commands.spawn((
         AmbientAudio,
         StateScoped(AppState::InGame),
-        AudioPlayer::new(sounds.ambient.clone()),
+        AudioPlayer::new(clip),
         PlaybackSettings::LOOP.with_volume(Volume::Linear(
-            AMBIENT_VOLUME * vols.ambient * settings.master_volume,
+            AMBIENT_VOLUME * volume_mult * settings.master_volume,
         )),
     ));
 }
@@ -3169,11 +3687,12 @@ fn start_ambient(
 /// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
 /// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
 /// audio that's already playing, though, so the looping ambience needs its own
-/// direct nudge here too — also picking up the "Sound volumes" panel's ambient
-/// multiplier.
+/// direct nudge here too — also picking up the "Sound volumes" panel's
+/// multiplier for whichever ambience loop `start_ambient` actually started.
 fn apply_master_volume(
     settings: Res<Settings>,
     vols: Res<SoundVolumes>,
+    current: Res<CurrentMap>,
     mut global_volume: ResMut<GlobalVolume>,
     mut ambient: Query<&mut AudioSink, With<AmbientAudio>>,
 ) {
@@ -3181,9 +3700,13 @@ fn apply_master_volume(
         return;
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
+    let ambient_mult = match current.0 {
+        shared::MapId::BasicMap => vols.ambient,
+        shared::MapId::Shipment => vols.shipment_ambient,
+    };
     for mut sink in &mut ambient {
         sink.set_volume(Volume::Linear(
-            AMBIENT_VOLUME * vols.ambient * settings.master_volume,
+            AMBIENT_VOLUME * ambient_mult * settings.master_volume,
         ));
     }
 }
@@ -3636,6 +4159,9 @@ fn ads_tuning_ui(
         ResMut<RemoteAvatarSettings>,
         ResMut<SoldierAnimSettings>,
         ResMut<RemoteSoundSettings>,
+        ResMut<WaterSettings>,
+        ResMut<ShipmentSceneTuning>,
+        ResMut<ShipmentLightSettings>,
     ),
 ) -> Result {
     let (
@@ -3650,6 +4176,9 @@ fn ads_tuning_ui(
         mut remote_avatar,
         mut soldier_anim,
         mut remote_sound,
+        mut water,
+        mut shipment_scene,
+        mut shipment_light,
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -3897,6 +4426,60 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Water", |ui| {
+                let w = &mut *water;
+                ui.label("Shipment only — the MW3-style cargo-ship setting's ocean plane");
+                ui.add(
+                    egui::Slider::new(&mut w.level_drop, -3.0f32..=8.0)
+                        .text("level drop below ground (m)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("tint");
+                    ui.color_edit_button_rgb(&mut w.tint);
+                });
+                ui.add(egui::Slider::new(&mut w.alpha, 0.0f32..=1.0).text("opacity"));
+                ui.add(
+                    egui::Slider::new(&mut w.roughness, 0.0f32..=1.0)
+                        .text("roughness  (lower = shinier)"),
+                );
+                ui.add(egui::Slider::new(&mut w.reflectance, 0.0f32..=1.0).text("reflectance"));
+                ui.add(
+                    egui::Slider::new(&mut w.normal_tiling, 5.0f32..=200.0)
+                        .text("ripple tiling  (higher = smaller ripples)")
+                        .logarithmic(true),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.scroll_speed.x, -0.1f32..=0.1)
+                        .text("ripple scroll x"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut w.scroll_speed.y, -0.1f32..=0.1)
+                        .text("ripple scroll y"),
+                );
+
+                if ui.button("Copy water settings to console").clicked() {
+                    info!(
+                        "water: level_drop: {:.3}, tint: Color::srgb({:.3}, {:.3}, {:.3}), \
+                         alpha: {:.3}, roughness: {:.3}, reflectance: {:.3}, normal_tiling: \
+                         {:.1}, scroll_speed: Vec2::new({:.4}, {:.4})",
+                        w.level_drop,
+                        w.tint[0],
+                        w.tint[1],
+                        w.tint[2],
+                        w.alpha,
+                        w.roughness,
+                        w.reflectance,
+                        w.normal_tiling,
+                        w.scroll_speed.x,
+                        w.scroll_speed.y,
+                    );
+                }
+                if ui.button("Reset water").clicked() {
+                    *w = WaterSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Remote players", |ui| {
                 let ra = &mut *remote_avatar;
                 ui.label("models/soldier.glb");
@@ -4103,6 +4686,7 @@ fn ads_tuning_ui(
                     ("rechamber", &mut v.rechamber),
                     ("reload", &mut v.reload),
                     ("ambient", &mut v.ambient),
+                    ("shipment ambient", &mut v.shipment_ambient),
                     ("aim in", &mut v.aim_in),
                     ("aim out", &mut v.aim_out),
                     ("out of ammo", &mut v.out_of_ammo),
@@ -4458,42 +5042,135 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
-            ui.collapsing("Fog & Sky", |ui| {
-                let s = &mut *scene;
-                ui.add(
-                    egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=2000.0)
-                        .logarithmic(true)
-                        .text("fog visibility (m)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.color_edit_button_rgb(&mut s.fog_color);
-                    ui.label("fog colour");
-                });
-                ui.add(
-                    egui::Slider::new(&mut s.fog_sun_exponent, 1.0f32..=100.0)
-                        .text("sun-scatter tightness"),
-                );
-                ui.separator();
-                ui.add(egui::Slider::new(&mut s.sun_lux, 0.0f32..=120_000.0).text("sun (lux)"));
-                ui.horizontal(|ui| {
-                    ui.color_edit_button_rgb(&mut s.sun_color);
-                    ui.label("sun colour");
-                });
-                ui.add(
-                    egui::Slider::new(&mut s.ambient_lux, 0.0f32..=6000.0)
-                        .text("sky ambient (lux)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.color_edit_button_rgb(&mut s.ambient_color);
-                    ui.label("ambient colour");
-                });
-                ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
+            ui.collapsing("Fog & Sky (Basic Map)", |ui| {
+                scene_tuning_sliders(ui, &mut scene);
                 if ui.button("Reset fog & sky").clicked() {
-                    *s = SceneTuning::default();
+                    *scene = SceneTuning::default();
                 }
+            });
+
+            ui.separator();
+            ui.collapsing("Fog & Sky (Shipment)", |ui| {
+                ui.label("MW3-style setting: dark, foggy, overcast, out on open water");
+                scene_tuning_sliders(ui, &mut shipment_scene.0);
+                if ui.button("Reset fog & sky").clicked() {
+                    *shipment_scene = ShipmentSceneTuning::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Shipment Lights", |ui| {
+                ui.checkbox(
+                    &mut shipment_light.markers_visible,
+                    "show position/aim markers",
+                );
+                ui.label(
+                    "Off by default — the bulb + rod gizmo is only there to help place the \
+                     lights, not something to leave on.",
+                );
+            });
+
+            ui.separator();
+            ui.collapsing("Shipment Light 1", |ui| {
+                shipment_light_sliders(ui, &mut shipment_light.lights[0], 0);
+            });
+
+            ui.separator();
+            ui.collapsing("Shipment Light 2", |ui| {
+                shipment_light_sliders(ui, &mut shipment_light.lights[1], 1);
             });
         });
     Ok(())
+}
+
+/// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)" and
+/// "Fog & Sky (Shipment)" — same [`SceneTuning`] shape, different resource
+/// (and therefore different defaults) behind each.
+fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
+    ui.add(
+        egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=2000.0)
+            .logarithmic(true)
+            .text("fog visibility (m)"),
+    );
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut s.fog_color);
+        ui.label("fog colour");
+    });
+    ui.add(
+        egui::Slider::new(&mut s.fog_sun_exponent, 1.0f32..=100.0).text("sun-scatter tightness"),
+    );
+    ui.separator();
+    ui.add(egui::Slider::new(&mut s.sun_lux, 0.0f32..=120_000.0).text("sun (lux)"));
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut s.sun_color);
+        ui.label("sun colour");
+    });
+    ui.add(egui::Slider::new(&mut s.ambient_lux, 0.0f32..=6000.0).text("sky ambient (lux)"));
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut s.ambient_color);
+        ui.label("ambient colour");
+    });
+    ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
+}
+
+/// Position/aim/cone sliders + copy/reset buttons for one [`ShipmentLight`]
+/// slot — shared by "Shipment Light 1" and "Shipment Light 2". `index` is
+/// only needed for the reset button, to pull that slot's own default back
+/// out of [`ShipmentLightSettings::default`] rather than some other light's.
+fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize) {
+    ui.add(egui::Slider::new(&mut l.position.x, -80.0f32..=80.0).text("x"));
+    ui.add(egui::Slider::new(&mut l.position.y, 0.0f32..=60.0).text("y (height)"));
+    ui.add(egui::Slider::new(&mut l.position.z, -80.0f32..=80.0).text("z"));
+    ui.add(egui::Slider::new(&mut l.yaw_deg, -180.0f32..=180.0).text("yaw°  (heading)"));
+    ui.add(
+        egui::Slider::new(&mut l.pitch_deg, -89.0f32..=89.0)
+            .text("pitch°  (negative tilts down)"),
+    );
+    ui.separator();
+    ui.label("Cone / beam");
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut l.color);
+        ui.label("colour");
+    });
+    ui.add(
+        egui::Slider::new(&mut l.intensity, 0.0f32..=10_000_000.0)
+            .logarithmic(true)
+            .text("intensity (lumens)"),
+    );
+    ui.add(egui::Slider::new(&mut l.range, 1.0f32..=200.0).text("range (m)"));
+    ui.add(
+        egui::Slider::new(&mut l.inner_angle_deg, 0.0f32..=89.0)
+            .text("inner cone half-angle°  (hard core)"),
+    );
+    ui.add(
+        egui::Slider::new(&mut l.outer_angle_deg, 0.0f32..=89.0)
+            .text("outer cone half-angle°  (full spread — the \"triangle\")"),
+    );
+    ui.checkbox(&mut l.shadows_enabled, "cast shadows");
+
+    if ui.button("Copy light settings to console").clicked() {
+        info!(
+            "shipment light {index}: position: Vec3::new({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}, \
+             pitch_deg: {:.1}, color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, \
+             range: {:.1}, inner_angle_deg: {:.1}, outer_angle_deg: {:.1}, shadows_enabled: {}",
+            l.position.x,
+            l.position.y,
+            l.position.z,
+            l.yaw_deg,
+            l.pitch_deg,
+            l.color[0],
+            l.color[1],
+            l.color[2],
+            l.intensity,
+            l.range,
+            l.inner_angle_deg,
+            l.outer_angle_deg,
+            l.shadows_enabled,
+        );
+    }
+    if ui.button("Reset light").clicked() {
+        *l = ShipmentLightSettings::default().lights[index].clone();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5501,28 +6178,40 @@ fn consume_look_delta(mut look: ResMut<LookDelta>) {
 
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
 /// changes (also once at startup, which just re-applies the consts).
+/// Picks whichever of [`SceneTuning`] (`BasicMap`) or [`ShipmentSceneTuning`]
+/// (`Shipment`) is currently selected and pushes it onto the shared fog /
+/// sun / ambient light / bloom — there's only one of each in the world, so
+/// switching maps re-points them at a different look rather than swapping
+/// entities.
 fn apply_scene_tuning(
+    current: Res<CurrentMap>,
     scene: Res<SceneTuning>,
+    shipment_scene: Res<ShipmentSceneTuning>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
 ) {
-    if !scene.is_changed() {
+    if !current.is_changed() && !scene.is_changed() && !shipment_scene.is_changed() {
         return;
     }
-    ambient.color = color_from_parts(scene.ambient_color);
-    ambient.brightness = scene.ambient_lux;
+    let active = match current.0 {
+        shared::MapId::BasicMap => &*scene,
+        shared::MapId::Shipment => &shipment_scene.0,
+    };
 
-    sun.illuminance = scene.sun_lux;
-    sun.color = color_from_parts(scene.sun_color);
+    ambient.color = color_from_parts(active.ambient_color);
+    ambient.brightness = active.ambient_lux;
 
-    fog.color = color_from_parts(scene.fog_color);
-    fog.directional_light_color = color_from_parts(scene.sun_color);
-    fog.directional_light_exponent = scene.fog_sun_exponent;
-    fog.falloff = FogFalloff::from_visibility(scene.fog_visibility_m);
+    sun.illuminance = active.sun_lux;
+    sun.color = color_from_parts(active.sun_color);
 
-    bloom.intensity = scene.bloom_intensity;
+    fog.color = color_from_parts(active.fog_color);
+    fog.directional_light_color = color_from_parts(active.sun_color);
+    fog.directional_light_exponent = active.fog_sun_exponent;
+    fog.falloff = FogFalloff::from_visibility(active.fog_visibility_m);
+
+    bloom.intensity = active.bloom_intensity;
 }
 
 /// Pushes `Settings::shadow_quality` onto the sun's shadow map whenever it

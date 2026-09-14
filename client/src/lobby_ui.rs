@@ -213,8 +213,11 @@ fn mark_game_session(
 }
 
 /// Pick up our lobby's selected map on the way into `InGame` — solo Practice
-/// has no lobby, so it always falls back to the default (`BasicMap`).
-fn sync_current_map(
+/// has no lobby, so it always falls back to the default (`BasicMap`). `pub`
+/// so `main`'s `start_ambient` can order itself `.after` this — both run on
+/// `OnEnter(AppState::InGame)`, and `start_ambient` needs this frame's fresh
+/// `CurrentMap`, not whatever it was left at after the previous match.
+pub(crate) fn sync_current_map(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
     mut current: ResMut<crate::CurrentMap>,
