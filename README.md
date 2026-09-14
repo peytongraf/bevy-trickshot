@@ -49,6 +49,17 @@ cargo test -p shared
 Rust 1.93+ is enough for the workspace as pinned. Deploying the server: see
 [`server/README.md`](server/README.md).
 
+To point a `cargo run` client at the production server instead of your local
+one (e.g. to verify prod is reachable without waiting on a release), set
+`TRICKSHOT_SERVER`:
+
+```sh
+TRICKSHOT_SERVER=bevy-trickshot-server.fly.dev:5000 cargo run
+```
+
+This is also how a shipped build resolves its server by default — see
+`client::net::server_addr`.
+
 ## Distributing the client to friends (Linux + Windows)
 
 The client self-updates from GitHub Releases. You cut a release by pushing a tag;

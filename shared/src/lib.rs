@@ -43,9 +43,22 @@ pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0007;
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;
 
-/// All-zero netcode key for local development. Production supplies a real key via
-/// the `LIGHTYEAR_PRIVATE_KEY` environment variable (see `server`'s `net` module).
+/// All-zero netcode key for local development. Any self-hosted server (a
+/// friend running `cargo run --bin server` without setting the env var below)
+/// also falls back to this, so it doubles as the "not the official prod
+/// server" key.
 pub const DEV_PRIVATE_KEY: [u8; 32] = [0; 32];
+
+/// Netcode key for `bevy-trickshot-server.fly.dev`, matching that deploy's
+/// `LIGHTYEAR_PRIVATE_KEY` secret (see `server`'s `net` module) — rotate both
+/// together, or every client still on the old key fails the netcode handshake
+/// (`Crypto(Failed(Error))` server-side) even once its packets reach the
+/// server. The client picks this over `DEV_PRIVATE_KEY` only when it's
+/// actually targeting this address (see `client::net::server_addr`).
+pub const PROD_PRIVATE_KEY: [u8; 32] = [
+    15, 212, 122, 25, 119, 203, 128, 136, 123, 64, 154, 38, 234, 218, 121, 61, 202, 93, 167, 175,
+    10, 10, 135, 238, 95, 188, 195, 182, 142, 14, 90, 174,
+];
 
 /// Added by every peer. Registers the shared protocol so replication, prediction
 /// and interpolation line up on both ends.

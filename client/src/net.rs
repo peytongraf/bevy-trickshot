@@ -39,27 +39,48 @@ use crate::{
 /// running under `cargo`. Mirrors `updater.rs`'s `DEFAULT_REPO` convention.
 const DEFAULT_SERVER: &str = "bevy-trickshot-server.fly.dev:5000";
 
-/// Resolve the server address:
-/// * `TRICKSHOT_SERVER` env var wins (host:port, resolved via DNS),
-/// * else `127.0.0.1:5000` under `cargo run` (dev),
-/// * else [`DEFAULT_SERVER`] (shipped build).
-pub fn server_addr() -> SocketAddr {
+/// Resolve the server address and the netcode private key to authenticate
+/// with:
+/// * `TRICKSHOT_SERVER` env var wins (host:port, resolved via DNS) — the prod
+///   key is used only if it's set to exactly [`DEFAULT_SERVER`], so pointing
+///   it at a friend's self-hosted server (or `localhost`) still uses the dev
+///   key that server almost certainly falls back to,
+/// * else `127.0.0.1:5000` under `cargo run` (dev), with the dev key,
+/// * else [`DEFAULT_SERVER`] (shipped build), with the prod key.
+pub fn server_addr() -> (SocketAddr, [u8; 32]) {
     let fallback = || SocketAddr::from(([127, 0, 0, 1], shared::DEFAULT_PORT));
-    let resolve = |s: &str| s.to_socket_addrs().ok().and_then(|mut it| it.next());
+    // Prefer an IPv4 result over IPv6: fly.io's UDP routing needs a *dedicated*
+    // IP, and plenty of players' networks (home ISPs, VPNs, campus/office
+    // networks) have no outbound IPv6 route at all — sending to an IPv6
+    // address there fails at the OS level (`ENETUNREACH`) before a single
+    // packet leaves the machine, so the client just sits on "connecting"
+    // forever and the server never logs an attempt. IPv4 connectivity is
+    // close to universal, so it's the safer default when DNS offers both.
+    let resolve = |s: &str| {
+        let mut addrs: Vec<SocketAddr> = s.to_socket_addrs().ok()?.collect();
+        addrs.sort_by_key(SocketAddr::is_ipv6);
+        addrs.into_iter().next()
+    };
 
     if let Ok(s) = std::env::var("TRICKSHOT_SERVER") {
         if let Some(addr) = resolve(&s) {
-            return addr;
+            let key = if s.trim() == DEFAULT_SERVER {
+                shared::PROD_PRIVATE_KEY
+            } else {
+                shared::DEV_PRIVATE_KEY
+            };
+            return (addr, key);
         }
         warn!("TRICKSHOT_SERVER='{s}' did not resolve; using the default instead");
     }
 
-    let default = if std::env::var_os("CARGO").is_some() {
-        format!("127.0.0.1:{}", shared::DEFAULT_PORT)
+    if std::env::var_os("CARGO").is_some() {
+        let addr = resolve(&format!("127.0.0.1:{}", shared::DEFAULT_PORT)).unwrap_or_else(fallback);
+        (addr, shared::DEV_PRIVATE_KEY)
     } else {
-        DEFAULT_SERVER.to_string()
-    };
-    resolve(&default).unwrap_or_else(fallback)
+        let addr = resolve(DEFAULT_SERVER).unwrap_or_else(fallback);
+        (addr, shared::PROD_PRIVATE_KEY)
+    }
 }
 
 /// A `u64` that is distinct between two clients launched from the same machine
@@ -143,11 +164,11 @@ impl Plugin for ClientNetPlugin {
 pub struct GameClient;
 
 fn connect(mut commands: Commands) {
-    let addr = server_addr();
+    let (addr, private_key) = server_addr();
     let auth = Authentication::Manual {
         server_addr: addr,
         client_id: dev_client_id(),
-        private_key: shared::DEV_PRIVATE_KEY,
+        private_key,
         protocol_id: shared::PROTOCOL_ID,
     };
     let client = match NetcodeClient::new(auth, NetcodeConfig::default()) {

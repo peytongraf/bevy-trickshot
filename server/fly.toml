@@ -4,16 +4,20 @@
 # whole workspace, and fly resolves --config/Dockerfile relative to the path arg):
 #
 #   fly apps create bevy-trickshot-server            # or another unique name; then update `app` below
-#   fly ips allocate-v6                              # free dedicated IPv6 — fly routes UDP over it
+#   fly ips allocate-v4                              # dedicated IPv4, ~$2/mo — required, see below
 #   fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')"
 #   fly deploy . --config server/fly.toml -a bevy-trickshot-server
 #
 # Every later deploy is the same `fly deploy . --config server/fly.toml -a ...`.
 #
 # Notes:
-# * UDP on fly.io needs a *dedicated* IP. Dedicated IPv6 is free (used here);
-#   dedicated IPv4 is ~$2/mo — add it with `fly ips allocate-v4` if a friend's
-#   connection has no IPv6.
+# * UDP on fly.io only ever works over a *dedicated IPv4* — see
+#   https://fly.io/docs/networking/udp-and-tcp/: "You need a dedicated IPv4
+#   address. You can't use a shared IPv4 address or an IPv6 address for UDP."
+#   A dedicated IPv6 (the old setup here) looks like it routes inbound
+#   traffic fine, but public UDP over IPv6 isn't actually supported, and every
+#   reply silently vanishes — see `server::net::bind_addr`'s doc comment for
+#   why (short version: bind to `fly-global-services`, never a wildcard).
 # * fly needs BOTH a udp and a tcp service on the same port for UDP to route.
 #   Nothing listens on TCP, so health is just "process still up" (no [checks],
 #   auto_stop off).
