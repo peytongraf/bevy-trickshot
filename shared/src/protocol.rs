@@ -109,6 +109,19 @@ pub struct PlayerPose {
     /// since a slide should always show the static crouch pose, never
     /// `crouchWalk`, regardless of slide speed.
     pub sliding: bool,
+    /// Whether the owner is alive, copied server-side from their
+    /// `PlayerCombat::alive` (`server::sim::apply_client_pose`) — unlike
+    /// every other field above, this one is **not** taken from the owner's
+    /// own `PlayerInput`: a dead client isn't even sending fresh input
+    /// (`client::net::write_input` stops while their kill cam plays), so it
+    /// has to come from the server's own authoritative combat state
+    /// instead. `true` for any player with no `PlayerCombat` at all
+    /// (`Freestyle` mode never adds one — see that component's doc comment
+    /// — so those players are always "alive"). Lets every client, not just
+    /// the victim, see a remote avatar play its death animation and freeze
+    /// on the last frame until this flips back to `true` on respawn.
+    /// Discrete, same as `crouching`.
+    pub alive: bool,
 }
 
 impl Default for PlayerPose {
@@ -122,6 +135,7 @@ impl Default for PlayerPose {
             reloading: false,
             jumping: false,
             sliding: false,
+            alive: true,
         }
     }
 }
@@ -137,6 +151,7 @@ impl Ease for PlayerPose {
             reloading: end.reloading,
             jumping: end.jumping,
             sliding: end.sliding,
+            alive: end.alive,
         })
     }
 }

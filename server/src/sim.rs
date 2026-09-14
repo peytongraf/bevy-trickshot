@@ -50,8 +50,10 @@ impl Plugin for SimPlugin {
 }
 
 /// Client-authoritative movement: publish the owner's reported pose as-is.
-fn apply_client_pose(mut players: Query<(&mut PlayerPose, &ActionState<PlayerInput>)>) {
-    for (mut pose, input) in &mut players {
+fn apply_client_pose(
+    mut players: Query<(&mut PlayerPose, &ActionState<PlayerInput>, Option<&PlayerCombat>)>,
+) {
+    for (mut pose, input, combat) in &mut players {
         let i = &input.0;
         pose.translation = Vec3::from_array(i.translation);
         pose.yaw = i.yaw;
@@ -61,6 +63,12 @@ fn apply_client_pose(mut players: Query<(&mut PlayerPose, &ActionState<PlayerInp
         pose.reloading = i.reloading;
         pose.jumping = i.jumping;
         pose.sliding = i.sliding;
+        // Not from `input` like everything else above — a dead client isn't
+        // sending fresh input at all (`client::net::write_input` stops for
+        // the duration of their kill cam), so this has to come from our own
+        // authoritative combat state instead. `Freestyle` players never get
+        // a `PlayerCombat` (see its doc comment) — always alive.
+        pose.alive = combat.is_none_or(|c| c.alive);
     }
 }
 

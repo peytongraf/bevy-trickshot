@@ -2105,14 +2105,17 @@ pub(crate) enum SoldierAnimState {
     StrafeLeft,
     /// Moving backward with no strafe component: `backpaddle`, looped.
     Backward,
+    /// Dead (`pose.alive == false`): `death`, played once and held on its
+    /// last frame (the model falling onto its back) until `pose.alive` goes
+    /// back to `true` on respawn — outranks every other state, including
+    /// `Jump`.
+    Dead,
 }
 
 /// Graph + node indices for `models/soldier.glb`'s `idleWgun` / `walk` /
 /// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
-/// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` clips — 12 of its 18
-/// animations wired up so far (death / ... can follow the same pattern as
-/// `BotAnimations` once the networked pose carries enough state to pick
-/// between them). Built once at startup.
+/// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` / `death` clips —
+/// 13 of its 18 animations wired up so far. Built once at startup.
 #[derive(Resource, Clone)]
 pub(crate) struct SoldierAnimations {
     graph: Handle<AnimationGraph>,
@@ -2128,6 +2131,7 @@ pub(crate) struct SoldierAnimations {
     strafe_right: AnimationNodeIndex,
     strafe_left: AnimationNodeIndex,
     backward: AnimationNodeIndex,
+    death: AnimationNodeIndex,
 }
 
 impl SoldierAnimations {
@@ -2145,6 +2149,7 @@ impl SoldierAnimations {
             SoldierAnimState::StrafeRight => self.strafe_right,
             SoldierAnimState::StrafeLeft => self.strafe_left,
             SoldierAnimState::Backward => self.backward,
+            SoldierAnimState::Dead => self.death,
         }
     }
 }
@@ -2175,6 +2180,10 @@ impl SoldierAnimations {
 /// (no separate sprint-strafe clip exists), scaled by how far
 /// `MovementSettings.strafe_speed_mult`/`backward_speed_mult` (the
 /// "Movement" panel's controls) have moved away from their defaults.
+///
+/// `death_speed` isn't calibrated against anything — it's a flat playback
+/// speed multiplier for the `death` clip (`1.0` = authored speed), since
+/// there's no real-world reference like a movement speed to match it to.
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct SoldierAnimSettings {
     pub(crate) base_walk_speed: f32,
@@ -2184,6 +2193,7 @@ pub(crate) struct SoldierAnimSettings {
     pub(crate) base_crouch_walk_speed: f32,
     pub(crate) base_strafe_speed: f32,
     pub(crate) base_backpaddle_speed: f32,
+    pub(crate) death_speed: f32,
 }
 
 impl Default for SoldierAnimSettings {
@@ -2196,6 +2206,7 @@ impl Default for SoldierAnimSettings {
             base_crouch_walk_speed: 1.4,
             base_strafe_speed: 2.0,
             base_backpaddle_speed: 1.5,
+            death_speed: 1.0,
         }
     }
 }
@@ -2234,7 +2245,7 @@ fn setup_soldier_assets(
 ) {
     // Indices into `models/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
     // 3 run, 4 shooting, 6 runAndShooting, 7 strafeRight, 8 strafeLeft,
-    // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload.
+    // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 15 death.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -2259,6 +2270,8 @@ fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(8).from_asset("models/soldier.glb"));
     let backward_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(9).from_asset("models/soldier.glb"));
+    let death_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/soldier.glb"));
     let (graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
@@ -2272,6 +2285,7 @@ fn setup_soldier_assets(
         strafe_right_clip,
         strafe_left_clip,
         backward_clip,
+        death_clip,
     ]);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
@@ -2288,6 +2302,7 @@ fn setup_soldier_assets(
         strafe_right: indices[9],
         strafe_left: indices[10],
         backward: indices[11],
+        death: indices[12],
     });
 }
 
@@ -4741,6 +4756,10 @@ fn ads_tuning_ui(
                         "backpaddle anim speed (× at {} m/s)",
                         WALK_SPEED * BACKWARD_SPEED_MULT
                     )),
+                );
+                ui.add(
+                    egui::Slider::new(&mut sa.death_speed, 0.1f32..=5.0)
+                        .text("death anim speed (×)"),
                 );
                 if ui.button("Reset remote player anim speed").clicked() {
                     *sa = SoldierAnimSettings::default();

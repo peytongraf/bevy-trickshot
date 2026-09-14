@@ -33,6 +33,7 @@ impl Plugin for LobbyUiPlugin {
             .init_resource::<ScoreboardDirty>()
             .init_resource::<LastMatch>()
             .init_resource::<GameSession>()
+            .init_resource::<LastOwnScore>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
             .add_systems(
@@ -43,6 +44,7 @@ impl Plugin for LobbyUiPlugin {
                     spawn_match_timer,
                     mark_game_session,
                     sync_current_map,
+                    reset_own_kill_tracking,
                 ),
             )
             .add_systems(Update, catch_match_end)
@@ -68,6 +70,7 @@ impl Plugin for LobbyUiPlugin {
                 (
                     (watch_scores, rebuild_scoreboard).chain(),
                     update_match_timer,
+                    play_ffa_kill_sound,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -210,6 +213,56 @@ fn mark_game_session(
     session.networked = me
         .map(|me| lobbies.iter().any(|l| l.has(me)))
         .unwrap_or(false);
+}
+
+/// This client's own kill count (`LobbyMember::score` in `FreeForAll`) as of
+/// the last time [`play_ffa_kill_sound`] checked it. Reset on every fresh
+/// `OnEnter(AppState::InGame)` ([`reset_own_kill_tracking`]) so a rematch's
+/// score resetting to `0` doesn't get read as "score went down" and need to
+/// climb back past the previous match's total before it plays a sound again.
+#[derive(Resource, Default)]
+struct LastOwnScore(Option<u32>);
+
+fn reset_own_kill_tracking(mut last: ResMut<LastOwnScore>) {
+    last.0 = None;
+}
+
+/// Plays the "kill enemy" sound for this client's own kills in
+/// `FreeForAll` — detected as this client's own `LobbyMember::score`
+/// increasing, since a `FreeForAll` kill isn't otherwise reported to the
+/// killer's client in any more direct way: `PlayerKilled` is a
+/// server-only event, and the paired `KillCam` message (see
+/// `killcam::receive_killcam`) is only ever sent to the victim.
+/// `Freestyle`'s equivalent is `TrickScoredEvent`, already handled by
+/// `spawn_score_popup`.
+fn play_ffa_kill_sound(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby, Changed<shared::Lobby>>,
+    sounds: Res<crate::GameSounds>,
+    mut last: ResMut<LastOwnScore>,
+    mut commands: Commands,
+) {
+    let Some(me) = local_peer(&local) else {
+        return;
+    };
+    let Some(lobby) = lobbies.iter().find(|l| l.has(me)) else {
+        return;
+    };
+    if lobby.mode != shared::GameMode::FreeForAll {
+        return;
+    }
+    let Some(member) = lobby.members.iter().find(|m| m.peer == me) else {
+        return;
+    };
+    if let Some(prev) = last.0 {
+        if member.score > prev {
+            commands.spawn((
+                AudioPlayer::new(sounds.kill_enemy.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+        }
+    }
+    last.0 = Some(member.score);
 }
 
 /// Pick up our lobby's selected map on the way into `InGame` — solo Practice

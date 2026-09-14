@@ -94,7 +94,16 @@ impl Plugin for ClientNetPlugin {
             FixedPreUpdate,
             write_input
                 .in_set(InputSet::WriteClientInputs)
-                .run_if(in_state(AppState::InGame)),
+                // A kill-cam replay hijacks this client's own `Player`/
+                // `PlayerHead` rig to fly the killer's recorded path (see
+                // `killcam::drive_killcam`) — without this, `write_input`
+                // would read that hijacked transform right off the rig and
+                // broadcast it as this player's live position, so every
+                // other client (the killer included) sees this player's
+                // avatar warp onto and replay the killer's own recent
+                // movement for the replay's duration. Mirrors
+                // `record_local_replay`'s identical gating below.
+                .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         );
         app.add_systems(
             Update,
@@ -460,7 +469,15 @@ fn flush_pending_respawn(
         }
     }
     let (mut transform, mut physics) = player.into_inner();
-    transform.translation = pos;
+    // `pos` is the server's ground-level spawn point (`shared::spawns::spawn_point`
+    // docs it as such) — the `Player` rig's own translation is eye height, not
+    // feet (see `sim.rs`'s note on `PlayerPose::translation`, and the same
+    // `+ EYE_HEIGHT` conversion in reverse at this file's line ~667), so
+    // skipping this left the rig's feet a full `EYE_HEIGHT` below the real
+    // floor — `apply_gravity`'s downward-only raycast can never find a floor
+    // above where it starts, so the player fell forever until manually
+    // teleported.
+    transform.translation = pos + Vec3::Y * crate::EYE_HEIGHT;
     transform.rotation = Quat::from_rotation_y(yaw);
     *physics = PlayerPhysics::default();
     pending.to = None;
@@ -750,6 +767,16 @@ fn animate_remote_avatars(
             continue;
         };
 
+        // Just respawned: `pose.translation` jumped straight from wherever
+        // this avatar died to the new spawn point, which the frame-to-frame
+        // speed calculation just below would otherwise read as a huge burst
+        // of movement — a one-frame flash of `Sprint` (or worse) before it
+        // settles on `Idle`. Priming `prev_translation` with *this* frame's
+        // position first makes that delta (and so the computed speed) zero.
+        if motion.state == crate::SoldierAnimState::Dead && pose.alive {
+            motion.prev_translation = Some(pose.translation);
+        }
+
         // Decompose frame-to-frame movement into the pose's own forward/right
         // basis (not just overall planar speed), so a pure sideways or
         // backward step can be told apart from a forward one.
@@ -767,15 +794,20 @@ fn animate_remote_avatars(
         };
         motion.prev_translation = Some(pose.translation);
 
-        // Jumping/reloading take priority over everything else. Both are
-        // sustained flags (true for the whole jump arc / whole reload), but
-        // the `new_state != motion.state` guard below only calls `play()` on
-        // the entry edge, so each still plays its clip once — holding the
-        // last frame — for as long as the flag stays true. Once it clears,
-        // the state below is picked again on the very next frame. `Jump`
-        // outranks even `Reload` since landing mid-reload should still show
-        // the jump/land motion.
-        let new_state = if pose.jumping {
+        // Dead outranks everything, including jumping (a fatal shot mid-air
+        // should still cut straight to the death pose) — held on its last
+        // frame (`new_state != motion.state` below only calls `play()` on
+        // the entry edge, and it's set to play once, not loop) until
+        // `pose.alive` flips back to `true` on respawn. Jumping/reloading
+        // take priority over everything below them. All three are sustained
+        // flags, so each still plays its clip once — holding the last frame
+        // — for as long as the flag stays true; once it clears, the state
+        // below is picked again on the very next frame. `Jump` outranks
+        // `Reload` since landing mid-reload should still show the jump/land
+        // motion.
+        let new_state = if !pose.alive {
+            crate::SoldierAnimState::Dead
+        } else if pose.jumping {
             crate::SoldierAnimState::Jump
         } else if pose.reloading {
             crate::SoldierAnimState::Reload
@@ -844,9 +876,9 @@ fn animate_remote_avatars(
         if new_state != motion.state {
             motion.state = new_state;
             let repeat = match new_state {
-                crate::SoldierAnimState::Reload | crate::SoldierAnimState::Jump => {
-                    RepeatAnimation::Never
-                }
+                crate::SoldierAnimState::Reload
+                | crate::SoldierAnimState::Jump
+                | crate::SoldierAnimState::Dead => RepeatAnimation::Never,
                 _ => RepeatAnimation::Forever,
             };
             // `AnimationTransitions::play` fades the previous node's weight
@@ -875,6 +907,7 @@ fn animate_remote_avatars(
                     strafe_anim_speed
                 }
                 crate::SoldierAnimState::Backward => backpaddle_anim_speed,
+                crate::SoldierAnimState::Dead => anim_settings.death_speed,
             });
         }
     }
