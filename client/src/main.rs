@@ -298,6 +298,9 @@ struct ShipmentSpotLight(usize);
 /// points. `inner_angle_deg` / `outer_angle_deg` are the cone's half-angles
 /// (`SpotLight`'s own convention, matching real fixtures' "beam angle"):
 /// equal values give a hard-edged cone, a gap between them a soft penumbra.
+/// `glow_intensity` is separate from `intensity` — see [`ShipmentLightGlow`]
+/// — since the two read very differently: the flood beam only needs to light
+/// the yard, the glow only needs to look bright standing right under it.
 #[derive(Clone)]
 struct ShipmentLight {
     position: Vec3,
@@ -309,6 +312,7 @@ struct ShipmentLight {
     inner_angle_deg: f32,
     outer_angle_deg: f32,
     shadows_enabled: bool,
+    glow_intensity: f32,
 }
 
 /// Live-tunable floodlights for `shipment.glb` — debug panel's "Shipment
@@ -328,7 +332,7 @@ impl Default for ShipmentLightSettings {
         Self {
             lights: [
                 ShipmentLight {
-                    position: Vec3::new(16.0, 19.0, 1.0),
+                    position: Vec3::new(16.0, 18.5, 0.08),
                     yaw_deg: 85.0,
                     pitch_deg: -30.0,
                     color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
@@ -337,9 +341,10 @@ impl Default for ShipmentLightSettings {
                     inner_angle_deg: 89.0,
                     outer_angle_deg: 89.0,
                     shadows_enabled: true,
+                    glow_intensity: 5_000_000.0,
                 },
                 ShipmentLight {
-                    position: Vec3::new(-15.0, 18.0, 3.0),
+                    position: Vec3::new(-16.0, 18.5, 0.0),
                     yaw_deg: -75.0,
                     pitch_deg: -35.0,
                     color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
@@ -348,6 +353,7 @@ impl Default for ShipmentLightSettings {
                     inner_angle_deg: 89.0,
                     outer_angle_deg: 89.0,
                     shadows_enabled: true,
+                    glow_intensity: 5_000_000.0,
                 },
             ],
             markers_visible: false,
@@ -356,13 +362,19 @@ impl Default for ShipmentLightSettings {
 }
 
 /// Push each [`ShipmentLight`] in [`ShipmentLightSettings`] onto its matching
-/// [`ShipmentSpotLight`] every frame — mirrors `apply_shipment_transform`'s
-/// reasoning: cheap, and unconditional so a value tweaked while the lights
-/// are hidden still takes effect the instant [`sync_shipment_only_visibility`]
-/// reveals them.
+/// [`ShipmentSpotLight`] (and that light's [`ShipmentLightGlow`] child) every
+/// frame — mirrors `apply_shipment_transform`'s reasoning: cheap, and
+/// unconditional so a value tweaked while the lights are hidden still takes
+/// effect the instant [`sync_shipment_only_visibility`] reveals them.
 fn apply_shipment_lights(
     settings: Res<ShipmentLightSettings>,
     mut lights: Query<(&ShipmentSpotLight, &mut Transform, &mut SpotLight)>,
+    mut glows: Query<(
+        &ShipmentLightGlow,
+        &mut PointLight,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (index, mut transform, mut spot) in &mut lights {
         let Some(cfg) = settings.lights.get(index.0) else {
@@ -382,7 +394,53 @@ fn apply_shipment_lights(
         spot.outer_angle = cfg.outer_angle_deg.to_radians();
         spot.shadows_enabled = cfg.shadows_enabled;
     }
+    for (index, mut point, material) in &mut glows {
+        let Some(cfg) = settings.lights.get(index.0) else {
+            continue;
+        };
+        let color = color_from_parts(cfg.color);
+        point.color = color;
+        point.intensity = cfg.glow_intensity;
+        if let Some(material) = materials.get_mut(material) {
+            // Scaled well past 1.0 (HDR) so `Bloom` actually catches it — a
+            // merely `1.0`-bright emissive reads as a flat lit surface, not
+            // a light source. `GLOW_EMISSIVE_PER_LUMEN` is picked by eye
+            // against `ShipmentLight::glow_intensity`'s slider range, not
+            // any physical unit conversion.
+            material.emissive = LinearRgba::from(color) * cfg.glow_intensity
+                / GLOW_EMISSIVE_PER_LUMEN;
+        }
+    }
 }
+
+/// How many lumens of [`ShipmentLight::glow_intensity`] correspond to one
+/// unit of [`ShipmentLightGlow`]'s emissive brightness — see
+/// `apply_shipment_lights`. Tuned by eye so the default `glow_intensity`
+/// reads as a bright bulb without blowing out to a featureless white blob.
+const GLOW_EMISSIVE_PER_LUMEN: f32 = 25_000.0;
+
+/// An always-visible small emissive sphere at a [`ShipmentSpotLight`]'s
+/// fixture, paired with a short-range `PointLight` on the same entity — so
+/// looking up at one of MW3 Shipment's crane floodlights actually shows a
+/// bright light source, not just an invisible cone with nothing visibly
+/// casting it, and the platform/crane right around the fixture gets a soft
+/// glow the narrow flood beam alone wouldn't reach. `.0` indexes into
+/// [`ShipmentLightSettings::lights`], same as [`ShipmentSpotLight`]. Unlike
+/// [`ShipmentLightMarker`]'s debug-only gizmo, this is a normal, always-shown
+/// part of the scene — being a child of its `ShipmentSpotLight` means
+/// `sync_shipment_only_visibility`'s map-based hide of the parent still
+/// applies to it via `Inherited` visibility.
+#[derive(Component)]
+struct ShipmentLightGlow(usize);
+
+/// Radius of a [`ShipmentLightGlow`]'s emissive bulb sphere — small enough to
+/// read as a fixture, not a floating ball.
+const LIGHT_GLOW_BULB_RADIUS: f32 = 0.35;
+
+/// How far a [`ShipmentLightGlow`]'s companion `PointLight` reaches — short
+/// on purpose, just enough to light the fixture's own crane/platform; the
+/// yard-scale illumination is entirely the `SpotLight`'s job.
+const LIGHT_GLOW_RANGE: f32 = 12.0;
 
 /// Marker for a [`ShipmentSpotLight`]'s debug-only gizmo (a bulb + aim rod,
 /// spawned as its children in `setup_world`) — see [`sync_light_marker_visibility`]
@@ -849,7 +907,9 @@ fn sync_shipment_only_visibility(
         if is_shipment {
             ground.insert((Visibility::Hidden, ColliderDisabled));
         } else {
-            ground.insert(Visibility::Inherited).remove::<ColliderDisabled>();
+            ground
+                .insert(Visibility::Inherited)
+                .remove::<ColliderDisabled>();
         }
     }
     let shipment_only_visibility = if is_shipment {
@@ -1094,10 +1154,18 @@ const FOG_COLOR: Color = Color::srgb(0.72, 0.80, 0.90);
 /// Roughly the distance (m) at which geometry fades fully into the haze.
 const FOG_VISIBILITY_M: f32 = 1300.0;
 
-/// Frame rate the `allanims` clip was baked at in Blender. If the segment cuts
-/// below look off, check the console on startup: the game logs the clip's real
-/// duration and the fps a 156-frame timeline would imply.
+/// Frame rate `sniper.glb`'s `allanims` clip was baked at in Blender. If the
+/// segment cuts below look off, check the console on startup: the game logs
+/// the clip's real duration and the fps a 156-frame timeline would imply.
 const ANIM_FPS: f32 = 24.0;
+
+/// Frame rate `knife.glb`'s own `allanims` clip was baked at — a different
+/// Blender scene, and *not* 24 like the sniper's: the exported clip's raw
+/// keyframe spacing is a consistent 1/30 s and its accessor caps out at
+/// exactly 4.0 s, which only lines up with the given frame numbers (a
+/// 108-frame "Show" ending at "the end" of the clip) at 30 fps — at 24 fps
+/// frame 108 alone would land past the clip's actual 4.0 s of data.
+const KNIFE_ANIM_FPS: f32 = 30.0;
 
 /// Magazine capacity and the total number of magazines the player carries
 /// (current mag + reserve = `MAG_SIZE * TOTAL_MAGS`).
@@ -1235,13 +1303,13 @@ fn breathing_offset(clock: f32, freq_hz: Vec2, amp_rad: Vec2) -> Vec2 {
 /// `[start, end)` frame ranges lifted straight from the Blender timeline.
 /// Adjust these until every section is exactly right, then rebuild.
 const SEGMENTS: [AnimationSegment; 7] = [
-    AnimationSegment::new("Shoot", 0.0, 9.0),
-    AnimationSegment::new("Rechamber", 9.0, 48.0),
-    AnimationSegment::new("Reload", 48.0, 92.0),
-    AnimationSegment::new("Hide", 92.0, 101.0),
-    AnimationSegment::new("Show", 101.0, 113.0),
-    AnimationSegment::new("Adjust Grip", 113.0, 132.0),
-    AnimationSegment::new("Melee", 132.0, 156.0),
+    AnimationSegment::new("Shoot", 0.0, 9.0, ANIM_FPS),
+    AnimationSegment::new("Rechamber", 9.0, 48.0, ANIM_FPS),
+    AnimationSegment::new("Reload", 48.0, 92.0, ANIM_FPS),
+    AnimationSegment::new("Hide", 92.0, 101.0, ANIM_FPS),
+    AnimationSegment::new("Show", 101.0, 113.0, ANIM_FPS),
+    AnimationSegment::new("Adjust Grip", 113.0, 132.0, ANIM_FPS),
+    AnimationSegment::new("Melee", 132.0, 156.0, ANIM_FPS),
 ];
 
 #[derive(Clone, Copy)]
@@ -1249,23 +1317,29 @@ struct AnimationSegment {
     name: &'static str,
     start_frame: f32,
     end_frame: f32,
+    /// Frames/second the source clip was exported at. Not a shared global —
+    /// `sniper.glb` (`ANIM_FPS`, 24) and `knife.glb` (`KNIFE_ANIM_FPS`, 30)
+    /// were authored at different Blender scene rates, so each segment
+    /// carries its own instead of assuming one constant for every clip.
+    fps: f32,
 }
 
 impl AnimationSegment {
-    const fn new(name: &'static str, start_frame: f32, end_frame: f32) -> Self {
+    const fn new(name: &'static str, start_frame: f32, end_frame: f32, fps: f32) -> Self {
         Self {
             name,
             start_frame,
             end_frame,
+            fps,
         }
     }
 
     fn start_secs(&self) -> f32 {
-        self.start_frame / ANIM_FPS
+        self.start_frame / self.fps
     }
 
     fn end_secs(&self) -> f32 {
-        self.end_frame / ANIM_FPS
+        self.end_frame / self.fps
     }
 }
 
@@ -1278,6 +1352,53 @@ fn play_segment(player: &mut AnimationPlayer, node: AnimationNodeIndex, seg: Ani
     active.seek_to(seg.start_secs());
     active.resume();
 }
+
+/// Indices into `KNIFE_SEGMENTS`.
+const KNIFE_SEG_ADJUST_GRIP: usize = 0;
+const KNIFE_SEG_SLICE_1: usize = 1;
+const KNIFE_SEG_SLICE_2: usize = 2;
+const KNIFE_SEG_SLICE_3: usize = 3;
+const KNIFE_SEG_SLICE_4: usize = 4;
+const KNIFE_SEG_HIDE: usize = 5;
+const KNIFE_SEG_SHOW: usize = 6;
+
+/// One of `KNIFE_SEG_SLICE_1..=4`, picked at random by `weapon_system` each
+/// time the knife attacks — see `KnifeAnimState::swings`.
+const KNIFE_SLICE_SEGMENTS: [usize; 4] = [
+    KNIFE_SEG_SLICE_1,
+    KNIFE_SEG_SLICE_2,
+    KNIFE_SEG_SLICE_3,
+    KNIFE_SEG_SLICE_4,
+];
+
+/// `models/knife.glb`'s own single baked clip, sliced the same way as
+/// `SEGMENTS` — frame ranges lifted from a known-good cut of this same
+/// animation (a separate three.js project's `AnimationUtils.subclip(fullClip,
+/// name, startFrame, endFrame)` calls, which default to 30 fps — matching
+/// `KNIFE_ANIM_FPS`): `idle` 0-40, `hit1` 40-60, `hit2` 60-80,
+/// `backwardsHit1` 80-100, `hit4backwardsHit2` 100-121, `hide` 121-128,
+/// `appear` 128-142, renamed below to match this file's own naming
+/// (`Adjust Grip` / `Slice 1..4` / `Hide` / `Show`). This particular export's
+/// baked clip only actually runs to frame 135 (4.5 s — confirmed directly
+/// from every channel's raw keyframe times, all spaced an exact 1/30 s
+/// apart), 7 frames short of that reference's 142, so `Show` is clamped to
+/// 135 rather than running past the end of the data. `Show` plays once
+/// whenever the knife is drawn, immediately followed by `Adjust Grip` (see
+/// `weapon_system`); each of the four slices plays once, picked at random, on
+/// a left click while the knife is out and idle. Each segment starts exactly
+/// where the previous one's pose ends (baked that way in Blender, the same
+/// as `SEGMENTS`) — `play_segment` is a hard cut with no blending, for the
+/// sniper as much as the knife, so getting these boundaries right *is* what
+/// makes the flow from one animation into the next look smooth.
+const KNIFE_SEGMENTS: [AnimationSegment; 7] = [
+    AnimationSegment::new("Adjust Grip", 0.0, 40.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Slice 1", 40.0, 60.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Slice 2", 60.0, 80.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Slice 3", 80.0, 100.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Slice 4", 100.0, 121.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Hide", 121.0, 128.0, KNIFE_ANIM_FPS),
+    AnimationSegment::new("Show", 128.0, 135.0, KNIFE_ANIM_FPS),
+];
 
 /// A weapon action (fire / swap-to-secondary) cut a busy queue short — stash
 /// whatever bolt-cycle work is still outstanding as `weapon.interrupted` so it
@@ -1346,6 +1467,7 @@ fn main() {
             ..default()
         })
         .init_resource::<ViewModelPoses>()
+        .init_resource::<KnifeViewModelSettings>()
         .init_resource::<Ads>()
         .init_resource::<AdsTuning>()
         .init_resource::<LookDelta>()
@@ -1360,6 +1482,7 @@ fn main() {
         .init_resource::<NoScopeSpread>()
         .init_resource::<Weapon>()
         .init_resource::<ThrowingKnife>()
+        .init_resource::<KnifeAnimState>()
         .init_resource::<PendingShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
@@ -1443,7 +1566,11 @@ fn main() {
         // behind the menu/lobby UI is already right the instant a game starts.
         .add_systems(
             Update,
-            (sync_map_model, sync_shipment_only_visibility, sync_sky_texture),
+            (
+                sync_map_model,
+                sync_shipment_only_visibility,
+                sync_sky_texture,
+            ),
         )
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
         // frame's `PostUpdate` and can scale them before they've really played.
@@ -1521,6 +1648,7 @@ fn main() {
                     sync_light_marker_visibility,
                     update_rain,
                     apply_rain_assets,
+                    apply_knife_transform,
                 ),
                 debug_cursor_toggle,
             )
@@ -1824,15 +1952,15 @@ struct ShipmentSceneTuning(SceneTuning);
 impl Default for ShipmentSceneTuning {
     fn default() -> Self {
         Self(SceneTuning {
-            fog_visibility_m: 600.0,
+            fog_visibility_m: 200.0,
             // r24 g30 b37 (0-255) — a dark, cool overcast grey.
             fog_color: srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0)),
-            fog_sun_exponent: 1.0,
-            sun_lux: 100.0,
+            fog_sun_exponent: 7.0,
+            sun_lux: 1000.0,
             sun_color: srgb_parts(Color::srgb(0.75, 0.78, 0.85)),
             ambient_color: srgb_parts(Color::srgb(0.35, 0.38, 0.42)),
-            ambient_lux: 100.0,
-            bloom_intensity: 0.02,
+            ambient_lux: 50.0,
+            bloom_intensity: 0.1,
         })
     }
 }
@@ -1954,6 +2082,27 @@ pub(crate) struct ViewModelAnimation {
 /// `AnimationPlayer` in the world was the sniper's needs to filter on this.
 #[derive(Component)]
 pub(crate) struct SniperAnimationPlayer;
+
+/// The loaded `models/knife.glb` scene root — the melee weapon in
+/// `WeaponSlot::Secondary` (separate from `ThrowingKnife`, the lethal).
+/// Mirrors [`ViewModel`], kept as its own component (not reused) so systems
+/// that expect exactly one sniper view model — `apply_ads`, `weapon_sway`,
+/// etc. — aren't broken by a second `ViewModel`-tagged entity existing.
+#[derive(Component)]
+struct KnifeViewModel;
+
+/// Handles + node index for the knife's single animation clip — mirrors
+/// [`ViewModelAnimation`].
+#[derive(Component)]
+struct KnifeAnimation {
+    graph: Handle<AnimationGraph>,
+    index: AnimationNodeIndex,
+}
+
+/// Set by `start_knife_animation` on the descendant entity that carries the
+/// knife's `AnimationPlayer` — mirrors [`SniperAnimationPlayer`].
+#[derive(Component)]
+struct KnifeAnimationPlayer;
 
 /// `models/bot.glb` is imported noticeably larger than [`shared::bots::BOT_HEIGHT`]
 /// (the invisible hitbox capsule) — scaled down so what's on screen lines up
@@ -2389,6 +2538,44 @@ enum WeaponFinish {
 /// cut them off (they otherwise self-despawn when the clip ends).
 #[derive(Component)]
 struct WeaponActionSound;
+
+/// The knife's own animation state — mirrors `Weapon::busy`/`WeaponBusy`, but
+/// kept entirely separate rather than reused: the sniper and the knife are
+/// never both mid-animation at once (only one is ever drawn), but they
+/// animate through two different `AnimationPlayer`s, and the knife's own
+/// state machine is much simpler (no reload/rechamber interrupt-and-resume
+/// queue to model). `None` means idle — fully hidden while
+/// `WeaponSlot::Primary`, fully drawn and waiting on a left click while
+/// `WeaponSlot::Secondary`.
+#[derive(Resource, Default)]
+struct KnifeAnimState {
+    busy: Option<KnifeBusy>,
+    /// Bumped on every slice attack, seeds which of `KNIFE_SLICE_SEGMENTS`
+    /// plays — see `weapon_system`.
+    swings: u32,
+}
+
+struct KnifeBusy {
+    /// Segments still to play; `remaining[0]` is the one playing now — e.g.
+    /// `[Show, Adjust Grip]` when the knife is being drawn.
+    remaining: Vec<AnimationSegment>,
+    /// Clip time (seconds) the current segment ends at.
+    seg_end: f32,
+    on_finish: KnifeFinish,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum KnifeFinish {
+    /// A slice (or the Show → Adjust Grip draw sequence) finished — nothing
+    /// special, just back to idle-out.
+    Nothing,
+    /// Hide finished — the knife is now stowed. `weapon_system` flips
+    /// `Weapon::slot` back to `Primary` and plays the sniper's own Show
+    /// right here, deferred from whenever the swap key was actually
+    /// pressed — mirrors `WeaponFinish::Holster` kicking the knife's Show
+    /// off the moment the sniper finishes *its* Hide.
+    Hidden,
+}
 
 impl Default for Weapon {
     fn default() -> Self {
@@ -3304,6 +3491,29 @@ impl Default for ViewModelPoses {
     }
 }
 
+/// Live-tunable placement of the knife view model — debug panel's "Knife"
+/// section, applied every frame by `apply_knife_transform`. Position and
+/// scale only (no hip/ADS blend like `ViewModelPoses`: the knife never aims
+/// down sight). Rotation isn't exposed here — `apply_knife_transform` fixes
+/// it at `yaw: PI` to match `ViewModelPoses::hip`'s own convention, since
+/// it's the same view-model rig facing the same way.
+#[derive(Resource)]
+struct KnifeViewModelSettings {
+    translation: Vec3,
+    scale: f32,
+}
+
+impl Default for KnifeViewModelSettings {
+    fn default() -> Self {
+        Self {
+            // Dialed in against a bot for scale (see the "Knife" debug-panel
+            // section).
+            translation: Vec3::new(0.0, -0.13, -0.5),
+            scale: 0.01,
+        }
+    }
+}
+
 /// Smoothstep easing, used for the scope sight-picture fade.
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -3433,7 +3643,17 @@ fn setup_world(
         unlit: true,
         ..default()
     });
+    // Unlike the debug-only gizmo mesh/material above, [`ShipmentLightGlow`]'s
+    // material carries each light's own colour/brightness, so (mesh aside)
+    // it's built fresh per light below rather than shared.
+    let glow_mesh = meshes.add(Sphere::new(LIGHT_GLOW_BULB_RADIUS));
     for (index, cfg) in light.lights.iter().enumerate() {
+        let glow_color = color_from_parts(cfg.color);
+        let glow_material = materials.add(StandardMaterial {
+            base_color: glow_color,
+            emissive: LinearRgba::from(glow_color) * cfg.glow_intensity / GLOW_EMISSIVE_PER_LUMEN,
+            ..default()
+        });
         commands
             .spawn((
                 ShipmentSpotLight(index),
@@ -3481,6 +3701,21 @@ fn setup_world(
                     // outward instead of piercing through it.
                     Transform::from_xyz(0.0, 0.0, -LIGHT_MARKER_ROD_LENGTH / 2.0),
                     Visibility::Hidden,
+                ));
+                // Always-visible glow — see `ShipmentLightGlow`. No explicit
+                // `Visibility` (defaults to `Inherited`), unlike the two debug
+                // gizmos above: it should show whenever its parent light does.
+                light.spawn((
+                    ShipmentLightGlow(index),
+                    Mesh3d(glow_mesh.clone()),
+                    MeshMaterial3d(glow_material),
+                    PointLight {
+                        color: glow_color,
+                        intensity: cfg.glow_intensity,
+                        range: LIGHT_GLOW_RANGE,
+                        shadows_enabled: false,
+                        ..default()
+                    },
                 ));
             });
     }
@@ -3546,12 +3781,19 @@ fn setup_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     poses: Res<ViewModelPoses>,
+    knife_settings: Res<KnifeViewModelSettings>,
 ) {
     // Build a one-clip animation graph for the sniper's baked animation.
     let clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/sniper.glb"));
     let (graph, index) = AnimationGraph::from_clip(clip);
     let graph = graphs.add(graph);
+
+    // Same, for the knife's own baked clip.
+    let knife_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/knife.glb"));
+    let (knife_graph, knife_index) = AnimationGraph::from_clip(knife_clip);
+    let knife_graph = graphs.add(knife_graph);
 
     // Image the scope camera renders into and the scope lens samples.
     let mut scope_image = Image::new_fill(
@@ -3748,6 +3990,29 @@ fn setup_player(
                             ))
                             .observe(start_view_model_animation);
 
+                            // The knife view model — the other half of
+                            // `WeaponSlot`. Hidden by default: `Primary` (the
+                            // sniper) is the slot the player starts equipped
+                            // with, same as the sniper above starts visible.
+                            rig.spawn((
+                                KnifeViewModel,
+                                KnifeAnimation {
+                                    graph: knife_graph,
+                                    index: knife_index,
+                                },
+                                SceneRoot(asset_server.load(
+                                    GltfAssetLabel::Scene(0).from_asset("models/knife.glb"),
+                                )),
+                                Transform {
+                                    translation: knife_settings.translation,
+                                    rotation: Quat::from_euler(EulerRot::YXZ, PI, 0.0, 0.0),
+                                    scale: Vec3::splat(knife_settings.scale),
+                                },
+                                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                Visibility::Hidden,
+                            ))
+                            .observe(start_knife_animation);
+
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.
                             // Hidden until a shot; `update_muzzle_flash` pops it
@@ -3851,6 +4116,39 @@ fn start_view_model_animation(
     }
 
     info!("view model ready: tagged {lens_count} scope-lens mesh(es)");
+}
+
+/// Once the knife scene has spawned, drop every entity it created onto the
+/// view-model render layer and arm its animation player, parked (paused) on
+/// the first frame — mirrors `start_view_model_animation`, minus the
+/// scope-lens handling the knife has no equivalent of.
+fn start_knife_animation(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    knives: Query<&KnifeAnimation>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    let root = trigger.target();
+    let Ok(anim) = knives.get(root) else {
+        return;
+    };
+
+    for entity in children.iter_descendants(root) {
+        commands
+            .entity(entity)
+            .insert((RenderLayers::layer(VIEW_MODEL_RENDER_LAYER), NoFrustumCulling));
+
+        if let Ok(mut player) = players.get_mut(entity) {
+            let active = player.play(anim.index);
+            active.set_repeat(RepeatAnimation::Never);
+            active.seek_to(0.0);
+            active.pause();
+            commands
+                .entity(entity)
+                .insert((AnimationGraphHandle(anim.graph.clone()), KnifeAnimationPlayer));
+        }
+    }
 }
 
 pub(crate) fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
@@ -4389,7 +4687,7 @@ fn ads_tuning_ui(
         ResMut<WaterSettings>,
         ResMut<ShipmentSceneTuning>,
         ResMut<ShipmentLightSettings>,
-        ResMut<RainSettings>,
+        (ResMut<RainSettings>, ResMut<KnifeViewModelSettings>),
     ),
 ) -> Result {
     let (
@@ -4407,7 +4705,7 @@ fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        mut rain,
+        (mut rain, mut knife_view),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -4533,6 +4831,39 @@ fn ads_tuning_ui(
                 }
                 if ui.button("Reset hip pose to default").clicked() {
                     *h = ViewModelPoses::default().hip;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Knife", |ui| {
+                let k = &mut *knife_view;
+                ui.label("models/knife.glb — position and scale only (see WeaponSlot::Secondary)");
+                ui.label(
+                    "Position range is wide on purpose — push it out past the normal hip-pose \
+                     range to stand it next to a bot in world space and check the scale reads \
+                     right, then dial it back in for the actual view-model pose.",
+                );
+                ui.add(
+                    egui::Slider::new(&mut k.translation.x, -20.0f32..=20.0).text("x  (right +)"),
+                );
+                ui.add(egui::Slider::new(&mut k.translation.y, -20.0f32..=20.0).text("y  (up +)"));
+                ui.add(
+                    egui::Slider::new(&mut k.translation.z, -40.0f32..=5.0).text("z  (forward -)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut k.scale, 0.001f32..=0.05)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+
+                if ui.button("Copy knife pose to console").clicked() {
+                    info!(
+                        "knife: translation: Vec3::new({:.4}, {:.4}, {:.4}), scale: {:.5}",
+                        k.translation.x, k.translation.y, k.translation.z, k.scale,
+                    );
+                }
+                if ui.button("Reset knife pose to default").clicked() {
+                    *k = KnifeViewModelSettings::default();
                 }
             });
 
@@ -4678,12 +5009,10 @@ fn ads_tuning_ui(
                         .logarithmic(true),
                 );
                 ui.add(
-                    egui::Slider::new(&mut w.scroll_speed.x, -0.1f32..=0.1)
-                        .text("ripple scroll x"),
+                    egui::Slider::new(&mut w.scroll_speed.x, -0.1f32..=0.1).text("ripple scroll x"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut w.scroll_speed.y, -0.1f32..=0.1)
-                        .text("ripple scroll y"),
+                    egui::Slider::new(&mut w.scroll_speed.y, -0.1f32..=0.1).text("ripple scroll y"),
                 );
 
                 if ui.button("Copy water settings to console").clicked() {
@@ -5318,17 +5647,18 @@ fn ads_tuning_ui(
                 let r = &mut *rain;
                 ui.label("Shipment only — real 3D streaks, not a screen overlay");
                 ui.checkbox(&mut r.enabled, "enabled");
+                ui.add(egui::Slider::new(&mut r.count, 0..=RAIN_MAX_DROPS).text("streak count"));
                 ui.add(
-                    egui::Slider::new(&mut r.count, 0..=RAIN_MAX_DROPS).text("streak count"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut r.radius, 2.0f32..=60.0).text("radius around player (m)"),
+                    egui::Slider::new(&mut r.radius, 2.0f32..=60.0)
+                        .text("radius around player (m)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut r.spawn_height, 2.0f32..=60.0)
                         .text("spawn height above player (m)"),
                 );
-                ui.add(egui::Slider::new(&mut r.fall_speed, 0.5f32..=30.0).text("fall speed (m/s)"));
+                ui.add(
+                    egui::Slider::new(&mut r.fall_speed, 0.5f32..=30.0).text("fall speed (m/s)"),
+                );
                 ui.add(egui::Slider::new(&mut r.wind.x, -10.0f32..=10.0).text("wind x (m/s)"));
                 ui.add(egui::Slider::new(&mut r.wind.y, -10.0f32..=10.0).text("wind z (m/s)"));
                 ui.separator();
@@ -5395,8 +5725,7 @@ fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize
     ui.add(egui::Slider::new(&mut l.position.z, -80.0f32..=80.0).text("z"));
     ui.add(egui::Slider::new(&mut l.yaw_deg, -180.0f32..=180.0).text("yaw°  (heading)"));
     ui.add(
-        egui::Slider::new(&mut l.pitch_deg, -89.0f32..=89.0)
-            .text("pitch°  (negative tilts down)"),
+        egui::Slider::new(&mut l.pitch_deg, -89.0f32..=89.0).text("pitch°  (negative tilts down)"),
     );
     ui.separator();
     ui.label("Cone / beam");
@@ -5405,7 +5734,7 @@ fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize
         ui.label("colour");
     });
     ui.add(
-        egui::Slider::new(&mut l.intensity, 0.0f32..=10_000_000.0)
+        egui::Slider::new(&mut l.intensity, 0.0f32..=100_000_000.0)
             .logarithmic(true)
             .text("intensity (lumens)"),
     );
@@ -5419,12 +5748,20 @@ fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize
             .text("outer cone half-angle°  (full spread — the \"triangle\")"),
     );
     ui.checkbox(&mut l.shadows_enabled, "cast shadows");
+    ui.separator();
+    ui.label("Glow  (the always-visible bulb at the fixture — see ShipmentLightGlow)");
+    ui.add(
+        egui::Slider::new(&mut l.glow_intensity, 0.0f32..=20_000_000.0)
+            .logarithmic(true)
+            .text("glow intensity (lumens)"),
+    );
 
     if ui.button("Copy light settings to console").clicked() {
         info!(
             "shipment light {index}: position: Vec3::new({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}, \
              pitch_deg: {:.1}, color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, \
-             range: {:.1}, inner_angle_deg: {:.1}, outer_angle_deg: {:.1}, shadows_enabled: {}",
+             range: {:.1}, inner_angle_deg: {:.1}, outer_angle_deg: {:.1}, shadows_enabled: {}, \
+             glow_intensity: {:.0}",
             l.position.x,
             l.position.y,
             l.position.z,
@@ -5438,6 +5775,7 @@ fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize
             l.inner_angle_deg,
             l.outer_angle_deg,
             l.shadows_enabled,
+            l.glow_intensity,
         );
     }
     if ui.button("Reset light").clicked() {
@@ -6331,6 +6669,21 @@ pub(crate) fn apply_ads(
     **view_model = lerp_pose(&poses.hip, &poses.ads, e);
 }
 
+/// Push `KnifeViewModelSettings` onto the knife view model's `Transform`
+/// every frame — mirrors `apply_shipment_transform`'s reasoning: cheap, and
+/// unconditional so a value tweaked while the knife is hidden still takes
+/// effect the instant it's next drawn. Unlike `apply_ads`, there's no
+/// hip/ADS blend to compute — the knife never aims — so this just pushes
+/// the one pose straight through.
+fn apply_knife_transform(
+    settings: Res<KnifeViewModelSettings>,
+    mut knife: Single<&mut Transform, With<KnifeViewModel>>,
+) {
+    knife.translation = settings.translation;
+    knife.rotation = Quat::from_euler(EulerRot::YXZ, PI, 0.0, 0.0);
+    knife.scale = Vec3::splat(settings.scale);
+}
+
 /// Make the weapon trail the direction the player turns and then catch up.
 ///
 /// Runs after [`apply_ads`] has written the base pose and multiplies a small
@@ -6781,17 +7134,20 @@ fn weapon_system(
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
-    (view_model, mut view_model_vis): (
+    (view_model, mut view_model_vis, knife_anim, mut knife_vis): (
         Single<&ViewModelAnimation>,
-        Single<&mut Visibility, With<ViewModel>>,
+        Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
+        Single<&KnifeAnimation>,
+        Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
     ),
-    (cam, action_sounds, mut players): (
+    (cam, action_sounds, mut players, mut knife_players): (
         Query<&GlobalTransform, With<WorldModelCamera>>,
         Query<Entity, With<WeaponActionSound>>,
-        Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
+        Query<&mut AnimationPlayer, (With<SniperAnimationPlayer>, Without<KnifeAnimationPlayer>)>,
+        Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
     ),
     mut weapon: ResMut<Weapon>,
-    mut knife: ResMut<ThrowingKnife>,
+    (mut knife, mut knife_state): (ResMut<ThrowingKnife>, ResMut<KnifeAnimState>),
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
     mut muzzle: ResMut<MuzzleFlashState>,
@@ -6810,6 +7166,10 @@ fn weapon_system(
 ) {
     let node = view_model.index;
     let Some(mut player) = players.iter_mut().next() else {
+        return;
+    };
+    let knife_node = knife_anim.index;
+    let Some(mut knife_player) = knife_players.iter_mut().next() else {
         return;
     };
     let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
@@ -6878,16 +7238,17 @@ fn weapon_system(
                 });
             }
             WeaponSlot::Secondary => {
-                // Draw the sniper back: model on, play Show in full; the
-                // interrupted action (if any) restarts when Show finishes.
-                weapon.slot = WeaponSlot::Primary;
-                weapon.busy = None;
-                **view_model_vis = Visibility::Inherited;
-                play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
-                weapon.busy = Some(WeaponBusy {
-                    remaining: vec![SEGMENTS[SEG_SHOW]],
-                    seg_end: SEGMENTS[SEG_SHOW].end_secs(),
-                    on_finish: WeaponFinish::Draw,
+                // Stow the knife first (cutting short whatever it was doing —
+                // showing, adjusting grip, or mid-slice — same "accepted
+                // even mid-action" policy as the sniper above). `weapon.slot`
+                // only actually flips back to `Primary`, and the sniper's
+                // own Show plays, once the knife's Hide finishes — see the
+                // knife-busy advance block below.
+                play_segment(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE]);
+                knife_state.busy = Some(KnifeBusy {
+                    remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_HIDE]],
+                    seg_end: KNIFE_SEGMENTS[KNIFE_SEG_HIDE].end_secs(),
+                    on_finish: KnifeFinish::Hidden,
                 });
             }
         }
@@ -6952,8 +7313,20 @@ fn weapon_system(
                         weapon.reserve -= moved;
                     }
                     WeaponFinish::Holster => {
-                        // Sniper fully hidden — hands are now empty.
+                        // Sniper fully hidden — the knife takes over: show it,
+                        // then (once that finishes) settle into an adjusted
+                        // grip, then idle-out waiting for a slice input.
                         **view_model_vis = Visibility::Hidden;
+                        **knife_vis = Visibility::Inherited;
+                        play_segment(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW]);
+                        knife_state.busy = Some(KnifeBusy {
+                            remaining: vec![
+                                KNIFE_SEGMENTS[KNIFE_SEG_SHOW],
+                                KNIFE_SEGMENTS[KNIFE_SEG_ADJUST_GRIP],
+                            ],
+                            seg_end: KNIFE_SEGMENTS[KNIFE_SEG_SHOW].end_secs(),
+                            on_finish: KnifeFinish::Nothing,
+                        });
                     }
                     WeaponFinish::Draw => {
                         // Sniper back out: restart whatever the swap interrupted,
@@ -6988,11 +7361,77 @@ fn weapon_system(
         return;
     }
 
-    // Idle: only take input while the cursor is captured (i.e. in-game) and the
-    // sniper is the equipped slot (the secondary has no actions yet).
-    if !locked || weapon.slot != WeaponSlot::Primary {
+    // Advance an in-progress knife action (Show → Adjust Grip on draw, or a
+    // single Hide / slice segment) — mirrors the sniper's own advance block
+    // above, just without a reload/rechamber-style interrupt-and-resume
+    // queue (the knife never needs one: swapping away just cuts straight to
+    // Hide, nothing to resume later).
+    if knife_state.busy.is_some() {
+        let next_or_finish = {
+            let busy = knife_state.busy.as_mut().unwrap();
+            let done = knife_player
+                .animation(knife_node)
+                .is_none_or(|a| a.is_finished() || a.seek_time() >= busy.seg_end);
+            if !done {
+                return;
+            }
+            busy.remaining.remove(0);
+            match busy.remaining.first().copied() {
+                Some(next) => {
+                    busy.seg_end = next.end_secs();
+                    Ok(next)
+                }
+                None => Err(busy.on_finish),
+            }
+        };
+        match next_or_finish {
+            Ok(next) => play_segment(&mut knife_player, knife_node, next),
+            Err(on_finish) => {
+                if let Some(active) = knife_player.animation_mut(knife_node) {
+                    active.seek_to(0.0);
+                    active.pause();
+                }
+                knife_state.busy = None;
+                if on_finish == KnifeFinish::Hidden {
+                    // Knife fully hidden — hand back off to the sniper.
+                    **knife_vis = Visibility::Hidden;
+                    weapon.slot = WeaponSlot::Primary;
+                    **view_model_vis = Visibility::Inherited;
+                    play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
+                    weapon.busy = Some(WeaponBusy {
+                        remaining: vec![SEGMENTS[SEG_SHOW]],
+                        seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                        on_finish: WeaponFinish::Draw,
+                    });
+                }
+            }
+        }
         return;
     }
+
+    // Idle: only take input while the cursor is captured (i.e. in-game).
+    if !locked {
+        return;
+    }
+    if weapon.slot == WeaponSlot::Secondary {
+        // Knife idle-out, waiting on a left click — one of the four slices,
+        // picked at random each time.
+        if binds.fire.just_pressed(&keys, &mouse) {
+            knife_state.swings = knife_state.swings.wrapping_add(1);
+            let pick = (rand01(knife_state.swings.wrapping_mul(0xA511_E9B3))
+                * KNIFE_SLICE_SEGMENTS.len() as f32) as usize;
+            let seg = KNIFE_SEGMENTS
+                [KNIFE_SLICE_SEGMENTS[pick.min(KNIFE_SLICE_SEGMENTS.len() - 1)]];
+            play_segment(&mut knife_player, knife_node, seg);
+            knife_state.busy = Some(KnifeBusy {
+                remaining: vec![seg],
+                seg_end: seg.end_secs(),
+                on_finish: KnifeFinish::Nothing,
+            });
+        }
+        return;
+    }
+    // Only `WeaponSlot::Primary` (the sniper) is left.
 
     if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;

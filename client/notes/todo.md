@@ -1,5 +1,13 @@
+## Fix
+
+- When aiming through the sniper scope on shipment, the sky looks normal in that it is bright and the fog isn't visible.
+- For a split second when the barrel smoke sprite spawns it is full opacity and not facing the player regardless of the settings.
+- The water is rendering over the smoke on shipment.
+- The shipment main lights should be max brightness.
+
 ## Added
 
+-
 - Add spawn points for maps
 - Add knife and throwing knife models
 - Add tab to show leaderboard
@@ -10,6 +18,7 @@
 - Add hitmarkers
 - Add heart beat sound and red around screen when health low
 - Add dot over other players head when playing trickshot mode that goes to the correct side of the screen when looking away from them
+- Add lights inside of far containers in bevy and in blender
 
 ---
 
@@ -44,10 +53,6 @@
 ## Refactor
 
 - main file is thousands of lines so it should be refactored.
-
-## Fix
-
-- Fix smoke sprite rotation issue where it doesn't always face player as they look left or right.
 
 ## Ideas
 
