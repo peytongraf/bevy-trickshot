@@ -5,7 +5,9 @@ window / audio) + [lightyear](https://github.com/cBournhonesque/lightyear) 0.23.
 
 ## What it does
 
-* Listens on **UDP** (`0.0.0.0:$PORT`, default 5000) using lightyear's netcode.
+* Listens on **UDP** (port `$PORT`, default 5000) using lightyear's netcode —
+  the wildcard address locally, `fly-global-services` in production (see
+  `src/net.rs`'s `bind_addr`).
 * Spawns a replicated player entity per connected client
   (`src/net.rs`).
 * Each tick (`src/sim.rs`):
@@ -48,7 +50,7 @@ relative to the path argument.
 ```sh
 # one-time
 fly apps create bevy-trickshot-server         # or another unique name → update `app` in fly.toml
-fly ips allocate-v6                            # free dedicated IPv6 — fly routes UDP over it
+fly ips allocate-v4                            # dedicated IPv4, ~$2/mo — UDP requires this, see server/fly.toml
 fly secrets set LIGHTYEAR_PRIVATE_KEY="$(python3 -c 'import random; print(",".join(str(random.randint(0,255)) for _ in range(32)))')" -a bevy-trickshot-server
 
 # every deploy
@@ -64,25 +66,31 @@ fly scale count 1 -a bevy-trickshot-server --yes
 
 ### Reachability
 
-UDP on fly.io needs a *dedicated* IP. Dedicated **IPv6 is free** and that's what's
-used here — the server binds `[::]` and clients reach it at
-`bevy-trickshot-server.fly.dev:5000` (AAAA record only). A friend can therefore
-only connect if their internet has IPv6 (check at <https://test-ipv6.com>). If
-someone doesn't:
+UDP on fly.io only ever works over a **dedicated IPv4** — see
+<https://fly.io/docs/networking/udp-and-tcp/>: "You need a dedicated IPv4
+address. You can't use a shared IPv4 address or an IPv6 address for UDP."
+(An earlier version of this setup used a free dedicated IPv6 instead, which
+looked fine — `fly ips list` showed it, inbound packets even arrived — but no
+client could ever actually connect, since public UDP over IPv6 isn't
+supported at all. Dedicated IPv4 is the one that has to exist:
+`fly ips allocate-v4 -a bevy-trickshot-server`, ~$2/mo.)
 
-```sh
-fly ips allocate-v4 -a bevy-trickshot-server    # ~$2/mo
-```
-
-No code change needed — the `[::]` bind is dual-stack.
+The other requirement is *what* the server binds to. A wildcard bind
+(`0.0.0.0` or `[::]`) makes Linux pick the wrong outbound source address for
+replies, which fly's NAT then can't rewrite back to the public IP — so
+replies silently vanish even though inbound packets get through fine. The fix
+is binding to the special `fly-global-services` address, which is what
+`bind_addr()` in `src/net.rs` does whenever `FLY_APP_NAME` is set (i.e. only
+in production — a local `cargo run --bin server` still binds the `[::]`
+wildcard, which is fine off of fly.io).
 
 ### Health check
 
 The server also opens plain TCP on the same port (fly's UDP routing wants a
-live TCP listener there). Over IPv6:
+live TCP listener there):
 
 ```sh
-curl -6 http://bevy-trickshot-server.fly.dev:5000/     # -> "bevy-trickshot server ok"
+curl http://bevy-trickshot-server.fly.dev:5000/     # -> "bevy-trickshot server ok"
 ```
 
 ### Sizing

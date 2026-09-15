@@ -11,6 +11,27 @@ bevy-trickshot/
 └── Cargo.toml  workspace
 ```
 
+## Download the latest release (just want to play)
+
+No Rust toolchain needed for this — it's a prebuilt executable.
+
+1. Go to the [Releases page](https://github.com/peytongraf/bevy-trickshot/releases/latest)
+   and download the zip for your OS: `bevy-trickshot-linux.zip` or
+   `bevy-trickshot-windows.zip`.
+2. Unzip it anywhere.
+3. Run it:
+   * **Linux:** `chmod +x bevy-trickshot && ./bevy-trickshot` (or double-click
+     it in a file manager that allows running executables).
+   * **Windows:** double-click `bevy-trickshot.exe`. A console window stays
+     open alongside the game — that's normal, it shows update progress.
+4. On first launch it downloads `client/assets/` (~92 MB of art) next to the
+   executable automatically, then connects to the production server
+   (`bevy-trickshot-server.fly.dev`) and drops you at the main menu.
+
+After that, just relaunch the same executable to play — it checks for a newer
+release on startup and self-updates if one exists (a code update is a small
+download; the ~92 MB art pack is only re-fetched when it actually changed).
+
 ## Why this shape
 
 The server runs the **same Bevy version as the client** so that `shared/` can
@@ -33,25 +54,39 @@ This keeps movement feeling perfectly responsive while making hits
 authoritative — the foundation for a future head-to-head mode. See
 `server/README.md` for the lag-compensation upgrade path that mode will want.
 
-## Build & run
+## Running locally
+
+Rust 1.93+ is enough for the workspace as pinned. On Linux the client also
+needs `libasound2-dev` and `libudev-dev` (Bevy's audio/input backends):
 
 ```sh
-# server (headless, listens on udp://0.0.0.0:5000)
-cargo run --bin server
-
-# client
-cargo run --bin bevy-trickshot          # or: cd client && cargo run
-
-# tests for the shared simulation math
-cargo test -p shared
+sudo apt-get install libasound2-dev libudev-dev   # Debian/Ubuntu; skip on Windows/macOS
 ```
 
-Rust 1.93+ is enough for the workspace as pinned. Deploying the server: see
-[`server/README.md`](server/README.md).
+### 1. Run a dev server
 
-To point a `cargo run` client at the production server instead of your local
-one (e.g. to verify prod is reachable without waiting on a release), set
-`TRICKSHOT_SERVER`:
+```sh
+cargo run --bin server
+```
+
+Headless, no window. Listens on `udp://[::]:5000` (dual-stack, so both
+`127.0.0.1:5000` and `[::1]:5000` reach it). Uses the all-zero dev netcode key
+automatically — see `server/README.md` if you want to set a real
+`LIGHTYEAR_PRIVATE_KEY` locally too.
+
+### 2. Run the client
+
+```sh
+cargo run --bin bevy-trickshot          # or: cd client && cargo run
+```
+
+`cargo run` always points at your local dev server (`127.0.0.1:5000`) and
+never runs the self-updater — both of those only kick in for a shipped
+binary. To try two players on one machine, just run the command twice in
+separate terminals; each instance picks a distinct client ID automatically.
+
+To instead point a local client at the **production** server (e.g. to check
+prod is reachable without cutting a release), set `TRICKSHOT_SERVER`:
 
 ```sh
 TRICKSHOT_SERVER=bevy-trickshot-server.fly.dev:5000 cargo run
@@ -59,6 +94,14 @@ TRICKSHOT_SERVER=bevy-trickshot-server.fly.dev:5000 cargo run
 
 This is also how a shipped build resolves its server by default — see
 `client::net::server_addr`.
+
+### 3. Run the tests
+
+```sh
+cargo test -p shared   # shared simulation/ballistics math
+```
+
+Deploying your own server to fly.io: see [`server/README.md`](server/README.md).
 
 ## Distributing the client to friends (Linux + Windows)
 
@@ -93,13 +136,12 @@ You can also run the workflow by hand from the Actions tab (give it a version).
 
 ### What a friend does
 
-* **First time:** download `bevy-trickshot-<os>.zip` from the repo's Releases
-  page, unzip it anywhere, run it. On first launch it downloads `assets/` next to
-  the executable automatically.
-* **After that:** just launch the game. If there's a newer release it prints
-  `updated — restarting…`, swaps itself and relaunches. A normal code change is a
-  ~5 MB download; the 92 MB of art is only re-fetched when a file in it actually
-  changed (`manifest.json`'s `assets_hash` is a content hash, not a build hash).
+See [Download the latest release](#download-the-latest-release-just-want-to-play)
+above for first-time setup. After that, just relaunch the game — if there's a
+newer release it prints `updated — restarting…`, swaps itself and relaunches.
+A normal code change is a ~5 MB download; the 92 MB of art is only re-fetched
+when a file in it actually changed (`manifest.json`'s `assets_hash` is a
+content hash, not a build hash).
 
 Update progress prints to the console. On Windows the client keeps a console
 window for this; swap in a proper updater window later if you want (the seam is
@@ -117,8 +159,6 @@ window for this; swap in a proper updater window later if you want (the seam is
 * **AI bots** — `shared::map::NavProvider::find_path`. Back it with a navmesh
   (e.g. `oxidized_navigation`) once the map exists; the server already has the
   ECS world to drive bot entities.
-* **Client networking** — the client depends on `shared` and `lightyear` but does
-  not add `ClientPlugins` yet. Wiring it up is the next client task.
 
 ## Version pinning
 
