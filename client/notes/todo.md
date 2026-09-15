@@ -5,6 +5,12 @@
 - The water is rendering over the smoke on shipment.
 - The shipment main lights should be max brightness.
 
+## Sound
+
+- Add knife sounds
+- Add footstep sounds for other players
+- Add save teleport sound
+
 ## Added
 
 -
@@ -43,12 +49,6 @@
 ## Performance
 
 - Check shader preloading like cod
-
-## Sound
-
-- Add ui button sounds
-- Add footstep sounds for other players
-- Add teleport sound and save teleport sound
 
 ## Refactor
 

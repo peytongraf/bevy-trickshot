@@ -336,7 +336,10 @@ impl Default for ShipmentLightSettings {
                     yaw_deg: 85.0,
                     pitch_deg: -30.0,
                     color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
-                    intensity: 10_000_000.0,
+                    // Maxed against the "intensity (lumens)" slider's own
+                    // 100,000,000 ceiling (`shipment_light_sliders`) — the
+                    // flood beam, not `glow_intensity` (the bulb).
+                    intensity: 100_000_000.0,
                     range: 62.0,
                     inner_angle_deg: 89.0,
                     outer_angle_deg: 89.0,
@@ -348,7 +351,7 @@ impl Default for ShipmentLightSettings {
                     yaw_deg: -75.0,
                     pitch_deg: -35.0,
                     color: srgb_parts(Color::srgb(1.0, 1.0, 1.0)),
-                    intensity: 10_000_000.0,
+                    intensity: 100_000_000.0,
                     range: 62.0,
                     inner_angle_deg: 89.0,
                     outer_angle_deg: 89.0,
@@ -475,6 +478,166 @@ fn sync_light_marker_visibility(
     mut marker: Query<&mut Visibility, With<ShipmentLightMarker>>,
 ) {
     let target = if settings.debug_mode && lights.markers_visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut vis in &mut marker {
+        *vis = target;
+    }
+}
+
+/// The container fluorescent-tube fixture's light — see [`FluoroLightSettings`].
+#[derive(Component)]
+struct ContainerFluoroLight;
+
+/// Debug-only position marker for [`ContainerFluoroLight`] — mirrors
+/// [`ShipmentLightMarker`], minus the aim rod (a `PointLight` has no
+/// direction to show).
+#[derive(Component)]
+struct ContainerFluoroLightMarker;
+
+/// Live-tunable `PointLight` standing in for the fluorescent-tube fixture
+/// model in one of `shipment_visual.glb`'s containers — debug panel's
+/// "Fluorescent Light" section, applied every frame by
+/// [`apply_fluoro_light`]. Bevy has no tube/area light, so a single
+/// `PointLight` is the stand-in; cool white and a modest range suit lighting
+/// one container's interior rather than the yard.
+#[derive(Resource)]
+struct FluoroLightSettings {
+    position: Vec3,
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    shadows_enabled: bool,
+    /// Shows [`ContainerFluoroLightMarker`] — debug panel only, off by
+    /// default (a floating marker sphere has no business in normal play).
+    markers_visible: bool,
+}
+
+impl Default for FluoroLightSettings {
+    fn default() -> Self {
+        Self {
+            // Dialed in against the container model (see the "Fluorescent
+            // Light" debug-panel section).
+            position: Vec3::new(-24.5, 2.0, 0.0),
+            // Cool white — daylight-ish fluorescent tube colour.
+            color: srgb_parts(Color::srgb(0.85, 0.93, 1.0)),
+            intensity: 1_500_000.0,
+            range: 8.0,
+            shadows_enabled: true,
+            markers_visible: false,
+        }
+    }
+}
+
+/// Push [`FluoroLightSettings`] onto [`ContainerFluoroLight`] every frame —
+/// mirrors `apply_shipment_lights`'s reasoning (cheap, and unconditional so
+/// a value tweaked while hidden still takes effect the instant
+/// `sync_shipment_only_visibility` reveals it).
+fn apply_fluoro_light(
+    settings: Res<FluoroLightSettings>,
+    mut light: Single<(&mut Transform, &mut PointLight), With<ContainerFluoroLight>>,
+) {
+    let (transform, point) = &mut *light;
+    transform.translation = settings.position;
+    point.color = color_from_parts(settings.color);
+    point.intensity = settings.intensity;
+    point.range = settings.range;
+    point.shadows_enabled = settings.shadows_enabled;
+}
+
+/// Shows [`ContainerFluoroLightMarker`] only while the debug panel is open
+/// *and* [`FluoroLightSettings::markers_visible`] is on — mirrors
+/// [`sync_light_marker_visibility`].
+fn sync_fluoro_marker_visibility(
+    settings: Res<Settings>,
+    fluoro: Res<FluoroLightSettings>,
+    mut marker: Query<&mut Visibility, With<ContainerFluoroLightMarker>>,
+) {
+    let target = if settings.debug_mode && fluoro.markers_visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut vis in &mut marker {
+        *vis = target;
+    }
+}
+
+/// One of the two bare-bulb fixture lights — see [`BulbLightSettings`]. `.0`
+/// indexes into `BulbLightSettings::positions`, mirroring
+/// [`ShipmentSpotLight`].
+#[derive(Component)]
+struct ContainerBulbLight(usize);
+
+/// Debug-only position marker for a [`ContainerBulbLight`] — mirrors
+/// [`ContainerFluoroLightMarker`]; shared by both bulbs' gizmos, same as
+/// [`ShipmentLightMarker`] is shared by both crane lights'.
+#[derive(Component)]
+struct ContainerBulbLightMarker;
+
+/// Live-tunable `PointLight`s standing in for the two light-bulb fixture
+/// models in another of `shipment_visual.glb`'s containers — debug panel's
+/// "Bulb Lights" section, applied every frame by [`apply_bulb_lights`]. Both
+/// bulbs share every setting but position (one set of controls moves both
+/// identical bare-bulb fixtures at once), so only `positions` is per-light.
+#[derive(Resource)]
+struct BulbLightSettings {
+    positions: [Vec3; 2],
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    shadows_enabled: bool,
+    /// Shows both bulbs' [`ContainerBulbLightMarker`] — debug panel only,
+    /// off by default.
+    markers_visible: bool,
+}
+
+impl Default for BulbLightSettings {
+    fn default() -> Self {
+        Self {
+            // Dialed in against the two bulb-fixture models (see the "Bulb
+            // Lights" debug-panel section).
+            positions: [Vec3::new(23.8, 2.0, -5.0), Vec3::new(26.1, 2.0, 3.1)],
+            // r255 g202 b0 (0-255) — warm incandescent-bulb orange.
+            color: srgb_parts(Color::srgb(255.0 / 255.0, 202.0 / 255.0, 0.0 / 255.0)),
+            intensity: 2_000_000.0,
+            range: 5.0,
+            shadows_enabled: true,
+            markers_visible: false,
+        }
+    }
+}
+
+/// Push [`BulbLightSettings`] onto both [`ContainerBulbLight`]s every frame —
+/// same shared-settings-plus-per-index-position shape as
+/// `apply_shipment_lights`/`ShipmentLightSettings::lights`.
+fn apply_bulb_lights(
+    settings: Res<BulbLightSettings>,
+    mut lights: Query<(&ContainerBulbLight, &mut Transform, &mut PointLight)>,
+) {
+    for (index, mut transform, mut point) in &mut lights {
+        let Some(&pos) = settings.positions.get(index.0) else {
+            continue;
+        };
+        transform.translation = pos;
+        point.color = color_from_parts(settings.color);
+        point.intensity = settings.intensity;
+        point.range = settings.range;
+        point.shadows_enabled = settings.shadows_enabled;
+    }
+}
+
+/// Shows every [`ContainerBulbLightMarker`] only while the debug panel is
+/// open *and* [`BulbLightSettings::markers_visible`] is on — mirrors
+/// [`sync_light_marker_visibility`].
+fn sync_bulb_marker_visibility(
+    settings: Res<Settings>,
+    bulbs: Res<BulbLightSettings>,
+    mut marker: Query<&mut Visibility, With<ContainerBulbLightMarker>>,
+) {
+    let target = if settings.debug_mode && bulbs.markers_visible {
         Visibility::Inherited
     } else {
         Visibility::Hidden
@@ -896,6 +1059,8 @@ fn sync_shipment_only_visibility(
     ground: Query<Entity, With<ProceduralGround>>,
     water: Query<Entity, With<WaterPlane>>,
     light: Query<Entity, With<ShipmentSpotLight>>,
+    fluoro: Query<Entity, With<ContainerFluoroLight>>,
+    bulbs: Query<Entity, With<ContainerBulbLight>>,
     mut commands: Commands,
 ) {
     if !current.is_changed() {
@@ -921,6 +1086,12 @@ fn sync_shipment_only_visibility(
         commands.entity(entity).insert(shipment_only_visibility);
     }
     for entity in &light {
+        commands.entity(entity).insert(shipment_only_visibility);
+    }
+    if let Ok(entity) = fluoro.single() {
+        commands.entity(entity).insert(shipment_only_visibility);
+    }
+    for entity in &bulbs {
         commands.entity(entity).insert(shipment_only_visibility);
     }
 }
@@ -1516,6 +1687,8 @@ fn main() {
         .init_resource::<ShipmentSettings>()
         .init_resource::<WaterSettings>()
         .init_resource::<ShipmentLightSettings>()
+        .init_resource::<FluoroLightSettings>()
+        .init_resource::<BulbLightSettings>()
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<RemoteSoundSettings>()
@@ -1646,6 +1819,10 @@ fn main() {
                     apply_water_settings,
                     apply_shipment_lights,
                     sync_light_marker_visibility,
+                    apply_fluoro_light,
+                    sync_fluoro_marker_visibility,
+                    apply_bulb_lights,
+                    sync_bulb_marker_visibility,
                     update_rain,
                     apply_rain_assets,
                     apply_knife_transform,
@@ -3540,6 +3717,8 @@ fn setup_world(
     mut images: ResMut<Assets<Image>>,
     water: Res<WaterSettings>,
     light: Res<ShipmentLightSettings>,
+    fluoro: Res<FluoroLightSettings>,
+    bulbs: Res<BulbLightSettings>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
     // (see `build_ground_texture`), tiled every ~2 m. Hidden, and its
@@ -3718,6 +3897,56 @@ fn setup_world(
                     },
                 ));
             });
+    }
+
+    // Fluorescent light: the tube fixture model inside one of
+    // `shipment_visual.glb`'s containers — see `FluoroLightSettings`. Hidden
+    // for `BasicMap`; `sync_shipment_only_visibility` shows it for
+    // `Shipment`, same as the floodlights above.
+    commands
+        .spawn((
+            ContainerFluoroLight,
+            PointLight {
+                color: color_from_parts(fluoro.color),
+                intensity: fluoro.intensity,
+                range: fluoro.range,
+                shadows_enabled: fluoro.shadows_enabled,
+                ..default()
+            },
+            Transform::from_translation(fluoro.position),
+            Visibility::Hidden,
+        ))
+        .with_child((
+            ContainerFluoroLightMarker,
+            Mesh3d(marker_bulb_mesh.clone()),
+            MeshMaterial3d(marker_bulb_material.clone()),
+            Visibility::Hidden,
+        ));
+
+    // Bulb lights: the two bare-bulb fixture models in another container —
+    // see `BulbLightSettings`. Reuses the same debug-gizmo bulb mesh/
+    // material as the fluorescent light and the floodlights' markers above
+    // (all just "a small sphere at this position" in the end).
+    for (index, &pos) in bulbs.positions.iter().enumerate() {
+        commands
+            .spawn((
+                ContainerBulbLight(index),
+                PointLight {
+                    color: color_from_parts(bulbs.color),
+                    intensity: bulbs.intensity,
+                    range: bulbs.range,
+                    shadows_enabled: bulbs.shadows_enabled,
+                    ..default()
+                },
+                Transform::from_translation(pos),
+                Visibility::Hidden,
+            ))
+            .with_child((
+                ContainerBulbLightMarker,
+                Mesh3d(marker_bulb_mesh.clone()),
+                MeshMaterial3d(marker_bulb_material.clone()),
+                Visibility::Hidden,
+            ));
     }
 
     // The selected map's model is kept in sync by `sync_map_model` (not
@@ -4687,7 +4916,12 @@ fn ads_tuning_ui(
         ResMut<WaterSettings>,
         ResMut<ShipmentSceneTuning>,
         ResMut<ShipmentLightSettings>,
-        (ResMut<RainSettings>, ResMut<KnifeViewModelSettings>),
+        (
+            ResMut<RainSettings>,
+            ResMut<KnifeViewModelSettings>,
+            ResMut<FluoroLightSettings>,
+            ResMut<BulbLightSettings>,
+        ),
     ),
 ) -> Result {
     let (
@@ -4705,7 +4939,7 @@ fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view),
+        (mut rain, mut knife_view, mut fluoro, mut bulbs),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -5643,6 +5877,97 @@ fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Fluorescent Light", |ui| {
+                let f = &mut *fluoro;
+                ui.label("Shipment only — the tube fixture model inside one container");
+                ui.checkbox(&mut f.markers_visible, "show position marker");
+                ui.add(egui::Slider::new(&mut f.position.x, -80.0f32..=80.0).text("x"));
+                ui.add(egui::Slider::new(&mut f.position.y, 0.0f32..=60.0).text("y (height)"));
+                ui.add(egui::Slider::new(&mut f.position.z, -80.0f32..=80.0).text("z"));
+                point_light_sliders(
+                    ui,
+                    &mut f.color,
+                    &mut f.intensity,
+                    &mut f.range,
+                    &mut f.shadows_enabled,
+                );
+
+                if ui.button("Copy fluorescent light to console").clicked() {
+                    info!(
+                        "fluoro: position: Vec3::new({:.2}, {:.2}, {:.2}), color: \
+                         Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, range: {:.1}, \
+                         shadows_enabled: {}",
+                        f.position.x,
+                        f.position.y,
+                        f.position.z,
+                        f.color[0],
+                        f.color[1],
+                        f.color[2],
+                        f.intensity,
+                        f.range,
+                        f.shadows_enabled,
+                    );
+                }
+                if ui.button("Reset fluorescent light").clicked() {
+                    *f = FluoroLightSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Bulb Lights", |ui| {
+                let b = &mut *bulbs;
+                ui.label(
+                    "Shipment only — two bare bulbs in another container; everything below is \
+                     shared between both, only position is per-bulb",
+                );
+                ui.checkbox(&mut b.markers_visible, "show position markers");
+                ui.label("Bulb 1 position");
+                ui.add(egui::Slider::new(&mut b.positions[0].x, -80.0f32..=80.0).text("x"));
+                ui.add(
+                    egui::Slider::new(&mut b.positions[0].y, 0.0f32..=60.0).text("y (height)"),
+                );
+                ui.add(egui::Slider::new(&mut b.positions[0].z, -80.0f32..=80.0).text("z"));
+                ui.label("Bulb 2 position");
+                ui.add(egui::Slider::new(&mut b.positions[1].x, -80.0f32..=80.0).text("x"));
+                ui.add(
+                    egui::Slider::new(&mut b.positions[1].y, 0.0f32..=60.0).text("y (height)"),
+                );
+                ui.add(egui::Slider::new(&mut b.positions[1].z, -80.0f32..=80.0).text("z"));
+                ui.separator();
+                ui.label("Shared");
+                point_light_sliders(
+                    ui,
+                    &mut b.color,
+                    &mut b.intensity,
+                    &mut b.range,
+                    &mut b.shadows_enabled,
+                );
+
+                if ui.button("Copy bulb lights to console").clicked() {
+                    info!(
+                        "bulbs: positions: [Vec3::new({:.2}, {:.2}, {:.2}), Vec3::new({:.2}, \
+                         {:.2}, {:.2})], color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: \
+                         {:.0}, range: {:.1}, shadows_enabled: {}",
+                        b.positions[0].x,
+                        b.positions[0].y,
+                        b.positions[0].z,
+                        b.positions[1].x,
+                        b.positions[1].y,
+                        b.positions[1].z,
+                        b.color[0],
+                        b.color[1],
+                        b.color[2],
+                        b.intensity,
+                        b.range,
+                        b.shadows_enabled,
+                    );
+                }
+                if ui.button("Reset bulb lights").clicked() {
+                    *b = BulbLightSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Rain", |ui| {
                 let r = &mut *rain;
                 ui.label("Shipment only — real 3D streaks, not a screen overlay");
@@ -5781,6 +6106,29 @@ fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize
     if ui.button("Reset light").clicked() {
         *l = ShipmentLightSettings::default().lights[index].clone();
     }
+}
+
+/// Colour/intensity/range/shadow sliders shared by the "Fluorescent Light"
+/// and "Bulb Lights" debug-panel sections — the parts of a `PointLight` that
+/// aren't position.
+fn point_light_sliders(
+    ui: &mut egui::Ui,
+    color: &mut [f32; 3],
+    intensity: &mut f32,
+    range: &mut f32,
+    shadows_enabled: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(color);
+        ui.label("colour");
+    });
+    ui.add(
+        egui::Slider::new(intensity, 0.0f32..=6_000_000.0)
+            .logarithmic(true)
+            .text("intensity (lumens)"),
+    );
+    ui.add(egui::Slider::new(range, 0.5f32..=60.0).text("range (m)"));
+    ui.checkbox(shadows_enabled, "cast shadows");
 }
 
 // ---------------------------------------------------------------------------
