@@ -131,7 +131,7 @@ impl ReleaseTarget {
     }
 }
 
-fn current_version() -> &'static str {
+pub(crate) fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 

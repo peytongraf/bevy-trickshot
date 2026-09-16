@@ -3,7 +3,11 @@ resolver = "2"
 members = ["client", "server", "shared"]
 
 [workspace.package]
-version = "0.2.0"
+# Bump this (and add a line to `client/src/changelog.rs`) with each round of
+# player-facing changes — it's what the in-game updater and the main-menu
+# "WHAT'S NEW" panel compare against, and what you tag (`git tag vX.Y.Z`) to
+# actually ship it.
+version = "0.4.3"
 edition = "2021"
 
 [workspace.dependencies]

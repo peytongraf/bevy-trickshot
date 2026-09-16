@@ -483,6 +483,35 @@ fn build_browser(
                     if online { TEXT_DIM } else { ACCENT },
                 ));
 
+                // what's new — see `changelog::ENTRIES` doc comment: add a line
+                // there with every shipped feature or fix, this panel is the
+                // only place players see it.
+                col.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::all(Val::Px(16.0)),
+                        row_gap: Val::Px(6.0),
+                        ..default()
+                    },
+                    BackgroundColor(PANEL),
+                    BorderRadius::all(Val::Px(8.0)),
+                ))
+                .with_children(|panel| {
+                    panel.spawn(label_hud(
+                        asset_server,
+                        format!("WHAT'S NEW — v{}", crate::updater::current_version()),
+                        15.0,
+                        TEXT_DIM,
+                    ));
+                    for (version, notes) in crate::changelog::ENTRIES {
+                        panel.spawn(label_hud(asset_server, format!("v{version}"), 14.0, ACCENT));
+                        for note in *notes {
+                            panel.spawn(label_hud(asset_server, format!("•  {note}"), 14.0, TEXT));
+                        }
+                    }
+                });
+
                 // lobby list
                 col.spawn((
                     Node {

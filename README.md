@@ -85,14 +85,25 @@ never runs the self-updater — both of those only kick in for a shipped
 binary. To try two players on one machine, just run the command twice in
 separate terminals; each instance picks a distinct client ID automatically.
 
-To instead point a local client at the **production** server (e.g. to check
-prod is reachable without cutting a release), set `TRICKSHOT_SERVER`:
+To instead point a local client at the **production** server on occasion
+(e.g. to check prod is reachable, or test something live without cutting a
+release), set `TRICKSHOT_PROD`:
+
+```sh
+TRICKSHOT_PROD=1 cargo run
+```
+
+For anything else — a friend's self-hosted server, a non-default port,
+`localhost` explicitly — set `TRICKSHOT_SERVER` to the host:port instead
+(only the exact string `bevy-trickshot-server.fly.dev:5000` gets the prod
+key; anything else falls back to the dev key):
 
 ```sh
 TRICKSHOT_SERVER=bevy-trickshot-server.fly.dev:5000 cargo run
 ```
 
-This is also how a shipped build resolves its server by default — see
+`TRICKSHOT_SERVER` wins if both are set. Neither variable does anything in a
+shipped build — that always defaults to production. See
 `client::net::server_addr`.
 
 ### 3. Run the tests

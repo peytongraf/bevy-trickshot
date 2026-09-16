@@ -45,7 +45,11 @@ const DEFAULT_SERVER: &str = "bevy-trickshot-server.fly.dev:5000";
 ///   key is used only if it's set to exactly [`DEFAULT_SERVER`], so pointing
 ///   it at a friend's self-hosted server (or `localhost`) still uses the dev
 ///   key that server almost certainly falls back to,
-/// * else `127.0.0.1:5000` under `cargo run` (dev), with the dev key,
+/// * else `TRICKSHOT_PROD` (any value) is a one-off escape hatch to point a
+///   dev build at the real production server without typing out
+///   [`DEFAULT_SERVER`] by hand — `TRICKSHOT_PROD=1 cargo run`,
+/// * else `127.0.0.1:5000` under `cargo run` (dev), with the dev key — the
+///   default, since that's what you want almost every time,
 /// * else [`DEFAULT_SERVER`] (shipped build), with the prod key.
 pub fn server_addr() -> (SocketAddr, [u8; 32]) {
     let fallback = || SocketAddr::from(([127, 0, 0, 1], shared::DEFAULT_PORT));
@@ -72,6 +76,11 @@ pub fn server_addr() -> (SocketAddr, [u8; 32]) {
             return (addr, key);
         }
         warn!("TRICKSHOT_SERVER='{s}' did not resolve; using the default instead");
+    }
+
+    if std::env::var_os("TRICKSHOT_PROD").is_some() {
+        let addr = resolve(DEFAULT_SERVER).unwrap_or_else(fallback);
+        return (addr, shared::PROD_PRIVATE_KEY);
     }
 
     if std::env::var_os("CARGO").is_some() {
@@ -474,6 +483,7 @@ fn flush_pending_respawn(
     time: Res<Time>,
     mut pending: ResMut<PendingRespawn>,
     active: Res<ActiveKillCam>,
+    mut weapon: ResMut<crate::Weapon>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let Some((pos, yaw)) = pending.to else {
@@ -501,6 +511,7 @@ fn flush_pending_respawn(
     transform.translation = pos + Vec3::Y * crate::EYE_HEIGHT;
     transform.rotation = Quat::from_rotation_y(yaw);
     *physics = PlayerPhysics::default();
+    weapon.refill_ammo();
     pending.to = None;
 }
 

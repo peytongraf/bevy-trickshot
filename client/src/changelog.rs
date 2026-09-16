@@ -1,0 +1,24 @@
+//! Patch notes shown under "WHAT'S NEW" on the main-menu screen
+//! ([`crate::lobby_ui::build_browser`]) — the only place players see what
+//! changed between releases, since the client updates itself silently
+//! (`updater.rs`) with no other notification.
+//!
+//! AI agents and contributors: whenever you finish a feature or bug fix that
+//! ships to players, add one line to `ENTRIES` under the current in-progress
+//! version (newest version first, newest line within a version first). This
+//! doesn't happen automatically — if you don't add the line here, players
+//! never see it.
+
+/// `(version, notes)`, newest version first. `version` is the tag this will
+/// ship under — keep it in sync with the workspace `Cargo.toml` `version`
+/// (bump both together when starting the next round of changes).
+pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.3",
+    &[
+        "Fixed: you can now slide along a wall you hit at an angle instead of sticking to it until you're moving exactly parallel to it.",
+        "Fixed: the water on Shipment no longer renders on top of the barrel smoke.",
+        "Fixed: the barrel smoke puff no longer flashes fully opaque and facing the wrong way for one frame right when it spawns. Also tuned the barrel smoke and bullet-tracer trail to be lighter and fade faster.",
+        "Fixed: respawning in Free For All now refills your ammo instead of carrying over the mag/reserve count from your last life.",
+        "Sprint now stays on through slides and dives (Call of Duty: MW3 style) — it only pauses while you're actually crouched or prone, and resumes on its own the moment you stand back up. No more re-pressing sprint after a slide.",
+    ],
+)];

@@ -25,6 +25,7 @@
 //! tuning panels (`ads_tuning_ui`, top-right) for the ADS pose, muzzle flash,
 //! smoke, movement, weapon sway, camera shake and the sky.
 
+mod changelog;
 mod keybinds;
 mod killcam;
 mod lobby_ui;
@@ -1102,13 +1103,19 @@ fn sync_shipment_only_visibility(
 /// much taller than this, so their sides are still caught.
 const WALL_PROBE_CLEARANCE: f32 = 0.3;
 
+/// How far [`sweep_and_slide`] biases a wall-slide redirect away from the
+/// wall, so it reads as separating rather than landing exactly on the
+/// into-vs-away knife-edge — see its use there for why an exact-zero
+/// tangent isn't safe.
+const WALL_SLIDE_SKIN: f32 = 0.02;
+
 /// Keep the player out of the selected map's solid geometry — the same
 /// mesh-derived `Collider`s [`sync_map_model`] generates for whatever's
 /// loaded, so there's no per-map wall list to maintain. Runs right after
 /// [`move_player`] each frame: sweeps a short vertical capsule (from
 /// [`WALL_PROBE_CLEARANCE`] above the feet up to head height) along this
-/// frame's horizontal move, one axis at a time so sliding along a wall hit at
-/// an angle still works (see [`sweep_axis`]).
+/// frame's horizontal move, sliding along whatever wall it hits regardless of
+/// the angle it's hit at (see [`sweep_and_slide`]).
 fn resolve_wall_collisions(
     time: Res<Time>,
     rapier: ReadRapierContext,
@@ -1138,20 +1145,24 @@ fn resolve_wall_collisions(
     let probe = Collider::capsule_y(half_height, BODY_CAPSULE_RADIUS);
 
     let mut pos = Vec3::new(start.x, (probe_bottom + probe_top) / 2.0, start.z);
-    pos += sweep_axis(&rapier, pos, Vec3::new(delta.x, 0.0, 0.0), &probe);
-    pos += sweep_axis(&rapier, pos, Vec3::new(0.0, 0.0, delta.z), &probe);
+    pos += sweep_and_slide(&rapier, pos, delta, &probe);
     transform.translation.x = pos.x;
     transform.translation.z = pos.z;
 }
 
-/// Sweeps `probe` from `origin` along `delta`, stopping just short of the
-/// first wall-like hit and returning how far it actually got to move. A hit
-/// whose surface normal is mostly vertical is a floor or a shallow ramp, not
-/// a wall — `resolve_wall_collisions` only moves horizontally, so that kind
-/// of hit doesn't block it; the sweep instead steps past it and keeps going
-/// with whatever distance remains, up to a few times, so grazing the ground
-/// can't fully stall horizontal movement.
-fn sweep_axis(rapier: &RapierContext, origin: Vec3, delta: Vec3, probe: &Collider) -> Vec3 {
+/// Sweeps `probe` from `origin` toward `delta`, sliding along any wall-like
+/// hit instead of stopping dead: the leftover distance for that hit is
+/// projected onto the wall's tangent plane (dropping only the component that
+/// points into the wall) and the sweep continues from there. Doing this off
+/// the hit's actual surface normal — rather than resolving the move one world
+/// axis at a time — means a wall met at any angle lets the player keep
+/// sliding along it, not just one hit square-on or exactly parallel to a
+/// world axis. A hit whose surface normal is mostly vertical is a floor or a
+/// shallow ramp, not a wall — that doesn't redirect anything, the sweep just
+/// steps past it and keeps going with whatever distance remains, so grazing
+/// the ground can't stall horizontal movement either. Repeats a few times so
+/// two walls in a row (a corner) still resolve.
+fn sweep_and_slide(rapier: &RapierContext, origin: Vec3, delta: Vec3, probe: &Collider) -> Vec3 {
     if delta.length_squared() < 1.0e-10 {
         return Vec3::ZERO;
     }
@@ -1189,14 +1200,32 @@ fn sweep_axis(rapier: &RapierContext, origin: Vec3, delta: Vec3, probe: &Collide
             travelled += remaining;
             break;
         };
-        let blocking = hit.details.map(|d| d.normal1.y.abs() < 0.5).unwrap_or(true);
         let step = remaining * hit.time_of_impact;
         travelled += step;
-        if blocking {
-            break;
-        }
         pos += step;
-        remaining -= step;
+        let leftover = remaining - step;
+
+        let Some(normal) = hit.details.map(|d| d.normal1) else {
+            break; // no normal to slide off of — stop here, as before.
+        };
+        if normal.y.abs() >= 0.5 {
+            // Floor / shallow ramp — not a wall, keep going the same direction.
+            remaining = leftover;
+            continue;
+        }
+        // Wall — slide: drop the leftover move's into-wall component, keep
+        // the rest (tangent to the wall's surface) for the next sweep. Biased
+        // by `WALL_SLIDE_SKIN` to land just barely *separating* rather than
+        // exactly tangent (dot-with-normal exactly 0): `stop_at_penetration:
+        // false` above only treats a touching start as free to move when
+        // `remaining` is separating, so an exact-zero tangent sits right on
+        // that knife-edge and floating-point noise in `normal` flips it
+        // frame to frame — some frames read as "moving further in" and get
+        // blocked at `time_of_impact: 0`, others read as separating and
+        // slide the full distance, which is exactly the slow/fast/slow
+        // stutter sliding along a wall at an angle used to have.
+        let n = Vec3::new(normal.x, 0.0, normal.z).normalize_or_zero();
+        remaining = leftover - n * (leftover.dot(n) - WALL_SLIDE_SKIN);
     }
     travelled
 }
@@ -1918,7 +1947,9 @@ impl Default for MovementSettings {
     }
 }
 
-/// Sprint toggle state (Left Shift flips it).
+/// Sprint toggle state (Left Shift flips it). Persists through slides and
+/// dives — only actually crouching or going prone suppresses its effect
+/// (see `crouch_slide`), and it resumes on its own when you stand back up.
 #[derive(Resource, Default)]
 struct Sprinting(bool);
 
@@ -2766,6 +2797,20 @@ impl Default for Weapon {
     }
 }
 
+impl Weapon {
+    /// Top ammo back up to a fresh loadout without touching which weapon is
+    /// drawn or any animation in progress — a `FreeForAll` respawn hands the
+    /// player a new life, but `stop_killcam` deliberately restores the drawn
+    /// weapon/slot from the moment of death, so only the ammo counts (not the
+    /// rest of `Weapon`) should reset here; otherwise the empty mag from the
+    /// old life carried straight into the new one.
+    pub(crate) fn refill_ammo(&mut self) {
+        let fresh = Self::default();
+        self.mag = fresh.mag;
+        self.reserve = fresh.reserve;
+    }
+}
+
 /// The bottom-right ammo readout (`mag / reserve`).
 #[derive(Component)]
 struct AmmoText;
@@ -3018,13 +3063,13 @@ impl Default for SmokeSettings {
         Self {
             spawn_offset: Vec3::new(0.15, -0.08, -1.05),
             scale: 0.2,
-            rise_rate: 0.25,
+            rise_rate: 0.15,
             spread: 0.1,
-            fade_in: 0.3,
-            fade_time: 1.3,
-            spawn_rate: 30.0,
-            duration: 0.7,
-            max_opacity: 0.2,
+            fade_in: 0.1,
+            fade_time: 0.4,
+            spawn_rate: 40.0,
+            duration: 1.5,
+            max_opacity: 0.03,
         }
     }
 }
@@ -3080,12 +3125,12 @@ impl Default for TracerSettings {
     fn default() -> Self {
         Self {
             flash_secs: 0.06,
-            smoke_secs: 3.0,
+            smoke_secs: 2.0,
             flash_color: srgb_parts(Color::srgb(1.0, 0.8, 0.35)),
             flash_emissive_boost: 6.0,
             flash_radius: 0.018,
             smoke_color: srgb_parts(Color::srgb(0.72, 0.7, 0.66)),
-            smoke_start_alpha: 0.45,
+            smoke_start_alpha: 0.03,
             smoke_radius: 0.05,
         }
     }
@@ -3490,12 +3535,12 @@ struct WeaponSwaySettings {
 impl Default for WeaponSwaySettings {
     fn default() -> Self {
         Self {
-            hip_strength: 1.1,
-            ads_strength: 0.35,
-            return_speed: 3.5,
-            max_offset_deg: 15.0,
+            hip_strength: 0.03,
+            ads_strength: 0.08,
+            return_speed: 6.0,
+            max_offset_deg: 12.0,
             hip_shift_m: 0.01,
-            ads_shift_m: 0.05,
+            ads_shift_m: 0.005,
         }
     }
 }
@@ -3774,6 +3819,16 @@ fn setup_world(
         reflectance: water.reflectance,
         alpha_mode: AlphaMode::Blend,
         normal_map_texture: Some(water_normal),
+        // Bevy's transparent pass sorts by distance-to-camera taken from each
+        // entity's own `Transform::translation` — fine for small effects, but
+        // this is one huge 300m-radius plane anchored at a single point, so
+        // that one-point distance can land closer than a near-camera effect
+        // (barrel smoke, tracers, blood) that's actually right in front of the
+        // lens, and the water then draws over it. A large negative bias pins
+        // the water's sort order to always-background, regardless: it only
+        // reorders transparent draw order, not the real depth buffer, so nothing
+        // about how the water actually looks or z-fights changes.
+        depth_bias: -1000.0,
         ..default()
     });
     // `Plane3d`'s generated mesh has positions/normals/UVs but no tangents
@@ -6135,11 +6190,15 @@ fn point_light_sliders(
 // Update systems
 // ---------------------------------------------------------------------------
 
-/// Sprint control: the sprint key flips sprint on / off, and sprint also drops
-/// on its own the moment the player stops feeding a movement key (so it never
-/// "sticks" while standing still). Entering a crouch / slide / dive / prone
-/// forces it off from `crouch_slide`; pressing sprint out of a crouch or prone
-/// stands the player up with sprint already active.
+/// Sprint control (Call-of-Duty MW3 style): the sprint key flips sprint on /
+/// off, and sprint also drops on its own the moment the player stops feeding
+/// a movement key (so it never "sticks" while standing still). The toggle
+/// otherwise stays on through slides and dives; `crouch_slide` doesn't clear
+/// it for those, it just doesn't apply while actually crouched or prone (see
+/// the explicit `Stance::Crouching`/`Stance::Prone` arms in `move_player` and
+/// `footsteps`), so sprint resumes on its own the moment the player stands
+/// back up — no need to press the button again. Pressing sprint out of a
+/// crouch or prone still stands the player up with sprint already active.
 fn toggle_sprint(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -6256,7 +6315,7 @@ fn crouch_slide(
     sounds: Res<GameSounds>,
     weapon: Res<Weapon>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    mut sprinting: ResMut<Sprinting>,
+    sprinting: Res<Sprinting>,
     mut slide: ResMut<Slide>,
     player: Single<(&Transform, &mut PlayerPhysics), With<Player>>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
@@ -6322,7 +6381,6 @@ fn crouch_slide(
                     slide.velocity = travel_dir * launch.max(speed_now);
                     slide.timer = 0.0;
                     slide.stance = Stance::Sliding;
-                    sprinting.0 = false;
                     if let Some(e) = slide.sound.take() {
                         commands.entity(e).try_despawn();
                     }
@@ -6337,7 +6395,6 @@ fn crouch_slide(
                     snd.note(killcam::SND_SLIDE);
                 } else {
                     slide.stance = Stance::Crouching;
-                    sprinting.0 = false;
                 }
             } else if grounded && prone_pressed {
                 if moving {
@@ -6348,11 +6405,9 @@ fn crouch_slide(
                     physics.grounded = false;
                     slide.stance = Stance::Diving;
                     slide.prone_from = Stance::Standing;
-                    sprinting.0 = false;
                 } else {
                     slide.stance = Stance::Prone;
                     slide.prone_from = Stance::Standing;
-                    sprinting.0 = false;
                 }
             }
         }
@@ -6364,17 +6419,12 @@ fn crouch_slide(
                 // No diving out of a crouch — just drop prone.
                 slide.stance = Stance::Prone;
                 slide.prone_from = Stance::Crouching;
-                sprinting.0 = false;
             } else if crouch_pressed || jump_pressed {
                 slide.stance = Stance::Standing;
                 slide.ate_jump = jump_pressed;
-                sprinting.0 = false;
-            } else {
-                sprinting.0 = false;
             }
         }
         Stance::Sliding => {
-            sprinting.0 = false;
             slide.timer += dt;
             let spd = (slide.velocity.length() - cfg.friction * dt).max(0.0);
             slide.velocity = slide.velocity.normalize_or_zero() * spd;
@@ -6394,7 +6444,6 @@ fn crouch_slide(
             }
         }
         Stance::Diving => {
-            sprinting.0 = false;
             if grounded {
                 // Belly hit the ground: settle prone and thump.
                 slide.stance = Stance::Prone;
@@ -6413,9 +6462,6 @@ fn crouch_slide(
             } else if prone_pressed || jump_pressed || crouch_pressed {
                 slide.stance = slide.prone_from;
                 slide.ate_jump = jump_pressed;
-                sprinting.0 = false;
-            } else {
-                sprinting.0 = false;
             }
         }
     }
@@ -7990,8 +8036,21 @@ fn emit_smoke(
         let angle = rand_roll(s.wrapping_mul(3));
         let speed = rand01(s.wrapping_mul(5)) * settings.spread;
         let velocity = Vec3::new(angle.cos() * speed, settings.rise_rate, angle.sin() * speed);
+        let roll = rand_roll(s.wrapping_mul(7));
+
+        // Pose and fade it exactly as `update_smoke` would on its first tick —
+        // otherwise `commands.spawn` doesn't land until the next sync point, so
+        // this frame's render sees the entity before `update_smoke` ever runs
+        // on it: the default identity rotation (not facing the camera) and the
+        // material's default opaque white, i.e. one full-opacity, wrong-facing
+        // frame before the fade-in/billboard even starts.
+        let cam_up = cam_rotation * Vec3::Y;
+        let cam_right_fallback = cam_rotation * Vec3::X;
+        let rotation = smoke_billboard_rotation(origin, player.translation, cam_up, cam_right_fallback, roll);
+        let alpha = peak_alpha * smoke_envelope(0.0, fade_in, lifetime);
 
         let material = materials.add(StandardMaterial {
+            base_color: Color::srgba(1.0, 1.0, 1.0, alpha),
             base_color_texture: Some(assets.texture.clone()),
             unlit: true,
             alpha_mode: AlphaMode::Blend,
@@ -8006,12 +8065,14 @@ fn emit_smoke(
                 age: 0.0,
                 fade_in,
                 lifetime,
-                roll: rand_roll(s.wrapping_mul(7)),
+                roll,
                 peak_alpha,
             },
             Mesh3d(assets.mesh.clone()),
             MeshMaterial3d(material),
-            Transform::from_translation(origin).with_scale(Vec3::splat(settings.scale.max(1.0e-4))),
+            Transform::from_translation(origin)
+                .with_rotation(rotation)
+                .with_scale(Vec3::splat(settings.scale.max(1.0e-4))),
             NoFrustumCulling,
         ));
     }
@@ -8057,32 +8118,65 @@ fn update_smoke(
         // Spherical billboard: the quad's front (+Z) points straight at the
         // camera position, its up follows the camera up, so every puff always
         // shows the same head-on face no matter which way the player turns.
-        let to_cam = cam_pos - transform.translation;
-        if to_cam.length_squared() > 1.0e-6 {
-            let normal = to_cam.normalize();
-            let mut right = cam_up.cross(normal);
-            if right.length_squared() < 1.0e-6 {
-                right = cam_right_fallback;
-            }
-            let right = right.normalize();
-            let up = normal.cross(right);
-            let facing = Quat::from_mat3(&Mat3::from_cols(right, up, normal));
-            transform.rotation = facing * Quat::from_rotation_z(particle.roll);
-        }
+        transform.rotation = smoke_billboard_rotation(
+            transform.translation,
+            cam_pos,
+            cam_up,
+            cam_right_fallback,
+            particle.roll,
+        );
         transform.scale = scale;
 
-        // Envelope: ramp 0 -> 1 over `fade_in`, then 1 -> 0 over the rest.
-        let envelope = if particle.age < particle.fade_in {
-            particle.age / particle.fade_in.max(1.0e-4)
-        } else {
-            let fade_out = (particle.lifetime - particle.fade_in).max(1.0e-4);
-            1.0 - (particle.age - particle.fade_in) / fade_out
-        };
-        let alpha = particle.peak_alpha * envelope.clamp(0.0, 1.0);
+        let alpha = particle.peak_alpha * smoke_envelope(particle.age, particle.fade_in, particle.lifetime);
         if let Some(material) = materials.get_mut(&material.0) {
             material.base_color = Color::srgba(1.0, 1.0, 1.0, alpha);
         }
     }
+}
+
+/// Spherical-billboard rotation for a smoke puff at `pos`: local +Z points
+/// straight at `cam_pos`, up follows `cam_up` (falling back to
+/// `cam_right_fallback` on the degenerate case where the puff sits dead-on
+/// with the camera's up axis), then spun by `roll` around that facing axis.
+/// Shared by `emit_smoke` (the puff's pose the instant it spawns) and
+/// `update_smoke` (every frame after) so a fresh puff is never caught one
+/// frame short of `update_smoke` reaching it — `commands.spawn` doesn't land
+/// until the next sync point, so without this a brand-new puff would render
+/// at the identity rotation for a frame.
+fn smoke_billboard_rotation(
+    pos: Vec3,
+    cam_pos: Vec3,
+    cam_up: Vec3,
+    cam_right_fallback: Vec3,
+    roll: f32,
+) -> Quat {
+    let to_cam = cam_pos - pos;
+    if to_cam.length_squared() <= 1.0e-6 {
+        return Quat::IDENTITY;
+    }
+    let normal = to_cam.normalize();
+    let mut right = cam_up.cross(normal);
+    if right.length_squared() < 1.0e-6 {
+        right = cam_right_fallback;
+    }
+    let right = right.normalize();
+    let up = normal.cross(right);
+    Quat::from_mat3(&Mat3::from_cols(right, up, normal)) * Quat::from_rotation_z(roll)
+}
+
+/// A smoke puff's opacity envelope at `age`: ramps 0 -> 1 over `fade_in`, then
+/// 1 -> 0 over the rest of `lifetime`. Shared by `emit_smoke` (so a puff's
+/// material starts at the same alpha this gives for `age: 0.0`, rather than
+/// the material's default opaque white for the one frame before
+/// `update_smoke` first reaches it) and `update_smoke`.
+fn smoke_envelope(age: f32, fade_in: f32, lifetime: f32) -> f32 {
+    let envelope = if age < fade_in {
+        age / fade_in.max(1.0e-4)
+    } else {
+        let fade_out = (lifetime - fade_in).max(1.0e-4);
+        1.0 - (age - fade_in) / fade_out
+    };
+    envelope.clamp(0.0, 1.0)
 }
 
 /// A unit vector inside a cone of half-angle `half` around `axis`, chosen
