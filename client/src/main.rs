@@ -27,6 +27,7 @@
 
 mod changelog;
 mod environment;
+mod hud;
 mod keybinds;
 mod killcam;
 mod lobby_ui;
@@ -42,6 +43,7 @@ mod vfx;
 mod weapons;
 
 use environment::*;
+use hud::*;
 use player::*;
 use util::{color_from_parts, rand_roll, srgb_parts};
 use vfx::*;
@@ -84,7 +86,6 @@ use bevy::{
         view::{NoFrustumCulling, RenderLayers},
     },
     scene::SceneInstanceReady,
-    ui::IsDefaultUiCamera,
     window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
@@ -102,7 +103,7 @@ const SCOPE_OVERLAY_LAYER: usize = 2;
 const PLAYER_BODY_LAYER: usize = 3;
 /// Empty render layer for the HUD camera, which renders after everything else
 /// (including the view-model camera) so the UI is never covered by the gun.
-const UI_LAYER: usize = 4;
+pub(crate) const UI_LAYER: usize = 4;
 
 /// Bold condensed display face used across the in-game HUD (score, ammo, fps,
 /// score popups) and the kill-cam banner — the closest free/open stand-in for
@@ -841,36 +842,6 @@ fn start_soldier_animation(
         }
     }
 }
-
-/// The bottom-right ammo readout (`mag / reserve`).
-#[derive(Component)]
-struct AmmoText;
-
-/// The top-left FPS readout.
-#[derive(Component)]
-struct FpsText;
-
-/// The dead-centre white dot; `fade_crosshair` fades it out as the player aims
-/// in, `update_crosshair_visibility` shows it only while the sniper is the
-/// active weapon and the throwing knife isn't held.
-#[derive(Component)]
-struct CenterDot;
-
-/// The throwing-knife reticle (four ticks with a gap in the middle); shown in
-/// place of [`CenterDot`] while [`ThrowingKnife::active`] is set.
-#[derive(Component)]
-struct ThrowingKnifeCrosshair;
-
-/// Root of the crosshair overlay (both [`CenterDot`] and
-/// [`ThrowingKnifeCrosshair`] live under it). Unlike `menu::HudElement`
-/// (which `hud_visibility` also hides the instant a kill cam starts), this
-/// root stays available through a replay — `killcam::drive_killcam` drives
-/// `Weapon::slot` and [`ThrowingKnife::active`] off the recorded samples, so
-/// the replay shows the same crosshair the shooter had at each moment. It's
-/// still hidden outside a live game or behind a menu, via
-/// `crosshair_root_visibility`.
-#[derive(Component)]
-struct CrosshairRoot;
 
 /// Preloaded sounds. Loaded once at startup so playback has no first-use hitch.
 #[derive(Resource)]
@@ -1672,394 +1643,11 @@ fn apply_sound_volumes(
     }
 }
 
-/// The one persistent 2D camera: hosts every `bevy_ui` tree — the main menu and
-/// lobby screens as well as the in-game HUD. Drawn last (order 2, no clear) so
-/// the view-model gun (view-model camera, order 1) can't render over the HUD.
-/// Lives for the whole process; menu screens paint their own opaque background.
-/// Show the HUD (crosshair / ammo / FPS) only while actually in a game and no
-/// menu overlay is up. The world itself is always loaded but hidden behind the
-/// opaque lobby UI outside `InGame`.
-fn hud_visibility(
-    state: Res<State<AppState>>,
-    menu: Res<menu::Menu>,
-    killcam: Res<killcam::ActiveKillCam>,
-    mut hud: Query<&mut Visibility, With<menu::HudElement>>,
-) {
-    if !(state.is_changed() || menu.is_changed() || killcam.is_changed()) {
-        return;
-    }
-    let show = *state.get() == AppState::InGame && !menu.is_open() && killcam.0.is_none();
-    let want = if show {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    for mut v in &mut hud {
-        if *v != want {
-            *v = want;
-        }
-    }
-}
-
-/// Same gating as `hud_visibility` (live game, no menu overlay) but *without*
-/// the kill-cam check — a replay should still show the crosshair the shooter
-/// had at each moment.
-fn crosshair_root_visibility(
-    state: Res<State<AppState>>,
-    menu: Res<menu::Menu>,
-    mut root: Query<&mut Visibility, With<CrosshairRoot>>,
-) {
-    if !(state.is_changed() || menu.is_changed()) {
-        return;
-    }
-    let show = *state.get() == AppState::InGame && !menu.is_open();
-    let want = if show {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    for mut v in &mut root {
-        if *v != want {
-            *v = want;
-        }
-    }
-}
-
-fn setup_ui_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: 2,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
-        RenderLayers::layer(UI_LAYER),
-        IsDefaultUiCamera,
-    ));
-}
-
-/// A small white dot dead-centre for lining the scope up, plus the (initially
-/// hidden) throwing-knife reticle shown in its place while the knife is held.
-/// Both live under one `CrosshairRoot` so they share the same centring node
-/// and the same visibility gating (`crosshair_root_visibility`).
-fn setup_crosshair(mut commands: Commands) {
-    let bar = |width: f32, height: f32| {
-        (
-            Node {
-                width: Val::Px(width),
-                height: Val::Px(height),
-                ..default()
-            },
-            BackgroundColor(Color::WHITE),
-            BorderRadius::MAX,
-        )
-    };
-
-    commands
-        .spawn((
-            CrosshairRoot,
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            root.spawn((
-                CenterDot,
-                Node {
-                    width: Val::Px(5.0),
-                    height: Val::Px(5.0),
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::WHITE),
-                BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                BorderRadius::MAX,
-            ));
-
-            root.spawn((
-                ThrowingKnifeCrosshair,
-                Visibility::Hidden,
-                Node {
-                    position_type: PositionType::Absolute,
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    row_gap: Val::Px(8.0),
-                    ..default()
-                },
-            ))
-            .with_children(|knife| {
-                knife.spawn(bar(2.0, 40.0));
-                knife
-                    .spawn(Node {
-                        column_gap: Val::Px(16.0),
-                        ..default()
-                    })
-                    .with_children(|row| {
-                        row.spawn(bar(20.0, 2.0));
-                        row.spawn(bar(20.0, 2.0));
-                    });
-                knife.spawn(bar(2.0, 40.0));
-            });
-        });
-}
-
-/// Fade the centre dot out as the player aims down the scope — fully gone once
-/// the sight picture has come in, fully back at the hip — so it never sits over
-/// the sight picture but still gives an aim reference through the raise.
-fn fade_crosshair(
-    ads: Res<Ads>,
-    tuning: Res<AdsTuning>,
-    crosshair: Res<CrosshairSettings>,
-    dot: Single<(&mut BackgroundColor, &mut BorderColor), With<CenterDot>>,
-) {
-    let a = if crosshair.center_dot_always {
-        1.0
-    } else {
-        1.0 - scope_picture_amount(ads.t, &tuning)
-    };
-    let (mut bg, mut border) = dot.into_inner();
-    bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
-    border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
-}
-
-/// Pick the reticle: the centre dot only while the sniper is the active
-/// weapon and the throwing knife isn't held; the throwing-knife crosshair
-/// only while it is. During a kill cam, `killcam::drive_killcam` drives
-/// `weapon.slot` / `ThrowingKnife::active` off the recorded samples, so this
-/// reproduces the same swap the shooter saw instead of a live-only readout.
-fn update_crosshair_visibility(
-    weapon: Res<Weapon>,
-    knife: Res<ThrowingKnife>,
-    mut dot: Query<&mut Visibility, (With<CenterDot>, Without<ThrowingKnifeCrosshair>)>,
-    mut reticle: Query<&mut Visibility, (With<ThrowingKnifeCrosshair>, Without<CenterDot>)>,
-) {
-    if !(weapon.is_changed() || knife.is_changed()) {
-        return;
-    }
-    let sniper_active = weapon.slot == WeaponSlot::Primary;
-    let dot_want = if sniper_active && !knife.active {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    let reticle_want = if knife.active {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    if let Ok(mut v) = dot.single_mut() {
-        *v = dot_want;
-    }
-    if let Ok(mut v) = reticle.single_mut() {
-        *v = reticle_want;
-    }
-}
-
-/// Server told us a shot scored — the shooter's client pops a CoD-style yellow
-/// stack. `total` is the shot's combined points (shown as its own line at the
-/// top); `lines` are the itemised `(label, points)` that added up to it, top
-/// to bottom below that.
-#[derive(Event)]
-pub(crate) struct TrickScoredEvent {
-    pub(crate) total: u32,
-    pub(crate) lines: Vec<(String, u32)>,
-}
-
 /// Server told us the match clock ran out.
 #[derive(Event)]
 pub(crate) struct MatchEndedEvent {
     pub(crate) winner: String,
     pub(crate) score: u32,
-}
-
-/// The score-popup stack (one per scored shot; a fresh one replaces the last).
-#[derive(Component)]
-struct ScorePopup {
-    age: f32,
-}
-
-const SCORE_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
-const SCORE_POPUP_HOLD: f32 = 1.1;
-const SCORE_POPUP_TTL: f32 = 2.6;
-
-/// Spawn the yellow `+N  LABEL` stack, centred a little above the crosshair.
-fn spawn_score_popup(
-    mut events: EventReader<TrickScoredEvent>,
-    existing: Query<Entity, With<ScorePopup>>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    sounds: Res<GameSounds>,
-) {
-    // Only the most recent shot matters if several land in one frame.
-    let Some(ev) = events.read().last() else {
-        return;
-    };
-    for e in &existing {
-        commands.entity(e).despawn();
-    }
-
-    // `TrickScoredEvent` only ever fires for a kill *this* client just scored
-    // (Practice resolves it locally; online, `net::receive_trick_scores`
-    // already filters the server's broadcast down to our own shooter id).
-    commands.spawn((
-        AudioPlayer::new(sounds.kill_enemy.clone()),
-        PlaybackSettings::DESPAWN,
-    ));
-
-    commands
-        .spawn((
-            ScorePopup { age: 0.0 },
-            StateScoped(AppState::InGame),
-            GlobalZIndex(9),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(0.0),
-                right: Val::Percent(0.0),
-                top: Val::Percent(33.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(3.0),
-                ..default()
-            },
-        ))
-        .with_children(|col| {
-            // The combined total leads the stack, bigger than the breakdown
-            // below it, so it reads as the headline with the itemised lines
-            // explaining where it came from.
-            col.spawn((
-                Text::new(format!("+{}  TOTAL", ev.total)),
-                TextFont {
-                    font: asset_server.load(HUD_FONT),
-                    font_size: 32.0,
-                    ..default()
-                },
-                TextColor(SCORE_YELLOW),
-            ));
-            for (label, points) in &ev.lines {
-                col.spawn((
-                    Text::new(format!("+{points}  {label}")),
-                    TextFont {
-                        font: asset_server.load(HUD_FONT),
-                        font_size: 25.0,
-                        ..default()
-                    },
-                    TextColor(SCORE_YELLOW),
-                ));
-            }
-        });
-}
-
-/// Hold each popup briefly, then fade its lines out and despawn.
-fn update_score_popups(
-    time: Res<Time>,
-    mut popups: Query<(Entity, &mut ScorePopup, &Children)>,
-    mut texts: Query<&mut TextColor>,
-    mut commands: Commands,
-) {
-    for (entity, mut popup, children) in &mut popups {
-        popup.age += time.delta_secs();
-        if popup.age >= SCORE_POPUP_TTL {
-            commands.entity(entity).despawn();
-            continue;
-        }
-        let a = if popup.age < SCORE_POPUP_HOLD {
-            1.0
-        } else {
-            1.0 - (popup.age - SCORE_POPUP_HOLD) / (SCORE_POPUP_TTL - SCORE_POPUP_HOLD)
-        };
-        for child in children {
-            if let Ok(mut tc) = texts.get_mut(*child) {
-                tc.0 = SCORE_YELLOW.with_alpha(a.clamp(0.0, 1.0));
-            }
-        }
-    }
-}
-
-/// Bottom-right ammo readout: rounds in the mag, then rounds in reserve.
-fn setup_ammo_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            menu::HudElement,
-            Node {
-                position_type: PositionType::Absolute,
-                right: Val::Px(20.0),
-                bottom: Val::Px(18.0),
-                padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-            BorderRadius::all(Val::Px(6.0)),
-        ))
-        .with_child((
-            AmmoText,
-            Text::new(""),
-            TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: 30.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-        ));
-}
-
-/// Top-left frames-per-second readout.
-fn setup_fps_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            menu::HudElement,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(20.0),
-                top: Val::Px(18.0),
-                padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-            BorderRadius::all(Val::Px(6.0)),
-        ))
-        .with_child((
-            FpsText,
-            Text::new(""),
-            TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: 22.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-        ));
-}
-
-/// Accumulator for the FPS readout: frames and seconds since the last update.
-#[derive(Default)]
-struct FpsAccum {
-    elapsed: f32,
-    frames: u32,
-}
-
-/// Refresh the top-left readout twice a second with the average FPS over each
-/// 500 ms window.
-fn update_fps_ui(
-    time: Res<Time>,
-    mut acc: Local<FpsAccum>,
-    mut text: Single<&mut Text, With<FpsText>>,
-) {
-    acc.elapsed += time.delta_secs();
-    acc.frames += 1;
-
-    if acc.elapsed >= 0.5 {
-        let fps = acc.frames as f32 / acc.elapsed;
-        let wanted = format!("{fps:.0} fps");
-        if text.0 != wanted {
-            text.0 = wanted;
-        }
-        acc.elapsed = 0.0;
-        acc.frames = 0;
-    }
 }
 
 /// lil-gui-style panel for dialing in the ADS pose. Press `Esc` to free the
@@ -3431,13 +3019,5 @@ pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
     } else {
         window.cursor_options.grab_mode = CursorGrabMode::None;
         window.cursor_options.visible = true;
-    }
-}
-
-/// Keep the bottom-right readout in sync with the ammo counts.
-fn update_ammo_ui(weapon: Res<Weapon>, mut text: Single<&mut Text, With<AmmoText>>) {
-    let wanted = format!("{} / {}", weapon.mag, weapon.reserve);
-    if text.0 != wanted {
-        text.0 = wanted;
     }
 }
