@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Fixed: a reload (or other in-progress sound) no longer keeps playing through a kill cam replay — everything but the ambience bed now cuts off the instant the replay starts.",
         "Fixed: the knife no longer stays visible on top of the sniper during a kill cam replay if you'd switched to it right before you died.",
         "The \"What's New\" notes on the main menu now use a plain, readable font instead of the bold condensed HUD face.",
         "Fixed: you can now slide along a wall you hit at an angle instead of sticking to it until you're moving exactly parallel to it.",

@@ -2,12 +2,10 @@
 
 Note for Claude: don't send chat messages / commentary about this file or its
 contents unless explicitly asked — just do the work.
+Also, only do one todo at a time. I will test the changes by running the client and dev server myself before you proceed to the next todo.
 
 Ordered easiest → hardest to fix / add.
 
-- Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
-- Add tabs to top right controls ui to group other tabs into
-- Bug: reload sound keeps playing through kill cam when reload is started just before killcam. All sounds previous to the kill cam should be stopped besides ambient.
 - Switching to knife shouldn't play adjust animation. That animation should only play randomly when the player isn't trying to attack. If the player does attack it should smoothly transition to that animation.
 - Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
 - Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
@@ -17,6 +15,11 @@ Ordered easiest → hardest to fix / add.
 - Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
 
 # Done
+
+## Do Later
+
+- Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
+- Add tabs to top right controls ui to group other tabs into
 
 ## Bugs
 
@@ -29,6 +32,7 @@ Ordered easiest → hardest to fix.
 - When backing out of free for all then going to the basic map free style, players don't see each others remote model moving
 - Bug: dev-log spam on launch from a stale `.wav` asset path (`ambient_nature.wav`) — the file is `.ogg` now; fixed the load path in `audio.rs`.
 - Bug: knife view model stayed visible on top of the replayed sniper during a kill cam if you'd switched to the knife right before dying — `weapon_system` (the only thing that toggled `KnifeViewModel`'s visibility) is disabled for the whole replay, so `drive_killcam` now drives it too, mirrored off the recorded sniper visibility per frame (`client/src/killcam.rs`).
+- Bug: a reload (or any other in-progress one-shot sound) kept playing through a kill cam replay instead of cutting off — `start_killcam` now despawns every playing `AudioSink` entity except `AmbientAudio` right when the replay takes over; the replay re-fires its own recorded sounds on top as it plays (`client/src/killcam.rs`).
 
 ## Sound
 

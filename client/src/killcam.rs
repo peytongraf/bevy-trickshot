@@ -596,6 +596,12 @@ fn start_killcam(
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
     stale_fx: Query<Entity, Or<(With<crate::Smoke>, With<crate::ImpactParticle>, With<Tracer>)>>,
+    // Every currently-playing one-shot (shot, reload, rechamber, footsteps,
+    // aim in/out, ...) except the looping ambience bed — a reload or the like
+    // started right before death would otherwise keep playing straight
+    // through the replay instead of being cut off like everything else that
+    // was live a moment ago.
+    live_sounds: Query<Entity, (With<AudioSink>, Without<crate::AmbientAudio>)>,
     view_model_vis: Query<&Visibility, (With<ViewModel>, Without<TargetBotVisual>)>,
     knife: Res<crate::ThrowingKnife>,
     weapon: Res<Weapon>,
@@ -660,6 +666,14 @@ fn start_killcam(
     // and shot tracers still in the world, so the only effects on screen are the
     // ones the replay re-emits at the recorded times.
     for e in &stale_fx {
+        commands.entity(e).try_despawn();
+    }
+
+    // Same for whatever's still audibly playing from live gameplay — a reload
+    // or footstep etc. started right before the kill lands would otherwise
+    // keep playing straight through the replay. The replay re-fires its own
+    // recorded one-shots on top as it goes; only the ambience bed carries over.
+    for e in &live_sounds {
         commands.entity(e).try_despawn();
     }
 
