@@ -4,12 +4,14 @@
 //! and that then just react to `CurrentMap` changes or live debug-panel
 //! tweaks.
 
+mod atmosphere;
 mod lighting;
 mod map;
 mod rain;
 mod sky;
 mod water;
 
+pub(crate) use atmosphere::*;
 pub(crate) use lighting::*;
 pub(crate) use map::*;
 pub(crate) use rain::*;
