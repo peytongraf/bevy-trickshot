@@ -1,5 +1,8 @@
 # Added
 
+- Bug: If player switches to knife before the killcam plays, the knife model is still shown.
+- Bug: ( Logged on launch of game, wav not used anymore. Instead ogg used) 2026-09-17T02:45:47.082172Z ERROR bevy_asset::server: Path not found: /home/peyton/Dev/bevy-trickshot/client/assets/audio/ambient_nature.wav
+
 - Switching to knife shouldn't play adjust animation. That animation should only play randomly when the player isn't trying to attack. If the player does attack it should smoothly transition to that animation.
 - Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
