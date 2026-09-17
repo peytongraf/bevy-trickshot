@@ -1,6 +1,14 @@
 # Added
 
+- Make home screen updates text font easier to read. Something similar to typical mac font.
 - Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
+- Ensure todo.md is worded well and at the top make sure it says for Claude not to text anything unless explicitly asked to
+- Main.rs should be refactored parts at a time
+- Can remove some things from the top right controls ui
+- Add tabs to top right controls ui to group other tabs into
+- Can possibly delete the client read me and server read me or at least update them
+- Claude md can be updated with all the the things it should normally do and tell it what the point of the game is
+- Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
 
 # Done
 
