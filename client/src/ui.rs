@@ -190,6 +190,26 @@ pub fn label_hud(
     )
 }
 
+/// A text node set in [`crate::BODY_FONT`] — the plain readable face for
+/// blocks of copy (e.g. the main-menu "What's New" notes), as opposed to
+/// [`label_hud`]'s tall condensed caps.
+pub fn label_body(
+    asset_server: &AssetServer,
+    text: impl Into<String>,
+    size: f32,
+    color: Color,
+) -> impl Bundle {
+    (
+        Text::new(text),
+        TextFont {
+            font: asset_server.load(crate::BODY_FONT),
+            font_size: size,
+            ..default()
+        },
+        TextColor(color),
+    )
+}
+
 /// A bordered input-looking box, `width` px wide.
 pub fn field_box(width: f32) -> impl Bundle {
     (

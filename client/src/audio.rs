@@ -148,7 +148,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         shot: asset_server.load("audio/sniper_shot.wav"),
         rechamber: asset_server.load("audio/rechamber.wav"),
         reload: asset_server.load("audio/reload.wav"),
-        ambient: asset_server.load("audio/ambient_nature.wav"),
+        ambient: asset_server.load("audio/ambient_nature.ogg"),
         shipment_ambient: asset_server.load("audio/shipment_ambient.ogg"),
         aim_in: asset_server.load("audio/aim-in-sound.mp3"),
         aim_out: asset_server.load("audio/aim-out-sound.mp3"),

@@ -507,7 +507,12 @@ fn build_browser(
                     for (version, notes) in crate::changelog::ENTRIES {
                         panel.spawn(label_hud(asset_server, format!("v{version}"), 14.0, ACCENT));
                         for note in *notes {
-                            panel.spawn(label_hud(asset_server, format!("•  {note}"), 14.0, TEXT));
+                            panel.spawn(crate::ui::label_body(
+                                asset_server,
+                                format!("•  {note}"),
+                                14.0,
+                                TEXT,
+                            ));
                         }
                     }
                 });

@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Fixed: the knife no longer stays visible on top of the sniper during a kill cam replay if you'd switched to it right before you died.",
+        "The \"What's New\" notes on the main menu now use a plain, readable font instead of the bold condensed HUD face.",
         "Fixed: you can now slide along a wall you hit at an angle instead of sticking to it until you're moving exactly parallel to it.",
         "Fixed: the water on Shipment no longer renders on top of the barrel smoke.",
         "Fixed: the barrel smoke puff no longer flashes fully opaque and facing the wrong way for one frame right when it spawns. Also tuned the barrel smoke and bullet-tracer trail to be lighter and fade faster.",

@@ -107,6 +107,12 @@ pub(crate) const UI_LAYER: usize = 4;
 /// the tall all-caps look modern Call of Duty titles use for this kind of text.
 pub(crate) const HUD_FONT: &str = "fonts/BebasNeue-Regular.ttf";
 
+/// Plain readable face for blocks of body text (the main-menu "What's New"
+/// notes, and similar copy) where [`HUD_FONT`]'s tall condensed caps get hard
+/// to read at length. Inter, a clean neutral sans close to the system UI face
+/// on macOS.
+pub(crate) const BODY_FONT: &str = "fonts/Inter-Variable.ttf";
+
 fn main() {
     // Check for a newer release and, if there is one, replace this executable and
     // relaunch before Bevy starts. No-op under `cargo run`. See src/updater.rs.

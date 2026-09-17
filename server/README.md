@@ -122,6 +122,9 @@ as a resource, and pass `|a, b| world.segment_blocked(a, b)`.
 
 ### Bots
 
-`shared::map::NavProvider::find_path` is the seam. The server already runs a full
-Bevy ECS world; spawn bot entities with `PlayerPose` + a `NavProvider`-driven
-movement system and they replicate to clients like any other player.
+Done — stationary practice-target bots live in `src/bots.rs` (`BotsPlugin`):
+`ensure_bots` tops up each lobby's bot count near the map centre, a hit sends a
+`BotHit` (resolved in `src/sim.rs`) that tips the bot over, scores the shooter,
+and despawns it a couple seconds later. Moving/AI-driven bots (as opposed to
+stationary targets) would still need `shared::map::NavProvider::find_path` as
+the movement seam.

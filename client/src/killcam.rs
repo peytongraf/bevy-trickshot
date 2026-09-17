@@ -24,8 +24,8 @@ use crate::settings::Settings;
 use crate::{
     rand_roll, Ads, AimSwayState, AppState, BloodImpact, BotAnimationPlayer, BotAnimations,
     BotVisual, CameraRecoil, CameraShake, FireTracer, GameSounds, GroundImpact, MuzzleFlashState,
-    Player, PlayerHead, ScopeCamera, SmokeEmission, SniperAnimationPlayer, TargetBotVisual,
-    Tracer, ViewModel, ViewModelAnimation, Weapon, WeaponSlot, WorldModelCamera,
+    KnifeViewModel, Player, PlayerHead, ScopeCamera, SmokeEmission, SniperAnimationPlayer,
+    TargetBotVisual, Tracer, ViewModel, ViewModelAnimation, Weapon, WeaponSlot, WorldModelCamera,
 };
 
 /// Read the first-person weapon animation's current playhead (seconds), for
@@ -808,7 +808,19 @@ fn drive_killcam(
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
     cams: (
         Single<&mut Projection, With<WorldModelCamera>>,
-        Single<(&mut Transform, &mut Visibility), (With<ViewModel>, Without<TargetBotVisual>)>,
+        Single<
+            (&mut Transform, &mut Visibility),
+            (With<ViewModel>, Without<TargetBotVisual>, Without<KnifeViewModel>),
+        >,
+        // `Without<ViewModel>` mirrors `weapon_system`'s equivalent pair;
+        // `Without<TargetBotVisual>` disjoints it from `bots`'s `live_bots`
+        // query below the same way the `ViewModel` fetch above needs it too.
+        // Never actually touched by `weapon_system` itself, which is gated
+        // off for the whole replay (see `main.rs`'s `killcam::no_killcam` run
+        // condition), so without this the knife view model just stayed at
+        // whatever it was showing the instant the kill cam took over instead
+        // of following the replayed weapon state like the sniper model does.
+        Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>, Without<TargetBotVisual>)>,
     ),
     bots: (
         // Explicit `With<KillCamGhost>` (redundant with the `&mut KillCamGhost`
@@ -835,7 +847,7 @@ fn drive_killcam(
     let (shake_cfg, tuning, footstep_cfg) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
-    let (mut world_projection, view_model_single) = cams;
+    let (mut world_projection, view_model_single, mut knife_vis) = cams;
     let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
     let (mut ghosts, mut live_bots, bot_roots, mut bot_players, bot_anims) = bots;
     let (mut anim_players, view_models) = anim;
@@ -877,6 +889,11 @@ fn drive_killcam(
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
+            };
+            **knife_vis = if saved.weapon_visible {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
             };
             knife.active = saved.knife_active;
             weapon.slot = saved.slot;
@@ -983,6 +1000,14 @@ fn drive_killcam(
         Visibility::Inherited
     } else {
         Visibility::Hidden
+    };
+    // The sniper and the knife view models are always shown mutually
+    // exclusively live (see `weapon_system`), so the recorded sniper
+    // visibility alone is enough to derive the knife's.
+    **knife_vis = if weapon_visible {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
     };
     knife.active = if frac < 0.5 { a.knife_active } else { b.knife_active };
     let sniper_active = if frac < 0.5 { a.sniper_active } else { b.sniper_active };

@@ -1,21 +1,20 @@
 # Added
 
-- Bug: If player switches to knife before the killcam plays, the knife model is still shown.
-- Bug: ( Logged on launch of game, wav not used anymore. Instead ogg used) 2026-09-17T02:45:47.082172Z ERROR bevy_asset::server: Path not found: /home/peyton/Dev/bevy-trickshot/client/assets/audio/ambient_nature.wav
+Note for Claude: don't send chat messages / commentary about this file or its
+contents unless explicitly asked — just do the work.
 
+Ordered easiest → hardest to fix / add.
+
+- Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
+- Add tabs to top right controls ui to group other tabs into
+- Bug: reload sound keeps playing through kill cam when reload is started just before killcam. All sounds previous to the kill cam should be stopped besides ambient.
 - Switching to knife shouldn't play adjust animation. That animation should only play randomly when the player isn't trying to attack. If the player does attack it should smoothly transition to that animation.
+- Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
 - Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
-- Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
-- Make home screen updates text font easier to read. Something similar to typical mac font.
-- Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
-- Ensure todo.md is worded well and at the top make sure it says for Claude not to text anything unless explicitly asked to
-- Main.rs should be refactored parts at a time
-- Can remove some things from the top right controls ui
-- Add tabs to top right controls ui to group other tabs into
-- Can possibly delete the client read me and server read me or at least update them
-- Claude md can be updated with all the the things it should normally do and tell it what the point of the game is
 - Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
+- Main.rs should be refactored parts at a time
+- Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
 
 # Done
 
@@ -28,6 +27,8 @@ Ordered easiest → hardest to fix.
 - Z says capslock won't work to set as crouch / slide keybind
 - When aiming through the sniper scope on shipment, the sky looks normal in that it is bright and the fog isn't visible.
 - When backing out of free for all then going to the basic map free style, players don't see each others remote model moving
+- Bug: dev-log spam on launch from a stale `.wav` asset path (`ambient_nature.wav`) — the file is `.ogg` now; fixed the load path in `audio.rs`.
+- Bug: knife view model stayed visible on top of the replayed sniper during a kill cam if you'd switched to the knife right before dying — `weapon_system` (the only thing that toggled `KnifeViewModel`'s visibility) is disabled for the whole replay, so `drive_killcam` now drives it too, mirrored off the recorded sniper visibility per frame (`client/src/killcam.rs`).
 
 ## Sound
 
@@ -41,6 +42,7 @@ Ordered easiest → hardest to fix.
 
 Ordered easiest → hardest to fix.
 
+- Made the main-menu "What's New" notes use a readable body font (Inter, `assets/fonts/Inter-Variable.ttf`) instead of the condensed all-caps HUD font — see `crate::ui::label_body` / `BODY_FONT` in `main.rs`. Only that panel's notes changed; the HUD/menu titles still use `HUD_FONT`.
 - Add ping ui beside fps
 - Add tab to show leaderboard
 - Add heart beat sound and red around screen when health low
@@ -68,9 +70,13 @@ Ordered easiest → hardest to fix. Note: a knife model was added recently (see 
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
 
----
+## Docs / Housekeeping
 
-# Done
+- Reworded todo.md: moved the "don't message unless asked" note to the top of `# Added`, and ordered the `# Added` list easiest → hardest to match the `# Done` convention.
+- Updated `client/README.md`'s stale prototype-era technical section (single-weapon, `L`-key animation dev tooling) and `server/README.md`'s "Bots" upgrade-path note (stationary practice bots are already implemented in `server/src/bots.rs`); kept the still-accurate player-facing install/play instructions.
+- Expanded `CLAUDE.md` with a "What this game is" summary and a short "Working in this repo" checklist (todo.md workflow, changelog rule, build/test commands, the `Startup`-schedule gotcha).
+
+---
 
 ## Security
 
