@@ -1,5 +1,7 @@
 # Added
 
+- Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
+- Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
 - Make home screen updates text font easier to read. Something similar to typical mac font.
 - Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
 - Ensure todo.md is worded well and at the top make sure it says for Claude not to text anything unless explicitly asked to

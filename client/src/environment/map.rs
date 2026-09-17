@@ -2,7 +2,10 @@
 //! shared `CurrentMap` state everything else (lighting, water, rain, spawns)
 //! reads to know which map is active.
 
+use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::scene::SceneInstanceReady;
 use bevy_rapier3d::prelude::*;
 
@@ -70,6 +73,7 @@ pub(crate) struct MapVisualModel;
 /// (`shipment.glb`'s `Ground` node).
 #[derive(Component)]
 pub(crate) struct ProceduralGround;
+
 /// Push `MapSettings` onto the loaded `basic_map.glb` scene every frame it's
 /// the selected map — cheap (one `Transform` write), and unconditional so a
 /// freshly re-spawned model (see `sync_map_model`, after switching away from
@@ -309,4 +313,96 @@ pub(crate) fn sync_shipment_only_visibility(
     for entity in &bulbs {
         commands.entity(entity).insert(shipment_only_visibility);
     }
+}
+
+/// Build a seamless tiling ground texture: layered value noise ramped between a
+/// dark and a light tarmac tone, with fine grain plus the odd lighter aggregate
+/// fleck, so the ground reads as weathered asphalt instead of a flat grid.
+pub(crate) fn build_ground_texture() -> Image {
+    const N: u32 = 512;
+
+    // Cheap integer-lattice hash → [0, 1).
+    fn hash(x: i32, y: i32) -> f32 {
+        let mut h = (x.wrapping_mul(374_761_393) ^ y.wrapping_mul(668_265_263)) as u32;
+        h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+        h ^= h >> 16;
+        h as f32 / u32::MAX as f32
+    }
+
+    fn smooth(t: f32) -> f32 {
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    // Value noise on a lattice that wraps every `period` cells, so a tile whose
+    // width spans a whole number of periods is seamless.
+    fn value_noise(x: f32, y: f32, period: i32) -> f32 {
+        let x0 = x.floor() as i32;
+        let y0 = y.floor() as i32;
+        let fx = smooth(x - x0 as f32);
+        let fy = smooth(y - y0 as f32);
+        let w = |v: i32| v.rem_euclid(period);
+        let a = hash(w(x0), w(y0));
+        let b = hash(w(x0 + 1), w(y0));
+        let c = hash(w(x0), w(y0 + 1));
+        let d = hash(w(x0 + 1), w(y0 + 1));
+        let top = a + (b - a) * fx;
+        let bot = c + (d - c) * fx;
+        top + (bot - top) * fy
+    }
+
+    // fBm whose octave frequencies all divide the tile, so the sum tiles too.
+    fn fbm(u: f32, v: f32) -> f32 {
+        let (mut sum, mut amp, mut freq) = (0.0, 0.5, 4.0);
+        for _ in 0..5 {
+            sum += value_noise(u * freq, v * freq, freq as i32) * amp;
+            freq *= 2.0;
+            amp *= 0.5;
+        }
+        sum
+    }
+
+    let lo = [24.0f32, 25.0, 28.0]; // wet/shadowed tarmac
+    let hi = [70.0f32, 71.0, 75.0]; // sun-bleached tarmac
+    let fleck = [118.0f32, 116.0, 120.0]; // exposed aggregate
+
+    let mut data = Vec::with_capacity((N * N * 4) as usize);
+    for y in 0..N {
+        for x in 0..N {
+            let u = x as f32 / N as f32;
+            let v = y as f32 / N as f32;
+
+            let n = fbm(u, v).clamp(0.0, 1.0);
+            let speck = value_noise(u * 96.0, v * 96.0, 96);
+            let fleck_amt = if speck > 0.86 {
+                (speck - 0.86) / 0.14
+            } else {
+                0.0
+            };
+
+            let mut rgb = [0u8; 3];
+            for c in 0..3 {
+                let base = lo[c] + (hi[c] - lo[c]) * n;
+                rgb[c] = (base * (1.0 - fleck_amt) + fleck[c] * fleck_amt).round() as u8;
+            }
+            data.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+        }
+    }
+
+    let mut image = Image::new(
+        Extent3d {
+            width: N,
+            height: N,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
+        ..default()
+    });
+    image
 }

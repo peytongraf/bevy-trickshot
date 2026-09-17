@@ -25,3 +25,17 @@ pub(crate) fn srgb_parts(c: Color) -> [f32; 3] {
 pub(crate) fn color_from_parts(p: [f32; 3]) -> Color {
     Color::srgb(p[0], p[1], p[2])
 }
+
+/// Smoothstep easing, used for the scope sight-picture fade.
+pub(crate) fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The hip↔ADS blend curve. `amount` blends from a straight line (`0`) to
+/// smootherstep (`1`), so the aim-in slows into both ends by a tunable degree.
+pub(crate) fn ads_ease(t: f32, amount: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let smootherstep = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    t + (smootherstep - t) * amount.clamp(0.0, 1.0)
+}
