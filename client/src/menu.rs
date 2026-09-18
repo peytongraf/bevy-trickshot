@@ -43,6 +43,13 @@ pub enum Screen {
     /// Only dismissed by its own CONTINUE button (see `Btn::ContinueFromResults`),
     /// not `Esc`, so the result can't be skipped past by accident.
     MatchResults,
+    /// A lobby game was just started and the party is waiting for every
+    /// member's client to finish loading the map. Owned and built by
+    /// `game_start`, not this module (it needs live `shared::Lobby` data);
+    /// this variant exists purely so `game_active`'s "is a menu up" check
+    /// freezes gameplay input the same way it does for every other screen.
+    /// Not dismissed by `Esc` — `game_start` clears it once everyone's ready.
+    LoadingGame,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -182,6 +189,8 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         }
         // Dismissed only by its own CONTINUE button.
         Screen::MatchResults => {}
+        // Dismissed only once every party member's client reports ready.
+        Screen::LoadingGame => {}
     }
 }
 
@@ -620,6 +629,8 @@ fn rebuild_menu(
             build_settings(&mut commands, &menu, &settings, &binds, &leave);
         }
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
+        // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
+        Screen::LoadingGame => {}
     }
 }
 

@@ -74,6 +74,26 @@ pub(crate) struct MapVisualModel;
 #[derive(Component)]
 pub(crate) struct ProceduralGround;
 
+/// Whether the current [`CurrentMap`]'s scene(s) have finished loading —
+/// `game_start`'s "waiting for party" screen watches this (alongside every
+/// other lobby member's own report) before letting a match actually start,
+/// so nobody drops into a still-loading map. Reset by [`sync_map_model`]
+/// whenever the map changes; set by [`mark_model_ready`] /
+/// [`mark_visual_ready`] once the matching scene's `SceneInstanceReady`
+/// fires.
+#[derive(Resource, Default)]
+pub(crate) struct MapLoadState {
+    model_ready: bool,
+    visual_ready: bool,
+}
+
+/// Whether `state` reflects a fully-loaded `map` — `model_ready`, plus
+/// `visual_ready` too if `map` actually has a [`MapVisualModel`] (see
+/// [`map_visual_path`]).
+pub(crate) fn map_ready(state: &MapLoadState, map: shared::MapId) -> bool {
+    state.model_ready && (map_visual_path(map).is_none() || state.visual_ready)
+}
+
 /// Push `MapSettings` onto the loaded `basic_map.glb` scene every frame it's
 /// the selected map — cheap (one `Transform` write), and unconditional so a
 /// freshly re-spawned model (see `sync_map_model`, after switching away from
@@ -199,6 +219,7 @@ pub(crate) fn sync_map_model(
     current: Res<CurrentMap>,
     asset_server: Res<AssetServer>,
     existing: Query<Entity, With<MapGeometry>>,
+    mut load_state: ResMut<MapLoadState>,
     mut commands: Commands,
 ) {
     if !current.is_changed() {
@@ -207,19 +228,22 @@ pub(crate) fn sync_map_model(
     for e in &existing {
         commands.entity(e).despawn();
     }
+    *load_state = MapLoadState::default();
     let path = match current.0 {
         shared::MapId::BasicMap => "models/basic_map.glb",
         shared::MapId::Shipment => "models/shipment.glb",
     };
-    commands.spawn((
-        MapModel,
-        MapGeometry,
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
-        AsyncSceneCollider {
-            shape: Some(map_collider_shape()),
-            named_shapes: default(),
-        },
-    ));
+    commands
+        .spawn((
+            MapModel,
+            MapGeometry,
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+            AsyncSceneCollider {
+                shape: Some(map_collider_shape()),
+                named_shapes: default(),
+            },
+        ))
+        .observe(mark_model_ready);
     if let Some(visual_path) = map_visual_path(current.0) {
         commands
             .spawn((
@@ -227,7 +251,35 @@ pub(crate) fn sync_map_model(
                 MapGeometry,
                 SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(visual_path))),
             ))
-            .observe(reveal_map_visual);
+            .observe(reveal_map_visual)
+            .observe(mark_visual_ready);
+    }
+}
+
+/// Fires once [`MapModel`]'s `SceneRoot` finishes spawning — sets
+/// [`MapLoadState::model_ready`].
+fn mark_model_ready(
+    trigger: Trigger<SceneInstanceReady>,
+    models: Query<(), With<MapModel>>,
+    mut state: ResMut<MapLoadState>,
+) {
+    if models.contains(trigger.target()) {
+        state.model_ready = true;
+    }
+}
+
+/// Fires once [`MapVisualModel`]'s `SceneRoot` finishes spawning — sets
+/// [`MapLoadState::visual_ready`]. Separate from [`reveal_map_visual`] (which
+/// also fires on this same event) since that one only cares about maps that
+/// *have* a visual override; this one is read via [`map_ready`], which
+/// already accounts for maps that don't.
+fn mark_visual_ready(
+    trigger: Trigger<SceneInstanceReady>,
+    visuals: Query<(), With<MapVisualModel>>,
+    mut state: ResMut<MapLoadState>,
+) {
+    if visuals.contains(trigger.target()) {
+        state.visual_ready = true;
     }
 }
 

@@ -6,8 +6,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Ordered easiest → hardest to fix / add.
 
-- Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
-- Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
 - Main.rs should be refactored parts at a time
 - Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
 
@@ -21,6 +19,7 @@ Ordered easiest → hardest to fix / add.
 
 - Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
 - Add tabs to top right controls ui to group other tabs into
+- Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 
 ## Performance / Feel
 
@@ -63,6 +62,8 @@ Ordered easiest → hardest to fix.
 ## Gameplay Features
 
 Ordered easiest → hardest to fix.
+
+- Added a "waiting for party" screen: starting a lobby game now shows the map/mode plus each member's loading/ready status (centre screen, reusing `menu::Screen::LoadingGame` to freeze gameplay input/HUD the same way the pause menu does) until every member's client reports its assets loaded, then hides and gameplay starts normally. New client module `client/src/game_start.rs`. Simplified from the original ask: no forced minimum display time (`if both load fast still show for ~3s`) and no separate bottom-left indicator — the per-member ready list already shows whether it's on you, at the cost of the screen sometimes only flashing briefly. "Assets" currently only tracks the map scene (`environment::map::MapLoadState` — `SceneInstanceReady` on the collision blockout, plus the nicer visual overlay if the map has one), not every other asset (bot/soldier models, textures, etc.) — revisit if those turn out to matter in practice. New wire types: `shared::AssetsReady` (client → server trigger) and `LobbyMember::loaded` (reset on `StartGame`, set server-side on receipt, replicated back out with the rest of `Lobby`).
 
 - Add jumpshot points
 - Add spawn points for maps

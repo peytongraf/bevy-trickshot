@@ -512,6 +512,11 @@ pub struct LobbyMember {
     /// `Freestyle`: style points from bots this member has shot. `FreeForAll`:
     /// this member's kill count. Whichever the lobby's `mode` is.
     pub score: u32,
+    /// Whether this member's client has finished loading the match's assets
+    /// (the map, currently — see [`AssetsReady`]) since the lobby last
+    /// started. Reset to `false` on `StartGame`; irrelevant, and left
+    /// whatever it was, while `Lobby::started` is `false`.
+    pub loaded: bool,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -605,6 +610,13 @@ pub struct LeaveLobby;
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct StartGame;
 
+/// Client → server: the sender has finished loading this match's assets (see
+/// [`LobbyMember::loaded`]) — sent once, right after `Lobby::started` flips
+/// true and the client's own map load finishes. Ignored if the sender isn't
+/// in a started lobby.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct AssetsReady;
+
 /// Client → server: the party leader ends the running game for the **whole**
 /// party — every player entity is despawned and the lobby is disbanded, so all
 /// members drop back to the main menu. (A leader leaving *without* the party, or
@@ -655,6 +667,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<LeaveLobby>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<StartGame>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<AssetsReady>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<EndGame>()
             .add_direction(NetworkDirection::ClientToServer);

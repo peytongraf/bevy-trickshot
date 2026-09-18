@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Starting a lobby game now shows a \"waiting for party\" screen (map, mode, and each teammate's loading/ready status) until everyone's client has finished loading the map, instead of dropping you into a game world that might still be popping in around you.",
         "Fixed: the kill cam now shows the killer actually crouched, sliding, or prone when that's what they were doing — it used to always replay standing height, so a crouched or sliding kill looked like it whiffed clean over the bot's head.",
         "Added a VSYNC toggle and a frame rate limit slider under Settings → Graphics → Display, so you can turn vsync back on (removes screen tearing) or cap the frame rate instead of running fully uncapped.",
         "Turned off vsync by default — mouse look should feel noticeably snappier and less sluggish, at the cost of possible screen tearing (most visible without a G-Sync/FreeSync monitor).",

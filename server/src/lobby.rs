@@ -13,9 +13,9 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby, LobbyError,
-    LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose, SetGameMode,
-    SetKillLimit, SetMap, SetTimeLimit, StartGame,
+    AssetsReady, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby,
+    LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose,
+    SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
 };
 
 /// Bounds on the leader-set match length (seconds) — 1 to 45 minutes.
@@ -48,6 +48,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_join)
             .add_observer(on_leave)
             .add_observer(on_start)
+            .add_observer(on_assets_ready)
             .add_observer(on_end_game)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
@@ -149,6 +150,7 @@ fn on_create(
                     peer,
                     name: ev.player_name.clone(),
                     score: 0,
+                    loaded: false,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -193,6 +195,7 @@ fn on_join(
             peer,
             name: player_name,
             score: 0,
+            loaded: false,
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -227,6 +230,7 @@ fn on_start(
     lobby.time_left_secs = lobby.time_limit_secs;
     for m in &mut lobby.members {
         m.score = 0;
+        m.loaded = false;
     }
     let mode = lobby.mode;
     let members: Vec<shared::LobbyMember> = lobby.members.clone();
@@ -289,6 +293,22 @@ fn on_start(
         let entity = ec
             .id();
         info!("  spawned player {entity:?} for {:?}", member.peer);
+    }
+}
+
+/// A client reports it's finished loading this match's assets — see
+/// [`shared::AssetsReady`]. Marks that member `loaded` in whichever started
+/// lobby they're in; a stray report from a lobby that hasn't started (or
+/// isn't theirs) is simply ignored.
+fn on_assets_ready(trigger: Trigger<RemoteTrigger<AssetsReady>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    for mut lobby in &mut lobbies {
+        if lobby.started && lobby.has(peer) {
+            if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+                m.loaded = true;
+            }
+            break;
+        }
     }
 }
 
