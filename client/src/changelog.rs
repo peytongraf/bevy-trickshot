@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Added a VSYNC toggle and a frame rate limit slider under Settings → Graphics → Display, so you can turn vsync back on (removes screen tearing) or cap the frame rate instead of running fully uncapped.",
+        "Turned off vsync by default — mouse look should feel noticeably snappier and less sluggish, at the cost of possible screen tearing (most visible without a G-Sync/FreeSync monitor).",
         "Fixed: switching to the knife no longer blocks you from attacking with it while the grip-adjust animation plays out. That animation is now a random idle fidget instead, and an attack always cuts it short instantly.",
         "Fixed: a reload (or other in-progress sound) no longer keeps playing through a kill cam replay — everything but the ambience bed now cuts off the instant the replay starts.",
         "Fixed: the knife no longer stays visible on top of the sniper during a kill cam replay if you'd switched to it right before you died.",

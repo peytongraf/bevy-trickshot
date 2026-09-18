@@ -6,7 +6,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Ordered easiest → hardest to fix / add.
 
-- Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
 - Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 - Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
@@ -23,6 +22,11 @@ Ordered easiest → hardest to fix / add.
 
 - Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
 - Add tabs to top right controls ui to group other tabs into
+
+## Performance / Feel
+
+- Mouse look felt less smooth/snappy than Call of Duty — the window was left on Bevy's default `PresentMode::Fifo` (vsync on), which queues up to ~3 frames and caps the render rate to the monitor's refresh rate. Switched to `PresentMode::AutoNoVsync` (`client/src/main.rs`) for uncapped rendering and lower input-to-screen latency. Trade-off: possible screen tearing without a variable-refresh-rate display.
+- Added a VSYNC toggle (off by default) and a FRAME RATE LIMIT slider (60-360, shown only while vsync is off) under Settings → Graphics → Display, so a player who prefers vsync's no-tearing trade-off, or wants to cap GPU/fan noise instead of running fully uncapped, can do either. `Settings::vsync` / `Settings::frame_limit`, applied live by `apply_vsync` / `limit_frame_rate` in `client/src/settings.rs`; the frame limiter paces by sleeping out the remainder of each frame's budget, only while vsync is off.
 
 ## Bugs
 

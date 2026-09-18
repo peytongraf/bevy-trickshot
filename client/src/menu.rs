@@ -25,8 +25,8 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN, SENS_MAX, SENS_MIN,
-    VOLUME_MAX, VOLUME_MIN,
+    Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN, FRAME_LIMIT_MAX,
+    FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
     field_box, label, label_hud, spawn_button, spawn_button_hud, UiSound, ACCENT, ACCENT_DIM,
@@ -271,6 +271,7 @@ enum Btn {
     ToggleAutoReload,
     ToggleAutoCreate,
     ToggleAutoJoin,
+    ToggleVsync,
     SetShadowQuality(ShadowQuality),
     Rebind(usize),
     ResetKeybinds,
@@ -318,6 +319,7 @@ enum SliderField {
     AdsSensitivity,
     Fov,
     MasterVolume,
+    FrameLimit,
 }
 
 #[derive(Component)]
@@ -373,6 +375,10 @@ fn menu_click(
             }
             Btn::SetShadowQuality(q) => {
                 settings.shadow_quality = *q;
+                menu.dirty = true;
+            }
+            Btn::ToggleVsync => {
+                settings.vsync = !settings.vsync;
                 menu.dirty = true;
             }
             Btn::Rebind(i) => {
@@ -442,6 +448,10 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
             settings.master_volume =
                 (settings.master_volume + delta).clamp(VOLUME_MIN, VOLUME_MAX);
         }
+        SliderField::FrameLimit => {
+            settings.frame_limit =
+                (settings.frame_limit + delta).clamp(FRAME_LIMIT_MIN, FRAME_LIMIT_MAX);
+        }
     }
 }
 
@@ -473,6 +483,11 @@ fn slider_drag(
                 settings.master_volume =
                     (VOLUME_MIN + t * (VOLUME_MAX - VOLUME_MIN)).clamp(VOLUME_MIN, VOLUME_MAX);
             }
+            SliderField::FrameLimit => {
+                settings.frame_limit = (FRAME_LIMIT_MIN + t * (FRAME_LIMIT_MAX - FRAME_LIMIT_MIN))
+                    .round()
+                    .clamp(FRAME_LIMIT_MIN, FRAME_LIMIT_MAX);
+            }
         }
     }
 }
@@ -487,6 +502,9 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
         SliderField::MasterVolume => {
             (settings.master_volume - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
         }
+        SliderField::FrameLimit => {
+            (settings.frame_limit - FRAME_LIMIT_MIN) / (FRAME_LIMIT_MAX - FRAME_LIMIT_MIN)
+        }
     }
     .clamp(0.0, 1.0)
 }
@@ -497,6 +515,7 @@ fn field_value_text(settings: &Settings, field: SliderField) -> String {
         SliderField::AdsSensitivity => format!("{:.2}", settings.ads_sensitivity),
         SliderField::Fov => format!("{:.0}", settings.fov),
         SliderField::MasterVolume => format!("{:.0}%", settings.master_volume * 100.0),
+        SliderField::FrameLimit => format!("{:.0}", settings.frame_limit),
     }
 }
 
@@ -1069,6 +1088,20 @@ fn build_audio(content: &mut ChildSpawnerCommands, settings: &Settings) {
 }
 
 fn build_graphics(content: &mut ChildSpawnerCommands, settings: &Settings) {
+    content.spawn(label("DISPLAY", 15.0, TEXT_DIM));
+    toggle_row(content, "VSYNC", settings.vsync, Btn::ToggleVsync);
+    content.spawn(label(
+        "Off by default: this is a fast-aim shooter, and vsync's queued frames add \
+         input-to-screen latency and frame-pacing judder on top of capping the frame rate \
+         to your monitor's refresh rate. Turning it on removes screen tearing at the cost \
+         of that extra latency.",
+        14.0,
+        TEXT_DIM,
+    ));
+    if !settings.vsync {
+        spawn_slider_row(content, "FRAME RATE LIMIT", SliderField::FrameLimit, settings, 10.0);
+    }
+
     content.spawn(label("SHADOW MAP", 15.0, TEXT_DIM));
     content
         .spawn(Node {

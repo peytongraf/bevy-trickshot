@@ -6,9 +6,11 @@
 //! * macOS:   `~/Library/Application Support/bevy-trickshot/settings.json`
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use bevy::app::AppExit;
 use bevy::prelude::*;
+use bevy::window::{PresentMode, PrimaryWindow};
 use serde::{Deserialize, Serialize};
 
 use crate::keybinds::KeyBindings;
@@ -30,6 +32,12 @@ pub const ADS_SENS_DEFAULT: f32 = 0.4;
 pub const VOLUME_MIN: f32 = 0.0;
 pub const VOLUME_MAX: f32 = 1.0;
 pub const VOLUME_DEFAULT: f32 = 1.0;
+
+/// Custom FPS cap, used only while `Settings::vsync` is off — see
+/// `apply_vsync` / `limit_frame_rate`.
+pub const FRAME_LIMIT_MIN: f32 = 60.0;
+pub const FRAME_LIMIT_MAX: f32 = 360.0;
+pub const FRAME_LIMIT_DEFAULT: f32 = 240.0;
 
 /// Shadow map quality, named and tiered the way Call of Duty's "Shadow Map"
 /// graphics option is (Disabled / Low / Normal / High / Extra).
@@ -90,6 +98,14 @@ pub struct Settings {
     /// magazine, instead of leaving the sniper on an empty chamber until the
     /// player presses reload.
     pub auto_reload: bool,
+    /// Vsync (`PresentMode::Fifo`). Off by default: this is a fast-aim
+    /// trickshot shooter, and vsync's queued frames add noticeable
+    /// input-to-screen latency and frame-pacing judder on top of capping the
+    /// render rate to the display's refresh rate. See `apply_vsync`.
+    pub vsync: bool,
+    /// Custom FPS cap applied while `vsync` is off — see `limit_frame_rate`.
+    /// Ignored while `vsync` is on (the display's own vblank paces frames).
+    pub frame_limit: f32,
 }
 
 impl Default for Settings {
@@ -105,6 +121,8 @@ impl Default for Settings {
             shadow_quality: ShadowQuality::default(),
             master_volume: VOLUME_DEFAULT,
             auto_reload: true,
+            vsync: false,
+            frame_limit: FRAME_LIMIT_DEFAULT,
         }
     }
 }
@@ -180,9 +198,52 @@ impl Plugin for SettingsPlugin {
         app.insert_resource(loaded.settings)
             .insert_resource(loaded.keybinds)
             .insert_resource(SaveDebounce(timer))
-            .add_systems(Update, (arm_save, flush_save).chain())
-            .add_systems(Last, save_on_exit);
+            .add_systems(Update, ((arm_save, flush_save).chain(), apply_vsync))
+            // `save_on_exit` first so quitting isn't delayed by a pending sleep.
+            .add_systems(Last, (save_on_exit, limit_frame_rate).chain());
     }
+}
+
+/// Push `Settings::vsync` onto the primary window's `PresentMode` whenever it
+/// changes.
+fn apply_vsync(
+    settings: Res<Settings>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    mut applied: Local<Option<bool>>,
+) {
+    if applied.is_some_and(|v| v == settings.vsync) {
+        return;
+    }
+    *applied = Some(settings.vsync);
+    window.present_mode = if settings.vsync {
+        PresentMode::Fifo
+    } else {
+        PresentMode::AutoNoVsync
+    };
+}
+
+/// Caps the frame rate to `Settings::frame_limit` while vsync is off, by
+/// sleeping out whatever's left of the frame budget — with vsync on, the
+/// display's own vblank already paces frames, so a manual cap on top of that
+/// would just make frames miss it. Runs last in `Last`, so the wall-clock gap
+/// between two consecutive calls to this system *is* one full frame's time
+/// (this frame's work plus whatever this system slept last time), with
+/// nothing else needed to mark "frame start".
+fn limit_frame_rate(settings: Res<Settings>, mut last: Local<Option<Instant>>) {
+    if settings.vsync || settings.frame_limit <= 0.0 {
+        // Reset so re-enabling the cap later doesn't measure a gap that
+        // spans however long it was off for.
+        *last = None;
+        return;
+    }
+    let budget = Duration::from_secs_f32(1.0 / settings.frame_limit);
+    if let Some(prev) = *last {
+        let elapsed = prev.elapsed();
+        if elapsed < budget {
+            std::thread::sleep(budget - elapsed);
+        }
+    }
+    *last = Some(Instant::now());
 }
 
 fn arm_save(

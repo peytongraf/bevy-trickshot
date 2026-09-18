@@ -122,6 +122,17 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "bevy-trickshot".into(),
+                // Matches `Settings::vsync`'s own default (off) so there's no
+                // startup flash of vsync-on-then-off; `settings::apply_vsync`
+                // takes over and corrects this to match the player's saved
+                // choice from here on. See that function's doc comment for
+                // why off is the default: Bevy's own default, `Fifo` (vsync
+                // on), queues up to ~3 frames before display and caps the
+                // render rate to the monitor's refresh rate — extra
+                // input-to-screen latency and frame-pacing judder that reads
+                // as sluggish mouse look next to an uncapped shooter like
+                // Call of Duty.
+                present_mode: bevy::window::PresentMode::AutoNoVsync,
                 ..default()
             }),
             ..default()
