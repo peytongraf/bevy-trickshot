@@ -6,13 +6,16 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Ordered easiest → hardest to fix / add.
 
-- Switching to knife shouldn't play adjust animation. That animation should only play randomly when the player isn't trying to attack. If the player does attack it should smoothly transition to that animation.
 - Look into how make looking around with mouse movement slightly smoother. There is a sublte suddeness / almost jitteryness to the movement like it needs a very subltle smoothing to it or at least something visually should change very slightly.
 - Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 - Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
 - Main.rs should be refactored parts at a time
 - Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
+
+# New added
+
+- Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
 
 # Done
 
@@ -70,6 +73,7 @@ Ordered easiest → hardest to fix.
 
 Ordered easiest → hardest to fix. Note: a knife model was added recently (see git log) — check whether "Add knife and throwing knife models" is now partially done.
 
+- Fixed: switching to the knife no longer blocks attacking while its grip-adjust animation plays. `Adjust Grip` is now a random idle fidget (every 3-10s while idle, `KnifeAnimState::next_adjust_in`) instead of auto-playing right after the draw, and a `KnifeBusy::interruptible` flag lets a fire press cut it short instantly and swing instead of waiting it out (`client/src/weapons/weapon.rs`).
 - Add knife and throwing knife models
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.

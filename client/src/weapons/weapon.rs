@@ -123,27 +123,62 @@ pub(crate) struct WeaponActionSound;
 /// queue to model). `None` means idle — fully hidden while
 /// `WeaponSlot::Primary`, fully drawn and waiting on a left click while
 /// `WeaponSlot::Secondary`.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub(crate) struct KnifeAnimState {
     busy: Option<KnifeBusy>,
     /// Bumped on every slice attack, seeds which of `KNIFE_SLICE_SEGMENTS`
     /// plays — see `weapon_system`.
     swings: u32,
+    /// Bumped every time [`KNIFE_ADJUST_MIN_SECS`..`KNIFE_ADJUST_MAX_SECS`] is
+    /// re-rolled — a separate counter from `swings` so the idle-fidget timing
+    /// and the slice picks don't share a seed sequence.
+    adjust_rolls: u32,
+    /// Seconds of no attack left before the next idle "Adjust Grip" fidget
+    /// plays while the knife is out and idle — see `weapon_system`'s idle
+    /// branch. Re-rolled to a fresh span whenever it fires, the knife is
+    /// freshly drawn, or the player attacks, so it never fires mid-swing and
+    /// always waits out a full fresh idle stretch afterwards.
+    next_adjust_in: f32,
 }
 
+impl Default for KnifeAnimState {
+    fn default() -> Self {
+        Self {
+            busy: None,
+            swings: 0,
+            adjust_rolls: 0,
+            next_adjust_in: roll_knife_adjust_delay(0),
+        }
+    }
+}
+
+/// A random span in [`KNIFE_ADJUST_MIN_SECS`, `KNIFE_ADJUST_MAX_SECS`) until
+/// the next idle "Adjust Grip" fidget — see [`KnifeAnimState::next_adjust_in`].
+fn roll_knife_adjust_delay(seed: u32) -> f32 {
+    KNIFE_ADJUST_MIN_SECS
+        + rand01(seed.wrapping_mul(0xB529_7A4D)) * (KNIFE_ADJUST_MAX_SECS - KNIFE_ADJUST_MIN_SECS)
+}
+
+const KNIFE_ADJUST_MIN_SECS: f32 = 3.0;
+const KNIFE_ADJUST_MAX_SECS: f32 = 10.0;
+
 pub(crate) struct KnifeBusy {
-    /// Segments still to play; `remaining[0]` is the one playing now — e.g.
-    /// `[Show, Adjust Grip]` when the knife is being drawn.
+    /// Segments still to play; `remaining[0]` is the one playing now.
     remaining: Vec<AnimationSegment>,
     /// Clip time (seconds) the current segment ends at.
     seg_end: f32,
     on_finish: KnifeFinish,
+    /// Whether an attack can cut this short instead of waiting for it to
+    /// finish naturally — set only for the randomly-triggered idle "Adjust
+    /// Grip" fidget. The draw (Show) and hide sequences, and a slice already
+    /// in progress, are never interrupted.
+    interruptible: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum KnifeFinish {
-    /// A slice (or the Show → Adjust Grip draw sequence) finished — nothing
-    /// special, just back to idle-out.
+    /// A slice, the draw (Show), or the idle "Adjust Grip" fidget finished —
+    /// nothing special, just back to idle-out.
     Nothing,
     /// Hide finished — the knife is now stowed. `weapon_system` flips
     /// `Weapon::slot` back to `Primary` and plays the sniper's own Show
@@ -209,6 +244,32 @@ pub(crate) fn reset_weapon(
     }
 }
 
+/// Start a random one of the four slice segments, replacing whatever the
+/// knife's animation state currently holds. Used both from idle (a plain
+/// left click) and to cut a mid-play idle "Adjust Grip" fidget short the
+/// instant an attack comes in, instead of waiting for it to finish.
+fn start_knife_slice(
+    knife_state: &mut KnifeAnimState,
+    knife_player: &mut AnimationPlayer,
+    knife_node: AnimationNodeIndex,
+) {
+    knife_state.swings = knife_state.swings.wrapping_add(1);
+    let pick = (rand01(knife_state.swings.wrapping_mul(0xA511_E9B3))
+        * KNIFE_SLICE_SEGMENTS.len() as f32) as usize;
+    let seg = KNIFE_SEGMENTS[KNIFE_SLICE_SEGMENTS[pick.min(KNIFE_SLICE_SEGMENTS.len() - 1)]];
+    play_segment(knife_player, knife_node, seg);
+    knife_state.busy = Some(KnifeBusy {
+        remaining: vec![seg],
+        seg_end: seg.end_secs(),
+        on_finish: KnifeFinish::Nothing,
+        interruptible: false,
+    });
+    // An attack always pushes the idle fidget back out to a fresh span, so it
+    // never fires right on the heels of a swing.
+    knife_state.adjust_rolls = knife_state.adjust_rolls.wrapping_add(1);
+    knife_state.next_adjust_in = roll_knife_adjust_delay(knife_state.adjust_rolls);
+}
+
 /// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
 /// Shoot → Rechamber to cycle the bolt. The shot that empties the mag leaves
 /// the spent case sitting in the chamber (nothing left in the mag to cycle
@@ -248,13 +309,14 @@ pub(crate) fn weapon_system(
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<practice::LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    (shake_cfg, sounds, anim, ads, spread_cfg, settings): (
+    (shake_cfg, sounds, anim, ads, spread_cfg, settings, time): (
         Res<ShakeSettings>,
         Res<GameSounds>,
         Res<AnimationSettings>,
         Res<Ads>,
         Res<NoScopeSpread>,
         Res<Settings>,
+        Res<Time>,
     ),
     mut commands: Commands,
 ) {
@@ -347,6 +409,7 @@ pub(crate) fn weapon_system(
                     remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_HIDE]],
                     seg_end: KNIFE_SEGMENTS[KNIFE_SEG_HIDE].end_secs(),
                     on_finish: KnifeFinish::Hidden,
+                    interruptible: false,
                 });
             }
         }
@@ -412,8 +475,11 @@ pub(crate) fn weapon_system(
                     }
                     WeaponFinish::Holster => {
                         // Sniper fully hidden — the knife takes over: show it,
-                        // then (once that finishes) settle into an adjusted
-                        // grip, then idle-out waiting for a slice input.
+                        // then straight to idle-out waiting for a slice input.
+                        // The "Adjust Grip" fidget no longer auto-plays here —
+                        // it's a random idle-only animation now (see the
+                        // `WeaponSlot::Secondary` idle branch below) so a
+                        // fresh draw never blocks an immediate attack.
                         **view_model_vis = Visibility::Hidden;
                         **knife_vis = Visibility::Inherited;
                         play_segment(
@@ -422,13 +488,14 @@ pub(crate) fn weapon_system(
                             KNIFE_SEGMENTS[KNIFE_SEG_SHOW],
                         );
                         knife_state.busy = Some(KnifeBusy {
-                            remaining: vec![
-                                KNIFE_SEGMENTS[KNIFE_SEG_SHOW],
-                                KNIFE_SEGMENTS[KNIFE_SEG_ADJUST_GRIP],
-                            ],
+                            remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
                             seg_end: KNIFE_SEGMENTS[KNIFE_SEG_SHOW].end_secs(),
                             on_finish: KnifeFinish::Nothing,
+                            interruptible: false,
                         });
+                        knife_state.adjust_rolls = knife_state.adjust_rolls.wrapping_add(1);
+                        knife_state.next_adjust_in =
+                            roll_knife_adjust_delay(knife_state.adjust_rolls);
                     }
                     WeaponFinish::Draw => {
                         // Sniper back out: restart whatever the swap interrupted,
@@ -463,12 +530,25 @@ pub(crate) fn weapon_system(
         return;
     }
 
-    // Advance an in-progress knife action (Show → Adjust Grip on draw, or a
-    // single Hide / slice segment) — mirrors the sniper's own advance block
-    // above, just without a reload/rechamber-style interrupt-and-resume
-    // queue (the knife never needs one: swapping away just cuts straight to
-    // Hide, nothing to resume later).
+    // Advance an in-progress knife action (a single Show / Hide / slice / idle
+    // "Adjust Grip" segment) — mirrors the sniper's own advance block above,
+    // just without a reload/rechamber-style interrupt-and-resume queue (the
+    // knife never needs one: swapping away just cuts straight to Hide,
+    // nothing to resume later).
     if knife_state.busy.is_some() {
+        // An attack always wins over the idle "Adjust Grip" fidget — cut it
+        // short and swing immediately instead of waiting for it to finish;
+        // landing (or missing) a hit matters more than a cosmetic idle
+        // animation. Show/Hide/an in-progress slice are never interruptible.
+        if knife_state
+            .busy
+            .as_ref()
+            .is_some_and(|b| b.interruptible)
+            && binds.fire.just_pressed(&keys, &mouse)
+        {
+            start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
+            return;
+        }
         let next_or_finish = {
             let busy = knife_state.busy.as_mut().unwrap();
             let done = knife_player
@@ -519,17 +599,29 @@ pub(crate) fn weapon_system(
         // Knife idle-out, waiting on a left click — one of the four slices,
         // picked at random each time.
         if binds.fire.just_pressed(&keys, &mouse) {
-            knife_state.swings = knife_state.swings.wrapping_add(1);
-            let pick = (rand01(knife_state.swings.wrapping_mul(0xA511_E9B3))
-                * KNIFE_SLICE_SEGMENTS.len() as f32) as usize;
-            let seg =
-                KNIFE_SEGMENTS[KNIFE_SLICE_SEGMENTS[pick.min(KNIFE_SLICE_SEGMENTS.len() - 1)]];
+            start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
+            return;
+        }
+        // No attack this frame — count down toward the next idle "Adjust
+        // Grip" fidget (a cosmetic hands-resettle animation; see
+        // `KnifeAnimState::next_adjust_in`).
+        knife_state.next_adjust_in -= time.delta_secs();
+        if knife_state.next_adjust_in <= 0.0 {
+            let seg = KNIFE_SEGMENTS[KNIFE_SEG_ADJUST_GRIP];
             play_segment(&mut knife_player, knife_node, seg);
             knife_state.busy = Some(KnifeBusy {
                 remaining: vec![seg],
                 seg_end: seg.end_secs(),
                 on_finish: KnifeFinish::Nothing,
+                interruptible: true,
             });
+            // Roll the next span now, not when this one finishes — otherwise
+            // `next_adjust_in` sits at/below zero for the whole time this
+            // fidget is playing and fires again immediately the instant it
+            // ends (or every frame, since it's re-checked each frame while
+            // idle) instead of waiting out a fresh span.
+            knife_state.adjust_rolls = knife_state.adjust_rolls.wrapping_add(1);
+            knife_state.next_adjust_in = roll_knife_adjust_delay(knife_state.adjust_rolls);
         }
         return;
     }

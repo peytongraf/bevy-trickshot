@@ -51,9 +51,12 @@ pub(crate) const KNIFE_SLICE_SEGMENTS: [usize; 4] = [
 /// from every channel's raw keyframe times, all spaced an exact 1/30 s
 /// apart), 7 frames short of that reference's 142, so `Show` is clamped to
 /// 135 rather than running past the end of the data. `Show` plays once
-/// whenever the knife is drawn, immediately followed by `Adjust Grip` (see
-/// `weapon_system`); each of the four slices plays once, picked at random, on
-/// a left click while the knife is out and idle. Each segment starts exactly
+/// whenever the knife is drawn; `Adjust Grip` is a purely cosmetic idle
+/// fidget that plays on its own every few seconds while the knife is out and
+/// otherwise idle, and is cut short the instant an attack comes in (see
+/// `weapon_system`'s `KnifeAnimState::next_adjust_in`); each of the four
+/// slices plays once, picked at random, on a left click while the knife is
+/// out. Each segment starts exactly
 /// where the previous one's pose ends (baked that way in Blender, the same
 /// as `SEGMENTS`) — `play_segment` is a hard cut with no blending, for the
 /// sniper as much as the knife, so getting these boundaries right *is* what
