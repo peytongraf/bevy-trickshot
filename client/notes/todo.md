@@ -6,7 +6,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Ordered easiest → hardest to fix / add.
 
-- Crouch / slide doesn't work in kill cam. If I crouch and shoot a bot, the kill cam shows me stand the entire time and shoot over the bots head.
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 - Wait for all clients to be done loading assets before starting game. Show picture of map while waiting. If both assets load fast still show the picture for something like 3 seconds, or not so dev can be quicker. At the bottom left show loading assets so user knows if its on them or not
 - Main.rs should be refactored parts at a time
@@ -40,6 +39,7 @@ Ordered easiest → hardest to fix.
 - Bug: dev-log spam on launch from a stale `.wav` asset path (`ambient_nature.wav`) — the file is `.ogg` now; fixed the load path in `audio.rs`.
 - Bug: knife view model stayed visible on top of the replayed sniper during a kill cam if you'd switched to the knife right before dying — `weapon_system` (the only thing that toggled `KnifeViewModel`'s visibility) is disabled for the whole replay, so `drive_killcam` now drives it too, mirrored off the recorded sniper visibility per frame (`client/src/killcam.rs`).
 - Bug: a reload (or any other in-progress one-shot sound) kept playing through a kill cam replay instead of cutting off — `start_killcam` now despawns every playing `AudioSink` entity except `AmbientAudio` right when the replay takes over; the replay re-fires its own recorded sounds on top as it plays (`client/src/killcam.rs`).
+- Bug: crouch / slide / prone didn't replay in kill cam — the killer's camera height (`Slide::drop`, written onto the head's Y translation by `crouch_slide`, which is disabled for the whole replay like the rest of live movement) was never recorded, so the head stayed pinned at standing height for the entire replay regardless of what the killer's stance actually was. Added `crouch_drop` to `PlayerInput` / `KillCamSample` (`shared/src/protocol.rs`), recorded it on both the client (`net::write_input`) and server (`server/src/killcam.rs`'s `record_frames`) plus Practice's local ring buffer (`client/src/killcam.rs`'s `record_local_replay`), and `drive_killcam` now interpolates it onto the head's translation each frame instead of leaving it at zero.
 
 ## Sound
 

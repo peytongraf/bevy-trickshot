@@ -364,10 +364,11 @@ fn record_local_replay(
     head: Query<&Transform, With<PlayerHead>>,
     anim_players: Query<&AnimationPlayer, With<SniperAnimationPlayer>>,
     view_models: Query<&ViewModelAnimation>,
-    (view_model_vis, knife, weapon): (
+    (view_model_vis, knife, weapon, slide): (
         Query<&Visibility, With<ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<Weapon>,
+        Res<crate::Slide>,
     ),
 ) {
     let (Ok(pt), Ok(ht)) = (player.single(), head.single()) else {
@@ -400,6 +401,7 @@ fn record_local_replay(
                 .is_none_or(|v| *v != Visibility::Hidden),
             knife_active: knife.active,
             sniper_active: weapon.slot == WeaponSlot::Primary,
+            crouch_drop: slide.drop,
         },
     ));
     for ev in impacts.read() {
@@ -948,6 +950,7 @@ fn drive_killcam(
     let recoil = a.shake_recoil.lerp(b.shake_recoil, frac);
     let sway = Vec2::from_array(a.sway_offset).lerp(Vec2::from_array(b.sway_offset), frac);
     let fov_deg = a.fov_deg.lerp(b.fov_deg, frac);
+    let crouch_drop = a.crouch_drop.lerp(b.crouch_drop, frac);
 
     // Replay the aim-down-sight amount frame-for-frame. `update_ads` is frozen
     // while the cam runs, so `apply_ads` / `update_scope` (which keep running)
@@ -964,7 +967,13 @@ fn drive_killcam(
                 scale: Vec3::ONE,
             };
         } else if is_head {
-            *tf = Transform::from_rotation(pitch_rot);
+            // `crouch_drop` mirrors what `crouch_slide` (disabled for the
+            // whole replay, like the rest of live movement) would otherwise
+            // keep writing here — without it the head stayed pinned at
+            // standing height for the entire kill cam, so a killer who
+            // crouched or slid into a shot appeared to stand up and shoot
+            // clean over the bot's head.
+            *tf = Transform::from_rotation(pitch_rot).with_translation(Vec3::Y * crouch_drop);
         } else if is_shake {
             *tf = shake_pose;
         } else if is_recoil {

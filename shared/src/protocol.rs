@@ -252,6 +252,10 @@ pub struct PlayerInput {
     pub jumping: bool,
     /// Whether the player's stance is `Sliding` this tick.
     pub sliding: bool,
+    /// Camera Y offset from standing this tick (metres, `<= 0.0` — see the
+    /// client's `Slide::drop`), so the kill cam can reproduce crouch / slide /
+    /// prone height exactly instead of always replaying at standing height.
+    pub crouch_drop: f32,
 }
 
 impl Default for PlayerInput {
@@ -285,6 +289,7 @@ impl Default for PlayerInput {
             reloading: false,
             jumping: false,
             sliding: false,
+            crouch_drop: 0.0,
         }
     }
 }
@@ -409,6 +414,9 @@ pub struct KillCamSample {
     pub knife_active: bool,
     /// Whether the sniper was the active weapon on this frame.
     pub sniper_active: bool,
+    /// Camera Y offset from standing this frame — see
+    /// `PlayerInput::crouch_drop`.
+    pub crouch_drop: f32,
 }
 
 /// A target bot as it stood the moment the kill landed.

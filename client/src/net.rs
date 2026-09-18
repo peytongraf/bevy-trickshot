@@ -300,6 +300,7 @@ fn write_input(
     action.ads_t = ads.t;
     action.crouching = slide.stance == crate::Stance::Crouching;
     action.sliding = slide.stance == crate::Stance::Sliding;
+    action.crouch_drop = slide.drop;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
     action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
     action.tracer = tracer_rec

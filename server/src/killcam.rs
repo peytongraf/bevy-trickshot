@@ -135,6 +135,7 @@ fn record_frames(
                 weapon_visible: i.weapon_visible,
                 knife_active: i.knife_active,
                 sniper_active: i.sniper_active,
+                crouch_drop: i.crouch_drop,
             },
         ));
         while buf.frames.len() > CAP {
