@@ -11,7 +11,6 @@ Ordered easiest → hardest to fix / add.
 
 # New added
 
-- Remove ground plane that is added in bevy on basic map
 - Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 
@@ -41,6 +40,7 @@ Ordered easiest → hardest to fix.
 - Bug: knife view model stayed visible on top of the replayed sniper during a kill cam if you'd switched to the knife right before dying — `weapon_system` (the only thing that toggled `KnifeViewModel`'s visibility) is disabled for the whole replay, so `drive_killcam` now drives it too, mirrored off the recorded sniper visibility per frame (`client/src/killcam.rs`).
 - Bug: a reload (or any other in-progress one-shot sound) kept playing through a kill cam replay instead of cutting off — `start_killcam` now despawns every playing `AudioSink` entity except `AmbientAudio` right when the replay takes over; the replay re-fires its own recorded sounds on top as it plays (`client/src/killcam.rs`).
 - Bug: crouch / slide / prone didn't replay in kill cam — the killer's camera height (`Slide::drop`, written onto the head's Y translation by `crouch_slide`, which is disabled for the whole replay like the rest of live movement) was never recorded, so the head stayed pinned at standing height for the entire replay regardless of what the killer's stance actually was. Added `crouch_drop` to `PlayerInput` / `KillCamSample` (`shared/src/protocol.rs`), recorded it on both the client (`net::write_input`) and server (`server/src/killcam.rs`'s `record_frames`) plus Practice's local ring buffer (`client/src/killcam.rs`'s `record_local_replay`), and `drive_killcam` now interpolates it onto the head's translation each frame instead of leaving it at zero.
+- Bug: the basic map showed a doubled-up ground plane — `basic_map.glb` now has its own `Plane` ground node (confirmed by inspecting the file), which already gets real collision for free from the whole-scene `AsyncSceneCollider`, but the generic procedural ground bevy always spawns underneath every map was still shown and collidable too, at the same height. Same double-collider bug class already fixed for Shipment (grounded-edge flicker / spurious landing sounds from two coincident colliders), so applied the same fix: `setup_world` now spawns the procedural ground already `Visibility::Hidden` + `ColliderDisabled` (`client/src/main.rs`), and `sync_shipment_only_visibility` no longer has a per-map ground toggle at all — every current map ships its own now. Also set the basic map's default scale to `0.65` (`MapSettings::default`, `client/src/environment/map.rs`) to match the updated model.
 
 ## Sound
 

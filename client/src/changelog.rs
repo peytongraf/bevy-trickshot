@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Rescaled the basic map and fixed a doubled-up ground plane it had — the generic ground bevy always adds underneath every map is now hidden (and its collider disabled) once a map ships its own ground, matching how Shipment already worked.",
         "Added ledge mantling (Call of Duty style): jump at a ledge that's just barely too high to clear and you'll catch yourself on it and climb up, instead of bonking into it and falling. New Settings → Controls → \"Automatic Mantle\" option (Off / Semi-Auto / Full-Auto) controls how eager it is, same as CoD's own setting.",
         "Added a LOADOUT screen (from the main menu, and from the pause menu while in a game) for picking your scope crosshair — three reticles to choose from for now, more loadout options later. Your pick is saved and carries over between sessions.",
         "Starting a lobby game now shows a \"waiting for party\" screen (map, mode, and each teammate's loading/ready status) until everyone's client has finished loading the map, instead of dropping you into a game world that might still be popping in around you.",

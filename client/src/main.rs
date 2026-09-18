@@ -429,15 +429,24 @@ fn setup_world(
     bulbs: Res<BulbLightSettings>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
-    // (see `build_ground_texture`), tiled every ~2 m. Hidden, and its
-    // `Collider` disabled, by `sync_shipment_only_visibility` for maps that ship
-    // their own ground (so far just `shipment.glb`'s `Ground` node) — active
-    // otherwise, as the fallback floor `apply_gravity`'s raycast lands on
-    // off the edge of any map's own mesh collision (or on a map, like
-    // `basic_map.glb`, that never had a ground mesh of its own to begin
-    // with).
+    // (see `build_ground_texture`), tiled every ~2 m. Spawned hidden with its
+    // `Collider` disabled — every current map ships its own ground mesh now
+    // (`basic_map.glb`'s `Plane` node, `shipment.glb`'s `Ground` node), which
+    // already gets real collision for free from `sync_map_model`'s
+    // whole-scene `AsyncSceneCollider`. Leaving this one active too would
+    // stack two flat, coincident colliders at the same height, and
+    // `apply_gravity`'s raycast can then land on either from one frame to the
+    // next — flipping which of two near-identical surface heights it reports
+    // for the same spot re-triggers grounded-edge detection (and so the
+    // landing sound) every time, even standing still on flat ground. Kept
+    // around (rather than deleted outright) as a ready-made fallback floor
+    // for a future map that doesn't ship its own ground — see
+    // `sync_shipment_only_visibility`, which no longer touches it now that
+    // no current map needs it shown.
     commands.spawn((
         ProceduralGround,
+        Visibility::Hidden,
+        ColliderDisabled,
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(100.0)))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(images.add(build_ground_texture())),

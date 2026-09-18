@@ -30,7 +30,7 @@ impl Default for MapSettings {
         Self {
             position: Vec3::new(16.0, 0.0, 8.0),
             rotation_deg: 0.0,
-            scale: 2.0,
+            scale: 0.65,
         }
     }
 }
@@ -68,9 +68,10 @@ pub(crate) struct MapModel;
 #[derive(Component)]
 pub(crate) struct MapVisualModel;
 
-/// Marker on the always-spawned procedural asphalt ground plane, so
-/// [`sync_shipment_only_visibility`] can hide it for maps that ship their own ground
-/// (`shipment.glb`'s `Ground` node).
+/// Marker on the always-spawned procedural asphalt ground plane — spawned
+/// hidden with its collider disabled (see `setup_world`) since every current
+/// map ships its own ground mesh now. Kept as a ready-made fallback floor for
+/// a future map that doesn't.
 #[derive(Component)]
 pub(crate) struct ProceduralGround;
 
@@ -304,30 +305,21 @@ pub(crate) fn reveal_map_visual(
     }
 }
 
-/// Hide the always-spawned procedural asphalt ground ([`ProceduralGround`])
-/// — and disable its `Collider` (`ColliderDisabled`) — for maps that ship
-/// their own ground: so far just `Shipment`, whose `shipment.glb` has its
-/// own `Ground` node, now fully enclosed by its own walls. Leaving the big
-/// generic plane visible outside them would show asphalt stretching past
-/// the yard's edge; leaving its *collider* active underneath a map with its
-/// own ground would stack two flat, coincident colliders at the same
-/// height, and `apply_gravity`'s raycast can then land on either one from
-/// one frame to the next — flipping which of two near-identical surface
-/// heights it reports for the same spot re-triggers grounded-edge detection
-/// (and so the landing sound) every time, even standing still on flat
-/// ground.
+/// Toggles [`WaterPlane`] and [`ShipmentSpotLight`] (plus the container
+/// fluoro/bulb lights) visible only for maps with a nautical setting to
+/// speak of — `Shipment`'s MW3-style cargo ship; hidden for `basic_map.glb`.
 ///
-/// The reverse toggle runs alongside it for [`WaterPlane`] and
-/// [`ShipmentSpotLight`] — visible only for maps with a nautical setting to
-/// speak of (`Shipment`'s MW3-style cargo ship; hidden for `basic_map.glb`).
+/// [`ProceduralGround`] used to get the same map-dependent treatment here
+/// (shown for whichever map didn't yet have its own ground mesh), but every
+/// current map ships its own now, so `setup_world` just spawns it already
+/// hidden with its collider disabled and nothing here needs to touch it —
+/// see that spawn's doc comment.
 ///
-/// All three are only touched on an actual map change: [`ProceduralGround`],
 /// [`WaterPlane`] and [`ShipmentSpotLight`] are spawned once in `setup_world`
 /// and never respawned, unlike [`MapModel`], so there's no freshly-respawned
 /// entity to recover state for on other frames.
 pub(crate) fn sync_shipment_only_visibility(
     current: Res<CurrentMap>,
-    ground: Query<Entity, With<ProceduralGround>>,
     water: Query<Entity, With<WaterPlane>>,
     light: Query<Entity, With<ShipmentSpotLight>>,
     fluoro: Query<Entity, With<ContainerFluoroLight>>,
@@ -338,16 +330,6 @@ pub(crate) fn sync_shipment_only_visibility(
         return;
     }
     let is_shipment = current.0 == shared::MapId::Shipment;
-    if let Ok(entity) = ground.single() {
-        let mut ground = commands.entity(entity);
-        if is_shipment {
-            ground.insert((Visibility::Hidden, ColliderDisabled));
-        } else {
-            ground
-                .insert(Visibility::Inherited)
-                .remove::<ColliderDisabled>();
-        }
-    }
     let shipment_only_visibility = if is_shipment {
         Visibility::Inherited
     } else {
