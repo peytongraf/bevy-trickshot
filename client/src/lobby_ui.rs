@@ -16,6 +16,7 @@ use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
+use crate::menu::{Menu, Screen};
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
@@ -370,6 +371,10 @@ struct LobbyUiRoot;
 #[derive(Component, Clone)]
 enum MenuBtn {
     Practice,
+    /// Opens `menu::Screen::Loadout` from the main menu. The in-game entry
+    /// point is `menu::Btn::OpenLoadout` instead (inside the pause menu) —
+    /// see that screen's doc comment for why it looks the same either way.
+    OpenLoadout,
     CreateLobby,
     Join(Entity),
     Start,
@@ -601,6 +606,17 @@ fn build_browser(
                         "PRACTICE",
                         20.0,
                         MenuBtn::Practice,
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::MENU,
+                    );
+                    spawn_button_hud(
+                        row,
+                        asset_server,
+                        "LOADOUT",
+                        20.0,
+                        MenuBtn::OpenLoadout,
                         ROW,
                         ROW_HOVER,
                         TEXT,
@@ -899,6 +915,7 @@ fn build_room(
 fn handle_clicks(
     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
     mut next: ResMut<NextState<AppState>>,
+    mut menu: ResMut<Menu>,
     settings: Res<Settings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
@@ -935,6 +952,11 @@ fn handle_clicks(
         }
         match btn {
             MenuBtn::Practice => next.set(AppState::InGame),
+            MenuBtn::OpenLoadout => {
+                menu.loadout_return = menu.screen;
+                menu.screen = Screen::Loadout;
+                menu.dirty = true;
+            }
             MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
             MenuBtn::KillDown => nudge_kills(-(KILL_STEP as i64)),

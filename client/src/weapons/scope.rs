@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::settings::Settings;
+use crate::settings::{CrosshairId, Settings};
 use crate::util::ads_ease;
 
 use super::ads::{ads_fov_rad, scope_picture_amount, Ads, AdsTuning};
@@ -51,14 +51,50 @@ pub(crate) struct ScopeLens;
 #[derive(Component)]
 pub(crate) struct ScopeCamera;
 
-/// The `crosshair.png` quad in front of the scope camera; only that camera sees
-/// it, so the reticle appears in the scope image and nowhere else.
+/// The reticle quad (texture picked by [`Settings::crosshair`]) in front of
+/// the scope camera; only that camera sees it, so the reticle appears in the
+/// scope image and nowhere else.
 #[derive(Component)]
 pub(crate) struct ScopeReticle;
 
 /// Handle to the image the scope camera renders into and the lens samples.
 #[derive(Resource)]
 pub(crate) struct ScopeRenderTarget(pub(crate) Handle<Image>);
+
+/// Handle to [`ScopeReticle`]'s material — [`apply_crosshair_texture`] swaps
+/// its `base_color_texture` live whenever [`Settings::crosshair`] changes.
+#[derive(Resource)]
+pub(crate) struct ScopeReticleMaterial(pub(crate) Handle<StandardMaterial>);
+
+/// `Settings::crosshair` → its texture path under `assets/textures/`. Kept
+/// here (next to the one place that loads it) rather than on the enum
+/// itself, the same way `environment::map` keeps `MapId`'s `.glb` paths out
+/// of `shared::MapId`.
+pub(crate) fn crosshair_asset_path(id: CrosshairId) -> &'static str {
+    match id {
+        CrosshairId::HashReticle => "textures/hash_reticle.png",
+        CrosshairId::DuplexReticle => "textures/duplex_reticle.png",
+        CrosshairId::HashReticleRedDot => "textures/hash_reticle_red_dot.png",
+    }
+}
+
+/// Push `Settings::crosshair` onto the reticle material whenever it changes.
+pub(crate) fn apply_crosshair_texture(
+    settings: Res<Settings>,
+    reticle_material: Res<ScopeReticleMaterial>,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut applied: Local<Option<CrosshairId>>,
+) {
+    if applied.is_some_and(|c| c == settings.crosshair) {
+        return;
+    }
+    *applied = Some(settings.crosshair);
+    if let Some(material) = materials.get_mut(&reticle_material.0) {
+        material.base_color_texture =
+            Some(asset_server.load(crosshair_asset_path(settings.crosshair)));
+    }
+}
 
 /// Panel-adjustable scope-reticle behaviour: size on the glass, the CoD-style
 /// aim-in drift (starts toward one corner and slides to centre as you scope

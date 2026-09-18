@@ -71,6 +71,37 @@ impl ShadowQuality {
     }
 }
 
+/// Which reticle texture the scope shows — the Loadout screen's only current
+/// option (see `menu::build_loadout`). The actual `assets/textures/*.png`
+/// path for each is `weapons::scope::crosshair_asset_path` — kept out of this
+/// enum the same way `MapId` keeps its `.glb` paths out in `environment::map`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum CrosshairId {
+    /// Hash-mark bullet-drop-compensator reticle, no dot.
+    #[default]
+    HashReticle,
+    /// Circular scope vignette with a simple duplex crosshair.
+    DuplexReticle,
+    /// The hash-mark reticle with a glowing red dot at centre.
+    HashReticleRedDot,
+}
+
+impl CrosshairId {
+    pub const ALL: [CrosshairId; 3] = [
+        CrosshairId::HashReticle,
+        CrosshairId::DuplexReticle,
+        CrosshairId::HashReticleRedDot,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CrosshairId::HashReticle => "HASH",
+            CrosshairId::DuplexReticle => "DUPLEX",
+            CrosshairId::HashReticleRedDot => "RED DOT",
+        }
+    }
+}
+
 
 /// Non-keybind settings. Keybinds live in [`KeyBindings`] and are saved to the
 /// same file (see [`SettingsFile`]).
@@ -106,6 +137,8 @@ pub struct Settings {
     /// Custom FPS cap applied while `vsync` is off — see `limit_frame_rate`.
     /// Ignored while `vsync` is on (the display's own vblank paces frames).
     pub frame_limit: f32,
+    /// Selected scope reticle — Loadout screen. See [`CrosshairId`].
+    pub crosshair: CrosshairId,
 }
 
 impl Default for Settings {
@@ -123,6 +156,7 @@ impl Default for Settings {
             auto_reload: true,
             vsync: false,
             frame_limit: FRAME_LIMIT_DEFAULT,
+            crosshair: CrosshairId::default(),
         }
     }
 }

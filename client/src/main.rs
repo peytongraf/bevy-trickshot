@@ -338,7 +338,7 @@ fn main() {
                 update_ammo_ui,
                 update_fps_ui,
                 apply_scene_tuning,
-                apply_shadow_quality,
+                (apply_shadow_quality, apply_crosshair_texture),
                 (
                     apply_map_transform,
                     apply_shipment_transform,
@@ -712,6 +712,7 @@ fn setup_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
     poses: Res<ViewModelPoses>,
     knife_settings: Res<KnifeViewModelSettings>,
+    settings: Res<settings::Settings>,
 ) {
     // Build a one-clip animation graph for the sniper's baked animation.
     let clip: Handle<AnimationClip> =
@@ -742,16 +743,19 @@ fn setup_player(
     let scope_image = images.add(scope_image);
     commands.insert_resource(ScopeRenderTarget(scope_image.clone()));
 
-    // Reticle quad shown only inside the scope image (`crosshair.png`).
+    // Reticle quad shown only inside the scope image — texture picked by
+    // `Settings::crosshair` (Loadout screen); `apply_crosshair_texture` swaps
+    // it live from here on if the setting changes.
     let reticle_mesh = meshes.add(Rectangle::new(1.0, 1.0));
     let reticle_material = materials.add(StandardMaterial {
-        base_color_texture: Some(asset_server.load("textures/crosshair.png")),
+        base_color_texture: Some(asset_server.load(crosshair_asset_path(settings.crosshair))),
         unlit: true,
         alpha_mode: AlphaMode::Blend,
         double_sided: true,
         cull_mode: None,
         ..default()
     });
+    commands.insert_resource(ScopeReticleMaterial(reticle_material.clone()));
 
     // Muzzle-flash quad (`muzzle-flash.png`).
     let muzzle_mesh = meshes.add(Rectangle::new(1.0, 1.0));

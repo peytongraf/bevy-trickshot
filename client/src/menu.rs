@@ -25,14 +25,15 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN, FRAME_LIMIT_MAX,
-    FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
+    CrosshairId, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN,
+    FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    field_box, label, label_hud, spawn_button, spawn_button_hud, UiSound, ACCENT, ACCENT_DIM,
-    BACKDROP, DEFEAT, PANEL, PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK, VICTORY,
+    field_box, label, label_hud, spawn_button, spawn_button_hud, ui_sound, Hoverable, UiSound,
+    ACCENT, ACCENT_DIM, BACKDROP, DEFEAT, PANEL, PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM,
+    TRACK, VICTORY,
 };
-use crate::AppState;
+use crate::{crosshair_asset_path, AppState};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Screen {
@@ -50,6 +51,15 @@ pub enum Screen {
     /// freezes gameplay input the same way it does for every other screen.
     /// Not dismissed by `Esc` — `game_start` clears it once everyone's ready.
     LoadingGame,
+    /// The Loadout screen (crosshair selection so far) — reachable from the
+    /// main menu (`lobby_ui`'s `MenuBtn::OpenLoadout`) and, in-game, from a
+    /// button inside `Screen::Settings`. Looks identical either way: it's
+    /// built once here from nothing but `Settings`, not from any
+    /// state/lobby-specific data. `Esc` / `Btn::CloseLoadout` return to
+    /// [`Menu::loadout_return`] rather than always `Screen::None`, so
+    /// backing out from the in-game pause menu lands back on the pause menu
+    /// instead of dropping straight into gameplay.
+    Loadout,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -72,8 +82,14 @@ pub struct Menu {
     /// isn't captured as the new binding.
     rebind_armed: bool,
     pub username_draft: String,
-    /// Request a full UI rebuild next frame.
-    dirty: bool,
+    /// Where `Screen::Loadout` returns to on close — whatever `screen` was
+    /// right before it opened (`Screen::None` from the main menu,
+    /// `Screen::Settings` from the pause menu).
+    pub loadout_return: Screen,
+    /// Request a full UI rebuild next frame. `pub(crate)` rather than fully
+    /// private: modules that build their own content into a `Screen` (e.g.
+    /// `lobby_ui` opening `Screen::Loadout`) need to request the rebuild too.
+    pub(crate) dirty: bool,
 }
 
 impl Default for Menu {
@@ -84,6 +100,7 @@ impl Default for Menu {
             rebinding: None,
             rebind_armed: false,
             username_draft: String::new(),
+            loadout_return: Screen::None,
             dirty: true,
         }
     }
@@ -191,6 +208,10 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         Screen::MatchResults => {}
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
+        Screen::Loadout => {
+            menu.screen = menu.loadout_return;
+            menu.dirty = true;
+        }
     }
 }
 
@@ -282,6 +303,12 @@ enum Btn {
     ToggleAutoJoin,
     ToggleVsync,
     SetShadowQuality(ShadowQuality),
+    SetCrosshair(CrosshairId),
+    /// Open the Loadout screen from the in-game pause menu — see
+    /// `Screen::Loadout`'s doc comment. The main menu's own entry point is
+    /// `lobby_ui::MenuBtn::OpenLoadout` instead.
+    OpenLoadout,
+    CloseLoadout,
     Rebind(usize),
     ResetKeybinds,
     Step(SliderField, f32),
@@ -388,6 +415,19 @@ fn menu_click(
             }
             Btn::ToggleVsync => {
                 settings.vsync = !settings.vsync;
+                menu.dirty = true;
+            }
+            Btn::SetCrosshair(id) => {
+                settings.crosshair = *id;
+                menu.dirty = true;
+            }
+            Btn::OpenLoadout => {
+                menu.loadout_return = menu.screen;
+                menu.screen = Screen::Loadout;
+                menu.dirty = true;
+            }
+            Btn::CloseLoadout => {
+                menu.screen = menu.loadout_return;
                 menu.dirty = true;
             }
             Btn::Rebind(i) => {
@@ -631,6 +671,7 @@ fn rebuild_menu(
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
         Screen::LoadingGame => {}
+        Screen::Loadout => build_loadout(&mut commands, &settings, &asset_server),
     }
 }
 
@@ -879,6 +920,24 @@ fn build_settings(
                                 UiSound::BUTTON,
                             );
                         }
+                        cats.spawn((
+                            Node {
+                                height: Val::Px(1.0),
+                                margin: UiRect::vertical(Val::Px(4.0)),
+                                ..default()
+                            },
+                            BackgroundColor(TRACK),
+                        ));
+                        spawn_button(
+                            cats,
+                            "LOADOUT",
+                            17.0,
+                            Btn::OpenLoadout,
+                            PANEL,
+                            ROW_HOVER,
+                            TEXT_DIM,
+                            UiSound::BUTTON,
+                        );
                     });
 
                     body.spawn(Node {
@@ -973,6 +1032,133 @@ fn build_settings(
                 ))
                 .with_children(|f| {
                     f.spawn(label("[Esc] Close", 14.0, TEXT_DIM));
+                    f.spawn(label("Changes save automatically", 14.0, TEXT_DIM));
+                });
+        });
+}
+
+/// The Loadout screen — currently just crosshair selection. Built purely
+/// from `Settings`, with no `Tab`/state/lobby involvement, so it looks and
+/// behaves identically whether opened from the main menu or the in-game
+/// pause menu — see `Screen::Loadout`'s doc comment.
+fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer) {
+    commands
+        .spawn((
+            MenuRoot,
+            GlobalZIndex(50),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            BackgroundColor(BACKDROP),
+        ))
+        .with_children(|panel| {
+            // header
+            panel
+                .spawn(Node {
+                    padding: UiRect::axes(Val::Px(28.0), Val::Px(20.0)),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(8.0),
+                    ..default()
+                })
+                .with_children(|h| {
+                    h.spawn(label("LOADOUT", 28.0, TEXT));
+                    h.spawn((
+                        Node {
+                            width: Val::Px(46.0),
+                            height: Val::Px(3.0),
+                            ..default()
+                        },
+                        BackgroundColor(ACCENT),
+                    ));
+                });
+
+            // body
+            panel
+                .spawn(Node {
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(30.0)),
+                    row_gap: Val::Px(16.0),
+                    ..default()
+                })
+                .with_children(|content| {
+                    content.spawn(label("CROSSHAIR", 15.0, TEXT_DIM));
+                    content
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(16.0),
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            for id in CrosshairId::ALL {
+                                let selected = settings.crosshair == id;
+                                row.spawn((
+                                    Button,
+                                    Interaction::default(),
+                                    Btn::SetCrosshair(id),
+                                    Hoverable {
+                                        normal: PANEL,
+                                        hover: ROW_HOVER,
+                                    },
+                                    ui_sound(UiSound::BUTTON),
+                                    Node {
+                                        width: Val::Px(160.0),
+                                        flex_direction: FlexDirection::Column,
+                                        align_items: AlignItems::Center,
+                                        padding: UiRect::all(Val::Px(10.0)),
+                                        row_gap: Val::Px(8.0),
+                                        border: UiRect::all(Val::Px(3.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(PANEL),
+                                    BorderColor(if selected { ACCENT } else { TRACK }),
+                                    BorderRadius::all(Val::Px(8.0)),
+                                ))
+                                .with_children(|tile| {
+                                    tile.spawn((
+                                        ImageNode::new(asset_server.load(crosshair_asset_path(id))),
+                                        Node {
+                                            width: Val::Px(120.0),
+                                            height: Val::Px(120.0),
+                                            ..default()
+                                        },
+                                    ));
+                                    tile.spawn(label(
+                                        id.label(),
+                                        14.0,
+                                        if selected { ACCENT } else { TEXT_DIM },
+                                    ));
+                                });
+                            }
+                        });
+                });
+
+            // footer
+            panel
+                .spawn((
+                    Node {
+                        padding: UiRect::axes(Val::Px(28.0), Val::Px(14.0)),
+                        column_gap: Val::Px(24.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
+                ))
+                .with_children(|f| {
+                    spawn_button(
+                        f,
+                        "BACK",
+                        15.0,
+                        Btn::CloseLoadout,
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::BUTTON_BACK,
+                    );
                     f.spawn(label("Changes save automatically", 14.0, TEXT_DIM));
                 });
         });

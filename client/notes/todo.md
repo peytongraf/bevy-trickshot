@@ -6,8 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Ordered easiest → hardest to fix / add.
 
-- Main.rs should be refactored parts at a time
-- Add a loadout section where the user can change their scope and crosshairs. This won't change the model. It will change the texture used for the crosshair and the zoom level of the scope. This will need settings to fine tune it to ensure that the scope perfectly lines up with what is seen outside of the scope.
+- Use sniper icon at bottom right when sniper is loaded out for ammo ui. Create knife icon to use when it is loaded out.
+- Add scope selections in loadout ( just different zoom levels, model won't change ). Will need to adjust ui control settings for different zoom levels to ensure what the scope renders lines up with the view outside the scope
 
 # New added
 
@@ -73,6 +73,10 @@ Ordered easiest → hardest to fix.
 - Add ramped slow mo final kill of the game
 - Add camera change when killed where it looks at the direction you were shot from like on cod then shows you die in third person then plays kill cam
 - Add bots ( using remote player model ) that can be added to game modes
+
+## Loadout
+
+- Added a LOADOUT screen for picking the scope crosshair — reachable from the main menu (`lobby_ui::MenuBtn::OpenLoadout`) and, in a game, from a button in the pause menu (`menu::Btn::OpenLoadout`). Both open the exact same `menu::Screen::Loadout`, built purely from `Settings` with no state/lobby involvement, so it's guaranteed to look identical either way rather than being two screens kept in sync by hand. Shows all three reticle textures as bordered image tiles, highlighted border on the current pick; selection persists via `Settings::crosshair` (`client/src/settings.rs`), applied live to the scope's reticle material by `weapons::scope::apply_crosshair_texture`. Renamed the three texture assets to describe what they actually look like: `crosshair.png` → `hash_reticle.png` (plain bullet-drop-compensator hash marks), `crosshair_2.png` → `duplex_reticle.png` (circular scope vignette + simple duplex cross), `red_dot_crosshair.png` → `hash_reticle_red_dot.png` (the hash reticle with a glowing red centre dot). Only the crosshair is selectable for now — weapon and scope-zoom loadout options are still open (see `# Added`).
 
 ## Weapons & Models
 
