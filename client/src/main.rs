@@ -352,7 +352,7 @@ fn main() {
                 )
                     .after(look_around),
                 (spawn_tracers, update_tracers),
-                update_ammo_ui,
+                (update_ammo_ui, update_weapon_icon),
                 update_fps_ui,
                 apply_scene_tuning,
                 (apply_shadow_quality, apply_crosshair_texture),
@@ -370,7 +370,7 @@ fn main() {
                     apply_rain_assets,
                     apply_knife_transform,
                 ),
-                debug_cursor_toggle,
+                (debug_cursor_toggle, log_player_position),
             )
                 .after(update_ads)
                 .run_if(in_state(AppState::InGame)),

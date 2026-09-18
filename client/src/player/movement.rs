@@ -456,3 +456,19 @@ pub(crate) fn apply_gravity(
         snd.note(killcam::SND_JUMP_LAND);
     }
 }
+
+/// Dev convenience: `P` logs the player's world position to the console.
+/// Deliberately not a `KeyBindings` entry — always `P`, not rebindable.
+pub(crate) fn log_player_position(
+    keys: Res<ButtonInput<KeyCode>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    player: Single<&Transform, With<Player>>,
+) {
+    if window.cursor_options.grab_mode == CursorGrabMode::None {
+        return;
+    }
+    if keys.just_pressed(KeyCode::KeyP) {
+        let pos = player.translation;
+        info!("player position: {:.2}, {:.2}, {:.2}", pos.x, pos.y, pos.z);
+    }
+}

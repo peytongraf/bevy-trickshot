@@ -1,20 +1,21 @@
-# Added
-
 Note for Claude: don't send chat messages / commentary about this file or its
 contents unless explicitly asked — just do the work.
 Also, only do one todo at a time. I will test the changes by running the client and dev server myself before you proceed to the next todo.
 
-Ordered easiest → hardest to fix / add.
+- Note - P logs position to client console *
 
-- Use sniper icon at bottom right when sniper is loaded out for ammo ui. Create knife icon to use when it is loaded out.
-- Add scope selections in loadout ( just different zoom levels, model won't change ). Will need to adjust ui control settings for different zoom levels to ensure what the scope renders lines up with the view outside the scope
+# Added
 
-# New added
-
+- When knife is added the current ammo count and total ammo count text should not be visible.
+- The knife / sniper icons in the ammo hud should be about twice the size
+- Implement knife attack on bots and remote players
 - Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
+- Add scope selections in loadout ( just different zoom levels, model won't change ). Will need to adjust ui control settings for different zoom levels to ensure what the scope renders lines up with the view outside the scope
 
-# Done
+## Dev Tools
+
+- `P` now logs the player's world-space position (`transform.translation` on `Player`) to the client console — `log_player_position` in `client/src/player/movement.rs`. Deliberately a raw key check, not a `KeyBindings` entry, so it's not rebindable/shown in the Keybinds settings tab. Only fires while the cursor is grabbed (actually playing), matching how other gameplay input is gated.
 
 ## Do Later
 
@@ -55,6 +56,7 @@ Ordered easiest → hardest to fix.
 Ordered easiest → hardest to fix.
 
 - Made the main-menu "What's New" notes use a readable body font (Inter, `assets/fonts/Inter-Variable.ttf`) instead of the condensed all-caps HUD font — see `crate::ui::label_body` / `BODY_FONT` in `main.rs`. Only that panel's notes changed; the HUD/menu titles still use `HUD_FONT`.
+- Added a weapon icon (sniper/knife) next to the bottom-right ammo readout, swapped live by `update_weapon_icon` (`client/src/hud/ammo_text.rs`) whenever `Weapon::slot` changes. Icon box is a fixed size regardless of which texture is showing, so the swap never shifts the ammo readout beside it — `sniper_icon.png` and `knife_icon.png` are both drawn to the same 1774×887 canvas for exactly this reason. Moved both into a new `client/assets/textures/icons/` directory to keep `textures/` organized.
 - Add ping ui beside fps
 - Add tab to show leaderboard
 - Add heart beat sound and red around screen when health low
