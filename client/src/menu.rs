@@ -25,8 +25,8 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    CrosshairId, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX, FOV_MIN,
-    FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
+    AutoMantle, CrosshairId, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
+    FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
     field_box, label, label_hud, spawn_button, spawn_button_hud, ui_sound, Hoverable, UiSound,
@@ -304,6 +304,7 @@ enum Btn {
     ToggleVsync,
     SetShadowQuality(ShadowQuality),
     SetCrosshair(CrosshairId),
+    SetAutoMantle(AutoMantle),
     /// Open the Loadout screen from the in-game pause menu — see
     /// `Screen::Loadout`'s doc comment. The main menu's own entry point is
     /// `lobby_ui::MenuBtn::OpenLoadout` instead.
@@ -399,6 +400,10 @@ fn menu_click(
             Btn::ToggleDebug => settings.debug_mode = !settings.debug_mode,
             Btn::ToggleAutoReload => {
                 settings.auto_reload = !settings.auto_reload;
+                menu.dirty = true;
+            }
+            Btn::SetAutoMantle(mode) => {
+                settings.auto_mantle = *mode;
                 menu.dirty = true;
             }
             Btn::ToggleAutoCreate => {
@@ -1221,6 +1226,36 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
     content.spawn(label(
         "Automatically start reloading after the shot that empties the magazine, \
          instead of waiting for you to press reload.",
+        14.0,
+        TEXT_DIM,
+    ));
+
+    content.spawn(label("AUTOMATIC MANTLE", 15.0, TEXT_DIM));
+    content
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(8.0),
+            ..default()
+        })
+        .with_children(|row| {
+            for mode in AutoMantle::ALL {
+                let selected = settings.auto_mantle == mode;
+                spawn_button(
+                    row,
+                    mode.label(),
+                    15.0,
+                    Btn::SetAutoMantle(mode),
+                    if selected { ACCENT_DIM } else { ROW },
+                    ROW_HOVER,
+                    if selected { ACCENT } else { TEXT },
+                    UiSound::BUTTON,
+                );
+            }
+        });
+    content.spawn(label(
+        "Automatically climb a ledge you'd otherwise bonk into and fall from. Off never \
+         catches you; Semi-Auto only while jumping toward one; Full-Auto any time you're \
+         airborne and moving toward one, jump or not.",
         14.0,
         TEXT_DIM,
     ));

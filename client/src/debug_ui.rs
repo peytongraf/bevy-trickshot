@@ -63,6 +63,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<KnifeViewModelSettings>,
             ResMut<FluoroLightSettings>,
             ResMut<BulbLightSettings>,
+            ResMut<MantleSettings>,
         ),
     ),
 ) -> Result {
@@ -81,7 +82,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut fluoro, mut bulbs),
+        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -727,6 +728,40 @@ pub(crate) fn ads_tuning_ui(
                     s.dive_speed = d.dive_speed;
                     s.dive_jump = d.dive_jump;
                     s.dive_tuck_speed = d.dive_tuck_speed;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Mantle", |ui| {
+                let m = &mut *mantle_cfg;
+                ui.label(
+                    "Player-facing on/off is Settings → Controls → Automatic Mantle, not here.",
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.min_height, 0.0f32..=1.5)
+                        .text("min ledge height (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.max_height, 0.5f32..=3.5)
+                        .text("max ledge height (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.probe_height, 0.2f32..=2.0)
+                        .text("wall probe height (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.forward_dist, 0.1f32..=2.0)
+                        .text("forward probe distance (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.ledge_probe_forward, 0.05f32..=1.0)
+                        .text("ledge-top probe offset (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut m.duration, 0.1f32..=1.5).text("climb duration (s)"),
+                );
+                if ui.button("Reset mantle").clicked() {
+                    *m = MantleSettings::default();
                 }
             });
 

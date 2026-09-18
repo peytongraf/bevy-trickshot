@@ -202,6 +202,8 @@ fn main() {
         .init_resource::<Jumping>()
         .init_resource::<Slide>()
         .init_resource::<SlideSettings>()
+        .init_resource::<Mantle>()
+        .init_resource::<MantleSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
         .init_resource::<SoundVolumes>()
@@ -286,6 +288,20 @@ fn main() {
         .add_systems(
             Update,
             (
+                // Looks for a ledge to catch *before* this frame's normal
+                // movement/gravity chain runs, so a frame that starts a climb
+                // doesn't also fall/collide normally — see `not_mantling`,
+                // which that chain is gated on right below.
+                try_mantle
+                    .before(toggle_sprint)
+                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
+                drive_mantle.run_if(menu::game_active.and(killcam::no_killcam)),
+            )
+                .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
                 // Gameplay input / simulation — frozen while a menu is open or a
                 // kill-cam replay is playing.
                 (
@@ -301,10 +317,11 @@ fn main() {
                     footsteps,
                 )
                     .chain()
-                    .run_if(menu::game_active.and(killcam::no_killcam)),
+                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
                 (look_around, save_teleport_point)
                     .run_if(menu::game_active.and(killcam::no_killcam)),
-                weapon_system.run_if(menu::game_active.and(killcam::no_killcam)),
+                weapon_system
+                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,

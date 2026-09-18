@@ -11,7 +11,9 @@ Ordered easiest → hardest to fix / add.
 
 # New added
 
+- Remove ground plane that is added in bevy on basic map
 - Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
+- Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 
 # Done
 
@@ -73,6 +75,10 @@ Ordered easiest → hardest to fix.
 - Add ramped slow mo final kill of the game
 - Add camera change when killed where it looks at the direction you were shot from like on cod then shows you die in third person then plays kill cam
 - Add bots ( using remote player model ) that can be added to game modes
+
+## Movement
+
+- Added ledge mantling (Call of Duty style). New `client/src/player/mantle.rs`: `try_mantle` runs a three-probe ledge check (forward wall probe at chest height → downward probe past the wall face for the ledge top → upward probe at the landing spot for headroom) whenever the player is airborne, in `Stance::Standing`, and moving toward something; `drive_mantle` then eases them up and onto it (rise first, then move forward, so the camera clears the ledge face instead of cutting through it) over `MantleSettings::duration`, pausing every other movement/gravity/firing system for the climb (`not_mantling` run condition, mirroring how `killcam::no_killcam` pauses them for a replay). Player-facing setting: Settings → Controls → "Automatic Mantle" (Off / Semi-Auto / Full-Auto — `Settings::auto_mantle`, same three options and semantics as real CoD: Semi-Auto only triggers while actively jumping, Full-Auto any time you're airborne toward a ledge). Dev tuning: debug panel's "Mantle" section (`MantleSettings` — probe heights/distances, min/max ledge height, climb duration). No climb animation yet — the view model/arms/knife just ride along however they normally would; noted as a follow-up once the user handles animations.
 
 ## Loadout
 

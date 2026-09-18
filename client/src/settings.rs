@@ -102,6 +102,33 @@ impl CrosshairId {
     }
 }
 
+/// How readily [`crate::player::try_mantle`] catches the player on a ledge —
+/// Call of Duty's own "Automatic Mantle" option, same three settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum AutoMantle {
+    /// Never auto-mantles.
+    Off,
+    /// Only while actively jumping (`player::Jumping`) toward a ledge — a
+    /// deliberate running jump at it, not just walking or falling into one.
+    SemiAuto,
+    /// Any time you're airborne and moving toward a mantleable ledge, jumped
+    /// or not (e.g. walking or falling off a ledge onto a lower one).
+    #[default]
+    FullAuto,
+}
+
+impl AutoMantle {
+    pub const ALL: [AutoMantle; 3] = [AutoMantle::Off, AutoMantle::SemiAuto, AutoMantle::FullAuto];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AutoMantle::Off => "OFF",
+            AutoMantle::SemiAuto => "SEMI-AUTO",
+            AutoMantle::FullAuto => "FULL-AUTO",
+        }
+    }
+}
+
 
 /// Non-keybind settings. Keybinds live in [`KeyBindings`] and are saved to the
 /// same file (see [`SettingsFile`]).
@@ -139,6 +166,8 @@ pub struct Settings {
     pub frame_limit: f32,
     /// Selected scope reticle — Loadout screen. See [`CrosshairId`].
     pub crosshair: CrosshairId,
+    /// Automatic ledge-mantle behavior — Controls tab. See [`AutoMantle`].
+    pub auto_mantle: AutoMantle,
 }
 
 impl Default for Settings {
@@ -157,6 +186,7 @@ impl Default for Settings {
             vsync: false,
             frame_limit: FRAME_LIMIT_DEFAULT,
             crosshair: CrosshairId::default(),
+            auto_mantle: AutoMantle::default(),
         }
     }
 }
