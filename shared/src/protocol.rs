@@ -451,6 +451,10 @@ pub struct KillCamBot {
 pub struct KillCamPlayer {
     pub pos: [f32; 3],
     pub yaw: f32,
+    /// This is the player that was shot (a `FreeForAll` kill's victim) —
+    /// the replay plays their death animation once the playhead reaches the
+    /// kill, the same way it does for a shot bot ([`KillCamBot::killed`]).
+    pub killed: bool,
 }
 
 /// Server → everyone in a lobby (and built locally in Practice): replay the

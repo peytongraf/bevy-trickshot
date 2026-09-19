@@ -7,10 +7,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Added
 
 - On windows terminal pops up to play prod client
-- Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
-- Death animation isn't playing in killcam
 - Update to bevy 0.19 from 0.16
 - When knife is added the current ammo count and total ammo count text should not be visible.
 - The knife / sniper icons in the ammo hud should be about twice the size
@@ -28,6 +26,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
 - Add tabs to top right controls ui to group other tabs into
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
+- Night shipment is a little too dark in shaded areas and can't see remote player model that well
 
 ## Performance / Feel
 
@@ -43,6 +42,7 @@ Ordered easiest → hardest to fix.
 - Z says capslock won't work to set as crouch / slide keybind
 - When aiming through the sniper scope on shipment, the sky looks normal in that it is bright and the fog isn't visible.
 - When backing out of free for all then going to the basic map free style, players don't see each others remote model moving
+- Bug: the remote player's death animation didn't play in the kill cam — the replay's frozen `models/soldier.glb` ghosts (`KillCamPlayer`) carried no "this one was shot" flag, so the victim's ghost just idled where it stood while the bot ghosts (which have `KillCamBot::killed`) did topple. Added `KillCamPlayer::killed` (`shared/src/protocol.rs`), set server-side from the `FreeForAll` kill's victim (`server/src/killcam.rs`), and `drive_killcam` now plays the soldier `death` clip (once, at `death_speed`, held on its last frame) on that ghost when the playhead reaches `kill_time` (`client/src/killcam.rs`'s `KillCamPlayerGhost`).
 - Bug: dev-log spam on launch from a stale `.wav` asset path (`ambient_nature.wav`) — the file is `.ogg` now; fixed the load path in `audio.rs`.
 - Bug: knife view model stayed visible on top of the replayed sniper during a kill cam if you'd switched to the knife right before dying — `weapon_system` (the only thing that toggled `KnifeViewModel`'s visibility) is disabled for the whole replay, so `drive_killcam` now drives it too, mirrored off the recorded sniper visibility per frame (`client/src/killcam.rs`).
 - Bug: a reload (or any other in-progress one-shot sound) kept playing through a kill cam replay instead of cutting off — `start_killcam` now despawns every playing `AudioSink` entity except `AmbientAudio` right when the replay takes over; the replay re-fires its own recorded sounds on top as it plays (`client/src/killcam.rs`).

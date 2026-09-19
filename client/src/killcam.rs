@@ -12,7 +12,9 @@
 
 use std::collections::VecDeque;
 use std::f32::consts::PI;
+use std::time::Duration;
 
+use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
@@ -156,9 +158,10 @@ pub(crate) struct KillCamRun {
     pub(crate) best_play: bool,
     /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
     bots: Vec<(Vec3, f32, bool)>,
-    /// Other players (never the killer) frozen at the kill: `(pos, yaw)`.
-    /// Empty in Practice — there are no other real players to freeze.
-    players: Vec<(Vec3, f32)>,
+    /// Other players (never the killer) frozen at the kill:
+    /// `(pos, yaw, was_the_one_shot)`. Empty in Practice — there are no
+    /// other real players to freeze.
+    players: Vec<(Vec3, f32, bool)>,
     /// Ghost bot/player entities spawned for the replay (despawned on
     /// teardown).
     ghosts: Vec<Entity>,
@@ -207,6 +210,18 @@ struct KillCamGhost {
     pos: Vec3,
     yaw: f32,
     /// This is the bot that was shot — plays the death animation once
+    /// `elapsed >= kill_time`.
+    killed: bool,
+    /// Set once the death animation has been kicked off, so it isn't
+    /// restarted every frame the ghost lingers.
+    die_played: bool,
+}
+
+/// A stand-in remote player shown during the replay, frozen where they stood
+/// at the kill — the [`KillCamGhost`] counterpart for `models/soldier.glb`.
+#[derive(Component)]
+struct KillCamPlayerGhost {
+    /// This is the player that was shot — plays the death animation once
     /// `elapsed >= kill_time`.
     killed: bool,
     /// Set once the death animation has been kicked off, so it isn't
@@ -559,7 +574,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
     let players = msg
         .players
         .iter()
-        .map(|p| (Vec3::from_array(p.pos), p.yaw))
+        .map(|p| (Vec3::from_array(p.pos), p.yaw, p.killed))
         .collect();
     active.0 = Some(KillCamRun {
         killer_name: msg.killer_name,
@@ -736,10 +751,14 @@ fn start_killcam(
     // `net::hide_remote_avatars_during_killcam` so they can't wander through
     // — and potentially right into the camera of — what's meant to be a
     // frozen snapshot of the past.
-    for &(pos, yaw) in &run.players {
+    for &(pos, yaw, killed) in &run.players {
         let ghost = commands
             .spawn((
                 crate::SoldierVisual,
+                KillCamPlayerGhost {
+                    killed,
+                    die_played: false,
+                },
                 StateScoped(AppState::InGame),
                 Transform::from_translation(pos - Vec3::Y * crate::EYE_HEIGHT)
                     .with_rotation(Quat::from_rotation_y(yaw + core::f32::consts::PI))
@@ -870,6 +889,13 @@ fn drive_killcam(
         // same way the ghost query above is disjoint from `cams`.
         Query<&mut AnimationPlayer, Without<SniperAnimationPlayer>>,
         Res<BotAnimations>,
+        // The soldier ghosts' death animation: `KillCamPlayerGhost` is
+        // disjoint from `KillCamGhost` (the bots above), and
+        // `AnimationTransitions` is a different component than the
+        // `AnimationPlayer` `bot_players` already borrows mutably.
+        Query<(&mut KillCamPlayerGhost, &crate::SoldierAnimationPlayer)>,
+        Query<&mut AnimationTransitions>,
+        (Res<crate::SoldierAnimations>, Res<crate::SoldierAnimSettings>),
     ),
     anim: (
         Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
@@ -885,7 +911,16 @@ fn drive_killcam(
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
     let (mut world_projection, view_model_single, mut knife_vis) = cams;
     let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
-    let (mut ghosts, mut live_bots, bot_roots, mut bot_players, bot_anims) = bots;
+    let (
+        mut ghosts,
+        mut live_bots,
+        bot_roots,
+        mut bot_players,
+        bot_anims,
+        mut player_ghosts,
+        mut soldier_transitions,
+        (soldier_anims, soldier_settings),
+    ) = bots;
     let (mut anim_players, view_models) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
@@ -1034,6 +1069,29 @@ fn drive_killcam(
         }
         gtf.translation = ghost.pos;
         gtf.rotation = Quat::from_rotation_y(ghost.yaw);
+    }
+
+    // Same for the player that was shot (a `FreeForAll` kill's victim): the
+    // soldier ghost idles until the playhead reaches the kill, then plays the
+    // `death` clip once and holds its last frame — the same clip and speed
+    // `net::animate_remote_avatars` plays for a live remote player who dies.
+    for (mut ghost, anim_player) in &mut player_ghosts {
+        if ghost.killed && !ghost.die_played && run.elapsed >= run.kill_time {
+            ghost.die_played = true;
+            if let (Ok(mut player), Ok(mut transitions)) = (
+                bot_players.get_mut(anim_player.0),
+                soldier_transitions.get_mut(anim_player.0),
+            ) {
+                transitions
+                    .play(
+                        &mut player,
+                        soldier_anims.node_for(crate::SoldierAnimState::Dead),
+                        Duration::from_millis(200),
+                    )
+                    .set_repeat(RepeatAnimation::Never)
+                    .set_speed(soldier_settings.death_speed);
+            }
+        }
     }
 
     // Weapon visibility / throwing-knife crosshair: booleans, so nearest

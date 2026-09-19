@@ -202,9 +202,12 @@ fn queue_killcams(
             let player_snap: Vec<KillCamPlayer> = players
                 .iter()
                 .filter(|(id, _)| id.0 != killer && lobby.has(id.0))
-                .map(|(_, pose)| KillCamPlayer {
+                .map(|(id, pose)| KillCamPlayer {
                     pos: pose.translation.to_array(),
                     yaw: pose.yaw,
+                    // `target` is only ever `Some` for a `FreeForAll` kill,
+                    // where it's the victim.
+                    killed: target == Some(id.0),
                 })
                 .collect();
             pending.0.push(PendingCam {

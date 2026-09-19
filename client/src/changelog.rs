@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.5",
     &[
+        "Fixed: the kill cam now plays the death animation on you (the player who got shot) at the moment the killer's shot lands, instead of your body just standing there.",
         "Added a new map: SHIPMENT DAY. It's the same Shipment yard, but in bright daytime — clear sky, full sun, barely any fog, and no rain. Pick it from the map buttons in the lobby.",
     ],
 )];
