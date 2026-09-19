@@ -194,6 +194,10 @@ pub(crate) struct KillCamRun {
     setup: bool,
     saved: Option<SavedRig>,
     banner: Option<Entity>,
+    /// The shooter's hip FOV and scope zoom on the frame being replayed; set by
+    /// `drive_killcam` every frame so `apply_ads` / `update_scope` render the
+    /// scope the way the shooter had it.
+    pub(crate) optic: Option<crate::Optic>,
 }
 
 /// The player rig's transforms, stashed so playback can drive them and then put
@@ -420,6 +424,7 @@ fn record_local_replay(
             shake_recoil: shake.recoil,
             sway_offset: sway.offset.to_array(),
             fov_deg: settings.fov,
+            scope_zoom: settings.scope_zoom.magnification(),
             sound_bits: std::mem::take(&mut bits.0),
             anim_time: viewmodel_anim_time(&anim_players, &view_models),
             knife_anim_time: knife_anim_time(&knife_players, &knife_anims),
@@ -547,6 +552,7 @@ fn start_local_killcam(
         setup: false,
         saved: None,
         banner: None,
+        optic: None,
     });
 }
 
@@ -615,6 +621,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         setup: false,
         saved: None,
         banner: None,
+        optic: None,
     });
 }
 
@@ -1052,7 +1059,11 @@ fn drive_killcam(
     let phase = a.shake_phase.lerp(b.shake_phase, frac);
     let recoil = a.shake_recoil.lerp(b.shake_recoil, frac);
     let sway = Vec2::from_array(a.sway_offset).lerp(Vec2::from_array(b.sway_offset), frac);
-    let fov_deg = a.fov_deg.lerp(b.fov_deg, frac);
+    let optic = crate::Optic {
+        hip_fov_deg: a.fov_deg.lerp(b.fov_deg, frac),
+        zoom: a.scope_zoom.lerp(b.scope_zoom, frac),
+    };
+    run.optic = Some(optic);
     let crouch_drop = a.crouch_drop.lerp(b.crouch_drop, frac);
 
     // Replay the aim-down-sight amount frame-for-frame. `update_ads` is frozen
@@ -1088,7 +1099,7 @@ fn drive_killcam(
     // with the FOV the shooter actually had, blended by the same replayed
     // `ads.t`.
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = crate::ads_fov_rad(fov_deg, &tuning, ads.t);
+        perspective.fov = crate::ads_fov_rad(optic, &tuning, ads.t);
     }
 
     // Weapon sway + recoil shudder: `apply_ads` already wrote the base hip/ads

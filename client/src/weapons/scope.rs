@@ -3,10 +3,13 @@
 
 use bevy::prelude::*;
 
+use crate::killcam::ActiveKillCam;
 use crate::settings::{CrosshairId, Settings};
 use crate::util::ads_ease;
 
-use super::ads::{ads_fov_rad, scope_picture_amount, Ads, AdsTuning};
+use super::ads::{
+    ads_fov_rad, full_scope_fov_rad, scope_picture_amount, Ads, AdsTuning, Optic,
+};
 use super::sway::AimSwayState;
 
 // --- scope (render-to-texture) -------------------------------------------------
@@ -16,9 +19,6 @@ use super::sway::AimSwayState;
 // only active while `ads.t > 0`, so the extra pass costs nothing at the hip.
 /// Render-target resolution for the scope view.
 pub(crate) const SCOPE_RT_SIZE: u32 = 512;
-/// Scope camera FOV (degrees). Much narrower than the main camera = the
-/// magnification. Adjustable live in the tuning panel.
-pub(crate) const SCOPE_FOV_DEG: f32 = 6.5;
 /// Distance (metres) the reticle quad sits in front of the scope camera.
 pub(crate) const RETICLE_DIST: f32 = 0.2;
 /// ADS amount below which the scope camera is switched off, so no stale frame
@@ -145,6 +145,7 @@ pub(crate) fn update_scope(
     (ads, aim_sway, crosshair): (Res<Ads>, Res<AimSwayState>, Res<CrosshairSettings>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
+    killcam: Res<ActiveKillCam>,
     scope_camera: Single<
         (&mut Camera, &mut Projection, &mut Transform),
         (With<ScopeCamera>, Without<ScopeReticle>),
@@ -168,8 +169,9 @@ pub(crate) fn update_scope(
     // Before the picture comes in, keep the scope camera at the world FOV so the
     // render target matches the view *behind* the glass 1:1; converge to the
     // real scope magnification as the picture arrives.
-    let world_fov = ads_fov_rad(settings.fov, &tuning, ads.t);
-    let scope_fov = world_fov.lerp(tuning.scope_fov_deg.to_radians(), picture);
+    let optic = Optic::current(&settings, &killcam);
+    let world_fov = ads_fov_rad(optic, &tuning, ads.t);
+    let scope_fov = world_fov.lerp(full_scope_fov_rad(optic, &tuning), picture);
     if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = scope_fov;
     }

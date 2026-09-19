@@ -65,6 +65,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
             ResMut<ShipmentDaySceneTuning>,
+            Res<Settings>,
         ),
     ),
 ) -> Result {
@@ -83,7 +84,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene),
+        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -101,18 +102,20 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("FOV", |ui| {
+                let optic = Optic::live(&settings);
+                ui.label(format!(
+                    "{:.0}x scope at {:.0}° hip FOV: world {:.2}°, scope {:.2}°",
+                    optic.zoom,
+                    optic.hip_fov_deg,
+                    full_ads_fov_rad(optic).to_degrees(),
+                    full_scope_fov_rad(optic, &tuning).to_degrees(),
+                ));
                 ui.add(
-                    egui::Slider::new(&mut tuning.fov_deg, 3.0f32..=45.0)
-                        .text("main ADS FOV°  (lower = more zoom)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tuning.scope_fov_deg, 1.0f32..=30.0)
-                        .text("scope FOV°  (lower = more magnification)"),
+                    egui::Slider::new(&mut tuning.lens_fit, 0.3f32..=1.2)
+                        .text("lens fit  (scope tan / world tan; same for every zoom)"),
                 );
                 if ui.button("Reset FOV").clicked() {
-                    let d = AdsTuning::default();
-                    tuning.fov_deg = d.fov_deg;
-                    tuning.scope_fov_deg = d.scope_fov_deg;
+                    tuning.lens_fit = AdsTuning::default().lens_fit;
                 }
             });
 

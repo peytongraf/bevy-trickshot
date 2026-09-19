@@ -316,6 +316,7 @@ fn write_input(
     action.shake_recoil = shake.recoil;
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
+    action.scope_zoom = settings.scope_zoom.magnification();
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.knife_anim_time = crate::killcam::knife_anim_time(&knife_players, &knife_anims);

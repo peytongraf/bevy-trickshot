@@ -951,7 +951,7 @@ fn setup_player(
                                             ..default()
                                         },
                                         Projection::from(PerspectiveProjection {
-                                            fov: SCOPE_FOV_DEG.to_radians(),
+                                            fov: LENS_CAL_SCOPE_FOV_DEG.to_radians(),
                                             ..default()
                                         }),
                                         RenderLayers::from_layers(&[0, SCOPE_OVERLAY_LAYER]),

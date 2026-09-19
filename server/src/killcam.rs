@@ -126,6 +126,7 @@ fn record_frames(
                 shake_recoil: i.shake_recoil,
                 sway_offset: i.sway_offset,
                 fov_deg: i.fov_deg,
+                scope_zoom: i.scope_zoom,
                 sound_bits: i.sound_bits,
                 anim_time: i.anim_time,
                 knife_anim_time: i.knife_anim_time,

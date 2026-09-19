@@ -102,6 +102,40 @@ impl CrosshairId {
     }
 }
 
+/// Which scope magnification the sniper's optic has — Loadout screen. The scope
+/// model never changes; only the zoom does. The number is an exact multiple of
+/// the player's hip FOV (see `weapons::ads::full_ads_fov_rad`), so `X8` really
+/// is 8× at whatever FOV the player runs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum ScopeZoom {
+    X3,
+    X8,
+    /// Closest to the old fixed scope, which was ~12×.
+    #[default]
+    X11,
+}
+
+impl ScopeZoom {
+    pub const ALL: [ScopeZoom; 3] = [ScopeZoom::X3, ScopeZoom::X8, ScopeZoom::X11];
+
+    /// How many times more zoomed than the hip view the scope is.
+    pub fn magnification(self) -> f32 {
+        match self {
+            ScopeZoom::X3 => 3.0,
+            ScopeZoom::X8 => 8.0,
+            ScopeZoom::X11 => 11.0,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScopeZoom::X3 => "3X",
+            ScopeZoom::X8 => "8X",
+            ScopeZoom::X11 => "11X",
+        }
+    }
+}
+
 /// How readily [`crate::player::try_mantle`] catches the player on a ledge —
 /// Call of Duty's own "Automatic Mantle" option, same three settings.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -166,6 +200,8 @@ pub struct Settings {
     pub frame_limit: f32,
     /// Selected scope reticle — Loadout screen. See [`CrosshairId`].
     pub crosshair: CrosshairId,
+    /// Selected scope magnification — Loadout screen. See [`ScopeZoom`].
+    pub scope_zoom: ScopeZoom,
     /// Automatic ledge-mantle behavior — Controls tab. See [`AutoMantle`].
     pub auto_mantle: AutoMantle,
 }
@@ -186,6 +222,7 @@ impl Default for Settings {
             vsync: false,
             frame_limit: FRAME_LIMIT_DEFAULT,
             crosshair: CrosshairId::default(),
+            scope_zoom: ScopeZoom::default(),
             auto_mantle: AutoMantle::default(),
         }
     }

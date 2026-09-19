@@ -22,6 +22,11 @@ use crate::weapon::WeaponId;
 /// `FOV_DEFAULT`.
 const DEFAULT_FOV_DEG: f32 = 90.0;
 
+/// Fallback scope magnification for a fresh `PlayerInput`, before the client
+/// fills in its real `Settings::scope_zoom`. Mirrors the client's default
+/// `ScopeZoom`.
+const DEFAULT_SCOPE_ZOOM: f32 = 11.0;
+
 /// The game mode a lobby plays. New modes slot in here; both ends branch on the
 /// one the [`Lobby`] carries.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -229,6 +234,10 @@ pub struct PlayerInput {
     /// The player's hip field-of-view setting this tick, so the kill cam renders
     /// at the FOV the shooter actually had, not the viewer's own.
     pub fov_deg: f32,
+    /// Magnification of the scope the player has equipped (`3.0`, `8.0`, `11.0`
+    /// — `Settings::scope_zoom`), so the kill cam's ADS zoom matches the
+    /// shooter's scope.
+    pub scope_zoom: f32,
     /// One-shot sounds the player triggered this tick, as a bitmask —
     /// replayed in the kill cam, and also broadcast live to the rest of the
     /// lobby (see `RemoteSound`) so they hear this player's actions
@@ -300,6 +309,7 @@ impl Default for PlayerInput {
             shake_recoil: 0.0,
             sway_offset: [0.0; 2],
             fov_deg: DEFAULT_FOV_DEG,
+            scope_zoom: DEFAULT_SCOPE_ZOOM,
             sound_bits: 0,
             anim_time: 0.0,
             knife_anim_time: 0.0,
@@ -421,6 +431,8 @@ pub struct KillCamSample {
     pub sway_offset: [f32; 2],
     /// The shooter's hip FOV setting, so the replay renders at their FOV.
     pub fov_deg: f32,
+    /// The shooter's scope magnification, so the replay zooms exactly as theirs did.
+    pub scope_zoom: f32,
     /// One-shot sounds triggered on this frame (`killcam::SND_*`).
     pub sound_bits: u16,
     /// First-person weapon animation playhead (seconds) on this frame.

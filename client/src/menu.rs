@@ -25,7 +25,7 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    AutoMantle, CrosshairId, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
+    AutoMantle, CrosshairId, ScopeZoom, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
@@ -51,7 +51,7 @@ pub enum Screen {
     /// freezes gameplay input the same way it does for every other screen.
     /// Not dismissed by `Esc` — `game_start` clears it once everyone's ready.
     LoadingGame,
-    /// The Loadout screen (crosshair selection so far) — reachable from the
+    /// The Loadout screen (crosshair and scope zoom selection so far) — reachable from the
     /// main menu (`lobby_ui`'s `MenuBtn::OpenLoadout`) and, in-game, from a
     /// button inside `Screen::Settings`. Looks identical either way: it's
     /// built once here from nothing but `Settings`, not from any
@@ -304,6 +304,7 @@ enum Btn {
     ToggleVsync,
     SetShadowQuality(ShadowQuality),
     SetCrosshair(CrosshairId),
+    SetScopeZoom(ScopeZoom),
     SetAutoMantle(AutoMantle),
     /// Open the Loadout screen from the in-game pause menu — see
     /// `Screen::Loadout`'s doc comment. The main menu's own entry point is
@@ -424,6 +425,10 @@ fn menu_click(
             }
             Btn::SetCrosshair(id) => {
                 settings.crosshair = *id;
+                menu.dirty = true;
+            }
+            Btn::SetScopeZoom(z) => {
+                settings.scope_zoom = *z;
                 menu.dirty = true;
             }
             Btn::OpenLoadout => {
@@ -1042,7 +1047,7 @@ fn build_settings(
         });
 }
 
-/// The Loadout screen — currently just crosshair selection. Built purely
+/// The Loadout screen — crosshair and scope zoom selection. Built purely
 /// from `Settings`, with no `Tab`/state/lobby involvement, so it looks and
 /// behaves identically whether opened from the main menu or the in-game
 /// pause menu — see `Screen::Loadout`'s doc comment.
@@ -1135,6 +1140,46 @@ fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &As
                                     tile.spawn(label(
                                         id.label(),
                                         14.0,
+                                        if selected { ACCENT } else { TEXT_DIM },
+                                    ));
+                                });
+                            }
+                        });
+
+                    content.spawn(label("SCOPE ZOOM", 15.0, TEXT_DIM));
+                    content
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(16.0),
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            for zoom in ScopeZoom::ALL {
+                                let selected = settings.scope_zoom == zoom;
+                                row.spawn((
+                                    Button,
+                                    Interaction::default(),
+                                    Btn::SetScopeZoom(zoom),
+                                    Hoverable {
+                                        normal: PANEL,
+                                        hover: ROW_HOVER,
+                                    },
+                                    ui_sound(UiSound::BUTTON),
+                                    Node {
+                                        width: Val::Px(160.0),
+                                        justify_content: JustifyContent::Center,
+                                        padding: UiRect::all(Val::Px(18.0)),
+                                        border: UiRect::all(Val::Px(3.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(PANEL),
+                                    BorderColor(if selected { ACCENT } else { TRACK }),
+                                    BorderRadius::all(Val::Px(8.0)),
+                                ))
+                                .with_children(|tile| {
+                                    tile.spawn(label(
+                                        zoom.label(),
+                                        22.0,
                                         if selected { ACCENT } else { TEXT_DIM },
                                     ));
                                 });

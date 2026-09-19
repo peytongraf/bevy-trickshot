@@ -5,22 +5,36 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
 use crate::keybinds::KeyBindings;
-use crate::killcam;
+use crate::killcam::{self, ActiveKillCam};
 use crate::player::WorldModelCamera;
 use crate::settings::Settings;
 use crate::util::{ads_ease, ease};
 use crate::GameSounds;
 
-use super::scope::SCOPE_FOV_DEG;
 use super::view_model::{lerp_pose, ViewModel, ViewModelPoses};
 
 /// Seconds to go from hip to full aim-down-sight (and back).
 pub(crate) const ADS_DURATION: f32 = 0.4;
-// Hip FOV is now a player setting (`Settings::fov`, default 90°). Everything on
+// Hip FOV is a player setting (`Settings::fov`, default 90°). Everything on
 // screen — inside the scope or not — is drawn at the current FOV, so shrinking it
-// toward `AdsTuning::fov_deg` is the scope "magnification".
-/// Starting ADS FOV; lower is more zoom. Adjustable live in the tuning panel.
-pub(crate) const ADS_FOV_DEG: f32 = 9.5;
+// is the scope "magnification". The full-ADS FOV is derived from the equipped
+// scope's zoom (`Settings::scope_zoom`) and the hip FOV; see `full_ads_fov_rad`.
+//
+// The lens shows a second camera's picture, and it has to line up with the world
+// drawn around the lens. The view-model camera has a fixed FOV, so the lens covers
+// a fixed fraction of the screen no matter how far the world camera zooms; that
+// makes the scope camera's half-angle a constant multiple (in tangent space) of
+// the world camera's. This pair was dialed in by eye in the tuning panel (a
+// 9.5° world FOV against a 6.5° scope FOV matched inside and outside of the
+// lens) and gives that constant — see `lens_fit_default`.
+pub(crate) const LENS_CAL_ADS_FOV_DEG: f32 = 9.5;
+pub(crate) const LENS_CAL_SCOPE_FOV_DEG: f32 = 6.5;
+
+/// `tan(scope half-angle) / tan(world half-angle)` at the calibration pair above.
+pub(crate) fn lens_fit_default() -> f32 {
+    (LENS_CAL_SCOPE_FOV_DEG.to_radians() * 0.5).tan()
+        / (LENS_CAL_ADS_FOV_DEG.to_radians() * 0.5).tan()
+}
 
 /// No-scope inaccuracy ("No-scope spread" panel section). Each shot is thrown
 /// off the aim point by a random up/down + left/right angle; the cap on that
@@ -69,10 +83,12 @@ pub(crate) struct AdsTuning {
     /// Pin ADS to fully aimed regardless of the right mouse button, so the pose
     /// can be tuned with the cursor free.
     pub(crate) force_full: bool,
-    /// World-camera FOV (degrees) at full ADS. Lower = more zoom.
-    pub(crate) fov_deg: f32,
-    /// Scope camera FOV (degrees). Lower = more magnification inside the scope.
-    pub(crate) scope_fov_deg: f32,
+    /// How much of the world view the lens picture spans: the scope camera's
+    /// `tan(half FOV)` as a fraction of the world camera's at full ADS. It only
+    /// depends on the lens's size on screen, so one value serves every scope
+    /// zoom; raise it if the lens picture looks zoomed out relative to the world
+    /// around it, lower it if it looks zoomed in.
+    pub(crate) lens_fit: f32,
     /// Milliseconds to go from hip to full aim-down-sight (and back), the way
     /// Call of Duty reports ADS time. Lower = snappier.
     pub(crate) ads_duration_ms: f32,
@@ -91,8 +107,7 @@ impl Default for AdsTuning {
     fn default() -> Self {
         Self {
             force_full: false,
-            fov_deg: ADS_FOV_DEG,
-            scope_fov_deg: SCOPE_FOV_DEG,
+            lens_fit: lens_fit_default(),
             ads_duration_ms: ADS_DURATION * 1000.0,
             ads_ease: 0.8,
             scope_picture_at: 0.25,
@@ -146,14 +161,56 @@ pub(crate) fn update_ads(
     };
 }
 
-/// Blend the world-camera FOV and the view-model pose between hip and ADS.
-/// Pure: the world camera's vertical FOV (radians) for a given hip FOV setting,
-/// blended toward the ADS zoom by `ads_t`. Shared by the live [`apply_ads`]
+/// The hip FOV and scope magnification an optic is drawn with: the live
+/// player's own settings, or the shooter's while a kill cam replays them.
+#[derive(Clone, Copy)]
+pub(crate) struct Optic {
+    pub(crate) hip_fov_deg: f32,
+    pub(crate) zoom: f32,
+}
+
+impl Optic {
+    /// The local player's own hip FOV and equipped scope.
+    pub(crate) fn live(settings: &Settings) -> Self {
+        Self {
+            hip_fov_deg: settings.fov,
+            zoom: settings.scope_zoom.magnification(),
+        }
+    }
+
+    /// What to render with right now: the kill cam's shooter while one plays,
+    /// otherwise the live player.
+    pub(crate) fn current(settings: &Settings, killcam: &ActiveKillCam) -> Self {
+        killcam
+            .0
+            .as_ref()
+            .and_then(|run| run.optic)
+            .unwrap_or_else(|| Self::live(settings))
+    }
+}
+
+/// Pure: the world camera's vertical FOV (radians) at full ADS. Magnification is
+/// the ratio of view-plane extents, so a `zoom`× scope has
+/// `tan(ads/2) = tan(hip/2) / zoom` — exactly `zoom`× the hip view at any hip
+/// FOV, and independent of aspect ratio.
+pub(crate) fn full_ads_fov_rad(optic: Optic) -> f32 {
+    2.0 * ((optic.hip_fov_deg.to_radians() * 0.5).tan() / optic.zoom.max(1.0)).atan()
+}
+
+/// Pure: the scope camera's vertical FOV (radians) at full ADS — the world
+/// camera's, narrowed by [`AdsTuning::lens_fit`] so the lens picture lines up
+/// with the world around it.
+pub(crate) fn full_scope_fov_rad(optic: Optic, tuning: &AdsTuning) -> f32 {
+    2.0 * ((full_ads_fov_rad(optic) * 0.5).tan() * tuning.lens_fit).atan()
+}
+
+/// Pure: the world camera's vertical FOV (radians), blended from the hip FOV
+/// toward the scope's full-ADS zoom by `ads_t`. Shared by the live [`apply_ads`]
 /// system and the kill-cam replay, so a replay renders at the *shooter's* hip
-/// FOV instead of the viewer's own.
-pub(crate) fn ads_fov_rad(hip_fov_deg: f32, tuning: &AdsTuning, ads_t: f32) -> f32 {
-    hip_fov_deg.to_radians().lerp(
-        tuning.fov_deg.to_radians(),
+/// FOV and scope instead of the viewer's own.
+pub(crate) fn ads_fov_rad(optic: Optic, tuning: &AdsTuning, ads_t: f32) -> f32 {
+    optic.hip_fov_deg.to_radians().lerp(
+        full_ads_fov_rad(optic),
         ads_ease(ads_t, tuning.ads_ease),
     )
 }
@@ -171,13 +228,14 @@ pub(crate) fn apply_ads(
     poses: Res<ViewModelPoses>,
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
+    killcam: Res<ActiveKillCam>,
     mut world_projection: Single<&mut Projection, With<WorldModelCamera>>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
     let e = ads_ease(ads.t, tuning.ads_ease);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = ads_fov_rad(settings.fov, &tuning, ads.t);
+        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam), &tuning, ads.t);
     }
 
     **view_model = lerp_pose(&poses.hip, &poses.ads, e);
