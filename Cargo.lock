@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "bevy-trickshot"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -6503,7 +6503,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bevy",
  "lightyear",
@@ -6555,7 +6555,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bevy",
  "lightyear",

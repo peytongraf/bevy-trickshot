@@ -13,7 +13,7 @@
 /// ship under — keep it in sync with the workspace `Cargo.toml` `version`
 /// (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
-    "0.4.3",
+    "0.4.4",
     &[
         "Falling too far now kills you — either off a ledge with no ground below, or landing hard after a long enough drop. Just like getting killed by someone else, your weapon instantly hides and the blood-splatter/red-tint flashes up, but your camera holds still and watches your own body drop away and tumble below instead of panning to a killer; no kill cam, since there's no one to blame but yourself.",
         "Getting killed by another player now snaps your view toward them, instantly hides whatever weapon you had out, and flashes a blood-splatter/red-tint effect for a moment, right up until the kill cam takes over.",
