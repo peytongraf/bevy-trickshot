@@ -428,11 +428,18 @@ fn main() {
         .add_systems(
             Update,
             (
-                (weapon_sway, idle_weapon_sway, weapon_recoil_shudder).chain(),
+                (
+                    weapon_sway,
+                    knife_weapon_sway,
+                    idle_weapon_sway,
+                    weapon_recoil_shudder,
+                )
+                    .chain(),
                 aim_idle_sway,
             )
                 .after(look_around)
                 .after(apply_ads)
+                .after(apply_knife_transform)
                 .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         )
         // `consume_look_delta` clears this frame's turn once `weapon_sway` and

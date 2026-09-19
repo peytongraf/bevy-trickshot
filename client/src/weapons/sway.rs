@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use crate::player::{LookDelta, Player, PlayerPhysics, WorldModelCamera};
 
 use super::ads::Ads;
+use super::knife_view_model::KnifeViewModel;
 use super::view_model::ViewModel;
 
 /// Cheap "breathing" motion shared by [`idle_weapon_sway`] and [`update_scope`]'s
@@ -175,13 +176,35 @@ pub(crate) fn weapon_sway(
     let k = 1.0 - (-tuning.return_speed * dt).exp();
     state.offset = state.offset.lerp(target, k);
 
-    let sway = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
-    // Shift the same way the gun is currently tipped, so the two read as one
-    // coherent motion instead of a rotation with an unrelated wobble on top.
-    let shift_m = tuning.hip_shift_m.lerp(tuning.ads_shift_m, t);
-    let shift = Vec3::new(-state.offset.x, -state.offset.y, 0.0) * shift_m;
-    **view_model =
-        Transform::from_translation(shift) * Transform::from_rotation(sway) * **view_model;
+    **view_model = sway_pose(state.offset, &tuning, t) * **view_model;
+}
+
+/// The sway transform for a lag `offset` (yaw, pitch in radians): the tip
+/// rotation, plus a shift the same way the weapon is currently tipped, so
+/// the two read as one coherent motion instead of a rotation with an
+/// unrelated wobble on top. Shared by [`weapon_sway`] (sniper) and
+/// [`knife_weapon_sway`] so both view models sway identically off the same
+/// [`WeaponSwaySettings`].
+fn sway_pose(offset: Vec2, tuning: &WeaponSwaySettings, ads_t: f32) -> Transform {
+    let sway = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
+    let shift_m = tuning.hip_shift_m.lerp(tuning.ads_shift_m, ads_t);
+    let shift = Vec3::new(-offset.x, -offset.y, 0.0) * shift_m;
+    Transform::from_translation(shift) * Transform::from_rotation(sway)
+}
+
+/// The same turn-lag sway on the knife view model. Runs right after
+/// [`weapon_sway`] and reuses the offset it just updated (`WeaponSwayState`)
+/// rather than tracking its own, so the two models can never disagree — and
+/// so `WeaponSwaySettings` (the "Weapon sway" debug panel section) tunes both
+/// at once. Has to run after `apply_knife_transform`, which rewrites the
+/// knife's base pose from scratch every frame (see `main.rs`'s schedule).
+pub(crate) fn knife_weapon_sway(
+    tuning: Res<WeaponSwaySettings>,
+    ads: Res<Ads>,
+    state: Res<WeaponSwayState>,
+    mut knife: Single<&mut Transform, With<KnifeViewModel>>,
+) {
+    **knife = sway_pose(state.offset, &tuning, ads.t.clamp(0.0, 1.0)) * **knife;
 }
 
 /// Layer a slow procedural "breathing" drift onto the view model while the

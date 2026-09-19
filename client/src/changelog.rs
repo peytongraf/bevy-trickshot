@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.5",
     &[
+        "The knife now sways when you look around, exactly like the sniper does — it lags slightly behind your turn, then catches back up.",
         "Fixed: the knife's stab animation now plays during the kill cam (it used to just sit in its idle pose).",
         "The weapon icon (sniper / knife) in the bottom-right is now twice as big, and the ammo count is hidden while you have the knife out, since it doesn't use ammo.",
         "Added knife attacks: with the knife out, click while close to and roughly aiming at a bot (Freestyle) or another player (Free For All) to stab and instantly kill them. Knife kills on bots are worth 25 points.",

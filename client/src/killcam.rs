@@ -262,6 +262,7 @@ type RigFilter = (
     )>,
     Without<KillCamGhost>,
     Without<ViewModel>,
+    Without<KnifeViewModel>,
 );
 
 /// Which of the four rig markers an entity carries.
@@ -321,6 +322,8 @@ impl Plugin for KillCamPlugin {
                     // same order the live systems apply them, so it must run
                     // after it.
                     .after(crate::apply_ads)
+                    // Same for the knife's own base pose.
+                    .after(crate::apply_knife_transform)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -891,7 +894,19 @@ fn drive_killcam(
         // condition), so without this the knife view model just stayed at
         // whatever it was showing the instant the kill cam took over instead
         // of following the replayed weapon state like the sniper model does.
-        Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>, Without<TargetBotVisual>)>,
+        //
+        // Its `Transform` is fetched too, so the replayed weapon sway can be
+        // multiplied onto it (see below); `Without<KillCamGhost>` keeps that
+        // disjoint from the ghosts' `&mut Transform` query in `bots`.
+        Single<
+            (&mut Transform, &mut Visibility),
+            (
+                With<KnifeViewModel>,
+                Without<ViewModel>,
+                Without<TargetBotVisual>,
+                Without<KillCamGhost>,
+            ),
+        >,
     ),
     bots: (
         // Explicit `With<KillCamGhost>` (redundant with the `&mut KillCamGhost`
@@ -931,7 +946,8 @@ fn drive_killcam(
     let (shake_cfg, tuning, footstep_cfg) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
-    let (mut world_projection, view_model_single, mut knife_vis) = cams;
+    let (mut world_projection, view_model_single, knife_single) = cams;
+    let (mut knife_tf, mut knife_vis) = knife_single.into_inner();
     let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
     let (
         mut ghosts,
@@ -983,7 +999,7 @@ fn drive_killcam(
             } else {
                 Visibility::Hidden
             };
-            **knife_vis = if saved.weapon_visible {
+            *knife_vis = if saved.weapon_visible {
                 Visibility::Hidden
             } else {
                 Visibility::Inherited
@@ -1083,6 +1099,9 @@ fn drive_killcam(
     let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
     let kick = crate::weapon_kick_pose(&shake_cfg, ads.t, trauma, phase);
     *view_model = kick * Transform::from_rotation(sway_rot) * *view_model;
+    // The knife sways the same way live (`knife_weapon_sway`), so replay it
+    // too — just the recorded turn-lag, no recoil kick (the knife has none).
+    *knife_tf = Transform::from_rotation(sway_rot) * *knife_tf;
 
     // Play the death animation on the ghost that was shot once the playhead
     // reaches the kill moment — once, same guard `tick_practice_bots` /
@@ -1137,7 +1156,7 @@ fn drive_killcam(
     // The sniper and the knife view models are always shown mutually
     // exclusively live (see `weapon_system`), so the recorded sniper
     // visibility alone is enough to derive the knife's.
-    **knife_vis = if weapon_visible {
+    *knife_vis = if weapon_visible {
         Visibility::Hidden
     } else {
         Visibility::Inherited
