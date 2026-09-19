@@ -28,6 +28,7 @@
 mod audio;
 mod avatars;
 mod changelog;
+mod death_effect;
 mod debug_ui;
 mod environment;
 mod game_start;
@@ -155,6 +156,7 @@ fn main() {
             lobby_ui::LobbyUiPlugin,
             practice::PracticePlugin,
             killcam::KillCamPlugin,
+            death_effect::DeathEffectPlugin,
             game_start::GameStartPlugin,
         ))
         .insert_resource(AmbientLight {
@@ -318,7 +320,13 @@ fn main() {
                 )
                     .chain()
                     .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
-                (look_around, save_teleport_point)
+                (
+                    // Additionally defers to the death-effect's own forced
+                    // look-at onto the killer, so mouse input can't fight it
+                    // during that brief window (see `death_effect`).
+                    look_around.run_if(not(death_effect::death_effect_active)),
+                    save_teleport_point,
+                )
                     .run_if(menu::game_active.and(killcam::no_killcam)),
                 weapon_system
                     .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),

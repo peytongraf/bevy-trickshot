@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Getting killed by another player now snaps your view toward them and flashes a blood-splatter/red-tint effect for a moment, right up until the kill cam takes over.",
         "The bottom-right ammo readout now shows an icon for whichever weapon is out (sniper or knife) right next to the count.",
         "Rescaled the basic map and fixed a doubled-up ground plane it had — the generic ground bevy always adds underneath every map is now hidden (and its collider disabled) once a map ships its own ground, matching how Shipment already worked.",
         "Added ledge mantling (Call of Duty style): jump at a ledge that's just barely too high to clear and you'll catch yourself on it and climb up, instead of bonking into it and falling. New Settings → Controls → \"Automatic Mantle\" option (Off / Semi-Auto / Full-Auto) controls how eager it is, same as CoD's own setting.",

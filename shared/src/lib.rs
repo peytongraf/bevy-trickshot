@@ -24,10 +24,10 @@ use bevy::prelude::*;
 
 pub use protocol::{
     AssetsReady, Bot, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, KillCam, KillCamBot,
-    KillCamPlayer, KillCamSample,
-    LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, PlayerRespawn, ProtocolPlugin, RemoteSound, ScoreLine, SetGameMode,
-    SetKillLimit, SetMap, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, TrickScore,
+    KillCamPlayer, KillCamSample, LeaveLobby, Lobby, LobbyChannel, LobbyError, LobbyMember, MapId,
+    MatchOver, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose, PlayerRespawn,
+    ProtocolPlugin, RemoteSound, ScoreLine, SetGameMode, SetKillLimit, SetMap, SetTimeLimit,
+    ShotOutcome, ShotResolved, StartGame, TrickScore,
 };
 
 /// Simulation tick rate (Hz). The client and server must agree on this.

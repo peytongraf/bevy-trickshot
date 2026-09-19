@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{GameChannel, GameMode, Lobby, PlayerId, PlayerPose, PlayerRespawn};
+use shared::{GameChannel, GameMode, Lobby, PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn};
 
 /// Every player starts (and respawns) at this much health. The sniper's
 /// 100-damage body shot is a one-shot kill against it — the same feel it
@@ -118,6 +118,20 @@ fn apply_player_hits(
             .collect();
         let seed = time.elapsed().as_nanos() as u64 ^ ev.victim.to_bits();
         let (pos, yaw) = shared::spawns::spawn_point(seed, &others, lobby.map);
+
+        // Sent immediately, well ahead of the kill cam (buffered ~1.5s server-side —
+        // see `PlayerKilledBy`'s doc comment) so the victim's own death effect can
+        // snap their view toward the killer right away.
+        if let Some((_, killer_pose)) = poses.iter().find(|(id, _)| id.0 == ev.killer) {
+            let killed_by = PlayerKilledBy {
+                killer_pos: killer_pose.translation.to_array(),
+            };
+            if let Err(e) =
+                sender.send::<_, GameChannel>(&killed_by, server, &NetworkTarget::Single(ev.victim))
+            {
+                error!("failed to send killed-by to {:?}: {e:?}", ev.victim);
+            }
+        }
 
         let msg = PlayerRespawn {
             pos: pos.to_array(),

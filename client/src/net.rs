@@ -116,6 +116,7 @@ impl Plugin for ClientNetPlugin {
 
         app.init_resource::<PendingMatchEnd>();
         app.init_resource::<PendingRespawn>();
+        app.add_event::<LocalPlayerRespawned>();
         app.add_systems(Startup, connect);
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
@@ -477,6 +478,13 @@ fn receive_respawn(
     }
 }
 
+/// Fired the moment the local player's rig is actually teleported back to
+/// life by [`flush_pending_respawn`] — lets other systems (e.g.
+/// `death_effect`) know to clear anything still tied to the death that just
+/// ended, even on the fallback path where no paired kill cam ever arrived.
+#[derive(Event)]
+pub(crate) struct LocalPlayerRespawned;
+
 /// Once it's safe — the paired kill cam (if one ever arrives) has both
 /// started and finished, or enough time has passed that it evidently isn't
 /// coming — teleport the local player rig to the stored respawn point.
@@ -486,6 +494,7 @@ fn flush_pending_respawn(
     active: Res<ActiveKillCam>,
     mut weapon: ResMut<crate::Weapon>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+    mut respawned: EventWriter<LocalPlayerRespawned>,
 ) {
     let Some((pos, yaw)) = pending.to else {
         return;
@@ -514,6 +523,7 @@ fn flush_pending_respawn(
     *physics = PlayerPhysics::default();
     weapon.refill_ammo();
     pending.to = None;
+    respawned.write(LocalPlayerRespawned);
 }
 
 /// Server → everyone in the lobby: the killer's last ~3 s to replay.

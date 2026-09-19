@@ -497,6 +497,16 @@ pub struct PlayerRespawn {
     pub yaw: f32,
 }
 
+/// Server → client: only sent to the victim of a [`GameMode::FreeForAll`]
+/// kill, the instant the fatal hit lands — well before [`PlayerRespawn`] or
+/// the (deliberately delayed, see [`KillCam`]) kill cam. Lets the victim's
+/// client immediately snap its view toward the killer for the brief
+/// death-effect window (see `client::death_effect`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerKilledBy {
+    pub killer_pos: [f32; 3],
+}
+
 /// Reliable, unordered server → client channel for gameplay events.
 pub struct GameChannel;
 
@@ -656,6 +666,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<RemoteSound>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PlayerRespawn>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<PlayerKilledBy>()
             .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
