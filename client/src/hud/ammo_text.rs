@@ -17,7 +17,7 @@ pub(crate) struct WeaponIcon;
 /// showing — both `sniper_icon.png` and `knife_icon.png` are drawn to this
 /// same 1774×887 (2:1) canvas specifically so a weapon swap can never resize
 /// this box and shift the ammo readout beside it.
-const WEAPON_ICON_SIZE: (f32, f32) = (64.0, 32.0);
+const WEAPON_ICON_SIZE: (f32, f32) = (128.0, 64.0);
 
 /// `Weapon::slot` → its HUD icon path under `assets/textures/icons/`.
 fn weapon_icon_path(slot: WeaponSlot) -> &'static str {
@@ -29,8 +29,10 @@ fn weapon_icon_path(slot: WeaponSlot) -> &'static str {
 
 /// Bottom-right HUD: the current weapon's icon, then the ammo readout
 /// (rounds in the mag, then rounds in reserve) — one row in one panel, so the
-/// panel's own position never moves; only [`update_weapon_icon`]'s texture
-/// swap and [`update_ammo_ui`]'s text change inside it.
+/// panel stays anchored to the bottom-right corner; only
+/// [`update_weapon_icon`]'s texture swap and [`update_ammo_ui`]'s text change
+/// inside it (the text is dropped entirely while the knife is out — it has no
+/// ammo — so the panel shrinks to just the icon).
 pub(crate) fn setup_ammo_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
@@ -75,8 +77,22 @@ pub(crate) fn setup_ammo_ui(mut commands: Commands, asset_server: Res<AssetServe
         });
 }
 
-/// Keep the bottom-right readout in sync with the ammo counts.
-pub(crate) fn update_ammo_ui(weapon: Res<Weapon>, mut text: Single<&mut Text, With<AmmoText>>) {
+/// Keep the bottom-right readout in sync with the ammo counts, and hide it
+/// while the knife is drawn (`Display::None`, so it also gives up its layout
+/// space rather than leaving an empty gap in the panel).
+pub(crate) fn update_ammo_ui(
+    weapon: Res<Weapon>,
+    mut text: Single<(&mut Text, &mut Node), With<AmmoText>>,
+) {
+    let (text, node) = &mut *text;
+    let display = if weapon.slot == WeaponSlot::Secondary {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    if node.display != display {
+        node.display = display;
+    }
     let wanted = format!("{} / {}", weapon.mag, weapon.reserve);
     if text.0 != wanted {
         text.0 = wanted;

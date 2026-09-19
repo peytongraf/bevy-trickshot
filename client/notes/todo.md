@@ -10,8 +10,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Update to bevy 0.19 from 0.16
-- When knife is added the current ammo count and total ammo count text should not be visible.
-- The knife / sniper icons in the ammo hud should be about twice the size
 - Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 - Add scope selections in loadout ( just different zoom levels, model won't change ). Will need to adjust ui control settings for different zoom levels to ensure what the scope renders lines up with the view outside the scope
@@ -61,6 +59,7 @@ Ordered easiest → hardest to fix.
 Ordered easiest → hardest to fix.
 
 - Made the main-menu "What's New" notes use a readable body font (Inter, `assets/fonts/Inter-Variable.ttf`) instead of the condensed all-caps HUD font — see `crate::ui::label_body` / `BODY_FONT` in `main.rs`. Only that panel's notes changed; the HUD/menu titles still use `HUD_FONT`.
+- Ammo HUD: the weapon icon is now 128×64 (twice its old size), and the `mag / reserve` text is hidden (`Display::None`, so the panel shrinks to just the icon) while the knife is the equipped slot (`update_ammo_ui`, `client/src/hud/ammo_text.rs`).
 - Added a weapon icon (sniper/knife) next to the bottom-right ammo readout, swapped live by `update_weapon_icon` (`client/src/hud/ammo_text.rs`) whenever `Weapon::slot` changes. Icon box is a fixed size regardless of which texture is showing, so the swap never shifts the ammo readout beside it — `sniper_icon.png` and `knife_icon.png` are both drawn to the same 1774×887 canvas for exactly this reason. Moved both into a new `client/assets/textures/icons/` directory to keep `textures/` organized.
 - Add ping ui beside fps
 - Add tab to show leaderboard

@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.5",
     &[
+        "The weapon icon (sniper / knife) in the bottom-right is now twice as big, and the ammo count is hidden while you have the knife out, since it doesn't use ammo.",
         "Added knife attacks: with the knife out, click while close to and roughly aiming at a bot (Freestyle) or another player (Free For All) to stab and instantly kill them. Knife kills on bots are worth 25 points.",
         "Fixed: the kill cam now plays the death animation on you (the player who got shot) at the moment the killer's shot lands, instead of your body just standing there.",
         "Added a new map: SHIPMENT DAY. It's the same Shipment yard, but in bright daytime — clear sky, full sun, barely any fog, and no rain. Pick it from the map buttons in the lobby.",
