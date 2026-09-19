@@ -128,6 +128,7 @@ fn record_frames(
                 fov_deg: i.fov_deg,
                 sound_bits: i.sound_bits,
                 anim_time: i.anim_time,
+                knife_anim_time: i.knife_anim_time,
                 ads_t: i.ads_t,
                 ground_pt: i.ground_pt,
                 blood_pt: i.blood_pt,

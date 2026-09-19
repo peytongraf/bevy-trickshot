@@ -27,7 +27,7 @@ use crate::settings::Settings;
 use crate::{
     rand_roll, Ads, AimSwayState, AppState, BloodImpact, BotAnimationPlayer, BotAnimations,
     BotVisual, CameraRecoil, CameraShake, FireTracer, GameSounds, GroundImpact, MuzzleFlashState,
-    KnifeViewModel, Player, PlayerHead, ScopeCamera, SmokeEmission, SniperAnimationPlayer,
+    KnifeAnimState, KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, Player, PlayerHead, ScopeCamera, SmokeEmission, SniperAnimationPlayer,
     TargetBotVisual, Tracer, ViewModel, ViewModelAnimation, Weapon, WeaponSlot, WorldModelCamera,
 };
 
@@ -42,6 +42,19 @@ pub(crate) fn viewmodel_anim_time(
         .next()
         .zip(players.iter().next())
         .and_then(|(vm, ap)| ap.animation(vm.index).map(|a| a.seek_time()))
+        .unwrap_or(0.0)
+}
+
+/// [`viewmodel_anim_time`] for the first-person knife's clip.
+pub(crate) fn knife_anim_time(
+    players: &Query<&AnimationPlayer, With<KnifeAnimationPlayer>>,
+    knives: &Query<&KnifeAnimation>,
+) -> f32 {
+    knives
+        .iter()
+        .next()
+        .zip(players.iter().next())
+        .and_then(|(k, ap)| ap.animation(k.index).map(|a| a.seek_time()))
         .unwrap_or(0.0)
 }
 
@@ -380,11 +393,13 @@ fn record_local_replay(
     head: Query<&Transform, With<PlayerHead>>,
     anim_players: Query<&AnimationPlayer, With<SniperAnimationPlayer>>,
     view_models: Query<&ViewModelAnimation>,
-    (view_model_vis, knife, weapon, slide): (
+    (view_model_vis, knife, weapon, slide, knife_players, knife_anims): (
         Query<&Visibility, With<ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<Weapon>,
         Res<crate::Slide>,
+        Query<&AnimationPlayer, With<KnifeAnimationPlayer>>,
+        Query<&KnifeAnimation>,
     ),
 ) {
     let (Ok(pt), Ok(ht)) = (player.single(), head.single()) else {
@@ -404,6 +419,7 @@ fn record_local_replay(
             fov_deg: settings.fov,
             sound_bits: std::mem::take(&mut bits.0),
             anim_time: viewmodel_anim_time(&anim_players, &view_models),
+            knife_anim_time: knife_anim_time(&knife_players, &knife_anims),
             ads_t: ads.t,
             // Practice replays its ground bursts / blood / tracers from the
             // `LocalReplay` lists (filled just below), so these per-frame slots
@@ -887,7 +903,7 @@ fn drive_killcam(
         Query<&BotAnimationPlayer>,
         // `Without<SniperAnimationPlayer>`, disjoint from `anim.0` below the
         // same way the ghost query above is disjoint from `cams`.
-        Query<&mut AnimationPlayer, Without<SniperAnimationPlayer>>,
+        Query<&mut AnimationPlayer, (Without<SniperAnimationPlayer>, Without<KnifeAnimationPlayer>)>,
         Res<BotAnimations>,
         // The soldier ghosts' death animation: `KillCamPlayerGhost` is
         // disjoint from `KillCamGhost` (the bots above), and
@@ -900,6 +916,12 @@ fn drive_killcam(
     anim: (
         Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
         Query<&ViewModelAnimation>,
+        // The knife's own clip, replayed the same way — `Without<Sniper…>` /
+        // `bot_players`'s `Without<Knife…>` keep all three `AnimationPlayer`
+        // borrows provably disjoint.
+        Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
+        Query<&KnifeAnimation>,
+        ResMut<KnifeAnimState>,
     ),
 ) {
     let Some(run) = active.0.as_mut() else { return };
@@ -921,7 +943,7 @@ fn drive_killcam(
         mut soldier_transitions,
         (soldier_anims, soldier_settings),
     ) = bots;
-    let (mut anim_players, view_models) = anim;
+    let (mut anim_players, view_models, mut knife_players, knife_anims, mut knife_state) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
     // "Best play" ramps into slow motion around the kill — advancing the
@@ -975,6 +997,16 @@ fn drive_killcam(
                 a.pause();
             }
         }
+        // Same for the knife, plus forget any slice/fidget it was mid-way
+        // through when the replay took over — its clip was driven by the
+        // replay, so a stale `KnifeAnimState::busy` would never see it finish.
+        if let (Some(k), Some(mut ap)) = (knife_anims.iter().next(), knife_players.iter_mut().next()) {
+            if let Some(a) = ap.animation_mut(k.index) {
+                a.seek_to(0.0);
+                a.pause();
+            }
+        }
+        *knife_state = KnifeAnimState::default();
         weapon.busy = None;
         if let Some(e) = run.banner.take() {
             commands.entity(e).try_despawn();
@@ -1133,6 +1165,20 @@ fn drive_killcam(
             active_anim.pause();
         }
     }
+    // The knife's slices, the same way — its own clip, its own recorded
+    // playhead.
+    let knife_anim_t = if frac < 0.5 { a.knife_anim_time } else { b.knife_anim_time };
+    if let (Some(k), Some(mut ap)) = (knife_anims.iter().next(), knife_players.iter_mut().next()) {
+        if ap.animation(k.index).is_none() {
+            ap.play(k.index);
+        }
+        if let Some(active_anim) = ap.animation_mut(k.index) {
+            active_anim.set_repeat(RepeatAnimation::Never);
+            active_anim.set_speed(1.0);
+            active_anim.seek_to(knife_anim_t);
+            active_anim.pause();
+        }
+    }
 
     // Fire any recorded sounds we've now reached.
     while run
@@ -1241,6 +1287,9 @@ fn stop_killcam(
     ghosts: Query<Entity, With<KillCamGhost>>,
     mut view_model_vis: Query<&mut Visibility, (With<ViewModel>, Without<TargetBotVisual>)>,
     mut knife: ResMut<crate::ThrowingKnife>,
+    mut knife_players: Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
+    knife_anims: Query<&KnifeAnimation>,
+    mut knife_state: ResMut<KnifeAnimState>,
 ) {
     pending.0 = None;
     for mut vis in &mut live_bots {
@@ -1278,6 +1327,13 @@ fn stop_killcam(
                 a.pause();
             }
         }
+        if let (Some(k), Some(mut ap)) = (knife_anims.iter().next(), knife_players.iter_mut().next()) {
+            if let Some(a) = ap.animation_mut(k.index) {
+                a.seek_to(0.0);
+                a.pause();
+            }
+        }
+        *knife_state = KnifeAnimState::default();
         weapon.busy = None;
     }
     for e in &banner {

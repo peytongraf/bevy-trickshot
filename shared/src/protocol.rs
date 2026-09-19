@@ -238,6 +238,10 @@ pub struct PlayerInput {
     /// Playhead (seconds) of the first-person weapon's baked animation clip this
     /// tick, so the kill cam can pose the gun exactly as the player saw it.
     pub anim_time: f32,
+    /// Playhead (seconds) of the first-person *knife's* baked animation clip
+    /// this tick — the knife's counterpart of `anim_time`, so the kill cam
+    /// can replay its slices too.
+    pub knife_anim_time: f32,
     /// Aim-down-sight amount this tick (`0.0` at the hip … `1.0` fully scoped),
     /// recorded so the kill cam replays the exact scope-in / scope-out timing.
     pub ads_t: f32,
@@ -298,6 +302,7 @@ impl Default for PlayerInput {
             fov_deg: DEFAULT_FOV_DEG,
             sound_bits: 0,
             anim_time: 0.0,
+            knife_anim_time: 0.0,
             ads_t: 0.0,
             ground_pt: None,
             blood_pt: None,
@@ -420,6 +425,8 @@ pub struct KillCamSample {
     pub sound_bits: u16,
     /// First-person weapon animation playhead (seconds) on this frame.
     pub anim_time: f32,
+    /// First-person knife animation playhead (seconds) on this frame.
+    pub knife_anim_time: f32,
     /// Aim-down-sight amount on this frame (`0.0` hip … `1.0` fully scoped).
     pub ads_t: f32,
     /// World point of a ground burst that fired on this frame, if any.

@@ -280,12 +280,14 @@ fn write_input(
     ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
-    (view_model_vis, knife, weapon, jumping, mut pending_melee): (
+    (view_model_vis, knife, weapon, jumping, mut pending_melee, knife_players, knife_anims): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<crate::Weapon>,
         Res<crate::Jumping>,
         ResMut<crate::PendingMelee>,
+        Query<&AnimationPlayer, With<crate::KnifeAnimationPlayer>>,
+        Query<&crate::KnifeAnimation>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -316,6 +318,7 @@ fn write_input(
     action.fov_deg = settings.fov;
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
+    action.knife_anim_time = crate::killcam::knife_anim_time(&knife_players, &knife_anims);
     action.ads_t = ads.t;
     action.crouching = slide.stance == crate::Stance::Crouching;
     action.sliding = slide.stance == crate::Stance::Sliding;
