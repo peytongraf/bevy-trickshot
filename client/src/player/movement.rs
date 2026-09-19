@@ -158,7 +158,14 @@ pub(crate) fn sweep_and_slide(
 /// Player camera height above the feet — used to test the feet against surfaces.
 pub(crate) const EYE_HEIGHT: f32 = 1.7;
 
-/// Defaults for the "Movement" panel section (all live-adjustable).
+/// Default walk / sprint speeds (m/s) for the "Movement" panel section
+/// (live-adjustable).
+pub(crate) const DEFAULT_WALK_SPEED: f32 = 5.0;
+pub(crate) const DEFAULT_SPRINT_SPEED: f32 = 9.0;
+/// The speeds `SoldierAnimSettings`' base animation speeds were hand-tuned at
+/// (feet don't slide). Not the gameplay defaults — `net.rs` scales the remote
+/// avatars' clips by `MovementSettings` speed / these, so leave them alone when
+/// retuning how fast players move.
 pub(crate) const WALK_SPEED: f32 = 3.0;
 pub(crate) const SPRINT_SPEED: f32 = 8.0;
 /// Multiplier on speed while strafing (left/right, no forward/back held).
@@ -212,8 +219,8 @@ pub(crate) struct MovementSettings {
 impl Default for MovementSettings {
     fn default() -> Self {
         Self {
-            walk_speed: WALK_SPEED,
-            sprint_speed: SPRINT_SPEED,
+            walk_speed: DEFAULT_WALK_SPEED,
+            sprint_speed: DEFAULT_SPRINT_SPEED,
             strafe_speed_mult: STRAFE_SPEED_MULT,
             backward_speed_mult: BACKWARD_SPEED_MULT,
             gravity: GRAVITY,
