@@ -328,6 +328,9 @@ impl Plugin for KillCamPlugin {
                     .after(crate::apply_ads)
                     // Same for the knife's own base pose.
                     .after(crate::apply_knife_transform)
+                    // `update_scope`'s reticle counter-sway reads the sway
+                    // `drive_killcam` just wrote into `WeaponSwayState`.
+                    .before(crate::update_scope)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -874,6 +877,9 @@ fn drive_killcam(
         Res<crate::ShakeSettings>,
         Res<crate::AdsTuning>,
         Res<crate::FootstepSettings>,
+        // Replay writes the recorded sway here, so `update_scope`'s reticle
+        // counter-sway follows the replayed gun instead of frozen live state.
+        ResMut<crate::WeaponSwayState>,
     ),
     mut fx: (ResMut<MuzzleFlashState>, ResMut<SmokeEmission>),
     mut commands: Commands,
@@ -950,7 +956,7 @@ fn drive_killcam(
     if !run.setup {
         return; // start_killcam hasn't run yet
     }
-    let (shake_cfg, tuning, footstep_cfg) = cfg;
+    let (shake_cfg, tuning, footstep_cfg, mut sway_state) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
     let (mut world_projection, view_model_single, knife_single) = cams;
@@ -1107,6 +1113,7 @@ fn drive_killcam(
     // multiply the recorded sway and kick on top, in the same order the live
     // `weapon_sway` / `weapon_recoil_shudder` systems apply them (both are
     // gated off while a kill cam is active, so there's no double-application).
+    sway_state.offset = sway;
     let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
     let kick = crate::weapon_kick_pose(&shake_cfg, ads.t, trauma, phase);
     *view_model = kick * Transform::from_rotation(sway_rot) * *view_model;

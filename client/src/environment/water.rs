@@ -63,7 +63,8 @@ impl Default for WaterSettings {
             // debug panel's "Water" section) prints the exact tint you've
             // actually dialled in, once you have it, to replace this.
             tint: srgb_parts(Color::srgb(0.01, 0.03, 0.09)),
-            day_tint: srgb_parts(Color::srgb(0.06, 0.28, 0.42)),
+            // r36 g37 b37 (0-255) — a dark, neutral grey sea.
+            day_tint: srgb_parts(Color::srgb(36.0 / 255.0, 37.0 / 255.0, 37.0 / 255.0)),
             alpha: 0.98,
             roughness: 0.13,
             reflectance: 0.53,

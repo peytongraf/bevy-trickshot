@@ -104,15 +104,17 @@ pub(crate) struct ShipmentDaySceneTuning(pub(crate) SceneTuning);
 impl Default for ShipmentDaySceneTuning {
     fn default() -> Self {
         Self(SceneTuning {
-            fog_visibility_m: 1000.0,
-            // Pale, slightly warm sky-blue haze, matched to the clear-sky HDR's horizon.
-            fog_color: srgb_parts(Color::srgb(0.74, 0.82, 0.92)),
-            fog_sun_exponent: 30.0,
-            sun_lux: 32_000.0,
-            sun_color: srgb_parts(Color::srgb(1.0, 0.96, 0.88)),
-            ambient_color: srgb_parts(Color::srgb(0.62, 0.75, 0.94)),
-            ambient_lux: 450.0,
-            bloom_intensity: 0.08,
+            fog_visibility_m: 1200.0,
+            // r225 g240 b255 (0-255) — a pale, cool sky-blue haze.
+            fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
+            fog_sun_exponent: 3.0,
+            sun_lux: 18_000.0,
+            // r241 g233 b217 (0-255).
+            sun_color: srgb_parts(Color::srgb(241.0 / 255.0, 233.0 / 255.0, 217.0 / 255.0)),
+            // r208 g209 b221 (0-255).
+            ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 209.0 / 255.0, 221.0 / 255.0)),
+            ambient_lux: 200.0,
+            bloom_intensity: 0.075,
         })
     }
 }

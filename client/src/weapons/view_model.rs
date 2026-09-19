@@ -12,10 +12,7 @@ use bevy::scene::SceneInstanceReady;
 
 use crate::VIEW_MODEL_RENDER_LAYER;
 
-use super::scope::{
-    ScopeLens, ScopeRenderTarget, LENS_METALLIC_HIP, LENS_REFLECTANCE_HIP, LENS_ROUGHNESS_HIP,
-    LENS_TINT,
-};
+use super::scope::{LensSettings, ScopeLens, ScopeRenderTarget};
 
 /// Frame rate `sniper.glb`'s `allanims` clip was baked at in Blender. If the
 /// segment cuts below look off, check the console on startup: the game logs
@@ -207,6 +204,9 @@ pub(crate) fn start_view_model_animation(
     };
 
     let mut lens_count = 0;
+    // Starting look only — `update_scope` rewrites the lens material from the
+    // live `LensSettings` every frame.
+    let lens_cfg = LensSettings::default();
 
     for entity in children.iter_descendants(root) {
         commands.entity(entity).insert((
@@ -234,7 +234,7 @@ pub(crate) fn start_view_model_animation(
             commands.entity(entity).insert((
                 ScopeLens,
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(LENS_TINT.0, LENS_TINT.1, LENS_TINT.2),
+                    base_color: Color::srgb(lens_cfg.tint[0], lens_cfg.tint[1], lens_cfg.tint[2]),
                     emissive_texture: Some(scope_rt.0.clone()),
                     emissive: LinearRgba::BLACK,
                     // The render target samples V-flipped on the lens; undo it.
@@ -243,9 +243,9 @@ pub(crate) fn start_view_model_animation(
                         0.0,
                         Vec2::new(0.0, 1.0),
                     ),
-                    perceptual_roughness: LENS_ROUGHNESS_HIP,
-                    metallic: LENS_METALLIC_HIP,
-                    reflectance: LENS_REFLECTANCE_HIP,
+                    perceptual_roughness: lens_cfg.roughness,
+                    metallic: lens_cfg.metallic,
+                    reflectance: lens_cfg.reflectance,
                     alpha_mode: AlphaMode::Blend,
                     double_sided: true,
                     cull_mode: None,

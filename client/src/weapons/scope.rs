@@ -1,16 +1,18 @@
 //! The render-to-texture scope: its camera, reticle and rear lens, and the
 //! system that drives the aim-in slide + sight-picture fade.
 
+use bevy::pbr::DistanceFog;
 use bevy::prelude::*;
 
 use crate::killcam::ActiveKillCam;
+use crate::player::WorldModelCamera;
 use crate::settings::{CrosshairId, Settings};
 use crate::util::ads_ease;
 
 use super::ads::{
     ads_fov_rad, full_scope_fov_rad, scope_picture_amount, Ads, AdsTuning, Optic,
 };
-use super::sway::AimSwayState;
+use super::sway::{AimSwayState, WeaponSwayState};
 
 // --- scope (render-to-texture) -------------------------------------------------
 // A second camera renders the world only (no view model) through a narrow FOV
@@ -29,18 +31,40 @@ pub(crate) const SCOPE_SHOW_AT: f32 = 0.02;
 // strongly reflective coated-glass disc catching the sun; as `Ads::t` → 1 the
 // mirror sheen is dialled out and the render-to-texture sight picture (carried
 // on `emissive`) fades in, so glare can't wash out the shot.
-/// Cool anti-reflective-coating tint of the glass when not aiming.
-pub(crate) const LENS_TINT: (f32, f32, f32) = (0.14, 0.21, 0.34);
-/// Lens surface roughness at the hip (low = tight, mirror-like highlight) and
-/// while fully scoped (fully matte — with `reflectance` at 0 there's no sun
-/// glint on the glass once aimed in).
-pub(crate) const LENS_ROUGHNESS_HIP: f32 = 0.04;
+/// Lens surface roughness while fully scoped (fully matte — with `reflectance`
+/// at 0 there's no sun glint on the glass once aimed in).
 pub(crate) const LENS_ROUGHNESS_ADS: f32 = 1.0;
-/// Metalness / reflectance of the glass at the hip; both fall to zero as the
-/// player scopes in, leaving a non-reflective black backing behind the sight
-/// picture so the sun can't glint off the lens while aimed in.
-pub(crate) const LENS_METALLIC_HIP: f32 = 0.65;
-pub(crate) const LENS_REFLECTANCE_HIP: f32 = 1.0;
+
+/// Panel-adjustable look of the lens glass at the hip. As `Ads::t` → 1 the tint
+/// fades to a black backing and metallic / reflectance fall to zero (roughness
+/// eases to [`LENS_ROUGHNESS_ADS`]), so the sun can't glint off the lens while
+/// aimed in; these are the values that fade starts from.
+#[derive(Resource, Clone)]
+pub(crate) struct LensSettings {
+    /// Anti-reflective-coating tint of the glass (sRGB).
+    pub(crate) tint: [f32; 3],
+    /// Opacity of the glass at the hip (`1` = solid; less lets the world show
+    /// through). Rises to fully opaque as the sight picture comes in.
+    pub(crate) alpha: f32,
+    /// Surface roughness (low = tight, mirror-like highlight).
+    pub(crate) roughness: f32,
+    /// Metalness of the glass.
+    pub(crate) metallic: f32,
+    /// Specular reflectance of the glass.
+    pub(crate) reflectance: f32,
+}
+
+impl Default for LensSettings {
+    fn default() -> Self {
+        Self {
+            tint: [0.0, 0.0, 0.0],
+            alpha: 0.98,
+            roughness: 0.25,
+            metallic: 0.5,
+            reflectance: 0.75,
+        }
+    }
+}
 
 /// Marks the scope's rear (player-facing) lens mesh; it displays the scope
 /// render target and fades in with ADS.
@@ -96,6 +120,23 @@ pub(crate) fn apply_crosshair_texture(
     }
 }
 
+/// Copy the world camera's [`DistanceFog`] onto the scope camera whenever it
+/// changes, so the lens picture is fogged exactly like the world around it.
+/// `apply_scene_tuning` only ever writes the fog to [`WorldModelCamera`]
+/// (per-map colour / visibility), so without this the scope camera renders the
+/// world — sky included — with no fog at all.
+pub(crate) fn sync_scope_fog(
+    world_fog: Single<Ref<DistanceFog>, (With<WorldModelCamera>, Without<ScopeCamera>)>,
+    mut scope_fog: Single<&mut DistanceFog, (With<ScopeCamera>, Without<WorldModelCamera>)>,
+    mut synced: Local<bool>,
+) {
+    if *synced && !world_fog.is_changed() {
+        return;
+    }
+    *synced = true;
+    **scope_fog = world_fog.clone();
+}
+
 /// Panel-adjustable scope-reticle behaviour: size on the glass, the CoD-style
 /// aim-in drift (starts toward one corner and slides to centre as you scope
 /// in), and whether the HUD centre dot ever fades. The reticle otherwise never
@@ -107,12 +148,22 @@ pub(crate) struct CrosshairSettings {
     /// Reticle size multiplier (`1.0` = fills the scope view exactly; `>1` pushes
     /// the crosshair's outer ends past the glass edge).
     pub(crate) scale: f32,
-    /// Where the reticle sits at `Ads::t == 0`, as a fraction of the scope's
-    /// half-view — it eases to centre by full ADS. Positive `x` = left, positive
+    /// Where the reticle sits at `Ads::t == 0`, as a multiple of the finished
+    /// scope's half-view — it eases to centre by full ADS. Positive `x` = left, positive
     /// `y` = up, so the default starts the crosshair toward the upper-left like a
     /// CoD scope. The scope camera counter-aims by the same amount so the target
     /// stays under the reticle.
     pub(crate) aim_in_frac: Vec2,
+    /// Counter-sway gain per axis (`x` = yaw, `y` = pitch): how far the reticle
+    /// travels *against* the weapon sway, in scope half-views per radian of
+    /// [`WeaponSwayState::offset`] — the same offset the view model is tipped
+    /// by this frame, so the two move in lockstep. The lens rides on the gun,
+    /// so it swings with the sway; a gain that cancels that swing exactly keeps
+    /// the reticle's centre still on the screen. `0` = off (the reticle sits at
+    /// the lens centre and swings with the gun). Dialed in by eye. Rotating the whole sniper about
+    /// the eye moves the lens by roughly the sway angle, which puts a good gain
+    /// near `1 / (lens half-size on screen)` ≈ 2; dial it in from there.
+    pub(crate) sway_counter: Vec2,
     /// Keep the HUD centre dot at full opacity instead of fading it out as the
     /// sight picture comes in.
     pub(crate) center_dot_always: bool,
@@ -123,6 +174,7 @@ impl Default for CrosshairSettings {
         Self {
             scale: 1.2,
             aim_in_frac: Vec2::new(3.0, 3.0),
+            sway_counter: Vec2::new(2.3, 2.0),
             center_dot_always: false,
         }
     }
@@ -134,7 +186,7 @@ impl Default for CrosshairSettings {
 ///
 /// The reticle quad itself only ever moves for that corner-to-centre raise
 /// slide (`aim_in`) — once the raise finishes it is pinned to the dead centre
-/// of the screen and stays there, full stop. The scope *camera*, though, still
+/// of the scope view and stays there, full stop. The scope *camera*, though, still
 /// picks up [`AimSwayState::offset`] (written by [`aim_idle_sway`] onto the
 /// real [`WorldModelCamera`]) so the magnified picture drifts by the exact
 /// same amount as the real aim: the world moves under the reticle instead of
@@ -142,10 +194,16 @@ impl Default for CrosshairSettings {
 /// looking through a real optic, and holding it takes real effort."
 #[allow(clippy::type_complexity)]
 pub(crate) fn update_scope(
-    (ads, aim_sway, crosshair): (Res<Ads>, Res<AimSwayState>, Res<CrosshairSettings>),
+    (ads, aim_sway, crosshair, weapon_sway): (
+        Res<Ads>,
+        Res<AimSwayState>,
+        Res<CrosshairSettings>,
+        Res<WeaponSwayState>,
+    ),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
+    lens_cfg: Res<LensSettings>,
     scope_camera: Single<
         (&mut Camera, &mut Projection, &mut Transform),
         (With<ScopeCamera>, Without<ScopeReticle>),
@@ -176,33 +234,44 @@ pub(crate) fn update_scope(
         perspective.fov = scope_fov;
     }
 
-    // CoD-style aim-in drift: at the hip the reticle starts toward a corner
-    // (`aim_in_frac` of the scope's half-view) and the scope camera looks that
-    // way too, so the point the eye is already aiming at stays pinned under the
-    // reticle while the glass slides up into it. Eases to zero by full ADS —
-    // composed with the real aim-sway rotation so the scope camera ends up
-    // rotated by exactly the same amount as `WorldModelCamera` once the raise
-    // finishes (aim_in == 0), and the picture it renders lines up with the
-    // real aim.
-    let half_fov = scope_fov * 0.5;
+    // CoD-style aim-in drift: at the hip the reticle sits off-centre — up-left
+    // for positive `aim_in_frac`, as a multiple of the *finished* scope's
+    // half-view, so the same setting reads the same at every zoom — and eases to
+    // dead centre by full ADS. The scope camera looks the opposite way by the
+    // same angle, so the reticle stays over the point the eye is already aiming
+    // at while the glass slides up into it. Composed with the real aim-sway
+    // rotation, so once the raise finishes (`aim_in == 0`) the camera is
+    // rotated by exactly the same amount as `WorldModelCamera` and the picture
+    // it renders lines up with the real aim.
+    let final_half_fov = full_scope_fov_rad(optic, &tuning) * 0.5;
     let aim_in = Vec2::new(
-        half_fov * crosshair.aim_in_frac.x,
-        half_fov * crosshair.aim_in_frac.y,
+        final_half_fov * crosshair.aim_in_frac.x,
+        final_half_fov * crosshair.aim_in_frac.y,
     ) * (1.0 - e);
     let aim_in_rot = Quat::from_euler(EulerRot::YXZ, -aim_in.x, -aim_in.y, 0.0);
     let aim_sway_rot = Quat::from_euler(EulerRot::YXZ, aim_sway.offset.x, aim_sway.offset.y, 0.0);
     cam_transform.rotation = aim_sway_rot * aim_in_rot;
 
     // Fill the scope camera's square view (`scale` lets the crosshair art run
-    // past the glass edge) and pin the reticle to dead centre — no sway, no
-    // breathing, nothing but the fixed forward offset. It only ever needs
-    // resizing, never re-aiming.
+    // past the glass edge), and hold the reticle `aim_in` off-centre: rotating
+    // the quad about the camera (positive yaw = left, positive pitch = up)
+    // swings it toward the corner, exactly opposite the camera's counter-aim
+    // above. It also moves opposite the weapon sway (`sway_counter`): the lens
+    // rides on the gun, so the reticle drawn inside it swings with the sway
+    // unless it's pushed back by the same amount, read from the very
+    // `WeaponSwayState` the view model was just tipped by. With the raise
+    // finished and the counter dialed in, the reticle stays dead centre on the
+    // screen; the sway itself lives on the camera and the model instead.
+    let half_fov = scope_fov * 0.5;
     let fill = 2.0 * RETICLE_DIST * half_fov.tan() * crosshair.scale.max(0.01);
-    **reticle = Transform {
-        translation: Vec3::new(0.0, 0.0, -RETICLE_DIST),
-        rotation: Quat::IDENTITY,
-        scale: Vec3::new(fill, fill, 1.0),
-    };
+    let counter = weapon_sway.offset * crosshair.sway_counter * final_half_fov;
+    let drift = Quat::from_euler(EulerRot::YXZ, aim_in.x - counter.x, aim_in.y - counter.y, 0.0);
+    **reticle = Transform::from_rotation(drift)
+        * Transform {
+            translation: Vec3::new(0.0, 0.0, -RETICLE_DIST),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::new(fill, fill, 1.0),
+        };
 
     // The lens is always drawn: a reflective glass disc at the hip, the sight
     // picture while scoped. `e` crossfades between the two looks, tied to the
@@ -216,16 +285,16 @@ pub(crate) fn update_scope(
             material.emissive = LinearRgba::rgb(e, e, e);
             // Glass tint fades to a black backing so the sight picture stays clean.
             material.base_color = Color::srgba(
-                LENS_TINT.0 * k,
-                LENS_TINT.1 * k,
-                LENS_TINT.2 * k,
-                0.9f32.lerp(1.0, e),
+                lens_cfg.tint[0] * k,
+                lens_cfg.tint[1] * k,
+                lens_cfg.tint[2] * k,
+                lens_cfg.alpha.lerp(1.0, e),
             );
             // Dial the mirror sheen out as the player scopes in — reflectance to
             // zero at full ADS so the sun leaves no glint on the glass.
-            material.perceptual_roughness = LENS_ROUGHNESS_HIP.lerp(LENS_ROUGHNESS_ADS, e);
-            material.metallic = LENS_METALLIC_HIP * k;
-            material.reflectance = LENS_REFLECTANCE_HIP * k;
+            material.perceptual_roughness = lens_cfg.roughness.lerp(LENS_ROUGHNESS_ADS, e);
+            material.metallic = lens_cfg.metallic * k;
+            material.reflectance = lens_cfg.reflectance * k;
         }
     }
 }

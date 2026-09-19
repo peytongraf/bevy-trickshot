@@ -178,6 +178,7 @@ fn main() {
         .init_resource::<AimSwayState>()
         .init_resource::<AimSwaySettings>()
         .init_resource::<CrosshairSettings>()
+        .init_resource::<LensSettings>()
         .init_resource::<TeleportPoint>()
         .init_resource::<NoScopeSpread>()
         .init_resource::<Weapon>()
@@ -364,7 +365,10 @@ fn main() {
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
-                update_scope.after(aim_idle_sway),
+                // After `weapon_sway` (and, via the kill cam's own ordering, its
+                // replayed sway) so the reticle's counter-sway reads the same
+                // frame's offset the gun was just tipped by.
+                update_scope.after(aim_idle_sway).after(weapon_sway),
                 (fade_crosshair, update_crosshair_visibility),
                 // Must read `LookDelta` before `consume_look_delta` (registered
                 // in a separate `add_systems` below) zeroes it for the frame.
@@ -393,7 +397,7 @@ fn main() {
                 (spawn_tracers, update_tracers),
                 (update_ammo_ui, update_weapon_icon),
                 update_fps_ui,
-                apply_scene_tuning,
+                (apply_scene_tuning, sync_scope_fog).chain(),
                 (apply_shadow_quality, apply_crosshair_texture),
                 (
                     apply_map_transform,
@@ -954,6 +958,10 @@ fn setup_player(
                                             fov: LENS_CAL_SCOPE_FOV_DEG.to_radians(),
                                             ..default()
                                         }),
+                                        // Placeholder: `sync_scope_fog` copies the
+                                        // world camera's fog onto this every time
+                                        // the map's scene tuning changes it.
+                                        DistanceFog::default(),
                                         RenderLayers::from_layers(&[0, SCOPE_OVERLAY_LAYER]),
                                     ))
                                     .with_child((

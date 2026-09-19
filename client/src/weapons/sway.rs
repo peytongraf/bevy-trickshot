@@ -33,7 +33,8 @@ pub(crate) struct WeaponSwayState {
 /// rides along with the same lag angle, so the gun also shifts a touch the
 /// same way it tips, instead of just rotating in place. This is the only
 /// visible "you're moving the mouse" feedback while scoped, on the model
-/// itself — the scope reticle never moves at all (see [`update_scope`]).
+/// itself — the scope reticle only moves for the aim-in slide and the optional
+/// counter-sway (see [`update_scope`], [`CrosshairSettings`]).
 #[derive(Resource)]
 pub(crate) struct WeaponSwaySettings {
     /// Seconds of lag at the hip: sway angle ≈ turn rate (rad/s) × this.

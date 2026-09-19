@@ -66,6 +66,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<MantleSettings>,
             ResMut<ShipmentDaySceneTuning>,
             Res<Settings>,
+            ResMut<LensSettings>,
         ),
     ),
 ) -> Result {
@@ -84,7 +85,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings),
+        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -893,12 +894,21 @@ pub(crate) fn ads_tuning_ui(
 
                 ui.label("aim-in drift — starts off-centre, slides to the middle");
                 ui.add(
-                    egui::Slider::new(&mut c.aim_in_frac.x, -1.5f32..=3.0)
-                        .text("start X  (+ = left)"),
+                    egui::Slider::new(&mut c.aim_in_frac.x, -10.0f32..=10.0)
+                        .text("start X  (+ = left, × scope half-view)"),
                 );
                 ui.add(
-                    egui::Slider::new(&mut c.aim_in_frac.y, -1.5f32..=3.0)
-                        .text("start Y  (+ = up)"),
+                    egui::Slider::new(&mut c.aim_in_frac.y, -10.0f32..=10.0)
+                        .text("start Y  (+ = up, × scope half-view)"),
+                );
+                ui.label("counter-sway — reticle moves opposite the weapon sway");
+                ui.add(
+                    egui::Slider::new(&mut c.sway_counter.x, -10.0f32..=10.0)
+                        .text("counter X  (half-views per rad of yaw sway)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut c.sway_counter.y, -10.0f32..=10.0)
+                        .text("counter Y  (half-views per rad of pitch sway)"),
                 );
                 ui.label(
                     "that raise slide is the reticle's only motion — no turn lag any more, \
@@ -910,6 +920,26 @@ pub(crate) fn ads_tuning_ui(
 
                 if ui.button("Reset crosshair").clicked() {
                     *c = CrosshairSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Scope lens (hip)", |ui| {
+                let l = &mut *lens_cfg;
+                ui.label("how the lens glass looks when not aiming — it fades to a matte black backing as you scope in");
+                ui.horizontal(|ui| {
+                    ui.label("tint");
+                    egui::color_picker::color_edit_button_rgb(ui, &mut l.tint);
+                });
+                ui.add(egui::Slider::new(&mut l.alpha, 0.0f32..=1.0).text("opacity"));
+                ui.add(
+                    egui::Slider::new(&mut l.roughness, 0.0f32..=1.0)
+                        .text("roughness  (low = tight, mirror-like glint)"),
+                );
+                ui.add(egui::Slider::new(&mut l.metallic, 0.0f32..=1.0).text("metallic"));
+                ui.add(egui::Slider::new(&mut l.reflectance, 0.0f32..=1.0).text("reflectance"));
+                if ui.button("Reset lens").clicked() {
+                    *l = LensSettings::default();
                 }
             });
 
