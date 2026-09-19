@@ -1,10 +1,16 @@
-//! The moment-of-death screen effect: a blood-splatter overlay + red tint
-//! plus a quick, forced look-at onto the killer, covering the brief gap
-//! between the fatal hit landing (`shared::PlayerKilledBy`, sent instantly)
-//! and the kill cam actually taking over the rig (`killcam::start_killcam`,
-//! which — per `server::killcam::flush_killcams` — can arrive up to ~1.5s
-//! later). Camera *position* never moves here, only its look direction; the
-//! kill cam itself is untouched and takes over exactly as it already did.
+//! The moment-of-death screen effect for a PvP kill specifically: a
+//! blood-splatter overlay + red tint plus a quick, forced look-at onto the
+//! killer, covering the brief gap between the fatal hit landing
+//! (`shared::PlayerKilledBy`, sent instantly) and the kill cam actually
+//! taking over the rig (`killcam::start_killcam`, which — per
+//! `server::killcam::flush_killcams` — can arrive up to ~1.5s later). Camera
+//! *position* never moves here, only its look direction; the kill cam itself
+//! is untouched and takes over exactly as it already did.
+//!
+//! The overlay + weapon-hide (but not the killer-pan, which doesn't apply)
+//! are shared with `fall_death` via [`show_overlay_and_hide_weapon`] — see
+//! [`DeathEffect`]'s doc comment for how the two effects stay out of each
+//! other's way.
 
 use std::f32::consts::TAU;
 
@@ -23,22 +29,30 @@ use crate::{AppState, KnifeViewModel, Player, PlayerHead, ViewModel, PITCH_LIMIT
 const PAN_SECS: f32 = 0.25;
 
 /// Full-screen blood-splatter + red-tint root, up for exactly as long as
-/// [`DeathEffect::pan`] is `Some`.
+/// [`DeathEffect::active`] is true.
 #[derive(Component)]
-struct DeathOverlay;
+pub(crate) struct DeathOverlay;
 
-/// In-flight forced look-at onto the killer. `Some` from the instant
-/// [`PlayerKilledBy`] arrives until the kill cam starts (or, failing that,
-/// the player respawns anyway) — see [`clear_on_killcam_or_respawn`].
+/// The overlay + weapon-hide, and (for a kill specifically) the one-shot pan
+/// onto the killer. `active` covers both a kill (`on_killed_by`) and a fatal
+/// fall (`fall_death::check_fall_death`, via [`show_overlay_and_hide_weapon`])
+/// — `pan` only ever applies to the former, since a fall drives its own
+/// continuous look-at onto the falling body instead (`fall_death::pan_to_body`).
+/// Kept separate so the two effects' camera control never fights: `pan`'s
+/// consumer (`pan_to_killer`) only ever runs for a kill.
 #[derive(Resource, Default)]
 pub(crate) struct DeathEffect {
+    /// True from the instant a kill or fatal fall is detected until the kill
+    /// cam starts (kill only) or the player respawns anyway — see
+    /// [`clear_on_killcam_or_respawn`].
+    active: bool,
     pan: Option<Pan>,
-    /// Whichever view model `on_killed_by` force-hid for the death effect, if
-    /// any — restored by `clear_on_killcam_or_respawn` on the no-kill-cam
-    /// fallback path. On the normal path, `killcam::start_killcam` consumes
-    /// (and clears) this itself instead, to recover the true pre-death
-    /// visibility rather than the live one it deliberately hid — see that
-    /// function's use of it.
+    /// Whichever view model was force-hidden for the effect, if any —
+    /// restored by `clear_on_killcam_or_respawn` on the no-kill-cam fallback
+    /// path (always taken for a fall — there's never a kill cam). On a kill's
+    /// normal path, `killcam::start_killcam` consumes (and clears) this
+    /// itself instead, to recover the true pre-death visibility rather than
+    /// the live one it deliberately hid — see that function's use of it.
     pub(crate) hidden_weapon: Option<HiddenWeapon>,
 }
 
@@ -75,8 +89,11 @@ impl Plugin for DeathEffectPlugin {
     }
 }
 
-/// True while the death pan/overlay is active. [`crate::look_around`] defers
-/// to this so mouse input can't fight the forced look-at.
+/// True while the kill-specific pan onto the killer is active — not a fatal
+/// fall's own pan (see `fall_death::effect_active`), which drives its own
+/// continuous look-at instead of this module's `pan_to_killer`.
+/// [`crate::look_around`] defers to this (and to `fall_death::effect_active`)
+/// so mouse input can't fight either forced look-at.
 pub(crate) fn death_effect_active(effect: Res<DeathEffect>) -> bool {
     effect.pan.is_some()
 }
@@ -89,6 +106,61 @@ fn shortest_delta(from: f32, to: f32) -> f32 {
         diff - TAU
     } else {
         diff
+    }
+}
+
+/// Spawns the blood/red-tint overlay (if not already up) and instantly hides
+/// whichever weapon is currently drawn — same mechanism (a bare
+/// `Visibility::Hidden`, no animation) as the throwing-knife key's own
+/// instant hide of the sniper (`weapon::weapon_system`). Shared by a kill
+/// (`on_killed_by`) and a fatal fall (`fall_death::check_fall_death`), so both
+/// look identical and clean up through the same [`clear_on_killcam_or_respawn`].
+pub(crate) fn show_overlay_and_hide_weapon(
+    effect: &mut DeathEffect,
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    overlay_already_up: bool,
+    sniper_vis: &mut Visibility,
+    knife_vis: &mut Visibility,
+) {
+    effect.active = true;
+
+    if !overlay_already_up {
+        commands
+            .spawn((
+                DeathOverlay,
+                GlobalZIndex(10),
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.45, 0.0, 0.0, 0.35)),
+            ))
+            .with_children(|root| {
+                root.spawn((
+                    ImageNode::new(asset_server.load("textures/blur-blood-splatter-overlay.png")),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                ));
+            });
+    }
+
+    // Guarded so a second call (shouldn't happen, but defensively) doesn't
+    // stomp a still-set `hidden_weapon` before it's been consumed.
+    if effect.hidden_weapon.is_none() {
+        if *sniper_vis != Visibility::Hidden {
+            *sniper_vis = Visibility::Hidden;
+            effect.hidden_weapon = Some(HiddenWeapon::Sniper);
+        } else if *knife_vis != Visibility::Hidden {
+            *knife_vis = Visibility::Hidden;
+            effect.hidden_weapon = Some(HiddenWeapon::Knife);
+        }
     }
 }
 
@@ -129,49 +201,14 @@ fn on_killed_by(
                 elapsed: 0.0,
             });
 
-            if existing_overlay.is_empty() {
-                commands
-                    .spawn((
-                        DeathOverlay,
-                        GlobalZIndex(10),
-                        Node {
-                            position_type: PositionType::Absolute,
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgba(0.45, 0.0, 0.0, 0.35)),
-                    ))
-                    .with_children(|root| {
-                        root.spawn((
-                            ImageNode::new(
-                                asset_server.load("textures/blur-blood-splatter-overlay.png"),
-                            ),
-                            Node {
-                                position_type: PositionType::Absolute,
-                                width: Val::Percent(100.0),
-                                height: Val::Percent(100.0),
-                                ..default()
-                            },
-                        ));
-                    });
-            }
-
-            // Instantly hide whichever weapon is currently drawn — same
-            // mechanism (a bare `Visibility::Hidden`, no animation) as the
-            // throwing-knife key's own instant hide of the sniper
-            // (`weapon::weapon_system`). Guarded so a second `PlayerKilledBy`
-            // (shouldn't happen, but defensively) doesn't stomp a still-set
-            // `hidden_weapon` before it's been consumed.
-            if effect.hidden_weapon.is_none() {
-                if **sniper_vis != Visibility::Hidden {
-                    **sniper_vis = Visibility::Hidden;
-                    effect.hidden_weapon = Some(HiddenWeapon::Sniper);
-                } else if **knife_vis != Visibility::Hidden {
-                    **knife_vis = Visibility::Hidden;
-                    effect.hidden_weapon = Some(HiddenWeapon::Knife);
-                }
-            }
+            show_overlay_and_hide_weapon(
+                &mut effect,
+                &mut commands,
+                &asset_server,
+                !existing_overlay.is_empty(),
+                &mut **sniper_vis,
+                &mut **knife_vis,
+            );
         }
     }
 }
@@ -207,9 +244,10 @@ fn clear_on_killcam_or_respawn(
 ) {
     let killcam_started = active.is_changed() && active.0.is_some();
     let just_respawned = respawned.read().count() > 0;
-    if effect.pan.is_none() || !(killcam_started || just_respawned) {
+    if !effect.active || !(killcam_started || just_respawned) {
         return;
     }
+    effect.active = false;
     effect.pan = None;
     for entity in &overlay {
         commands.entity(entity).try_despawn();

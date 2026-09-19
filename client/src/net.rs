@@ -27,6 +27,7 @@ use shared::{
     ShotResolved, TrickScore,
 };
 
+use crate::fall_death;
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
     play_bot_death, Ads, AppState, BloodImpact, BotAnimationPlayer, BotAnimations, BotVisual,
@@ -133,8 +134,15 @@ impl Plugin for ClientNetPlugin {
                 // other client (the killer included) sees this player's
                 // avatar warp onto and replay the killer's own recent
                 // movement for the replay's duration. Mirrors
-                // `record_local_replay`'s identical gating below.
-                .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
+                // `record_local_replay`'s identical gating below. Also paused
+                // for the same reason while a fall-death hold is up (see
+                // `fall_death`) — the rig's rotation is being driven by that
+                // effect's own look-at, not the player's live input.
+                .run_if(
+                    in_state(AppState::InGame)
+                        .and(killcam::no_killcam)
+                        .and(fall_death::no_fall_death),
+                ),
         );
         app.add_systems(
             Update,
@@ -463,8 +471,9 @@ struct PendingRespawn {
 /// on it and respawning anyway.
 const RESPAWN_KILLCAM_TIMEOUT_SECS: f32 = 3.0;
 
-/// Server → the victim only ([`GameMode::FreeForAll`]): we're allowed to
-/// respawn, and here's where.
+/// Server → the local player only: we're allowed to respawn, and here's
+/// where — sent for a `FreeForAll` PvP kill or, in either game mode, falling
+/// to death (see `fall_death`).
 fn receive_respawn(
     mut receivers: Query<&mut MessageReceiver<PlayerRespawn>>,
     mut pending: ResMut<PendingRespawn>,

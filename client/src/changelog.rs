@@ -15,9 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.3",
     &[
+        "Falling too far now kills you — either off a ledge with no ground below, or landing hard after a long enough drop. Just like getting killed by someone else, your weapon instantly hides and the blood-splatter/red-tint flashes up, but your camera holds still and watches your own body drop away and tumble below instead of panning to a killer; no kill cam, since there's no one to blame but yourself.",
         "Getting killed by another player now snaps your view toward them, instantly hides whatever weapon you had out, and flashes a blood-splatter/red-tint effect for a moment, right up until the kill cam takes over.",
         "The bottom-right ammo readout now shows an icon for whichever weapon is out (sniper or knife) right next to the count.",
-        "Rescaled the basic map and fixed a doubled-up ground plane it had — the generic ground bevy always adds underneath every map is now hidden (and its collider disabled) once a map ships its own ground, matching how Shipment already worked.",
         "Added ledge mantling (Call of Duty style): jump at a ledge that's just barely too high to clear and you'll catch yourself on it and climb up, instead of bonking into it and falling. New Settings → Controls → \"Automatic Mantle\" option (Off / Semi-Auto / Full-Auto) controls how eager it is, same as CoD's own setting.",
         "Added a LOADOUT screen (from the main menu, and from the pause menu while in a game) for picking your scope crosshair — three reticles to choose from for now, more loadout options later. Your pick is saved and carries over between sessions.",
         "Starting a lobby game now shows a \"waiting for party\" screen (map, mode, and each teammate's loading/ready status) until everyone's client has finished loading the map, instead of dropping you into a game world that might still be popping in around you.",
@@ -27,7 +27,6 @@ pub const ENTRIES: &[(&str, &[&str])] = &[(
         "Fixed: switching to the knife no longer blocks you from attacking with it while the grip-adjust animation plays out. That animation is now a random idle fidget instead, and an attack always cuts it short instantly.",
         "Fixed: a reload (or other in-progress sound) no longer keeps playing through a kill cam replay — everything but the ambience bed now cuts off the instant the replay starts.",
         "Fixed: the knife no longer stays visible on top of the sniper during a kill cam replay if you'd switched to it right before you died.",
-        "The \"What's New\" notes on the main menu now use a plain, readable font instead of the bold condensed HUD face.",
         "Fixed: you can now slide along a wall you hit at an angle instead of sticking to it until you're moving exactly parallel to it.",
         "Fixed: the water on Shipment no longer renders on top of the barrel smoke.",
         "Fixed: the barrel smoke puff no longer flashes fully opaque and facing the wrong way for one frame right when it spawns. Also tuned the barrel smoke and bullet-tracer trail to be lighter and fade faster.",

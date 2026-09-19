@@ -31,6 +31,7 @@ mod changelog;
 mod death_effect;
 mod debug_ui;
 mod environment;
+mod fall_death;
 mod game_start;
 mod hud;
 mod keybinds;
@@ -157,6 +158,7 @@ fn main() {
             practice::PracticePlugin,
             killcam::KillCamPlugin,
             death_effect::DeathEffectPlugin,
+            fall_death::FallDeathPlugin,
             game_start::GameStartPlugin,
         ))
         .insert_resource(AmbientLight {
@@ -285,7 +287,11 @@ fn main() {
         )
         .add_systems(
             Update,
-            update_ads.run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
+            update_ads.run_if(
+                in_state(AppState::InGame)
+                    .and(killcam::no_killcam)
+                    .and(fall_death::no_fall_death),
+            ),
         )
         .add_systems(
             Update,
@@ -294,10 +300,17 @@ fn main() {
                 // movement/gravity chain runs, so a frame that starts a climb
                 // doesn't also fall/collide normally — see `not_mantling`,
                 // which that chain is gated on right below.
-                try_mantle
-                    .before(toggle_sprint)
-                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
-                drive_mantle.run_if(menu::game_active.and(killcam::no_killcam)),
+                try_mantle.before(toggle_sprint).run_if(
+                    menu::game_active
+                        .and(killcam::no_killcam)
+                        .and(fall_death::no_fall_death)
+                        .and(not_mantling),
+                ),
+                drive_mantle.run_if(
+                    menu::game_active
+                        .and(killcam::no_killcam)
+                        .and(fall_death::no_fall_death),
+                ),
             )
                 .run_if(in_state(AppState::InGame)),
         )
@@ -319,17 +332,32 @@ fn main() {
                     footsteps,
                 )
                     .chain()
-                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
+                    .run_if(
+                        menu::game_active
+                            .and(killcam::no_killcam)
+                            .and(fall_death::no_fall_death)
+                            .and(not_mantling),
+                    ),
                 (
-                    // Additionally defers to the death-effect's own forced
-                    // look-at onto the killer, so mouse input can't fight it
-                    // during that brief window (see `death_effect`).
-                    look_around.run_if(not(death_effect::death_effect_active)),
+                    // Additionally defers to the death-effect's / fall-death's
+                    // own forced look-at, so mouse input can't fight it during
+                    // either brief window (see `death_effect` / `fall_death`).
+                    look_around.run_if(
+                        not(death_effect::death_effect_active).and(not(fall_death::effect_active)),
+                    ),
                     save_teleport_point,
                 )
-                    .run_if(menu::game_active.and(killcam::no_killcam)),
-                weapon_system
-                    .run_if(menu::game_active.and(killcam::no_killcam).and(not_mantling)),
+                    .run_if(
+                        menu::game_active
+                            .and(killcam::no_killcam)
+                            .and(fall_death::no_fall_death),
+                    ),
+                weapon_system.run_if(
+                    menu::game_active
+                        .and(killcam::no_killcam)
+                        .and(fall_death::no_fall_death)
+                        .and(not_mantling),
+                ),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
                 apply_ads,
@@ -340,14 +368,14 @@ fn main() {
                 track_trick
                     .after(look_around)
                     .before(consume_look_delta)
-                    .run_if(killcam::no_killcam),
+                    .run_if(killcam::no_killcam.and(fall_death::no_fall_death)),
                 (
                     spawn_score_popup,
                     update_score_popups,
                     update_teleport_toast,
                 ),
                 (sky_follow_camera, scroll_water_normal),
-                camera_shake.run_if(killcam::no_killcam),
+                camera_shake.run_if(killcam::no_killcam.and(fall_death::no_fall_death)),
                 update_muzzle_flash,
                 // After `look_around` so the smoke uses this frame's aim, not
                 // the previous frame's — otherwise a fast turn leaves the

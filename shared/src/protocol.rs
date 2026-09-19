@@ -486,11 +486,12 @@ pub struct SetKillLimit {
     pub kills: u32,
 }
 
-/// Server → client: only sent to the victim of a [`GameMode::FreeForAll`]
-/// kill, once they're allowed to respawn — a spawn point their client should
-/// teleport its player rig to. See `client::net::flush_pending_respawn`,
-/// which waits for the paired kill-cam (see [`KillCam`]) to finish playing
-/// before applying it.
+/// Server → client: only sent to the player who needs to respawn, once
+/// they're allowed to — a spawn point their client should teleport its
+/// player rig to. Sent for a [`GameMode::FreeForAll`] PvP kill, or (either
+/// game mode) [`FellToDeath`]. See `client::net::flush_pending_respawn`,
+/// which waits for a paired kill cam (see [`KillCam`]) — sent only for a
+/// kill, never a fall — to finish playing before applying it.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerRespawn {
     pub pos: [f32; 3],
@@ -506,6 +507,17 @@ pub struct PlayerRespawn {
 pub struct PlayerKilledBy {
     pub killer_pos: [f32; 3],
 }
+
+/// Client → server: the local player (client-authoritative movement — same
+/// trust model as [`PlayerInput`]) fell to their death, either dropping below
+/// the map's fall-safety floor or landing after a lethal fall. Works in
+/// either game mode: the server marks a `FreeForAll` player dead (see
+/// `PlayerCombat`) or, in `Freestyle` (no health concept — always "alive"),
+/// just repositions them; either way it answers with [`PlayerRespawn`] like a
+/// PvP kill would, but never writes `PlayerKilled` — there's no killer, so no
+/// kill cam plays. See `client::fall_death`.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct FellToDeath;
 
 /// Reliable, unordered server → client channel for gameplay events.
 pub struct GameChannel;
@@ -691,6 +703,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetKillLimit>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<FellToDeath>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

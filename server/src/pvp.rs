@@ -8,7 +8,9 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{GameChannel, GameMode, Lobby, PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn};
+use shared::{
+    FellToDeath, GameChannel, GameMode, Lobby, PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn,
+};
 
 /// Every player starts (and respawns) at this much health. The sniper's
 /// 100-damage body shot is a one-shot kill against it — the same feel it
@@ -68,6 +70,7 @@ impl Plugin for PvpPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<PlayerHit>()
             .add_event::<PlayerKilled>()
+            .add_observer(on_fell_to_death)
             .add_systems(
                 FixedUpdate,
                 (apply_player_hits, tick_respawns, check_kill_limit).chain(),
@@ -149,6 +152,57 @@ fn apply_player_hits(
             killer: ev.killer,
         });
     }
+}
+
+/// The local player's client (client-authoritative movement — same trust
+/// model as `PlayerInput`, see `sim::apply_client_pose`) reported falling to
+/// their death (see `client::fall_death`). Mirrors `apply_player_hits`'s
+/// respawn handling, minus the score credit and `PlayerKilled` — there's no
+/// killer, so no kill cam is ever queued. Works in both game modes:
+/// `FreeForAll` players have a `PlayerCombat` to mark dead (respecting an
+/// already-in-progress death — e.g. shot moments before this arrives — the
+/// same way `apply_player_hits` does); `Freestyle` players have no health
+/// concept at all (see `PlayerCombat`'s doc comment) and are always "alive",
+/// so they just get sent a fresh spot with nothing to mark.
+fn on_fell_to_death(
+    trigger: Trigger<RemoteTrigger<FellToDeath>>,
+    time: Res<Time>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
+    poses: Query<(&PlayerId, &PlayerPose)>,
+    mut lobbies: Query<&mut Lobby>,
+) {
+    let server = server.into_inner();
+    let peer = trigger.from;
+    if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+        if !combat.alive {
+            return;
+        }
+        combat.alive = false;
+        combat.respawn_at = time.elapsed_secs() + RESPAWN_DELAY_SECS;
+    }
+
+    let Some(lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
+        return;
+    };
+    let others: Vec<Vec3> = poses
+        .iter()
+        .filter(|(id, _)| id.0 != peer && lobby.has(id.0))
+        .map(|(_, pose)| pose.translation)
+        .collect();
+    let seed = time.elapsed().as_nanos() as u64 ^ peer.to_bits();
+    let (pos, yaw) = shared::spawns::spawn_point(seed, &others, lobby.map);
+
+    let msg = PlayerRespawn {
+        pos: pos.to_array(),
+        yaw,
+    };
+    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(peer)) {
+        error!("failed to send respawn to {:?}: {e:?}", peer);
+    }
+
+    info!("{:?} fell to their death", peer);
 }
 
 /// Once a dead player's respawn timer is up, make them targetable / able to

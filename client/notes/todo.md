@@ -6,10 +6,9 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Death animation isn't playing in killcam
 - Update to bevy 0.19 from 0.16
-- Add death by falling either once a certain negative height position is reach or a free fall time.
-- Add animation where camera stops then looks down at and follows player at time of death by fall.
 - When knife is added the current ammo count and total ammo count text should not be visible.
 - The knife / sniper icons in the ammo hud should be about twice the size
 - Implement knife attack on bots and remote players
@@ -72,6 +71,8 @@ Ordered easiest → hardest to fix.
 Ordered easiest → hardest to fix.
 
 - Added a "waiting for party" screen: starting a lobby game now shows the map/mode plus each member's loading/ready status (centre screen, reusing `menu::Screen::LoadingGame` to freeze gameplay input/HUD the same way the pause menu does) until every member's client reports its assets loaded, then hides and gameplay starts normally. New client module `client/src/game_start.rs`. Simplified from the original ask: no forced minimum display time (`if both load fast still show for ~3s`) and no separate bottom-left indicator — the per-member ready list already shows whether it's on you, at the cost of the screen sometimes only flashing briefly. "Assets" currently only tracks the map scene (`environment::map::MapLoadState` — `SceneInstanceReady` on the collision blockout, plus the nicer visual overlay if the map has one), not every other asset (bot/soldier models, textures, etc.) — revisit if those turn out to matter in practice. New wire types: `shared::AssetsReady` (client → server trigger) and `LobbyMember::loaded` (reset on `StartGame`, set server-side on receipt, replicated back out with the rest of `Lobby`).
+
+- Added death by falling: an absolute void-height floor (`client/src/fall_death.rs`'s `VOID_DEATH_Y`) catches maps with no ground under a long drop (like the current basic map), and a CoD-style net-fall-distance check (`LETHAL_FALL_DISTANCE`) catches a lethal landing on maps that do have ground down there — same mechanic, two ways to trigger it. Works in both game modes: client-authoritative (matches how all local movement already works), the client decides it happened and tells the server (new `shared::FellToDeath` trigger); server-side, a `FreeForAll` player gets marked dead like a PvP kill, while a `Freestyle` player (no health concept, always "alive") just gets sent a fresh spot — either way it answers with the same `PlayerRespawn` a PvP kill gets, but queues no kill cam (no killer). The camera holds its exact position/orientation from the moment of death, weapon instantly hidden and the blood/red-tint overlay up exactly like a kill death (`death_effect::show_overlay_and_hide_weapon`, now shared between the two), while a one-off `models/soldier.glb` body — spawned fresh just for this, since the local player normally has no third-person model at all — keeps falling (carrying over the player's actual fall speed and horizontal drift) and slowly tumbling around a random axis, tracked by a continuous look-at; ends on `net::LocalPlayerRespawned`, same as `client/src/death_effect.rs`'s kill-death pan, which this was modeled on.
 
 - Add jumpshot points
 - Add spawn points for maps
