@@ -199,6 +199,11 @@ pub struct PlayerInput {
     pub fire_origin: [f32; 3],
     /// Aim direction of that shot (server normalises it).
     pub fire_dir: [f32; 3],
+    /// Whether the player stabbed with the knife this tick. Independent of
+    /// `fire` (the sniper's trigger); reuses `fire_origin` / `fire_dir` for
+    /// the stab's eye position and aim direction, and the server resolves it
+    /// with [`crate::melee::resolve_melee`].
+    pub melee: bool,
     /// Selected weapon, as [`WeaponId::as_u8`].
     pub weapon: u8,
     /// Degrees the shooter had spun (one continuous trick) at fire time — the
@@ -281,6 +286,7 @@ impl Default for PlayerInput {
             fire: false,
             fire_origin: [0.0; 3],
             fire_dir: [0.0, 0.0, -1.0],
+            melee: false,
             weapon: WeaponId::Sniper.as_u8(),
             spin_deg: 0.0,
             airborne: false,

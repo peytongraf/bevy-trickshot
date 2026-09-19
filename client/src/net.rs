@@ -280,11 +280,12 @@ fn write_input(
     ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
-    (view_model_vis, knife, weapon, jumping): (
+    (view_model_vis, knife, weapon, jumping, mut pending_melee): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<crate::Weapon>,
         Res<crate::Jumping>,
+        ResMut<crate::PendingMelee>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -295,6 +296,15 @@ fn write_input(
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
     action.weapon = shared::weapon::WeaponId::Sniper.as_u8();
     action.fire = false;
+    // A knife stab this frame (`weapon_system` filed it) rides the same
+    // origin/dir fields a shot uses — the two are never both pending, since
+    // the knife and the sniper aren't drawn at once.
+    action.melee = false;
+    if let Some((origin, dir)) = pending_melee.0.take() {
+        action.melee = true;
+        action.fire_origin = origin.to_array();
+        action.fire_dir = dir.to_array();
+    }
     // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
     // FOV, so a replay can reproduce shake / recoil / sway and render at this
     // player's FOV instead of re-deriving an absolute camera transform that

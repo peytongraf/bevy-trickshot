@@ -46,6 +46,21 @@ pub fn score_kill(spin_deg: f32, airborne: bool, noscope: bool) -> (u32, Vec<Sco
     (total, lines)
 }
 
+/// Flat points for a knife kill in `Freestyle` — a risky point-blank kill
+/// with none of a sniper shot's trick multipliers.
+pub const KNIFE_KILL_POINTS: u32 = 25;
+
+/// Breakdown + total for a knife kill on a bot.
+pub fn score_knife_kill() -> (u32, Vec<ScoreLine>) {
+    (
+        KNIFE_KILL_POINTS,
+        vec![ScoreLine {
+            label: "KNIFE KILL".to_string(),
+            points: KNIFE_KILL_POINTS,
+        }],
+    )
+}
+
 /// Score multiplier at full `max_range` — a point-blank kill is worth `1.0×`
 /// this; that's what it eases up to (linearly with distance) by the time a
 /// shot has travelled the weapon's whole effective range. Rewards the harder,

@@ -184,6 +184,8 @@ fn main() {
         .init_resource::<ThrowingKnife>()
         .init_resource::<KnifeAnimState>()
         .init_resource::<PendingShot>()
+        .init_resource::<PendingMelee>()
+        .add_event::<LocalMelee>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
         .init_resource::<AnimationSettings>()

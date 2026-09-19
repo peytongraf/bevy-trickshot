@@ -65,6 +65,23 @@ pub(crate) fn stash_interrupted(weapon: &mut Weapon, mut busy: WeaponBusy) {
 #[derive(Resource, Default)]
 pub(crate) struct PendingShot(pub Option<Vec3>);
 
+/// Set by `weapon_system` on the frame a knife stab starts; consumed by
+/// `net::write_input`, which turns it into the tick's melee request. Carries
+/// the camera's `(eye position, forward direction)` — the server resolves the
+/// stab with `shared::melee::resolve_melee` from exactly that ray.
+#[derive(Resource, Default)]
+pub(crate) struct PendingMelee(pub Option<(Vec3, Vec3)>);
+
+/// A knife stab from the world camera's eye along its forward direction,
+/// resolved by `practice::resolve_local_melee` against the offline bots in
+/// solo Practice. In a real game the server resolves the stab from
+/// [`PendingMelee`] instead and this is ignored.
+#[derive(Event)]
+pub(crate) struct LocalMelee {
+    pub(crate) origin: Vec3,
+    pub(crate) dir: Vec3,
+}
+
 /// Which weapon slot is up. The knife has no model yet, so `Secondary` just
 /// means "sniper hidden, hands empty" (plus a small movement-speed bump).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -270,6 +287,24 @@ fn start_knife_slice(
     knife_state.next_adjust_in = roll_knife_adjust_delay(knife_state.adjust_rolls);
 }
 
+/// A knife attack was just started: request the stab from wherever the
+/// camera is looking. The kill (or whiff) is decided by the server — or, in
+/// Practice, `practice::resolve_local_melee` — not here; this only files the
+/// request, alongside the slice animation the caller starts.
+fn request_stab(
+    cam: &Query<&GlobalTransform, With<WorldModelCamera>>,
+    pending: &mut PendingMelee,
+    local: &mut EventWriter<LocalMelee>,
+) {
+    let Ok(cam) = cam.single() else {
+        return;
+    };
+    let origin = cam.translation();
+    let dir = cam.forward().as_vec3();
+    pending.0 = Some((origin, dir));
+    local.write(LocalMelee { origin, dir });
+}
+
 /// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
 /// Shoot → Rechamber to cycle the bolt. The shot that empties the mag leaves
 /// the spent case sitting in the chamber (nothing left in the mag to cycle
@@ -302,7 +337,12 @@ pub(crate) fn weapon_system(
         Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
     ),
     mut weapon: ResMut<Weapon>,
-    (mut knife, mut knife_state): (ResMut<ThrowingKnife>, ResMut<KnifeAnimState>),
+    (mut knife, mut knife_state, mut pending_melee, mut local_melee): (
+        ResMut<ThrowingKnife>,
+        ResMut<KnifeAnimState>,
+        ResMut<PendingMelee>,
+        EventWriter<LocalMelee>,
+    ),
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
     mut muzzle: ResMut<MuzzleFlashState>,
@@ -547,6 +587,7 @@ pub(crate) fn weapon_system(
             && binds.fire.just_pressed(&keys, &mouse)
         {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
+            request_stab(&cam, &mut pending_melee, &mut local_melee);
             return;
         }
         let next_or_finish = {
@@ -600,6 +641,7 @@ pub(crate) fn weapon_system(
         // picked at random each time.
         if binds.fire.just_pressed(&keys, &mouse) {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
+            request_stab(&cam, &mut pending_melee, &mut local_melee);
             return;
         }
         // No attack this frame — count down toward the next idle "Adjust

@@ -145,12 +145,9 @@ fn resolve_shots(
 
     for (shooter, input) in &shooters {
         let i = &input.0;
-        if !i.fire || !is_alive(shooter.0) {
+        if !(i.fire || i.melee) || !is_alive(shooter.0) {
             continue;
         }
-        let Some(weapon) = WeaponId::from_u8(i.weapon) else {
-            continue;
-        };
         // A shot only touches the shooter's own lobby's game.
         let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(shooter.0)) else {
             continue;
@@ -190,6 +187,52 @@ fn resolve_shots(
 
         let origin = Vec3::from_array(i.fire_origin);
         let dir = Vec3::from_array(i.fire_dir);
+
+        // A knife stab: no ballistics, no tracer — the nearest target that's
+        // close and roughly under the crosshair dies. Bots (`Freestyle`) score
+        // flat knife-kill points; players (`FreeForAll`) take lethal damage
+        // through the same `PlayerHit` a bullet uses, so death, respawn, kill
+        // credit and the victim's kill cam all follow for free.
+        if i.melee {
+            let Some(hit) = shared::melee::resolve_melee(origin, dir, &targets) else {
+                continue;
+            };
+            match kind.get(&hit.target) {
+                Some(HitKind::Bot(bot)) => {
+                    let (points, lines) = shared::scoring::score_knife_kill();
+                    bot_hits.write(BotHit {
+                        bot: *bot,
+                        by: shooter.0,
+                        points,
+                    });
+                    let trick = TrickScore {
+                        shooter: shooter.0,
+                        total: points,
+                        lines,
+                    };
+                    if let Err(e) =
+                        sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::All)
+                    {
+                        error!("failed to broadcast trick score: {e:?}");
+                    }
+                    info!("tick {tick}: {:?} knifed a bot for {points} pts", shooter.0);
+                }
+                Some(HitKind::Player(victim)) if lobby.mode == GameMode::FreeForAll => {
+                    player_hits.write(PlayerHit {
+                        victim: *victim,
+                        killer: shooter.0,
+                        damage: shared::melee::KNIFE_DAMAGE,
+                    });
+                    info!("tick {tick}: {:?} knifed player {:?}", shooter.0, victim);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        let Some(weapon) = WeaponId::from_u8(i.weapon) else {
+            continue;
+        };
 
         // The tracer's true endpoint — captured up front so it's correct even
         // for a bot kill, which `outcome` below reports as `Miss` (bots aren't

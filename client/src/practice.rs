@@ -17,6 +17,7 @@ use shared::weapon::WeaponId;
 use crate::{play_bot_death, BotAnimationPlayer, BotAnimations, BotVisual};
 
 use crate::killcam::{PendingLocal, PendingLocalCam};
+use crate::LocalMelee;
 use crate::net::GameClient;
 use crate::{
     Ads, AppState, GroundImpact, Player, PlayerPhysics, TrickScoredEvent, TrickState,
@@ -63,6 +64,7 @@ impl Plugin for PracticePlugin {
                 Update,
                 (
                     resolve_local_shot,
+                    resolve_local_melee.run_if(is_practice),
                     (spawn_practice_bots, place_practice_bots, tick_practice_bots)
                         .run_if(is_practice.and(crate::killcam::no_killcam)),
                     update_score_text,
@@ -301,6 +303,68 @@ fn resolve_local_shot(
         // re-draws the tracer along its true path instead of leaving the live
         // one hanging in the world. (Practice records off the event above.)
         tracer_rec.0 = Some((shot.origin, end));
+    }
+}
+
+/// Solo Practice's knife: a stab kills the nearest offline bot that's close
+/// and roughly under the crosshair, scored and killcam'd like the server would
+/// (`shared::melee::resolve_melee`, `shared::scoring::score_knife_kill`). In a
+/// lobby the server resolves the stab instead (`server::sim::resolve_shots`),
+/// so this only runs under [`is_practice`].
+fn resolve_local_melee(
+    time: Res<Time>,
+    mut stabs: EventReader<LocalMelee>,
+    mut bots: Query<(Entity, &mut PracticeBot)>,
+    mut score: ResMut<PracticeScore>,
+    mut pending_cam: ResMut<PendingLocalCam>,
+    mut blood: EventWriter<crate::BloodImpact>,
+    mut scored: EventWriter<TrickScoredEvent>,
+) {
+    for stab in stabs.read() {
+        let targets: Vec<Target> = bots
+            .iter()
+            .filter(|(_, b)| b.dead_at.is_none())
+            .map(|(e, b)| Target {
+                id: e.to_bits(),
+                body: Capsule::standing(b.pos, BOT_HEIGHT, BOT_RADIUS),
+                head: Capsule::head(b.pos, BOT_HEIGHT, BOT_HEAD_RADIUS),
+            })
+            .collect();
+        let Some(hit) = shared::melee::resolve_melee(stab.origin, stab.dir, &targets) else {
+            continue;
+        };
+
+        // Freeze every live bot for the kill cam before the victim dies.
+        let snap: Vec<(Vec3, f32, bool)> = bots
+            .iter()
+            .filter(|(_, b)| b.dead_at.is_none())
+            .map(|(e, b)| (b.pos, b.yaw, e.to_bits() == hit.target))
+            .collect();
+
+        let now = time.elapsed_secs();
+        let Some((victim, _)) = bots.iter().find(|(e, _)| e.to_bits() == hit.target) else {
+            continue;
+        };
+        if let Ok((_, mut bot)) = bots.get_mut(victim) {
+            bot.dead_at = Some(now);
+        }
+        blood.write(crate::BloodImpact {
+            point: hit.point,
+            dir: stab.dir.normalize_or_zero(),
+        });
+        if pending_cam.0.is_none() {
+            pending_cam.0 = Some(PendingLocal {
+                kill_at: now,
+                fire_at: now + crate::killcam::POST_SECS,
+                bots: snap,
+            });
+        }
+        let (total, lines) = shared::scoring::score_knife_kill();
+        score.0 += total;
+        scored.write(TrickScoredEvent {
+            total,
+            lines: lines.into_iter().map(|l| (l.label, l.points)).collect(),
+        });
     }
 }
 

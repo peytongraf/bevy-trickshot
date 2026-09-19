@@ -12,7 +12,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Update to bevy 0.19 from 0.16
 - When knife is added the current ammo count and total ammo count text should not be visible.
 - The knife / sniper icons in the ammo hud should be about twice the size
-- Implement knife attack on bots and remote players
 - Add weapon sway to knife model which should be exactly the same as with the sniper sway settings
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 - Add scope selections in loadout ( just different zoom levels, model won't change ). Will need to adjust ui control settings for different zoom levels to ensure what the scope renders lines up with the view outside the scope
@@ -99,6 +98,7 @@ Ordered easiest → hardest to fix.
 
 Ordered easiest → hardest to fix. Note: a knife model was added recently (see git log) — check whether "Add knife and throwing knife models" is now partially done.
 
+- Added knife stabs (Call-of-Duty style): with the knife drawn, pressing fire starts the slice animation and files a stab request from the camera's eye along its forward direction (`PendingMelee` / `LocalMelee`, `client/src/weapons/weapon.rs`; `PlayerInput::melee` rides the existing `fire_origin`/`fire_dir` fields). The server resolves it with `shared::melee::resolve_melee` — nearest body capsule within ~2.2 m and within ~50° of the aim, with body-radius + 0.4 m aim slack, always a kill, no headshot/pierce/falloff (`server/src/sim.rs`). `Freestyle`: kills a bot for `KNIFE_KILL_POINTS` (25, flat — no trick multipliers) via the normal `BotHit`, so the score popup, bot topple and kill cam all follow. `FreeForAll`: lethal `PlayerHit` (`KNIFE_DAMAGE`) so death/respawn/kill credit/victim kill cam are the existing path. Solo Practice mirrors it offline (`practice::resolve_local_melee`). Instant on press (no wind-up delay). Known gaps: no stab/hit sound (see "Add knife sounds"), and the kill cam replays the killer's knife as static (only the sniper's animation playhead is recorded, not the knife's). Bumped `PROTOCOL_ID` (also covers `KillCamPlayer::killed`).
 - Fixed: switching to the knife no longer blocks attacking while its grip-adjust animation plays. `Adjust Grip` is now a random idle fidget (every 3-10s while idle, `KnifeAnimState::next_adjust_in`) instead of auto-playing right after the draw, and a `KnifeBusy::interruptible` flag lets a fire press cut it short instantly and swing instead of waiting it out (`client/src/weapons/weapon.rs`).
 - Add knife and throwing knife models
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
