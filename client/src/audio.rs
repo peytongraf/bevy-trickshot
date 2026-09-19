@@ -179,7 +179,9 @@ pub(crate) fn start_ambient(
 ) {
     let (clip, volume_mult) = match current.0 {
         shared::MapId::BasicMap => (sounds.ambient.clone(), vols.ambient),
-        shared::MapId::Shipment => (sounds.shipment_ambient.clone(), vols.shipment_ambient),
+        shared::MapId::Shipment | shared::MapId::ShipmentDay => {
+            (sounds.shipment_ambient.clone(), vols.shipment_ambient)
+        }
     };
     commands.spawn((
         AmbientAudio,
@@ -210,7 +212,7 @@ pub(crate) fn apply_master_volume(
     global_volume.volume = Volume::Linear(settings.master_volume);
     let ambient_mult = match current.0 {
         shared::MapId::BasicMap => vols.ambient,
-        shared::MapId::Shipment => vols.shipment_ambient,
+        shared::MapId::Shipment | shared::MapId::ShipmentDay => vols.shipment_ambient,
     };
     for mut sink in &mut ambient {
         sink.set_volume(Volume::Linear(

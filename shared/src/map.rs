@@ -89,7 +89,7 @@ pub const SHIPMENT_SCALE: f32 = 0.5;
 pub fn walls(map: MapId) -> &'static [WallBox] {
     match map {
         MapId::BasicMap => BASIC_MAP_WALLS,
-        MapId::Shipment => SHIPMENT_WALLS,
+        MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
     }
 }
 
@@ -110,7 +110,7 @@ pub fn point_blocked(map: MapId, x: f32, z: f32, radius: f32, scale: f32) -> boo
 fn bounds(map: MapId) -> Option<WallBox> {
     match map {
         MapId::BasicMap => None,
-        MapId::Shipment => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
+        MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
     }
 }
 

@@ -213,6 +213,7 @@ fn main() {
         .init_resource::<SoundVolumes>()
         .init_resource::<SceneTuning>()
         .init_resource::<ShipmentSceneTuning>()
+        .init_resource::<ShipmentDaySceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<CurrentMap>()
         .init_resource::<MapLoadState>()

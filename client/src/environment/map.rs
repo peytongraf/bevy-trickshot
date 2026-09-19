@@ -160,7 +160,7 @@ pub(crate) fn apply_shipment_transform(
     settings: Res<ShipmentSettings>,
     mut models: Query<&mut Transform, With<MapGeometry>>,
 ) {
-    if current.0 != shared::MapId::Shipment {
+    if !current.0.is_shipment() {
         return;
     }
     for mut transform in &mut models {
@@ -193,7 +193,7 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
         shared::MapId::BasicMap => None,
-        shared::MapId::Shipment => Some("models/shipment_visual.glb"),
+        shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/shipment_visual.glb"),
     }
 }
 
@@ -232,7 +232,7 @@ pub(crate) fn sync_map_model(
     *load_state = MapLoadState::default();
     let path = match current.0 {
         shared::MapId::BasicMap => "models/basic_map.glb",
-        shared::MapId::Shipment => "models/shipment.glb",
+        shared::MapId::Shipment | shared::MapId::ShipmentDay => "models/shipment.glb",
     };
     commands
         .spawn((
@@ -329,23 +329,29 @@ pub(crate) fn sync_shipment_only_visibility(
     if !current.is_changed() {
         return;
     }
-    let is_shipment = current.0 == shared::MapId::Shipment;
-    let shipment_only_visibility = if is_shipment {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
+    let visible_if = |shown: bool| {
+        if shown {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        }
     };
+    // The ocean shows on both Shipment variants; the floodlights and
+    // container fixtures are night-only — Shipment Day has full sun, and
+    // their beams/glows would just read as stray bright spots in daylight.
+    let water_visibility = visible_if(current.0.is_shipment());
+    let night_visibility = visible_if(current.0 == shared::MapId::Shipment);
     if let Ok(entity) = water.single() {
-        commands.entity(entity).insert(shipment_only_visibility);
+        commands.entity(entity).insert(water_visibility);
     }
     for entity in &light {
-        commands.entity(entity).insert(shipment_only_visibility);
+        commands.entity(entity).insert(night_visibility);
     }
     if let Ok(entity) = fluoro.single() {
-        commands.entity(entity).insert(shipment_only_visibility);
+        commands.entity(entity).insert(night_visibility);
     }
     for entity in &bulbs {
-        commands.entity(entity).insert(shipment_only_visibility);
+        commands.entity(entity).insert(night_visibility);
     }
 }
 

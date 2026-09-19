@@ -25,11 +25,13 @@ pub(crate) struct SkyMaterial(pub(crate) Handle<StandardMaterial>);
 /// The equirectangular HDR [`SkySphere`] shows for `map` — a clear-sky
 /// backdrop for `basic_map.glb`'s open field, an overcast one for
 /// `shipment.glb`'s cargo-ship-at-sea setting (a bright sunny sky reads a
-/// bit odd out over open, ostensibly rougher water).
+/// bit odd out over open, ostensibly rougher water). `ShipmentDay` is the
+/// same ship in full sun, so it reuses `basic_map.glb`'s clear-sky HDR.
 pub(crate) fn sky_texture_path(map: shared::MapId) -> &'static str {
     match map {
         shared::MapId::BasicMap => "skybox/citrus_orchard_puresky_8k.hdr",
         shared::MapId::Shipment => "skybox/overcast_soil_puresky_8k.hdr",
+        shared::MapId::ShipmentDay => "skybox/citrus_orchard_puresky_8k.hdr",
     }
 }
 

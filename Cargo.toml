@@ -7,7 +7,7 @@ members = ["client", "server", "shared"]
 # player-facing changes — it's what the in-game updater and the main-menu
 # "WHAT'S NEW" panel compare against, and what you tag (`git tag vX.Y.Z`) to
 # actually ship it.
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 
 [workspace.dependencies]

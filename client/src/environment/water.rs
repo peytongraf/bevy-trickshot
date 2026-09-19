@@ -5,9 +5,11 @@ use bevy::prelude::*;
 
 use crate::util::srgb_parts;
 
+use super::map::CurrentMap;
+
 /// Marker on the always-spawned ocean plane ringing `shipment.glb`'s yard
 /// just below its ground level — the MW3 Shipment cargo-ship setting this
-/// map's remaking. Shown only for `Shipment` ([`sync_shipment_only_visibility`]);
+/// map's remaking. Shown only for `Shipment` / `ShipmentDay` ([`sync_shipment_only_visibility`]);
 /// `basic_map.glb` has no nautical setting to speak of. No collider — it
 /// sits outside the yard's walls, so a player can never actually reach it.
 #[derive(Component)]
@@ -43,6 +45,9 @@ pub(crate) const WATER_SCROLL_SPEED: Vec2 = Vec2::new(-0.022, 0.007);
 pub(crate) struct WaterSettings {
     pub(crate) level_drop: f32,
     pub(crate) tint: [f32; 3],
+    /// `tint` while [`shared::MapId::ShipmentDay`] is selected — a bright
+    /// sunlit-sea blue instead of `tint`'s near-black night water.
+    pub(crate) day_tint: [f32; 3],
     pub(crate) alpha: f32,
     pub(crate) roughness: f32,
     pub(crate) reflectance: f32,
@@ -58,6 +63,7 @@ impl Default for WaterSettings {
             // debug panel's "Water" section) prints the exact tint you've
             // actually dialled in, once you have it, to replace this.
             tint: srgb_parts(Color::srgb(0.01, 0.03, 0.09)),
+            day_tint: srgb_parts(Color::srgb(0.06, 0.28, 0.42)),
             alpha: 0.98,
             roughness: 0.13,
             reflectance: 0.53,
@@ -73,6 +79,7 @@ impl Default for WaterSettings {
 /// effect the instant `sync_shipment_only_visibility` reveals it.
 pub(crate) fn apply_water_settings(
     settings: Res<WaterSettings>,
+    current: Res<CurrentMap>,
     mut plane: Query<(&mut Transform, &WaterMaterial), With<WaterPlane>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -83,7 +90,11 @@ pub(crate) fn apply_water_settings(
     let Some(material) = materials.get_mut(&water.0) else {
         return;
     };
-    let [r, g, b] = settings.tint;
+    let [r, g, b] = if current.0 == shared::MapId::ShipmentDay {
+        settings.day_tint
+    } else {
+        settings.tint
+    };
     material.base_color = Color::srgba(r, g, b, settings.alpha);
     material.perceptual_roughness = settings.roughness;
     material.reflectance = settings.reflectance;

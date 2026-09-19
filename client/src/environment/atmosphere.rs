@@ -90,8 +90,35 @@ impl Default for ShipmentSceneTuning {
     }
 }
 
-/// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)" and
-/// "Fog & Sky (Shipment)" — same [`SceneTuning`] shape, different resource
+/// `shipment.glb`'s daytime look ([`shared::MapId::ShipmentDay`]) — the same
+/// yard as [`ShipmentSceneTuning`], but in bright midday sun instead of dark,
+/// foggy, rainy dusk: barely any fog (just enough distance haze to soften the
+/// horizon over the water), a strong warm sun, and a bright sky-blue ambient
+/// fill so container shadows stay readable rather than going black. Paired
+/// with `basic_map.glb`'s clear-sky HDR (see `sky_texture_path`) and no rain
+/// (`update_rain` only runs for `Shipment`). Live-tweakable from the debug
+/// panel's "Fog & Sky (Shipment Day)" section.
+#[derive(Resource)]
+pub(crate) struct ShipmentDaySceneTuning(pub(crate) SceneTuning);
+
+impl Default for ShipmentDaySceneTuning {
+    fn default() -> Self {
+        Self(SceneTuning {
+            fog_visibility_m: 1000.0,
+            // Pale, slightly warm sky-blue haze, matched to the clear-sky HDR's horizon.
+            fog_color: srgb_parts(Color::srgb(0.74, 0.82, 0.92)),
+            fog_sun_exponent: 30.0,
+            sun_lux: 32_000.0,
+            sun_color: srgb_parts(Color::srgb(1.0, 0.96, 0.88)),
+            ambient_color: srgb_parts(Color::srgb(0.62, 0.75, 0.94)),
+            ambient_lux: 450.0,
+            bloom_intensity: 0.08,
+        })
+    }
+}
+
+/// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)",
+/// "Fog & Sky (Shipment)" and "Fog & Sky (Shipment Day)" — same [`SceneTuning`] shape, different resource
 /// (and therefore different defaults) behind each.
 pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
     ui.add(
@@ -122,8 +149,8 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
 
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
 /// changes (also once at startup, which just re-applies the consts).
-/// Picks whichever of [`SceneTuning`] (`BasicMap`) or [`ShipmentSceneTuning`]
-/// (`Shipment`) is currently selected and pushes it onto the shared fog /
+/// Picks whichever of [`SceneTuning`] (`BasicMap`), [`ShipmentSceneTuning`]
+/// (`Shipment`) or [`ShipmentDaySceneTuning`] (`ShipmentDay`) is currently selected and pushes it onto the shared fog /
 /// sun / ambient light / bloom — there's only one of each in the world, so
 /// switching maps re-points them at a different look rather than swapping
 /// entities.
@@ -131,17 +158,23 @@ pub(crate) fn apply_scene_tuning(
     current: Res<CurrentMap>,
     scene: Res<SceneTuning>,
     shipment_scene: Res<ShipmentSceneTuning>,
+    shipment_day_scene: Res<ShipmentDaySceneTuning>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
 ) {
-    if !current.is_changed() && !scene.is_changed() && !shipment_scene.is_changed() {
+    if !current.is_changed()
+        && !scene.is_changed()
+        && !shipment_scene.is_changed()
+        && !shipment_day_scene.is_changed()
+    {
         return;
     }
     let active = match current.0 {
         shared::MapId::BasicMap => &*scene,
         shared::MapId::Shipment => &shipment_scene.0,
+        shared::MapId::ShipmentDay => &shipment_day_scene.0,
     };
 
     ambient.color = color_from_parts(active.ambient_color);

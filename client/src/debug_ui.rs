@@ -64,6 +64,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<FluoroLightSettings>,
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
+            ResMut<ShipmentDaySceneTuning>,
         ),
     ),
 ) -> Result {
@@ -82,7 +83,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg),
+        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -365,7 +366,7 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Water", |ui| {
                 let w = &mut *water;
-                ui.label("Shipment only — the MW3-style cargo-ship setting's ocean plane");
+                ui.label("Shipment / Shipment Day — the MW3-style cargo-ship setting's ocean plane");
                 ui.add(
                     egui::Slider::new(&mut w.level_drop, -3.0f32..=8.0)
                         .text("level drop below ground (m)"),
@@ -373,6 +374,10 @@ pub(crate) fn ads_tuning_ui(
                 ui.horizontal(|ui| {
                     ui.label("tint");
                     ui.color_edit_button_rgb(&mut w.tint);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("tint (Shipment Day)");
+                    ui.color_edit_button_rgb(&mut w.day_tint);
                 });
                 ui.add(egui::Slider::new(&mut w.alpha, 0.0f32..=1.0).text("opacity"));
                 ui.add(
@@ -1028,6 +1033,15 @@ pub(crate) fn ads_tuning_ui(
                 scene_tuning_sliders(ui, &mut shipment_scene.0);
                 if ui.button("Reset fog & sky").clicked() {
                     *shipment_scene = ShipmentSceneTuning::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Fog & Sky (Shipment Day)", |ui| {
+                ui.label("Bright, clear daytime — barely any fog, no rain");
+                scene_tuning_sliders(ui, &mut shipment_day_scene.0);
+                if ui.button("Reset fog & sky").clicked() {
+                    *shipment_day_scene = ShipmentDaySceneTuning::default();
                 }
             });
 

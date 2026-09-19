@@ -778,6 +778,13 @@ fn build_room(
                             shared::MapId::Shipment,
                             lobby.map,
                         );
+                        spawn_map_button(
+                            row,
+                            asset_server,
+                            "SHIPMENT DAY",
+                            shared::MapId::ShipmentDay,
+                            lobby.map,
+                        );
                     });
 
                     col.spawn(Node {

@@ -57,6 +57,11 @@ pub enum MapId {
     /// `models/shipment.glb` — a Call-of-Duty-style Shipment recreation:
     /// ground plane plus shipping-container walls.
     Shipment,
+    /// The same `models/shipment.glb` geometry as [`MapId::Shipment`], set in
+    /// bright, clear daytime instead of dark, foggy, rainy dusk — only the
+    /// client's fog/sky/lighting/weather differ; collision, spawns and bounds
+    /// are identical (see [`MapId::is_shipment`]).
+    ShipmentDay,
 }
 
 impl MapId {
@@ -64,7 +69,16 @@ impl MapId {
         match self {
             MapId::BasicMap => "BASIC MAP",
             MapId::Shipment => "SHIPMENT",
+            MapId::ShipmentDay => "SHIPMENT DAY",
         }
+    }
+
+    /// `true` for either variant built on `shipment.glb` (night or day) —
+    /// same model, collision, walls and spawn bounds, so anything keyed to
+    /// the geometry rather than the time of day should test this instead of
+    /// `== MapId::Shipment`.
+    pub fn is_shipment(self) -> bool {
+        matches!(self, MapId::Shipment | MapId::ShipmentDay)
     }
 }
 
