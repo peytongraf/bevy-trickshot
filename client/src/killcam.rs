@@ -15,6 +15,7 @@ use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
 use bevy::audio::Volume;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use shared::KillCamSample;
@@ -585,6 +586,14 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
 
 // --- playback -------------------------------------------------------
 
+/// Bundled purely to stay under `start_killcam`'s `SystemParam` tuple limit
+/// (it was already at 16 separate parameters).
+#[derive(SystemParam)]
+struct WeaponAndDeathEffect<'w> {
+    weapon: Res<'w, Weapon>,
+    death_effect: ResMut<'w, crate::death_effect::DeathEffect>,
+}
+
 /// Take the game camera over for the replay: stash the rig transforms, zero the
 /// shake / recoil nodes, and put up the banner. We fly the *existing* rig along
 /// the recorded eye path, so the world camera keeps the game's exact fog /
@@ -606,7 +615,9 @@ fn start_killcam(
     live_sounds: Query<Entity, (With<AudioSink>, Without<crate::AmbientAudio>)>,
     view_model_vis: Query<&Visibility, (With<ViewModel>, Without<TargetBotVisual>)>,
     knife: Res<crate::ThrowingKnife>,
-    weapon: Res<Weapon>,
+    // Bundled (rather than two separate params) — `start_killcam` was already
+    // at the 16-parameter `SystemParam` tuple limit.
+    mut weapon_and_death_effect: WeaponAndDeathEffect,
     asset_server: Res<AssetServer>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     // `aim_idle_sway` (real camera rotation, gated off during a replay) is the
@@ -636,16 +647,25 @@ fn start_killcam(
     }
     aim_sway.offset = Vec2::ZERO;
 
+    // `death_effect` force-hides whichever weapon was drawn the instant the
+    // fatal hit lands (well before this runs — see `death_effect::on_killed_by`),
+    // so reading `view_model_vis` live here would wrongly stash "hidden" for a
+    // sniper that was genuinely equipped a moment ago. Consume the flag (it's
+    // only ever meaningful for this one read) and trust it over the live,
+    // deliberately-hidden `Visibility` when it says the sniper was the one hidden.
+    let sniper_was_forced_hidden = weapon_and_death_effect.death_effect.hidden_weapon.take()
+        == Some(crate::death_effect::HiddenWeapon::Sniper);
     let mut saved = SavedRig {
         player: Transform::IDENTITY,
         head: Transform::IDENTITY,
         ads_t: ads.t,
-        weapon_visible: view_model_vis
-            .iter()
-            .next()
-            .is_none_or(|v| *v != Visibility::Hidden),
+        weapon_visible: sniper_was_forced_hidden
+            || view_model_vis
+                .iter()
+                .next()
+                .is_none_or(|v| *v != Visibility::Hidden),
         knife_active: knife.active,
-        slot: weapon.slot,
+        slot: weapon_and_death_effect.weapon.slot,
     };
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {

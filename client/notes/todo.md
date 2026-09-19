@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Death animation isn't playing in killcam
+- Update to bevy 0.19 from 0.16
 - Add death by falling either once a certain negative height position is reach or a free fall time.
 - Add animation where camera stops then looks down at and follows player at time of death by fall.
 - When knife is added the current ammo count and total ammo count text should not be visible.

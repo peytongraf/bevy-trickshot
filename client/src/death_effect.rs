@@ -16,7 +16,7 @@ use shared::PlayerKilledBy;
 use crate::killcam::ActiveKillCam;
 use crate::net::LocalPlayerRespawned;
 use crate::util::ease;
-use crate::{AppState, Player, PlayerHead, PITCH_LIMIT};
+use crate::{AppState, KnifeViewModel, Player, PlayerHead, ViewModel, PITCH_LIMIT};
 
 /// How long the forced look-at pan onto the killer takes. Quick, not
 /// instant, so it still reads as a snap-turn rather than a hard cut.
@@ -33,6 +33,19 @@ struct DeathOverlay;
 #[derive(Resource, Default)]
 pub(crate) struct DeathEffect {
     pan: Option<Pan>,
+    /// Whichever view model `on_killed_by` force-hid for the death effect, if
+    /// any — restored by `clear_on_killcam_or_respawn` on the no-kill-cam
+    /// fallback path. On the normal path, `killcam::start_killcam` consumes
+    /// (and clears) this itself instead, to recover the true pre-death
+    /// visibility rather than the live one it deliberately hid — see that
+    /// function's use of it.
+    pub(crate) hidden_weapon: Option<HiddenWeapon>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HiddenWeapon {
+    Sniper,
+    Knife,
 }
 
 struct Pan {
@@ -87,6 +100,8 @@ fn on_killed_by(
     player: Single<&Transform, (With<Player>, Without<PlayerHead>)>,
     head: Single<&Transform, (With<PlayerHead>, Without<Player>)>,
     existing_overlay: Query<(), With<DeathOverlay>>,
+    mut sniper_vis: Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
+    mut knife_vis: Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -141,6 +156,22 @@ fn on_killed_by(
                         ));
                     });
             }
+
+            // Instantly hide whichever weapon is currently drawn — same
+            // mechanism (a bare `Visibility::Hidden`, no animation) as the
+            // throwing-knife key's own instant hide of the sniper
+            // (`weapon::weapon_system`). Guarded so a second `PlayerKilledBy`
+            // (shouldn't happen, but defensively) doesn't stomp a still-set
+            // `hidden_weapon` before it's been consumed.
+            if effect.hidden_weapon.is_none() {
+                if **sniper_vis != Visibility::Hidden {
+                    **sniper_vis = Visibility::Hidden;
+                    effect.hidden_weapon = Some(HiddenWeapon::Sniper);
+                } else if **knife_vis != Visibility::Hidden {
+                    **knife_vis = Visibility::Hidden;
+                    effect.hidden_weapon = Some(HiddenWeapon::Knife);
+                }
+            }
         }
     }
 }
@@ -171,13 +202,26 @@ fn clear_on_killcam_or_respawn(
     mut effect: ResMut<DeathEffect>,
     mut commands: Commands,
     overlay: Query<Entity, With<DeathOverlay>>,
+    mut sniper_vis: Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
+    mut knife_vis: Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
 ) {
     let killcam_started = active.is_changed() && active.0.is_some();
     let just_respawned = respawned.read().count() > 0;
-    if effect.pan.is_some() && (killcam_started || just_respawned) {
-        effect.pan = None;
-        for entity in &overlay {
-            commands.entity(entity).try_despawn();
+    if effect.pan.is_none() || !(killcam_started || just_respawned) {
+        return;
+    }
+    effect.pan = None;
+    for entity in &overlay {
+        commands.entity(entity).try_despawn();
+    }
+    // If a kill cam is starting instead, leave `hidden_weapon` alone —
+    // `killcam::start_killcam` reads and clears it itself (see that
+    // function), so there's no race over which of us gets there first.
+    if !killcam_started {
+        match effect.hidden_weapon.take() {
+            Some(HiddenWeapon::Sniper) => **sniper_vis = Visibility::Inherited,
+            Some(HiddenWeapon::Knife) => **knife_vis = Visibility::Inherited,
+            None => {}
         }
     }
 }
