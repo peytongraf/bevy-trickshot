@@ -1,13 +1,62 @@
-//! The small surface the server needs from your map. You own the geometry
-//! (meshes, BVH, nav data); the server only calls through these traits.
+//! What the client and the server both need to know about a map: where its
+//! model sits in the world ([`placement`]), the hand-measured wall boxes used
+//! for spawn placement, and the [`CollisionWorld`] trait the server's
+//! collision meshes implement (see `server::collision`, which loads the very
+//! same `.glb` files the client builds its own colliders from).
 //!
-//! Nothing here is wired into the server loop yet — [`crate::ballistics::resolve_shot`]
-//! currently takes a `|from, to| false` closure. Swap that for a
-//! [`CollisionWorld::segment_blocked`] call once you have real geometry.
+//! [`crate::ballistics::resolve_shot`] still takes a `|from, to| false`
+//! occlusion closure — bullets don't collide with walls yet — but the
+//! throwing knife ([`crate::throwing_knife`]) does, through
+//! [`CollisionWorld::sweep_sphere`].
 
 use bevy::math::Vec3;
 
 use crate::protocol::MapId;
+
+/// Where a map's collision model sits in the world: a uniform `scale`, then a
+/// yaw about +Y, then a `position` — applied to the whole `.glb` scene, the
+/// same way the client's `MapModel` entity carries it as a `Transform`.
+/// **The client's colliders and the server's are both built from the model
+/// with exactly this placement**, so it lives here, shared, rather than in
+/// either crate. (The client's debug panel can still nudge it live for
+/// tuning — when you land on new numbers, update them here so the server
+/// agrees.)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapPlacement {
+    pub position: Vec3,
+    pub yaw_deg: f32,
+    pub scale: f32,
+}
+
+/// `basic_map.glb`'s placement — see [`MapPlacement`].
+pub const BASIC_MAP_PLACEMENT: MapPlacement = MapPlacement {
+    position: Vec3::new(16.0, 0.0, 8.0),
+    yaw_deg: 0.0,
+    scale: 0.65,
+};
+
+/// The collision model file for `map`, relative to the client's assets
+/// directory — `shipment.glb` for both Shipment variants. The server embeds
+/// these same files at build time (`server::collision`).
+pub fn collision_model_path(map: MapId) -> &'static str {
+    match map {
+        MapId::BasicMap => "models/basic_map.glb",
+        MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
+    }
+}
+
+/// Where `map`'s collision model sits — see [`MapPlacement`]. Shipment's is
+/// just [`SHIPMENT_SCALE`] at the origin.
+pub fn placement(map: MapId) -> MapPlacement {
+    match map {
+        MapId::BasicMap => BASIC_MAP_PLACEMENT,
+        MapId::Shipment | MapId::ShipmentDay => MapPlacement {
+            position: Vec3::ZERO,
+            yaw_deg: 0.0,
+            scale: SHIPMENT_SCALE,
+        },
+    }
+}
 
 /// An axis-aligned collision box in world-space X/Z — the Y axis is ignored
 /// since every wall in this game is taller than a player, so it blocks at
@@ -131,11 +180,27 @@ pub fn in_bounds(map: MapId, x: f32, z: f32, scale: f32) -> bool {
     }
 }
 
-/// Static-geometry occlusion queries for shot resolution.
+/// Where a swept sphere first touched solid geometry — see
+/// [`CollisionWorld::sweep_sphere`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldHit {
+    /// How far along `from → to` (`0.0..=1.0`) the sphere's centre was when it
+    /// first touched. `0.0` if it started out already touching / overlapping.
+    pub fraction: f32,
+    /// Unit surface normal at the contact, pointing out of the solid toward
+    /// the sphere (i.e. against the direction of travel).
+    pub normal: Vec3,
+}
+
+/// Static-geometry queries against a map's collision mesh.
 pub trait CollisionWorld: Send + Sync + 'static {
     /// `true` if a straight segment from `a` to `b` is stopped by solid map
     /// geometry (so a bullet along it should not reach `b`).
     fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool;
+
+    /// Sweep a sphere of `radius` from `from` to `to` and report the first
+    /// solid surface it touches, if any.
+    fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit>;
 }
 
 /// Stand-in until a map is loaded: nothing blocks anything.
@@ -145,6 +210,10 @@ pub struct EmptyWorld;
 impl CollisionWorld for EmptyWorld {
     fn segment_blocked(&self, _a: Vec3, _b: Vec3) -> bool {
         false
+    }
+
+    fn sweep_sphere(&self, _from: Vec3, _to: Vec3, _radius: f32) -> Option<WorldHit> {
+        None
     }
 }
 

@@ -23,14 +23,14 @@ use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 
 /// Nominal player dimensions for hitbox construction. Replace with per-character
 /// values once real models exist.
-const PLAYER_HEIGHT: f32 = 1.8;
-const PLAYER_RADIUS: f32 = 0.35;
+pub(crate) const PLAYER_HEIGHT: f32 = 1.8;
+pub(crate) const PLAYER_RADIUS: f32 = 0.35;
 const HEAD_RADIUS: f32 = 0.12;
 
 /// `PlayerPose::translation` is the owner's eye/camera position, not their
 /// feet (see `client::net::follow_remote_avatars`, which subtracts this same
 /// height to place the remote avatar model) — must track `client::EYE_HEIGHT`.
-const EYE_HEIGHT: f32 = 1.7;
+pub(crate) const EYE_HEIGHT: f32 = 1.7;
 
 /// What a resolved hit landed on.
 enum HitKind {

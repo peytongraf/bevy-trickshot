@@ -61,6 +61,20 @@ pub fn score_knife_kill() -> (u32, Vec<ScoreLine>) {
     )
 }
 
+/// Flat points for killing a bot with a thrown throwing knife in `Freestyle`.
+pub const THROWING_KNIFE_KILL_POINTS: u32 = 40;
+
+/// Breakdown + total for a bot killed by a thrown throwing knife.
+pub fn score_throwing_knife_kill() -> (u32, Vec<ScoreLine>) {
+    (
+        THROWING_KNIFE_KILL_POINTS,
+        vec![ScoreLine {
+            label: "THROWING KNIFE KILL".to_string(),
+            points: THROWING_KNIFE_KILL_POINTS,
+        }],
+    )
+}
+
 /// Score multiplier at full `max_range` — a point-blank kill is worth `1.0×`
 /// this; that's what it eases up to (linearly with distance) by the time a
 /// shot has travelled the weapon's whole effective range. Rewards the harder,

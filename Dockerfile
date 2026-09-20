@@ -9,7 +9,10 @@ WORKDIR /app
 
 # The whole workspace is copied so Cargo can resolve it. `-p server` builds ONLY
 # the server package and its deps — the client crate (full Bevy: wgpu, alsa, …)
-# is never compiled, so no extra system libraries are needed here.
+# is never compiled, so no extra system libraries are needed here. (The two
+# map collision `.glb`s under client/assets/models/ ride along too — the server
+# embeds them, see `server/src/collision.rs`; `.dockerignore` lets just those
+# through.)
 COPY . .
 RUN cargo build --release --locked -p server
 

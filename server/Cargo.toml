@@ -12,3 +12,12 @@ bevy = { workspace = true }
 lightyear = { workspace = true }
 shared = { path = "../shared" }
 serde = { workspace = true }
+# Map collision for the throwing knife: the server parses the same `.glb`
+# collision models the client builds its own colliders from (embedded at build
+# time — see `src/collision.rs`) into a triangle mesh and sweeps the knife
+# through it. `parry3d` is the geometry library the client's `bevy_rapier3d`
+# builds on (0.20 = what rapier 0.25 uses), so both sides run the same
+# triangle-mesh queries; `gltf` is the same parser Bevy's own loader uses,
+# with its image-decoding `import` feature off.
+parry3d = "0.20"
+gltf = { version = "1.4", default-features = false, features = ["utils"] }

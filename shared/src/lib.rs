@@ -4,8 +4,9 @@
 //!   per-tick input packet, gameplay messages, channels).
 //! * [`ballistics`] / [`hitbox`] / [`weapon`] — the deterministic shot-resolution
 //!   math the server runs authoritatively and the client can reuse to predict.
-//! * [`map`] — the small trait surface the server needs from your (future) map
-//!   geometry and navmesh.
+//! * [`map`] — where each map's model sits, plus the collision trait the
+//!   server's map meshes implement.
+//! * [`throwing_knife`] — the throwing knife's flight / bounce physics.
 //!
 //! Keeping all of this in one crate is the whole point of pinning the server to
 //! the same Bevy version as the client: there is exactly one definition of the
@@ -19,6 +20,7 @@ pub mod melee;
 pub mod protocol;
 pub mod scoring;
 pub mod spawns;
+pub mod throwing_knife;
 pub mod weapon;
 
 use bevy::prelude::*;
@@ -28,7 +30,7 @@ pub use protocol::{
     KillCamBot, KillCamPlayer, KillCamSample, LeaveLobby, Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
     PlayerRespawn, ProtocolPlugin, RemoteSound, ScoreLine, SetGameMode, SetKillLimit, SetMap,
-    SetTimeLimit, ShotOutcome, ShotResolved, StartGame, TrickScore,
+    SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, TrickScore,
 };
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
@@ -39,7 +41,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0008;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0009;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

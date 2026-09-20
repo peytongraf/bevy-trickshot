@@ -297,6 +297,20 @@ pub(crate) struct ThrowingKnife {
     /// the key press until the arms start sliding away.
     pub(crate) active: bool,
     phase: ThrowPhase,
+    /// The throw clip has started this round, so the knife model in the
+    /// arms' hand (`throw_arms::ThrowKnifeModel`) is gone. Cleared on the
+    /// next press.
+    thrown: bool,
+    /// Last frame's `ThrowArmsSettings::debug_hold_key`, so turning it on
+    /// counts as a single key *press* (not a re-press every time the sequence
+    /// returns to idle while it's still on).
+    debug_hold_prev: bool,
+    /// The throw request for the server has been filed this round (at
+    /// `ThrowArmsSettings::throw_release_secs` into the throw clip).
+    throw_sent: bool,
+    /// The filed throw request — the camera's `(eye, forward)` at the release
+    /// point — until `thrown_knife::send_throw_requests` sends it.
+    pending_throw: Option<(Vec3, Vec3)>,
     /// Seconds spent in [`ThrowPhase::Stowing`], so a Hide clip that never
     /// reports done (e.g. reset by a kill cam) can't wedge the sequence.
     stow_elapsed: f32,
@@ -309,6 +323,23 @@ impl ThrowingKnife {
     /// Whether the arms should be sliding into (or holding) view.
     pub(crate) fn arms_out(&self) -> bool {
         matches!(self.phase, ThrowPhase::Held | ThrowPhase::Throwing)
+    }
+
+    /// Take the filed throw request, if any (`(eye position, aim direction)`).
+    pub(crate) fn take_throw_request(&mut self) -> Option<(Vec3, Vec3)> {
+        self.pending_throw.take()
+    }
+
+    /// Whether a throw request is waiting to be sent.
+    pub(crate) fn has_throw_request(&self) -> bool {
+        self.pending_throw.is_some()
+    }
+
+    /// Whether the knife model should be showing in the arms' hand: from the
+    /// press until the throw animation starts (a cancelled throw keeps it as
+    /// the arms slide away).
+    pub(crate) fn knife_in_hand(&self) -> bool {
+        self.phase != ThrowPhase::Idle && !self.thrown
     }
 }
 
@@ -501,6 +532,15 @@ pub(crate) fn weapon_system(
     // system down with them.
     let mut arms_player = arms_players.iter_mut().next();
     let arms_node = arms_anim.index;
+    // The debug panel's "hold the key for me" toggle acts as the throwing-knife
+    // key being down (its rising edge is the press; needs no cursor lock,
+    // since the panel needs a free cursor).
+    let debug_hold = arms_settings.debug_hold_key;
+    let debug_press = debug_hold && !knife.debug_hold_prev;
+    if knife.debug_hold_prev != debug_hold {
+        knife.debug_hold_prev = debug_hold;
+    }
+    let key_held = debug_hold || binds.throwing_knife.pressed(&keys, &mouse);
 
     // Throwing knife — see [`ThrowPhase`]. Press: settle any half-finished
     // swap, then play the equipped weapon's Hide (sped up), which also cuts a
@@ -511,9 +551,13 @@ pub(crate) fn weapon_system(
     // Show, resuming whatever the press interrupted. Swap-weapon while the
     // arms are out cancels instead: no clip, the arms slide away and the
     // same weapon comes back.
-    if locked && binds.throwing_knife.just_pressed(&keys, &mouse) && knife.phase == ThrowPhase::Idle
+    if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
+        && knife.phase == ThrowPhase::Idle
     {
         knife.active = true;
+        knife.thrown = false;
+        knife.throw_sent = false;
+        knife.pending_throw = None;
         knife.stow_elapsed = 0.0;
         if let Some(arms) = arms_player.as_mut() {
             park_throw_arms(arms, arms_node);
@@ -626,9 +670,10 @@ pub(crate) fn weapon_system(
                 // Cancelled: no throw animation.
                 knife.active = false;
                 knife.phase = ThrowPhase::Returning;
-            } else if !binds.throwing_knife.pressed(&keys, &mouse) && knife.slide >= 1.0 {
+            } else if !key_held && knife.slide >= 1.0 {
                 // Released with the arms fully in place: throw.
                 knife.phase = ThrowPhase::Throwing;
+                knife.thrown = true;
                 if let Some(arms) = arms_player.as_mut() {
                     play_throw(arms, arms_node);
                 }
@@ -638,10 +683,20 @@ pub(crate) fn weapon_system(
         ThrowPhase::Throwing => {
             // Throw clip playing out — nothing else is accepted until it
             // finishes (a swap press is ignored; the knife is already gone).
-            let done = arms_player
-                .as_ref()
-                .and_then(|p| p.animation(arms_node))
-                .is_none_or(|a| a.is_finished());
+            let clip = arms_player.as_ref().and_then(|p| p.animation(arms_node));
+            let done = clip.is_none_or(|a| a.is_finished());
+            // The knife leaves the hand part-way through the clip: file the
+            // throw request (eye + aim right now) for the server. Sent by
+            // `thrown_knife::send_throw_requests`; if the clip ends first, it
+            // goes now rather than never.
+            if !knife.throw_sent
+                && (done || clip.is_some_and(|a| a.seek_time() >= arms_settings.throw_release_secs))
+            {
+                knife.throw_sent = true;
+                if let Ok(cam) = cam.single() {
+                    knife.pending_throw = Some((cam.translation(), cam.forward().as_vec3()));
+                }
+            }
             if done {
                 // The arms stay on the clip's last frame as they slide away;
                 // the next press re-parks them.

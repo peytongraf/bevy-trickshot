@@ -4,46 +4,9 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Note - P logs position to client console *
 
-# Pre practice removal cloc . in client src/
-
-❯❯ /home/peyton/Dev/bevy-trickshot/client/src : cloc .
-54 text files.
-54 unique files.  
-0 files ignored.
-
-github.com/AlDanial/cloc v 2.10 T=0.02 s (2634.6 files/s, 864651.0 lines/s)
--------------------------------------------------------------------------------
-
-Language files blank comment code
--------------------------------------------------------------------------------
-
-Rust 54 1167 3374 13181
--------------------------------------------------------------------------------
-
-SUM: 54 1167 3374 13181
--------------------------------------------------------------------------------
-
-# Post practice removal
-
-❯❯ /home/peyton/Dev/bevy-trickshot/client/src : cloc .
-53 text files.
-53 unique files.  
-0 files ignored.
-
-github.com/AlDanial/cloc v 2.10 T=0.02 s (2730.8 files/s, 879019.5 lines/s)
--------------------------------------------------------------------------------
-
-Language files blank comment code
--------------------------------------------------------------------------------
-
-Rust 53 1131 3299 12630
--------------------------------------------------------------------------------
-
-SUM: 53 1131 3299 12630
--------------------------------------------------------------------------------
-
 # Added
 
+- Download high quality arms model along with a sniper and knife. Create own custom animations with it.
 - Increase aim sway
 - On windows terminal pops up to play prod client
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
@@ -138,7 +101,9 @@ Ordered easiest → hardest to fix. Note: a knife model was added recently (see 
 - Add knife and throwing knife models
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
-- Added the throwing arms view model (`models/arms_throwing.glb`, `client/src/weapons/throw_arms.rs`) for the throwing-knife key (still no knife to actually throw): holding it plays the equipped weapon's own Hide (sniper *or* knife — previously only the sniper, and it snapped away) at `weapon_hide_speed`× (default 6), then the arms slide up parked on the clip's first frame; releasing (once they're fully in) plays the `throw` clip once, the arms slide back down, and only once they're fully out of view is the previous weapon drawn again with its normal Show (`ThrowPhase` in `weapon.rs`). Pressing swap-weapon while held cancels instead (no clip, arms hide, same weapon back). The clip has no show/hide, so `slide_throw_arms` supplies one: the arms slide up from below while `ThrowingKnife::active` and back down after (snapping away instantly during a kill cam / death effect). Pose is tunable from the egui "Throwing arms" section, and weapon hide speed / arms show-hide speed / hidden drop from "Throwing knife" (`ThrowArmsSettings`; defaults dialled in by the user). Known gaps: the throw isn't recorded into the kill cam (arms just hide for the replay), and nothing is sent to the server or other players yet.
+- Added the throwing arms view model (`models/arms_throwing.glb`, `client/src/weapons/throw_arms.rs`) for the throwing-knife key (still no knife to actually throw): holding it plays the equipped weapon's own Hide (sniper _or_ knife — previously only the sniper, and it snapped away) at `weapon_hide_speed`× (default 6), then the arms slide up parked on the clip's first frame; releasing (once they're fully in) plays the `throw` clip once, the arms slide back down, and only once they're fully out of view is the previous weapon drawn again with its normal Show (`ThrowPhase` in `weapon.rs`). Pressing swap-weapon while held cancels instead (no clip, arms hide, same weapon back). The clip has no show/hide, so `slide_throw_arms` supplies one: the arms slide up from below while `ThrowingKnife::active` and back down after (snapping away instantly during a kill cam / death effect). Pose is tunable from the egui "Throwing arms" section, and weapon hide speed / arms show-hide speed / hidden drop from "Throwing knife" (`ThrowArmsSettings`; defaults dialled in by the user). Known gaps: the throw isn't recorded into the kill cam (arms just hide for the replay), and nothing is sent to the server or other players yet.
+- Added the held throwing knife model (`models/throwing_knife.glb`): spawned as a *child* of the throwing arms' root (`throw_arms::ThrowKnifeModel`), so it rides along with the arms' slide (and any sway added later) and only needs positioning once, in the arms' local space (one unit = `ThrowArmsSettings::scale` metres). Shown from the key press until the throw clip starts (`ThrowingKnife::knife_in_hand` / `thrown`; a swap-cancel keeps it in hand as the arms slide away). Pose is tunable from the egui "Throwing knife model" section (`ThrowKnifeModelSettings`) — defaults are dialled in between the fingers (x -10, y -5, z 0, yaw -55, pitch -15, roll 60, scale 7). It's parented to the arms' root, not a hand bone, which is fine while the arms are parked on the clip's first frame; if the held pose ever animates, re-parent it to the hand joint. A "Hold throwing knife key" checkbox at the top of that section (`ThrowArmsSettings::debug_hold_key`) acts as holding the key so the pose can be tuned with the cursor free — ticking it is the press, unticking is the release (plays the throw). 
+- Added actually throwing the knife, server-authoritative. Client: at `ThrowArmsSettings::throw_release_secs` into the throw clip (default 0.25 s; egui "Throwing knife" section) `weapon_system` files the camera's eye + aim as `ThrowingKnife::pending_throw`, and `thrown_knife::send_throw_requests` sends it as a `shared::ThrowKnife` trigger (reliable `LobbyChannel`, so it can't be dropped like a one-tick input pulse). Server (`server/src/knives.rs`): validates (started lobby, alive, 0.5 s between throws, max 3 in the air, origin within 3 m of the real pose) and spawns a replicated + interpolated `shared::ThrownKnife` (owner, pos, rot, resting) stepped every tick by `shared::throwing_knife::KnifeBody` — gravity 6 m/s², 40 m/s launch, swept as a 6 cm sphere against the map mesh, bounces keep 50% of the speed into a surface / 80% along it (×0.65 more on floors), rests below 1.5 m/s (or 10 bounces), lies 1 s then despawns; end-over-end spin is simulated server-side (so everyone sees the same tumble) and it settles blade-flat on a floor. A knife moving ≥ 4 m/s kills the nearest valid target along its sweep (capsule + knife radius), unless a wall is closer: `Freestyle` → bots only (`BotHit`, `THROWING_KNIFE_KILL_POINTS` = 40, broadcast `TrickScore`), other players ignored entirely; `FreeForAll` → other players via `PlayerHit` (`KNIFE_DAMAGE`, so respawn / kill credit / victim kill cam all follow), no bots; never the thrower. Bot / player kills use the existing kill-cam queue untouched. Map collision (`server/src/collision.rs`): the server embeds the same `basic_map.glb` / `shipment.glb` the client collides with (`include_bytes!`), parses them with `gltf` (node transforms included, like the client's `AsyncSceneCollider`) into a world-space `parry3d` `TriMesh` (same `MERGE_DUPLICATE_VERTICES` flag; `parry3d` 0.20 = the version behind `bevy_rapier3d` 0.30) using the new shared `shared::map::placement` (`BASIC_MAP_PLACEMENT`, `SHIPMENT_SCALE`) — which the client's `MapSettings` now defaults from too, so the two can't drift. **Editing either collision glb or its placement now requires redeploying the server.** `.dockerignore` lets those two files into the Docker context. Client draws each replicated knife (`thrown_knife.rs`) as `throwing_knife.glb` (~26 cm, same size as the held one), hidden during kill cams. Bumped `PROTOCOL_ID`. Known gaps / ideas: no throw / hit / bounce sounds (see the unused `throwing-knife-*.mp3` in `not-used-yet/`), a thrown knife doesn't stick into walls/players, bullets still ignore walls (`|_, _| false` in `resolve_shots` — `CollisionWorld::segment_blocked` on the same mesh is now available for that), no ricochet-kill bonus points, the thrower sees their own knife only after the server round trip + interpolation delay, and the release time / launch speed / gravity / bounce constants are first guesses to tune.
 
 ## Docs / Housekeeping
 

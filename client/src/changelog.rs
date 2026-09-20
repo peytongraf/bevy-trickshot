@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "You can now actually throw the throwing knife! Hold V, aim and let go. It flies in an arc, bounces off walls and the ground, losing speed each time, then stops and disappears. Everyone in the lobby sees it. In Freestyle it kills bots (40 points); in Free For All it kills other players.",
+        "The throwing arms now hold a throwing knife while you hold V. It disappears the moment the throw animation starts.",
         "Holding the throwing knife key (V) now quickly puts your weapon away, then slides a pair of throwing arms up from below. Let go and they play a throw animation and slide back down, and only then does your weapon come back. Press the swap-weapon key while holding to cancel without throwing. There is no knife to throw yet.",
         "Removed PRACTICE mode. Every game now runs through the server: create a lobby (or join one) and start it to play. Freestyle still gives you bots to shoot at.",
     ],

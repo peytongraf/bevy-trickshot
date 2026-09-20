@@ -62,6 +62,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<RainSettings>,
             ResMut<KnifeViewModelSettings>,
             ResMut<ThrowArmsSettings>,
+            ResMut<ThrowKnifeModelSettings>,
             ResMut<FluoroLightSettings>,
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
@@ -86,7 +87,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -293,16 +294,59 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Throwing knife model", |ui| {
+                let k = &mut *knife_model;
+                ui.label(
+                    "models/throwing_knife.glb — the knife held in the throwing arms' hand, \
+                     positioned in the ARMS' local space (a child of the arms), so it stays in \
+                     the hand however the arms move. One unit = the arms' scale in metres \
+                     (0.01 by default, so units are ~cm). Visible from the key press until the \
+                     throw animation starts. Hold the throwing-knife key to see it.",
+                );
+                ui.checkbox(
+                    &mut arms_view.debug_hold_key,
+                    "Hold throwing knife key (as if held — untick to throw)",
+                );
+                ui.add(egui::Slider::new(&mut k.translation.x, -100.0f32..=100.0).text("x"));
+                ui.add(egui::Slider::new(&mut k.translation.y, -100.0f32..=100.0).text("y"));
+                ui.add(egui::Slider::new(&mut k.translation.z, -100.0f32..=100.0).text("z"));
+                ui.add(egui::Slider::new(&mut k.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                ui.add(egui::Slider::new(&mut k.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                ui.add(egui::Slider::new(&mut k.roll, -180.0f32..=180.0).text("roll (°)"));
+                ui.add(
+                    egui::Slider::new(&mut k.scale, 0.1f32..=30.0)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+                if ui.button("Copy knife model pose to console").clicked() {
+                    info!(
+                        "throwing knife model: translation: Vec3::new({:.3}, {:.3}, {:.3}), \
+                         yaw: {:.1}, pitch: {:.1}, roll: {:.1}, scale: {:.3}",
+                        k.translation.x, k.translation.y, k.translation.z, k.yaw, k.pitch, k.roll,
+                        k.scale,
+                    );
+                }
+                if ui.button("Reset knife model pose to default").clicked() {
+                    *k = ThrowKnifeModelSettings::default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Throwing knife", |ui| {
                 let a = &mut *arms_view;
                 ui.label(
                     "Hold the throwing-knife key: the equipped weapon plays its Hide (sped up), \
-                     then the throwing arms slide up from below. After the throw they slide back \
-                     down, and only then does the weapon start to show again.",
+                     then the throwing arms slide up from below. On release the throw plays; the \
+                     server-simulated knife is launched part-way through it. Afterwards the arms \
+                     slide back down, and only then does the weapon start to show again.",
                 );
                 ui.add(
                     egui::Slider::new(&mut a.weapon_hide_speed, 0.5f32..=12.0)
                         .text("weapon hide speed (x normal)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.throw_release_secs, 0.0f32..=0.66)
+                        .text("knife leaves the hand (s into the throw)"),
                 );
                 ui.add(
                     egui::Slider::new(&mut a.slide_speed, 0.5f32..=20.0)
@@ -318,6 +362,7 @@ pub(crate) fn ads_tuning_ui(
                     a.weapon_hide_speed = d.weapon_hide_speed;
                     a.slide_speed = d.slide_speed;
                     a.hide_drop = d.hide_drop;
+                    a.throw_release_secs = d.throw_release_secs;
                 }
             });
 

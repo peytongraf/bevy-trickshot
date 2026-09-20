@@ -4,6 +4,9 @@
 //!   onto its replicated [`shared::PlayerPose`] without correcting it.
 //! * **Shots** are server-authoritative: every fire request in a client's input
 //!   is ray-cast here (see [`sim`]) and the result is broadcast to everyone.
+//! * **Thrown throwing knives** are simulated entirely here (see [`knives`]),
+//!   bouncing off the map's collision mesh ([`collision`]) and replicated to
+//!   the lobby.
 //!
 //! Configuration (all environment variables, all optional):
 //!
@@ -14,8 +17,10 @@
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
 mod bots;
+mod collision;
 mod health;
 mod killcam;
+mod knives;
 mod lobby;
 mod net;
 mod pvp;
@@ -53,5 +58,6 @@ fn main() {
         .add_plugins(bots::BotsPlugin)
         .add_plugins(pvp::PvpPlugin)
         .add_plugins(killcam::KillCamPlugin)
+        .add_plugins(knives::KnivesPlugin)
         .run();
 }

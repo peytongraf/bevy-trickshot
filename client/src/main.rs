@@ -41,6 +41,7 @@ mod menu;
 mod net;
 mod player;
 mod settings;
+mod thrown_knife;
 mod ui;
 mod updater;
 mod util;
@@ -158,6 +159,7 @@ fn main() {
             death_effect::DeathEffectPlugin,
             fall_death::FallDeathPlugin,
             game_start::GameStartPlugin,
+            thrown_knife::ThrownKnifePlugin,
         ))
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
@@ -167,6 +169,7 @@ fn main() {
         .init_resource::<ViewModelPoses>()
         .init_resource::<KnifeViewModelSettings>()
         .init_resource::<ThrowArmsSettings>()
+        .init_resource::<ThrowKnifeModelSettings>()
         .init_resource::<Ads>()
         .init_resource::<AdsTuning>()
         .init_resource::<LookDelta>()
@@ -411,7 +414,7 @@ fn main() {
                     update_rain,
                     apply_rain_assets,
                     apply_knife_transform,
-                    (slide_throw_arms, apply_throw_arms_transform).chain(),
+                    (slide_throw_arms, apply_throw_arms_transform, update_throw_knife_model).chain(),
                 ),
                 (debug_cursor_toggle, log_player_position),
             )
@@ -789,6 +792,7 @@ fn setup_player(
     poses: Res<ViewModelPoses>,
     knife_settings: Res<KnifeViewModelSettings>,
     arms_settings: Res<ThrowArmsSettings>,
+    throw_knife_settings: Res<ThrowKnifeModelSettings>,
     settings: Res<settings::Settings>,
 ) {
     // Build a one-clip animation graph for the sniper's baked animation.
@@ -1051,7 +1055,23 @@ fn setup_player(
                                 RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
                                 Visibility::Hidden,
                             ))
-                            .observe(start_throw_arms_animation);
+                            .observe(start_throw_arms_animation)
+                            // The knife in the arms' hand: a child, so it rides
+                            // along with the arms (slide, future sway) and is
+                            // positioned once in their local space.
+                            .with_children(|arms| {
+                                arms.spawn((
+                                    ThrowKnifeModel,
+                                    SceneRoot(asset_server.load(
+                                        GltfAssetLabel::Scene(0)
+                                            .from_asset("models/throwing_knife.glb"),
+                                    )),
+                                    throw_knife_settings.transform(),
+                                    RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                    Visibility::Hidden,
+                                ))
+                                .observe(start_throw_knife_model);
+                            });
 
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.

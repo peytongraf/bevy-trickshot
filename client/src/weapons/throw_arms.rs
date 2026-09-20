@@ -5,6 +5,11 @@
 //! (`weapon_system`, [`super::ThrowingKnife`]); this module owns the rig, its
 //! placement, and its visibility.
 //!
+//! The throwing knife itself (`models/throwing_knife.glb`) is a child of the
+//! arms' root, so it follows the arms wherever they go (slide, and any sway
+//! added later) and only needs positioning once, in the arms' local space. It
+//! shows from the press until the throw clip starts.
+//!
 //! The clip has no hide / show animation of its own, so [`slide_throw_arms`]
 //! supplies one: the arms slide up into place from below the screen once the
 //! equipped weapon has finished hiding, and back down out of view after the
@@ -66,6 +71,16 @@ pub(crate) struct ThrowArmsSettings {
     /// How many times faster than normal the equipped weapon's own Hide
     /// animation plays when it's being stowed for the throwing arms.
     pub(crate) weapon_hide_speed: f32,
+    /// Seconds into the throw clip at which the knife leaves the hand: the
+    /// throw request goes to the server then (aim taken at that moment). The
+    /// clip is ~0.67 s long.
+    pub(crate) throw_release_secs: f32,
+    /// Debug toggle (the "Throwing knife model" panel section): acts as
+    /// holding the throwing-knife key without holding it, so the held pose can
+    /// be tuned with the cursor free. Turning it on starts the sequence, like a
+    /// press; turning it off is a release. Never saved; not reset by the
+    /// panel's reset buttons.
+    pub(crate) debug_hold_key: bool,
 }
 
 impl Default for ThrowArmsSettings {
@@ -80,6 +95,8 @@ impl Default for ThrowArmsSettings {
             hide_drop: 0.8,
             slide_speed: 6.0,
             weapon_hide_speed: 6.0,
+            throw_release_secs: 0.25,
+            debug_hold_key: false,
         }
     }
 }
@@ -203,4 +220,84 @@ pub(crate) fn slide_throw_arms(
         Visibility::Hidden
     };
     arms.set_if_neq(wanted);
+}
+
+/// The throwing knife model held in the arms' hand
+/// (`models/throwing_knife.glb`) — a child of [`ThrowArmsViewModel`].
+#[derive(Component)]
+pub(crate) struct ThrowKnifeModel;
+
+/// Live-tunable placement of the held knife, in the *arms'* local space (so
+/// it stays put in the hand however the arms move) — the debug panel's
+/// "Throwing knife model" section. That space carries the arms' own
+/// `ThrowArmsSettings::scale`, so one unit here is `scale` metres: with the
+/// default 0.01, a 20 cm knife is ~20 units long. Angles in degrees, `YXZ`.
+#[derive(Resource)]
+pub(crate) struct ThrowKnifeModelSettings {
+    pub(crate) translation: Vec3,
+    pub(crate) yaw: f32,
+    pub(crate) pitch: f32,
+    pub(crate) roll: f32,
+    pub(crate) scale: f32,
+}
+
+impl Default for ThrowKnifeModelSettings {
+    fn default() -> Self {
+        Self {
+            // Dialled in between the fingers from the debug panel.
+            translation: Vec3::new(-10.0, -5.0, 0.0),
+            yaw: -55.0,
+            pitch: -15.0,
+            roll: 60.0,
+            scale: 7.0,
+        }
+    }
+}
+
+impl ThrowKnifeModelSettings {
+    pub(crate) fn transform(&self) -> Transform {
+        Transform {
+            translation: self.translation,
+            rotation: Quat::from_euler(
+                EulerRot::YXZ,
+                self.yaw.to_radians(),
+                self.pitch.to_radians(),
+                self.roll.to_radians(),
+            ),
+            scale: Vec3::splat(self.scale),
+        }
+    }
+}
+
+/// Once the knife scene has spawned, put every entity it created on the
+/// view-model render layer (it doesn't inherit the root's).
+pub(crate) fn start_throw_knife_model(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+) {
+    for entity in children.iter_descendants(trigger.target()) {
+        commands.entity(entity).insert((
+            RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+            NoFrustumCulling,
+        ));
+    }
+}
+
+/// Push `ThrowKnifeModelSettings` onto the held knife every frame and show it
+/// only while [`ThrowingKnife::knife_in_hand`] — it vanishes the moment the
+/// throw clip starts. (It's also hidden whenever the arms are, through
+/// inheritance.)
+pub(crate) fn update_throw_knife_model(
+    settings: Res<ThrowKnifeModelSettings>,
+    knife: Res<ThrowingKnife>,
+    mut model: Single<(&mut Transform, &mut Visibility), With<ThrowKnifeModel>>,
+) {
+    let (tf, vis) = &mut *model;
+    **tf = settings.transform();
+    vis.set_if_neq(if knife.knife_in_hand() {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
 }

@@ -27,10 +27,14 @@ pub(crate) struct MapSettings {
 
 impl Default for MapSettings {
     fn default() -> Self {
+        // The server places its own copy of this model's collision mesh with
+        // the same constants (`shared::map`), so thrown knives bounce off
+        // exactly what's rendered here.
+        let p = shared::map::BASIC_MAP_PLACEMENT;
         Self {
-            position: Vec3::new(16.0, 0.0, 8.0),
-            rotation_deg: 0.0,
-            scale: 0.65,
+            position: p.position,
+            rotation_deg: p.yaw_deg,
+            scale: p.scale,
         }
     }
 }
@@ -230,10 +234,7 @@ pub(crate) fn sync_map_model(
         commands.entity(e).despawn();
     }
     *load_state = MapLoadState::default();
-    let path = match current.0 {
-        shared::MapId::BasicMap => "models/basic_map.glb",
-        shared::MapId::Shipment | shared::MapId::ShipmentDay => "models/shipment.glb",
-    };
+    let path = shared::map::collision_model_path(current.0);
     commands
         .spawn((
             MapModel,

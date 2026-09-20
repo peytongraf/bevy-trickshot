@@ -645,6 +645,46 @@ impl Ease for Bot {
     }
 }
 
+/// A throwing knife in flight (or lying where it stopped), replicated to
+/// every member of the lobby whose game it belongs to. The server owns the
+/// whole simulation — flight, bounces off the map's collision mesh, hits — and
+/// just publishes the result here (see `server::knives` and
+/// [`crate::throwing_knife`]); clients only draw it, interpolated. Rotation is
+/// simulated server-side too (the knife tumbles end over end, then settles
+/// flat when it stops), so every player sees the same spin.
+///
+/// The rotation frame: `-Z` is the blade tip, `Y` the flat face's normal.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrownKnife {
+    /// Who threw it.
+    pub owner: PeerId,
+    pub pos: Vec3,
+    pub rot: Quat,
+    /// `true` once it has stopped moving (it's removed a moment later).
+    pub resting: bool,
+}
+
+impl Ease for ThrownKnife {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| ThrownKnife {
+            owner: end.owner,
+            pos: Vec3::lerp(start.pos, end.pos, t),
+            rot: Quat::slerp(start.rot, end.rot, t),
+            resting: end.resting,
+        })
+    }
+}
+
+/// Client → server: the player's throw animation reached the point where the
+/// knife leaves their hand. `origin` is their eye position and `dir` the
+/// aim direction at that moment; the server checks them against the player's
+/// real pose and starts the flight ([`ThrownKnife`]) if the throw is allowed.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ThrowKnife {
+    pub origin: [f32; 3],
+    pub dir: [f32; 3],
+}
+
 /// Client → server: create a new lobby and join it as leader.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CreateLobby {
@@ -749,6 +789,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<FellToDeath>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ThrowKnife>()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)
         app.add_plugins(input::native::InputPlugin::<PlayerInput>::default());
@@ -767,6 +809,10 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<Bot>()
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
+
+        app.register_component::<ThrownKnife>()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 

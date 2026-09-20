@@ -48,6 +48,7 @@ There is no second implementation to keep in sync.
 | System        | Authority        | How                                                              |
 |---------------|------------------|-----------------------------------------------------------------|
 | Player movement | **Client**     | The client fills its pose into `PlayerInput` each tick; the server copies it onto the replicated `PlayerPose` untouched. |
+| Thrown knives   | **Server**     | A client's `ThrowKnife` request starts the flight; the server steps it (`shared::throwing_knife`) against the map's collision mesh — the same `.glb` the client's colliders come from, embedded in the server build (`server/src/collision.rs`) — and replicates it as a `ThrownKnife` the clients just draw. |
 | Shot detection  | **Server**     | `PlayerInput` also carries a *fire request*; the server ray-casts it (`shared::ballistics::resolve_shot`) against everyone else's hitboxes and broadcasts a `ShotResolved` message. |
 
 This keeps movement feeling perfectly responsive while making hits

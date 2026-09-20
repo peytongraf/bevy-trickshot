@@ -19,6 +19,27 @@ window / audio) + [lightyear](https://github.com/cBournhonesque/lightyear) 0.23.
     hitboxes and broadcasts a `ShotResolved` message on the reliable
     `GameChannel`.
 
+  * **Throwing knives** (`src/knives.rs`) — a `ThrowKnife` request from a
+    client starts a `ThrownKnife` entity, replicated to the lobby and stepped
+    every tick by `shared::throwing_knife::KnifeBody` against the map's
+    collision mesh (`src/collision.rs`): it arcs, bounces off walls and the
+    ground losing energy, comes to rest and is removed, and a moving knife
+    kills a valid target — bots in `Freestyle`, other players in
+    `FreeForAll`.
+
+### Map collision
+
+The server parses the **same `.glb` collision models the client builds its
+colliders from** (`client/assets/models/basic_map.glb` and `shipment.glb`,
+shared by both Shipment variants) into one world-space triangle mesh per map
+(`parry3d`, the library the client's `bevy_rapier3d` uses), placed with
+`shared::map::placement` — the same constants the client's map transform is
+initialised from. The files are embedded into the binary with `include_bytes!`
+(the root `.dockerignore` lets just those two through into the Docker build
+context), so **changing one of those `.glb`s — or a map's placement in
+`shared/src/map.rs` — means redeploying the server**, or knives will bounce off
+the old geometry.
+
 Everything about *what a shot hits* lives in `shared/`, so the client can run the
 exact same code to predict.
 
