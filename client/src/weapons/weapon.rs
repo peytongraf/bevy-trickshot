@@ -19,6 +19,9 @@ use super::knife_view_model::{
     KNIFE_SEG_HIDE, KNIFE_SEG_SHOW, KNIFE_SLICE_SEGMENTS,
 };
 use super::recoil::{Shake, ShakeSettings};
+use super::throw_arms::{
+    park_throw_arms, play_throw, ThrowArmsAnimation, ThrowArmsAnimationPlayer, ThrowArmsSettings,
+};
 use super::view_model::{
     play_segment, AnimationSegment, AnimationSettings, SniperAnimationPlayer, ViewModel,
     ViewModelAnimation, SEGMENTS, SEG_HIDE, SEG_RECHAMBER, SEG_RELOAD, SEG_SHOOT, SEG_SHOW,
@@ -265,13 +268,48 @@ impl Weapon {
     }
 }
 
-/// Hold-to-snap-out state for the throwing-knife key. Independent of
-/// [`WeaponSlot`] — it's an instant overlay on whatever's currently equipped
-/// (snap the sniper away with no Hide animation, so a shot's rechamber can be
-/// cut off for a "silent" quickscope), not a real weapon switch.
+/// Where the throwing-knife key's sequence is up to. Independent of
+/// [`WeaponSlot`] — it's an overlay on whatever's currently equipped, not a
+/// real weapon switch. Pressing it plays the equipped weapon's own Hide
+/// (faster than normal, `ThrowArmsSettings::weapon_hide_speed`), *then* the
+/// throwing arms (`throw_arms.rs`) slide up; releasing plays their throw clip
+/// once, they slide back down, and only once they're fully away does the
+/// weapon that was out get its normal Show again. Swapping weapons while the
+/// arms are held out cancels the throw: no clip, just the arms away and the
+/// old weapon back.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+enum ThrowPhase {
+    #[default]
+    Idle,
+    /// The equipped weapon's Hide is playing.
+    Stowing,
+    /// Arms sliding in / held out, waiting on the key's release.
+    Held,
+    /// The throw clip is playing.
+    Throwing,
+    /// Arms sliding back down; the weapon returns once they're out of view.
+    Returning,
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct ThrowingKnife {
+    /// The throwing knife is "up" for the crosshair / kill-cam recorder: from
+    /// the key press until the arms start sliding away.
     pub(crate) active: bool,
+    phase: ThrowPhase,
+    /// Seconds spent in [`ThrowPhase::Stowing`], so a Hide clip that never
+    /// reports done (e.g. reset by a kill cam) can't wedge the sequence.
+    stow_elapsed: f32,
+    /// How far the arms have slid into view: `0` hidden below the screen, `1`
+    /// in place. Advanced by `throw_arms::slide_throw_arms`.
+    pub(crate) slide: f32,
+}
+
+impl ThrowingKnife {
+    /// Whether the arms should be sliding into (or holding) view.
+    pub(crate) fn arms_out(&self) -> bool {
+        matches!(self.phase, ThrowPhase::Held | ThrowPhase::Throwing)
+    }
 }
 
 /// Re-entering the world always starts on the sniper, model shown, animation
@@ -332,6 +370,45 @@ fn request_stab(cam: &Query<&GlobalTransform, With<WorldModelCamera>>, pending: 
     pending.0 = Some((cam.translation(), cam.forward().as_vec3()));
 }
 
+/// Draw whichever weapon was out before the throwing arms came up — the
+/// sniper (its normal Show, resuming any interrupted reload once that
+/// finishes) or the knife (its own Show, then idle-out).
+#[allow(clippy::too_many_arguments)]
+fn redraw_active_weapon(
+    weapon: &mut Weapon,
+    knife_state: &mut KnifeAnimState,
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    knife_player: &mut AnimationPlayer,
+    knife_node: AnimationNodeIndex,
+    view_model_vis: &mut Visibility,
+    knife_vis: &mut Visibility,
+) {
+    match weapon.slot {
+        WeaponSlot::Primary => {
+            *view_model_vis = Visibility::Inherited;
+            play_segment(player, node, SEGMENTS[SEG_SHOW]);
+            weapon.busy = Some(WeaponBusy {
+                remaining: vec![SEGMENTS[SEG_SHOW]],
+                seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                on_finish: WeaponFinish::Draw,
+            });
+        }
+        WeaponSlot::Secondary => {
+            *knife_vis = Visibility::Inherited;
+            play_segment(knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW]);
+            knife_state.busy = Some(KnifeBusy {
+                remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
+                seg_end: KNIFE_SEGMENTS[KNIFE_SEG_SHOW].end_secs(),
+                on_finish: KnifeFinish::Nothing,
+                interruptible: false,
+            });
+            knife_state.adjust_rolls = knife_state.adjust_rolls.wrapping_add(1);
+            knife_state.next_adjust_in = roll_knife_adjust_delay(knife_state.adjust_rolls);
+        }
+    }
+}
+
 /// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
 /// Shoot → Rechamber to cycle the bolt. The shot that empties the mag leaves
 /// the spent case sitting in the chamber (nothing left in the mag to cycle
@@ -351,17 +428,40 @@ pub(crate) fn weapon_system(
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
-    (view_model, mut view_model_vis, knife_anim, mut knife_vis): (
+    (view_model, mut view_model_vis, knife_anim, mut knife_vis, arms_anim): (
         Single<&ViewModelAnimation>,
         Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
         Single<&KnifeAnimation>,
         Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
+        Single<&ThrowArmsAnimation>,
     ),
-    (cam, action_sounds, mut players, mut knife_players): (
+    (cam, action_sounds, mut players, mut knife_players, mut arms_players): (
         Query<&GlobalTransform, With<WorldModelCamera>>,
         Query<Entity, With<WeaponActionSound>>,
-        Query<&mut AnimationPlayer, (With<SniperAnimationPlayer>, Without<KnifeAnimationPlayer>)>,
-        Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
+        Query<
+            &mut AnimationPlayer,
+            (
+                With<SniperAnimationPlayer>,
+                Without<KnifeAnimationPlayer>,
+                Without<ThrowArmsAnimationPlayer>,
+            ),
+        >,
+        Query<
+            &mut AnimationPlayer,
+            (
+                With<KnifeAnimationPlayer>,
+                Without<SniperAnimationPlayer>,
+                Without<ThrowArmsAnimationPlayer>,
+            ),
+        >,
+        Query<
+            &mut AnimationPlayer,
+            (
+                With<ThrowArmsAnimationPlayer>,
+                Without<SniperAnimationPlayer>,
+                Without<KnifeAnimationPlayer>,
+            ),
+        >,
     ),
     mut weapon: ResMut<Weapon>,
     (mut knife, mut knife_state, mut pending_melee): (
@@ -375,7 +475,7 @@ pub(crate) fn weapon_system(
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    (shake_cfg, sounds, anim, ads, spread_cfg, settings, time): (
+    (shake_cfg, sounds, anim, ads, spread_cfg, settings, time, arms_settings): (
         Res<ShakeSettings>,
         Res<GameSounds>,
         Res<AnimationSettings>,
@@ -383,6 +483,7 @@ pub(crate) fn weapon_system(
         Res<NoScopeSpread>,
         Res<Settings>,
         Res<Time>,
+        Res<ThrowArmsSettings>,
     ),
     mut commands: Commands,
 ) {
@@ -395,46 +496,178 @@ pub(crate) fn weapon_system(
         return;
     };
     let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+    // `None` if the arms scene hasn't finished loading — the throwing arms
+    // then just never show anything, instead of taking the whole weapon
+    // system down with them.
+    let mut arms_player = arms_players.iter_mut().next();
+    let arms_node = arms_anim.index;
 
-    // Throwing knife — a separate, instant hide/show layered over whatever's
-    // equipped (doesn't touch `weapon.slot`). Pressing it snaps the sniper away
-    // with no Hide animation, so a shot's rechamber can be cut off for a
-    // "silent" quickscope; releasing it (or pressing swap-weapon while it's
-    // held) draws the sniper back out with the normal Show animation and
-    // resumes whatever the hold interrupted.
-    if locked && binds.throwing_knife.just_pressed(&keys, &mouse) && !knife.active {
+    // Throwing knife — see [`ThrowPhase`]. Press: settle any half-finished
+    // swap, then play the equipped weapon's Hide (sped up), which also cuts a
+    // sniper reload / rechamber short for a "silent" quickscope. Once it's
+    // done the arms slide up (`throw_arms::slide_throw_arms`). Release (with
+    // the arms fully in): the throw clip plays once. When it ends the arms
+    // slide away and the weapon that was out is drawn again with its normal
+    // Show, resuming whatever the press interrupted. Swap-weapon while the
+    // arms are out cancels instead: no clip, the arms slide away and the
+    // same weapon comes back.
+    if locked && binds.throwing_knife.just_pressed(&keys, &mouse) && knife.phase == ThrowPhase::Idle
+    {
         knife.active = true;
-        if weapon.slot == WeaponSlot::Primary {
-            if let Some(busy) = weapon.busy.take() {
-                for e in &action_sounds {
-                    commands.entity(e).try_despawn();
-                }
-                stash_interrupted(&mut weapon, busy);
+        knife.stow_elapsed = 0.0;
+        if let Some(arms) = arms_player.as_mut() {
+            park_throw_arms(arms, arms_node);
+        }
+        // Settle a half-finished swap so "the weapon that was out" is
+        // unambiguous, and so there's nothing visible to play a Hide on: a
+        // sniper Hide in progress (slot already `Secondary`) just finishes
+        // instantly, and a knife Hide in progress hands the slot straight
+        // back to the sniper with both models already away.
+        let mut nothing_shown = false;
+        if weapon.slot == WeaponSlot::Secondary
+            && weapon
+                .busy
+                .as_ref()
+                .is_some_and(|b| b.on_finish == WeaponFinish::Holster)
+        {
+            weapon.busy = None;
+            for e in &action_sounds {
+                commands.entity(e).try_despawn();
             }
             if let Some(active_anim) = player.animation_mut(node) {
                 active_anim.seek_to(0.0);
                 active_anim.pause();
             }
             **view_model_vis = Visibility::Hidden;
+            nothing_shown = true;
         }
-        return;
-    }
-    if knife.active {
-        let release = !binds.throwing_knife.pressed(&keys, &mouse)
-            || binds.swap_weapon.just_pressed(&keys, &mouse);
-        if release {
-            knife.active = false;
-            if weapon.slot == WeaponSlot::Primary {
-                **view_model_vis = Visibility::Inherited;
-                play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
-                weapon.busy = Some(WeaponBusy {
-                    remaining: vec![SEGMENTS[SEG_SHOW]],
-                    seg_end: SEGMENTS[SEG_SHOW].end_secs(),
-                    on_finish: WeaponFinish::Draw,
-                });
+        if let Some(busy) = knife_state.busy.take() {
+            if busy.on_finish == KnifeFinish::Hidden {
+                weapon.slot = WeaponSlot::Primary;
+                **knife_vis = Visibility::Hidden;
+                nothing_shown = true;
+            }
+            if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+                active_anim.seek_to(0.0);
+                active_anim.pause();
+            }
+        }
+        if nothing_shown {
+            knife.phase = ThrowPhase::Held;
+            return;
+        }
+        knife.phase = ThrowPhase::Stowing;
+        match weapon.slot {
+            WeaponSlot::Primary => {
+                if let Some(busy) = weapon.busy.take() {
+                    for e in &action_sounds {
+                        commands.entity(e).try_despawn();
+                    }
+                    stash_interrupted(&mut weapon, busy);
+                }
+                play_segment(&mut player, node, SEGMENTS[SEG_HIDE]);
+                if let Some(active_anim) = player.animation_mut(node) {
+                    active_anim.set_speed(arms_settings.weapon_hide_speed);
+                }
+            }
+            WeaponSlot::Secondary => {
+                play_segment(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE]);
+                if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+                    active_anim.set_speed(arms_settings.weapon_hide_speed);
+                }
             }
         }
         return;
+    }
+    match knife.phase {
+        ThrowPhase::Idle => {}
+        ThrowPhase::Stowing => {
+            // Wait out the sped-up Hide (a swap press is ignored — it only
+            // lasts a moment), then drop the model and bring the arms in.
+            knife.stow_elapsed += time.delta_secs();
+            let (seg, done) = match weapon.slot {
+                WeaponSlot::Primary => (
+                    SEGMENTS[SEG_HIDE],
+                    player
+                        .animation(node)
+                        .is_none_or(|a| a.is_finished() || a.seek_time() >= SEGMENTS[SEG_HIDE].end_secs()),
+                ),
+                WeaponSlot::Secondary => (
+                    KNIFE_SEGMENTS[KNIFE_SEG_HIDE],
+                    knife_player.animation(knife_node).is_none_or(|a| {
+                        a.is_finished() || a.seek_time() >= KNIFE_SEGMENTS[KNIFE_SEG_HIDE].end_secs()
+                    }),
+                ),
+            };
+            let expected = (seg.end_secs() - seg.start_secs()) / arms_settings.weapon_hide_speed.max(0.01);
+            if done || knife.stow_elapsed > expected + 0.25 {
+                match weapon.slot {
+                    WeaponSlot::Primary => {
+                        if let Some(active_anim) = player.animation_mut(node) {
+                            active_anim.seek_to(0.0);
+                            active_anim.pause();
+                        }
+                        **view_model_vis = Visibility::Hidden;
+                    }
+                    WeaponSlot::Secondary => {
+                        if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+                            active_anim.seek_to(0.0);
+                            active_anim.pause();
+                        }
+                        **knife_vis = Visibility::Hidden;
+                    }
+                }
+                knife.phase = ThrowPhase::Held;
+            }
+            return;
+        }
+        ThrowPhase::Held => {
+            if binds.swap_weapon.just_pressed(&keys, &mouse) {
+                // Cancelled: no throw animation.
+                knife.active = false;
+                knife.phase = ThrowPhase::Returning;
+            } else if !binds.throwing_knife.pressed(&keys, &mouse) && knife.slide >= 1.0 {
+                // Released with the arms fully in place: throw.
+                knife.phase = ThrowPhase::Throwing;
+                if let Some(arms) = arms_player.as_mut() {
+                    play_throw(arms, arms_node);
+                }
+            }
+            return;
+        }
+        ThrowPhase::Throwing => {
+            // Throw clip playing out — nothing else is accepted until it
+            // finishes (a swap press is ignored; the knife is already gone).
+            let done = arms_player
+                .as_ref()
+                .and_then(|p| p.animation(arms_node))
+                .is_none_or(|a| a.is_finished());
+            if done {
+                // The arms stay on the clip's last frame as they slide away;
+                // the next press re-parks them.
+                knife.active = false;
+                knife.phase = ThrowPhase::Returning;
+            }
+            return;
+        }
+        ThrowPhase::Returning => {
+            // Only once the arms are fully out of view does the weapon come
+            // back.
+            if knife.slide <= 0.0 {
+                knife.phase = ThrowPhase::Idle;
+                redraw_active_weapon(
+                    &mut weapon,
+                    &mut knife_state,
+                    &mut player,
+                    node,
+                    &mut knife_player,
+                    knife_node,
+                    &mut view_model_vis,
+                    &mut knife_vis,
+                );
+            }
+            return;
+        }
     }
 
     // Weapon swap — accepted even mid-action, so it can cut a reload / rechamber

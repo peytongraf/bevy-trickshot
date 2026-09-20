@@ -72,6 +72,14 @@ struct Pan {
     elapsed: f32,
 }
 
+impl DeathEffect {
+    /// Whether a kill / fatal-fall effect is currently running — see the
+    /// `active` field.
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+}
+
 pub(crate) struct DeathEffectPlugin;
 
 impl Plugin for DeathEffectPlugin {

@@ -61,6 +61,7 @@ pub(crate) fn ads_tuning_ui(
         (
             ResMut<RainSettings>,
             ResMut<KnifeViewModelSettings>,
+            ResMut<ThrowArmsSettings>,
             ResMut<FluoroLightSettings>,
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
@@ -85,7 +86,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
+        (mut rain, mut knife_view, mut arms_view, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -246,6 +247,77 @@ pub(crate) fn ads_tuning_ui(
                 }
                 if ui.button("Reset knife pose to default").clicked() {
                     *k = KnifeViewModelSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Throwing arms", |ui| {
+                let a = &mut *arms_view;
+                ui.label(
+                    "models/arms_throwing.glb — where the arms sit while the throwing-knife key \
+                     is held. Angles are on top of the fixed half-turn that points the \
+                     model down the view.",
+                );
+                ui.add(egui::Slider::new(&mut a.translation.x, -2.0f32..=2.0).text("x  (right +)"));
+                ui.add(egui::Slider::new(&mut a.translation.y, -2.0f32..=2.0).text("y  (up +)"));
+                ui.add(
+                    egui::Slider::new(&mut a.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
+                );
+                ui.add(egui::Slider::new(&mut a.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                ui.add(egui::Slider::new(&mut a.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                ui.add(egui::Slider::new(&mut a.roll, -180.0f32..=180.0).text("roll (°)"));
+                ui.add(
+                    egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+
+                if ui.button("Copy arms pose to console").clicked() {
+                    info!(
+                        "arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
+                         pitch: {:.1}, roll: {:.1}, scale: {:.5}",
+                        a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.roll,
+                        a.scale,
+                    );
+                }
+                if ui.button("Reset arms pose to default").clicked() {
+                    // Pose only — the timing values live in the "Throwing knife"
+                    // section below.
+                    let d = ThrowArmsSettings::default();
+                    a.translation = d.translation;
+                    a.yaw = d.yaw;
+                    a.pitch = d.pitch;
+                    a.roll = d.roll;
+                    a.scale = d.scale;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Throwing knife", |ui| {
+                let a = &mut *arms_view;
+                ui.label(
+                    "Hold the throwing-knife key: the equipped weapon plays its Hide (sped up), \
+                     then the throwing arms slide up from below. After the throw they slide back \
+                     down, and only then does the weapon start to show again.",
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.weapon_hide_speed, 0.5f32..=12.0)
+                        .text("weapon hide speed (x normal)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.slide_speed, 0.5f32..=20.0)
+                        .text("arms show / hide speed (slides/s)")
+                        .logarithmic(true),
+                );
+                ui.add(
+                    egui::Slider::new(&mut a.hide_drop, 0.0f32..=2.0)
+                        .text("arms hidden drop (m below)"),
+                );
+                if ui.button("Reset throwing knife timing to default").clicked() {
+                    let d = ThrowArmsSettings::default();
+                    a.weapon_hide_speed = d.weapon_hide_speed;
+                    a.slide_speed = d.slide_speed;
+                    a.hide_drop = d.hide_drop;
                 }
             });
 

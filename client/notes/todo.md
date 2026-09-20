@@ -138,6 +138,7 @@ Ordered easiest → hardest to fix. Note: a knife model was added recently (see 
 - Add knife and throwing knife models
 - Add throwing knife model with throwing arms and implement throwing it and hitting enemies.
 - Need to make a change so that the glb file is used for collision detection.
+- Added the throwing arms view model (`models/arms_throwing.glb`, `client/src/weapons/throw_arms.rs`) for the throwing-knife key (still no knife to actually throw): holding it plays the equipped weapon's own Hide (sniper *or* knife — previously only the sniper, and it snapped away) at `weapon_hide_speed`× (default 6), then the arms slide up parked on the clip's first frame; releasing (once they're fully in) plays the `throw` clip once, the arms slide back down, and only once they're fully out of view is the previous weapon drawn again with its normal Show (`ThrowPhase` in `weapon.rs`). Pressing swap-weapon while held cancels instead (no clip, arms hide, same weapon back). The clip has no show/hide, so `slide_throw_arms` supplies one: the arms slide up from below while `ThrowingKnife::active` and back down after (snapping away instantly during a kill cam / death effect). Pose is tunable from the egui "Throwing arms" section, and weapon hide speed / arms show-hide speed / hidden drop from "Throwing knife" (`ThrowArmsSettings`; defaults dialled in by the user). Known gaps: the throw isn't recorded into the kill cam (arms just hide for the replay), and nothing is sent to the server or other players yet.
 
 ## Docs / Housekeeping
 

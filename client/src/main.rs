@@ -166,6 +166,7 @@ fn main() {
         })
         .init_resource::<ViewModelPoses>()
         .init_resource::<KnifeViewModelSettings>()
+        .init_resource::<ThrowArmsSettings>()
         .init_resource::<Ads>()
         .init_resource::<AdsTuning>()
         .init_resource::<LookDelta>()
@@ -410,6 +411,7 @@ fn main() {
                     update_rain,
                     apply_rain_assets,
                     apply_knife_transform,
+                    (slide_throw_arms, apply_throw_arms_transform).chain(),
                 ),
                 (debug_cursor_toggle, log_player_position),
             )
@@ -786,6 +788,7 @@ fn setup_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
     poses: Res<ViewModelPoses>,
     knife_settings: Res<KnifeViewModelSettings>,
+    arms_settings: Res<ThrowArmsSettings>,
     settings: Res<settings::Settings>,
 ) {
     // Build a one-clip animation graph for the sniper's baked animation.
@@ -798,6 +801,12 @@ fn setup_player(
     let knife_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/knife.glb"));
     let (knife_graph, knife_index) = AnimationGraph::from_clip(knife_clip);
+
+    // And the throwing arms' single `throw` clip.
+    let arms_clip: Handle<AnimationClip> = asset_server
+        .load(GltfAssetLabel::Animation(0).from_asset("models/arms_throwing.glb"));
+    let (arms_graph, arms_index) = AnimationGraph::from_clip(arms_clip);
+    let arms_graph = graphs.add(arms_graph);
     let knife_graph = graphs.add(knife_graph);
 
     // Image the scope camera renders into and the scope lens samples.
@@ -1024,6 +1033,25 @@ fn setup_player(
                                 Visibility::Hidden,
                             ))
                             .observe(start_knife_animation);
+
+                            // The throwing arms — shown while the throwing-
+                            // knife key is held / mid-throw (see
+                            // `ThrowingKnife`), hidden otherwise.
+                            rig.spawn((
+                                ThrowArmsViewModel,
+                                ThrowArmsAnimation {
+                                    graph: arms_graph,
+                                    index: arms_index,
+                                },
+                                SceneRoot(asset_server.load(
+                                    GltfAssetLabel::Scene(0).from_asset("models/arms_throwing.glb"),
+                                )),
+                                // Spawned fully slid out of view.
+                                arms_settings.transform(0.0),
+                                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                Visibility::Hidden,
+                            ))
+                            .observe(start_throw_arms_animation);
 
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.
