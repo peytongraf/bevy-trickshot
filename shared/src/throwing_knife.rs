@@ -73,6 +73,19 @@ pub struct KnifeBody {
     pub rest_secs: f32,
     /// Where the orientation eases to once resting on a floor (blade flat).
     rest_target: Option<Quat>,
+    /// The first surface the knife struck during the most recent
+    /// [`KnifeBody::step`], if any — reset at the start of every step. For
+    /// the server to announce an impact sound.
+    pub impact: Option<KnifeImpact>,
+}
+
+/// A knife striking a surface (not a target).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KnifeImpact {
+    pub point: Vec3,
+    /// How fast the knife was moving *into* the surface (m/s) — a knife
+    /// skidding along the ground barely touches it.
+    pub speed: f32,
 }
 
 /// What a step ran into.
@@ -102,6 +115,7 @@ impl KnifeBody {
             resting: false,
             rest_secs: 0.0,
             rest_target: None,
+            impact: None,
         }
     }
 
@@ -124,6 +138,7 @@ impl KnifeBody {
         targets: &[Target],
     ) -> Option<KnifeHit> {
         self.age += dt;
+        self.impact = None;
         if self.resting {
             self.rest_secs += dt;
             if let Some(target) = self.rest_target {
@@ -179,6 +194,12 @@ impl KnifeBody {
             self.pos += dir * world_dist;
             let n = hit.normal;
             let vn = self.vel.dot(n);
+            if self.impact.is_none() {
+                self.impact = Some(KnifeImpact {
+                    point: self.pos,
+                    speed: (-vn).max(0.0),
+                });
+            }
             if vn < 0.0 {
                 let v_n = n * vn;
                 let mut v_t = (self.vel - v_n) * TANGENT_KEEP;
@@ -349,6 +370,27 @@ mod tests {
         }
         let face = k.rot * Vec3::Y;
         assert!(face.y > 0.95, "not flat: face normal {face}");
+    }
+
+    #[test]
+    fn reports_where_and_how_hard_it_struck_a_surface() {
+        let world = TestWorld { wall_x: Some(5.0) };
+        let mut k = KnifeBody::thrown(Vec3::new(0.0, 5.0, 0.0), Vec3::X);
+        let mut seen = None;
+        for _ in 0..(1.0 / DT) as usize {
+            k.step(DT, &world, &[]);
+            if let Some(i) = k.impact {
+                seen = Some(i);
+                break;
+            }
+            assert!(k.impact.is_none());
+        }
+        let i = seen.expect("never struck the wall");
+        assert!((i.point.x - (5.0 - KNIFE_RADIUS)).abs() < 0.05, "struck at {}", i.point);
+        assert!(i.speed > THROW_SPEED * 0.9, "impact speed {}", i.speed);
+        // Cleared again on the next step.
+        k.step(DT, &world, &[]);
+        assert!(k.impact.is_none());
     }
 
     #[test]

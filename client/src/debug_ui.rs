@@ -30,11 +30,12 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
         ResMut<CrosshairSettings>,
+        ResMut<KnifeSounds>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -778,11 +779,38 @@ pub(crate) fn ads_tuning_ui(
                     ("kill enemy", &mut v.kill_enemy),
                     ("jump land", &mut v.jump_land),
                     ("teleport", &mut v.teleport),
+                    ("throwing knife: throw", &mut v.knife_throw),
+                    ("throwing knife: hit enemy", &mut v.knife_hit),
+                    ("throwing knife: in air", &mut v.knife_in_air),
+                    ("knife: equip", &mut v.knife_equip),
                 ] {
                     ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                 }
+                // One slider per clip in each folder-backed set (one of a set's
+                // clips plays at random per event).
+                let ks = &mut *knife_sounds;
+                for (title, set) in [
+                    ("throwing knife: surface impacts", &mut ks.impact),
+                    ("knife: stabs (hit a bot / player)", &mut ks.stab),
+                    ("knife: swings (miss)", &mut ks.swing),
+                ] {
+                    ui.collapsing(title, |ui| {
+                        if set.clips.is_empty() {
+                            ui.label("(no clips found in this folder)");
+                        }
+                        for clip in &mut set.clips {
+                            ui.add(egui::Slider::new(&mut clip.volume, 0.0f32..=10.0).text(&clip.name));
+                        }
+                    });
+                }
                 if ui.button("Reset sound volumes").clicked() {
                     *v = SoundVolumes::default();
+                    for clip in &mut ks.impact.clips {
+                        clip.volume = 0.3;
+                    }
+                    for clip in ks.stab.clips.iter_mut().chain(&mut ks.swing.clips) {
+                        clip.volume = 1.0;
+                    }
                 }
             });
 

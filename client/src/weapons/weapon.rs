@@ -706,6 +706,14 @@ pub(crate) fn weapon_system(
                 // Released with the arms fully in place: throw.
                 knife.phase = ThrowPhase::Throwing;
                 knife.thrown = true;
+                // The throw sound the moment it's released: heard locally
+                // here, and (via the recorded sound bits) positionally by the
+                // rest of the lobby and in kill-cam replays.
+                commands.spawn((
+                    AudioPlayer::new(sounds.knife_throw.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
+                snd.note(killcam::SND_THROW);
                 if let Some(arms) = arms_player.as_mut() {
                     play_throw(arms, arms_node);
                 }
@@ -868,6 +876,11 @@ pub(crate) fn weapon_system(
                         // fresh draw never blocks an immediate attack.
                         **view_model_vis = Visibility::Hidden;
                         **knife_vis = Visibility::Inherited;
+                        // Just the local player hears the equip sound.
+                        commands.spawn((
+                            AudioPlayer::new(sounds.knife_equip.clone()),
+                            PlaybackSettings::DESPAWN,
+                        ));
                         play_segment(
                             &mut knife_player,
                             knife_node,

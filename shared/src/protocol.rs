@@ -719,6 +719,38 @@ impl Ease for ThrownKnife {
     }
 }
 
+/// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
+/// `Freestyle`, another player in `FreeForAll`) at `point` — every client
+/// plays the hit sound from there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrowingKnifeHit {
+    pub point: [f32; 3],
+}
+
+/// Server → everyone in a lobby: a thrown knife struck a surface (a wall, the
+/// ground, a crate — not a bot or player) at `point`. Every client plays one of
+/// its impact sounds from there; `variant` is the server's random pick, so the
+/// whole lobby hears the same clip (`variant % clips`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrowingKnifeImpact {
+    pub point: [f32; 3],
+    pub variant: u8,
+}
+
+/// Server → everyone in a lobby: a player attacked with the (regular) knife.
+/// `stab` is whether it landed on a valid target (a bot in `Freestyle`, another
+/// player in `FreeForAll`): then `point` is where on the victim, and clients
+/// play one of the stab sounds from there; otherwise it's a swing and `point`
+/// is the attacker's position, for one of the swing sounds. `variant` is the
+/// server's random pick (`variant % clips`), so the whole lobby hears the same
+/// clip.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KnifeAttackSound {
+    pub point: [f32; 3],
+    pub stab: bool,
+    pub variant: u8,
+}
+
 /// Client → server: the player's throw animation reached the point where the
 /// knife leaves their hand. `origin` is their eye position and `dir` the
 /// aim direction at that moment; the server checks them against the player's
@@ -807,6 +839,12 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<PlayerRespawn>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PlayerKilledBy>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ThrowingKnifeHit>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ThrowingKnifeImpact>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<KnifeAttackSound>()
             .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)

@@ -67,8 +67,11 @@ pub(crate) const SND_FOOTSTEP: u16 = 1 << 7;
 /// The jump-landing thump (`GameSounds::jump_land`) — there's no separate
 /// jump-launch sound, only landing.
 pub(crate) const SND_JUMP_LAND: u16 = 1 << 8;
+/// The throwing knife leaving the hand (`GameSounds::knife_throw`) — played
+/// the moment the throw is released.
+pub(crate) const SND_THROW: u16 = 1 << 9;
 /// All bits currently in use, for iterating a `sound_bits` mask.
-pub(crate) const ALL_SND_BITS: [u16; 9] = [
+pub(crate) const ALL_SND_BITS: [u16; 10] = [
     SND_SHOT,
     SND_RELOAD,
     SND_RECHAMBER,
@@ -78,6 +81,7 @@ pub(crate) const ALL_SND_BITS: [u16; 9] = [
     SND_AIM_OUT,
     SND_FOOTSTEP,
     SND_JUMP_LAND,
+    SND_THROW,
 ];
 
 /// Fallback kill time (seconds into the replay) if a message's `kill_index`
@@ -340,6 +344,7 @@ pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSo
         SND_AIM_IN => &sounds.aim_in,
         SND_AIM_OUT => &sounds.aim_out,
         SND_JUMP_LAND => &sounds.jump_land,
+        SND_THROW => &sounds.knife_throw,
         _ => return None,
     })
 }
@@ -1057,6 +1062,7 @@ fn drive_killcam(
             SND_AIM_IN,
             SND_AIM_OUT,
             SND_JUMP_LAND,
+            SND_THROW,
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {

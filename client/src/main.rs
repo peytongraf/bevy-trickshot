@@ -36,6 +36,7 @@ mod game_start;
 mod hud;
 mod keybinds;
 mod killcam;
+mod knife_sounds;
 mod lobby_ui;
 mod menu;
 mod net;
@@ -160,6 +161,7 @@ fn main() {
             fall_death::FallDeathPlugin,
             game_start::GameStartPlugin,
             thrown_knife::ThrownKnifePlugin,
+            knife_sounds::KnifeSoundsPlugin,
             BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {

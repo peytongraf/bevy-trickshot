@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Added knife sounds: an equip sound when you switch to the knife (only you hear it), a stab sound when you stab a bot or player (everyone hears it from the victim), and a swing sound when you attack and miss (everyone hears it from you). Volumes are in the debug panel. Throwing knife impact sounds are also quieter now.",
+        "A thrown knife now makes an impact sound (one of several, picked at random) from the spot where it hits a wall, the ground or a crate. Everyone in the lobby hears it, and each clip has its own volume slider in the debug panel.",
+        "Added throwing knife sounds: a throw sound when you let go (other players hear it from where you are), a whoosh that follows the knife through the air for everyone, and a hit sound from the spot where a thrown knife kills a bot or player. Volumes are in the debug panel.",
         "Shots now leave bullet holes on the surfaces they hit, and everyone in the lobby sees them. They disappear after a minute.",
         "Fixed: the throwing knife crosshair now shows in kill cams (and stays up while the throwing arms are on screen) instead of the plain centre dot.",
         "Fixed: kill cams now show the throwing arms and the knife being thrown (and flying, bouncing and landing the kill), instead of leaving them out.",

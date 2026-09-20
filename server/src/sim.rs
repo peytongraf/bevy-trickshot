@@ -14,8 +14,8 @@ use shared::map::CollisionWorld;
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
-    Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerInput, PlayerPose, RemoteSound, ShotOutcome,
-    ShotResolved, TrickScore,
+    Bot, GameChannel, GameMode, KnifeAttackSound, Lobby, PlayerId, PlayerInput, PlayerPose,
+    RemoteSound, ShotOutcome, ShotResolved, TrickScore,
 };
 
 use crate::bots::{BotHit, LobbyBot};
@@ -197,11 +197,14 @@ fn resolve_shots(
         // through the same `PlayerHit` a bullet uses, so death, respawn, kill
         // credit and the victim's kill cam all follow for free.
         if i.melee {
-            let Some(hit) = shared::melee::resolve_melee(origin, dir, &targets) else {
-                continue;
-            };
-            match kind.get(&hit.target) {
-                Some(HitKind::Bot(bot)) => {
+            // Where the stab landed, if it hit a valid target — for the lobby's
+            // stab sound. Anything else (a whiff, or a player in `Freestyle`,
+            // where they aren't a target) is a swing.
+            let mut stabbed_at: Option<Vec3> = None;
+            let hit = shared::melee::resolve_melee(origin, dir, &targets);
+            match hit.and_then(|h| kind.get(&h.target).map(|k| (h, k))) {
+                Some((hit, HitKind::Bot(bot))) => {
+                    stabbed_at = Some(hit.point);
                     let (points, lines) = shared::scoring::score_knife_kill();
                     bot_hits.write(BotHit {
                         bot: *bot,
@@ -220,7 +223,8 @@ fn resolve_shots(
                     }
                     info!("tick {tick}: {:?} knifed a bot for {points} pts", shooter.0);
                 }
-                Some(HitKind::Player(victim)) if lobby.mode == GameMode::FreeForAll => {
+                Some((hit, HitKind::Player(victim))) if lobby.mode == GameMode::FreeForAll => {
+                    stabbed_at = Some(hit.point);
                     player_hits.write(PlayerHit {
                         victim: *victim,
                         killer: shooter.0,
@@ -229,6 +233,25 @@ fn resolve_shots(
                     info!("tick {tick}: {:?} knifed player {:?}", shooter.0, victim);
                 }
                 _ => {}
+            }
+
+            // Everyone in the lobby hears it: a stab from where it landed, a
+            // swing from the attacker.
+            let swing_at = poses
+                .iter()
+                .find(|(id, _)| id.0 == shooter.0)
+                .map_or(origin, |(_, pose)| pose.translation);
+            let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+            let variant = ((tick as u64) ^ shooter.0.to_bits())
+                .wrapping_mul(0x2545_F491_4F6C_DD1D)
+                >> 56;
+            let msg = KnifeAttackSound {
+                point: stabbed_at.unwrap_or(swing_at).to_array(),
+                stab: stabbed_at.is_some(),
+                variant: variant as u8,
+            };
+            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members)) {
+                error!("failed to send knife attack sound: {e:?}");
             }
             continue;
         }

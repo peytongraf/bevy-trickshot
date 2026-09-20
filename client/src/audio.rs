@@ -29,9 +29,102 @@ pub(crate) struct GameSounds {
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
     pub(crate) teleport: Handle<AudioSource>,
+    /// `audio/throwing_knife/throw.mp3` — the knife leaving the hand.
+    pub(crate) knife_throw: Handle<AudioSource>,
+    /// `throwing_knife_hit_enemy.mp3` — a thrown knife killing a bot / player.
+    pub(crate) knife_hit: Handle<AudioSource>,
+    /// `throwing_knife_in_air.mp3` — the whoosh that follows a thrown knife.
+    pub(crate) knife_in_air: Handle<AudioSource>,
+    /// `audio/knife/equip-knife-sound.mp3` — switching to the regular knife.
+    pub(crate) knife_equip: Handle<AudioSource>,
     /// `audio/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
+}
+
+/// One clip from a [`SoundSet`], with its own volume multiplier.
+pub(crate) struct SoundClip {
+    /// File name without the extension — the label in the debug panel.
+    pub(crate) name: String,
+    pub(crate) handle: Handle<AudioSource>,
+    /// Multiplier on the clip's built-in level ("Sound volumes" panel).
+    pub(crate) volume: f32,
+}
+
+/// Every audio file (`.mp3` / `.wav` / `.ogg` / `.flac`) found in one folder
+/// under the assets dir when the game started, sorted by name so the order is
+/// the same on every client. The server picks which clip plays for an event
+/// (`variant % clips.len()`), so the whole lobby hears the same one. Found by
+/// listing the folder rather than hard-coding names, so dropping clips in / out
+/// of it needs no code change; each clip gets its own slider.
+#[derive(Default)]
+pub(crate) struct SoundSet {
+    pub(crate) clips: Vec<SoundClip>,
+}
+
+impl SoundSet {
+    /// Load the folder `dir` (relative to the assets dir), every clip starting
+    /// at `volume`.
+    fn load(asset_server: &AssetServer, dir: &str, volume: f32) -> Self {
+        let path = bevy::asset::io::file::FileAssetReader::get_base_path()
+            .join("assets")
+            .join(dir);
+        let mut names: Vec<String> = std::fs::read_dir(&path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                let ext = p.extension()?.to_str()?.to_ascii_lowercase();
+                matches!(ext.as_str(), "mp3" | "wav" | "ogg" | "flac")
+                    .then(|| p.file_name()?.to_str().map(str::to_owned))
+                    .flatten()
+            })
+            .collect();
+        names.sort();
+        if names.is_empty() {
+            warn!("no sounds found in {}", path.display());
+        }
+        Self {
+            clips: names
+                .into_iter()
+                .map(|file| SoundClip {
+                    name: file
+                        .rsplit_once('.')
+                        .map_or(file.clone(), |(stem, _)| stem.to_owned()),
+                    handle: asset_server.load(format!("{dir}/{file}")),
+                    volume,
+                })
+                .collect(),
+        }
+    }
+
+    /// The clip the server's random `variant` picks, if the set isn't empty.
+    pub(crate) fn pick(&self, variant: u8) -> Option<&SoundClip> {
+        (!self.clips.is_empty()).then(|| &self.clips[variant as usize % self.clips.len()])
+    }
+}
+
+/// The knife sounds that live in folders: the throwing knife's surface
+/// impacts, and the regular knife's stabs and swings.
+#[derive(Resource)]
+pub(crate) struct KnifeSounds {
+    /// `audio/throwing_knife/impact/` — a thrown knife striking a surface.
+    pub(crate) impact: SoundSet,
+    /// `audio/knife/stab/` — a stab landing on a bot / player.
+    pub(crate) stab: SoundSet,
+    /// `audio/knife/swing/` — a stab that hits nothing.
+    pub(crate) swing: SoundSet,
+}
+
+impl KnifeSounds {
+    fn load(asset_server: &AssetServer) -> Self {
+        Self {
+            impact: SoundSet::load(asset_server, "audio/throwing_knife/impact", 0.3),
+            stab: SoundSet::load(asset_server, "audio/knife/stab", 1.0),
+            swing: SoundSet::load(asset_server, "audio/knife/swing", 1.0),
+        }
+    }
 }
 
 /// Linear volume shared by both ambience loops (`ambient` and
@@ -59,6 +152,10 @@ pub(crate) struct SoundVolumes {
     pub(crate) kill_enemy: f32,
     pub(crate) jump_land: f32,
     pub(crate) teleport: f32,
+    pub(crate) knife_throw: f32,
+    pub(crate) knife_hit: f32,
+    pub(crate) knife_in_air: f32,
+    pub(crate) knife_equip: f32,
 }
 
 impl Default for SoundVolumes {
@@ -77,6 +174,10 @@ impl Default for SoundVolumes {
             kill_enemy: 5.5,
             jump_land: 0.5,
             teleport: 1.0,
+            knife_throw: 1.0,
+            knife_hit: 1.5,
+            knife_in_air: 1.0,
+            knife_equip: 1.0,
         }
     }
 }
@@ -102,6 +203,10 @@ impl SoundVolumes {
             (sounds.kill_enemy.id(), self.kill_enemy),
             (sounds.jump_land.id(), self.jump_land),
             (sounds.teleport.id(), self.teleport),
+            (sounds.knife_throw.id(), self.knife_throw),
+            (sounds.knife_hit.id(), self.knife_hit),
+            (sounds.knife_in_air.id(), self.knife_in_air),
+            (sounds.knife_equip.id(), self.knife_equip),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -143,7 +248,31 @@ impl Default for RemoteSoundSettings {
     }
 }
 
+/// Playback settings for a sound emitted from a point in the world: spatial
+/// (panned by where it is relative to the listener) with rodio's own
+/// `1 / distance²` curve shrunk to near-flat, so the loudness-by-distance is
+/// whatever `volume` already bakes in — see `net::receive_remote_sounds`, which
+/// explains why.
+pub(crate) fn positional_playback(volume: Volume) -> PlaybackSettings {
+    PlaybackSettings::DESPAWN
+        .with_spatial(true)
+        .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
+        .with_volume(volume)
+}
+
+/// The `[0, 1]` loudness factor for a remote sound `distance` metres from the
+/// listener: a squared linear fade to silence at
+/// [`RemoteSoundSettings::max_distance`].
+pub(crate) fn distance_falloff(distance: f32, remote: &RemoteSoundSettings) -> f32 {
+    if distance >= remote.max_distance {
+        0.0
+    } else {
+        (1.0 - distance / remote.max_distance).powi(2)
+    }
+}
+
 pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(KnifeSounds::load(&asset_server));
     commands.insert_resource(GameSounds {
         shot: asset_server.load("audio/sniper_shot.wav"),
         rechamber: asset_server.load("audio/rechamber.wav"),
@@ -158,6 +287,10 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         kill_enemy: asset_server.load("audio/kill-enemy-sound.mp3"),
         jump_land: asset_server.load("audio/jump-landing-sound.mp3"),
         teleport: asset_server.load("audio/teleport.wav"),
+        knife_throw: asset_server.load("audio/throwing_knife/throw.mp3"),
+        knife_hit: asset_server.load("audio/throwing_knife/throwing_knife_hit_enemy.mp3"),
+        knife_in_air: asset_server.load("audio/throwing_knife/throwing_knife_in_air.mp3"),
+        knife_equip: asset_server.load("audio/knife/equip-knife-sound.mp3"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
             .collect(),

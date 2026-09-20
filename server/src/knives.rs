@@ -26,7 +26,10 @@ use shared::ballistics::Target;
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
 use shared::throwing_knife::{KnifeBody, MAX_KNIVES_PER_PLAYER};
-use shared::{Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, ThrowKnife, ThrownKnife, TrickScore};
+use shared::{
+    Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, ThrowKnife, ThrowingKnifeHit,
+    ThrowingKnifeImpact, ThrownKnife, TrickScore,
+};
 
 use crate::bots::{BotHit, LobbyBot};
 use crate::collision::MapColliders;
@@ -41,12 +44,20 @@ const MIN_THROW_INTERVAL_SECS: f32 = 0.5;
 /// client-authoritative, but a knife shouldn't start across the map.
 const MAX_ORIGIN_DRIFT: f32 = 3.0;
 
+/// Impacts softer than this (m/s into the surface) make no sound — a knife
+/// skidding along the ground bounces over and over, barely touching it.
+const MIN_IMPACT_SOUND_SPEED: f32 = 1.5;
+/// Least time (s) between one knife's impact sounds.
+const MIN_IMPACT_SOUND_INTERVAL_SECS: f32 = 0.08;
+
 /// The server-side simulation state of one [`ThrownKnife`].
 #[derive(Component)]
 struct KnifeSim {
     body: KnifeBody,
     owner: PeerId,
     lobby: Entity,
+    /// `KnifeBody::age` at this knife's last announced impact sound.
+    last_impact_sound: f32,
 }
 
 /// When each player last threw (`Time::elapsed_secs`).
@@ -133,6 +144,7 @@ fn on_throw_knife(
             body,
             owner: peer,
             lobby: lobby_e,
+            last_impact_sound: f32::NEG_INFINITY,
         },
         Replicate::to_clients(NetworkTarget::Only(members.clone())),
         InterpolationTarget::to_clients(NetworkTarget::Only(members)),
@@ -238,8 +250,47 @@ fn step_knives(
                 }
                 None => {}
             }
+            // Everyone in the lobby hears the hit from where it landed.
+            if victims.contains_key(&hit.target) {
+                let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                let msg = ThrowingKnifeHit {
+                    point: hit.point.to_array(),
+                };
+                if let Err(e) =
+                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members))
+                {
+                    error!("failed to send throwing knife hit: {e:?}");
+                }
+            }
             commands.entity(entity).try_despawn();
             continue;
+        }
+
+        // A surface strike: every lobby member hears an impact sound from the
+        // spot (the server picks which of the clips, so it's the same for
+        // all). Skips feather-light touches and rate-limits a knife that's
+        // bouncing rapidly.
+        if let Some(impact) = sim.body.impact {
+            if impact.speed >= MIN_IMPACT_SOUND_SPEED
+                && sim.body.age - sim.last_impact_sound >= MIN_IMPACT_SOUND_INTERVAL_SECS
+            {
+                sim.last_impact_sound = sim.body.age;
+                let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                // A cheap deterministic scramble of which knife / which bounce
+                // — no `rand` needed.
+                let variant = (entity.to_bits() ^ (sim.body.bounces as u64).wrapping_mul(0x9E37_79B9))
+                    .wrapping_mul(0x2545_F491_4F6C_DD1D)
+                    >> 56;
+                let msg = ThrowingKnifeImpact {
+                    point: impact.point.to_array(),
+                    variant: variant as u8,
+                };
+                if let Err(e) =
+                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members))
+                {
+                    error!("failed to send throwing knife impact: {e:?}");
+                }
+            }
         }
 
         if sim.body.finished() {
