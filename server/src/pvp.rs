@@ -1,7 +1,11 @@
-//! Player-vs-player combat for [`shared::GameMode::FreeForAll`]: health,
-//! death, respawn, and the kill-limit win condition. Bots (`crate::bots`)
-//! and style-point scoring (`shared::scoring`) are `Freestyle`-only and
-//! untouched by any of this.
+//! Player health, death and respawn — the server owns all of it. Shots
+//! (`FreeForAll` PvP) and falls (both modes) take health off
+//! [`PlayerCombat::health`]; it's replicated to the clients as
+//! [`shared::PlayerHealth`] for the damage overlay and heartbeat, holds for a
+//! few seconds after damage and then regenerates. This module also owns the
+//! `FreeForAll` kill-limit win condition. Bots (`crate::bots`) and style-point
+//! scoring (`shared::scoring`) are `Freestyle`-only and untouched by any of
+//! this.
 
 use bevy::prelude::*;
 
@@ -9,15 +13,13 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerId, PlayerKilledBy, PlayerPose,
-    PlayerRespawn,
+    FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
+    PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn,
 };
 
-/// Every player starts (and respawns) at this much health. The sniper's
-/// 100-damage body shot is a one-shot kill against it — the same feel it
-/// already had before PvP existed; the marksman needs two hits (or one
-/// headshot).
-pub const FULL_HEALTH: f32 = 100.0;
+use shared::health::{
+    fall_damage, FULL_HEALTH, REGEN_DELAY_SECS, REGEN_PER_SEC,
+};
 
 /// Seconds a dead player stays untargetable / unable to fire before they can
 /// be hit again — generous enough to outlast the kill-cam the victim's own
@@ -25,14 +27,14 @@ pub const FULL_HEALTH: f32 = 100.0;
 /// `server::killcam`).
 const RESPAWN_DELAY_SECS: f32 = 4.5;
 
-/// Seconds after taking damage that a player's health holds before it starts
-/// to recover — the same beat the fall-damage health uses client-side.
-const REGEN_DELAY_SECS: f32 = 3.0;
-/// Health regained per second once recovery starts.
-const REGEN_PER_SEC: f32 = 20.0;
+/// Seconds a player who died *falling* (no kill cam) stays dead — just past
+/// the client's own wait before it respawns them
+/// (`client::net::RESPAWN_KILLCAM_TIMEOUT_SECS`, 3 s), so they're never
+/// respawned-but-still-dead for long.
+const FALL_RESPAWN_DELAY_SECS: f32 = 3.2;
 
-/// Per-player combat state. Only present on players in a `FreeForAll` game
-/// (see `lobby::on_start`) — `Freestyle` players never get one.
+/// Per-player combat state, on every player in a started game (see
+/// `lobby::on_start`) in either mode.
 #[derive(Component)]
 pub struct PlayerCombat {
     pub health: f32,
@@ -82,9 +84,16 @@ impl Plugin for PvpPlugin {
         app.add_event::<PlayerHit>()
             .add_event::<PlayerKilled>()
             .add_observer(on_fell_to_death)
+            .add_observer(on_fall_landed)
             .add_systems(
                 FixedUpdate,
-                (apply_player_hits, tick_respawns, check_kill_limit).chain(),
+                (
+                    apply_player_hits,
+                    tick_respawns,
+                    sync_health,
+                    check_kill_limit,
+                )
+                    .chain(),
             );
     }
 }
@@ -172,16 +181,10 @@ fn apply_player_hits(
     }
 }
 
-/// The local player's client (client-authoritative movement — same trust
-/// model as `PlayerInput`, see `sim::apply_client_pose`) reported falling to
-/// their death (see `client::fall_death`). Mirrors `apply_player_hits`'s
-/// respawn handling, minus the score credit and `PlayerKilled` — there's no
-/// killer, so no kill cam is ever queued. Works in both game modes:
-/// `FreeForAll` players have a `PlayerCombat` to mark dead (respecting an
-/// already-in-progress death — e.g. shot moments before this arrives — the
-/// same way `apply_player_hits` does); `Freestyle` players have no health
-/// concept at all (see `PlayerCombat`'s doc comment) and are always "alive",
-/// so they just get sent a fresh spot with nothing to mark.
+/// The local player's client reported falling out of the world (below the
+/// void floor — see `client::fall_death`; movement is client-authoritative,
+/// same trust model as `PlayerInput`, see `sim::apply_client_pose`). There's no
+/// height to grade, so it's a straight kill — see [`fall_kill`].
 fn on_fell_to_death(
     trigger: Trigger<RemoteTrigger<FellToDeath>>,
     time: Res<Time>,
@@ -191,14 +194,94 @@ fn on_fell_to_death(
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<&mut Lobby>,
 ) {
-    let server = server.into_inner();
+    fall_kill(
+        trigger.from,
+        None,
+        &time,
+        server.into_inner(),
+        &mut sender,
+        &mut combats,
+        &poses,
+        &mut lobbies,
+    );
+    info!("{:?} fell out of the world", trigger.from);
+}
+
+/// The local player's client reported landing after a fall of some height
+/// ([`shared::FallLanded`]). The *server* turns the distance into damage
+/// ([`fall_damage`]): under the minimum nothing happens; over it, health drops
+/// (and is replicated back for the damage overlay + heartbeat); if that kills,
+/// [`fall_kill`] runs and the victim is told to play the fall-death effect.
+/// Works in both game modes — every player has a [`PlayerCombat`].
+#[allow(clippy::too_many_arguments)]
+fn on_fall_landed(
+    trigger: Trigger<RemoteTrigger<FallLanded>>,
+    time: Res<Time>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
+    poses: Query<(&PlayerId, &PlayerPose)>,
+    mut lobbies: Query<&mut Lobby>,
+) {
     let peer = trigger.from;
+    let landed = trigger.trigger;
+    let damage = fall_damage(landed.distance);
+    if damage <= 0.0 {
+        return;
+    }
+    let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) else {
+        return;
+    };
+    if !combat.alive {
+        return;
+    }
+    combat.health = (combat.health - damage).max(0.0);
+    combat.last_damage = time.elapsed_secs();
+    let dead = combat.health <= 0.0;
+    drop(combat);
+    if dead {
+        fall_kill(
+            peer,
+            Some(landed.speed),
+            &time,
+            server.into_inner(),
+            &mut sender,
+            &mut combats,
+            &poses,
+            &mut lobbies,
+        );
+        info!("{peer:?} died from a {:.1} m fall", landed.distance);
+    } else {
+        info!("{peer:?} took {damage:.0} fall damage");
+    }
+}
+
+/// Kill `peer` from a fall (no killer, so no kill cam is ever queued): mark
+/// them dead — respecting a death already in progress, e.g. shot moments
+/// before this arrives — start the respawn timer, and send where they'll
+/// reappear. If the fall was a graded landing (`speed` is `Some`) the victim
+/// is also told to play the fall-death effect ([`shared::FallDeath`]); a void
+/// fall already started it client-side.
+#[allow(clippy::too_many_arguments)]
+fn fall_kill(
+    peer: PeerId,
+    speed: Option<f32>,
+    time: &Time,
+    server: &Server,
+    sender: &mut ServerMultiMessageSender,
+    combats: &mut Query<(&PlayerId, &mut PlayerCombat)>,
+    poses: &Query<(&PlayerId, &PlayerPose)>,
+    lobbies: &mut Query<&mut Lobby>,
+) {
     if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+        // Only a player who was already dead is skipped: a landing that just
+        // took health to zero arrives here with `alive` still true.
         if !combat.alive {
             return;
         }
         combat.alive = false;
-        combat.respawn_at = time.elapsed_secs() + RESPAWN_DELAY_SECS;
+        combat.health = 0.0;
+        combat.respawn_at = time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS;
     }
 
     let Some(lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
@@ -212,15 +295,31 @@ fn on_fell_to_death(
     let seed = time.elapsed().as_nanos() as u64 ^ peer.to_bits();
     let (pos, yaw) = shared::spawns::spawn_point(seed, &others, lobby.map);
 
+    if let Some(speed) = speed {
+        if let Err(e) =
+            sender.send::<_, GameChannel>(&FallDeath { speed }, server, &NetworkTarget::Single(peer))
+        {
+            error!("failed to send fall death to {peer:?}: {e:?}");
+        }
+    }
     let msg = PlayerRespawn {
         pos: pos.to_array(),
         yaw,
     };
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(peer)) {
-        error!("failed to send respawn to {:?}: {e:?}", peer);
+        error!("failed to send respawn to {peer:?}: {e:?}");
     }
+}
 
-    info!("{:?} fell to their death", peer);
+/// Copy each player's health onto their replicated [`PlayerHealth`] — only when
+/// it changed, so an idle player costs no replication.
+fn sync_health(mut players: Query<(&PlayerCombat, &mut PlayerHealth)>) {
+    for (combat, mut health) in &mut players {
+        let value = combat.health.max(0.0);
+        if health.0 != value {
+            health.0 = value;
+        }
+    }
 }
 
 /// Once a dead player's respawn timer is up, make them targetable / able to

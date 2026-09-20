@@ -1,14 +1,18 @@
 //! Death by falling: an absolute "void" floor for maps with no ground under a
 //! long drop (see `apply_gravity`'s downward raycast — a miss just lets the
 //! player fall forever), plus CoD-style fall damage for maps that do have
-//! ground down there (`health::FallDamageSettings`: nothing below the minimum
-//! drop, a growing share of the health bar up to the maximum, which kills). Client-authoritative, like all local movement (see
-//! `server::sim::apply_client_pose`) — the client decides it happened and
-//! tells the server (`shared::FellToDeath`), which sends back a
-//! `PlayerRespawn` (marking the player dead first, if they have a
-//! `PlayerCombat` — `FreeForAll` only; `Freestyle` players are always
-//! "alive" and just get a fresh spot, see `server::pvp::on_fell_to_death`),
-//! but queues no kill cam either way (there's no killer).
+//! ground down there. Movement is client-authoritative (see
+//! `server::sim::apply_client_pose`), so the client is the one who knows it
+//! landed — but **health is entirely the server's**: on landing the client
+//! only reports how far it fell (`shared::FallLanded`); the server turns that
+//! into damage (`shared::health::fall_damage`: nothing below the minimum, a
+//! growing share of the health bar up to the maximum, which kills) and, if it
+//! kills, answers `shared::FallDeath` and this module plays the death effect.
+//! A fall out of the world (below `VOID_DEATH_Y`) is a position, not a health
+//! matter: the client tells the server (`shared::FellToDeath`) and starts the
+//! effect itself. Either way the server sends back a `PlayerRespawn` (after
+//! marking the player dead, see `server::pvp::fall_kill`) and queues no kill
+//! cam (there's no killer).
 //!
 //! The effect mirrors `death_effect` (and reuses its overlay/weapon-hide via
 //! [`death_effect::show_overlay_and_hide_weapon`]): every system that would
@@ -28,7 +32,8 @@ use bevy::animation::{AnimationPlayer, RepeatAnimation};
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use shared::{FellToDeath, LobbyChannel};
+use shared::health::FALL_REPORT_MIN_DISTANCE;
+use shared::{FallDeath, FallLanded, FellToDeath, LobbyChannel};
 
 use crate::death_effect;
 use crate::net::{GameClient, LocalPlayerRespawned};
@@ -101,6 +106,7 @@ impl Plugin for FallDeathPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FallDeathState>();
         app.init_resource::<FallTracking>();
+        app.add_event::<BeginFallDeath>();
         app.add_systems(
             Update,
             (
@@ -115,7 +121,13 @@ impl Plugin for FallDeathPlugin {
                         .and(no_fall_death)
                         .and(not(crate::death_effect::death_effect_active)),
                 ),
-                pan_to_body.after(check_fall_death),
+                // The server's verdict can arrive any time (also mid-kill-cam),
+                // so these two aren't gated like the detection above.
+                receive_fall_death,
+                begin_fall_death
+                    .after(check_fall_death)
+                    .after(receive_fall_death),
+                pan_to_body.after(begin_fall_death),
                 pose_fall_death_body,
                 clear_on_respawn,
             )
@@ -137,40 +149,40 @@ pub(crate) fn effect_active(state: Res<FallDeathState>) -> bool {
     state.effect.is_some()
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The local player's fall killed them — start the fall-death effect. Raised
+/// by [`check_fall_death`] for a fall out of the world (the client knows its
+/// own position, so no round trip) and by [`receive_fall_death`] when the
+/// *server* rules a landing fatal (health is server-side).
+#[derive(Event)]
+struct BeginFallDeath {
+    /// Speed (m/s) the player was falling at.
+    fall_speed: f32,
+}
+
+/// Track the fall and tell the server about it. Landings (of at least
+/// `FALL_REPORT_MIN_DISTANCE`) go up as a `FallLanded`; the *server* turns the
+/// distance into damage or death — the client never touches health. A fall out
+/// of the world (below `VOID_DEATH_Y`) is a position, not a health matter: the
+/// server is told (`FellToDeath`) and the effect starts here at once.
 fn check_fall_death(
-    time: Res<Time>,
     mut tracking: ResMut<FallTracking>,
-    mut state: ResMut<FallDeathState>,
-    fall_settings: Res<crate::health::FallDamageSettings>,
-    mut health: ResMut<crate::health::PlayerHealth>,
-    mut sender_q: Query<&mut TriggerSender<FellToDeath>, With<GameClient>>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    remote_avatar_settings: Res<RemoteAvatarSettings>,
-    mut death_effect: ResMut<death_effect::DeathEffect>,
-    existing_overlay: Query<(), With<death_effect::DeathOverlay>>,
-    mut sniper_vis: Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
-    mut knife_vis: Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
+    mut fell_q: Query<&mut TriggerSender<FellToDeath>, With<GameClient>>,
+    mut landed_q: Query<&mut TriggerSender<FallLanded>, With<GameClient>>,
+    mut begin: EventWriter<BeginFallDeath>,
     player: Single<(&Transform, &PlayerPhysics), With<Player>>,
-    head: Single<&Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
-    if state.effect.is_some() {
-        return;
-    }
     let (transform, physics) = player.into_inner();
     let feet_y = transform.translation.y - EYE_HEIGHT;
 
-    let mut lethal_fall_speed = None;
     if physics.grounded {
         let just_landed = !tracking.was_grounded;
-        if just_landed {
-            // Damage grows with how far past the minimum the drop was; the
-            // maximum drop (a full health bar's worth) — or any landing that
-            // finishes off what health is left — kills.
-            let alive = health.damage(fall_settings.damage_for(tracking.apex_y - feet_y));
-            if !alive {
-                lethal_fall_speed = Some(tracking.prev_vertical_velocity.abs());
+        let distance = tracking.apex_y - feet_y;
+        if just_landed && distance >= FALL_REPORT_MIN_DISTANCE {
+            if let Ok(mut sender) = landed_q.single_mut() {
+                sender.trigger::<LobbyChannel>(FallLanded {
+                    distance,
+                    speed: tracking.prev_vertical_velocity.abs(),
+                });
             }
         }
         tracking.apex_y = feet_y;
@@ -181,19 +193,55 @@ fn check_fall_death(
             tracking.apex_y = tracking.apex_y.max(feet_y);
         }
         if feet_y < VOID_DEATH_Y {
-            lethal_fall_speed = Some(physics.vertical_velocity.abs());
+            if let Ok(mut sender) = fell_q.single_mut() {
+                sender.trigger::<LobbyChannel>(FellToDeath);
+            }
+            begin.write(BeginFallDeath {
+                fall_speed: physics.vertical_velocity.abs(),
+            });
         }
     }
     tracking.was_grounded = physics.grounded;
     tracking.prev_vertical_velocity = physics.vertical_velocity;
+}
 
-    let Some(fall_speed) = lethal_fall_speed else {
+/// The server ruled the landing fatal.
+fn receive_fall_death(
+    mut receivers: Query<&mut MessageReceiver<FallDeath>>,
+    mut begin: EventWriter<BeginFallDeath>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            begin.write(BeginFallDeath { fall_speed: msg.speed });
+        }
+    }
+}
+
+/// Start the fall-death effect: the blood overlay, the weapon dropped, and a
+/// one-off body that keeps falling and tumbling while the camera tracks it.
+#[allow(clippy::too_many_arguments)]
+fn begin_fall_death(
+    time: Res<Time>,
+    mut events: EventReader<BeginFallDeath>,
+    mut state: ResMut<FallDeathState>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    remote_avatar_settings: Res<RemoteAvatarSettings>,
+    mut death_effect: ResMut<death_effect::DeathEffect>,
+    existing_overlay: Query<(), With<death_effect::DeathOverlay>>,
+    mut sniper_vis: Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
+    mut knife_vis: Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
+    player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    head: Single<&Transform, (With<PlayerHead>, Without<Player>)>,
+) {
+    // Any number of triggers in a frame is still one death.
+    let Some(fall_speed) = events.read().map(|e| e.fall_speed).reduce(f32::max) else {
         return;
     };
-
-    if let Ok(mut sender) = sender_q.single_mut() {
-        sender.trigger::<LobbyChannel>(FellToDeath);
+    if state.effect.is_some() {
+        return;
     }
+    let (transform, physics) = player.into_inner();
 
     death_effect::show_overlay_and_hide_weapon(
         &mut death_effect,

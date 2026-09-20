@@ -91,6 +91,13 @@ impl MapId {
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerId(pub PeerId);
 
+/// A player's health, replicated from the server (`server::pvp` owns it — the
+/// client never changes it, only displays it: the damage overlay and
+/// heartbeat). `0` while dead; back to [`crate::health::FULL_HEALTH`] on
+/// respawn.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerHealth(pub f32);
+
 /// A player's pose in the world. Written by the server from the owner's
 /// client-authoritative input, replicated to everyone, shown interpolated on
 /// non-owning clients.
@@ -719,6 +726,25 @@ impl Ease for ThrownKnife {
     }
 }
 
+/// Client → server: the local player just landed after falling `distance`
+/// metres (apex to landing) at `speed` m/s. Movement is client-authoritative,
+/// so the client is the one who knows it landed — but the *server* turns the
+/// distance into damage (`shared::health::fall_damage`) and, if it kills,
+/// answers with [`FallDeath`]. Only sent for falls of at least
+/// `shared::health::FALL_REPORT_MIN_DISTANCE`.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct FallLanded {
+    pub distance: f32,
+    pub speed: f32,
+}
+
+/// Server → the victim only: that landing killed you — play the fall-death
+/// effect. `speed` is the landing speed the client reported.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct FallDeath {
+    pub speed: f32,
+}
+
 /// Server → the shooter only: their shot damaged a bot or player without
 /// killing them — the client shows a hit marker and plays the hit-marker sound.
 /// (A kill has its own feedback and sends none.)
@@ -848,6 +874,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<FallDeath>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ThrowingKnifeHit>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ThrowingKnifeImpact>()
@@ -881,6 +909,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<ThrowKnife>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<FallLanded>()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)
         app.add_plugins(input::native::InputPlugin::<PlayerInput>::default());
@@ -897,6 +927,10 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<PlayerName>()
             .add_interpolation(InterpolationMode::Once);
+
+        // Replicated as-is (no prediction / interpolation): the client only
+        // ever reads it, off the replicated entity.
+        app.register_component::<PlayerHealth>();
 
         app.register_component::<Bot>()
             .add_interpolation(InterpolationMode::Full)

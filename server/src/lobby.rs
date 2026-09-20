@@ -287,9 +287,12 @@ fn on_start(
                     lifetime: Lifetime::SessionBased,
                 },
             ));
-        if mode == GameMode::FreeForAll {
-            ec.insert(crate::pvp::PlayerCombat::default());
-        }
+        // Health + combat state for every player in either mode: falls hurt in
+        // Freestyle too, and `FreeForAll` shots take health off the same bar.
+        ec.insert((
+            crate::pvp::PlayerCombat::default(),
+            shared::PlayerHealth(shared::health::FULL_HEALTH),
+        ));
         let entity = ec
             .id();
         info!("  spawned player {entity:?} for {:?}", member.peer);

@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Health is now handled entirely by the server: fall damage and shot damage take from the same health bar, and the red tint, blood splatter and heartbeat now also show when you're shot without being killed. Falls hurt in Freestyle too.",
         "Sniper damage now depends on distance too. Up close every hit kills, even a leg shot; further out a leg shot stops killing (past about 70 m), then a torso shot (past about 175 m), and at extreme range (past about 250 m) even a headshot leaves the target alive.",
         "Sniper shots are no longer always one-shot kills: a hit to the legs or lower body only does 60% damage, so the target survives (bots and players both have health now). When you damage but don't kill someone you get a hit marker and sound. In Free For All, damaged players heal back after 3 seconds.",
         "Fall damage: landing from a big drop now hurts in proportion to how far you fell (nothing under 16 m, dead at 30 m). When you're hurt the screen tints red with a blood splatter and you hear a heartbeat, both stronger the lower your health. Health holds for 3 seconds, then builds back up.",

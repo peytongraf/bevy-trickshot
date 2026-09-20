@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_egui::{egui, EguiContexts};
 
-use crate::health::{FallDamageSettings, PlayerHealth, MAX_HEALTH};
+use crate::health::LocalHealth;
 use crate::audio::*;
 use crate::avatars::*;
 use crate::environment::*;
@@ -31,14 +31,13 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, mut fall_dmg, mut player_health): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
         ResMut<CrosshairSettings>,
         ResMut<KnifeSounds>,
-        ResMut<FallDamageSettings>,
-        ResMut<PlayerHealth>,
+        Res<LocalHealth>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -765,47 +764,23 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
-            ui.collapsing("Health & fall damage", |ui| {
-                let f = &mut *fall_dmg;
+            ui.collapsing("Health", |ui| {
                 ui.label(
-                    "No damage for a fall under the minimum; from there damage rises linearly \
-                     to a full health bar at the maximum, which kills. Low health tints the \
-                     screen red with blood (more opaque the lower the health) and plays the \
-                     heartbeat (louder the lower the health); health then holds, then \
-                     recovers linearly.",
+                    "Health is server-side: shots and falls both take it off, it holds for 3 s \
+                     after damage then recovers, and the client just shows it (red tint + blood, \
+                     heartbeat). The fall-damage distances and recovery rate are constants in \
+                     shared/src/health.rs.",
                 );
-                ui.add(
-                    egui::Slider::new(&mut f.min_distance, 0.0f32..=60.0)
-                        .text("min fall distance — damage starts (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut f.max_distance, 0.0f32..=100.0)
-                        .text("max fall distance — lethal (m)"),
-                );
-                // Keep the range sane whichever slider was just dragged.
-                f.max_distance = f.max_distance.max(f.min_distance + 0.1);
-                ui.add(
-                    egui::Slider::new(&mut f.regen_delay_secs, 0.0f32..=15.0)
-                        .text("recovery starts after (s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut f.regen_per_sec, 0.5f32..=100.0)
-                        .text("recovery rate (health / s)")
-                        .logarithmic(true),
-                );
-                if ui.button("Reset fall damage settings").clicked() {
-                    *f = FallDamageSettings::default();
-                }
-                ui.separator();
-                ui.label(format!("health: {:.0} / {:.0}", player_health.health, MAX_HEALTH));
-                ui.horizontal(|ui| {
-                    if ui.button("Test: take 30 damage").clicked() {
-                        player_health.damage(30.0);
-                    }
-                    if ui.button("Test: take 70 damage").clicked() {
-                        player_health.damage(70.0);
-                    }
-                });
+                ui.label(format!(
+                    "health (from the server): {:.0} / {:.0}",
+                    local_health.health,
+                    shared::health::FULL_HEALTH,
+                ));
+                ui.label(format!(
+                    "fall damage: none under {:.0} m, lethal at {:.0} m",
+                    shared::health::FALL_MIN_DISTANCE,
+                    shared::health::FALL_MAX_DISTANCE,
+                ));
             });
 
             ui.separator();

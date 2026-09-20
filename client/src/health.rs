@@ -1,103 +1,94 @@
-//! The local player's health, for fall damage: landing from far enough up
-//! hurts in proportion to how far past the minimum the drop was, and the
-//! maximum drop kills outright (`fall_death`). A hurt player sees the red tint
-//! and blood splatter overlay — more opaque the lower their health — and hears
-//! a heartbeat that's loudest at low health and fades as they recover; after
-//! taking damage their health holds for a few seconds, then builds back up
-//! linearly.
-//!
-//! Health is client-local. It only ever changes from falls (the sniper's
-//! bullets are one-shot kills, so `FreeForAll`'s server-side `PlayerCombat`
-//! health never sits at a partial value); death from a fall still goes through
-//! the existing `shared::FellToDeath` path. Reset to full on entering a game
-//! and on respawning.
+//! The local player's health, *as the server reports it*. Health is entirely
+//! server-side (`server::pvp`): shots and falls both take it off
+//! `PlayerCombat::health`, it holds for a few seconds after damage and then
+//! regenerates, and the result is replicated as [`shared::PlayerHealth`]. The
+//! client only displays it — the red tint and blood splatter overlay (more
+//! opaque the lower the health) and the looping heartbeat (loudest at low
+//! health, fading as it recovers, gone at full) — and never changes it. The
+//! fall-damage rules themselves live in `shared::health`.
 
 use bevy::audio::Volume;
 use bevy::prelude::*;
+use lightyear::prelude::*;
+
+use shared::health::FULL_HEALTH;
+use shared::{PlayerHealth, PlayerId};
 
 use crate::death_effect::DeathEffect;
 use crate::fall_death::FallDeathState;
 use crate::killcam::ActiveKillCam;
-use crate::net::LocalPlayerRespawned;
+use crate::net::GameClient;
 use crate::{AppState, GameSounds, SoundVolumes};
-
-/// Full health.
-pub(crate) const MAX_HEALTH: f32 = 100.0;
 
 /// Red tint alpha at zero health (fully opaque overlay) — the same base tint
 /// the death overlay uses (`death_effect::show_overlay_and_hide_weapon`).
 const TINT_ALPHA: f32 = 0.35;
 
-/// Panel-adjustable fall damage + recovery (the "Health & fall damage"
-/// section).
+/// The local player's health as last replicated by the server (display-only).
 #[derive(Resource)]
-pub(crate) struct FallDamageSettings {
-    /// A fall (apex → landing, metres) shorter than this does no damage.
-    pub(crate) min_distance: f32,
-    /// A fall this far or farther kills. Between `min_distance` and this,
-    /// damage rises linearly from nothing to a full health bar.
-    pub(crate) max_distance: f32,
-    /// Seconds after taking damage that health holds before it starts to
-    /// recover.
-    pub(crate) regen_delay_secs: f32,
-    /// Health (of [`MAX_HEALTH`]) regained per second once recovery starts.
-    pub(crate) regen_per_sec: f32,
-}
-
-impl Default for FallDamageSettings {
-    fn default() -> Self {
-        Self {
-            min_distance: 16.0,
-            max_distance: 30.0,
-            regen_delay_secs: 3.0,
-            regen_per_sec: 20.0,
-        }
-    }
-}
-
-impl FallDamageSettings {
-    /// Health lost landing from a fall of `distance` metres — `0` at or below
-    /// `min_distance`, [`MAX_HEALTH`] at or above `max_distance`, linear in
-    /// between.
-    pub(crate) fn damage_for(&self, distance: f32) -> f32 {
-        let span = (self.max_distance - self.min_distance).max(1e-3);
-        (((distance - self.min_distance) / span).clamp(0.0, 1.0)) * MAX_HEALTH
-    }
-}
-
-/// The local player's health.
-#[derive(Resource)]
-pub(crate) struct PlayerHealth {
+pub(crate) struct LocalHealth {
     pub(crate) health: f32,
-    /// Seconds since health last dropped.
-    since_damage: f32,
 }
 
-impl Default for PlayerHealth {
+impl Default for LocalHealth {
     fn default() -> Self {
         Self {
-            health: MAX_HEALTH,
-            since_damage: f32::MAX,
+            health: FULL_HEALTH,
         }
     }
 }
 
-impl PlayerHealth {
-    /// Take `amount` damage and restart the hold-then-recover timer. Returns
-    /// whether the player is still alive.
-    pub(crate) fn damage(&mut self, amount: f32) -> bool {
-        if amount > 0.0 {
-            self.health = (self.health - amount).max(0.0);
-            self.since_damage = 0.0;
-        }
-        self.health > 0.0
-    }
-
+impl LocalHealth {
     /// `0.0` at full health … `1.0` at none — the overlay's opacity and the
     /// heartbeat's loudness.
     pub(crate) fn hurt_fraction(&self) -> f32 {
-        (1.0 - self.health / MAX_HEALTH).clamp(0.0, 1.0)
+        (1.0 - self.health / FULL_HEALTH).clamp(0.0, 1.0)
     }
+}
+
+pub(crate) struct HealthPlugin;
+
+impl Plugin for HealthPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<LocalHealth>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (reset_health, spawn_damage_overlay),
+            )
+            .add_systems(
+                Update,
+                (mirror_health, sync_damage_overlay, update_heartbeat)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
+            );
+    }
+}
+
+/// A fresh game starts at full health until the server's first update lands.
+fn reset_health(mut health: ResMut<LocalHealth>) {
+    *health = LocalHealth::default();
+}
+
+/// Track the server's replicated health for our own player.
+fn mirror_health(
+    local: Query<&LocalId, With<GameClient>>,
+    players: Query<(&PlayerId, &PlayerHealth)>,
+    mut health: ResMut<LocalHealth>,
+) {
+    let Some(me) = local.iter().next().map(|l| l.0) else {
+        return;
+    };
+    if let Some((_, server)) = players.iter().find(|(id, _)| id.0 == me) {
+        if health.health != server.0 {
+            health.health = server.0;
+        }
+    }
+}
+
+/// Whether the hurt overlay / heartbeat should stay quiet: the player is dead
+/// or dying, or a kill cam is playing the world back.
+fn suppressed(death: &DeathEffect, fall: &FallDeathState, killcam: &ActiveKillCam) -> bool {
+    death.is_active() || fall.effect_running() || killcam.0.is_some()
 }
 
 /// Root of the damage tint + blood overlay.
@@ -111,66 +102,6 @@ struct DamageBlood;
 /// The looping heartbeat.
 #[derive(Component)]
 struct Heartbeat;
-
-pub(crate) struct HealthPlugin;
-
-impl Plugin for HealthPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerHealth>()
-            .init_resource::<FallDamageSettings>()
-            .add_systems(
-                OnEnter(AppState::InGame),
-                (reset_health, spawn_damage_overlay),
-            )
-            .add_systems(
-                Update,
-                (
-                    reset_on_respawn,
-                    regen_health,
-                    sync_damage_overlay,
-                    update_heartbeat,
-                )
-                    .chain()
-                    .run_if(in_state(AppState::InGame)),
-            );
-    }
-}
-
-fn reset_health(mut health: ResMut<PlayerHealth>) {
-    *health = PlayerHealth::default();
-}
-
-fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut health: ResMut<PlayerHealth>) {
-    if respawned.read().count() > 0 {
-        *health = PlayerHealth::default();
-    }
-}
-
-/// Whether the hurt overlay / heartbeat should stay quiet: the player is dead
-/// or dying, or a kill cam is playing the world back.
-fn suppressed(death: &DeathEffect, fall: &FallDeathState, killcam: &ActiveKillCam) -> bool {
-    death.is_active() || fall.effect_running() || killcam.0.is_some()
-}
-
-/// Hold for [`FallDamageSettings::regen_delay_secs`] after the last damage,
-/// then climb back to full at [`FallDamageSettings::regen_per_sec`].
-fn regen_health(
-    time: Res<Time>,
-    settings: Res<FallDamageSettings>,
-    death: Res<DeathEffect>,
-    fall: Res<FallDeathState>,
-    killcam: Res<ActiveKillCam>,
-    mut health: ResMut<PlayerHealth>,
-) {
-    if suppressed(&death, &fall, &killcam) || health.health >= MAX_HEALTH {
-        return;
-    }
-    let dt = time.delta_secs();
-    health.since_damage = (health.since_damage + dt).min(1.0e6);
-    if health.since_damage > settings.regen_delay_secs {
-        health.health = (health.health + settings.regen_per_sec * dt).min(MAX_HEALTH);
-    }
-}
 
 fn spawn_damage_overlay(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
@@ -204,7 +135,7 @@ fn spawn_damage_overlay(mut commands: Commands, asset_server: Res<AssetServer>) 
 /// Tint + blood splatter, each as opaque as the player is hurt: barely there
 /// at high health, fully opaque near zero, gone at full health.
 fn sync_damage_overlay(
-    health: Res<PlayerHealth>,
+    health: Res<LocalHealth>,
     death: Res<DeathEffect>,
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
@@ -229,7 +160,7 @@ fn sync_damage_overlay(
 /// zero, which stops / never starts it), and it's muted while dying or while a
 /// replay plays.
 fn update_heartbeat(
-    health: Res<PlayerHealth>,
+    health: Res<LocalHealth>,
     death: Res<DeathEffect>,
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
@@ -241,7 +172,7 @@ fn update_heartbeat(
     mut commands: Commands,
 ) {
     let muted = suppressed(&death, &fall, &killcam);
-    if health.health >= MAX_HEALTH || health.health <= 0.0 {
+    if health.health >= FULL_HEALTH || health.health <= 0.0 {
         for (e, _) in &beats {
             commands.entity(e).try_despawn();
         }
@@ -265,44 +196,5 @@ fn update_heartbeat(
     };
     for (_, mut sink) in &mut beats {
         sink.set_volume(Volume::Linear(loudness.max(0.0)) * global_volume.volume);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fall_damage_is_zero_under_min_linear_after_and_full_at_max() {
-        let s = FallDamageSettings {
-            min_distance: 6.0,
-            max_distance: 12.0,
-            ..default()
-        };
-        assert_eq!(s.damage_for(3.0), 0.0);
-        assert_eq!(s.damage_for(6.0), 0.0);
-        assert!((s.damage_for(9.0) - 50.0).abs() < 1e-3);
-        assert!((s.damage_for(12.0) - MAX_HEALTH).abs() < 1e-3);
-        assert!((s.damage_for(40.0) - MAX_HEALTH).abs() < 1e-3);
-    }
-
-    #[test]
-    fn max_fall_kills_and_smaller_ones_do_not() {
-        let s = FallDamageSettings::default();
-        let mut h = PlayerHealth::default();
-        let mid = (s.min_distance + s.max_distance) * 0.5;
-        assert!(h.damage(s.damage_for(mid)), "a mid fall shouldn't kill");
-        assert!(h.health > 0.0 && h.health < MAX_HEALTH);
-        let mut h = PlayerHealth::default();
-        assert!(!h.damage(s.damage_for(s.max_distance)), "the max fall kills");
-        assert_eq!(h.health, 0.0);
-    }
-
-    #[test]
-    fn hurt_fraction_is_the_opposite_of_health() {
-        let mut h = PlayerHealth::default();
-        assert_eq!(h.hurt_fraction(), 0.0);
-        h.damage(75.0);
-        assert!((h.hurt_fraction() - 0.75).abs() < 1e-3);
     }
 }

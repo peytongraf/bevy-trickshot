@@ -68,8 +68,8 @@ fn apply_client_pose(
         // Not from `input` like everything else above — a dead client isn't
         // sending fresh input at all (`client::net::write_input` stops for
         // the duration of their kill cam), so this has to come from our own
-        // authoritative combat state instead. `Freestyle` players never get
-        // a `PlayerCombat` (see its doc comment) — always alive.
+        // authoritative combat state instead (`PlayerCombat` is on every
+        // player; the `is_none_or` is just a backstop).
         pose.alive = combat.is_none_or(|c| c.alive);
     }
 }
@@ -135,9 +135,9 @@ fn resolve_shots(
     let tick = timeline.tick().0;
     let server = server.into_inner();
 
-    // A `FreeForAll` player mid-respawn (`PlayerCombat::alive == false`) can
-    // neither shoot nor be shot; `Freestyle` players never get a
-    // `PlayerCombat` at all, so they're always "alive" here.
+    // A player who's dead and waiting to respawn (`PlayerCombat::alive ==
+    // false` — after a `FreeForAll` kill or a fatal fall in either mode) can
+    // neither shoot nor be shot.
     let is_alive = |peer: PeerId| {
         combats
             .iter()
