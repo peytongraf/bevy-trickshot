@@ -1257,8 +1257,12 @@ fn drive_killcam_throw(
 
     // The arms: slide, the clip's playhead, and the knife in the hand.
     let slide = a.arms_slide.lerp(b.arms_slide, frac);
+    // The recorded turn-lag sway rides on the arms the same way it does on the
+    // melee knife in `drive_killcam` (rotation only).
+    let sway = Vec2::from_array(a.sway_offset).lerp(Vec2::from_array(b.sway_offset), frac);
+    let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
     let (arms_tf, arms_vis) = &mut *arms;
-    **arms_tf = settings.transform(slide);
+    **arms_tf = Transform::from_rotation(sway_rot) * settings.transform(slide);
     arms_vis.set_if_neq(if slide > 0.0 {
         Visibility::Inherited
     } else {

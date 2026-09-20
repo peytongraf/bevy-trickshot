@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Fall damage: landing from a big drop now hurts in proportion to how far you fell (nothing under 16 m, dead at 30 m). When you're hurt the screen tints red with a blood splatter and you hear a heartbeat, both stronger the lower your health. Health holds for 3 seconds, then builds back up.",
+        "The throwing arms (and the knife in their hand) now sway when you turn and breathe while you stand still, just like the sniper, and the regular knife now breathes too.",
+        "Added a sound for switching to the sniper (only you hear it).",
         "Added knife sounds: an equip sound when you switch to the knife (only you hear it), a stab sound when you stab a bot or player (everyone hears it from the victim), and a swing sound when you attack and miss (everyone hears it from you). Volumes are in the debug panel. Throwing knife impact sounds are also quieter now.",
         "A thrown knife now makes an impact sound (one of several, picked at random) from the spot where it hits a wall, the ground or a crate. Everyone in the lobby hears it, and each clip has its own volume slider in the debug panel.",
         "Added throwing knife sounds: a throw sound when you let go (other players hear it from where you are), a whoosh that follows the knife through the air for everyone, and a hit sound from the spot where a thrown knife kills a bot or player. Volumes are in the debug panel.",

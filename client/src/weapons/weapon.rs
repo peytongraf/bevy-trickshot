@@ -975,10 +975,15 @@ pub(crate) fn weapon_system(
                 }
                 knife_state.busy = None;
                 if on_finish == KnifeFinish::Hidden {
-                    // Knife fully hidden — hand back off to the sniper.
+                    // Knife fully hidden — hand back off to the sniper. Just the
+                    // local player hears the equip sound.
                     **knife_vis = Visibility::Hidden;
                     weapon.slot = WeaponSlot::Primary;
                     **view_model_vis = Visibility::Inherited;
+                    commands.spawn((
+                        AudioPlayer::new(sounds.sniper_equip.clone()),
+                        PlaybackSettings::DESPAWN,
+                    ));
                     play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
                     weapon.busy = Some(WeaponBusy {
                         remaining: vec![SEGMENTS[SEG_SHOW]],

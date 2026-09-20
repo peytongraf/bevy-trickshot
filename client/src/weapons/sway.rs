@@ -7,6 +7,7 @@ use crate::player::{LookDelta, Player, PlayerPhysics, WorldModelCamera};
 
 use super::ads::Ads;
 use super::knife_view_model::KnifeViewModel;
+use super::throw_arms::ThrowArmsViewModel;
 use super::view_model::ViewModel;
 
 /// Cheap "breathing" motion shared by [`idle_weapon_sway`] and [`update_scope`]'s
@@ -76,6 +77,11 @@ pub(crate) struct IdleSwayState {
     clock: f32,
     /// Eases `0` (moving) → `1` (settled at rest).
     blend: f32,
+    /// This frame's breathing offset (yaw, pitch in radians), written by
+    /// [`idle_weapon_sway`] and reused by [`knife_idle_sway`] /
+    /// [`throw_arms_idle_sway`] so every view model breathes in lockstep off
+    /// the same [`IdleSwaySettings`].
+    offset: Vec2,
 }
 
 /// Panel-adjustable idle sway: a slow procedural "breathing" drift added to the
@@ -237,9 +243,48 @@ pub(crate) fn idle_weapon_sway(
     ) * state.blend
         * (1.0 - ads.t.clamp(0.0, 1.0));
     let offset = breathing_offset(state.clock, tuning.frequency_hz, amp);
+    state.offset = offset;
 
-    let sway = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
-    **view_model = Transform::from_rotation(sway) * **view_model;
+    **view_model = idle_pose(offset) * **view_model;
+}
+
+/// The breathing rotation for a drift `offset` (yaw, pitch in radians).
+fn idle_pose(offset: Vec2) -> Transform {
+    Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0))
+}
+
+/// The same breathing drift on the knife view model. Runs right after
+/// [`idle_weapon_sway`] and reuses the offset it just computed
+/// ([`IdleSwayState::offset`]), so it breathes exactly with the sniper and
+/// `IdleSwaySettings` (the "Idle sway" panel section) tunes both. Has to run
+/// after `apply_knife_transform`, which rewrites the knife's base pose every
+/// frame.
+pub(crate) fn knife_idle_sway(
+    state: Res<IdleSwayState>,
+    mut knife: Single<&mut Transform, With<KnifeViewModel>>,
+) {
+    **knife = idle_pose(state.offset) * **knife;
+}
+
+/// The turn-lag sway on the throwing arms (and, as its child, the knife held
+/// in them) — the throwing counterpart of [`knife_weapon_sway`], off the same
+/// [`WeaponSwayState`]. Has to run after `apply_throw_arms_transform`, which
+/// rewrites the arms' pose every frame.
+pub(crate) fn throw_arms_weapon_sway(
+    tuning: Res<WeaponSwaySettings>,
+    ads: Res<Ads>,
+    state: Res<WeaponSwayState>,
+    mut arms: Single<&mut Transform, With<ThrowArmsViewModel>>,
+) {
+    **arms = sway_pose(state.offset, &tuning, ads.t.clamp(0.0, 1.0)) * **arms;
+}
+
+/// The breathing drift on the throwing arms — see [`knife_idle_sway`].
+pub(crate) fn throw_arms_idle_sway(
+    state: Res<IdleSwayState>,
+    mut arms: Single<&mut Transform, With<ThrowArmsViewModel>>,
+) {
+    **arms = idle_pose(state.offset) * **arms;
 }
 
 /// Advance the aim-breathing clock and rotate the *real* world camera by it —

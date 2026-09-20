@@ -1,7 +1,8 @@
 //! Death by falling: an absolute "void" floor for maps with no ground under a
 //! long drop (see `apply_gravity`'s downward raycast — a miss just lets the
 //! player fall forever), plus CoD-style fall damage for maps that do have
-//! ground down there. Client-authoritative, like all local movement (see
+//! ground down there (`health::FallDamageSettings`: nothing below the minimum
+//! drop, a growing share of the health bar up to the maximum, which kills). Client-authoritative, like all local movement (see
 //! `server::sim::apply_client_pose`) — the client decides it happened and
 //! tells the server (`shared::FellToDeath`), which sends back a
 //! `PlayerRespawn` (marking the player dead first, if they have a
@@ -38,11 +39,6 @@ use crate::{
     SoldierVisual, ViewModel, EYE_HEIGHT, PITCH_LIMIT,
 };
 
-/// Net descent (apex → landing) beyond which landing on solid ground is
-/// lethal — a starting point pitched at "you'd die falling off about a 4-5
-/// story building," CoD-style fall damage. Tune to taste.
-const LETHAL_FALL_DISTANCE: f32 = 12.0;
-
 /// World-space feet-Y below which the player has fallen into the void and
 /// dies outright — the map has no ground to ever land on down there, so
 /// without this they'd fall forever.
@@ -61,6 +57,13 @@ struct FallDeathBody;
 #[derive(Resource, Default)]
 pub(crate) struct FallDeathState {
     effect: Option<FallEffect>,
+}
+
+impl FallDeathState {
+    /// Whether a fatal-fall effect is currently running.
+    pub(crate) fn effect_running(&self) -> bool {
+        self.effect.is_some()
+    }
 }
 
 struct FallEffect {
@@ -139,6 +142,8 @@ fn check_fall_death(
     time: Res<Time>,
     mut tracking: ResMut<FallTracking>,
     mut state: ResMut<FallDeathState>,
+    fall_settings: Res<crate::health::FallDamageSettings>,
+    mut health: ResMut<crate::health::PlayerHealth>,
     mut sender_q: Query<&mut TriggerSender<FellToDeath>, With<GameClient>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -159,8 +164,14 @@ fn check_fall_death(
     let mut lethal_fall_speed = None;
     if physics.grounded {
         let just_landed = !tracking.was_grounded;
-        if just_landed && tracking.apex_y - feet_y >= LETHAL_FALL_DISTANCE {
-            lethal_fall_speed = Some(tracking.prev_vertical_velocity.abs());
+        if just_landed {
+            // Damage grows with how far past the minimum the drop was; the
+            // maximum drop (a full health bar's worth) — or any landing that
+            // finishes off what health is left — kills.
+            let alive = health.damage(fall_settings.damage_for(tracking.apex_y - feet_y));
+            if !alive {
+                lethal_fall_speed = Some(tracking.prev_vertical_velocity.abs());
+            }
         }
         tracking.apex_y = feet_y;
     } else {

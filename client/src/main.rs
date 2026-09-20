@@ -33,6 +33,7 @@ mod debug_ui;
 mod environment;
 mod fall_death;
 mod game_start;
+mod health;
 mod hud;
 mod keybinds;
 mod killcam;
@@ -162,6 +163,7 @@ fn main() {
             game_start::GameStartPlugin,
             thrown_knife::ThrownKnifePlugin,
             knife_sounds::KnifeSoundsPlugin,
+            health::HealthPlugin,
             BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {
@@ -441,7 +443,10 @@ fn main() {
                 (
                     weapon_sway,
                     knife_weapon_sway,
+                    throw_arms_weapon_sway,
                     idle_weapon_sway,
+                    knife_idle_sway,
+                    throw_arms_idle_sway,
                     weapon_recoil_shudder,
                 )
                     .chain(),
@@ -450,6 +455,7 @@ fn main() {
                 .after(look_around)
                 .after(apply_ads)
                 .after(apply_knife_transform)
+                .after(apply_throw_arms_transform)
                 .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         )
         .add_systems(Update, resolve_local_shot.run_if(in_state(AppState::InGame)))

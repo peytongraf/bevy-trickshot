@@ -37,6 +37,11 @@ pub(crate) struct GameSounds {
     pub(crate) knife_in_air: Handle<AudioSource>,
     /// `audio/knife/equip-knife-sound.mp3` — switching to the regular knife.
     pub(crate) knife_equip: Handle<AudioSource>,
+    /// `audio/equip_sniper.mp3` — switching to the sniper.
+    pub(crate) sniper_equip: Handle<AudioSource>,
+    /// `audio/not-used-yet/heartbeat-sound.mp3` — looped while the player is
+    /// hurt (`health::update_heartbeat`).
+    pub(crate) heartbeat: Handle<AudioSource>,
     /// `audio/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
@@ -156,6 +161,10 @@ pub(crate) struct SoundVolumes {
     pub(crate) knife_hit: f32,
     pub(crate) knife_in_air: f32,
     pub(crate) knife_equip: f32,
+    pub(crate) sniper_equip: f32,
+    /// Loudness of the heartbeat at zero health (it fades toward silence as
+    /// health recovers) — see `health::update_heartbeat`.
+    pub(crate) heartbeat: f32,
 }
 
 impl Default for SoundVolumes {
@@ -178,6 +187,8 @@ impl Default for SoundVolumes {
             knife_hit: 1.5,
             knife_in_air: 1.0,
             knife_equip: 1.0,
+            sniper_equip: 1.0,
+            heartbeat: 1.0,
         }
     }
 }
@@ -207,6 +218,7 @@ impl SoundVolumes {
             (sounds.knife_hit.id(), self.knife_hit),
             (sounds.knife_in_air.id(), self.knife_in_air),
             (sounds.knife_equip.id(), self.knife_equip),
+            (sounds.sniper_equip.id(), self.sniper_equip),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -291,6 +303,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         knife_hit: asset_server.load("audio/throwing_knife/throwing_knife_hit_enemy.mp3"),
         knife_in_air: asset_server.load("audio/throwing_knife/throwing_knife_in_air.mp3"),
         knife_equip: asset_server.load("audio/knife/equip-knife-sound.mp3"),
+        sniper_equip: asset_server.load("audio/equip_sniper.mp3"),
+        heartbeat: asset_server.load("audio/not-used-yet/heartbeat-sound.mp3"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
             .collect(),
