@@ -4,10 +4,10 @@
 //! collision meshes implement (see `server::collision`, which loads the very
 //! same `.glb` files the client builds its own colliders from).
 //!
-//! [`crate::ballistics::resolve_shot`] still takes a `|from, to| false`
-//! occlusion closure — bullets don't collide with walls yet — but the
-//! throwing knife ([`crate::throwing_knife`]) does, through
-//! [`CollisionWorld::sweep_sphere`].
+//! The throwing knife ([`crate::throwing_knife`]) bounces off the mesh through
+//! [`CollisionWorld::sweep_sphere`], and a bullet is stopped by the first
+//! surface it meets ([`CollisionWorld::raycast`]) — it doesn't pass through
+//! walls (no wallbangs yet).
 
 use bevy::math::Vec3;
 
@@ -198,6 +198,10 @@ pub trait CollisionWorld: Send + Sync + 'static {
     /// geometry (so a bullet along it should not reach `b`).
     fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool;
 
+    /// Distance along the ray `origin + t * dir` (`dir` unit length) to the
+    /// first solid surface within `max_dist`, or `None` if the ray is clear.
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<f32>;
+
     /// Sweep a sphere of `radius` from `from` to `to` and report the first
     /// solid surface it touches, if any.
     fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit>;
@@ -210,6 +214,10 @@ pub struct EmptyWorld;
 impl CollisionWorld for EmptyWorld {
     fn segment_blocked(&self, _a: Vec3, _b: Vec3) -> bool {
         false
+    }
+
+    fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<f32> {
+        None
     }
 
     fn sweep_sphere(&self, _from: Vec3, _to: Vec3, _radius: f32) -> Option<WorldHit> {

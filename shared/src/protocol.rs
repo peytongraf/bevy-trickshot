@@ -337,10 +337,12 @@ impl MapEntities for PlayerInput {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum ShotOutcome {
     Miss,
-    /// The shot hit nothing but the ground. Every client spawns a rock/dust
-    /// burst at `point` (see the client's `spawn_ground_impact`).
+    /// The shot hit nothing but the world — the ground, or the first wall /
+    /// crate / container it ran into (bullets stop at the first surface; there
+    /// are no wallbangs). Every client spawns a rock/dust burst at `point`
+    /// (see the client's `spawn_ground_impact`).
     Ground {
-        /// World-space impact point on the ground plane.
+        /// World-space impact point on the surface.
         point: [f32; 3],
     },
     Hit {

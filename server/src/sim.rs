@@ -10,6 +10,7 @@ use lightyear::prelude::*;
 use std::collections::HashMap;
 
 use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
+use shared::map::CollisionWorld;
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
@@ -18,6 +19,7 @@ use shared::{
 };
 
 use crate::bots::{BotHit, LobbyBot};
+use crate::collision::MapColliders;
 use crate::pvp::{PlayerCombat, PlayerHit};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 
@@ -120,6 +122,7 @@ fn broadcast_remote_sounds(
 fn resolve_shots(
     timeline: Single<&LocalTimeline, With<Server>>,
     server: Single<&Server>,
+    colliders: Res<MapColliders>,
     mut sender: ServerMultiMessageSender,
     shooters: Query<(&PlayerId, &ActionState<PlayerInput>)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
@@ -234,10 +237,18 @@ fn resolve_shots(
             continue;
         };
 
+        // The nearest solid surface along the shot (wall, container, crate,
+        // ground mesh). A bullet stops there: nothing beyond it can be hit —
+        // no wallbangs (yet) — and the tracer ends on it.
+        let aim = dir.normalize_or_zero();
+        let wall_dist = colliders
+            .world(lobby.map)
+            .raycast(origin, aim, weapon.spec().max_range);
+
         // The tracer's true endpoint — captured up front so it's correct even
         // for a bot kill, which `outcome` below reports as `Miss` (bots aren't
         // a valid `ShotOutcome::Hit` target).
-        let mut tracer_end = origin + dir.normalize_or_zero() * weapon.spec().max_range;
+        let mut tracer_end = origin + aim * weapon.spec().max_range;
 
         // Collateral: the bullet keeps going after a bot (Call-of-Duty style),
         // so a single shot can pierce through several — `hits` is every one it
@@ -247,8 +258,9 @@ fn resolve_shots(
             origin,
             dir,
             &targets,
-            // TODO: swap for your map's occlusion test — shared::map::CollisionWorld.
-            |_from, _to| false,
+            // Occlusion: a target whose hit point lies farther along the shot
+            // than the first solid surface is behind it, so it can't be hit.
+            |_from, to| wall_dist.is_some_and(|d| origin.distance(to) > d),
         );
 
         let outcome = match hits.last() {
@@ -338,13 +350,26 @@ fn resolve_shots(
                     None => ShotOutcome::Miss,
                 }
             }
-            None => match ground_impact(origin, dir) {
-                Some(p) => {
-                    tracer_end = p;
-                    ShotOutcome::Ground { point: p.to_array() }
+            None => {
+                // Nothing hit: the shot ends on whichever comes first, the
+                // map's own surface or the flat ground plane fallback.
+                let wall = wall_dist.map(|d| origin + aim * d);
+                let surface = match (wall, ground_impact(origin, dir)) {
+                    (Some(w), Some(g)) => Some(if origin.distance(w) <= origin.distance(g) {
+                        w
+                    } else {
+                        g
+                    }),
+                    (w, g) => w.or(g),
+                };
+                match surface {
+                    Some(p) => {
+                        tracer_end = p;
+                        ShotOutcome::Ground { point: p.to_array() }
+                    }
+                    None => ShotOutcome::Miss,
                 }
-                None => ShotOutcome::Miss,
-            },
+            }
         };
 
         let msg = ShotResolved {

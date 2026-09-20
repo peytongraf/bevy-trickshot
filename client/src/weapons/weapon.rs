@@ -11,6 +11,7 @@ use crate::settings::Settings;
 use crate::util::{rand01, rand_roll};
 use crate::{FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
 use shared::ballistics::ground_impact;
+use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::WeaponId;
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
@@ -86,13 +87,15 @@ pub(crate) struct LocalShot {
     pub(crate) dir: Vec3,
 }
 
-/// Every [`LocalShot`] kicks up ground dust where it lands and spawns the
-/// shooter's own tracer instantly, rather than waiting on the server (other
-/// players' tracers come off the server's authoritative `ShotResolved`,
-/// `net::receive_shots`). The tracer ends at the ground point below, else at a
-/// max-range whiff — the server owns bot / player hits, so there's no local
-/// impact point to use.
+/// Every [`LocalShot`] kicks up dust where it lands and spawns the shooter's
+/// own tracer instantly, rather than waiting on the server (other players'
+/// tracers come off the server's authoritative `ShotResolved`,
+/// `net::receive_shots`). The tracer ends at the first solid surface it meets
+/// — the map's own colliders, the same model the server stops the bullet on —
+/// or the flat ground plane, else at a max-range whiff; the server owns bot /
+/// player hits, so there's no local impact point to use for those.
 pub(crate) fn resolve_local_shot(
+    rapier: ReadRapierContext,
     mut shots: EventReader<LocalShot>,
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut tracer_rec: ResMut<killcam::ReplayTracer>,
@@ -100,7 +103,21 @@ pub(crate) fn resolve_local_shot(
     mut tracers: EventWriter<FireTracer>,
 ) {
     for shot in shots.read() {
-        let ground_pt = ground_impact(shot.origin, shot.dir);
+        let max_range = WeaponId::Sniper.spec().max_range;
+        let aim = shot.dir.normalize_or_zero();
+        let wall_pt = rapier.single().ok().and_then(|r| {
+            r.cast_ray(shot.origin, aim, max_range, true, QueryFilter::default())
+                .map(|(_, toi)| shot.origin + aim * toi)
+        });
+        let flat_pt = ground_impact(shot.origin, shot.dir);
+        let ground_pt = match (wall_pt, flat_pt) {
+            (Some(w), Some(g)) => Some(if shot.origin.distance(w) <= shot.origin.distance(g) {
+                w
+            } else {
+                g
+            }),
+            (w, g) => w.or(g),
+        };
         if let Some(p) = ground_pt {
             impacts.write(GroundImpact(p));
             // Stamp it onto this tick's `PlayerInput` too, so the kill cam can
@@ -108,9 +125,7 @@ pub(crate) fn resolve_local_shot(
             ground_hit.0 = Some(p);
         }
 
-        let end = ground_pt.unwrap_or_else(|| {
-            shot.origin + shot.dir.normalize_or_zero() * WeaponId::Sniper.spec().max_range
-        });
+        let end = ground_pt.unwrap_or_else(|| shot.origin + aim * max_range);
         tracers.write(FireTracer { start: shot.origin, end });
         // Stamp it onto this tick's `PlayerInput` too, so the kill cam re-draws
         // the tracer along its true path instead of leaving the live one

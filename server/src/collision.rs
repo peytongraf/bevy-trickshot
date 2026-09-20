@@ -149,8 +149,12 @@ impl CollisionWorld for MapMesh {
         if len < 1e-6 {
             return false;
         }
-        let ray = Ray::new(point(a), Vector::new(d.x, d.y, d.z) / len);
-        self.mesh.cast_local_ray(&ray, len, false).is_some()
+        self.raycast(a, d / len, len).is_some()
+    }
+
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<f32> {
+        let ray = Ray::new(point(origin), Vector::new(dir.x, dir.y, dir.z));
+        self.mesh.cast_local_ray(&ray, max_dist, false)
     }
 
     fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit> {
@@ -319,6 +323,17 @@ mod tests {
             }
         }
         assert!(rested >= 20, "only {rested} of 48 knives came to rest");
+    }
+
+    #[test]
+    fn raycast_finds_the_first_surface_and_respects_max_dist() {
+        let c = colliders();
+        let w = c.world(MapId::Shipment);
+        let o = Vec3::new(0.0, 30.0, 0.0);
+        let d = w.raycast(o, Vec3::NEG_Y, 100.0).expect("floor below");
+        assert!((d - 30.0).abs() < 0.5, "floor at {d} m below, expected ~30");
+        assert!(w.raycast(o, Vec3::NEG_Y, 10.0).is_none(), "beyond max_dist");
+        assert!(w.raycast(o, Vec3::Y, 100.0).is_none(), "nothing above");
     }
 
     #[test]

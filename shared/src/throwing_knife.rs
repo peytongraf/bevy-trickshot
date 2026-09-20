@@ -272,6 +272,10 @@ mod tests {
             false
         }
 
+        fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<f32> {
+            None
+        }
+
         fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit> {
             let mut best: Option<WorldHit> = None;
             let mut consider = |h: WorldHit| {

@@ -274,6 +274,25 @@ mod tests {
         assert!(!hit.headshot);
     }
 
+    /// The occlusion rule the server uses: a target's impact point farther
+    /// along the shot than the first solid surface is behind it. Bots in front
+    /// of the wall still die (and pierce), ones behind it don't.
+    #[test]
+    fn a_wall_stops_a_pierce_chain() {
+        let origin = Vec3::new(0.0, 1.0, 0.0);
+        let wall_dist = Some(20.0f32);
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -10.0)), // in front of the wall
+            dummy(2, Vec3::new(0.0, 0.0, -15.0)), // in front of the wall
+            dummy(3, Vec3::new(0.0, 0.0, -30.0)), // behind it
+        ];
+        let hits = resolve_shot_pierce(WeaponId::Sniper, origin, Vec3::NEG_Z, &targets, |_, to| {
+            wall_dist.is_some_and(|d| origin.distance(to) > d)
+        });
+        let ids: Vec<u64> = hits.iter().map(|h| h.target).collect();
+        assert_eq!(ids, vec![1, 2]);
+    }
+
     #[test]
     fn map_geometry_blocks_the_shot() {
         let targets = [dummy(1, Vec3::new(0.0, 0.0, -10.0))];

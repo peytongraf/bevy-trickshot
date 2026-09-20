@@ -17,7 +17,10 @@ window / audio) + [lightyear](https://github.com/cBournhonesque/lightyear) 0.23.
   * **`resolve_shots`** — for every client that set `fire` this tick, runs
     `shared::ballistics::resolve_shot` against every *other* player's capsule
     hitboxes and broadcasts a `ShotResolved` message on the reliable
-    `GameChannel`.
+    `GameChannel`. A bullet stops at the first solid surface of the map's
+    collision mesh (see *Map collision* below): targets behind it can't be
+    hit, and the tracer / impact end on it. No wallbangs — bullets never pass
+    through walls.
 
   * **Throwing knives** (`src/knives.rs`) — a `ThrowKnife` request from a
     client starts a `ThrownKnife` entity, replicated to the lobby and stepped
