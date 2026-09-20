@@ -832,6 +832,7 @@ pub(crate) fn ads_tuning_ui(
                     ("knife: equip", &mut v.knife_equip),
                     ("sniper: equip", &mut v.sniper_equip),
                     ("heartbeat (at zero health)", &mut v.heartbeat),
+                    ("hit marker", &mut v.hit_marker),
                 ] {
                     ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                 }

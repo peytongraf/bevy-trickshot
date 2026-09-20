@@ -14,11 +14,11 @@ use shared::map::CollisionWorld;
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
-    Bot, GameChannel, GameMode, KnifeAttackSound, Lobby, PlayerId, PlayerInput, PlayerPose,
+    Bot, GameChannel, GameMode, HitMarker, KnifeAttackSound, Lobby, PlayerId, PlayerInput, PlayerPose,
     RemoteSound, ShotOutcome, ShotResolved, TrickScore,
 };
 
-use crate::bots::{BotHit, LobbyBot};
+use crate::bots::{BotHealth, BotHit, LobbyBot};
 use crate::collision::MapColliders;
 use crate::pvp::{PlayerCombat, PlayerHit};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
@@ -126,7 +126,7 @@ fn resolve_shots(
     mut sender: ServerMultiMessageSender,
     shooters: Query<(&PlayerId, &ActionState<PlayerInput>)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
-    bots: Query<(Entity, &Bot, &LobbyBot)>,
+    mut bots: Query<(Entity, &Bot, &LobbyBot, &mut BotHealth)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
     mut bot_hits: EventWriter<BotHit>,
@@ -174,7 +174,7 @@ fn resolve_shots(
         }
         // No bots in `FreeForAll` — it's pure PvP.
         if lobby.mode == GameMode::Freestyle {
-            for (entity, bot, lb) in &bots {
+            for (entity, bot, lb, _) in &bots {
                 if lb.lobby != lobby_e || !bot.alive {
                     continue;
                 }
@@ -291,21 +291,42 @@ fn resolve_shots(
             Some(last) => {
                 tracer_end = last.point;
 
-                // Every bot the shot pierced becomes its own `BotHit` (each
-                // needs to die + topple independently), but the shot's score
-                // is worked out once for the whole chain and multiplied by how
-                // many it hit — crediting it again per bot would double it, so
-                // only the first `BotHit` carries the points. The distance
-                // multiplier goes off the nearest (first) bot the shot hit —
-                // that's "how far the shot was", regardless of how much
-                // farther it happened to pierce.
-                let bots_hit: Vec<(Entity, f32)> = hits
-                    .iter()
-                    .filter_map(|hit| match kind.get(&hit.target) {
-                        Some(HitKind::Bot(bot)) => Some((*bot, hit.distance)),
-                        _ => None,
-                    })
-                    .collect();
+                // Every bot the shot pierced takes that hit's damage off its
+                // health (a leg shot, say, leaves it alive); the ones that
+                // reach zero die. Each dead bot becomes its own `BotHit` (each
+                // needs to topple independently), but the shot's score is
+                // worked out once for the whole chain and multiplied by how
+                // many it *killed* — crediting it again per bot would double
+                // it, so only the first `BotHit` carries the points. The
+                // distance multiplier goes off the nearest (first) bot killed
+                // — "how far the shot was", regardless of how much farther it
+                // happened to pierce. A bot that survives just gives the
+                // shooter a hit marker.
+                let mut bots_hit: Vec<(Entity, f32)> = Vec::new();
+                let mut survivor = false;
+                for hit in &hits {
+                    let Some(HitKind::Bot(bot)) = kind.get(&hit.target) else {
+                        continue;
+                    };
+                    let Ok((_, _, _, mut health)) = bots.get_mut(*bot) else {
+                        continue;
+                    };
+                    health.0 -= hit.damage;
+                    if health.0 <= 0.0 {
+                        bots_hit.push((*bot, hit.distance));
+                    } else {
+                        survivor = true;
+                    }
+                }
+                if survivor {
+                    if let Err(e) = sender.send::<_, GameChannel>(
+                        &HitMarker,
+                        server,
+                        &NetworkTarget::Single(shooter.0),
+                    ) {
+                        error!("failed to send hit marker: {e:?}");
+                    }
+                }
                 if let Some(&(_, distance)) = bots_hit.first() {
                     let (points, lines) = shared::scoring::score_multi_kill(
                         i.spin_deg,

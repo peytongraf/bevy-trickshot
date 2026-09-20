@@ -9,7 +9,8 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    FellToDeath, GameChannel, GameMode, Lobby, PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn,
+    FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerId, PlayerKilledBy, PlayerPose,
+    PlayerRespawn,
 };
 
 /// Every player starts (and respawns) at this much health. The sniper's
@@ -24,11 +25,20 @@ pub const FULL_HEALTH: f32 = 100.0;
 /// `server::killcam`).
 const RESPAWN_DELAY_SECS: f32 = 4.5;
 
+/// Seconds after taking damage that a player's health holds before it starts
+/// to recover — the same beat the fall-damage health uses client-side.
+const REGEN_DELAY_SECS: f32 = 3.0;
+/// Health regained per second once recovery starts.
+const REGEN_PER_SEC: f32 = 20.0;
+
 /// Per-player combat state. Only present on players in a `FreeForAll` game
 /// (see `lobby::on_start`) — `Freestyle` players never get one.
 #[derive(Component)]
 pub struct PlayerCombat {
     pub health: f32,
+    /// `Time::elapsed_secs()` of the last damage taken — health holds for
+    /// [`REGEN_DELAY_SECS`] after it, then recovers (see [`tick_respawns`]).
+    last_damage: f32,
     pub alive: bool,
     /// `Time::elapsed_secs()` this player becomes targetable / can fire again.
     /// Meaningless while `alive`.
@@ -39,6 +49,7 @@ impl Default for PlayerCombat {
     fn default() -> Self {
         Self {
             health: FULL_HEALTH,
+            last_damage: f32::NEG_INFINITY,
             alive: true,
             respawn_at: 0.0,
         }
@@ -101,7 +112,14 @@ fn apply_player_hits(
             continue;
         }
         combat.health -= ev.damage;
+        combat.last_damage = time.elapsed_secs();
         if combat.health > 0.0 {
+            // Hurt but alive: the shooter gets a hit marker.
+            if let Err(e) =
+                sender.send::<_, GameChannel>(&HitMarker, server, &NetworkTarget::Single(ev.killer))
+            {
+                error!("failed to send hit marker to {:?}: {e:?}", ev.killer);
+            }
             continue;
         }
         combat.alive = false;
@@ -210,10 +228,17 @@ fn on_fell_to_death(
 /// `client::net::flush_pending_respawn`) — this only ungates hit detection.
 fn tick_respawns(time: Res<Time>, mut combats: Query<&mut PlayerCombat>) {
     let now = time.elapsed_secs();
+    let dt = time.delta_secs();
     for mut combat in &mut combats {
         if !combat.alive && now >= combat.respawn_at {
             combat.alive = true;
             combat.health = FULL_HEALTH;
+        } else if combat.alive
+            && combat.health < FULL_HEALTH
+            && now - combat.last_damage >= REGEN_DELAY_SECS
+        {
+            // Hurt but not dead: hold, then climb back linearly.
+            combat.health = (combat.health + REGEN_PER_SEC * dt).min(FULL_HEALTH);
         }
     }
 }

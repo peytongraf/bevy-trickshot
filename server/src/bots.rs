@@ -22,6 +22,16 @@ pub struct BotHit {
     pub points: u32,
 }
 
+/// A bot's health (server-only — clients only see whether it's alive). Shots
+/// deduct from it (`sim::resolve_shots`) and the bot dies at zero, just like a
+/// `FreeForAll` player's `PlayerCombat::health`. A knife stab or throw kills
+/// outright via [`BotHit`] without touching it.
+#[derive(Component)]
+pub struct BotHealth(pub f32);
+
+/// Every bot spawns with this much health — the same bar a player has.
+pub const BOT_HEALTH: f32 = 100.0;
+
 /// Which lobby's game a bot belongs to.
 #[derive(Component)]
 pub struct LobbyBot {
@@ -74,6 +84,7 @@ fn ensure_bots(
             commands.spawn((
                 Name::from("Bot"),
                 LobbyBot { lobby: lobby_e },
+                BotHealth(BOT_HEALTH),
                 Bot {
                     pos,
                     yaw,

@@ -39,6 +39,9 @@ pub(crate) struct GameSounds {
     pub(crate) knife_equip: Handle<AudioSource>,
     /// `audio/equip_sniper.mp3` — switching to the sniper.
     pub(crate) sniper_equip: Handle<AudioSource>,
+    /// `audio/not-used-yet/hit-marker-sound.mp3` — one of your shots damaged
+    /// (but didn't kill) a bot / player (`hit_marker`).
+    pub(crate) hit_marker: Handle<AudioSource>,
     /// `audio/not-used-yet/heartbeat-sound.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
@@ -165,6 +168,7 @@ pub(crate) struct SoundVolumes {
     /// Loudness of the heartbeat at zero health (it fades toward silence as
     /// health recovers) — see `health::update_heartbeat`.
     pub(crate) heartbeat: f32,
+    pub(crate) hit_marker: f32,
 }
 
 impl Default for SoundVolumes {
@@ -189,6 +193,7 @@ impl Default for SoundVolumes {
             knife_equip: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
+            hit_marker: 1.0,
         }
     }
 }
@@ -219,6 +224,7 @@ impl SoundVolumes {
             (sounds.knife_in_air.id(), self.knife_in_air),
             (sounds.knife_equip.id(), self.knife_equip),
             (sounds.sniper_equip.id(), self.sniper_equip),
+            (sounds.hit_marker.id(), self.hit_marker),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -305,6 +311,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         knife_equip: asset_server.load("audio/knife/equip-knife-sound.mp3"),
         sniper_equip: asset_server.load("audio/equip_sniper.mp3"),
         heartbeat: asset_server.load("audio/not-used-yet/heartbeat-sound.mp3"),
+        hit_marker: asset_server.load("audio/not-used-yet/hit-marker-sound.mp3"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
             .collect(),

@@ -20,13 +20,23 @@ pub struct WeaponSpec {
     pub muzzle_velocity: f32,
     /// Downward acceleration on the projectile, m/s². `0.0` means no bullet drop.
     pub gravity: f32,
-    /// Body-shot damage at point-blank, before range falloff.
+    /// Body-shot damage at point-blank, before range falloff and the hit-zone
+    /// multipliers.
     pub base_damage: f32,
+    /// Range (metres) out to which a shot still does full `base_damage`; past
+    /// it damage falls off linearly, reaching `min_damage_fraction` of it at
+    /// `max_range`. `0.0` starts the falloff at the muzzle.
+    pub falloff_start: f32,
     /// Multiplier applied on a head hit.
     pub headshot_multiplier: f32,
-    /// Fraction of `base_damage` still dealt at `max_range` (linear falloff in
-    /// between). `1.0` disables falloff.
+    /// Fraction of `base_damage` still dealt at `max_range` (linear falloff
+    /// from `falloff_start`). `1.0` disables falloff.
     pub min_damage_fraction: f32,
+    /// Multiplier on a hit to the lower body (waist down — see
+    /// [`crate::ballistics::HitZone::Legs`]). Below `1.0`, so a leg shot from
+    /// a weapon that one-shots the torso leaves the target alive, Call of Duty
+    /// style.
+    pub lower_body_multiplier: f32,
 }
 
 impl WeaponId {
@@ -43,17 +53,30 @@ impl WeaponId {
                 max_range: 300.0,
                 muzzle_velocity: f32::INFINITY,
                 gravity: 0.0,
-                base_damage: 100.0,
+                // Damage is tuned against a 100-health bar so *where* and *how
+                // far* a shot lands decide whether it kills, Call of Duty
+                // style. Peak 200, full out to `falloff_start`, then a linear
+                // fade to 10% at `max_range`; with the zone multipliers below:
+                //   * a leg shot (×0.6) kills out to ~72 m, but not beyond;
+                //   * a torso shot (×1) kills out to ~175 m;
+                //   * a headshot (×2) kills out to ~253 m — past that even a
+                //     headshot leaves the target alive.
+                // (`ballistics`' tests pin these thresholds.)
+                base_damage: 200.0,
+                falloff_start: 20.0,
                 headshot_multiplier: 2.0,
-                min_damage_fraction: 1.0,
+                min_damage_fraction: 0.1,
+                lower_body_multiplier: 0.6,
             },
             WeaponId::Marksman => WeaponSpec {
                 max_range: 350.0,
                 muzzle_velocity: 900.0,
                 gravity: 9.81,
                 base_damage: 65.0,
+                falloff_start: 0.0,
                 headshot_multiplier: 2.0,
                 min_damage_fraction: 0.55,
+                lower_body_multiplier: 0.6,
             },
         }
     }

@@ -14,11 +14,41 @@ pub struct Target {
     pub head: Capsule,
 }
 
+/// Where on a target a shot landed — each zone has its own damage multiplier
+/// (see [`crate::weapon::WeaponSpec`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitZone {
+    Head,
+    /// Upper body (waist and up, arms included) — full body-shot damage.
+    Torso,
+    /// Lower body (below [`LOWER_BODY_HEIGHT_FRAC`] of the target's height).
+    Legs,
+}
+
+/// A body hit below this fraction of the target's height (`0` at the feet,
+/// `1` at the top of the head) is a [`HitZone::Legs`] hit.
+pub const LOWER_BODY_HEIGHT_FRAC: f32 = 0.5;
+
+/// Which zone a hit at `point` on `target` falls in.
+fn zone_of(target: &Target, point: Vec3, headshot: bool) -> HitZone {
+    if headshot {
+        return HitZone::Head;
+    }
+    let feet_y = target.body.a.y.min(target.body.b.y) - target.body.radius;
+    let height = (target.body.b.y - target.body.a.y).abs() + 2.0 * target.body.radius;
+    if height > 1e-3 && (point.y - feet_y) / height < LOWER_BODY_HEIGHT_FRAC {
+        HitZone::Legs
+    } else {
+        HitZone::Torso
+    }
+}
+
 /// The winning hit from [`resolve_shot`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShotHit {
     pub target: u64,
     pub headshot: bool,
+    pub zone: HitZone,
     /// World-space impact point.
     pub point: Vec3,
     /// Distance from the muzzle to the impact.
@@ -77,7 +107,7 @@ pub fn resolve_shot(
                 &mut blocked,
             ) {
                 hit.distance += travelled;
-                hit.damage = damage_for(weapon, hit.distance, hit.headshot);
+                hit.damage = damage_for(weapon, hit.distance, hit.zone);
                 return Some(hit);
             }
         }
@@ -147,12 +177,17 @@ fn segment_hit(
 ) -> Option<ShotHit> {
     let (target, headshot, dist, point) =
         nearest_unpierced(origin, dir, max_dist, targets, &[], blocked)?;
+    let zone = targets
+        .iter()
+        .find(|t| t.id == target)
+        .map_or(HitZone::Torso, |t| zone_of(t, point, headshot));
     Some(ShotHit {
         target,
         headshot,
+        zone,
         point,
         distance: dist,
-        damage: damage_for(weapon, dist, headshot),
+        damage: damage_for(weapon, dist, zone),
     })
 }
 
@@ -199,12 +234,17 @@ pub fn resolve_shot_pierce(
         };
         pierced.push(target);
         let distance = (point - origin).length();
+        let zone = targets
+            .iter()
+            .find(|t| t.id == target)
+            .map_or(HitZone::Torso, |t| zone_of(t, point, headshot));
         hits.push(ShotHit {
             target,
             headshot,
+            zone,
             point,
             distance,
-            damage: damage_for(weapon, distance, headshot),
+            damage: damage_for(weapon, distance, zone),
         });
         budget -= leg_dist + PIERCE_RANGE_COST_M;
         leg_start = point;
@@ -235,14 +275,17 @@ pub fn ground_impact(origin: Vec3, dir: Vec3) -> Option<Vec3> {
     Some(point)
 }
 
-fn damage_for(weapon: WeaponId, distance: f32, headshot: bool) -> f32 {
+fn damage_for(weapon: WeaponId, distance: f32, zone: HitZone) -> f32 {
     let spec = weapon.spec();
-    let f = (distance / spec.max_range).clamp(0.0, 1.0);
+    // Full damage out to `falloff_start`, then linear to `min_damage_fraction`
+    // at `max_range`.
+    let span = (spec.max_range - spec.falloff_start).max(1e-3);
+    let f = ((distance - spec.falloff_start) / span).clamp(0.0, 1.0);
     let falloff = 1.0 - f * (1.0 - spec.min_damage_fraction);
-    let mult = if headshot {
-        spec.headshot_multiplier
-    } else {
-        1.0
+    let mult = match zone {
+        HitZone::Head => spec.headshot_multiplier,
+        HitZone::Torso => 1.0,
+        HitZone::Legs => spec.lower_body_multiplier,
     };
     spec.base_damage * falloff * mult
 }
@@ -304,6 +347,74 @@ mod tests {
             |_, _| true,
         );
         assert!(hit.is_none());
+    }
+
+    /// A bullet at `height` metres up a standing dummy `range` metres away.
+    fn shoot(range: f32, height: f32) -> ShotHit {
+        let targets = [dummy(7, Vec3::new(0.0, 0.0, -range))];
+        resolve_shot(
+            WeaponId::Sniper,
+            Vec3::new(0.0, height, 0.0),
+            Vec3::NEG_Z,
+            &targets,
+            |_, _| false,
+        )
+        .expect("should hit")
+    }
+
+    const HEALTH: f32 = 100.0;
+    // Chest / head / leg heights on the 1.8 m dummy.
+    const TORSO_Y: f32 = 1.2;
+    const HEAD_Y: f32 = 1.68;
+    const LEGS_Y: f32 = 0.4;
+
+    #[test]
+    fn zones_are_classified_from_the_hit_height() {
+        assert_eq!(shoot(12.0, TORSO_Y).zone, HitZone::Torso);
+        assert_eq!(shoot(12.0, HEAD_Y).zone, HitZone::Head);
+        assert_eq!(shoot(12.0, LEGS_Y).zone, HitZone::Legs);
+    }
+
+    #[test]
+    fn up_close_everything_kills_even_a_leg_shot() {
+        for y in [TORSO_Y, HEAD_Y, LEGS_Y] {
+            let d = shoot(10.0, y).damage;
+            assert!(d >= HEALTH, "at 10 m a shot at height {y} must kill, did {d}");
+        }
+    }
+
+    #[test]
+    fn a_leg_shot_stops_killing_at_range_but_a_torso_shot_still_does() {
+        let leg = shoot(120.0, LEGS_Y).damage;
+        assert!(leg > 0.0 && leg < HEALTH, "leg shot at 120 m must not kill: {leg}");
+        let torso = shoot(120.0, TORSO_Y).damage;
+        assert!(torso >= HEALTH, "torso shot at 120 m must still kill: {torso}");
+    }
+
+    #[test]
+    fn far_enough_away_a_torso_shot_no_longer_kills_but_a_headshot_does() {
+        let torso = shoot(220.0, TORSO_Y).damage;
+        assert!(torso > 0.0 && torso < HEALTH, "torso at 220 m must not kill: {torso}");
+        let head = shoot(220.0, HEAD_Y).damage;
+        assert!(head >= HEALTH, "headshot at 220 m must still kill: {head}");
+    }
+
+    #[test]
+    fn at_extreme_range_even_a_headshot_does_not_kill() {
+        let head = shoot(290.0, HEAD_Y).damage;
+        assert!(head > 0.0 && head < HEALTH, "headshot at 290 m must not kill: {head}");
+    }
+
+    #[test]
+    fn damage_never_rises_with_distance() {
+        for y in [TORSO_Y, HEAD_Y, LEGS_Y] {
+            let mut last = f32::MAX;
+            for range in [5.0, 20.0, 60.0, 120.0, 200.0, 280.0] {
+                let d = shoot(range, y).damage;
+                assert!(d <= last + 1e-3, "damage rose from {last} to {d} at {range} m");
+                last = d;
+            }
+        }
     }
 
     #[test]

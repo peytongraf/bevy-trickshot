@@ -34,6 +34,7 @@ mod environment;
 mod fall_death;
 mod game_start;
 mod health;
+mod hit_marker;
 mod hud;
 mod keybinds;
 mod killcam;
@@ -164,6 +165,7 @@ fn main() {
             thrown_knife::ThrownKnifePlugin,
             knife_sounds::KnifeSoundsPlugin,
             health::HealthPlugin,
+            hit_marker::HitMarkerPlugin,
             BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {

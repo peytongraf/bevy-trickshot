@@ -719,6 +719,12 @@ impl Ease for ThrownKnife {
     }
 }
 
+/// Server → the shooter only: their shot damaged a bot or player without
+/// killing them — the client shows a hit marker and plays the hit-marker sound.
+/// (A kill has its own feedback and sends none.)
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HitMarker;
+
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
 /// `Freestyle`, another player in `FreeForAll`) at `point` — every client
 /// plays the hit sound from there.
@@ -839,6 +845,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<PlayerRespawn>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PlayerKilledBy>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ThrowingKnifeHit>()
             .add_direction(NetworkDirection::ServerToClient);
