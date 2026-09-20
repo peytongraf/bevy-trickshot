@@ -19,7 +19,7 @@ use crate::{AppState, ThrowingKnife};
 /// Uniform scale of the knife model in the world. `throwing_knife.glb` is
 /// ~3.7 units long; this makes it ~26 cm, the same size as the knife shown in
 /// the throwing arms' hand (arms scale 0.01 × knife scale 7).
-const KNIFE_WORLD_SCALE: f32 = 0.07;
+pub(crate) const KNIFE_WORLD_SCALE: f32 = 0.07;
 
 pub struct ThrownKnifePlugin;
 
@@ -47,7 +47,7 @@ struct KnifeAvatar {
 /// The model's own axes → the replicated rotation's frame (`-Z` blade tip,
 /// `Y` the flat face's normal): the glb's blade tip points along `-X` and its
 /// flat face's normal is `Z`, its width `Y`.
-fn model_correction() -> Quat {
+pub(crate) fn model_correction() -> Quat {
     Quat::from_mat3(&Mat3::from_cols(Vec3::Z, Vec3::X, Vec3::Y))
 }
 

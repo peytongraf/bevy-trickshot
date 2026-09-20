@@ -192,15 +192,24 @@ pub struct WorldHit {
     pub normal: Vec3,
 }
 
+/// Where a ray first met solid geometry — see [`CollisionWorld::raycast`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RayHit {
+    /// Distance from the ray's origin to the surface.
+    pub distance: f32,
+    /// Unit surface normal at the hit, facing back toward the ray's origin.
+    pub normal: Vec3,
+}
+
 /// Static-geometry queries against a map's collision mesh.
 pub trait CollisionWorld: Send + Sync + 'static {
     /// `true` if a straight segment from `a` to `b` is stopped by solid map
     /// geometry (so a bullet along it should not reach `b`).
     fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool;
 
-    /// Distance along the ray `origin + t * dir` (`dir` unit length) to the
-    /// first solid surface within `max_dist`, or `None` if the ray is clear.
-    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<f32>;
+    /// The first solid surface along the ray `origin + t * dir` (`dir` unit
+    /// length) within `max_dist`, or `None` if the ray is clear.
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RayHit>;
 
     /// Sweep a sphere of `radius` from `from` to `to` and report the first
     /// solid surface it touches, if any.
@@ -216,7 +225,7 @@ impl CollisionWorld for EmptyWorld {
         false
     }
 
-    fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<f32> {
+    fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<RayHit> {
         None
     }
 

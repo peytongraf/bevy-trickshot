@@ -20,7 +20,7 @@ use gltf::mesh::Mode;
 use parry3d::math::{Isometry, Point, Vector};
 use parry3d::query::{cast_shapes, Ray, RayCast, ShapeCastOptions};
 use parry3d::shape::{Ball, TriMesh, TriMeshFlags};
-use shared::map::{self, CollisionWorld, MapPlacement, WorldHit};
+use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
 use shared::MapId;
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
@@ -152,9 +152,21 @@ impl CollisionWorld for MapMesh {
         self.raycast(a, d / len, len).is_some()
     }
 
-    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<f32> {
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RayHit> {
         let ray = Ray::new(point(origin), Vector::new(dir.x, dir.y, dir.z));
-        self.mesh.cast_local_ray(&ray, max_dist, false)
+        let hit = self
+            .mesh
+            .cast_local_ray_and_get_normal(&ray, max_dist, false)?;
+        // Meshes aren't guaranteed consistent winding: make the normal face
+        // back toward the ray's origin.
+        let mut n = Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z);
+        if n.dot(dir) > 0.0 {
+            n = -n;
+        }
+        Some(RayHit {
+            distance: hit.time_of_impact,
+            normal: n.normalize_or_zero(),
+        })
     }
 
     fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit> {
@@ -330,8 +342,9 @@ mod tests {
         let c = colliders();
         let w = c.world(MapId::Shipment);
         let o = Vec3::new(0.0, 30.0, 0.0);
-        let d = w.raycast(o, Vec3::NEG_Y, 100.0).expect("floor below");
-        assert!((d - 30.0).abs() < 0.5, "floor at {d} m below, expected ~30");
+        let hit = w.raycast(o, Vec3::NEG_Y, 100.0).expect("floor below");
+        assert!((hit.distance - 30.0).abs() < 0.5, "floor at {} m below, expected ~30", hit.distance);
+        assert!(hit.normal.y > 0.9, "floor normal points up: {}", hit.normal);
         assert!(w.raycast(o, Vec3::NEG_Y, 10.0).is_none(), "beyond max_dist");
         assert!(w.raycast(o, Vec3::Y, 100.0).is_none(), "nothing above");
     }

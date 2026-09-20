@@ -1,11 +1,13 @@
 //! Shot/weapon visual effects: muzzle flash, barrel smoke, fire tracers, and
-//! bullet-impact particles (ground rock/dust, bot blood).
+//! bullet-impact particles (ground rock/dust, bot blood) and bullet holes.
 
+mod bullet_holes;
 mod impacts;
 mod muzzle_flash;
 mod smoke;
 mod tracers;
 
+pub(crate) use bullet_holes::*;
 pub(crate) use impacts::*;
 pub(crate) use muzzle_flash::*;
 pub(crate) use smoke::*;

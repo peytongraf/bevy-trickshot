@@ -5,6 +5,7 @@
 use std::f32::consts::PI;
 
 use bevy::math::Affine2;
+use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 
@@ -274,6 +275,7 @@ pub(crate) fn spawn_ground_impact(
                 MeshMaterial3d(materials.add(material)),
                 Transform::from_translation(at).with_scale(Vec3::splat(rocks.scale.max(1.0e-4))),
                 NoFrustumCulling,
+                NotShadowCaster,
             ));
         }
 
@@ -309,6 +311,7 @@ pub(crate) fn spawn_ground_impact(
                 Transform::from_translation(at)
                     .with_scale(Vec3::splat(dust.start_scale.max(1.0e-4))),
                 NoFrustumCulling,
+                NotShadowCaster,
             ));
         }
     }
@@ -375,6 +378,7 @@ pub(crate) fn spawn_blood_impact(
                 MeshMaterial3d(materials.add(material)),
                 Transform::from_translation(ev.point).with_scale(Vec3::splat(scale0)),
                 NoFrustumCulling,
+                NotShadowCaster,
             ));
         }
     }

@@ -9,7 +9,7 @@ use crate::killcam;
 use crate::player::WorldModelCamera;
 use crate::settings::Settings;
 use crate::util::{rand01, rand_roll};
-use crate::{FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
+use crate::{BulletImpact, FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
 use shared::ballistics::ground_impact;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::WeaponId;
@@ -100,26 +100,35 @@ pub(crate) fn resolve_local_shot(
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut tracer_rec: ResMut<killcam::ReplayTracer>,
     mut impacts: EventWriter<GroundImpact>,
+    mut holes: EventWriter<BulletImpact>,
     mut tracers: EventWriter<FireTracer>,
 ) {
     for shot in shots.read() {
         let max_range = WeaponId::Sniper.spec().max_range;
         let aim = shot.dir.normalize_or_zero();
-        let wall_pt = rapier.single().ok().and_then(|r| {
-            r.cast_ray(shot.origin, aim, max_range, true, QueryFilter::default())
-                .map(|(_, toi)| shot.origin + aim * toi)
+        // Each candidate surface carries its normal (the collider's own, or
+        // straight up for the flat plane) for the bullet hole.
+        let wall_hit = rapier.single().ok().and_then(|r| {
+            r.cast_ray_and_get_normal(shot.origin, aim, max_range, true, QueryFilter::default())
+                .map(|(_, hit)| {
+                    // Face the shooter, whichever way the collider's winding goes.
+                    let n = if hit.normal.dot(aim) > 0.0 { -hit.normal } else { hit.normal };
+                    (shot.origin + aim * hit.time_of_impact, n)
+                })
         });
-        let flat_pt = ground_impact(shot.origin, shot.dir);
-        let ground_pt = match (wall_pt, flat_pt) {
-            (Some(w), Some(g)) => Some(if shot.origin.distance(w) <= shot.origin.distance(g) {
+        let flat_hit = ground_impact(shot.origin, shot.dir).map(|p| (p, Vec3::Y));
+        let surface = match (wall_hit, flat_hit) {
+            (Some(w), Some(g)) => Some(if shot.origin.distance(w.0) <= shot.origin.distance(g.0) {
                 w
             } else {
                 g
             }),
             (w, g) => w.or(g),
         };
-        if let Some(p) = ground_pt {
+        let ground_pt = surface.map(|(p, _)| p);
+        if let Some((p, normal)) = surface {
             impacts.write(GroundImpact(p));
+            holes.write(BulletImpact { point: p, normal });
             // Stamp it onto this tick's `PlayerInput` too, so the kill cam can
             // replay the burst for the other players watching.
             ground_hit.0 = Some(p);
@@ -348,6 +357,14 @@ impl ThrowingKnife {
     /// Whether a throw request is waiting to be sent.
     pub(crate) fn has_throw_request(&self) -> bool {
         self.pending_throw.is_some()
+    }
+
+    /// Whether the throwing-knife reticle should be up instead of the sniper's
+    /// centre dot: from the key press until the arms have finished sliding
+    /// away again (`active` alone drops the moment the throw ends, while the
+    /// arms are still on screen).
+    pub(crate) fn crosshair_up(&self) -> bool {
+        self.active || self.slide > 0.0
     }
 
     /// Whether the knife model should be showing in the arms' hand: from the

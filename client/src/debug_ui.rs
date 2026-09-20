@@ -63,6 +63,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<KnifeViewModelSettings>,
             ResMut<ThrowArmsSettings>,
             ResMut<ThrowKnifeModelSettings>,
+            ResMut<BulletHoleSettings>,
             ResMut<FluoroLightSettings>,
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
@@ -87,7 +88,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, settings, mut lens_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -290,6 +291,23 @@ pub(crate) fn ads_tuning_ui(
                     a.pitch = d.pitch;
                     a.roll = d.roll;
                     a.scale = d.scale;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Bullet impacts", |ui| {
+                ui.label(
+                    "textures/bullet_impact.png stuck flat on the surface a shot hit — for every \
+                     player in the lobby, removed after 1 minute. Scale applies to the holes \
+                     already in the world too.",
+                );
+                ui.add(
+                    egui::Slider::new(&mut bullet_holes.size, 0.05f32..=3.0)
+                        .text("size (m)")
+                        .logarithmic(true),
+                );
+                if ui.button("Reset bullet impact size").clicked() {
+                    *bullet_holes = BulletHoleSettings::default();
                 }
             });
 

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use crate::menu;
 use crate::{scope_picture_amount, Ads, AdsTuning, CrosshairSettings};
+use crate::killcam::ActiveKillCam;
 use crate::{AppState, ThrowingKnife, Weapon, WeaponSlot};
 
 /// The dead-centre white dot; `fade_crosshair` fades it out as the player aims
@@ -143,34 +144,37 @@ pub(crate) fn fade_crosshair(
 }
 
 /// Pick the reticle: the centre dot only while the sniper is the active
-/// weapon and the throwing knife isn't held; the throwing-knife crosshair
-/// only while it is. During a kill cam, `killcam::drive_killcam` drives
-/// `weapon.slot` / `ThrowingKnife::active` off the recorded samples, so this
-/// reproduces the same swap the shooter saw instead of a live-only readout.
+/// weapon and the throwing knife isn't up; the throwing-knife crosshair
+/// while it is ([`ThrowingKnife::crosshair_up`] — from the key press until the
+/// arms have slid away again). During a kill cam it reads the recorded sample
+/// under the replay's playhead directly, so the replay shows exactly the
+/// crosshair the shooter had at each moment.
 pub(crate) fn update_crosshair_visibility(
     weapon: Res<Weapon>,
     knife: Res<ThrowingKnife>,
+    killcam: Res<ActiveKillCam>,
     mut dot: Query<&mut Visibility, (With<CenterDot>, Without<ThrowingKnifeCrosshair>)>,
     mut reticle: Query<&mut Visibility, (With<ThrowingKnifeCrosshair>, Without<CenterDot>)>,
 ) {
-    if !(weapon.is_changed() || knife.is_changed()) {
-        return;
-    }
-    let sniper_active = weapon.slot == WeaponSlot::Primary;
-    let dot_want = if sniper_active && !knife.active {
+    let (sniper_active, throwing) = killcam
+        .0
+        .as_ref()
+        .and_then(|run| run.crosshair_state())
+        .unwrap_or((weapon.slot == WeaponSlot::Primary, knife.crosshair_up()));
+    let dot_want = if sniper_active && !throwing {
         Visibility::Inherited
     } else {
         Visibility::Hidden
     };
-    let reticle_want = if knife.active {
+    let reticle_want = if throwing {
         Visibility::Inherited
     } else {
         Visibility::Hidden
     };
     if let Ok(mut v) = dot.single_mut() {
-        *v = dot_want;
+        v.set_if_neq(dot_want);
     }
     if let Ok(mut v) = reticle.single_mut() {
-        *v = reticle_want;
+        v.set_if_neq(reticle_want);
     }
 }

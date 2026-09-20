@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Shots now leave bullet holes on the surfaces they hit, and everyone in the lobby sees them. They disappear after a minute.",
+        "Fixed: the throwing knife crosshair now shows in kill cams (and stays up while the throwing arms are on screen) instead of the plain centre dot.",
+        "Fixed: kill cams now show the throwing arms and the knife being thrown (and flying, bouncing and landing the kill), instead of leaving them out.",
         "Shots no longer go through walls, crates or containers: a bullet (and its tracer) stops at the first surface it hits, so you can't hit anything behind cover.",
         "You can now actually throw the throwing knife! Hold V, aim and let go. It flies in an arc, bounces off walls and the ground, losing speed each time, then stops and disappears. Everyone in the lobby sees it. In Freestyle it kills bots (40 points); in Free For All it kills other players.",
         "The throwing arms now hold a throwing knife while you hold V. It disappears the moment the throw animation starts.",

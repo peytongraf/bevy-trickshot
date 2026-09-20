@@ -163,6 +163,23 @@ pub(crate) struct KillCamRun {
     pub(crate) optic: Option<crate::Optic>,
 }
 
+impl KillCamRun {
+    /// `(sniper_active, throwing_reticle_up)` off the recorded sample nearest
+    /// the playhead — what the shooter's crosshair was showing at this
+    /// moment. Read straight from the recording (rather than via the
+    /// `Weapon` / `ThrowingKnife` resources `drive_killcam` also writes), so
+    /// the replayed crosshair can't depend on system ordering.
+    pub(crate) fn crosshair_state(&self) -> Option<(bool, bool)> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        let duration = self.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
+        let (a, b, frac) = bracket(&self.frames, self.elapsed.min(duration));
+        let s = if frac < 0.5 { a } else { b };
+        Some((s.sniper_active, s.knife_active || s.arms_slide > 0.0))
+    }
+}
+
 /// The player rig's transforms, stashed so playback can drive them and then put
 /// them back exactly.
 struct SavedRig {
@@ -177,6 +194,10 @@ struct SavedRig {
     /// restored on teardown so live weapon state resumes exactly where it
     /// left off.
     weapon_visible: bool,
+    /// Whether the first-person melee knife model was shown — tracked
+    /// separately from `weapon_visible`, since with the throwing arms up both
+    /// weapon models are hidden.
+    knife_visible: bool,
     knife_active: bool,
     slot: WeaponSlot,
 }
@@ -275,6 +296,7 @@ impl Plugin for KillCamPlugin {
                 (
                     start_killcam,
                     drive_killcam,
+                    drive_killcam_throw,
                 )
                     .chain()
                     // `apply_ads` still runs during a replay (it eases FOV /
@@ -419,9 +441,18 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
 /// Bundled purely to stay under `start_killcam`'s `SystemParam` tuple limit
 /// (it was already at 16 separate parameters).
 #[derive(SystemParam)]
-struct WeaponAndDeathEffect<'w> {
+struct WeaponAndDeathEffect<'w, 's> {
     weapon: Res<'w, Weapon>,
     death_effect: ResMut<'w, crate::death_effect::DeathEffect>,
+    // `Without<TargetBotVisual>` keeps this provably disjoint from
+    // `start_killcam`'s `live_bots` (`&mut Visibility`), same as its
+    // `view_model_vis` sibling.
+    knife_vis: Query<
+        'w,
+        's,
+        &'static Visibility,
+        (With<KnifeViewModel>, Without<ViewModel>, Without<TargetBotVisual>),
+    >,
 }
 
 /// Take the game camera over for the replay: stash the rig transforms, zero the
@@ -483,8 +514,9 @@ fn start_killcam(
     // sniper that was genuinely equipped a moment ago. Consume the flag (it's
     // only ever meaningful for this one read) and trust it over the live,
     // deliberately-hidden `Visibility` when it says the sniper was the one hidden.
-    let sniper_was_forced_hidden = weapon_and_death_effect.death_effect.hidden_weapon.take()
-        == Some(crate::death_effect::HiddenWeapon::Sniper);
+    let forced_hidden = weapon_and_death_effect.death_effect.hidden_weapon.take();
+    let sniper_was_forced_hidden = forced_hidden == Some(crate::death_effect::HiddenWeapon::Sniper);
+    let knife_was_forced_hidden = forced_hidden == Some(crate::death_effect::HiddenWeapon::Knife);
     let mut saved = SavedRig {
         player: Transform::IDENTITY,
         head: Transform::IDENTITY,
@@ -494,6 +526,12 @@ fn start_killcam(
                 .iter()
                 .next()
                 .is_none_or(|v| *v != Visibility::Hidden),
+        knife_visible: knife_was_forced_hidden
+            || weapon_and_death_effect
+                .knife_vis
+                .iter()
+                .next()
+                .is_some_and(|v| *v != Visibility::Hidden),
         knife_active: knife.active,
         slot: weapon_and_death_effect.weapon.slot,
     };
@@ -798,10 +836,10 @@ fn drive_killcam(
             } else {
                 Visibility::Hidden
             };
-            *knife_vis = if saved.weapon_visible {
-                Visibility::Hidden
-            } else {
+            *knife_vis = if saved.knife_visible {
                 Visibility::Inherited
+            } else {
+                Visibility::Hidden
             };
             knife.active = saved.knife_active;
             weapon.slot = saved.slot;
@@ -957,13 +995,13 @@ fn drive_killcam(
     } else {
         Visibility::Hidden
     };
-    // The sniper and the knife view models are always shown mutually
-    // exclusively live (see `weapon_system`), so the recorded sniper
-    // visibility alone is enough to derive the knife's.
-    *knife_vis = if weapon_visible {
-        Visibility::Hidden
-    } else {
+    // The melee knife's own recorded visibility — it can't be derived from
+    // the sniper's, since with the throwing arms up both are hidden.
+    let knife_visible = if frac < 0.5 { a.knife_visible } else { b.knife_visible };
+    *knife_vis = if knife_visible {
         Visibility::Inherited
+    } else {
+        Visibility::Hidden
     };
     knife.active = if frac < 0.5 { a.knife_active } else { b.knife_active };
     let sniper_active = if frac < 0.5 { a.sniper_active } else { b.sniper_active };
@@ -1090,6 +1128,178 @@ fn drive_killcam(
         let (_, start, end) = run.tracers[run.tracer_cursor];
         tracers.write(FireTracer { start, end });
         run.tracer_cursor += 1;
+    }
+}
+
+/// Stand-in for one of the killer's thrown knives, posed from the recording.
+#[derive(Component)]
+struct KillCamKnifeGhost;
+
+/// The live throwing-arms clip's state when a replay took over, put back when
+/// it ends (the clip is seeked and paused every replayed frame).
+struct SavedArmsClip {
+    seek: f32,
+    paused: bool,
+}
+
+/// Replay the throwing knife: the throwing arms (sliding in, the clip
+/// playing, the knife in the hand until the throw) and the killer's own
+/// thrown knives flying / bouncing — the parts of the recording
+/// `drive_killcam` doesn't cover. Runs right after it, off the same playhead.
+///
+/// The live arms systems stand down during a replay (see
+/// `throw_arms::slide_throw_arms`), so this owns the arms' `Transform`,
+/// `Visibility` and clip for its duration, and hands the clip back to where
+/// the live game had it when the replay ends.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn drive_killcam_throw(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    active: Res<ActiveKillCam>,
+    settings: Res<crate::ThrowArmsSettings>,
+    arms_anim: Single<&crate::ThrowArmsAnimation>,
+    mut arms_players: Query<&mut AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
+    mut arms: Single<(&mut Transform, &mut Visibility), With<crate::ThrowArmsViewModel>>,
+    mut knife_model: Single<
+        &mut Visibility,
+        (With<crate::ThrowKnifeModel>, Without<crate::ThrowArmsViewModel>),
+    >,
+    mut ghost_parts: Query<
+        (&mut Transform, &mut Visibility),
+        (
+            With<KillCamKnifeGhost>,
+            Without<crate::ThrowArmsViewModel>,
+            Without<crate::ThrowKnifeModel>,
+        ),
+    >,
+    mut ghosts: Local<Vec<Entity>>,
+    mut saved: Local<Option<SavedArmsClip>>,
+) {
+    let node = arms_anim.index;
+
+    let Some(run) = active.0.as_ref().filter(|r| r.setup) else {
+        // No replay (or it hasn't started yet): if one just ended, put the
+        // arms' clip back and drop the knife stand-ins.
+        if let Some(s) = saved.take() {
+            if let Some(mut player) = arms_players.iter_mut().next() {
+                if let Some(a) = player.animation_mut(node) {
+                    a.seek_to(s.seek);
+                    if s.paused {
+                        a.pause();
+                    } else {
+                        a.resume();
+                    }
+                }
+            }
+        }
+        for e in ghosts.drain(..) {
+            commands.entity(e).try_despawn();
+        }
+        return;
+    };
+
+    // First replayed frame: remember where the live clip was, and stand in
+    // the (hidden until posed) knife ghosts. Re-spawned if a previous set was
+    // swept away with the game state.
+    if saved.is_none() {
+        *saved = Some(
+            arms_players
+                .iter()
+                .next()
+                .and_then(|p| p.animation(node))
+                .map(|a| SavedArmsClip {
+                    seek: a.seek_time(),
+                    paused: a.is_paused(),
+                })
+                .unwrap_or(SavedArmsClip {
+                    seek: 0.0,
+                    paused: true,
+                }),
+        );
+    }
+    if ghosts.is_empty() || ghosts.iter().any(|e| ghost_parts.get(*e).is_err()) {
+        ghosts.clear();
+        for _ in 0..shared::throwing_knife::MAX_KNIVES_PER_PLAYER {
+            let e = commands
+                .spawn((
+                    KillCamKnifeGhost,
+                    StateScoped(AppState::InGame),
+                    Transform::default(),
+                    Visibility::Hidden,
+                ))
+                .with_child((
+                    SceneRoot(
+                        asset_server
+                            .load(GltfAssetLabel::Scene(0).from_asset("models/throwing_knife.glb")),
+                    ),
+                    Transform {
+                        rotation: crate::thrown_knife::model_correction(),
+                        scale: Vec3::splat(crate::thrown_knife::KNIFE_WORLD_SCALE),
+                        ..default()
+                    },
+                ))
+                .id();
+            ghosts.push(e);
+        }
+        return; // posed from next frame, once the ghosts exist
+    }
+
+    let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
+    let t = run.elapsed.min(duration);
+    let (a, b, frac) = bracket(&run.frames, t);
+    let nearest = if frac < 0.5 { a } else { b };
+
+    // The arms: slide, the clip's playhead, and the knife in the hand.
+    let slide = a.arms_slide.lerp(b.arms_slide, frac);
+    let (arms_tf, arms_vis) = &mut *arms;
+    **arms_tf = settings.transform(slide);
+    arms_vis.set_if_neq(if slide > 0.0 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    knife_model.set_if_neq(if nearest.arms_knife_in_hand {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    if let Some(mut player) = arms_players.iter_mut().next() {
+        if player.animation(node).is_none() {
+            player.play(node);
+        }
+        if let Some(anim) = player.animation_mut(node) {
+            anim.set_repeat(RepeatAnimation::Never);
+            anim.set_speed(1.0);
+            anim.seek_to(nearest.arms_anim_time);
+            anim.pause();
+        }
+    }
+
+    // The killer's thrown knives, each in its own recorded slot.
+    for (i, &e) in ghosts.iter().enumerate() {
+        let Ok((mut tf, mut vis)) = ghost_parts.get_mut(e) else {
+            continue;
+        };
+        let pose = match (a.thrown_knives[i], b.thrown_knives[i]) {
+            (Some(x), Some(y)) => Some((
+                Vec3::from_array(x.pos).lerp(Vec3::from_array(y.pos), frac),
+                Quat::from_array(x.rot).slerp(Quat::from_array(y.rot), frac),
+            )),
+            (Some(k), None) | (None, Some(k)) => {
+                Some((Vec3::from_array(k.pos), Quat::from_array(k.rot)))
+            }
+            (None, None) => None,
+        };
+        match pose {
+            Some((pos, rot)) => {
+                tf.translation = pos;
+                tf.rotation = rot.normalize();
+                vis.set_if_neq(Visibility::Inherited);
+            }
+            None => {
+                vis.set_if_neq(Visibility::Hidden);
+            }
+        }
     }
 }
 

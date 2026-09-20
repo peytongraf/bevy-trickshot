@@ -11,8 +11,8 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    Bot, GameChannel, KillCam, KillCamBot, KillCamPlayer, KillCamSample, Lobby, PlayerId,
-    PlayerInput, PlayerPose,
+    Bot, GameChannel, KillCam, KillCamBot, KillCamPlayer, KillCamSample, KnifeSample, Lobby,
+    PlayerId, PlayerInput, PlayerPose, ThrownKnife,
 };
 
 use crate::bots::{BotHit, LobbyBot};
@@ -111,10 +111,24 @@ fn attach_buffers(
 
 fn record_frames(
     clock: Res<ReplayClock>,
-    mut players: Query<(&ActionState<PlayerInput>, &mut ReplayBuffer)>,
+    mut players: Query<(&PlayerId, &ActionState<PlayerInput>, &mut ReplayBuffer)>,
+    knives: Query<(Entity, &ThrownKnife)>,
 ) {
-    for (action, mut buf) in &mut players {
+    for (id, action, mut buf) in &mut players {
         let i = &action.0;
+        // This player's own thrown knives right now (the server owns their
+        // simulation, so it's stamped here rather than sent by the client),
+        // in a stable (entity) order so a knife keeps its slot across frames.
+        let mut mine: Vec<(Entity, &ThrownKnife)> =
+            knives.iter().filter(|(_, k)| k.owner == id.0).collect();
+        mine.sort_by_key(|(e, _)| *e);
+        let mut thrown_knives = [None; shared::throwing_knife::MAX_KNIVES_PER_PLAYER];
+        for (slot, (_, k)) in thrown_knives.iter_mut().zip(mine) {
+            *slot = Some(KnifeSample {
+                pos: k.pos.to_array(),
+                rot: k.rot.to_array(),
+            });
+        }
         buf.frames.push_back((
             clock.0,
             KillCamSample {
@@ -137,6 +151,11 @@ fn record_frames(
                 weapon_visible: i.weapon_visible,
                 knife_active: i.knife_active,
                 sniper_active: i.sniper_active,
+                knife_visible: i.knife_visible,
+                arms_slide: i.arms_slide,
+                arms_anim_time: i.arms_anim_time,
+                arms_knife_in_hand: i.arms_knife_in_hand,
+                thrown_knives,
                 crouch_drop: i.crouch_drop,
             },
         ));

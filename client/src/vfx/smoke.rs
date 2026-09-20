@@ -1,6 +1,7 @@
 //! Barrel smoke: a burst of drifting, camera-billboarded sprites released for
 //! a short window after each shot, fading independently as they age.
 
+use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 
@@ -172,6 +173,7 @@ pub(crate) fn emit_smoke(
                 .with_rotation(rotation)
                 .with_scale(Vec3::splat(settings.scale.max(1.0e-4))),
             NoFrustumCulling,
+            NotShadowCaster,
         ));
     }
 }

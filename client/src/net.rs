@@ -280,7 +280,18 @@ fn write_input(
     ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
-    (view_model_vis, knife, weapon, jumping, mut pending_melee, knife_players, knife_anims): (
+    (
+        view_model_vis,
+        knife,
+        weapon,
+        jumping,
+        mut pending_melee,
+        knife_players,
+        knife_anims,
+        knife_view_vis,
+        arms_players,
+        arms_anims,
+    ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
         Res<crate::Weapon>,
@@ -288,6 +299,9 @@ fn write_input(
         ResMut<crate::PendingMelee>,
         Query<&AnimationPlayer, With<crate::KnifeAnimationPlayer>>,
         Query<&crate::KnifeAnimation>,
+        Query<&Visibility, With<crate::KnifeViewModel>>,
+        Query<&AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
+        Query<&crate::ThrowArmsAnimation>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -336,6 +350,16 @@ fn write_input(
         .is_none_or(|v| *v != Visibility::Hidden);
     action.knife_active = knife.active;
     action.sniper_active = weapon.slot == crate::WeaponSlot::Primary;
+    // The throwing arms' state, so the kill cam can replay the hold / throw,
+    // and the melee knife's own visibility, which can't be derived from the
+    // sniper's any more (both are hidden while the arms are up).
+    action.knife_visible = knife_view_vis
+        .iter()
+        .next()
+        .is_none_or(|v| *v != Visibility::Hidden);
+    action.arms_slide = knife.slide;
+    action.arms_anim_time = crate::throw_arms_anim_time(&arms_players, &arms_anims);
+    action.arms_knife_in_hand = knife.knife_in_hand();
     action.reloading = weapon
         .busy
         .as_ref()
@@ -576,6 +600,7 @@ fn receive_shots(
     active: Res<ActiveKillCam>,
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut impacts: EventWriter<GroundImpact>,
+    mut holes: EventWriter<crate::BulletImpact>,
     mut tracers: EventWriter<crate::FireTracer>,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -585,8 +610,12 @@ fn receive_shots(
             if killcam_playing || Some(msg.shooter) == me {
                 continue;
             }
-            if let ShotOutcome::Ground { point } = msg.outcome {
+            if let ShotOutcome::Ground { point, normal } = msg.outcome {
                 impacts.write(GroundImpact(Vec3::from_array(point)));
+                holes.write(crate::BulletImpact {
+                    point: Vec3::from_array(point),
+                    normal: Vec3::from_array(normal),
+                });
             }
             tracers.write(crate::FireTracer {
                 start: Vec3::from_array(msg.origin),

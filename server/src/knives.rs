@@ -25,7 +25,7 @@ use lightyear::prelude::*;
 use shared::ballistics::Target;
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
-use shared::throwing_knife::KnifeBody;
+use shared::throwing_knife::{KnifeBody, MAX_KNIVES_PER_PLAYER};
 use shared::{Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, ThrowKnife, ThrownKnife, TrickScore};
 
 use crate::bots::{BotHit, LobbyBot};
@@ -36,8 +36,6 @@ use crate::sim::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_RADIUS};
 /// Least time (s) between one player's throws — the throw animation is
 /// already longer than this; it just stops a modified client spamming.
 const MIN_THROW_INTERVAL_SECS: f32 = 0.5;
-/// Most knives one player can have in the world at once.
-const MAX_KNIVES_PER_PLAYER: usize = 3;
 /// A throw's reported origin further than this (m) from the player's real
 /// eye position is ignored in favour of the eye position — movement is
 /// client-authoritative, but a knife shouldn't start across the map.

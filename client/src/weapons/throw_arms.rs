@@ -177,21 +177,40 @@ pub(crate) fn play_throw(player: &mut AnimationPlayer, node: AnimationNodeIndex)
     active.resume();
 }
 
+/// Playhead (seconds) of the throwing arms' clip, for the kill-cam recorder
+/// (mirrors `killcam::knife_anim_time`).
+pub(crate) fn throw_arms_anim_time(
+    players: &Query<&AnimationPlayer, With<ThrowArmsAnimationPlayer>>,
+    anims: &Query<&ThrowArmsAnimation>,
+) -> f32 {
+    let (Some(player), Some(anim)) = (players.iter().next(), anims.iter().next()) else {
+        return 0.0;
+    };
+    player.animation(anim.index).map_or(0.0, |a| a.seek_time())
+}
+
 /// Push `ThrowArmsSettings` onto the arms' `Transform` every frame, same
-/// reasoning as `apply_knife_transform`.
+/// reasoning as `apply_knife_transform`. Not during a kill cam — the replay
+/// poses the arms itself (`killcam::drive_killcam_throw`).
 pub(crate) fn apply_throw_arms_transform(
     settings: Res<ThrowArmsSettings>,
     knife: Res<ThrowingKnife>,
+    killcam: Res<ActiveKillCam>,
     mut arms: Single<&mut Transform, With<ThrowArmsViewModel>>,
 ) {
+    if killcam.0.is_some() {
+        return;
+    }
     **arms = settings.transform(knife.slide);
 }
 
 /// Slide the arms up into view once the throwing knife's arms are due out
 /// ([`ThrowingKnife::arms_out`] — after the weapon has finished hiding) and
 /// back down when they're not, hiding the entity entirely once fully down.
-/// During a kill cam or a death effect, when the live view model is hidden or
-/// replaced, they snap away instead of sliding.
+/// During a death effect they snap away instead of sliding. A kill cam leaves
+/// them alone entirely: it poses the arms from the recording
+/// (`killcam::drive_killcam_throw`), and the live state carries on unchanged
+/// underneath for when the replay ends.
 pub(crate) fn slide_throw_arms(
     time: Res<Time>,
     settings: Res<ThrowArmsSettings>,
@@ -201,8 +220,10 @@ pub(crate) fn slide_throw_arms(
     fall: Res<FallDeathState>,
     mut arms: Single<&mut Visibility, With<ThrowArmsViewModel>>,
 ) {
-    let suppressed =
-        killcam.0.is_some() || death.is_active() || crate::fall_death::effect_active(fall);
+    if killcam.0.is_some() {
+        return;
+    }
+    let suppressed = death.is_active() || crate::fall_death::effect_active(fall);
     let step = settings.slide_speed * time.delta_secs();
     let slide = if suppressed {
         0.0
@@ -287,12 +308,16 @@ pub(crate) fn start_throw_knife_model(
 /// Push `ThrowKnifeModelSettings` onto the held knife every frame and show it
 /// only while [`ThrowingKnife::knife_in_hand`] — it vanishes the moment the
 /// throw clip starts. (It's also hidden whenever the arms are, through
-/// inheritance.)
+/// inheritance.) Not during a kill cam, which poses it from the recording.
 pub(crate) fn update_throw_knife_model(
     settings: Res<ThrowKnifeModelSettings>,
     knife: Res<ThrowingKnife>,
+    killcam: Res<ActiveKillCam>,
     mut model: Single<(&mut Transform, &mut Visibility), With<ThrowKnifeModel>>,
 ) {
+    if killcam.0.is_some() {
+        return;
+    }
     let (tf, vis) = &mut *model;
     **tf = settings.transform();
     vis.set_if_neq(if knife.knife_in_hand() {

@@ -241,9 +241,10 @@ fn resolve_shots(
         // ground mesh). A bullet stops there: nothing beyond it can be hit —
         // no wallbangs (yet) — and the tracer ends on it.
         let aim = dir.normalize_or_zero();
-        let wall_dist = colliders
+        let wall = colliders
             .world(lobby.map)
             .raycast(origin, aim, weapon.spec().max_range);
+        let wall_dist = wall.map(|h| h.distance);
 
         // The tracer's true endpoint — captured up front so it's correct even
         // for a bot kill, which `outcome` below reports as `Miss` (bots aren't
@@ -353,9 +354,12 @@ fn resolve_shots(
             None => {
                 // Nothing hit: the shot ends on whichever comes first, the
                 // map's own surface or the flat ground plane fallback.
-                let wall = wall_dist.map(|d| origin + aim * d);
-                let surface = match (wall, ground_impact(origin, dir)) {
-                    (Some(w), Some(g)) => Some(if origin.distance(w) <= origin.distance(g) {
+                // Each candidate carries its surface normal (the mesh's own, or
+                // straight up for the flat plane) for the clients' bullet hole.
+                let mesh_hit = wall.map(|h| (origin + aim * h.distance, h.normal));
+                let plane_hit = ground_impact(origin, dir).map(|p| (p, Vec3::Y));
+                let surface = match (mesh_hit, plane_hit) {
+                    (Some(w), Some(g)) => Some(if origin.distance(w.0) <= origin.distance(g.0) {
                         w
                     } else {
                         g
@@ -363,9 +367,12 @@ fn resolve_shots(
                     (w, g) => w.or(g),
                 };
                 match surface {
-                    Some(p) => {
+                    Some((p, normal)) => {
                         tracer_end = p;
-                        ShotOutcome::Ground { point: p.to_array() }
+                        ShotOutcome::Ground {
+                            point: p.to_array(),
+                            normal: normal.to_array(),
+                        }
                     }
                     None => ShotOutcome::Miss,
                 }

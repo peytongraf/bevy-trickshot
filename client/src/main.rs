@@ -160,6 +160,7 @@ fn main() {
             fall_death::FallDeathPlugin,
             game_start::GameStartPlugin,
             thrown_knife::ThrownKnifePlugin,
+            BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,

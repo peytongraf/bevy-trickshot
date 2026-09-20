@@ -13,6 +13,9 @@ use crate::ballistics::Target;
 use crate::hitbox::{ray_capsule, Capsule};
 use crate::map::CollisionWorld;
 
+/// Most knives one player can have in the world at once (also how many a
+/// kill-cam frame carries — see [`crate::KillCamSample::thrown_knives`]).
+pub const MAX_KNIVES_PER_PLAYER: usize = 3;
 /// Muzzle speed of a throw (m/s).
 pub const THROW_SPEED: f32 = 40.0;
 /// Downward acceleration (m/s²). Well under real gravity — a Call-of-Duty
@@ -272,7 +275,7 @@ mod tests {
             false
         }
 
-        fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<f32> {
+        fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<crate::map::RayHit> {
             None
         }
 

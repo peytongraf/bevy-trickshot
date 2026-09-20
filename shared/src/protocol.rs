@@ -276,6 +276,19 @@ pub struct PlayerInput {
     /// the active weapon this tick, so the kill cam shows the centre dot only
     /// over the frames where the shooter actually had it.
     pub sniper_active: bool,
+    /// Whether the first-person melee knife model is shown this tick. Recorded
+    /// on its own — it can no longer be derived from `weapon_visible`, since
+    /// with the throwing arms up *both* weapon models are hidden.
+    pub knife_visible: bool,
+    /// How far the throwing arms have slid into view this tick (`0.0` hidden
+    /// below the screen … `1.0` in place) — see the client's
+    /// `ThrowingKnife::slide`.
+    pub arms_slide: f32,
+    /// Playhead (seconds) of the throwing arms' throw clip this tick.
+    pub arms_anim_time: f32,
+    /// Whether the knife is showing in the throwing arms' hand this tick (it
+    /// vanishes when the throw clip starts).
+    pub arms_knife_in_hand: bool,
     /// Whether the player's stance is `Crouching` this tick.
     pub crouching: bool,
     /// Whether the weapon is mid-reload this tick.
@@ -320,6 +333,10 @@ impl Default for PlayerInput {
             weapon_visible: true,
             knife_active: false,
             sniper_active: true,
+            knife_visible: false,
+            arms_slide: 0.0,
+            arms_anim_time: 0.0,
+            arms_knife_in_hand: false,
             crouching: false,
             reloading: false,
             jumping: false,
@@ -344,6 +361,9 @@ pub enum ShotOutcome {
     Ground {
         /// World-space impact point on the surface.
         point: [f32; 3],
+        /// Unit surface normal at the impact, facing the shooter — where the
+        /// clients stick the bullet-hole decal, flat on the surface.
+        normal: [f32; 3],
     },
     Hit {
         /// `PeerId::to_bits()` of the player that was hit.
@@ -455,9 +475,31 @@ pub struct KillCamSample {
     pub knife_active: bool,
     /// Whether the sniper was the active weapon on this frame.
     pub sniper_active: bool,
+    /// Whether the first-person melee knife model was shown on this frame.
+    pub knife_visible: bool,
+    /// Throwing-arms slide amount on this frame (`0.0` hidden … `1.0` in place).
+    pub arms_slide: f32,
+    /// Throwing-arms throw-clip playhead (seconds) on this frame.
+    pub arms_anim_time: f32,
+    /// Whether the knife was showing in the throwing arms' hand on this frame.
+    pub arms_knife_in_hand: bool,
+    /// The killer's own thrown knives in flight (or lying still) on this
+    /// frame, stamped server-side (`server::killcam::record_frames`) since the
+    /// server owns their simulation. At most
+    /// [`crate::throwing_knife::MAX_KNIVES_PER_PLAYER`], in a stable order.
+    pub thrown_knives: [Option<KnifeSample>; crate::throwing_knife::MAX_KNIVES_PER_PLAYER],
     /// Camera Y offset from standing this frame — see
     /// `PlayerInput::crouch_drop`.
     pub crouch_drop: f32,
+}
+
+/// One thrown knife's pose on a kill-cam frame — the replicated
+/// [`ThrownKnife`] state, in wire-friendly arrays.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KnifeSample {
+    pub pos: [f32; 3],
+    /// Orientation quaternion `[x, y, z, w]`.
+    pub rot: [f32; 4],
 }
 
 /// A target bot as it stood the moment the kill landed.
