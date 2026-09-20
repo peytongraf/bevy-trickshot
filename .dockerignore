@@ -4,7 +4,7 @@
 **/target
 
 # The server build never needs the client's code or its large art assets —
-# except the two map *collision* models (a few tens of KB each), which the
+# except the map *collision* models (a few tens of KB each), which the
 # server embeds at compile time (`server/src/collision.rs`, `include_bytes!`)
 # so thrown knives bounce off the same geometry the client collides with.
 client/assets/*
@@ -12,6 +12,7 @@ client/assets/*
 client/assets/models/*
 !client/assets/models/basic_map.glb
 !client/assets/models/shipment.glb
+!client/assets/models/ascenion_map.glb
 client/sniper.glb
 client/notes
 client/README.md

@@ -27,11 +27,13 @@ pub(crate) struct SkyMaterial(pub(crate) Handle<StandardMaterial>);
 /// `shipment.glb`'s cargo-ship-at-sea setting (a bright sunny sky reads a
 /// bit odd out over open, ostensibly rougher water). `ShipmentDay` is the
 /// same ship in full sun, so it reuses `basic_map.glb`'s clear-sky HDR.
+/// `ascenion_map.glb` gets its own snowy mountain hillside.
 pub(crate) fn sky_texture_path(map: shared::MapId) -> &'static str {
     match map {
         shared::MapId::BasicMap => "skybox/citrus_orchard_puresky_8k.hdr",
         shared::MapId::Shipment => "skybox/overcast_soil_puresky_8k.hdr",
         shared::MapId::ShipmentDay => "skybox/citrus_orchard_puresky_8k.hdr",
+        shared::MapId::Ascension => "skybox/snowy_hillside_02_8k.hdr",
     }
 }
 

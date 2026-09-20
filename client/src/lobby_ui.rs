@@ -746,6 +746,13 @@ fn build_room(
                             shared::MapId::ShipmentDay,
                             lobby.map,
                         );
+                        spawn_map_button(
+                            row,
+                            asset_server,
+                            "ASCENSION",
+                            shared::MapId::Ascension,
+                            lobby.map,
+                        );
                     });
 
                     col.spawn(Node {

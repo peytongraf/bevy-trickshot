@@ -110,10 +110,11 @@ pub fn respawn_pose(seed: u64, map: MapId) -> (Vec3, f32) {
             + tier.min_radius * tier.min_radius)
             .sqrt();
         let a = rand01(s ^ 0xa1) * core::f32::consts::TAU;
-        let pos = BOT_AREA_CENTER + Vec3::new(r * a.cos(), 0.0, r * a.sin());
+        let pos = map::bot_center(map, BOT_AREA_CENTER) + Vec3::new(r * a.cos(), 0.0, r * a.sin());
         let yaw = rand01(s ^ 0xb2) * core::f32::consts::TAU;
-        if !map::point_blocked(map, pos.x, pos.z, WALL_CLEARANCE, map::SHIPMENT_SCALE)
-            && map::in_bounds(map, pos.x, pos.z, map::SHIPMENT_SCALE)
+        let scale = map::placement(map).scale;
+        if !map::point_blocked(map, pos.x, pos.z, WALL_CLEARANCE, scale)
+            && map::in_bounds(map, pos.x, pos.z, scale)
         {
             return (pos, yaw);
         }
@@ -122,7 +123,7 @@ pub fn respawn_pose(seed: u64, map: MapId) -> (Vec3, f32) {
     // walls) — `BOT_AREA_CENTER` itself is always safe on every map, unlike
     // any of the rejected candidates above.
     let yaw = rand01(seed ^ 0xb2) * core::f32::consts::TAU;
-    (BOT_AREA_CENTER, yaw)
+    (map::bot_center(map, BOT_AREA_CENTER), yaw)
 }
 
 #[cfg(test)]
@@ -178,6 +179,22 @@ mod tests {
             assert!(
                 map::in_bounds(MapId::Shipment, pos.x, pos.z, map::SHIPMENT_SCALE),
                 "seed {seed} landed outside the map at {pos:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ascension_bots_are_in_the_open_yard_never_in_the_building() {
+        let scale = map::placement(MapId::Ascension).scale;
+        for seed in 0..3000u64 {
+            let (pos, _) = respawn_pose(seed, MapId::Ascension);
+            assert!(
+                !map::point_blocked(MapId::Ascension, pos.x, pos.z, 0.0, scale),
+                "seed {seed} landed inside the building at {pos:?}"
+            );
+            assert!(
+                map::in_bounds(MapId::Ascension, pos.x, pos.z, scale),
+                "seed {seed} landed off the map at {pos:?}"
             );
         }
     }

@@ -35,13 +35,24 @@ pub const BASIC_MAP_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.65,
 };
 
+/// `ascenion_map.glb`'s placement: native size, at the origin — its ground
+/// plane spans ±100 m and its two-level building rises to ~20 m (a lethal drop
+/// from the top is 30 m, a damaging one 16 m, see `crate::health`).
+pub const ASCENSION_PLACEMENT: MapPlacement = MapPlacement {
+    position: Vec3::ZERO,
+    yaw_deg: 0.0,
+    scale: 1.0,
+};
+
 /// The collision model file for `map`, relative to the client's assets
 /// directory — `shipment.glb` for both Shipment variants. The server embeds
-/// these same files at build time (`server::collision`).
+/// these same files at build time (`server::collision`). (Ascension's file is
+/// spelled `ascenion_map.glb` on disk.)
 pub fn collision_model_path(map: MapId) -> &'static str {
     match map {
         MapId::BasicMap => "models/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
+        MapId::Ascension => "models/ascenion_map.glb",
     }
 }
 
@@ -50,6 +61,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
 pub fn placement(map: MapId) -> MapPlacement {
     match map {
         MapId::BasicMap => BASIC_MAP_PLACEMENT,
+        MapId::Ascension => ASCENSION_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
             yaw_deg: 0.0,
@@ -139,6 +151,38 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
     match map {
         MapId::BasicMap => BASIC_MAP_WALLS,
         MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
+        MapId::Ascension => ASCENSION_WALLS,
+    }
+}
+
+/// `ascenion_map.glb`: the whole building's footprint (its walled, multi-level
+/// structure spans x 0..100, z -20..100) is one solid block as far as spawn /
+/// bot placement is concerned — only the open yard around it (west of x = 0,
+/// and the strip south of z = -20) is used, so nobody starts up a ramp, on a
+/// slab or wedged in a wall. Hand-measured from the model; native == world
+/// units since [`ASCENSION_PLACEMENT`]'s scale is `1.0`.
+const ASCENSION_WALLS: &[WallBox] = &[WallBox {
+    x: (-1.0, 101.0),
+    z: (-21.0, 101.0),
+}];
+
+/// Where players' spawn ring is centred (`crate::spawns::spawn_point`): the
+/// world origin, except on Ascension, where the origin is a corner of the
+/// building — there it's the middle of the western yard.
+pub fn spawn_center(map: MapId) -> Vec3 {
+    match map {
+        MapId::Ascension => Vec3::new(-50.0, 0.0, 0.0),
+        _ => Vec3::ZERO,
+    }
+}
+
+/// Where `Freestyle` bots respawn around (`crate::bots::respawn_pose`), by
+/// distance tier — `default` (the usual `BOT_AREA_CENTER`) except on
+/// Ascension, where it's the middle of the western yard too.
+pub fn bot_center(map: MapId, default: Vec3) -> Vec3 {
+    match map {
+        MapId::Ascension => Vec3::new(-50.0, 0.0, 0.0),
+        _ => default,
     }
 }
 
@@ -160,6 +204,8 @@ fn bounds(map: MapId) -> Option<WallBox> {
     match map {
         MapId::BasicMap => None,
         MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
+        // The ground plane's ±100 m, with a margin off its edge.
+        MapId::Ascension => Some(WallBox { x: (-97.0, 97.0), z: (-97.0, 97.0) }),
     }
 }
 

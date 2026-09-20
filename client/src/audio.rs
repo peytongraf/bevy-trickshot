@@ -332,7 +332,10 @@ pub(crate) fn start_ambient(
     current: Res<CurrentMap>,
 ) {
     let (clip, volume_mult) = match current.0 {
-        shared::MapId::BasicMap => (sounds.ambient.clone(), vols.ambient),
+        // No mountain ambience clip yet: Ascension uses the outdoor-nature bed.
+        shared::MapId::BasicMap | shared::MapId::Ascension => {
+            (sounds.ambient.clone(), vols.ambient)
+        }
         shared::MapId::Shipment | shared::MapId::ShipmentDay => {
             (sounds.shipment_ambient.clone(), vols.shipment_ambient)
         }
@@ -365,7 +368,7 @@ pub(crate) fn apply_master_volume(
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
     let ambient_mult = match current.0 {
-        shared::MapId::BasicMap => vols.ambient,
+        shared::MapId::BasicMap | shared::MapId::Ascension => vols.ambient,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => vols.shipment_ambient,
     };
     for mut sink in &mut ambient {

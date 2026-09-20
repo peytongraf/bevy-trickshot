@@ -25,6 +25,8 @@ use shared::MapId;
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.glb");
+// (The file really is spelled `ascenion_map.glb`.)
+const ASCENSION_GLB: &[u8] = include_bytes!("../../client/assets/models/ascenion_map.glb");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
@@ -36,6 +38,7 @@ pub struct MapMesh {
 pub struct MapColliders {
     basic: MapMesh,
     shipment: MapMesh,
+    ascension: MapMesh,
 }
 
 impl MapColliders {
@@ -47,6 +50,8 @@ impl MapColliders {
                 .expect("basic_map.glb collision model"),
             shipment: MapMesh::from_glb(SHIPMENT_GLB, map::placement(MapId::Shipment))
                 .expect("shipment.glb collision model"),
+            ascension: MapMesh::from_glb(ASCENSION_GLB, map::placement(MapId::Ascension))
+                .expect("ascenion_map.glb collision model"),
         }
     }
 
@@ -55,6 +60,7 @@ impl MapColliders {
         match map {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
+            MapId::Ascension => &self.ascension,
         }
     }
 }
@@ -216,7 +222,7 @@ mod tests {
     #[test]
     fn both_maps_load_with_geometry() {
         let c = colliders();
-        for map in [MapId::BasicMap, MapId::Shipment] {
+        for map in [MapId::BasicMap, MapId::Shipment, MapId::Ascension] {
             let (lo, hi) = c.world(map).bounds();
             assert!(hi.x > lo.x && hi.y >= lo.y && hi.z > lo.z, "{map:?}: {lo} .. {hi}");
         }
@@ -248,6 +254,27 @@ mod tests {
             (centre.x - p.x).abs() < 40.0 && (centre.z - p.z).abs() < 40.0,
             "centre {centre} vs placement {p}",
         );
+    }
+
+    #[test]
+    fn ascension_is_placed_at_native_size() {
+        // A ±100 m ground plane and a building rising to ~20 m, at scale 1.
+        let (lo, hi) = colliders().world(MapId::Ascension).bounds();
+        assert!((lo.x + 100.0).abs() < 1.0 && (hi.x - 100.0).abs() < 1.0, "x {lo} .. {hi}");
+        assert!(hi.y > 19.0 && hi.y < 22.0, "height {}", hi.y);
+    }
+
+    #[test]
+    fn a_ball_dropped_in_the_ascension_yard_lands_on_the_ground_and_the_roof_is_higher() {
+        let c = colliders();
+        let w = c.world(MapId::Ascension);
+        // The open yard west of the building: bare ground.
+        let yard = w.raycast(Vec3::new(-50.0, 40.0, 0.0), Vec3::NEG_Y, 100.0).expect("ground");
+        assert!((yard.distance - 40.0).abs() < 0.5, "yard at {}", yard.distance);
+        assert!(yard.normal.y > 0.9);
+        // Over the upper level: something is much higher than the ground.
+        let roof = w.raycast(Vec3::new(50.0, 40.0, -14.0), Vec3::NEG_Y, 100.0).expect("roof");
+        assert!(roof.distance < 25.0, "expected a raised surface, hit at {}", roof.distance);
     }
 
     #[test]
