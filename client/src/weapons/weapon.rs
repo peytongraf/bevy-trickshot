@@ -9,7 +9,9 @@ use crate::killcam;
 use crate::player::WorldModelCamera;
 use crate::settings::Settings;
 use crate::util::{rand01, rand_roll};
-use crate::{practice, GameSounds, MuzzleFlashState, SmokeEmission};
+use crate::{FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
+use shared::ballistics::ground_impact;
+use shared::weapon::WeaponId;
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
 use super::knife_view_model::{
@@ -72,14 +74,46 @@ pub(crate) struct PendingShot(pub Option<Vec3>);
 #[derive(Resource, Default)]
 pub(crate) struct PendingMelee(pub Option<(Vec3, Vec3)>);
 
-/// A knife stab from the world camera's eye along its forward direction,
-/// resolved by `practice::resolve_local_melee` against the offline bots in
-/// solo Practice. In a real game the server resolves the stab from
-/// [`PendingMelee`] instead and this is ignored.
+/// The local player fired: the ray to draw the shooter's own tracer / ground
+/// dust along this frame (see [`resolve_local_shot`]). The server still decides
+/// what the shot actually hit.
 #[derive(Event)]
-pub(crate) struct LocalMelee {
+pub(crate) struct LocalShot {
     pub(crate) origin: Vec3,
     pub(crate) dir: Vec3,
+}
+
+/// Every [`LocalShot`] kicks up ground dust where it lands and spawns the
+/// shooter's own tracer instantly, rather than waiting on the server (other
+/// players' tracers come off the server's authoritative `ShotResolved`,
+/// `net::receive_shots`). The tracer ends at the ground point below, else at a
+/// max-range whiff — the server owns bot / player hits, so there's no local
+/// impact point to use.
+pub(crate) fn resolve_local_shot(
+    mut shots: EventReader<LocalShot>,
+    mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
+    mut tracer_rec: ResMut<killcam::ReplayTracer>,
+    mut impacts: EventWriter<GroundImpact>,
+    mut tracers: EventWriter<FireTracer>,
+) {
+    for shot in shots.read() {
+        let ground_pt = ground_impact(shot.origin, shot.dir);
+        if let Some(p) = ground_pt {
+            impacts.write(GroundImpact(p));
+            // Stamp it onto this tick's `PlayerInput` too, so the kill cam can
+            // replay the burst for the other players watching.
+            ground_hit.0 = Some(p);
+        }
+
+        let end = ground_pt.unwrap_or_else(|| {
+            shot.origin + shot.dir.normalize_or_zero() * WeaponId::Sniper.spec().max_range
+        });
+        tracers.write(FireTracer { start: shot.origin, end });
+        // Stamp it onto this tick's `PlayerInput` too, so the kill cam re-draws
+        // the tracer along its true path instead of leaving the live one
+        // hanging in the world.
+        tracer_rec.0 = Some((shot.origin, end));
+    }
 }
 
 /// Which weapon slot is up. The knife has no model yet, so `Secondary` just
@@ -288,21 +322,14 @@ fn start_knife_slice(
 }
 
 /// A knife attack was just started: request the stab from wherever the
-/// camera is looking. The kill (or whiff) is decided by the server — or, in
-/// Practice, `practice::resolve_local_melee` — not here; this only files the
-/// request, alongside the slice animation the caller starts.
-fn request_stab(
-    cam: &Query<&GlobalTransform, With<WorldModelCamera>>,
-    pending: &mut PendingMelee,
-    local: &mut EventWriter<LocalMelee>,
-) {
+/// camera is looking. The kill (or whiff) is decided by the server, not here;
+/// this only files the request, alongside the slice animation the caller
+/// starts.
+fn request_stab(cam: &Query<&GlobalTransform, With<WorldModelCamera>>, pending: &mut PendingMelee) {
     let Ok(cam) = cam.single() else {
         return;
     };
-    let origin = cam.translation();
-    let dir = cam.forward().as_vec3();
-    pending.0 = Some((origin, dir));
-    local.write(LocalMelee { origin, dir });
+    pending.0 = Some((cam.translation(), cam.forward().as_vec3()));
 }
 
 /// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
@@ -337,17 +364,16 @@ pub(crate) fn weapon_system(
         Query<&mut AnimationPlayer, (With<KnifeAnimationPlayer>, Without<SniperAnimationPlayer>)>,
     ),
     mut weapon: ResMut<Weapon>,
-    (mut knife, mut knife_state, mut pending_melee, mut local_melee): (
+    (mut knife, mut knife_state, mut pending_melee): (
         ResMut<ThrowingKnife>,
         ResMut<KnifeAnimState>,
         ResMut<PendingMelee>,
-        EventWriter<LocalMelee>,
     ),
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
     mut muzzle: ResMut<MuzzleFlashState>,
     mut smoke: ResMut<SmokeEmission>,
-    mut shots: EventWriter<practice::LocalShot>,
+    mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
     (shake_cfg, sounds, anim, ads, spread_cfg, settings, time): (
         Res<ShakeSettings>,
@@ -587,7 +613,7 @@ pub(crate) fn weapon_system(
             && binds.fire.just_pressed(&keys, &mouse)
         {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
-            request_stab(&cam, &mut pending_melee, &mut local_melee);
+            request_stab(&cam, &mut pending_melee);
             return;
         }
         let next_or_finish = {
@@ -641,7 +667,7 @@ pub(crate) fn weapon_system(
         // picked at random each time.
         if binds.fire.just_pressed(&keys, &mouse) {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
-            request_stab(&cam, &mut pending_melee, &mut local_melee);
+            request_stab(&cam, &mut pending_melee);
             return;
         }
         // No attack this frame — count down toward the next idle "Adjust
@@ -701,13 +727,12 @@ pub(crate) fn weapon_system(
             .unwrap_or(Vec3::NEG_Z);
         pending_shot.0 = Some(dir); // net::write_input turns this into a fire request
 
-        // Hand the shot ray to `practice::resolve_local_shot`: it kicks up the
-        // ground dust locally (instant, and the only path in solo Practice) and,
-        // in Practice, resolves the hit + scoring against the offline bots. In a
-        // real game the server also broadcasts this shot; `net::receive_shots`
-        // drops the echo for our own peer so nothing double-spawns.
+        // Hand the shot ray to `resolve_local_shot`: it kicks up the ground
+        // dust and spawns our tracer instantly. The server also broadcasts this
+        // shot; `net::receive_shots` drops the echo for our own peer so nothing
+        // double-spawns.
         if let Some(cam) = cam_gt {
-            shots.write(practice::LocalShot {
+            shots.write(LocalShot {
                 origin: cam.translation(),
                 dir,
             });

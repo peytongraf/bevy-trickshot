@@ -1,4 +1,4 @@
-//! Non-local-player avatar animation: practice/networked target bots, and
+//! Non-local-player avatar animation: networked target bots, and
 //! remote players' "soldier" avatars.
 
 mod bot;

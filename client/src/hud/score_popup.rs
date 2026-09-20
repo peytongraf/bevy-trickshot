@@ -42,8 +42,8 @@ pub(crate) fn spawn_score_popup(
     }
 
     // `TrickScoredEvent` only ever fires for a kill *this* client just scored
-    // (Practice resolves it locally; online, `net::receive_trick_scores`
-    // already filters the server's broadcast down to our own shooter id).
+    // (`net::receive_trick_scores` already filters the server's broadcast
+    // down to our own shooter id).
     commands.spawn((
         AudioPlayer::new(sounds.kill_enemy.clone()),
         PlaybackSettings::DESPAWN,

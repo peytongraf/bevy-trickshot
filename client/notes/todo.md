@@ -4,11 +4,48 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Note - P logs position to client console *
 
+# Pre practice removal cloc . in client src/
+
+❯❯ /home/peyton/Dev/bevy-trickshot/client/src : cloc .
+54 text files.
+54 unique files.  
+0 files ignored.
+
+github.com/AlDanial/cloc v 2.10 T=0.02 s (2634.6 files/s, 864651.0 lines/s)
+-------------------------------------------------------------------------------
+
+Language files blank comment code
+-------------------------------------------------------------------------------
+
+Rust 54 1167 3374 13181
+-------------------------------------------------------------------------------
+
+SUM: 54 1167 3374 13181
+-------------------------------------------------------------------------------
+
+# Post practice removal
+
+❯❯ /home/peyton/Dev/bevy-trickshot/client/src : cloc .
+53 text files.
+53 unique files.  
+0 files ignored.
+
+github.com/AlDanial/cloc v 2.10 T=0.02 s (2730.8 files/s, 879019.5 lines/s)
+-------------------------------------------------------------------------------
+
+Language files blank comment code
+-------------------------------------------------------------------------------
+
+Rust 53 1131 3299 12630
+-------------------------------------------------------------------------------
+
+SUM: 53 1131 3299 12630
+-------------------------------------------------------------------------------
+
 # Added
 
 - Increase aim sway
 - On windows terminal pops up to play prod client
-- Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Update to bevy 0.19 from 0.16
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
@@ -23,6 +60,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add tabs to top right controls ui to group other tabs into
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
+- Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
 
 ## Bugs
 
@@ -121,6 +159,7 @@ Ordered easiest → hardest to fix. Note: a knife model was added recently (see 
 ## Refactor
 
 - main file is thousands of lines so it should be refactored.
+- Removed offline Practice mode entirely: deleted `client/src/practice.rs` (local bots, local scoring/score text, local knife resolution) and the `PRACTICE` main-menu button (`lobby_ui::MenuBtn::Practice`), plus everything that existed only for it — the kill cam's local ring-buffer recorder and pending-cam path (`killcam::record_local_replay` / `start_local_killcam` / `LocalReplay` / `PendingLocalCam`), the `LocalMelee` event, `lobby_ui::GameSession` (every `InGame` is now a lobby match, so `drive_ingame_exit` is unconditional), and the solo branch of the pause menu's leave button (`menu::LeaveCtx::online`). The shooter's instant tracer + ground dust survived as a slim `weapon::resolve_local_shot` (was Practice's `resolve_local_shot` minus the offline hit resolution). Doc comments and READMEs updated to match.
 
 ## Ideas
 

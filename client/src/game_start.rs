@@ -7,8 +7,7 @@
 //! Reuses [`menu::Screen::LoadingGame`] to freeze gameplay input the same way
 //! the pause menu does, but this module owns the actual overlay content
 //! (map/mode header + a per-member loading/ready row) since it needs live
-//! [`shared::Lobby`] data `menu.rs` doesn't otherwise touch. Solo Practice has
-//! no lobby at all, so it's untouched by any of this.
+//! [`shared::Lobby`] data `menu.rs` doesn't otherwise touch.
 
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -58,8 +57,7 @@ fn exit_loading_gate(mut menu: ResMut<Menu>) {
     }
 }
 
-/// Shows the screen if we just entered a *started lobby* game — Practice has
-/// no lobby at all, so it's left alone entirely.
+/// Shows the screen if we just entered a *started lobby* game.
 fn enter_loading_gate(
     mut menu: ResMut<Menu>,
     mut sent: ResMut<SentReady>,

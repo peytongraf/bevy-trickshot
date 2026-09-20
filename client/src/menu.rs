@@ -315,10 +315,9 @@ enum Btn {
     ResetKeybinds,
     Step(SliderField, f32),
     ConfirmUsername,
-    /// Leave the current game and return to the main menu. In Practice that's
-    /// purely local; in an online match it also sends [`shared::LeaveLobby`],
-    /// which pulls just this player (promoting a new leader if we were one) and
-    /// lets the match continue for everyone else.
+    /// Leave the current game and return to the main menu: sends
+    /// [`shared::LeaveLobby`], which pulls just this player (promoting a new
+    /// leader if we were one) and lets the match continue for everyone else.
     LeaveGame,
     /// Party-leader only: end the match for the whole party
     /// ([`shared::EndGame`]) — every player is pulled to the main menu.
@@ -329,11 +328,9 @@ enum Btn {
 
 /// Which leave-game buttons the pause menu should show, derived each rebuild.
 struct LeaveCtx {
-    /// We're in a game (Practice or online); show a leave control at all.
+    /// We're in a game; show a leave control at all.
     in_game: bool,
-    /// The game is an online lobby match (vs solo Practice).
-    online: bool,
-    /// We're the party leader of that online match.
+    /// We're the party leader of that match.
     is_leader: bool,
 }
 
@@ -346,7 +343,6 @@ fn leave_ctx(
     let my_lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
     LeaveCtx {
         in_game: *app_state.get() == AppState::InGame,
-        online: my_lobby.is_some(),
         is_leader: matches!((me, my_lobby), (Some(me), Some(l)) if l.leader == me),
     }
 }
@@ -380,8 +376,6 @@ fn menu_click(
     mut settings: ResMut<Settings>,
     mut binds: ResMut<KeyBindings>,
     mut next: ResMut<NextState<AppState>>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&shared::Lobby>,
     mut leave_lobby: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
     mut end_game: Query<&mut TriggerSender<shared::EndGame>, With<GameClient>>,
 ) {
@@ -451,22 +445,13 @@ fn menu_click(
             Btn::LeaveGame => {
                 menu.screen = Screen::None;
                 menu.dirty = true;
-                let me = local.iter().next().map(|l| l.0);
-                let online = me
-                    .map(|me| lobbies.iter().any(|l| l.has(me)))
-                    .unwrap_or(false);
-                if online {
-                    // Non-leader, or leader "leave without party": ask the server
-                    // to pull just us (it promotes a new leader if needed). The
-                    // main-menu jump happens in `drive_ingame_exit` once the
-                    // server drops us — same flow as the lobby-room LEAVE button,
-                    // so there's no bounce through the lobby screen.
-                    if let Ok(mut s) = leave_lobby.single_mut() {
-                        s.trigger::<shared::LobbyChannel>(shared::LeaveLobby);
-                    }
-                } else {
-                    // Solo Practice — nothing networked to wait on.
-                    next.set(AppState::MainMenu);
+                // Non-leader, or leader "leave without party": ask the server
+                // to pull just us (it promotes a new leader if needed). The
+                // main-menu jump happens in `drive_ingame_exit` once the
+                // server drops us — same flow as the lobby-room LEAVE button,
+                // so there's no bounce through the lobby screen.
+                if let Ok(mut s) = leave_lobby.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::LeaveLobby);
                 }
             }
             Btn::LeaveWithParty => {
@@ -981,7 +966,7 @@ fn build_settings(
                         BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
                     ))
                     .with_children(|f| {
-                        if leave.online && leave.is_leader {
+                        if leave.is_leader {
                             spawn_button(
                                 f,
                                 "LEAVE WITH PARTY",
@@ -1019,13 +1004,11 @@ fn build_settings(
                                 TEXT,
                                 UiSound::BUTTON_BACK,
                             );
-                            if leave.online {
-                                f.spawn(label(
-                                    "The match continues for the other players.",
-                                    13.0,
-                                    TEXT_DIM,
-                                ));
-                            }
+                            f.spawn(label(
+                                "The match continues for the other players.",
+                                13.0,
+                                TEXT_DIM,
+                            ));
                         }
                     });
             }

@@ -482,7 +482,7 @@ pub struct KillCamPlayer {
     pub killed: bool,
 }
 
-/// Server → everyone in a lobby (and built locally in Practice): replay the
+/// Server → everyone in a lobby: replay the
 /// killer's last ~3 s. `samples` are oldest-first at `TICK_HZ`; `kill_index` is
 /// the frame the shot landed on (2 s in, 1 s of follow-through after). `bots`
 /// are the targets frozen at the kill moment so the replay can show the one
@@ -619,7 +619,7 @@ impl Lobby {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerName(pub String);
 
-/// A server-owned practice bot. Replicated to the members of one lobby's game so
+/// A server-owned target bot. Replicated to the members of one lobby's game so
 /// everyone sees the same bots in the same spots, and sees the same one tip over
 /// when it's shot.
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

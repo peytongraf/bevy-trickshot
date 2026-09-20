@@ -1,6 +1,5 @@
 //! Kill-cam replay. On a bot kill the server ships the killer's last ~4.5 s
-//! ([`shared::KillCam`]); in solo Practice the same window is cut from a local
-//! ring buffer. Playback flies the *existing* player rig along the recorded
+//! ([`shared::KillCam`]). Playback flies the *existing* player rig along the recorded
 //! path — body position/yaw, head pitch, camera shake, recoil kick and weapon
 //! sway are each reconstructed from their own recorded state (not one baked
 //! camera transform), so shake / recoil / sway reproduce exactly, and the FOV
@@ -10,7 +9,6 @@
 //! the one that was hit topples on cue. A letterbox bar top and bottom names
 //! "KILLCAM" / the killer; `F` (rebindable) skips.
 
-use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::time::Duration;
 
@@ -23,7 +21,6 @@ use bevy::prelude::*;
 use shared::KillCamSample;
 
 use crate::keybinds::KeyBindings;
-use crate::settings::Settings;
 use crate::{
     rand_roll, Ads, AimSwayState, AppState, BloodImpact, BotAnimationPlayer, BotAnimations,
     BotVisual, CameraRecoil, CameraShake, FireTracer, GameSounds, GroundImpact, MuzzleFlashState,
@@ -83,15 +80,12 @@ pub(crate) const ALL_SND_BITS: [u16; 9] = [
     SND_JUMP_LAND,
 ];
 
-/// Seconds of replay before / after the kill.
+/// Fallback kill time (seconds into the replay) if a message's `kill_index`
+/// is out of range.
 const PRE_SECS: f32 = 3.0;
-pub(crate) const POST_SECS: f32 = 1.5;
-/// A touch more than `PRE + POST`, so the local ring always covers the window.
-const LOCAL_KEEP_SECS: f32 = 5.0;
 
-/// Sounds the player triggered since the last input packet / replay frame.
-/// `write_input` drains it in a networked game; `record_local_replay` drains it
-/// in Practice.
+/// Sounds the player triggered since the last input packet. `write_input`
+/// drains it.
 #[derive(Resource, Default)]
 pub(crate) struct ReplaySoundBits(pub(crate) u16);
 
@@ -103,49 +97,19 @@ impl ReplaySoundBits {
 
 /// The local player's most recent ground-impact point that hasn't yet been
 /// stamped onto a [`PlayerInput`]. Set by `resolve_local_shot`, drained by
-/// `write_input` so the networked kill cam can replay ground bursts. (Practice
-/// records its own bursts straight off the [`GroundImpact`] event stream.)
+/// `write_input` so the kill cam can replay ground bursts.
 #[derive(Resource, Default)]
 pub(crate) struct ReplayGroundImpact(pub(crate) Option<Vec3>);
 
 /// As [`ReplayGroundImpact`], but for the most recent bot-hit blood squirt.
-/// Set by `resolve_local_shot` / `net::follow_bot_avatars`, drained by
-/// `write_input`. (Practice records straight off the `BloodImpact` stream.)
+/// Set by `net::follow_bot_avatars`, drained by `write_input`.
 #[derive(Resource, Default)]
 pub(crate) struct ReplayBloodImpact(pub(crate) Option<Vec3>);
 
 /// As [`ReplayGroundImpact`], but the most recent shot tracer as
 /// `(start, end)`. Set by `resolve_local_shot`, drained by `write_input`.
-/// (Practice records straight off the `FireTracer` stream.)
 #[derive(Resource, Default)]
 pub(crate) struct ReplayTracer(pub(crate) Option<(Vec3, Vec3)>);
-
-/// Rolling local recording for Practice (and the follow-through second even in a
-/// networked game isn't needed here — the server owns that path).
-#[derive(Resource, Default)]
-struct LocalReplay {
-    frames: VecDeque<(f32, KillCamSample)>,
-    /// `(time, world point)` of ground-impact bursts, so Practice replays the
-    /// rock / dust too.
-    impacts: VecDeque<(f32, Vec3)>,
-    /// `(time, hit point, squirt dir)` of bot-hit blood squirts.
-    bloods: VecDeque<(f32, Vec3, Vec3)>,
-    /// `(time, start, end)` of shot tracers, so the replay re-draws each along
-    /// its true path at the right moment instead of leaving the live one hung
-    /// in the world.
-    tracers: VecDeque<(f32, Vec3, Vec3)>,
-}
-
-/// Practice: a kill landed at `kill_at`; assemble + start the cam at `fire_at`.
-#[derive(Resource, Default)]
-pub(crate) struct PendingLocalCam(pub(crate) Option<PendingLocal>);
-
-pub(crate) struct PendingLocal {
-    pub(crate) kill_at: f32,
-    pub(crate) fire_at: f32,
-    /// Every bot alive at the kill: `(pos, yaw, was_the_one_shot)`.
-    pub(crate) bots: Vec<(Vec3, f32, bool)>,
-}
 
 /// The replay currently playing, if any.
 #[derive(Resource, Default)]
@@ -172,8 +136,7 @@ pub(crate) struct KillCamRun {
     /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
     bots: Vec<(Vec3, f32, bool)>,
     /// Other players (never the killer) frozen at the kill:
-    /// `(pos, yaw, was_the_one_shot)`. Empty in Practice — there are no
-    /// other real players to freeze.
+    /// `(pos, yaw, was_the_one_shot)`.
     players: Vec<(Vec3, f32, bool)>,
     /// Ghost bot/player entities spawned for the replay (despawned on
     /// teardown).
@@ -296,8 +259,6 @@ impl Plugin for KillCamPlugin {
             .init_resource::<ReplayGroundImpact>()
             .init_resource::<ReplayBloodImpact>()
             .init_resource::<ReplayTracer>()
-            .init_resource::<LocalReplay>()
-            .init_resource::<PendingLocalCam>()
             .init_resource::<ActiveKillCam>()
             // NOTE: build the ghost mesh / material in `PostStartup`, *not*
             // `Startup`. `main`'s `Startup` set spawns the 3D cameras, and adding
@@ -312,9 +273,6 @@ impl Plugin for KillCamPlugin {
             .add_systems(
                 Update,
                 (
-                    record_local_replay
-                        .run_if(crate::practice::is_practice.and(no_killcam)),
-                    start_local_killcam,
                     start_killcam,
                     drive_killcam,
                 )
@@ -385,181 +343,9 @@ pub(crate) fn pick_footstep(
     Some(clips[idx].clone())
 }
 
-// --- recording (Practice) --------------------------------------------
+// --- starting a replay ---------------------------------------------
 
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn record_local_replay(
-    time: Res<Time>,
-    ads: Res<Ads>,
-    shake: Res<crate::Shake>,
-    sway: Res<crate::WeaponSwayState>,
-    settings: Res<Settings>,
-    mut bits: ResMut<ReplaySoundBits>,
-    mut replay: ResMut<LocalReplay>,
-    mut impacts: EventReader<GroundImpact>,
-    mut bloods: EventReader<BloodImpact>,
-    mut tracers: EventReader<FireTracer>,
-    player: Query<&Transform, With<Player>>,
-    head: Query<&Transform, With<PlayerHead>>,
-    anim_players: Query<&AnimationPlayer, With<SniperAnimationPlayer>>,
-    view_models: Query<&ViewModelAnimation>,
-    (view_model_vis, knife, weapon, slide, knife_players, knife_anims): (
-        Query<&Visibility, With<ViewModel>>,
-        Res<crate::ThrowingKnife>,
-        Res<Weapon>,
-        Res<crate::Slide>,
-        Query<&AnimationPlayer, With<KnifeAnimationPlayer>>,
-        Query<&KnifeAnimation>,
-    ),
-) {
-    let (Ok(pt), Ok(ht)) = (player.single(), head.single()) else {
-        return;
-    };
-    let now = time.elapsed_secs();
-    replay.frames.push_back((
-        now,
-        KillCamSample {
-            translation: pt.translation.to_array(),
-            yaw: pt.rotation.to_euler(EulerRot::YXZ).0,
-            pitch: ht.rotation.to_euler(EulerRot::YXZ).1,
-            shake_trauma: shake.trauma,
-            shake_phase: shake.phase,
-            shake_recoil: shake.recoil,
-            sway_offset: sway.offset.to_array(),
-            fov_deg: settings.fov,
-            scope_zoom: settings.scope_zoom.magnification(),
-            sound_bits: std::mem::take(&mut bits.0),
-            anim_time: viewmodel_anim_time(&anim_players, &view_models),
-            knife_anim_time: knife_anim_time(&knife_players, &knife_anims),
-            ads_t: ads.t,
-            // Practice replays its ground bursts / blood / tracers from the
-            // `LocalReplay` lists (filled just below), so these per-frame slots
-            // — used only by the networked path — stay empty here.
-            ground_pt: None,
-            blood_pt: None,
-            tracer: None,
-            weapon_visible: view_model_vis
-                .iter()
-                .next()
-                .is_none_or(|v| *v != Visibility::Hidden),
-            knife_active: knife.active,
-            sniper_active: weapon.slot == WeaponSlot::Primary,
-            crouch_drop: slide.drop,
-        },
-    ));
-    for ev in impacts.read() {
-        replay.impacts.push_back((now, ev.0));
-    }
-    for ev in bloods.read() {
-        replay.bloods.push_back((now, ev.point, ev.dir));
-    }
-    for ev in tracers.read() {
-        replay.tracers.push_back((now, ev.start, ev.end));
-    }
-    while replay
-        .frames
-        .front()
-        .is_some_and(|(t, _)| now - *t > LOCAL_KEEP_SECS)
-    {
-        replay.frames.pop_front();
-    }
-    while replay
-        .impacts
-        .front()
-        .is_some_and(|(t, _)| now - *t > LOCAL_KEEP_SECS)
-    {
-        replay.impacts.pop_front();
-    }
-    while replay
-        .bloods
-        .front()
-        .is_some_and(|(t, ..)| now - *t > LOCAL_KEEP_SECS)
-    {
-        replay.bloods.pop_front();
-    }
-    while replay
-        .tracers
-        .front()
-        .is_some_and(|(t, ..)| now - *t > LOCAL_KEEP_SECS)
-    {
-        replay.tracers.pop_front();
-    }
-}
-
-/// Practice: once `fire_at` passes, cut `[kill − 3 s, kill + 1.5 s]` from the
-/// local ring and start the replay.
-fn start_local_killcam(
-    time: Res<Time>,
-    settings: Res<Settings>,
-    replay: Res<LocalReplay>,
-    mut pending: ResMut<PendingLocalCam>,
-    mut active: ResMut<ActiveKillCam>,
-) {
-    let Some(p) = pending.0.as_ref() else { return };
-    if active.0.is_some() || time.elapsed_secs() < p.fire_at {
-        return;
-    }
-    let (lo, hi) = (p.kill_at - PRE_SECS, p.kill_at + POST_SECS);
-    let frames: Vec<(f32, KillCamSample)> = replay
-        .frames
-        .iter()
-        .filter(|(t, _)| *t >= lo && *t <= hi)
-        .map(|(t, s)| (*t - lo, *s))
-        .collect();
-    let impacts: Vec<(f32, Vec3)> = replay
-        .impacts
-        .iter()
-        .filter(|(t, _)| *t >= lo && *t <= hi)
-        .map(|(t, p)| (*t - lo, *p))
-        .collect();
-    let bloods: Vec<(f32, Vec3, Vec3)> = replay
-        .bloods
-        .iter()
-        .filter(|(t, ..)| *t >= lo && *t <= hi)
-        .map(|(t, p, d)| (*t - lo, *p, *d))
-        .collect();
-    let tracers: Vec<(f32, Vec3, Vec3)> = replay
-        .tracers
-        .iter()
-        .filter(|(t, ..)| *t >= lo && *t <= hi)
-        .map(|(t, s, e)| (*t - lo, *s, *e))
-        .collect();
-    let bots = p.bots.clone();
-    let kill_time = (p.kill_at - lo).max(0.0);
-    pending.0 = None;
-    if frames.len() < 4 {
-        return;
-    }
-    let name = settings
-        .username
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "You".to_string());
-    active.0 = Some(KillCamRun {
-        killer_name: name,
-        frames,
-        impacts,
-        bloods,
-        tracers,
-        kill_time,
-        best_play: false,
-        bots,
-        players: Vec::new(),
-        ghosts: Vec::new(),
-        elapsed: 0.0,
-        sound_cursor: 0,
-        footstep_last: 0,
-        impact_cursor: 0,
-        blood_cursor: 0,
-        tracer_cursor: 0,
-        setup: false,
-        saved: None,
-        banner: None,
-        optic: None,
-    });
-}
-
-/// Networked entry point: build a run from a [`shared::KillCam`] message.
+/// Build a run from a [`shared::KillCam`] message.
 pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCam) {
     if active.0.is_some() || msg.samples.len() < 4 {
         return;
@@ -1122,8 +908,8 @@ fn drive_killcam(
     *knife_tf = Transform::from_rotation(sway_rot) * *knife_tf;
 
     // Play the death animation on the ghost that was shot once the playhead
-    // reaches the kill moment — once, same guard `tick_practice_bots` /
-    // `follow_bot_avatars` use for the live paths.
+    // reaches the kill moment — once, same guard `follow_bot_avatars` uses
+    // for the live path.
     for (entity, mut ghost, mut gtf) in &mut ghosts {
         if ghost.killed && !ghost.die_played && run.elapsed >= run.kill_time {
             ghost.die_played = true;
@@ -1313,7 +1099,6 @@ fn drive_killcam(
 fn stop_killcam(
     mut commands: Commands,
     mut active: ResMut<ActiveKillCam>,
-    mut pending: ResMut<PendingLocalCam>,
     mut weapon: ResMut<Weapon>,
     mut ads: ResMut<Ads>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
@@ -1328,7 +1113,6 @@ fn stop_killcam(
     knife_anims: Query<&KnifeAnimation>,
     mut knife_state: ResMut<KnifeAnimState>,
 ) {
-    pending.0 = None;
     for mut vis in &mut live_bots {
         *vis = Visibility::Inherited;
     }

@@ -35,7 +35,6 @@ an internet connection for the update and to play with other people.
 ### Playing
 
 - On first launch, type a **username** and confirm it.
-- Click **PRACTICE** to drop into the world on your own.
 - To play together, one person clicks **CREATE LOBBY**; everyone else clicks that
   lobby in the list to join. Once everyone is in, whoever made the lobby clicks
   **START GAME**.

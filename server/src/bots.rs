@@ -1,4 +1,4 @@
-//! Server-owned practice bots.
+//! Server-owned target bots.
 //!
 //! Bots are stationary capsules replicated to the members of one lobby's game.
 //! A hit (resolved in [`crate::sim`]) sends a [`BotHit`] event; here we mark the

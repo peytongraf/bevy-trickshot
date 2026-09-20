@@ -1,5 +1,5 @@
-//! Target-bot dimensions and placement, shared so offline Practice and the
-//! authoritative server spawn identical bots in identical spots.
+//! Target-bot dimensions and placement, shared so the server and the
+//! client's kill-cam ghosts agree on where bots stand.
 
 use bevy::math::Vec3;
 

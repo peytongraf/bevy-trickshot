@@ -115,7 +115,7 @@ pub(crate) fn apply_map_transform(
     }
 }
 
-/// The map the current lobby (or, in solo Practice, the default) is playing
+/// The map the current lobby is playing
 /// on — drives which `SceneRoot` [`sync_map_model`] keeps spawned under
 /// [`MapModel`] (and its auto-generated `Collider`s, which is all the ground/
 /// wall collision in [`apply_gravity`] / [`resolve_wall_collisions`] needs).

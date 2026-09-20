@@ -109,7 +109,7 @@ impl SoundVolumes {
 }
 
 /// The looping ambient-nature bed. `StateScoped(InGame)`, so it starts when the
-/// player enters the world (Practice or a game) and stops on the way out.
+/// player enters the world and stops on the way out.
 #[derive(Component)]
 pub(crate) struct AmbientAudio;
 

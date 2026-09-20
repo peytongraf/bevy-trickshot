@@ -122,7 +122,7 @@ as a resource, and pass `|a, b| world.segment_blocked(a, b)`.
 
 ### Bots
 
-Done — stationary practice-target bots live in `src/bots.rs` (`BotsPlugin`):
+Done — stationary target bots live in `src/bots.rs` (`BotsPlugin`):
 `ensure_bots` tops up each lobby's bot count near the map centre, a hit sends a
 `BotHit` (resolved in `src/sim.rs`) that tips the bot over, scores the shooter,
 and despawns it a couple seconds later. Moving/AI-driven bots (as opposed to

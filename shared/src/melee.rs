@@ -2,7 +2,7 @@
 //! [`crate::ballistics`]. Like a Call-of-Duty knife, a stab isn't a precise
 //! ray test: if the target is close and the crosshair is *roughly* on them,
 //! it lands, and it always kills. The server runs [`resolve_melee`] for every
-//! stab request; the client's offline Practice mode runs the same function.
+//! stab request.
 
 use bevy::math::Vec3;
 

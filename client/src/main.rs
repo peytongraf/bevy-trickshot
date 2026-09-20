@@ -40,7 +40,6 @@ mod lobby_ui;
 mod menu;
 mod net;
 mod player;
-mod practice;
 mod settings;
 mod ui;
 mod updater;
@@ -68,7 +67,7 @@ pub enum AppState {
     MainMenu,
     /// In a lobby room, waiting for the leader to start.
     InLobby,
-    /// In the shared world (or solo Practice).
+    /// In the shared world.
     InGame,
 }
 
@@ -155,7 +154,6 @@ fn main() {
             settings::SettingsPlugin,
             menu::MenuPlugin,
             lobby_ui::LobbyUiPlugin,
-            practice::PracticePlugin,
             killcam::KillCamPlugin,
             death_effect::DeathEffectPlugin,
             fall_death::FallDeathPlugin,
@@ -186,7 +184,7 @@ fn main() {
         .init_resource::<KnifeAnimState>()
         .init_resource::<PendingShot>()
         .init_resource::<PendingMelee>()
-        .add_event::<LocalMelee>()
+        .add_event::<LocalShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
         .init_resource::<AnimationSettings>()
@@ -446,6 +444,7 @@ fn main() {
                 .after(apply_knife_transform)
                 .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
         )
+        .add_systems(Update, resolve_local_shot.run_if(in_state(AppState::InGame)))
         // `consume_look_delta` clears this frame's turn once `weapon_sway` and
         // `track_trick` (ordered `.before(consume_look_delta)` above) have had
         // it — `look_around` early-returns on a still frame without clearing
@@ -756,8 +755,7 @@ fn setup_world(
         NotShadowCaster,
     ));
 
-    // Targets in the world are the bots — server-owned in a lobby game, spawned
-    // locally by `spawn_practice_bots` in solo Practice.
+    // Targets in the world are the server-owned bots.
 
     // Sun.
     commands.spawn((

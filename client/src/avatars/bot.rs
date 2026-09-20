@@ -1,4 +1,4 @@
-//! Practice-mode and networked target-bot animation: a looped idle clip that
+//! Target-bot animation: a looped idle clip that
 //! switches to a one-shot death clip.
 
 use bevy::animation::RepeatAnimation;
@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
-/// On every target-bot visual (practice-local *and* networked avatars), so the
+/// On every target-bot visual (the networked avatars), so the
 /// kill cam can hide the live bots and show its own frozen snapshot instead.
 #[derive(Component)]
 pub(crate) struct TargetBotVisual;
@@ -30,7 +30,7 @@ pub(crate) struct BotAnimations {
     pub(crate) die: AnimationNodeIndex,
 }
 
-/// Tags a bot's `SceneRoot` entity (practice bot, networked avatar, or kill-cam
+/// Tags a bot's `SceneRoot` entity (networked avatar or kill-cam
 /// ghost) so `start_bot_animation` knows to wire it up once the scene finishes
 /// spawning — and so the observer can tell a bot's scene apart from any other
 /// (the sniper, the map, ...).

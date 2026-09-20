@@ -2,9 +2,9 @@
 //! [`crate::ui`]).
 //!
 //! Screens follow [`crate::AppState`]:
-//! * `MainMenu` — lobby browser. `PRACTICE` → solo `InGame` (no networking);
-//!   `CREATE LOBBY` / clicking a row sends a trigger and, once the replicated
-//!   [`shared::Lobby`] shows us as a member, we move to `InLobby`.
+//! * `MainMenu` — lobby browser. `CREATE LOBBY` / clicking a row sends a
+//!   trigger and, once the replicated [`shared::Lobby`] shows us as a member,
+//!   we move to `InLobby`.
 //! * `InLobby` — member list, a `★` by the party leader, leader-only
 //!   `START GAME`, and `LEAVE`. When our lobby's `started` flips true we move to
 //!   `InGame`.
@@ -33,7 +33,6 @@ impl Plugin for LobbyUiPlugin {
             .init_resource::<AutoLobby>()
             .init_resource::<ScoreboardDirty>()
             .init_resource::<LastMatch>()
-            .init_resource::<GameSession>()
             .init_resource::<LastOwnScore>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
@@ -43,7 +42,6 @@ impl Plugin for LobbyUiPlugin {
                     despawn_lobby_ui,
                     mark_scoreboard_dirty,
                     spawn_match_timer,
-                    mark_game_session,
                     sync_current_map,
                     reset_own_kill_tracking,
                 ),
@@ -197,25 +195,6 @@ fn local_peer(q: &Query<&LocalId, With<GameClient>>) -> Option<PeerId> {
     q.iter().next().map(|l| l.0)
 }
 
-/// Whether the current `InGame` session is a networked lobby match (vs solo
-/// Practice). Latched on entering the game so a lobby vanishing mid-match can't
-/// be mistaken for "this was always Practice".
-#[derive(Resource, Default)]
-struct GameSession {
-    networked: bool,
-}
-
-fn mark_game_session(
-    mut session: ResMut<GameSession>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&shared::Lobby>,
-) {
-    let me = local_peer(&local);
-    session.networked = me
-        .map(|me| lobbies.iter().any(|l| l.has(me)))
-        .unwrap_or(false);
-}
-
 /// This client's own kill count (`LobbyMember::score` in `FreeForAll`) as of
 /// the last time [`play_ffa_kill_sound`] checked it. Reset on every fresh
 /// `OnEnter(AppState::InGame)` ([`reset_own_kill_tracking`]) so a rematch's
@@ -266,8 +245,8 @@ fn play_ffa_kill_sound(
     last.0 = Some(member.score);
 }
 
-/// Pick up our lobby's selected map on the way into `InGame` — solo Practice
-/// has no lobby, so it always falls back to the default (`BasicMap`). `pub`
+/// Pick up our lobby's selected map on the way into `InGame` (falling back to
+/// the default, `BasicMap`, if we somehow aren't in a lobby). `pub`
 /// so `main`'s `start_ambient` can order itself `.after` this — both run on
 /// `OnEnter(AppState::InGame)`, and `start_ambient` needs this frame's fresh
 /// `CurrentMap`, not whatever it was left at after the previous match.
@@ -284,21 +263,15 @@ pub(crate) fn sync_current_map(
     current.set_if_neq(crate::CurrentMap(map));
 }
 
-/// In a networked match, leave `InGame` the moment we're no longer in the lobby
-/// — because we left (the pause-menu button already set us on our way), or
-/// because the leader pulled the whole party. Solo Practice is untouched (its
-/// pause-menu "LEAVE GAME" sets the state directly), and a normally-finished
-/// match — `started` false but we're still a member — is left to the existing
-/// lobby-room flow.
+/// Leave `InGame` the moment we're no longer in the lobby — because we left
+/// (the pause-menu button already sent us on our way), or because the leader
+/// pulled the whole party. A normally-finished match — `started` false but
+/// we're still a member — is left to the existing lobby-room flow.
 fn drive_ingame_exit(
-    session: Res<GameSession>,
     mut next: ResMut<NextState<AppState>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
 ) {
-    if !session.networked {
-        return;
-    }
     let Some(me) = local_peer(&local) else { return };
     if !lobbies.iter().any(|l| l.has(me)) {
         next.set(AppState::MainMenu);
@@ -370,7 +343,6 @@ struct LobbyUiRoot;
 /// Click intent for a menu button.
 #[derive(Component, Clone)]
 enum MenuBtn {
-    Practice,
     /// Opens `menu::Screen::Loadout` from the main menu. The in-game entry
     /// point is `menu::Btn::OpenLoadout` instead (inside the pause menu) —
     /// see that screen's doc comment for why it looks the same either way.
@@ -598,17 +570,6 @@ fn build_browser(
                         ACCENT,
                         ACCENT,
                         PANEL_SOLID,
-                        UiSound::MENU,
-                    );
-                    spawn_button_hud(
-                        row,
-                        asset_server,
-                        "PRACTICE",
-                        20.0,
-                        MenuBtn::Practice,
-                        ROW,
-                        ROW_HOVER,
-                        TEXT,
                         UiSound::MENU,
                     );
                     spawn_button_hud(
@@ -921,7 +882,6 @@ fn build_room(
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn handle_clicks(
     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
-    mut next: ResMut<NextState<AppState>>,
     mut menu: ResMut<Menu>,
     settings: Res<Settings>,
     local: Query<&LocalId, With<GameClient>>,
@@ -958,7 +918,6 @@ fn handle_clicks(
             continue;
         }
         match btn {
-            MenuBtn::Practice => next.set(AppState::InGame),
             MenuBtn::OpenLoadout => {
                 menu.loadout_return = menu.screen;
                 menu.screen = Screen::Loadout;
@@ -1043,7 +1002,7 @@ fn rebuild_scoreboard(
         commands.entity(e).despawn();
     }
 
-    // Only in a lobby game (solo Practice has no lobby → no scoreboard).
+    // Only shown while we're a member of a lobby.
     let Some(me) = local.iter().next().map(|l| l.0) else {
         return;
     };
@@ -1105,7 +1064,7 @@ fn rebuild_scoreboard(
 #[derive(Component)]
 struct MatchTimerLabel;
 
-/// One text element at the top of the screen; blank in solo Practice.
+/// One text element at the top of the screen; blank while we're not in a lobby.
 fn spawn_match_timer(mut commands: Commands) {
     commands
         .spawn((
