@@ -12,11 +12,15 @@ use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
+use shared::bot_players::{bot_peer, BOT_NAMES, MAX_BOTS};
+use shared::bots::rand01;
 use shared::{
-    AssetsReady, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby, LeaveLobby, Lobby,
-    LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerName, PlayerPose,
-    SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
+    AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
+    LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
+    PlayerName, PlayerPose, SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
 };
+
+use crate::ai::{BotBrain, NextBotId};
 
 /// Bounds on the leader-set match length (seconds) — 1 to 45 minutes.
 const MIN_TIME_LIMIT: u32 = 60;
@@ -37,7 +41,7 @@ pub struct LobbyPlayer {
     pub lobby: Entity,
 }
 
-/// Max players per lobby.
+/// Max *real* players per lobby (bots have their own cap, `MAX_BOTS`).
 const MAX_MEMBERS: usize = 8;
 
 pub struct LobbyPlugin;
@@ -54,6 +58,8 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
             .add_observer(on_set_kill_limit)
+            .add_observer(on_add_bots)
+            .add_observer(on_clear_bots)
             .add_observer(on_disconnect)
             .add_systems(Update, tick_match_clock);
     }
@@ -85,7 +91,8 @@ fn remove_peer(
             }
         };
 
-        if lobby.members.is_empty() {
+        // A lobby with nobody real left is over, whatever bots remain in it.
+        if lobby.real_count() == 0 {
             for (pe, _, _) in players.iter().filter(|(_, _, lp)| lp.lobby == entity) {
                 despawn(commands, pe);
             }
@@ -98,7 +105,8 @@ fn remove_peer(
                 }
             }
             if lobby.leader == peer {
-                lobby.leader = lobby.members[0].peer;
+                // (`real_count() > 0` here, so there is a real member to promote.)
+                lobby.leader = lobby.real_peers()[0];
                 info!("lobby {entity:?}: leader left, promoted {:?}", lobby.leader);
             }
         }
@@ -151,6 +159,7 @@ fn on_create(
                     name: ev.player_name.clone(),
                     score: 0,
                     loaded: false,
+                    bot: None,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -180,7 +189,7 @@ fn on_join(
         reject(&mut sender, &server, peer, "That game has already started.");
         return;
     }
-    if lobby.members.len() >= MAX_MEMBERS && !lobby.has(peer) {
+    if lobby.real_count() >= MAX_MEMBERS && !lobby.has(peer) {
         reject(&mut sender, &server, peer, "That lobby is full.");
         return;
     }
@@ -196,6 +205,7 @@ fn on_join(
             name: player_name,
             score: 0,
             loaded: false,
+            bot: None,
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -216,6 +226,7 @@ fn on_start(
     time: Res<Time>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     clients: Query<(Entity, &RemoteId), With<ClientOf>>,
+    old_players: Query<(Entity, &LobbyPlayer)>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
@@ -230,29 +241,51 @@ fn on_start(
     lobby.time_left_secs = lobby.time_limit_secs;
     for m in &mut lobby.members {
         m.score = 0;
-        m.loaded = false;
+        // A bot has no client to load anything.
+        m.loaded = m.bot.is_some();
     }
     let mode = lobby.mode;
     let members: Vec<shared::LobbyMember> = lobby.members.clone();
     info!(
-        "lobby {lobby_entity:?} started by {peer:?} with {} member(s), {}s limit, mode {mode:?}",
+        "lobby {lobby_entity:?} started by {peer:?} with {} member(s) ({} bot), {}s limit, mode {mode:?}",
         members.len(),
+        lobby.bot_count(),
         lobby.time_limit_secs,
     );
 
-    let all: Vec<PeerId> = members.iter().map(|m| m.peer).collect();
+    // A previous match in this lobby may have left its player entities behind
+    // (bots included) — start from a clean slate rather than doubling up.
+    for (e, lp) in &old_players {
+        if lp.lobby == lobby_entity {
+            if let Ok(mut ec) = commands.get_entity(e) {
+                ec.despawn();
+            }
+        }
+    }
+
+    // Replication only ever targets real clients — there's nobody behind a bot.
+    let real: Vec<PeerId> = members
+        .iter()
+        .filter(|m| m.bot.is_none())
+        .map(|m| m.peer)
+        .collect();
     // `FreeForAll` spreads spawns out (see `shared::spawns::spawn_point`),
     // each one avoiding every spot already handed out this start.
     let mut taken_spawns: Vec<Vec3> = Vec::new();
     for member in &members {
-        let Some((owner, _)) = clients.iter().find(|(_, rid)| rid.0 == member.peer) else {
-            warn!(
-                "no client link for {:?}; skipping player spawn",
-                member.peer
-            );
-            continue;
+        let owner = if member.bot.is_some() {
+            None
+        } else {
+            let Some((owner, _)) = clients.iter().find(|(_, rid)| rid.0 == member.peer) else {
+                warn!(
+                    "no client link for {:?}; skipping player spawn",
+                    member.peer
+                );
+                continue;
+            };
+            Some(owner)
         };
-        let others: Vec<PeerId> = all.iter().copied().filter(|p| *p != member.peer).collect();
+        let others: Vec<PeerId> = real.iter().copied().filter(|p| *p != member.peer).collect();
 
         let pose = match mode {
             GameMode::Freestyle => PlayerPose::default(),
@@ -271,30 +304,44 @@ fn on_start(
         };
 
         let mut ec = commands.spawn((
-                Name::from("Player"),
-                LobbyPlayer {
-                    lobby: lobby_entity,
-                },
-                PlayerId(member.peer),
-                PlayerName(member.name.clone()),
-                pose,
-                ActionState::<PlayerInput>::default(),
-                Replicate::to_clients(NetworkTarget::Only(all.clone())),
-                PredictionTarget::to_clients(NetworkTarget::Single(member.peer)),
-                InterpolationTarget::to_clients(NetworkTarget::Only(others)),
-                ControlledBy {
-                    owner,
-                    lifetime: Lifetime::SessionBased,
-                },
-            ));
+            Name::from(if member.bot.is_some() { "BotPlayer" } else { "Player" }),
+            LobbyPlayer {
+                lobby: lobby_entity,
+            },
+            PlayerId(member.peer),
+            PlayerName(member.name.clone()),
+            pose,
+            ActionState::<PlayerInput>::default(),
+            Replicate::to_clients(NetworkTarget::Only(real.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::Only(others)),
+        ));
+        match (owner, member.bot) {
+            // A real player: predicted by their own client, driven by its input.
+            (Some(owner), _) => {
+                ec.insert((
+                    PredictionTarget::to_clients(NetworkTarget::Single(member.peer)),
+                    ControlledBy {
+                        owner,
+                        lifetime: Lifetime::SessionBased,
+                    },
+                ));
+            }
+            // A bot: driven by `ai::drive_bots`, standing where `pose` put it
+            // (the pose holds the eye position; the brain wants the feet).
+            (None, Some(difficulty)) => {
+                let feet = pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT;
+                let seed = time.elapsed().as_nanos() as u64 ^ member.peer.to_bits();
+                ec.insert(BotBrain::new(difficulty, feet, seed));
+            }
+            (None, None) => {}
+        }
         // Health + combat state for every player in either mode: falls hurt in
         // Freestyle too, and `FreeForAll` shots take health off the same bar.
         ec.insert((
             crate::pvp::PlayerCombat::default(),
             shared::PlayerHealth(shared::health::FULL_HEALTH),
         ));
-        let entity = ec
-            .id();
+        let entity = ec.id();
         info!("  spawned player {entity:?} for {:?}", member.peer);
     }
 }
@@ -367,7 +414,83 @@ fn on_set_game_mode(trigger: Trigger<RemoteTrigger<SetGameMode>>, mut lobbies: Q
     let mode = trigger.trigger.mode;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.mode = mode;
+        // Bots only exist in `FreeForAll`.
+        if mode != GameMode::FreeForAll {
+            lobby.members.retain(|m| m.bot.is_none());
+        }
         info!("lobby mode set to {mode:?} by {peer:?}");
+    }
+}
+
+/// Add up to `count` bots at `difficulty` to `lobby`, trimmed to fit
+/// [`MAX_BOTS`] in total; returns how many were actually added. Each gets a
+/// fake peer id (from `next_id`, which advances) and a random name from
+/// [`BOT_NAMES`] that nobody else in the lobby has.
+fn add_bots(
+    lobby: &mut Lobby,
+    count: usize,
+    difficulty: shared::bot_players::BotDifficulty,
+    next_id: &mut u64,
+    seed: u64,
+) -> usize {
+    let room = MAX_BOTS.saturating_sub(lobby.bot_count());
+    let count = count.min(room);
+    for n in 0..count {
+        let free: Vec<&str> = BOT_NAMES
+            .iter()
+            .copied()
+            .filter(|name| !lobby.members.iter().any(|m| m.name == *name))
+            .collect();
+        let name = if free.is_empty() {
+            format!("Bot {}", *next_id)
+        } else {
+            let roll = rand01(seed ^ (*next_id).wrapping_mul(0x9e37_79b9) ^ (n as u64) << 40);
+            free[(roll * free.len() as f32) as usize % free.len()].to_string()
+        };
+        lobby.members.push(LobbyMember {
+            peer: bot_peer(*next_id),
+            name,
+            score: 0,
+            loaded: true,
+            bot: Some(difficulty),
+        });
+        *next_id += 1;
+    }
+    count
+}
+
+/// The leader adds bots to a `FreeForAll` lobby that's still waiting: `count`
+/// of them at one difficulty (call it again for another difficulty) — see
+/// [`add_bots`].
+fn on_add_bots(
+    trigger: Trigger<RemoteTrigger<AddBots>>,
+    time: Res<Time>,
+    mut next: ResMut<NextBotId>,
+    mut lobbies: Query<&mut Lobby>,
+) {
+    let peer = trigger.from;
+    let req = &trigger.trigger;
+    let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) else {
+        return;
+    };
+    if lobby.mode != GameMode::FreeForAll {
+        return;
+    }
+    let seed = time.elapsed().as_nanos() as u64;
+    let added = add_bots(&mut lobby, req.count as usize, req.difficulty, &mut next.0, seed);
+    info!(
+        "{peer:?} added {added} {:?} bot(s) — {} in the lobby",
+        req.difficulty,
+        lobby.bot_count()
+    );
+}
+
+/// The leader removes every bot from a waiting lobby.
+fn on_clear_bots(trigger: Trigger<RemoteTrigger<ClearBots>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        lobby.members.retain(|m| m.bot.is_none());
+        info!("{peer:?} cleared the lobby's bots");
     }
 }
 
@@ -408,7 +531,7 @@ pub(crate) fn end_match(
         .max_by_key(|m| m.score)
         .map(|m| (m.name.clone(), m.score))
         .unwrap_or_default();
-    let targets: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+    let targets: Vec<PeerId> = lobby.real_peers();
 
     // Replay the match's best (highest-scoring) shot for everyone before
     // the results screen. `GameChannel` is unordered, so `MatchOver`
@@ -478,4 +601,92 @@ fn on_disconnect(
         return;
     };
     remove_peer(peer.0, None, &mut lobbies, &players, &mut commands);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::bot_players::{is_bot_peer, BotDifficulty};
+
+    fn lobby() -> Lobby {
+        Lobby {
+            name: "test".into(),
+            leader: PeerId::Netcode(1),
+            mode: GameMode::FreeForAll,
+            map: MapId::default(),
+            started: false,
+            time_limit_secs: 300,
+            time_left_secs: 300,
+            kill_limit: 30,
+            members: vec![LobbyMember {
+                peer: PeerId::Netcode(1),
+                name: "Host".into(),
+                score: 0,
+                loaded: false,
+                bot: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn different_counts_and_difficulties_stack() {
+        let mut l = lobby();
+        let mut next = 0;
+        assert_eq!(add_bots(&mut l, 4, BotDifficulty::Recruit, &mut next, 1), 4);
+        assert_eq!(add_bots(&mut l, 5, BotDifficulty::Veteran, &mut next, 2), 5);
+        assert_eq!(l.bot_count(), 9);
+        let recruits = l.members.iter().filter(|m| m.bot == Some(BotDifficulty::Recruit)).count();
+        let veterans = l.members.iter().filter(|m| m.bot == Some(BotDifficulty::Veteran)).count();
+        assert_eq!((recruits, veterans), (4, 5));
+    }
+
+    #[test]
+    fn the_lobby_never_holds_more_than_twenty_bots() {
+        let mut l = lobby();
+        let mut next = 0;
+        assert_eq!(add_bots(&mut l, 15, BotDifficulty::Regular, &mut next, 3), 15);
+        // Only 5 fit.
+        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Hardened, &mut next, 4), 5);
+        assert_eq!(l.bot_count(), MAX_BOTS);
+        assert_eq!(add_bots(&mut l, 1, BotDifficulty::Recruit, &mut next, 5), 0);
+    }
+
+    #[test]
+    fn every_bot_gets_a_unique_name_from_the_list_all_twenty_of_them() {
+        let mut l = lobby();
+        let mut next = 0;
+        add_bots(&mut l, 20, BotDifficulty::Recruit, &mut next, 9);
+        let mut names: Vec<&str> = l
+            .members
+            .iter()
+            .filter(|m| m.bot.is_some())
+            .map(|m| m.name.as_str())
+            .collect();
+        assert_eq!(names.len(), 20);
+        assert!(names.iter().all(|n| BOT_NAMES.contains(n)));
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 20, "a name was used twice");
+    }
+
+    #[test]
+    fn a_bot_never_takes_a_name_a_real_player_has() {
+        let mut l = lobby();
+        l.members[0].name = "Alex".into();
+        let mut next = 0;
+        add_bots(&mut l, 19, BotDifficulty::Recruit, &mut next, 11);
+        assert_eq!(l.members.iter().filter(|m| m.name == "Alex").count(), 1);
+    }
+
+    #[test]
+    fn bots_have_fake_peers_and_are_left_out_of_real_peers() {
+        let mut l = lobby();
+        let mut next = 0;
+        add_bots(&mut l, 3, BotDifficulty::Regular, &mut next, 13);
+        assert_eq!(l.real_peers(), vec![PeerId::Netcode(1)]);
+        assert_eq!(l.real_count(), 1);
+        assert!(l.members.iter().filter(|m| m.bot.is_some()).all(|m| is_bot_peer(m.peer)));
+        // Bots count as being in the lobby (`Lobby::has`), so shots etc. still see them.
+        assert!(l.has(bot_peer(0)));
+    }
 }

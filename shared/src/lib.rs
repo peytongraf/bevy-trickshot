@@ -13,6 +13,7 @@
 //! protocol and one definition of "did this shot hit".
 
 pub mod ballistics;
+pub mod bot_players;
 pub mod bots;
 pub mod health;
 pub mod hitbox;
@@ -27,7 +28,7 @@ pub mod weapon;
 use bevy::prelude::*;
 
 pub use protocol::{
-    AssetsReady, Bot, CreateLobby, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
+    AddBots, AssetsReady, Bot, ClearBots, CreateLobby, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, KillCamBot, KillCamPlayer, KillCamSample, KnifeAttackSound, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchOver, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
@@ -44,7 +45,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0011;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0012;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

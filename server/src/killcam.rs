@@ -201,6 +201,10 @@ fn queue_killcams(
             let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(killer)) else {
                 return;
             };
+            // A bot victim has no client to show a replay to.
+            if target.is_some_and(shared::bot_players::is_bot_peer) {
+                return;
+            }
             let name = lobby
                 .members
                 .iter()
@@ -294,7 +298,7 @@ fn flush_killcams(
             None => lobbies
                 .iter()
                 .find(|l| l.has(cam.killer))
-                .map(|l| l.members.iter().map(|m| m.peer).collect())
+                .map(|l| l.real_peers())
                 .unwrap_or_default(),
         };
 

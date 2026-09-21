@@ -52,7 +52,7 @@ impl Plugin for SimPlugin {
 }
 
 /// Client-authoritative movement: publish the owner's reported pose as-is.
-fn apply_client_pose(
+pub(crate) fn apply_client_pose(
     mut players: Query<(&mut PlayerPose, &ActionState<PlayerInput>, Option<&PlayerCombat>)>,
 ) {
     for (mut pose, input, combat) in &mut players {
@@ -94,10 +94,11 @@ fn broadcast_remote_sounds(
         let Some(lobby) = lobbies.iter().find(|l| l.has(id.0)) else {
             continue;
         };
+        // Real clients only — a bot player (`ai`) has nobody to send to — and
+        // never back to whoever made the sound.
         let targets: Vec<PeerId> = lobby
-            .members
-            .iter()
-            .map(|m| m.peer)
+            .real_peers()
+            .into_iter()
             .filter(|&peer| peer != id.0)
             .collect();
         if targets.is_empty() {
@@ -241,7 +242,7 @@ fn resolve_shots(
                 .iter()
                 .find(|(id, _)| id.0 == shooter.0)
                 .map_or(origin, |(_, pose)| pose.translation);
-            let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+            let members: Vec<PeerId> = lobby.real_peers();
             let variant = ((tick as u64) ^ shooter.0.to_bits())
                 .wrapping_mul(0x2545_F491_4F6C_DD1D)
                 >> 56;
@@ -318,7 +319,7 @@ fn resolve_shots(
                         survivor = true;
                     }
                 }
-                if survivor {
+                if survivor && !shared::bot_players::is_bot_peer(shooter.0) {
                     if let Err(e) = sender.send::<_, GameChannel>(
                         &HitMarker,
                         server,

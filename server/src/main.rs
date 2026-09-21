@@ -16,6 +16,7 @@
 //! | `LIGHTYEAR_PRIVATE_KEY` | 32 comma-separated bytes, netcode key   | dev all-zero key     |
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
+mod ai;
 mod bots;
 mod collision;
 mod health;
@@ -59,5 +60,6 @@ fn main() {
         .add_plugins(pvp::PvpPlugin)
         .add_plugins(killcam::KillCamPlugin)
         .add_plugins(knives::KnivesPlugin)
+        .add_plugins(ai::BotAiPlugin)
         .run();
 }

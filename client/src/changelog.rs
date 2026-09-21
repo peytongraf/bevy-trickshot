@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Free For All lobbies can now have bots! The party leader picks a number (up to 20) and a difficulty (Recruit, Regular, Hardened or Veteran) and presses ADD BOTS — add as many batches as you like, up to 20 bots in total. Bots show up in the party with their own names, walk around the map and shoot at everyone: you and each other. If one kills you, you get a kill cam of it. (They're basic for now: no pathfinding, so they can get stuck behind walls.)",
         "New map: ASCENSION, a multi-level blockout you climb by ramps, set on a snowy mountain hillside under a slightly overcast sky. Pick it from the map buttons in the lobby.",
         "Health is now handled entirely by the server: fall damage and shot damage take from the same health bar, and the red tint, blood splatter and heartbeat now also show when you're shot without being killed. Falls hurt in Freestyle too.",
         "Sniper damage now depends on distance too. Up close every hit kills, even a leg shot; further out a leg shot stops killing (past about 70 m), then a torso shot (past about 175 m), and at extreme range (past about 250 m) even a headshot leaves the target alive.",

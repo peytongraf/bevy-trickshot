@@ -34,6 +34,7 @@ impl Plugin for LobbyUiPlugin {
             .init_resource::<ScoreboardDirty>()
             .init_resource::<LastMatch>()
             .init_resource::<LastOwnScore>()
+            .init_resource::<BotSelection>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
             .add_systems(
@@ -83,6 +84,24 @@ fn in_menu(state: Res<State<AppState>>) -> bool {
 #[derive(Resource, Default)]
 struct LobbyUi {
     dirty: bool,
+}
+
+/// What the leader's "add bots" controls are set to: how many, and at which
+/// difficulty. Local UI state — nothing is sent until ADD BOTS is pressed, so
+/// the leader can add 4 easy bots, change the selection, and add 5 harder ones.
+#[derive(Resource)]
+struct BotSelection {
+    count: u8,
+    difficulty: shared::bot_players::BotDifficulty,
+}
+
+impl Default for BotSelection {
+    fn default() -> Self {
+        Self {
+            count: 1,
+            difficulty: shared::bot_players::BotDifficulty::default(),
+        }
+    }
 }
 
 fn mark_dirty_now(mut ui: ResMut<LobbyUi>) {
@@ -357,6 +376,15 @@ enum MenuBtn {
     KillUp,
     SetMode(shared::GameMode),
     SetMap(shared::MapId),
+    /// The leader's bot counter (1..=`MAX_BOTS`).
+    BotCountDown,
+    BotCountUp,
+    /// Pick the difficulty the next ADD BOTS will use.
+    BotDifficulty(shared::bot_players::BotDifficulty),
+    /// Add the selected count at the selected difficulty.
+    AddBots,
+    /// Remove every bot from the lobby.
+    ClearBots,
 }
 
 /// Match-length step for the leader's − / + buttons (seconds).
@@ -403,6 +431,7 @@ fn rebuild(
     local: Query<&LocalId, With<GameClient>>,
     connected: Query<(), (With<GameClient>, With<Connected>)>,
     lobbies: Query<(Entity, &shared::Lobby)>,
+    bot_selection: Res<BotSelection>,
 ) {
     if !ui.dirty {
         return;
@@ -419,7 +448,14 @@ fn rebuild(
         AppState::MainMenu => build_browser(&mut commands, &asset_server, online, &lobbies),
         AppState::InLobby => {
             if let Some((_, lobby)) = me.and_then(|me| lobbies.iter().find(|(_, l)| l.has(me))) {
-                build_room(&mut commands, &asset_server, lobby, me, last_match.0.as_ref());
+                build_room(
+                    &mut commands,
+                    &asset_server,
+                    lobby,
+                    me,
+                    last_match.0.as_ref(),
+                    &bot_selection,
+                );
             }
         }
         _ => {}
@@ -546,7 +582,7 @@ fn build_browser(
                                     row.spawn(label_hud(asset_server, lobby.name.clone(), 18.0, TEXT));
                                     row.spawn(label_hud(
                                         asset_server,
-                                        format!("{}/8", lobby.members.len()),
+                                        format!("{}/8", lobby.real_count()),
                                         16.0,
                                         TEXT_DIM,
                                     ));
@@ -639,6 +675,7 @@ fn build_room(
     lobby: &shared::Lobby,
     me: Option<PeerId>,
     last_match: Option<&(String, u32)>,
+    bot_selection: &BotSelection,
 ) {
     let is_leader = me == Some(lobby.leader);
     let mins = lobby.time_limit_secs / 60;
@@ -796,6 +833,77 @@ fn build_room(
                                 UiSound::MENU,
                             );
                         });
+
+                        // Bots: a counter and a difficulty, then ADD. Sent as one
+                        // request each press, so different counts / difficulties
+                        // can be stacked (e.g. 4 recruits, then 5 veterans).
+                        let bots_in = lobby.bot_count();
+                        col.spawn(Node {
+                            column_gap: Val::Px(10.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn(label_hud(asset_server, "BOTS", 14.0, TEXT_DIM));
+                            spawn_button_hud(
+                                row, asset_server, "\u{2212}", 18.0, MenuBtn::BotCountDown, ROW,
+                                ROW_HOVER, TEXT, UiSound::MENU,
+                            );
+                            row.spawn(label_hud(
+                                asset_server,
+                                format!("{}", bot_selection.count),
+                                16.0,
+                                TEXT,
+                            ));
+                            spawn_button_hud(
+                                row, asset_server, "+", 18.0, MenuBtn::BotCountUp, ROW, ROW_HOVER,
+                                TEXT, UiSound::MENU,
+                            );
+                            spawn_button_hud(
+                                row,
+                                asset_server,
+                                &format!(
+                                    "ADD {} {} BOT{}",
+                                    bot_selection.count,
+                                    bot_selection.difficulty.label(),
+                                    if bot_selection.count == 1 { "" } else { "S" },
+                                ),
+                                15.0,
+                                MenuBtn::AddBots,
+                                ACCENT,
+                                ACCENT,
+                                PANEL_SOLID,
+                                UiSound::MENU,
+                            );
+                            if bots_in > 0 {
+                                spawn_button_hud(
+                                    row, asset_server, "CLEAR", 15.0, MenuBtn::ClearBots, ROW,
+                                    ROW_HOVER, TEXT, UiSound::MENU,
+                                );
+                            }
+                        });
+                        col.spawn(Node {
+                            column_gap: Val::Px(10.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn(label_hud(asset_server, "DIFFICULTY", 14.0, TEXT_DIM));
+                            for d in shared::bot_players::BotDifficulty::ALL {
+                                let selected = d == bot_selection.difficulty;
+                                spawn_button_hud(
+                                    row,
+                                    asset_server,
+                                    d.label(),
+                                    15.0,
+                                    MenuBtn::BotDifficulty(d),
+                                    if selected { ACCENT } else { ROW },
+                                    if selected { ACCENT } else { ROW_HOVER },
+                                    if selected { PANEL_SOLID } else { TEXT },
+                                    UiSound::MENU,
+                                );
+                            }
+                        });
                     }
                 }
 
@@ -813,11 +921,11 @@ fn build_room(
                 .with_children(|panel| {
                     panel.spawn(label_hud(
                         asset_server,
-                        format!("PARTY  ({}/8)", lobby.members.len()),
+                        format!("PARTY  ({}/8)", lobby.real_count()),
                         15.0,
                         TEXT_DIM,
                     ));
-                    for m in &lobby.members {
+                    for m in lobby.members.iter().filter(|m| m.bot.is_none()) {
                         panel
                             .spawn((
                                 Node {
@@ -835,6 +943,60 @@ fn build_room(
                                     row.spawn(label_hud(asset_server, "\u{2605}", 18.0, ACCENT)); // ★
                                 }
                                 row.spawn(label_hud(asset_server, m.name.clone(), 18.0, TEXT));
+                            });
+                    }
+
+                    // Bots go in compact chips (there can be up to 20), each
+                    // with its difficulty.
+                    if lobby.bot_count() > 0 {
+                        panel.spawn(label_hud(
+                            asset_server,
+                            format!(
+                                "BOTS  ({}/{})",
+                                lobby.bot_count(),
+                                shared::bot_players::MAX_BOTS
+                            ),
+                            15.0,
+                            TEXT_DIM,
+                        ));
+                        panel
+                            .spawn(Node {
+                                width: Val::Percent(100.0),
+                                flex_wrap: FlexWrap::Wrap,
+                                column_gap: Val::Px(8.0),
+                                row_gap: Val::Px(6.0),
+                                ..default()
+                            })
+                            .with_children(|chips| {
+                                for m in lobby.members.iter().filter(|m| m.bot.is_some()) {
+                                    chips
+                                        .spawn((
+                                            Node {
+                                                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                                                column_gap: Val::Px(8.0),
+                                                align_items: AlignItems::Center,
+                                                ..default()
+                                            },
+                                            BackgroundColor(TRACK),
+                                            BorderRadius::all(Val::Px(5.0)),
+                                        ))
+                                        .with_children(|chip| {
+                                            chip.spawn(label_hud(
+                                                asset_server,
+                                                m.name.clone(),
+                                                15.0,
+                                                TEXT,
+                                            ));
+                                            if let Some(d) = m.bot {
+                                                chip.spawn(label_hud(
+                                                    asset_server,
+                                                    d.label(),
+                                                    11.0,
+                                                    TEXT_DIM,
+                                                ));
+                                            }
+                                        });
+                                }
                             });
                     }
                 });
@@ -901,6 +1063,12 @@ fn handle_clicks(
     mut set_kills: Query<&mut TriggerSender<shared::SetKillLimit>, With<GameClient>>,
     mut set_mode: Query<&mut TriggerSender<shared::SetGameMode>, With<GameClient>>,
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
+    mut bot_selection: ResMut<BotSelection>,
+    mut ui: ResMut<LobbyUi>,
+    (mut add_bots, mut clear_bots): (
+        Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
+    ),
 ) {
     let name = player_name(&settings);
     let my_lobby = || {
@@ -934,6 +1102,31 @@ fn handle_clicks(
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
             MenuBtn::KillDown => nudge_kills(-(KILL_STEP as i64)),
             MenuBtn::KillUp => nudge_kills(KILL_STEP as i64),
+            MenuBtn::BotCountDown => {
+                bot_selection.count = bot_selection.count.saturating_sub(1).max(1);
+                ui.dirty = true;
+            }
+            MenuBtn::BotCountUp => {
+                bot_selection.count = (bot_selection.count + 1).min(shared::bot_players::MAX_BOTS as u8);
+                ui.dirty = true;
+            }
+            MenuBtn::BotDifficulty(d) => {
+                bot_selection.difficulty = *d;
+                ui.dirty = true;
+            }
+            MenuBtn::AddBots => {
+                if let Ok(mut s) = add_bots.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::AddBots {
+                        count: bot_selection.count,
+                        difficulty: bot_selection.difficulty,
+                    });
+                }
+            }
+            MenuBtn::ClearBots => {
+                if let Ok(mut s) = clear_bots.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::ClearBots);
+                }
+            }
             MenuBtn::SetMode(mode) => {
                 if let Ok(mut s) = set_mode.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetGameMode { mode: *mode });

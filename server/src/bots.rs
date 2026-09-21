@@ -74,7 +74,7 @@ fn ensure_bots(
         if have >= BOTS_ALIVE {
             continue;
         }
-        let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+        let members: Vec<PeerId> = lobby.real_peers();
         for _ in have..BOTS_ALIVE {
             *seq = seq.wrapping_add(1);
             let seed = (time.elapsed().as_nanos() as u64)

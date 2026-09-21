@@ -17,6 +17,7 @@ use shared::{
     PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn,
 };
 
+use shared::bot_players::is_bot_peer;
 use shared::health::{
     fall_damage, FULL_HEALTH, REGEN_DELAY_SECS, REGEN_PER_SEC,
 };
@@ -123,11 +124,16 @@ fn apply_player_hits(
         combat.health -= ev.damage;
         combat.last_damage = time.elapsed_secs();
         if combat.health > 0.0 {
-            // Hurt but alive: the shooter gets a hit marker.
-            if let Err(e) =
-                sender.send::<_, GameChannel>(&HitMarker, server, &NetworkTarget::Single(ev.killer))
-            {
-                error!("failed to send hit marker to {:?}: {e:?}", ev.killer);
+            // Hurt but alive: the shooter gets a hit marker (a bot shooter has
+            // no client to show it to).
+            if !is_bot_peer(ev.killer) {
+                if let Err(e) = sender.send::<_, GameChannel>(
+                    &HitMarker,
+                    server,
+                    &NetworkTarget::Single(ev.killer),
+                ) {
+                    error!("failed to send hit marker to {:?}: {e:?}", ev.killer);
+                }
             }
             continue;
         }
@@ -149,10 +155,17 @@ fn apply_player_hits(
         let seed = time.elapsed().as_nanos() as u64 ^ ev.victim.to_bits();
         let (pos, yaw) = shared::spawns::spawn_point(seed, &others, lobby.map);
 
+        // A bot victim has no client: nothing to tell, and `ai::drive_bots`
+        // respawns it itself when its timer is up.
+        let victim_is_bot = is_bot_peer(ev.victim);
+
         // Sent immediately, well ahead of the kill cam (buffered ~1.5s server-side —
         // see `PlayerKilledBy`'s doc comment) so the victim's own death effect can
         // snap their view toward the killer right away.
-        if let Some((_, killer_pose)) = poses.iter().find(|(id, _)| id.0 == ev.killer) {
+        if let Some((_, killer_pose)) = poses
+            .iter()
+            .find(|(id, _)| id.0 == ev.killer && !victim_is_bot)
+        {
             let killed_by = PlayerKilledBy {
                 killer_pos: killer_pose.translation.to_array(),
             };
@@ -167,10 +180,12 @@ fn apply_player_hits(
             pos: pos.to_array(),
             yaw,
         };
-        if let Err(e) =
-            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(ev.victim))
-        {
-            error!("failed to send respawn to {:?}: {e:?}", ev.victim);
+        if !victim_is_bot {
+            if let Err(e) =
+                sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(ev.victim))
+            {
+                error!("failed to send respawn to {:?}: {e:?}", ev.victim);
+            }
         }
 
         info!("{:?} killed {:?}", ev.killer, ev.victim);

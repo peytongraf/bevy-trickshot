@@ -131,7 +131,7 @@ fn on_throw_knife(
     last.0.insert(peer, now);
 
     let body = KnifeBody::thrown(origin, dir);
-    let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+    let members: Vec<PeerId> = lobby.real_peers();
     commands.spawn((
         Name::from("ThrownKnife"),
         ThrownKnife {
@@ -252,7 +252,7 @@ fn step_knives(
             }
             // Everyone in the lobby hears the hit from where it landed.
             if victims.contains_key(&hit.target) {
-                let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                let members: Vec<PeerId> = lobby.real_peers();
                 let msg = ThrowingKnifeHit {
                     point: hit.point.to_array(),
                 };
@@ -275,7 +275,7 @@ fn step_knives(
                 && sim.body.age - sim.last_impact_sound >= MIN_IMPACT_SOUND_INTERVAL_SECS
             {
                 sim.last_impact_sound = sim.body.age;
-                let members: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                let members: Vec<PeerId> = lobby.real_peers();
                 // A cheap deterministic scramble of which knife / which bounce
                 // — no `rand` needed.
                 let variant = (entity.to_bits() ^ (sim.body.bounces as u64).wrapping_mul(0x9E37_79B9))

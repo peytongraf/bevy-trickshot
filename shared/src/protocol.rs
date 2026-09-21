@@ -586,6 +586,21 @@ pub struct SetKillLimit {
     pub kills: u32,
 }
 
+/// Client (party leader) → server: add `count` bots at `difficulty` to a
+/// `FreeForAll` lobby that hasn't started. Can be sent repeatedly with
+/// different difficulties; the lobby holds at most
+/// [`crate::bot_players::MAX_BOTS`] bots in total, so a request that would go
+/// over is trimmed to fit.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct AddBots {
+    pub count: u8,
+    pub difficulty: crate::bot_players::BotDifficulty,
+}
+
+/// Client (party leader) → server: remove every bot from the lobby.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ClearBots;
+
 /// Server → client: only sent to the player who needs to respawn, once
 /// they're allowed to — a spawn point their client should teleport its
 /// player rig to. Sent for a [`GameMode::FreeForAll`] PvP kill, or (either
@@ -639,6 +654,11 @@ pub struct LobbyMember {
     /// started. Reset to `false` on `StartGame`; irrelevant, and left
     /// whatever it was, while `Lobby::started` is `false`.
     pub loaded: bool,
+    /// `Some` for a computer-controlled bot (`FreeForAll` only — see
+    /// [`crate::bot_players`]) at that difficulty; `None` for a real player.
+    /// A bot's `peer` is a fake one ([`crate::bot_players::is_bot_peer`]) with
+    /// no client behind it.
+    pub bot: Option<crate::bot_players::BotDifficulty>,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -668,6 +688,26 @@ pub struct Lobby {
 impl Lobby {
     pub fn has(&self, peer: PeerId) -> bool {
         self.members.iter().any(|m| m.peer == peer)
+    }
+
+    /// The members with a real client behind them — the only ones a message can
+    /// be sent to.
+    pub fn real_peers(&self) -> Vec<PeerId> {
+        self.members
+            .iter()
+            .filter(|m| m.bot.is_none())
+            .map(|m| m.peer)
+            .collect()
+    }
+
+    /// How many real players are in the lobby.
+    pub fn real_count(&self) -> usize {
+        self.members.iter().filter(|m| m.bot.is_none()).count()
+    }
+
+    /// How many bots are in the lobby.
+    pub fn bot_count(&self) -> usize {
+        self.members.iter().filter(|m| m.bot.is_some()).count()
     }
 }
 
@@ -910,6 +950,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetKillLimit>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<AddBots>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ClearBots>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<FellToDeath>()
             .add_direction(NetworkDirection::ClientToServer);
