@@ -549,6 +549,7 @@ fn flush_pending_respawn(
     player: Single<(&mut Transform, &mut PlayerPhysics), (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
     mut respawned: EventWriter<LocalPlayerRespawned>,
+    mut ready: Query<&mut TriggerSender<shared::RespawnReady>, With<GameClient>>,
 ) {
     let Some((pos, yaw)) = pending.to else {
         return;
@@ -580,6 +581,11 @@ fn flush_pending_respawn(
     weapon.refill_ammo();
     pending.to = None;
     respawned.write(LocalPlayerRespawned);
+    // Tell the server: it brings us back to life now (full health, targetable)
+    // rather than when its own timer runs out — which a skipped kill cam beats.
+    if let Ok(mut sender) = ready.single_mut() {
+        sender.trigger::<shared::LobbyChannel>(shared::RespawnReady);
+    }
 }
 
 /// Server → everyone in the lobby: the killer's last ~3 s to replay.

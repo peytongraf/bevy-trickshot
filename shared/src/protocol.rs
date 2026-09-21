@@ -914,6 +914,14 @@ pub struct FallLanded {
     pub speed: f32,
 }
 
+/// Client → server: this player's client has just respawned (teleported to its
+/// spawn point, after its kill cam played or was skipped). The server brings
+/// the player back to life at once — full health, targetable, able to fire —
+/// instead of leaving them a ghost until the respawn timer runs out, which a
+/// skipped kill cam would otherwise outrun. (The timer stays as the fallback.)
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct RespawnReady;
+
 /// Server → the victim only: that landing killed you — play the fall-death
 /// effect. `speed` is the landing speed the client reported.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -1094,6 +1102,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<ThrowKnife>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<FallLanded>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<RespawnReady>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

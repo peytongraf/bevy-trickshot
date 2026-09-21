@@ -57,7 +57,7 @@ impl Plugin for HealthPlugin {
             )
             .add_systems(
                 Update,
-                (mirror_health, sync_damage_overlay, update_heartbeat)
+                (reset_on_respawn, mirror_health, sync_damage_overlay, update_heartbeat)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -67,6 +67,18 @@ impl Plugin for HealthPlugin {
 /// A fresh game starts at full health until the server's first update lands.
 fn reset_health(mut health: ResMut<LocalHealth>) {
     *health = LocalHealth::default();
+}
+
+/// Respawning is a fresh start: full health at once — the display would
+/// otherwise keep showing whatever the player died with (a full-strength red
+/// tint) until the server's next update lands.
+fn reset_on_respawn(
+    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut health: ResMut<LocalHealth>,
+) {
+    if respawned.read().count() > 0 {
+        *health = LocalHealth::default();
+    }
 }
 
 /// Track the server's replicated health for our own player.
@@ -143,7 +155,10 @@ fn sync_damage_overlay(
     mut blood: Single<&mut ImageNode, With<DamageBlood>>,
 ) {
     let opacity = health.hurt_fraction();
-    let show = opacity > 0.0 && !suppressed(&death, &fall, &killcam);
+    // Dead (health at or below zero — waiting on the kill cam / respawn) isn't
+    // "hurt": the death overlay covers that, and this one must not be left up
+    // at full strength across the respawn.
+    let show = opacity > 0.0 && health.health > 0.0 && !suppressed(&death, &fall, &killcam);
     let (vis, tint) = &mut *root;
     vis.set_if_neq(if show {
         Visibility::Inherited
@@ -196,5 +211,31 @@ fn update_heartbeat(
     };
     for (_, mut sink) in &mut beats {
         sink.set_volume(Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn respawning_restores_full_health_display_immediately() {
+        let mut app = App::new();
+        app.add_event::<crate::net::LocalPlayerRespawned>()
+            .insert_resource(LocalHealth { health: -8.0 })
+            .add_systems(Update, reset_on_respawn);
+        app.update();
+        assert_eq!(app.world().resource::<LocalHealth>().health, -8.0, "not until a respawn");
+        app.world_mut().send_event(crate::net::LocalPlayerRespawned);
+        app.update();
+        let h = app.world().resource::<LocalHealth>();
+        assert_eq!(h.health, FULL_HEALTH);
+        assert_eq!(h.hurt_fraction(), 0.0);
+    }
+
+    #[test]
+    fn zero_health_is_hurt_fraction_one_which_is_why_dead_hides_the_overlay() {
+        assert_eq!(LocalHealth { health: 0.0 }.hurt_fraction(), 1.0);
+        assert_eq!(LocalHealth { health: -30.0 }.hurt_fraction(), 1.0);
     }
 }

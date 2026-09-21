@@ -44,6 +44,7 @@ mod match_end;
 mod menu;
 mod net;
 mod player;
+mod respawn;
 mod settings;
 mod thrown_knife;
 mod ui;
@@ -168,6 +169,7 @@ fn main() {
             health::HealthPlugin,
             hit_marker::HitMarkerPlugin,
             match_end::MatchEndPlugin,
+            respawn::RespawnResetPlugin,
             BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {

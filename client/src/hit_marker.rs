@@ -36,7 +36,7 @@ impl Plugin for HitMarkerPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_hit_marker)
             .add_systems(
                 Update,
-                (receive_hit_markers, update_hit_marker)
+                (reset_on_respawn, receive_hit_markers, update_hit_marker)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -84,6 +84,16 @@ fn spawn_hit_marker(mut commands: Commands, mut flash: ResMut<HitMarkerFlash>) {
                 x.spawn(bar(-FRAC_PI_4));
             });
         });
+}
+
+/// A new life: no hit marker left flashing from the last one.
+fn reset_on_respawn(
+    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut flash: ResMut<HitMarkerFlash>,
+) {
+    if respawned.read().count() > 0 {
+        flash.remaining = 0.0;
+    }
 }
 
 /// A `HitMarker` from the server: sound + start the flash. Ignored during a

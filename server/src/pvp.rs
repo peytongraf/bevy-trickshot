@@ -14,7 +14,7 @@ use lightyear::prelude::*;
 
 use shared::{
     FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
-    PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn,
+    PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady,
 };
 
 use shared::bot_players::is_bot_peer;
@@ -46,6 +46,15 @@ pub struct PlayerCombat {
     /// `Time::elapsed_secs()` this player becomes targetable / can fire again.
     /// Meaningless while `alive`.
     respawn_at: f32,
+}
+
+impl PlayerCombat {
+    /// Back to life: full health, targetable, no damage history — everything a
+    /// respawn resets. Shared by the respawn timer and the client's
+    /// `RespawnReady`.
+    fn respawn(&mut self) {
+        *self = Self::default();
+    }
 }
 
 impl Default for PlayerCombat {
@@ -86,6 +95,7 @@ impl Plugin for PvpPlugin {
             .add_event::<PlayerKilled>()
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
+            .add_observer(on_respawn_ready)
             .add_systems(
                 FixedUpdate,
                 (
@@ -347,6 +357,21 @@ fn sync_health(mut players: Query<(&PlayerCombat, &mut PlayerHealth)>) {
     }
 }
 
+/// The player's client has respawned (see [`RespawnReady`]): they're alive now,
+/// whatever the timer says. Ignored if they're already alive.
+fn on_respawn_ready(
+    trigger: Trigger<RemoteTrigger<RespawnReady>>,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+        if !combat.alive {
+            combat.respawn();
+            info!("{peer:?} respawned");
+        }
+    }
+}
+
 /// Once a dead player's respawn timer is up, make them targetable / able to
 /// fire again. The actual reposition is client-driven (see
 /// `client::net::flush_pending_respawn`) — this only ungates hit detection.
@@ -355,8 +380,7 @@ fn tick_respawns(time: Res<Time>, mut combats: Query<&mut PlayerCombat>) {
     let dt = time.delta_secs();
     for mut combat in &mut combats {
         if !combat.alive && now >= combat.respawn_at {
-            combat.alive = true;
-            combat.health = FULL_HEALTH;
+            combat.respawn();
         } else if combat.alive
             && combat.health < FULL_HEALTH
             && now - combat.last_damage >= REGEN_DELAY_SECS
@@ -383,3 +407,25 @@ fn check_kill_limit(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn respawning_restores_everything_a_death_or_damage_changed() {
+        let mut c = PlayerCombat {
+            health: -12.0,
+            last_damage: 40.0,
+            alive: false,
+            respawn_at: 99.0,
+        };
+        c.respawn();
+        assert!(c.alive);
+        assert_eq!(c.health, FULL_HEALTH);
+        // No leftover damage timer holding off (or restarting) regeneration.
+        assert_eq!(c.last_damage, f32::NEG_INFINITY);
+        assert_eq!(c.respawn_at, 0.0);
+    }
+}
+
