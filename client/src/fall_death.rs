@@ -111,10 +111,8 @@ impl Plugin for FallDeathPlugin {
             Update,
             (
                 // Also defers to an in-progress kill-death effect (see
-                // `death_effect`) — the movement/gravity freeze on death by
-                // another player isn't instant (a known gap; see that
-                // module), so without this a fall crossed during that brief
-                // window could fire a second, competing effect on top.
+                // `death_effect`) — so a fall crossed during that brief
+                // window can't fire a second, competing effect on top.
                 check_fall_death.after(crate::apply_gravity).run_if(
                     crate::menu::game_active
                         .and(crate::killcam::no_killcam)

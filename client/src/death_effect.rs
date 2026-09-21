@@ -78,6 +78,11 @@ impl DeathEffect {
     pub(crate) fn is_active(&self) -> bool {
         self.active
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_active_for_test(&mut self, on: bool) {
+        self.active = on;
+    }
 }
 
 pub(crate) struct DeathEffectPlugin;

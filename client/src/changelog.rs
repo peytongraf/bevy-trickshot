@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Fixed being able to move, aim, shoot and throw knives after being killed while waiting for the kill cam to start. Once you're dead you can't do anything except open the menu with Escape and use it.",
         "Kill cams now show everyone else as they really were during the replay: bots and other players walk, aim, crouch, jump and fall over when and where they actually did, instead of standing frozen where they were at the moment of the kill.",
         "The moment a Free For All match ends (kill limit reached or time up) the game freezes for 2 seconds: no movement, aiming or shooting, and nothing that happens counts. The screen flashes white, then VICTORY (green) or DEFEAT (red) slams in. After that the end-of-match replay plays — and it can no longer be skipped — then the final results screen.",
         "Free For All matches now end with a replay for everyone, whoever won. The party leader picks which in the lobby (everyone can see the choice): BEST PLAY — the most kills one player got within 8 seconds, replayed from a few seconds before the first kill to just after the last (two quick kills make a short replay; five kills in 8 seconds play the whole 8) — or FINAL KILL — just the last kill of the match. Both play with the same ramped slow-mo as Freestyle's best play.",

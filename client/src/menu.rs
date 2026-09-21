@@ -112,12 +112,18 @@ impl Menu {
     }
 }
 
-/// Run condition: gameplay systems only tick while no menu is up and the match
-/// hasn't just ended.
-pub fn game_active(menu: Res<Menu>, freeze: Res<crate::match_end::MatchEndFreeze>) -> bool {
-    // (Also off for a `FreeForAll` match's end-of-match freeze — see
-    // `match_end`: nothing counts, so no input does either.)
-    !menu.is_open() && !freeze.active
+/// Run condition: gameplay systems only tick while no menu is up, the match
+/// hasn't just ended and the player isn't dead.
+pub fn game_active(
+    menu: Res<Menu>,
+    freeze: Res<crate::match_end::MatchEndFreeze>,
+    death: Res<crate::death_effect::DeathEffect>,
+) -> bool {
+    // Also off for a `FreeForAll` match's end-of-match freeze (see
+    // `match_end`: nothing counts, so no input does either), and from the
+    // moment the local player is killed until their kill cam takes over —
+    // dead players can't move, aim, shoot or throw (only the menu still works).
+    !menu.is_open() && !freeze.active && !death.is_active()
 }
 
 /// Run condition for the egui dev panels.
@@ -1591,3 +1597,41 @@ fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBi
         UiSound::BUTTON,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn active(world: &mut World) -> bool {
+        world.run_system_once(game_active).unwrap()
+    }
+
+    #[test]
+    fn gameplay_is_off_while_dead_frozen_or_in_a_menu_and_only_then() {
+        let mut world = World::new();
+        world.init_resource::<Menu>();
+        world.init_resource::<crate::match_end::MatchEndFreeze>();
+        world.init_resource::<crate::death_effect::DeathEffect>();
+        assert!(active(&mut world), "alive, no menu");
+
+        world
+            .resource_mut::<crate::death_effect::DeathEffect>()
+            .set_active_for_test(true);
+        assert!(!active(&mut world), "killed, waiting for the kill cam");
+        world
+            .resource_mut::<crate::death_effect::DeathEffect>()
+            .set_active_for_test(false);
+        assert!(active(&mut world));
+
+        world.resource_mut::<Menu>().screen = Screen::Settings;
+        assert!(!active(&mut world), "a menu is up");
+        world.resource_mut::<Menu>().screen = Screen::None;
+
+        world
+            .resource_mut::<crate::match_end::MatchEndFreeze>()
+            .start(true);
+        assert!(!active(&mut world), "match-end freeze");
+    }
+}
+

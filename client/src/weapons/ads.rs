@@ -130,6 +130,8 @@ pub(crate) fn update_ads(
     mut ads: ResMut<Ads>,
     mut was_aiming: Local<bool>,
     mut commands: Commands,
+    freeze: Res<crate::match_end::MatchEndFreeze>,
+    death: Res<crate::death_effect::DeathEffect>,
 ) {
     if tuning.force_full {
         ads.t = 1.0;
@@ -137,8 +139,12 @@ pub(crate) fn update_ads(
         return;
     }
 
-    let aiming =
-        window.cursor_options.grab_mode != CursorGrabMode::None && binds.aim.pressed(&keys, &mouse);
+    // No aiming while dead (waiting for the kill cam) or during the end-of-match
+    // freeze — the same input lock as `menu::game_active`.
+    let aiming = window.cursor_options.grab_mode != CursorGrabMode::None
+        && !freeze.active
+        && !death.is_active()
+        && binds.aim.pressed(&keys, &mouse);
 
     // One-shot cue the instant the player starts / stops aiming.
     if aiming != *was_aiming {
