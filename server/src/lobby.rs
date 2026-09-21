@@ -17,7 +17,7 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
 };
 
 use crate::ai::{BotBrain, NextBotId};
@@ -58,6 +58,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
             .add_observer(on_set_kill_limit)
+            .add_observer(on_set_end_cam)
             .add_observer(on_add_bots)
             .add_observer(on_clear_bots)
             .add_observer(on_disconnect)
@@ -154,6 +155,7 @@ fn on_create(
                 time_limit_secs: DEFAULT_TIME_LIMIT,
                 time_left_secs: DEFAULT_TIME_LIMIT,
                 kill_limit: DEFAULT_KILL_LIMIT,
+                end_cam: shared::EndCam::default(),
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -537,6 +539,16 @@ fn on_set_kill_limit(trigger: Trigger<RemoteTrigger<SetKillLimit>>, mut lobbies:
     }
 }
 
+/// The leader picks what a `FreeForAll` match replays at the end while the
+/// lobby is still waiting.
+fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        lobby.end_cam = trigger.trigger.cam;
+        info!("lobby end cam set to {:?} by {peer:?}", lobby.end_cam);
+    }
+}
+
 /// Declare the top scorer (or top killer, in `FreeForAll`) the winner, tell
 /// everyone, and end the match — `started` flipping false drops the clients
 /// back to the lobby room. Shared by [`tick_match_clock`] (time ran out) and
@@ -547,6 +559,7 @@ pub(crate) fn end_match(
     server: &Server,
     sender: &mut ServerMultiMessageSender,
     best_plays: &mut crate::killcam::BestPlays,
+    ffa_plays: &mut crate::killcam::FfaPlays,
 ) {
     let (winner_name, winner_score) = lobby
         .members
@@ -562,7 +575,13 @@ pub(crate) fn end_match(
     // on this being received first — the client holds the results screen
     // off until it's actually seen the flagged replay play out (see
     // `net::flush_pending_match_end`).
-    let mut best_play = best_plays.take(lobby_e);
+    // `FreeForAll` replays whatever the leader picked (the match's best play,
+    // or its final kill), for everyone whoever won; `Freestyle` its
+    // best-scoring shot.
+    let mut best_play = match lobby.mode {
+        GameMode::FreeForAll => ffa_plays.take(lobby_e, lobby.end_cam),
+        GameMode::Freestyle => best_plays.take(lobby_e),
+    };
     if let Some(best) = &mut best_play {
         best.best_play = true;
         if let Err(e) =
@@ -585,13 +604,12 @@ pub(crate) fn end_match(
 }
 
 /// Count every started lobby's clock down one second at a time; at zero, end
-/// the match (see [`end_match`]).
+/// the match (see [`end_match`], reached via `killcam::EndingLobbies`).
 fn tick_match_clock(
     time: Res<Time>,
-    server: Single<&Server>,
-    mut sender: ServerMultiMessageSender,
+    clock: Res<crate::killcam::ReplayClock>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    mut best_plays: ResMut<crate::killcam::BestPlays>,
+    mut endings: ResMut<crate::killcam::EndingLobbies>,
     mut acc: Local<f32>,
 ) {
     *acc += time.delta_secs();
@@ -600,7 +618,6 @@ fn tick_match_clock(
     }
     *acc -= 1.0;
 
-    let server = server.into_inner();
     for (lobby_e, mut lobby) in &mut lobbies {
         if !lobby.started || lobby.time_left_secs == 0 {
             continue;
@@ -609,7 +626,7 @@ fn tick_match_clock(
         if lobby.time_left_secs > 0 {
             continue;
         }
-        end_match(lobby_e, &mut lobby, server, &mut sender, &mut best_plays);
+        endings.begin(lobby_e, clock.0);
     }
 }
 
@@ -641,6 +658,7 @@ mod tests {
             time_limit_secs: 300,
             time_left_secs: 300,
             kill_limit: 30,
+            end_cam: shared::EndCam::default(),
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),

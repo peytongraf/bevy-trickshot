@@ -362,18 +362,16 @@ fn tick_respawns(time: Res<Time>, mut combats: Query<&mut PlayerCombat>) {
 /// End a `FreeForAll` match the instant someone reaches the lobby's kill
 /// limit, rather than waiting for the clock (see `lobby::end_match`).
 fn check_kill_limit(
-    server: Single<&Server>,
-    mut sender: ServerMultiMessageSender,
-    mut lobbies: Query<(Entity, &mut Lobby)>,
-    mut best_plays: ResMut<crate::killcam::BestPlays>,
+    clock: Res<crate::killcam::ReplayClock>,
+    lobbies: Query<(Entity, &Lobby)>,
+    mut endings: ResMut<crate::killcam::EndingLobbies>,
 ) {
-    let server = server.into_inner();
-    for (lobby_e, mut lobby) in &mut lobbies {
+    for (lobby_e, lobby) in &lobbies {
         if !lobby.started || lobby.mode != GameMode::FreeForAll {
             continue;
         }
         if lobby.members.iter().any(|m| m.score >= lobby.kill_limit) {
-            crate::lobby::end_match(lobby_e, &mut lobby, server, &mut sender, &mut best_plays);
+            endings.begin(lobby_e, clock.0);
         }
     }
 }

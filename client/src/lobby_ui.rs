@@ -415,6 +415,8 @@ enum MenuBtn {
     KillUp,
     SetMode(shared::GameMode),
     SetMap(shared::MapId),
+    /// `FreeForAll`'s end-of-match replay (leader only).
+    SetEndCam(shared::EndCam),
     /// The leader's bot counter (1..=`MAX_BOTS`).
     BotCountDown,
     BotCountUp,
@@ -792,10 +794,11 @@ fn build_room(
                     asset_server,
                     if is_ffa {
                         format!(
-                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS",
+                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS   \u{2022}   {} AT THE END",
                             lobby.mode.label(),
                             lobby.map.label(),
                             lobby.kill_limit,
+                            lobby.end_cam.label(),
                         )
                     } else {
                         format!(
@@ -926,6 +929,30 @@ fn build_room(
                                 row, asset_server, "+", 18.0, MenuBtn::KillUp, ROW, ROW_HOVER, TEXT,
                                 UiSound::MENU,
                             );
+                        });
+
+                        // What everyone watches when the match ends.
+                        col.spawn(Node {
+                            column_gap: Val::Px(10.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn(label_hud(asset_server, "END OF MATCH", 14.0, TEXT_DIM));
+                            for cam in [shared::EndCam::BestPlay, shared::EndCam::FinalKill] {
+                                let selected = cam == lobby.end_cam;
+                                spawn_button_hud(
+                                    row,
+                                    asset_server,
+                                    cam.label(),
+                                    15.0,
+                                    MenuBtn::SetEndCam(cam),
+                                    if selected { ACCENT } else { ROW },
+                                    if selected { ACCENT } else { ROW_HOVER },
+                                    if selected { PANEL_SOLID } else { TEXT },
+                                    UiSound::MENU,
+                                );
+                            }
                         });
 
                         // Bots: a counter and a difficulty, then ADD. Sent as one
@@ -1159,9 +1186,10 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots): (
+    (mut add_bots, mut clear_bots, mut set_end_cam): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
     ),
 ) {
     let name = player_name(&settings);
@@ -1224,6 +1252,11 @@ fn handle_clicks(
             MenuBtn::SetMode(mode) => {
                 if let Ok(mut s) = set_mode.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetGameMode { mode: *mode });
+                }
+            }
+            MenuBtn::SetEndCam(cam) => {
+                if let Ok(mut s) = set_end_cam.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetEndCam { cam: *cam });
                 }
             }
             MenuBtn::SetMap(map) => {

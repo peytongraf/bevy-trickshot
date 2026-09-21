@@ -137,6 +137,9 @@ pub(crate) struct KillCamRun {
     /// motion around `kill_time` — see `slowmo_speed` — instead of playing at
     /// a flat 1×, and its banner reads "BEST PLAY" instead of "KILLCAM".
     pub(crate) best_play: bool,
+    /// With `best_play`: the replay is a `FreeForAll` match's final kill —
+    /// only the banner differs ("FINAL KILL").
+    pub(crate) final_kill: bool,
     /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
     bots: Vec<(Vec3, f32, bool)>,
     /// Other players (never the killer) frozen at the kill:
@@ -425,6 +428,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         tracers,
         kill_time,
         best_play: msg.best_play,
+        final_kill: msg.final_kill,
         bots,
         players,
         ghosts: Vec::new(),
@@ -663,7 +667,10 @@ fn start_killcam(
             c.spawn((bar_node(true), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7))))
                 .with_children(|bar| {
                     let (text, color) = if run.best_play {
-                        ("BEST PLAY", Color::srgb(0.96, 0.62, 0.12))
+                        (
+                            if run.final_kill { "FINAL KILL" } else { "BEST PLAY" },
+                            Color::srgb(0.96, 0.62, 0.12),
+                        )
                     } else {
                         ("KILLCAM", Color::srgb(0.85, 0.06, 0.06))
                     };

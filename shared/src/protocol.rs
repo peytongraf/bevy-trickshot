@@ -564,6 +564,10 @@ pub struct KillCam {
     /// instead of "KILLCAM", and holds the match-results screen off until it
     /// finishes.
     pub best_play: bool,
+    /// Set (together with `best_play`, which makes it play in slow motion and
+    /// hold the results screen) when this is a `FreeForAll` match's *final
+    /// kill* rather than its best play — only changes the banner text.
+    pub final_kill: bool,
 }
 
 /// Client (party leader) → server: set the match length before starting.
@@ -582,6 +586,35 @@ pub struct SetGameMode {
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct SetMap {
     pub map: MapId,
+}
+
+/// Which replay a [`GameMode::FreeForAll`] lobby plays for everyone when the
+/// match ends, whoever won. The leader picks it in the lobby room; every member
+/// sees the current choice.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EndCam {
+    /// The most kills one player got inside a kill cam's window
+    /// (`server::killcam`), replayed with the usual best-play slow-mo.
+    #[default]
+    BestPlay,
+    /// The last kill of the match, in the same ramped slow-mo.
+    FinalKill,
+}
+
+impl EndCam {
+    pub fn label(self) -> &'static str {
+        match self {
+            EndCam::BestPlay => "BEST PLAY",
+            EndCam::FinalKill => "FINAL KILL",
+        }
+    }
+}
+
+/// Client (party leader) → server: pick a `FreeForAll` lobby's [`EndCam`]
+/// before starting.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetEndCam {
+    pub cam: EndCam,
 }
 
 /// Client (party leader) → server: set [`GameMode::FreeForAll`]'s kill limit
@@ -690,6 +723,9 @@ pub struct Lobby {
     /// [`GameMode::FreeForAll`]'s win condition: first member to this many
     /// kills (`LobbyMember::score`) ends the match. Unused by `Freestyle`.
     pub kill_limit: u32,
+    /// [`GameMode::FreeForAll`]'s end-of-match replay. Unused by `Freestyle`,
+    /// which always replays its best-scoring shot.
+    pub end_cam: EndCam,
     pub members: Vec<LobbyMember>,
 }
 
@@ -958,6 +994,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetKillLimit>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetEndCam>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<AddBots>()
             .add_direction(NetworkDirection::ClientToServer);

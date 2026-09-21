@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Free For All matches now end with a replay for everyone, whoever won. The party leader picks which in the lobby (everyone can see the choice): BEST PLAY — the most kills one player got inside a kill-cam window — or FINAL KILL — the last kill of the match. Both play with the same ramped slow-mo as Freestyle's best play.",
         "New map: BREAK POINT, a walled compound of low buildings, blocks and raised walkways, on a bright, cloudless mid-day with crystal-clear visibility all the way to the horizon. Pick it from the map buttons in the lobby.",
         "The Ascension map is now the same scale as the basic map (35% smaller all round), so it feels the right size to move around in. Bots on it also get around ledges and ramp turns better.",
         "Kill cams of a bot killing you look much more natural: the bot now scopes in gradually instead of snapping to full aim, and you see its rifle recoil, camera shake and bolt-cycle after each shot.",

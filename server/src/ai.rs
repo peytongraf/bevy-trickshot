@@ -672,6 +672,7 @@ mod tests {
             time_limit_secs: 300,
             time_left_secs: 300,
             kill_limit: 30,
+            end_cam: shared::EndCam::default(),
             members: Vec::new(),
         }
     }

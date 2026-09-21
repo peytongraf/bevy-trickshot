@@ -581,9 +581,22 @@ fn flush_pending_respawn(
 fn receive_killcam(
     mut receivers: Query<&mut MessageReceiver<KillCam>>,
     mut active: ResMut<ActiveKillCam>,
+    // An end-of-match replay that arrived while our own kill cam was still
+    // playing (`begin_from_message` drops anything that arrives mid-replay):
+    // held here and started as soon as that one finishes.
+    mut queued_end_cam: Local<Option<KillCam>>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            if msg.best_play && active.0.is_some() {
+                *queued_end_cam = Some(msg);
+            } else {
+                killcam::begin_from_message(&mut active, msg);
+            }
+        }
+    }
+    if active.0.is_none() {
+        if let Some(msg) = queued_end_cam.take() {
             killcam::begin_from_message(&mut active, msg);
         }
     }
