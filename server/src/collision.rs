@@ -28,6 +28,8 @@ const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.
 // (The file really is spelled `ascenion_map.glb`.)
 const ASCENSION_GLB: &[u8] = include_bytes!("../../client/assets/models/ascenion_map.glb");
 
+const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/break_point_map.glb");
+
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
     mesh: TriMesh,
@@ -39,6 +41,7 @@ pub struct MapColliders {
     basic: MapMesh,
     shipment: MapMesh,
     ascension: MapMesh,
+    break_point: MapMesh,
 }
 
 impl MapColliders {
@@ -52,6 +55,8 @@ impl MapColliders {
                 .expect("shipment.glb collision model"),
             ascension: MapMesh::from_glb(ASCENSION_GLB, map::placement(MapId::Ascension))
                 .expect("ascenion_map.glb collision model"),
+            break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
+                .expect("break_point_map.glb collision model"),
         }
     }
 
@@ -61,6 +66,7 @@ impl MapColliders {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::Ascension => &self.ascension,
+            MapId::BreakPoint => &self.break_point,
         }
     }
 }
@@ -221,7 +227,7 @@ mod tests {
     #[test]
     fn both_maps_load_with_geometry() {
         let c = colliders();
-        for map in [MapId::BasicMap, MapId::Shipment, MapId::Ascension] {
+        for map in [MapId::BasicMap, MapId::Shipment, MapId::Ascension, MapId::BreakPoint] {
             let (lo, hi) = c.world(map).bounds();
             assert!(hi.x > lo.x && hi.y >= lo.y && hi.z > lo.z, "{map:?}: {lo} .. {hi}");
         }
@@ -276,6 +282,23 @@ mod tests {
         // Over the upper level: something is much higher than the ground.
         let roof = w.raycast(Vec3::new(32.5, 40.0, -9.0), Vec3::NEG_Y, 100.0).expect("roof");
         assert!(roof.distance < 30.0, "expected a raised surface, hit at {}", roof.distance);
+    }
+
+    #[test]
+    fn break_point_is_placed_at_point_six_scale() {
+        // x ±60, z ±100 natively, walls up to 20 m tall.
+        let s = 0.6;
+        assert_eq!(map::placement(MapId::BreakPoint).scale, s);
+        let (lo, hi) = colliders().world(MapId::BreakPoint).bounds();
+        assert!((lo.x + 61.0 * s).abs() < 1.0 && (hi.x - 61.0 * s).abs() < 1.0, "x {lo} .. {hi}");
+        assert!((lo.z + 101.0 * s).abs() < 1.0 && (hi.z - 101.0 * s).abs() < 1.0, "z {lo} .. {hi}");
+        // Open ground near the middle (the origin itself is under a raised slab).
+        let c = colliders();
+        let ground = c
+            .world(MapId::BreakPoint)
+            .raycast(Vec3::new(0.0, 10.0, -4.0), Vec3::NEG_Y, 30.0)
+            .expect("ground near the origin");
+        assert!((ground.distance - 10.0).abs() < 0.5, "ground at {}", ground.distance);
     }
 
     #[test]

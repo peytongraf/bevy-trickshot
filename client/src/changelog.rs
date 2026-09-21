@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "New map: BREAK POINT, a walled compound of low buildings, blocks and raised walkways, on a bright, cloudless mid-day with crystal-clear visibility all the way to the horizon. Pick it from the map buttons in the lobby.",
         "The Ascension map is now the same scale as the basic map (35% smaller all round), so it feels the right size to move around in. Bots on it also get around ledges and ramp turns better.",
         "Kill cams of a bot killing you look much more natural: the bot now scopes in gradually instead of snapping to full aim, and you see its rifle recoil, camera shake and bolt-cycle after each shot.",
         "Shipment (and Shipment Day) now has 11 fixed spawn points. When a match starts, and every time anyone respawns, players and bots appear at a random one of them, already facing the direction set for it and looking level.",

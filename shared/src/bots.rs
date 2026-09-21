@@ -108,7 +108,8 @@ pub fn respawn_pose(seed: u64, map: MapId) -> (Vec3, f32) {
         let u = rand01(s);
         let r = (u * (tier.max_radius * tier.max_radius - tier.min_radius * tier.min_radius)
             + tier.min_radius * tier.min_radius)
-            .sqrt();
+            .sqrt()
+            * map::area_scale(map);
         let a = rand01(s ^ 0xa1) * core::f32::consts::TAU;
         let pos = map::bot_center(map, BOT_AREA_CENTER) + Vec3::new(r * a.cos(), 0.0, r * a.sin());
         let yaw = rand01(s ^ 0xb2) * core::f32::consts::TAU;

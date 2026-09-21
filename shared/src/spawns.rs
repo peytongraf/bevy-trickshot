@@ -104,7 +104,8 @@ pub fn spawn_point(seed: u64, others: &[Vec3], map: MapId) -> (Vec3, f32) {
     let mut best: Option<(Vec3, f32, f32)> = None; // (pos, yaw, min_dist)
     for i in 0..RETRIES {
         let s = seed ^ (i as u64).wrapping_mul(0x2545_f491_4f6c_dd1d);
-        let r = RING_MIN_RADIUS + rand01(s) * (RING_MAX_RADIUS - RING_MIN_RADIUS);
+        let r = (RING_MIN_RADIUS + rand01(s) * (RING_MAX_RADIUS - RING_MIN_RADIUS))
+            * map::area_scale(map);
         let a = rand01(s ^ 0xa1) * core::f32::consts::TAU;
         let pos = map::spawn_center(map) + Vec3::new(r * a.cos(), 0.0, r * a.sin());
         let yaw = rand01(s ^ 0xb2) * core::f32::consts::TAU;
@@ -215,5 +216,22 @@ mod tests {
                 "seed {seed} landed off the map at {pos:?}"
             );
         }
+    }
+
+    #[test]
+    fn break_point_spawns_are_on_the_map_clear_of_walls_and_spread_out() {
+        let scale = map::placement(MapId::BreakPoint).scale;
+        let mut xs = (f32::MAX, f32::MIN);
+        for seed in 0..3000u64 {
+            let (pos, _) = spawn_point(seed, &[], MapId::BreakPoint);
+            assert!(
+                !map::point_blocked(MapId::BreakPoint, pos.x, pos.z, 0.0, scale),
+                "seed {seed} landed inside a wall at {pos:?}"
+            );
+            assert!(map::in_bounds(MapId::BreakPoint, pos.x, pos.z, scale), "off the map at {pos:?}");
+            xs = (xs.0.min(pos.x), xs.1.max(pos.x));
+        }
+        // Not all bunched at the fallback centre: the ring spans a fair part of the 48 m width.
+        assert!(xs.1 - xs.0 > 20.0, "spawns only span x {xs:?}");
     }
 }

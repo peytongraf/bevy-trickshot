@@ -72,6 +72,10 @@ pub enum MapId {
     /// Like [`MapId::BasicMap`] it has no separate visual model: the
     /// collision mesh is what's rendered.
     Ascension,
+    /// `models/break_point_map.glb` — a walled compound of low buildings and
+    /// blocks, under a clear mid-day sky. Like [`MapId::BasicMap`] it has no separate
+    /// visual model: the collision mesh is what's rendered.
+    BreakPoint,
 }
 
 impl MapId {
@@ -81,6 +85,7 @@ impl MapId {
             MapId::Shipment => "SHIPMENT",
             MapId::ShipmentDay => "SHIPMENT DAY",
             MapId::Ascension => "ASCENSION",
+            MapId::BreakPoint => "BREAK POINT",
         }
     }
 

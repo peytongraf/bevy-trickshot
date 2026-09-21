@@ -72,6 +72,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<MantleSettings>,
             ResMut<ShipmentDaySceneTuning>,
             ResMut<AscensionSceneTuning>,
+            ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
         ),
@@ -92,7 +93,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, settings, mut lens_cfg),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1273,6 +1274,15 @@ pub(crate) fn ads_tuning_ui(
                 scene_tuning_sliders(ui, &mut ascension_scene.0);
                 if ui.button("Reset fog & sky").clicked() {
                     *ascension_scene = AscensionSceneTuning::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Fog & Sky (Break Point)", |ui| {
+                ui.label("Clear mid-day — bright sun, virtually no fog (very high visibility)");
+                scene_tuning_sliders(ui, &mut break_point_scene.0);
+                if ui.button("Reset fog & sky").clicked() {
+                    *break_point_scene = BreakPointSceneTuning::default();
                 }
             });
 

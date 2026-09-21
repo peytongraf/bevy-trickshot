@@ -115,6 +115,7 @@ pub struct NavGraphs {
     basic: NavGraph,
     shipment: NavGraph,
     ascension: NavGraph,
+    break_point: NavGraph,
 }
 
 impl NavGraphs {
@@ -128,6 +129,7 @@ impl NavGraphs {
             basic: build(MapId::BasicMap),
             shipment: build(MapId::Shipment),
             ascension: build(MapId::Ascension),
+            break_point: build(MapId::BreakPoint),
         }
     }
 
@@ -136,6 +138,7 @@ impl NavGraphs {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::Ascension => &self.ascension,
+            MapId::BreakPoint => &self.break_point,
         }
     }
 }
@@ -707,5 +710,29 @@ pub(crate) mod tests {
             let g = n.graph(m);
             println!("{m:?}: {} nodes, {} usable", g.node_count(), g.usable_count());
         }
+    }
+
+    /// Spawns / bot respawns on Break Point (hand-listed wall boxes, no
+    /// designated points) must stand on ground a bot can walk from — not shut
+    /// inside a room the graph can't leave.
+    #[test]
+    fn break_point_spawns_and_bot_starts_are_in_the_big_connected_region() {
+        let (_, n) = built();
+        let g = n.graph(MapId::BreakPoint);
+        let anchor = shared::map::spawn_center(MapId::BreakPoint);
+        let mut checked = 0;
+        for seed in 0..300u64 {
+            for (pos, _) in [
+                shared::spawns::spawn_point(seed, &[], MapId::BreakPoint),
+                shared::bots::respawn_pose(seed, MapId::BreakPoint),
+            ] {
+                assert!(
+                    g.connected(anchor, pos),
+                    "seed {seed}: {pos:?} isn't connected to the map centre"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 600);
     }
 }

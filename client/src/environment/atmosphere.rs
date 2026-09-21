@@ -149,12 +149,39 @@ impl Default for AscensionSceneTuning {
     }
 }
 
+/// `break_point_map.glb`'s look ([`shared::MapId::BreakPoint`]): a clear
+/// mid-day under `sunflowers_puresky_8k.hdr`, with great visibility — the fog is
+/// pushed out to tens of kilometres, so nothing on the map is hazed at all. A
+/// bright neutral-warm sun and a cool sky-blue ambient fill. Live-tweakable from
+/// the debug panel's "Fog & Sky (Break Point)" section. (The sun's *direction* is
+/// the one shared light direction for every map, not part of this.)
+#[derive(Resource)]
+pub(crate) struct BreakPointSceneTuning(pub(crate) SceneTuning);
+
+impl Default for BreakPointSceneTuning {
+    fn default() -> Self {
+        Self(SceneTuning {
+            fog_visibility_m: 40_000.0,
+            // r225 g240 b255 (0-255) — a pale, cool sky-blue (barely visible).
+            fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
+            fog_sun_exponent: 3.0,
+            sun_lux: 20_000.0,
+            // r250 g240 b222 (0-255) — bright, slightly warm noon light.
+            sun_color: srgb_parts(Color::srgb(250.0 / 255.0, 240.0 / 255.0, 222.0 / 255.0)),
+            // r208 g215 b232 (0-255) — clear-sky fill.
+            ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 215.0 / 255.0, 232.0 / 255.0)),
+            ambient_lux: 240.0,
+            bloom_intensity: 0.075,
+        })
+    }
+}
+
 /// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)",
 /// "Fog & Sky (Shipment)" and "Fog & Sky (Shipment Day)" — same [`SceneTuning`] shape, different resource
 /// (and therefore different defaults) behind each.
 pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
     ui.add(
-        egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=2000.0)
+        egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=100_000.0)
             .logarithmic(true)
             .text("fog visibility (m)"),
     );
@@ -192,6 +219,7 @@ pub(crate) fn apply_scene_tuning(
     shipment_scene: Res<ShipmentSceneTuning>,
     shipment_day_scene: Res<ShipmentDaySceneTuning>,
     ascension_scene: Res<AscensionSceneTuning>,
+    break_point_scene: Res<BreakPointSceneTuning>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
@@ -202,6 +230,7 @@ pub(crate) fn apply_scene_tuning(
         && !shipment_scene.is_changed()
         && !shipment_day_scene.is_changed()
         && !ascension_scene.is_changed()
+        && !break_point_scene.is_changed()
     {
         return;
     }
@@ -210,6 +239,7 @@ pub(crate) fn apply_scene_tuning(
         shared::MapId::Shipment => &shipment_scene.0,
         shared::MapId::ShipmentDay => &shipment_day_scene.0,
         shared::MapId::Ascension => &ascension_scene.0,
+        shared::MapId::BreakPoint => &break_point_scene.0,
     };
 
     ambient.color = color_from_parts(active.ambient_color);
