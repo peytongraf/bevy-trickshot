@@ -40,6 +40,7 @@ mod keybinds;
 mod killcam;
 mod knife_sounds;
 mod lobby_ui;
+mod match_end;
 mod menu;
 mod net;
 mod player;
@@ -166,6 +167,7 @@ fn main() {
             knife_sounds::KnifeSoundsPlugin,
             health::HealthPlugin,
             hit_marker::HitMarkerPlugin,
+            match_end::MatchEndPlugin,
             BulletHolePlugin,
         ))
         .insert_resource(AmbientLight {

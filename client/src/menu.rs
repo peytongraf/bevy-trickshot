@@ -112,9 +112,12 @@ impl Menu {
     }
 }
 
-/// Run condition: gameplay systems only tick while no menu is up.
-pub fn game_active(menu: Res<Menu>) -> bool {
-    !menu.is_open()
+/// Run condition: gameplay systems only tick while no menu is up and the match
+/// hasn't just ended.
+pub fn game_active(menu: Res<Menu>, freeze: Res<crate::match_end::MatchEndFreeze>) -> bool {
+    // (Also off for a `FreeForAll` match's end-of-match freeze — see
+    // `match_end`: nothing counts, so no input does either.)
+    !menu.is_open() && !freeze.active
 }
 
 /// Run condition for the egui dev panels.

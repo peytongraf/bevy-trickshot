@@ -457,9 +457,14 @@ fn flush_pending_match_end(
     time: Res<Time>,
     mut pending: ResMut<PendingMatchEnd>,
     active: Res<killcam::ActiveKillCam>,
+    freeze: Res<crate::match_end::MatchEndFreeze>,
     mut ended: EventWriter<MatchEndedEvent>,
 ) {
     if pending.msg.is_none() {
+        return;
+    }
+    // The timed VICTORY / DEFEAT screen always plays out first.
+    if freeze.overlay_running() {
         return;
     }
     if pending.expect_best_play && !pending.best_play_seen {
@@ -585,17 +590,19 @@ fn receive_killcam(
     // playing (`begin_from_message` drops anything that arrives mid-replay):
     // held here and started as soon as that one finishes.
     mut queued_end_cam: Local<Option<KillCam>>,
+    freeze: Res<crate::match_end::MatchEndFreeze>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
-            if msg.best_play && active.0.is_some() {
+            // (Also held while the VICTORY / DEFEAT screen is still up.)
+            if msg.best_play && (active.0.is_some() || freeze.overlay_running()) {
                 *queued_end_cam = Some(msg);
             } else {
                 killcam::begin_from_message(&mut active, msg);
             }
         }
     }
-    if active.0.is_none() {
+    if active.0.is_none() && !freeze.overlay_running() {
         if let Some(msg) = queued_end_cam.take() {
             killcam::begin_from_message(&mut active, msg);
         }
@@ -725,8 +732,8 @@ fn receive_remote_sounds(
 /// A `models/soldier.glb` avatar standing in for another player; follows their
 /// interpolated pose.
 #[derive(Component)]
-struct RemoteAvatar {
-    src: Entity,
+pub(crate) struct RemoteAvatar {
+    pub(crate) src: Entity,
 }
 
 /// Tracks a remote avatar's previous position and currently-playing animation
@@ -734,7 +741,7 @@ struct RemoteAvatar {
 /// frame-to-frame movement speed and only call `AnimationPlayer::play` on a
 /// change (it starts on `idleWgun`, matching `start_soldier_animation`).
 #[derive(Component, Default)]
-struct RemoteAvatarMotion {
+pub(crate) struct RemoteAvatarMotion {
     prev_translation: Option<Vec3>,
     state: crate::SoldierAnimState,
 }
@@ -798,15 +805,15 @@ fn follow_remote_avatars(
 }
 
 /// Hides every live remote-player avatar for the duration of a kill cam, and
-/// restores them once it ends. A kill cam is a fly-through of a frozen
-/// moment in the past (`start_killcam` stands in static `models/soldier.glb`
-/// ghosts at each other player's recorded position — see
-/// `killcam::start_killcam`) — without this, these *live*, continuously
-/// updated avatars would keep wandering through that snapshot and could end
-/// up right on top of the replay camera, blocking the view entirely.
+/// restores them once it ends. A kill cam replays the past (`start_killcam`
+/// stands in `models/soldier.glb` ghosts that follow each other player's
+/// *recorded* movement — see `killcam::drive_killcam_actors`) — without this,
+/// these *live*, continuously updated avatars would wander through it and
+/// could end up right on top of the replay camera, blocking the view entirely.
 fn hide_remote_avatars_during_killcam(
     active: Res<killcam::ActiveKillCam>,
-    mut avatars: Query<&mut Visibility, With<RemoteAvatar>>,
+    // (Not the kill cam's own stand-ins — see `killcam::KillCamPlayerGhost`.)
+    mut avatars: Query<&mut Visibility, (With<RemoteAvatar>, Without<killcam::KillCamPlayerGhost>)>,
 ) {
     let want = if active.0.is_some() {
         Visibility::Hidden
@@ -837,8 +844,14 @@ fn animate_remote_avatars(
     anim_settings: Res<crate::SoldierAnimSettings>,
     movement: Res<crate::MovementSettings>,
     slide_cfg: Res<crate::SlideSettings>,
-    mut avatars: Query<(&RemoteAvatar, &mut RemoteAvatarMotion, &crate::SoldierAnimationPlayer)>,
+    mut avatars: Query<(
+        &RemoteAvatar,
+        &mut RemoteAvatarMotion,
+        &crate::SoldierAnimationPlayer,
+        Has<killcam::KillCamPlayerGhost>,
+    )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    killcam: Res<killcam::ActiveKillCam>,
 ) {
     const BLEND_DURATION: Duration = Duration::from_millis(200);
     /// `ads_t` at or above this counts as "aiming" for animation purposes.
@@ -874,10 +887,15 @@ fn animate_remote_avatars(
         * ((movement.walk_speed * movement.backward_speed_mult)
             / (crate::WALK_SPEED * crate::BACKWARD_SPEED_MULT));
 
-    for (avatar, mut motion, anim_player) in &mut avatars {
+    // A kill-cam stand-in moves at the replay's pace (slower in a best play's
+    // slow-mo dip), so judge its walking speed against replay time.
+    let replay_speed = killcam.0.as_ref().map_or(1.0, |run| run.speed).max(0.05);
+
+    for (avatar, mut motion, anim_player, in_replay) in &mut avatars {
         let Ok(pose) = poses.get(avatar.src) else {
             continue;
         };
+        let dt = if in_replay { dt * replay_speed } else { dt };
 
         // Just respawned: `pose.translation` jumped straight from wherever
         // this avatar died to the new spawn point, which the frame-to-frame

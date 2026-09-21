@@ -111,10 +111,18 @@ fn apply_player_hits(
     mut killed: EventWriter<PlayerKilled>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
-    mut lobbies: Query<&mut Lobby>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    endings: Res<crate::killcam::EndingLobbies>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
+        // The match is over: nothing counts (see `EndingLobbies`).
+        if lobbies
+            .iter()
+            .any(|(e, l)| l.has(ev.victim) && endings.is_frozen(e))
+        {
+            continue;
+        }
         let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == ev.victim) else {
             continue;
         };
@@ -140,7 +148,7 @@ fn apply_player_hits(
         combat.alive = false;
         combat.respawn_at = time.elapsed_secs() + RESPAWN_DELAY_SECS;
 
-        let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(ev.victim)) else {
+        let Some((_, mut lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(ev.victim)) else {
             continue;
         };
         if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
@@ -371,7 +379,7 @@ fn check_kill_limit(
             continue;
         }
         if lobby.members.iter().any(|m| m.score >= lobby.kill_limit) {
-            endings.begin(lobby_e, clock.0);
+            endings.begin(lobby_e, clock.0, true);
         }
     }
 }

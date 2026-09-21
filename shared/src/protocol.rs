@@ -438,6 +438,24 @@ pub struct TrickScore {
     pub lines: Vec<ScoreLine>,
 }
 
+/// How long a `FreeForAll` match's ending freezes play for (seconds): from the
+/// moment it ends ([`MatchEnding`]) until the end-of-match replay starts. Fixed
+/// and shared, so the server's wait and the client's "VICTORY / DEFEAT" screen
+/// always line up — and long enough for the final kill's replay to finish
+/// recording (`server::killcam`).
+pub const MATCH_END_FREEZE_SECS: f32 = 2.0;
+
+/// Server → everyone in a `FreeForAll` lobby: the match just ended (the kill
+/// limit was reached, or time ran out). From here until [`MatchOver`] (about
+/// [`MATCH_END_FREEZE_SECS`] later) nothing that happens counts — the server
+/// ignores hits, and clients stop taking input and show VICTORY / DEFEAT.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MatchEnding {
+    /// Everyone tied for the top score — they all get VICTORY (the results
+    /// screen counts a tie for first as a win too).
+    pub winners: Vec<PeerId>,
+}
+
 /// Server → everyone in a lobby: the match clock hit zero.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct MatchOver {
@@ -520,44 +538,102 @@ pub struct KnifeSample {
     pub rot: [f32; 4],
 }
 
-/// A target bot as it stood the moment the kill landed.
+/// One bot's or other player's state at one moment of a kill-cam window — a
+/// compact copy of what the world saw of them (`Bot` / `PlayerPose`), taken
+/// every [`ACTOR_STRIDE_TICKS`] server ticks. The replay interpolates between
+/// them, so they move and animate as they actually did, not as they are now.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub struct KillCamBot {
+pub struct ActorSample {
+    /// Server ticks since the start of the replay's first frame.
+    pub tick: u16,
+    /// Feet for a bot; the *eye* for a player (like [`PlayerPose::translation`]).
     pub pos: [f32; 3],
     pub yaw: f32,
-    /// This is the bot that was shot.
-    pub killed: bool,
+    /// Aim-down-sight amount, `0..=255` for `0.0..=1.0` (players only).
+    pub ads: u8,
+    /// `ActorSample::ALIVE` and friends.
+    pub flags: u8,
 }
 
-/// Another player (not the killer) as they stood the moment the kill landed —
-/// frozen for the replay the same way bots are, since there's no per-tick
-/// recording of every *other* player's pose to draw a full timeline from.
-/// Never includes the killer themselves (the replay is a first-person fly-
-/// through of the killer's own recorded view, so they'd have no body to show).
+impl ActorSample {
+    pub const ALIVE: u8 = 1;
+    pub const CROUCHING: u8 = 1 << 1;
+    pub const RELOADING: u8 = 1 << 2;
+    pub const JUMPING: u8 = 1 << 3;
+    pub const SLIDING: u8 = 1 << 4;
+
+    pub fn has(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
+
+    pub fn ads_amount(&self) -> f32 {
+        self.ads as f32 / 255.0
+    }
+
+    /// A player's pose as a sample (at `tick`).
+    pub fn from_pose(tick: u16, pose: &PlayerPose) -> Self {
+        let mut flags = 0;
+        for (on, bit) in [
+            (pose.alive, Self::ALIVE),
+            (pose.crouching, Self::CROUCHING),
+            (pose.reloading, Self::RELOADING),
+            (pose.jumping, Self::JUMPING),
+            (pose.sliding, Self::SLIDING),
+        ] {
+            if on {
+                flags |= bit;
+            }
+        }
+        Self {
+            tick,
+            pos: pose.translation.to_array(),
+            yaw: pose.yaw,
+            ads: (pose.ads_t.clamp(0.0, 1.0) * 255.0).round() as u8,
+            flags,
+        }
+    }
+
+    /// A Freestyle bot as a sample (at `tick`).
+    pub fn from_bot(tick: u16, bot: &Bot) -> Self {
+        Self {
+            tick,
+            pos: bot.pos.to_array(),
+            yaw: bot.yaw,
+            ads: 0,
+            flags: if bot.alive { Self::ALIVE } else { 0 },
+        }
+    }
+}
+
+/// One bot (a `Freestyle` target, shown as `models/bot.glb`) or other player (as
+/// `models/soldier.glb` — including `FreeForAll` bots) across a kill-cam
+/// window, oldest sample first. Never the killer themselves: the replay is a
+/// first-person fly-through of their own recorded view, so they'd have no
+/// body to show. It includes whoever was shot, whose death shows up as their
+/// `alive` flag clearing.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct KillCamPlayer {
-    pub pos: [f32; 3],
-    pub yaw: f32,
-    /// This is the player that was shot (a `FreeForAll` kill's victim) —
-    /// the replay plays their death animation once the playhead reaches the
-    /// kill, the same way it does for a shot bot ([`KillCamBot::killed`]).
-    pub killed: bool,
+pub struct KillCamActor {
+    pub bot: bool,
+    pub samples: Vec<ActorSample>,
 }
 
-/// Server → everyone in a lobby: replay the
-/// killer's last ~3 s. `samples` are oldest-first at `TICK_HZ`; `kill_index` is
-/// the frame the shot landed on (2 s in, 1 s of follow-through after). `bots`
-/// are the targets frozen at the kill moment so the replay can show the one
-/// that was hit toppling over. `players` are every other lobby member frozen
-/// the same way, so the replay doesn't leave their live remote avatars
-/// wandering through what's meant to be a snapshot of the past.
+/// Every how many server ticks the world's bots and players are sampled for
+/// kill cams ([`ActorSample`]) — 16 Hz at the 64 Hz tick, plenty to interpolate
+/// walking.
+pub const ACTOR_STRIDE_TICKS: u64 = 4;
+
+/// Server → everyone in a lobby: replay the killer's view around a kill (the
+/// usual 3 s before to 1.5 s after; longer for a best play, which spans a run
+/// of kills). `samples` are oldest-first at `TICK_HZ`; `kill_index` is the frame
+/// the shot landed on. `actors` are every bot and other player over the same
+/// window, so the replay shows them where they were and doing what they were
+/// doing then — not where they are now.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KillCam {
     pub killer_name: String,
     pub samples: Vec<KillCamSample>,
     pub kill_index: u32,
-    pub bots: Vec<KillCamBot>,
-    pub players: Vec<KillCamPlayer>,
+    pub actors: Vec<KillCamActor>,
     /// True only for the single highest-scoring shot of the match, resent
     /// right before [`MatchOver`] once the clock hits zero. The client plays
     /// this one with a slow-mo ramp around the kill and a "BEST PLAY" banner
@@ -740,6 +816,16 @@ impl Lobby {
         self.members
             .iter()
             .filter(|m| m.bot.is_none())
+            .map(|m| m.peer)
+            .collect()
+    }
+
+    /// Every member tied for the highest score.
+    pub fn top_scorers(&self) -> Vec<PeerId> {
+        let top = self.members.iter().map(|m| m.score).max().unwrap_or(0);
+        self.members
+            .iter()
+            .filter(|m| m.score == top)
             .map(|m| m.peer)
             .collect()
     }
@@ -953,6 +1039,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<TrickScore>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MatchOver>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<MatchEnding>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KillCam>()
             .add_direction(NetworkDirection::ServerToClient);

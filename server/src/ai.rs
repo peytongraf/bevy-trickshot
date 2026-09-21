@@ -299,6 +299,7 @@ fn drive_bots(
     colliders: Res<MapColliders>,
     navs: Res<NavGraphs>,
     lobbies: Query<&Lobby>,
+    endings: Res<crate::killcam::EndingLobbies>,
     others: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
     mut bots: Query<(
         &PlayerId,
@@ -323,6 +324,17 @@ fn drive_bots(
         let world = colliders.world(lobby.map);
         let nav = navs.graph(lobby.map);
         let skill: BotSkill = brain.difficulty.skill();
+
+        // The match is over (`EndingLobbies`): stand still, fire nothing.
+        if endings.is_frozen(lp.lobby) {
+            action.0 = PlayerInput {
+                translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
+                yaw: brain.yaw,
+                pitch: brain.pitch,
+                ..default()
+            };
+            continue;
+        }
 
         // Dead bots stand still and shoot no one; a flip back to alive is a
         // respawn at a fresh spot.
@@ -687,6 +699,7 @@ mod tests {
         ));
         app.insert_resource(MapColliders::load());
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
+        app.init_resource::<crate::killcam::EndingLobbies>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -852,6 +865,32 @@ mod tests {
         assert!(
             arrived_at.is_some(),
             "never reached the top floor (highest it got: {best_height:.1} m)"
+        );
+    }
+
+    #[test]
+    fn a_bot_in_a_lobby_whose_match_is_ending_stands_still_and_fires_nothing() {
+        let (mut app, bot) = world(
+            BotDifficulty::Veteran,
+            Vec3::new(-60.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, 0.0),
+        );
+        let lobby = app.world().get::<LobbyPlayer>(bot).unwrap().lobby;
+        app.update(); // (the first update has no time delta)
+        app.update();
+        let start = input(&app, bot).translation;
+        app.world_mut()
+            .resource_mut::<crate::killcam::EndingLobbies>()
+            .begin(lobby, 0, true);
+        for _ in 0..(6 * 64) {
+            app.update();
+            let i = input(&app, bot);
+            assert!(!i.fire, "fired during the end-of-match freeze");
+        }
+        let end = input(&app, bot).translation;
+        assert!(
+            Vec3::from_array(end).distance(Vec3::from_array(start)) < 0.5,
+            "moved from {start:?} to {end:?}"
         );
     }
 

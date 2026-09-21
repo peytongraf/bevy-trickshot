@@ -5,20 +5,19 @@
 //! camera transform), so shake / recoil / sway reproduce exactly, and the FOV
 //! is the shooter's own — seek-drives the first-person weapon animation,
 //! re-fires the recorded one-shot sounds + muzzle flash + barrel smoke +
-//! ground bursts, and stands in ghost copies of the bots frozen at the kill so
+//! ground bursts, and stands in ghost copies of every bot and other player that
+//! replay their own recorded movement and animation over the same window, so
 //! the one that was hit topples on cue. A letterbox bar top and bottom names
-//! "KILLCAM" / the killer; `F` (rebindable) skips.
+//! "KILLCAM" / the killer; `F` (rebindable) skips (not the end-of-match replay).
 
 use std::f32::consts::PI;
-use std::time::Duration;
 
-use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use shared::KillCamSample;
+use shared::{KillCamSample, PlayerPose};
 
 use crate::keybinds::KeyBindings;
 use crate::{
@@ -140,11 +139,13 @@ pub(crate) struct KillCamRun {
     /// With `best_play`: the replay is a `FreeForAll` match's final kill —
     /// only the banner differs ("FINAL KILL").
     pub(crate) final_kill: bool,
-    /// Bots frozen at the kill: `(pos, yaw, was_the_one_shot)`.
-    bots: Vec<(Vec3, f32, bool)>,
-    /// Other players (never the killer) frozen at the kill:
-    /// `(pos, yaw, was_the_one_shot)`.
-    players: Vec<(Vec3, f32, bool)>,
+    /// Every bot and other player (never the killer) across the window, as
+    /// recorded — replayed by [`drive_killcam_actors`].
+    actors: Vec<ActorTrack>,
+    /// How many replay seconds passed per real second on the last frame (`1.0`,
+    /// less during a best play's slow-mo dip) — so ghost animation can judge
+    /// walking speed by the replay's pace, not the wall clock's.
+    pub(crate) speed: f32,
     /// Ghost bot/player entities spawned for the replay (despawned on
     /// teardown).
     ghosts: Vec<Entity>,
@@ -212,29 +213,38 @@ struct SavedRig {
 #[derive(Component)]
 struct KillCamBanner;
 
-/// A stand-in bot shown during the replay, frozen where it stood at the kill.
+/// A stand-in `Freestyle` bot shown during the replay: it stands, and falls,
+/// where and when the recorded timeline (`KillCamRun::actors[track]`) says.
 #[derive(Component)]
 struct KillCamGhost {
-    pos: Vec3,
-    yaw: f32,
-    /// This is the bot that was shot — plays the death animation once
-    /// `elapsed >= kill_time`.
-    killed: bool,
-    /// Set once the death animation has been kicked off, so it isn't
-    /// restarted every frame the ghost lingers.
-    die_played: bool,
+    track: usize,
+    /// Whether it was alive at the last sample applied, so the death animation
+    /// starts on the flip to dead (and idle on a respawn) rather than every frame.
+    was_alive: bool,
+    /// Whether it has been seen alive yet — a bot already dead when the window
+    /// opens has no fall to play, so it stays hidden until it respawns.
+    seen_alive: bool,
 }
 
-/// A stand-in remote player shown during the replay, frozen where they stood
-/// at the kill — the [`KillCamGhost`] counterpart for `models/soldier.glb`.
+/// Marks a `models/soldier.glb` stand-in for another player (or a
+/// `FreeForAll` bot) in the replay. It's a normal remote avatar
+/// (`net::RemoteAvatar`) whose "pose" is a [`KillCamPose`] entity the replay
+/// keeps up to date — so it walks, aims, crouches, jumps and dies through the
+/// exact same animation logic as a live one.
 #[derive(Component)]
-struct KillCamPlayerGhost {
-    /// This is the player that was shot — plays the death animation once
-    /// `elapsed >= kill_time`.
-    killed: bool,
-    /// Set once the death animation has been kicked off, so it isn't
-    /// restarted every frame the ghost lingers.
-    die_played: bool,
+pub(crate) struct KillCamPlayerGhost;
+
+/// The stand-in `PlayerPose` a [`KillCamPlayerGhost`] follows.
+#[derive(Component)]
+struct KillCamPose {
+    track: usize,
+}
+
+/// One bot's or other player's recorded timeline: `(seconds into the replay,
+/// sample)`, oldest first.
+struct ActorTrack {
+    bot: bool,
+    samples: Vec<(f32, shared::ActorSample)>,
 }
 
 /// Assets built at startup for the kill-cam banner (the ghost bots themselves
@@ -303,6 +313,7 @@ impl Plugin for KillCamPlugin {
                 (
                     start_killcam,
                     drive_killcam,
+                    drive_killcam_actors,
                     drive_killcam_throw,
                 )
                     .chain()
@@ -410,15 +421,18 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         .get(msg.kill_index as usize)
         .map(|(t, _)| *t)
         .unwrap_or(PRE_SECS);
-    let bots = msg
-        .bots
-        .iter()
-        .map(|b| (Vec3::from_array(b.pos), b.yaw, b.killed))
-        .collect();
-    let players = msg
-        .players
-        .iter()
-        .map(|p| (Vec3::from_array(p.pos), p.yaw, p.killed))
+    let actors = msg
+        .actors
+        .into_iter()
+        .filter(|a| !a.samples.is_empty())
+        .map(|a| ActorTrack {
+            bot: a.bot,
+            samples: a
+                .samples
+                .into_iter()
+                .map(|s| (s.tick as f32 / hz, s))
+                .collect(),
+        })
         .collect();
     active.0 = Some(KillCamRun {
         killer_name: msg.killer_name,
@@ -429,8 +443,8 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         kill_time,
         best_play: msg.best_play,
         final_kill: msg.final_kill,
-        bots,
-        players,
+        actors,
+        speed: 1.0,
         ghosts: Vec::new(),
         elapsed: 0.0,
         sound_cursor: 0,
@@ -555,9 +569,9 @@ fn start_killcam(
     }
     run.saved = Some(saved);
     info!(
-        "kill cam: {} frames, {} bots, first pos {:?}",
+        "kill cam: {} frames, {} actors, first pos {:?}",
         run.frames.len(),
-        run.bots.len(),
+        run.actors.len(),
         run.frames.first().map(|(_, s)| s.translation)
     );
 
@@ -576,63 +590,67 @@ fn start_killcam(
         commands.entity(e).try_despawn();
     }
 
-    // Hide the live bots and stand in frozen ghosts, so the replay shows the
-    // arena exactly as it was at the kill (the one that was shot still upright,
-    // then toppling on cue) rather than its current state.
+    // Hide the live bots and stand in ghosts that replay the recorded timeline
+    // of every bot and other player (`drive_killcam_actors`), so the replay
+    // shows the arena as it was — where everyone was, what they were doing, and
+    // who fell when — rather than its current state. Their *live* remote
+    // avatars are hidden for the whole replay by
+    // `net::hide_remote_avatars_during_killcam`.
     for mut vis in &mut live_bots {
         *vis = Visibility::Hidden;
     }
-    for &(pos, yaw, killed) in &run.bots {
-        let ghost = commands
-            .spawn((
-                KillCamGhost {
-                    pos,
-                    yaw,
-                    killed,
-                    die_played: false,
-                },
-                BotVisual,
-                StateScoped(AppState::InGame),
-                Transform::from_translation(pos)
-                    .with_rotation(Quat::from_rotation_y(yaw))
-                    .with_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
-                Visibility::default(),
-                SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
-                ),
-            ))
-            .observe(crate::start_bot_animation)
-            .id();
-        run.ghosts.push(ghost);
-    }
-
-    // Same idea for every other player frozen at the kill — a static
-    // `models/soldier.glb` ghost, never the killer (whose own view this
-    // replay flies through in first person, so they'd have no body to show).
-    // Their *live* remote avatars are hidden for the whole replay by
-    // `net::hide_remote_avatars_during_killcam` so they can't wander through
-    // — and potentially right into the camera of — what's meant to be a
-    // frozen snapshot of the past.
-    for &(pos, yaw, killed) in &run.players {
-        let ghost = commands
-            .spawn((
-                crate::SoldierVisual,
-                KillCamPlayerGhost {
-                    killed,
-                    die_played: false,
-                },
-                StateScoped(AppState::InGame),
-                Transform::from_translation(pos - Vec3::Y * crate::EYE_HEIGHT)
-                    .with_rotation(Quat::from_rotation_y(yaw + core::f32::consts::PI))
-                    .with_scale(Vec3::splat(remote_avatar_settings.scale)),
-                Visibility::default(),
-                SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
-                ),
-            ))
-            .observe(crate::start_soldier_animation)
-            .id();
-        run.ghosts.push(ghost);
+    for (track, actor) in run.actors.iter().enumerate() {
+        let Some(first) = actor_pose_at(&actor.samples, 0.0) else {
+            continue;
+        };
+        if actor.bot {
+            let ghost = commands
+                .spawn((
+                    KillCamGhost {
+                        track,
+                        was_alive: first.alive,
+                        seen_alive: first.alive,
+                    },
+                    BotVisual,
+                    StateScoped(AppState::InGame),
+                    Transform::from_translation(first.pos)
+                        .with_rotation(Quat::from_rotation_y(first.yaw))
+                        .with_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
+                    Visibility::default(),
+                    SceneRoot(
+                        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
+                    ),
+                ))
+                .observe(crate::start_bot_animation)
+                .id();
+            run.ghosts.push(ghost);
+        } else {
+            let pose = commands
+                .spawn((
+                    KillCamPose { track },
+                    StateScoped(AppState::InGame),
+                    first.as_player_pose(),
+                ))
+                .id();
+            let ghost = commands
+                .spawn((
+                    crate::net::RemoteAvatar { src: pose },
+                    crate::net::RemoteAvatarMotion::default(),
+                    KillCamPlayerGhost,
+                    crate::SoldierVisual,
+                    StateScoped(AppState::InGame),
+                    Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
+                    Visibility::default(),
+                    SceneRoot(
+                        asset_server
+                            .load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
+                    ),
+                ))
+                .observe(crate::start_soldier_animation)
+                .id();
+            run.ghosts.push(pose);
+            run.ghosts.push(ghost);
+        }
     }
 
     // Cinematic letterbox: a translucent black bar top and bottom, each ~15%
@@ -757,26 +775,8 @@ fn drive_killcam(
             ),
         >,
     ),
-    bots: (
-        // Explicit `With<KillCamGhost>` (redundant with the `&mut KillCamGhost`
-        // fetch) plus `Without<ViewModel>` so Bevy can prove this is disjoint
-        // from `rig` and `cams`'s view-model `Transform` access at the type
-        // level, not just by knowing at runtime that the two never overlap.
-        Query<(Entity, &mut KillCamGhost, &mut Transform), (With<KillCamGhost>, Without<ViewModel>)>,
-        Query<&mut Visibility, With<TargetBotVisual>>,
-        Query<&BotAnimationPlayer>,
-        // `Without<SniperAnimationPlayer>`, disjoint from `anim.0` below the
-        // same way the ghost query above is disjoint from `cams`.
-        Query<&mut AnimationPlayer, (Without<SniperAnimationPlayer>, Without<KnifeAnimationPlayer>)>,
-        Res<BotAnimations>,
-        // The soldier ghosts' death animation: `KillCamPlayerGhost` is
-        // disjoint from `KillCamGhost` (the bots above), and
-        // `AnimationTransitions` is a different component than the
-        // `AnimationPlayer` `bot_players` already borrows mutably.
-        Query<(&mut KillCamPlayerGhost, &crate::SoldierAnimationPlayer)>,
-        Query<&mut AnimationTransitions>,
-        (Res<crate::SoldierAnimations>, Res<crate::SoldierAnimSettings>),
-    ),
+    // (The bot / player ghosts are driven by `drive_killcam_actors`.)
+    mut live_bots: Query<&mut Visibility, With<TargetBotVisual>>,
     anim: (
         Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
         Query<&ViewModelAnimation>,
@@ -798,16 +798,6 @@ fn drive_killcam(
     let (mut world_projection, view_model_single, knife_single) = cams;
     let (mut knife_tf, mut knife_vis) = knife_single.into_inner();
     let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
-    let (
-        mut ghosts,
-        mut live_bots,
-        bot_roots,
-        mut bot_players,
-        bot_anims,
-        mut player_ghosts,
-        mut soldier_transitions,
-        (soldier_anims, soldier_settings),
-    ) = bots;
     let (mut anim_players, view_models, mut knife_players, knife_anims, mut knife_state) = anim;
 
     let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
@@ -822,7 +812,9 @@ fn drive_killcam(
         1.0
     };
     run.elapsed += time.delta_secs() * speed_mult;
-    let skipped = binds.killcam_skip.just_pressed(&keys, &mouse);
+    run.speed = speed_mult;
+    // The end-of-match replay (best play / final kill) can't be skipped.
+    let skipped = !run.best_play && binds.killcam_skip.just_pressed(&keys, &mouse);
 
     let anim_node = view_models.iter().next().map(|vm| vm.index);
 
@@ -956,48 +948,6 @@ fn drive_killcam(
     // The knife sways the same way live (`knife_weapon_sway`), so replay it
     // too — just the recorded turn-lag, no recoil kick (the knife has none).
     *knife_tf = Transform::from_rotation(sway_rot) * *knife_tf;
-
-    // Play the death animation on the ghost that was shot once the playhead
-    // reaches the kill moment — once, same guard `follow_bot_avatars` uses
-    // for the live path.
-    for (entity, mut ghost, mut gtf) in &mut ghosts {
-        if ghost.killed && !ghost.die_played && run.elapsed >= run.kill_time {
-            ghost.die_played = true;
-            if let Ok(target) = bot_roots.get(entity) {
-                if let Ok(mut player) = bot_players.get_mut(target.0) {
-                    let active = player.play(bot_anims.die);
-                    active.set_repeat(RepeatAnimation::Never);
-                    active.set_speed(crate::BOT_DIE_SPEED);
-                    active.replay();
-                }
-            }
-        }
-        gtf.translation = ghost.pos;
-        gtf.rotation = Quat::from_rotation_y(ghost.yaw);
-    }
-
-    // Same for the player that was shot (a `FreeForAll` kill's victim): the
-    // soldier ghost idles until the playhead reaches the kill, then plays the
-    // `death` clip once and holds its last frame — the same clip and speed
-    // `net::animate_remote_avatars` plays for a live remote player who dies.
-    for (mut ghost, anim_player) in &mut player_ghosts {
-        if ghost.killed && !ghost.die_played && run.elapsed >= run.kill_time {
-            ghost.die_played = true;
-            if let (Ok(mut player), Ok(mut transitions)) = (
-                bot_players.get_mut(anim_player.0),
-                soldier_transitions.get_mut(anim_player.0),
-            ) {
-                transitions
-                    .play(
-                        &mut player,
-                        soldier_anims.node_for(crate::SoldierAnimState::Dead),
-                        Duration::from_millis(200),
-                    )
-                    .set_repeat(RepeatAnimation::Never)
-                    .set_speed(soldier_settings.death_speed);
-            }
-        }
-    }
 
     // Weapon visibility / throwing-knife crosshair: booleans, so nearest
     // sample rather than a lerp — same rule the animation playhead uses below.
@@ -1389,6 +1339,141 @@ fn stop_killcam(
     }
 }
 
+/// A bot's or player's interpolated state at one instant of the replay.
+#[derive(Clone, Copy, Debug)]
+struct ActorPose {
+    pos: Vec3,
+    yaw: f32,
+    ads: f32,
+    sample: shared::ActorSample,
+    alive: bool,
+}
+
+impl ActorPose {
+    /// As the `PlayerPose` a remote avatar animates from.
+    fn as_player_pose(&self) -> shared::PlayerPose {
+        shared::PlayerPose {
+            translation: self.pos,
+            yaw: self.yaw,
+            ads_t: self.ads,
+            crouching: self.sample.has(shared::ActorSample::CROUCHING),
+            reloading: self.sample.has(shared::ActorSample::RELOADING),
+            jumping: self.sample.has(shared::ActorSample::JUMPING),
+            sliding: self.sample.has(shared::ActorSample::SLIDING),
+            alive: self.alive,
+            ..default()
+        }
+    }
+}
+
+/// Two consecutive samples further apart than this (m) are a teleport (a
+/// respawn), not movement to blend across.
+const ACTOR_TELEPORT_M: f32 = 3.0;
+
+/// Where an actor was `t` seconds into the replay: interpolated between its two
+/// surrounding samples (position, yaw, aim), stepping to the earlier one for
+/// the discrete flags and across a teleport, and held at its first / last
+/// sample outside the recorded range.
+fn actor_pose_at(samples: &[(f32, shared::ActorSample)], t: f32) -> Option<ActorPose> {
+    let (&(_, first), &(_, last)) = (samples.first()?, samples.last()?);
+    let pose = |s: shared::ActorSample, pos: Vec3, yaw: f32, ads: f32| ActorPose {
+        pos,
+        yaw,
+        ads,
+        sample: s,
+        alive: s.has(shared::ActorSample::ALIVE),
+    };
+    let at = |s: shared::ActorSample| pose(s, Vec3::from_array(s.pos), s.yaw, s.ads_amount());
+    if t <= samples[0].0 {
+        return Some(at(first));
+    }
+    if t >= samples[samples.len() - 1].0 {
+        return Some(at(last));
+    }
+    // The last sample at or before `t`.
+    let i = samples.partition_point(|(st, _)| *st <= t) - 1;
+    let ((t0, a), (t1, b)) = (samples[i], samples[i + 1]);
+    let (pa, pb) = (Vec3::from_array(a.pos), Vec3::from_array(b.pos));
+    if pa.distance(pb) > ACTOR_TELEPORT_M {
+        return Some(at(a));
+    }
+    let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 0.0 };
+    let yaw = Quat::from_rotation_y(a.yaw)
+        .slerp(Quat::from_rotation_y(b.yaw), f)
+        .to_euler(EulerRot::YXZ)
+        .0;
+    Some(pose(a, pa.lerp(pb, f), yaw, a.ads_amount() + (b.ads_amount() - a.ads_amount()) * f))
+}
+
+/// Poses every bot and other player ghost from its recorded timeline at the
+/// replay's playhead. Bots (`Freestyle`) fall over on the flip to dead and
+/// stand back up on a respawn; players are moved by updating their stand-in
+/// `PlayerPose`, which the remote-avatar systems then animate.
+#[allow(clippy::type_complexity)]
+fn drive_killcam_actors(
+    active: Res<ActiveKillCam>,
+    mut bot_ghosts: Query<(Entity, &mut KillCamGhost, &mut Transform, &mut Visibility)>,
+    bot_roots: Query<&BotAnimationPlayer>,
+    mut players: Query<&mut AnimationPlayer>,
+    bot_anims: Res<BotAnimations>,
+    mut poses: Query<(&KillCamPose, &mut PlayerPose)>,
+) {
+    let Some(run) = active.0.as_ref() else { return };
+    if !run.setup {
+        return;
+    }
+    let duration = run.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
+    let t = run.elapsed.min(duration);
+
+    for (entity, mut ghost, mut tf, mut vis) in &mut bot_ghosts {
+        let Some(actor) = run.actors.get(ghost.track) else {
+            continue;
+        };
+        let Some(pose) = actor_pose_at(&actor.samples, t) else {
+            continue;
+        };
+        tf.translation = pose.pos;
+        tf.rotation = Quat::from_rotation_y(pose.yaw);
+        ghost.seen_alive |= pose.alive;
+        let want = if ghost.seen_alive {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *vis != want {
+            *vis = want;
+        }
+        if pose.alive != ghost.was_alive {
+            ghost.was_alive = pose.alive;
+            if let Ok(root) = bot_roots.get(entity) {
+                if let Ok(mut player) = players.get_mut(root.0) {
+                    if pose.alive {
+                        // Respawned: back to its idle loop.
+                        player.play(bot_anims.idle).set_repeat(RepeatAnimation::Forever);
+                    } else {
+                        let active = player.play(bot_anims.die);
+                        active.set_repeat(RepeatAnimation::Never);
+                        active.set_speed(crate::BOT_DIE_SPEED);
+                        active.replay();
+                    }
+                }
+            }
+        }
+    }
+
+    for (pose_of, mut pose) in &mut poses {
+        let Some(actor) = run.actors.get(pose_of.track) else {
+            continue;
+        };
+        if let Some(p) = actor_pose_at(&actor.samples, t) {
+            let want = p.as_player_pose();
+            if *pose != want {
+                *pose = want;
+            }
+        }
+    }
+}
+
 // --- helpers -------------------------------------------------------
 
 /// How many replay-timeline seconds pass per real second, for the "best play"
@@ -1421,4 +1506,62 @@ fn bracket(frames: &[(f32, KillCamSample)], t: f32) -> (KillCamSample, KillCamSa
     let (t1, b) = frames[i];
     let frac = if t1 > t0 { ((t - t0) / (t1 - t0)).clamp(0.0, 1.0) } else { 0.0 };
     (a, b, frac)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::ActorSample;
+
+    fn sample(tick: u16, x: f32, yaw: f32, flags: u8) -> (f32, ActorSample) {
+        (
+            tick as f32 / shared::TICK_HZ as f32,
+            ActorSample {
+                tick,
+                pos: [x, 0.0, 0.0],
+                yaw,
+                ads: 0,
+                flags,
+            },
+        )
+    }
+
+    #[test]
+    fn an_actor_is_where_it_was_then_not_where_it_is_now() {
+        // Sprints from x = 0 to x = 0.5 over one sample stride (4 ticks).
+        let alive = ActorSample::ALIVE;
+        let track = [sample(0, 0.0, 0.0, alive), sample(4, 0.5, 0.0, alive)];
+        let t = |tick: f32| tick / shared::TICK_HZ as f32;
+        assert_eq!(actor_pose_at(&track, t(0.0)).unwrap().pos.x, 0.0);
+        assert!((actor_pose_at(&track, t(2.0)).unwrap().pos.x - 0.25).abs() < 1e-4);
+        // Held at the ends, before and after the recording.
+        assert_eq!(actor_pose_at(&track, -1.0).unwrap().pos.x, 0.0);
+        assert_eq!(actor_pose_at(&track, 99.0).unwrap().pos.x, 0.5);
+        assert!(actor_pose_at(&[], 0.0).is_none());
+    }
+
+    #[test]
+    fn flags_step_and_a_respawn_teleport_is_not_blended() {
+        let alive = ActorSample::ALIVE;
+        let track = [
+            sample(0, 0.0, 0.0, alive),
+            sample(4, 0.5, 0.0, 0), // shot: dead from here on
+            sample(8, 40.0, 0.0, alive), // respawned far away
+        ];
+        let t = |tick: f32| tick / shared::TICK_HZ as f32;
+        assert!(actor_pose_at(&track, t(1.0)).unwrap().alive, "still the earlier sample's flags");
+        assert!(!actor_pose_at(&track, t(5.0)).unwrap().alive);
+        // Between the death spot and the respawn spot it stays put, then jumps.
+        assert!((actor_pose_at(&track, t(6.0)).unwrap().pos.x - 0.5).abs() < 1e-4);
+        assert_eq!(actor_pose_at(&track, t(8.0)).unwrap().pos.x, 40.0);
+    }
+
+    #[test]
+    fn yaw_takes_the_short_way_round() {
+        let alive = ActorSample::ALIVE;
+        let near_pi = core::f32::consts::PI - 0.1;
+        let track = [sample(0, 0.0, near_pi, alive), sample(4, 0.0, -near_pi, alive)];
+        let mid = actor_pose_at(&track, 2.0 / shared::TICK_HZ as f32).unwrap().yaw;
+        assert!(mid.abs() > 3.0, "went the long way: {mid}");
+    }
 }

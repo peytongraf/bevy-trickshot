@@ -26,7 +26,7 @@ pub(crate) const BOT_DIE_SPEED: f32 = 2.0;
 #[derive(Resource, Clone)]
 pub(crate) struct BotAnimations {
     graph: Handle<AnimationGraph>,
-    idle: AnimationNodeIndex,
+    pub(crate) idle: AnimationNodeIndex,
     pub(crate) die: AnimationNodeIndex,
 }
 

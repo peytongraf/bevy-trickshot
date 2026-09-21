@@ -626,7 +626,7 @@ fn tick_match_clock(
         if lobby.time_left_secs > 0 {
             continue;
         }
-        endings.begin(lobby_e, clock.0);
+        endings.begin(lobby_e, clock.0, lobby.mode == GameMode::FreeForAll);
     }
 }
 
