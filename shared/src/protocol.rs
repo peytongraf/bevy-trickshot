@@ -611,6 +611,9 @@ pub struct ClearBots;
 pub struct PlayerRespawn {
     pub pos: [f32; 3],
     pub yaw: f32,
+    /// Apply as soon as it arrives (the match just started — there's no kill
+    /// cam to wait for) rather than after the usual respawn delay.
+    pub immediate: bool,
 }
 
 /// Server → client: only sent to the victim of a [`GameMode::FreeForAll`]

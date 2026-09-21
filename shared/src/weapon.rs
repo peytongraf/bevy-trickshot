@@ -39,6 +39,63 @@ pub struct WeaponSpec {
     pub lower_body_multiplier: f32,
 }
 
+/// The sniper's first-person feel, as the client plays it — timings and shake
+/// numbers a real player's client records into every kill-cam frame
+/// (`PlayerInput`). A bot has no client, so `server::ai` runs the same numbers
+/// to fill those fields in, and its kill cam then reads like a human's: a gradual
+/// scope-in, the fire animation, recoil and shake. **These mirror the client's
+/// `weapons::ads::ADS_DURATION`, `weapons::recoil::SHAKE_*` and
+/// `weapons::view_model::SEGMENTS` / `AnimationSettings::rechamber_speed`** —
+/// keep them in step if those are retuned.
+pub mod sniper_feel {
+    /// Seconds from hip to full aim-down-sight (and back), linear.
+    pub const ADS_SECS: f32 = 0.4;
+    /// The `Shoot` segment of the sniper clip ends this far (s) into it...
+    pub const SHOOT_END_SECS: f32 = 9.0 / 24.0;
+    /// ...then `Rechamber` runs from there to here (clip seconds)...
+    pub const RECHAMBER_END_SECS: f32 = 48.0 / 24.0;
+    /// ...at this many times normal speed.
+    pub const RECHAMBER_SPEED: f32 = 1.7;
+    /// Camera-shake trauma one shot adds (capped at 1), and how much decays per second.
+    pub const SHAKE_ADD: f32 = 0.85;
+    pub const SHAKE_DECAY: f32 = 2.0;
+    /// Oscillation speed of the shake `phase` (per second, while there's trauma).
+    pub const SHAKE_FREQ: f32 = 75.0;
+    /// Backward camera kick per shot (m), and how fast it eases home (1/s).
+    pub const RECOIL_KICK: f32 = 0.05;
+    pub const RECOIL_RETURN: f32 = 5.0;
+    /// The sniper clip's playhead (seconds) `since` seconds after a shot:
+    /// `Shoot` at normal speed, then `Rechamber` (sped up), then back at rest.
+    pub fn anim_time(since: f32) -> f32 {
+        if since < 0.0 {
+            0.0
+        } else if since < SHOOT_END_SECS {
+            since
+        } else {
+            let t = SHOOT_END_SECS + (since - SHOOT_END_SECS) * RECHAMBER_SPEED;
+            if t < RECHAMBER_END_SECS {
+                t
+            } else {
+                0.0
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_fire_animation_plays_shoot_then_rechamber_then_rests() {
+            assert_eq!(anim_time(-1.0), 0.0);
+            assert!((anim_time(0.2) - 0.2).abs() < 1e-6);
+            assert!(anim_time(SHOOT_END_SECS + 0.1) > SHOOT_END_SECS);
+            assert!(anim_time(SHOOT_END_SECS + 0.1) < RECHAMBER_END_SECS);
+            assert_eq!(anim_time(10.0), 0.0);
+        }
+    }
+}
+
 impl WeaponId {
     pub const fn spec(self) -> WeaponSpec {
         match self {

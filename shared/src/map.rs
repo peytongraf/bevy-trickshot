@@ -35,13 +35,13 @@ pub const BASIC_MAP_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.65,
 };
 
-/// `ascenion_map.glb`'s placement: native size, at the origin — its ground
-/// plane spans ±100 m and its two-level building rises to ~20 m (a lethal drop
-/// from the top is 30 m, a damaging one 16 m, see `crate::health`).
+/// `ascenion_map.glb`'s placement: at the origin, scaled to match
+/// [`BASIC_MAP_PLACEMENT`] — natively its ground plane spans ±100 m and its
+/// two-level building rises to ~20 m; at this scale that's ±65 m and ~13 m.
 pub const ASCENSION_PLACEMENT: MapPlacement = MapPlacement {
     position: Vec3::ZERO,
     yaw_deg: 0.0,
-    scale: 1.0,
+    scale: BASIC_MAP_PLACEMENT.scale,
 };
 
 /// The collision model file for `map`, relative to the client's assets
@@ -159,19 +159,22 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
 /// structure spans x 0..100, z -20..100) is one solid block as far as spawn /
 /// bot placement is concerned — only the open yard around it (west of x = 0,
 /// and the strip south of z = -20) is used, so nobody starts up a ramp, on a
-/// slab or wedged in a wall. Hand-measured from the model; native == world
-/// units since [`ASCENSION_PLACEMENT`]'s scale is `1.0`.
+/// slab or wedged in a wall. Hand-measured from the model in native units
+/// ([`walls`] callers scale them by [`ASCENSION_PLACEMENT`]'s scale).
 const ASCENSION_WALLS: &[WallBox] = &[WallBox {
     x: (-1.0, 101.0),
     z: (-21.0, 101.0),
 }];
+
+/// The middle of Ascension's western yard, in the model's native units.
+const ASCENSION_YARD_CENTER: Vec3 = Vec3::new(-50.0, 0.0, 0.0);
 
 /// Where players' spawn ring is centred (`crate::spawns::spawn_point`): the
 /// world origin, except on Ascension, where the origin is a corner of the
 /// building — there it's the middle of the western yard.
 pub fn spawn_center(map: MapId) -> Vec3 {
     match map {
-        MapId::Ascension => Vec3::new(-50.0, 0.0, 0.0),
+        MapId::Ascension => ASCENSION_YARD_CENTER * ASCENSION_PLACEMENT.scale,
         _ => Vec3::ZERO,
     }
 }
@@ -181,7 +184,7 @@ pub fn spawn_center(map: MapId) -> Vec3 {
 /// Ascension, where it's the middle of the western yard too.
 pub fn bot_center(map: MapId, default: Vec3) -> Vec3 {
     match map {
-        MapId::Ascension => Vec3::new(-50.0, 0.0, 0.0),
+        MapId::Ascension => ASCENSION_YARD_CENTER * ASCENSION_PLACEMENT.scale,
         _ => default,
     }
 }

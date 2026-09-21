@@ -227,6 +227,8 @@ fn on_start(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     clients: Query<(Entity, &RemoteId), With<ClientOf>>,
     old_players: Query<(Entity, &LobbyPlayer)>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
@@ -287,21 +289,42 @@ fn on_start(
         };
         let others: Vec<PeerId> = real.iter().copied().filter(|p| *p != member.peer).collect();
 
-        let pose = match mode {
-            GameMode::Freestyle => PlayerPose::default(),
-            GameMode::FreeForAll => {
-                let seed = time.elapsed().as_nanos() as u64
-                    ^ member.peer.to_bits()
-                    ^ lobby_entity.to_bits();
-                let (pos, yaw) = shared::spawns::spawn_point(seed, &taken_spawns, lobby.map);
-                taken_spawns.push(pos);
-                PlayerPose {
-                    translation: pos,
-                    yaw,
-                    ..default()
-                }
-            }
+        // Where they start. A map with hand-placed spawn points (Shipment) puts
+        // *everyone* — players and bots, either mode — on one of them, facing the
+        // way it says; otherwise `FreeForAll` spreads them over a ring, and
+        // `Freestyle` leaves a real player where their client already is.
+        let designated = shared::spawns::designated_spawns(lobby.map).is_some();
+        let spawn = (designated || mode == GameMode::FreeForAll).then(|| {
+            let seed = time.elapsed().as_nanos() as u64
+                ^ member.peer.to_bits()
+                ^ lobby_entity.to_bits();
+            let (pos, yaw) = shared::spawns::spawn_point(seed, &taken_spawns, lobby.map);
+            taken_spawns.push(pos);
+            (pos, yaw)
+        });
+        // (`spawn`'s position is on the ground; the pose holds the eye.)
+        let pose = match spawn {
+            Some((pos, yaw)) => PlayerPose {
+                translation: pos + Vec3::Y * crate::sim::EYE_HEIGHT,
+                yaw,
+                ..default()
+            },
+            None => PlayerPose::default(),
         };
+        // Real clients move their own rig, so tell them where to stand — now,
+        // not after the usual respawn delay.
+        if let (Some((pos, yaw)), true) = (spawn, designated && member.bot.is_none()) {
+            let msg = shared::PlayerRespawn {
+                pos: pos.to_array(),
+                yaw,
+                immediate: true,
+            };
+            if let Err(e) =
+                sender.send::<_, GameChannel>(&msg, &server, &NetworkTarget::Single(member.peer))
+            {
+                error!("failed to send start spawn to {:?}: {e:?}", member.peer);
+            }
+        }
 
         let mut ec = commands.spawn((
             Name::from(if member.bot.is_some() { "BotPlayer" } else { "Player" }),
@@ -329,9 +352,9 @@ fn on_start(
             // A bot: driven by `ai::drive_bots`, standing where `pose` put it
             // (the pose holds the eye position; the brain wants the feet).
             (None, Some(difficulty)) => {
-                let feet = pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT;
+                let (feet, yaw) = spawn.unwrap_or((Vec3::ZERO, 0.0));
                 let seed = time.elapsed().as_nanos() as u64 ^ member.peer.to_bits();
-                ec.insert(BotBrain::new(difficulty, feet, seed));
+                ec.insert(BotBrain::new(difficulty, feet, seed).facing(yaw));
             }
             (None, None) => {}
         }

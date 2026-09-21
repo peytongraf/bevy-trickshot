@@ -91,8 +91,7 @@ impl MapMesh {
     }
 
     /// The mesh's world-space bounds: `(min, max)`.
-    #[cfg(test)]
-    fn bounds(&self) -> (Vec3, Vec3) {
+    pub fn bounds(&self) -> (Vec3, Vec3) {
         let a = self.mesh.local_aabb();
         (
             Vec3::new(a.mins.x, a.mins.y, a.mins.z),
@@ -257,11 +256,13 @@ mod tests {
     }
 
     #[test]
-    fn ascension_is_placed_at_native_size() {
-        // A ±100 m ground plane and a building rising to ~20 m, at scale 1.
+    fn ascension_is_placed_at_the_basic_maps_scale() {
+        // A ±100 m ground plane and a building rising to ~20 m natively.
+        let s = map::BASIC_MAP_PLACEMENT.scale;
+        assert_eq!(map::placement(MapId::Ascension).scale, s);
         let (lo, hi) = colliders().world(MapId::Ascension).bounds();
-        assert!((lo.x + 100.0).abs() < 1.0 && (hi.x - 100.0).abs() < 1.0, "x {lo} .. {hi}");
-        assert!(hi.y > 19.0 && hi.y < 22.0, "height {}", hi.y);
+        assert!((lo.x + 100.0 * s).abs() < 1.0 && (hi.x - 100.0 * s).abs() < 1.5, "x {lo} .. {hi}");
+        assert!(hi.y > 19.0 * s && hi.y < 22.0 * s, "height {}", hi.y);
     }
 
     #[test]
@@ -269,12 +270,12 @@ mod tests {
         let c = colliders();
         let w = c.world(MapId::Ascension);
         // The open yard west of the building: bare ground.
-        let yard = w.raycast(Vec3::new(-50.0, 40.0, 0.0), Vec3::NEG_Y, 100.0).expect("ground");
+        let yard = w.raycast(Vec3::new(-32.5, 40.0, 0.0), Vec3::NEG_Y, 100.0).expect("ground");
         assert!((yard.distance - 40.0).abs() < 0.5, "yard at {}", yard.distance);
         assert!(yard.normal.y > 0.9);
         // Over the upper level: something is much higher than the ground.
-        let roof = w.raycast(Vec3::new(50.0, 40.0, -14.0), Vec3::NEG_Y, 100.0).expect("roof");
-        assert!(roof.distance < 25.0, "expected a raised surface, hit at {}", roof.distance);
+        let roof = w.raycast(Vec3::new(32.5, 40.0, -9.0), Vec3::NEG_Y, 100.0).expect("roof");
+        assert!(roof.distance < 30.0, "expected a raised surface, hit at {}", roof.distance);
     }
 
     #[test]

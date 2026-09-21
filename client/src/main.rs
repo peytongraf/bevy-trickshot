@@ -266,6 +266,7 @@ fn main() {
                 reset_slide,
                 reset_trick,
                 reset_weapon,
+                spawn_debug_readout,
             ),
         )
         .add_systems(OnEnter(AppState::MainMenu), release_cursor)
@@ -406,7 +407,7 @@ fn main() {
                     .after(look_around),
                 (spawn_tracers, update_tracers),
                 (update_ammo_ui, update_weapon_icon),
-                update_fps_ui,
+                (update_fps_ui, update_debug_readout),
                 (apply_scene_tuning, sync_scope_fog).chain(),
                 (apply_shadow_quality, apply_crosshair_texture),
                 (

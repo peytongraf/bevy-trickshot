@@ -52,6 +52,7 @@ impl Plugin for LobbyUiPlugin {
                 Update,
                 drive_ingame_exit.run_if(in_state(AppState::InGame)),
             )
+            .add_systems(Update, wheel_scroll.run_if(in_menu))
             .add_systems(
                 Update,
                 (
@@ -74,6 +75,44 @@ impl Plugin for LobbyUiPlugin {
                 )
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+/// Marks a scrollable panel on the home screen ([`wheel_scroll`]). They're also
+/// `Pickable::IGNORE` so `menu::scroll_hovered` (which scrolls whatever
+/// scrollable node the picking hover map reports) doesn't scroll them a second
+/// time.
+#[derive(Component)]
+struct WheelScroll;
+
+/// Scroll the [`WheelScroll`] panel the cursor is over with the mouse wheel,
+/// clamped to its content. (Hit-tested against the panel's own rectangle rather
+/// than via the picking hover map, so it works with the text / buttons on top of
+/// it under the cursor.)
+fn wheel_scroll(
+    mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
+    window: Single<&Window, With<bevy::window::PrimaryWindow>>,
+    mut panels: Query<(&mut ScrollPosition, &ComputedNode, &GlobalTransform), With<WheelScroll>>,
+) {
+    let Some(cursor) = window.physical_cursor_position() else {
+        wheel.clear();
+        return;
+    };
+    for ev in wheel.read() {
+        let dy = match ev.unit {
+            bevy::input::mouse::MouseScrollUnit::Line => ev.y * 24.0,
+            bevy::input::mouse::MouseScrollUnit::Pixel => ev.y,
+        };
+        for (mut pos, node, gt) in &mut panels {
+            let half = node.size() * 0.5;
+            let center = gt.translation().truncate();
+            if (cursor - center).abs().cmpgt(half).any() {
+                continue;
+            }
+            // Logical pixels of content past the bottom edge.
+            let max = ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.0);
+            pos.offset_y = (pos.offset_y - dy).clamp(0.0, max);
+        }
     }
 }
 
@@ -473,10 +512,16 @@ fn build_browser(
     commands
         .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
         .with_children(|root| {
+            // The whole screen tall, with padding all round: the title, the lobby
+            // list and the buttons keep their size, and the updates panel takes
+            // whatever's left (scrolling), so the buttons never leave the screen.
             root.spawn(Node {
                 width: Val::Px(760.0),
+                max_width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(20.0),
+                padding: UiRect::all(Val::Px(32.0)),
                 ..default()
             })
             .with_children(|col| {
@@ -499,12 +544,20 @@ fn build_browser(
                 // what's new — see `changelog::ENTRIES` doc comment: add a line
                 // there with every shipped feature or fix, this panel is the
                 // only place players see it.
+                //
+                // The panel fills the leftover height (`flex_basis: 0` so its
+                // content doesn't set its size) and its list scrolls with the
+                // mouse wheel.
                 col.spawn((
                     Node {
                         width: Val::Percent(100.0),
                         flex_direction: FlexDirection::Column,
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        min_height: Val::Px(80.0),
                         padding: UiRect::all(Val::Px(16.0)),
-                        row_gap: Val::Px(6.0),
+                        row_gap: Val::Px(8.0),
                         ..default()
                     },
                     BackgroundColor(PANEL),
@@ -517,27 +570,60 @@ fn build_browser(
                         15.0,
                         TEXT_DIM,
                     ));
-                    for (version, notes) in crate::changelog::ENTRIES {
-                        panel.spawn(label_hud(asset_server, format!("v{version}"), 14.0, ACCENT));
-                        for note in *notes {
-                            panel.spawn(crate::ui::label_body(
-                                asset_server,
-                                format!("•  {note}"),
-                                14.0,
-                                TEXT,
-                            ));
-                        }
-                    }
+                    panel
+                        .spawn((
+                            WheelScroll,
+                            bevy::picking::Pickable::IGNORE,
+                            ScrollPosition::default(),
+                            Node {
+                                width: Val::Percent(100.0),
+                                flex_direction: FlexDirection::Column,
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
+                                min_height: Val::Px(0.0),
+                                row_gap: Val::Px(6.0),
+                                // Room for the content not to sit under the
+                                // scroll edge.
+                                padding: UiRect::right(Val::Px(6.0)),
+                                overflow: Overflow::scroll_y(),
+                                ..default()
+                            },
+                        ))
+                        .with_children(|list| {
+                            for (version, notes) in crate::changelog::ENTRIES {
+                                list.spawn(label_hud(
+                                    asset_server,
+                                    format!("v{version}"),
+                                    14.0,
+                                    ACCENT,
+                                ));
+                                for note in *notes {
+                                    list.spawn(crate::ui::label_body(
+                                        asset_server,
+                                        format!("•  {note}"),
+                                        14.0,
+                                        TEXT,
+                                    ));
+                                }
+                            }
+                        });
                 });
 
                 // lobby list
+                // (A fixed height that never shrinks — a long lobby list scrolls
+                // inside it instead of growing and pushing the buttons off.)
                 col.spawn((
+                    WheelScroll,
+                    bevy::picking::Pickable::IGNORE,
+                    ScrollPosition::default(),
                     Node {
                         width: Val::Percent(100.0),
-                        min_height: Val::Px(280.0),
+                        height: Val::Px(260.0),
+                        flex_shrink: 0.0,
                         flex_direction: FlexDirection::Column,
                         padding: UiRect::all(Val::Px(16.0)),
                         row_gap: Val::Px(6.0),
+                        overflow: Overflow::scroll_y(),
                         ..default()
                     },
                     BackgroundColor(PANEL),
@@ -591,9 +677,10 @@ fn build_browser(
                     }
                 });
 
-                // actions
+                // actions (never squeezed: they stay at the bottom, fully on screen)
                 col.spawn(Node {
                     column_gap: Val::Px(14.0),
+                    flex_shrink: 0.0,
                     ..default()
                 })
                 .with_children(|row| {

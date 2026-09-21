@@ -179,6 +179,7 @@ fn apply_player_hits(
         let msg = PlayerRespawn {
             pos: pos.to_array(),
             yaw,
+            immediate: false,
         };
         if !victim_is_bot {
             if let Err(e) =
@@ -320,6 +321,7 @@ fn fall_kill(
     let msg = PlayerRespawn {
         pos: pos.to_array(),
         yaw,
+        immediate: false,
     };
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(peer)) {
         error!("failed to send respawn to {peer:?}: {e:?}");

@@ -11,13 +11,18 @@
 //! whoever it hits and credits the kill, and [`crate::killcam`] records its
 //! "view" so a real player it kills gets a kill cam.
 //!
+//! Routes come from `nav`: a walkable graph computed from the map's collision
+//! mesh (nothing per-map to author), searched with A*. A bot re-plans about
+//! once a second, or sooner if its target moves a lot or it gets stuck, and
+//! falls back to walking straight at the target when there's no route.
+//!
 //! The behaviour, per bot per tick: pick the nearest living enemy (real
 //! players *and* other bots — it's a free-for-all); if it can see it and it's
 //! been in view for the difficulty's reaction time, stop, swing the aim onto it
 //! and fire on the difficulty's interval with the difficulty's aim error;
-//! otherwise walk (or sprint, on higher difficulties) toward it, sliding along
-//! walls and picking a random detour when stuck. No pathfinding — a wall it
-//! can't slide around is the extent of its problem-solving for now.
+//! otherwise follow its route toward it (walking, or sprinting on higher
+//! difficulties), sliding along walls and picking a random detour when stuck.
+//! No cover, strafing or dodging yet.
 
 use bevy::prelude::*;
 
@@ -27,16 +32,21 @@ use lightyear::prelude::*;
 use shared::bot_players::{BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::map::CollisionWorld;
+use shared::weapon::sniper_feel;
 use shared::{Lobby, PlayerId, PlayerInput, PlayerPose};
 
 use crate::collision::MapColliders;
 use crate::lobby::LobbyPlayer;
+use crate::nav::{NavGraph, NavGraphs};
 use crate::pvp::PlayerCombat;
 use crate::sim::EYE_HEIGHT;
 
 /// The client's one-shot sound bits (`client::killcam::SND_*`) that a bot
 /// triggers, so real players hear it: the sniper's shot and its footsteps.
 const SND_SHOT: u16 = 1 << 0;
+const SND_RECHAMBER: u16 = 1 << 2;
+const SND_AIM_IN: u16 = 1 << 5;
+const SND_AIM_OUT: u16 = 1 << 6;
 const SND_FOOTSTEP: u16 = 1 << 7;
 
 /// Walking / sprinting speeds (m/s) — the client's `WALK_SPEED` / `SPRINT_SPEED`
@@ -47,12 +57,10 @@ const SPRINT_SPEED: f32 = 9.0;
 /// A bot sprints toward a target farther than this (if its difficulty sprints).
 const SPRINT_MIN_DISTANCE: f32 = 30.0;
 
-/// Collision radius of a bot's body, and the height above its feet the sweep is
-/// made at (chest height, so low steps don't count as walls).
-const BODY_RADIUS: f32 = 0.35;
-const CHEST_HEIGHT: f32 = 0.9;
-/// The most a bot steps up onto (or snaps down from) in one move.
-const STEP_HEIGHT: f32 = 0.6;
+// A bot's body — a sphere swept at chest height, and the tallest step it climbs
+// — is defined in `nav`, shared with the pathfinding graph so the two agree
+// on what can be walked.
+use crate::nav::{BODY_RADIUS, CHEST_HEIGHT, STEP_HEIGHT};
 /// Downward acceleration while airborne (m/s²).
 const GRAVITY: f32 = 20.0;
 /// A bot that ends up this far below the map is put back at a spawn point.
@@ -66,6 +74,12 @@ const RETARGET_SECS: f32 = 1.0;
 const STUCK_SECS: f32 = 0.6;
 /// How long (s) a detour lasts.
 const DETOUR_SECS: f32 = 1.2;
+/// A route is re-planned about this often (s), plus a little jitter so 20 bots
+/// don't all search on the same tick...
+const REPATH_SECS: f32 = 1.2;
+/// ...or as soon as the target has moved this far (m) from where the route was
+/// planned to.
+const REPATH_TARGET_MOVED: f32 = 4.0;
 
 /// Counter for handing out fake peer ids.
 #[derive(Resource, Default)]
@@ -91,7 +105,26 @@ pub struct BotBrain {
     blocked_for: f32,
     detour_until: f32,
     detour_dir: Vec3,
+    /// The current route (feet waypoints), how far along it the bot is, where
+    /// the target was when it was planned, and when to plan again.
+    path: Vec<Vec3>,
+    path_index: usize,
+    path_goal: Vec3,
+    repath_at: f32,
     stride: f32,
+    /// Aim-down-sight amount (0 hip … 1 scoped), eased like a real player's so
+    /// the kill cam's scope-in isn't a snap.
+    ads: f32,
+    /// When the bot last fired (`Time::elapsed_secs`) — drives the recorded
+    /// fire animation and whether the rechamber sound has played yet.
+    last_shot_at: Option<f32>,
+    rechambered: bool,
+    /// Camera-shake state, run through the client's formulas (see
+    /// `shared::weapon::sniper_feel`) so a kill cam through a bot's eyes shakes
+    /// and kicks like a human's.
+    shake_trauma: f32,
+    shake_phase: f32,
+    shake_recoil: f32,
     /// Running counter feeding [`rand01`], so every roll differs.
     rng: u64,
 }
@@ -113,9 +146,25 @@ impl BotBrain {
             blocked_for: 0.0,
             detour_until: 0.0,
             detour_dir: Vec3::ZERO,
+            path: Vec::new(),
+            path_index: 0,
+            path_goal: Vec3::ZERO,
+            repath_at: 0.0,
             stride: 0.0,
+            ads: 0.0,
+            last_shot_at: None,
+            rechambered: true,
+            shake_trauma: 0.0,
+            shake_phase: 0.0,
+            shake_recoil: 0.0,
             rng: seed,
         }
+    }
+
+    /// Start facing `yaw` (radians) instead of a random way.
+    pub fn facing(mut self, yaw: f32) -> Self {
+        self.yaw = yaw;
+        self
     }
 
     fn roll(&mut self) -> f32 {
@@ -128,10 +177,24 @@ pub struct BotAiPlugin;
 
 impl Plugin for BotAiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<NextBotId>().add_systems(
-            FixedUpdate,
-            drive_bots.before(crate::sim::apply_client_pose),
+        // Every map's walkable graph, computed from its collision mesh now (a
+        // fraction of a second) rather than authored by hand.
+        let started = std::time::Instant::now();
+        let navs = NavGraphs::build(&MapColliders::load());
+        info!(
+            "built the bot navigation graphs in {:?} ({} / {} / {} usable nodes: basic / shipment / ascension)",
+            started.elapsed(),
+            navs.graph(shared::MapId::BasicMap).usable_count(),
+            navs.graph(shared::MapId::Shipment).usable_count(),
+            navs.graph(shared::MapId::Ascension).usable_count(),
         );
+
+        app.insert_resource(navs)
+            .init_resource::<NextBotId>()
+            .add_systems(
+                FixedUpdate,
+                drive_bots.before(crate::sim::apply_client_pose),
+            );
     }
 }
 
@@ -139,13 +202,13 @@ impl Plugin for BotAiPlugin {
 /// direction, or zero) at `speed` for `dt`: swept as a small sphere at chest
 /// height (sliding along what it hits), then snapped to the ground below —
 /// falling if there is none, refusing a step up taller than [`STEP_HEIGHT`].
-struct Moved {
+pub(crate) struct Moved {
     /// Ran into something on the way.
-    blocked: bool,
-    grounded: bool,
+    pub(crate) blocked: bool,
+    pub(crate) grounded: bool,
 }
 
-fn move_bot(
+pub(crate) fn move_bot(
     world: &dyn CollisionWorld,
     feet: &mut Vec3,
     vertical_velocity: &mut f32,
@@ -234,6 +297,7 @@ fn forward(yaw: f32, pitch: f32) -> Vec3 {
 fn drive_bots(
     time: Res<Time>,
     colliders: Res<MapColliders>,
+    navs: Res<NavGraphs>,
     lobbies: Query<&Lobby>,
     others: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
     mut bots: Query<(
@@ -257,6 +321,7 @@ fn drive_bots(
             continue;
         };
         let world = colliders.world(lobby.map);
+        let nav = navs.graph(lobby.map);
         let skill: BotSkill = brain.difficulty.skill();
 
         // Dead bots stand still and shoot no one; a flip back to alive is a
@@ -280,7 +345,10 @@ fn drive_bots(
                 .map(|(_, pose, ..)| pose.translation)
                 .collect();
             let seed = (now.to_bits() as u64) ^ id.0.to_bits();
-            brain.feet = shared::spawns::spawn_point(seed, &enemies, lobby.map).0;
+            let (pos, yaw) = shared::spawns::spawn_point(seed, &enemies, lobby.map);
+            brain.feet = pos;
+            brain.yaw = yaw;
+            brain.pitch = 0.0;
             brain.vertical_velocity = 0.0;
             brain.was_alive = true;
             brain.next_fire_at = now + 1.0;
@@ -308,9 +376,12 @@ fn drive_bots(
                         .total_cmp(&b.1.translation.distance_squared(eye))
                 })
                 .map(|(pid, ..)| pid.0);
-            // Only a *different* target starts the reaction clock over.
+            // Only a *different* target starts the reaction clock over — and
+            // needs a new route.
             if brain.target != previous {
                 brain.seen_for = 0.0;
+                brain.path.clear();
+                brain.repath_at = now;
             }
         }
         let target_pose = brain.target.and_then(|t| {
@@ -333,10 +404,36 @@ fn drive_bots(
         brain.seen_for = if visible { brain.seen_for + dt } else { 0.0 };
         let engaged = visible && brain.seen_for >= skill.reaction_secs;
 
-        // Swing the aim toward the target (or the way it's walking).
+        // Where to walk if not engaged: along the planned route to the target,
+        // re-planned now and then; `None` (no route / no target) falls back to
+        // heading straight at it below.
         let flat_to_target = Vec3::new(to_target.x, 0.0, to_target.z).normalize_or_zero();
+        let mut path_wish: Option<Vec3> = None;
+        if !engaged {
+            if let Some(t_eye) = target_pose {
+                let goal = t_eye - Vec3::Y * EYE_HEIGHT;
+                if now >= brain.repath_at || brain.path_goal.distance(goal) > REPATH_TARGET_MOVED {
+                    let jitter = brain.roll() * 0.6;
+                    brain.repath_at = now + REPATH_SECS + jitter;
+                    brain.path_goal = goal;
+                    brain.path = nav.find_path(world, brain.feet, goal).unwrap_or_default();
+                    brain.path_index = 0;
+                }
+                let feet = brain.feet;
+                let mut index = brain.path_index;
+                if let Some(wp) = NavGraph::next_waypoint(world, &brain.path, &mut index, feet) {
+                    path_wish = Some(Vec3::new(wp.x - feet.x, 0.0, wp.z - feet.z).normalize_or_zero())
+                        .filter(|d| *d != Vec3::ZERO);
+                }
+                brain.path_index = index;
+            }
+        }
+
+        // Swing the aim toward the target (or the way it's walking).
         let (mut want_yaw, want_pitch) = if visible && distance > 0.1 {
             look_angles(to_target / distance)
+        } else if let Some(d) = path_wish {
+            (look_angles(d).0, 0.0)
         } else if flat_to_target != Vec3::ZERO {
             (look_angles(flat_to_target).0, 0.0)
         } else {
@@ -357,6 +454,8 @@ fn drive_bots(
         if !engaged {
             if brain.detour_until > now {
                 wish = brain.detour_dir;
+            } else if let Some(d) = path_wish {
+                wish = d;
             } else if flat_to_target != Vec3::ZERO {
                 wish = flat_to_target;
             } else {
@@ -388,6 +487,8 @@ fn drive_bots(
             let base = if wish != Vec3::ZERO { wish } else { Vec3::NEG_Z };
             brain.detour_dir = Quat::from_rotation_y(turn) * base;
             brain.detour_until = now + DETOUR_SECS;
+            // Whatever it was following didn't work — plan again afterwards.
+            brain.repath_at = now + DETOUR_SECS;
         }
         if brain.feet.y < VOID_Y {
             // Off the map somehow — back to a spawn point.
@@ -421,6 +522,51 @@ fn drive_bots(
             }
         }
 
+        // Scope in / out over the same 0.4 s a real player takes, with the same
+        // aim sounds on each change of direction.
+        let ads_goal = if engaged { 1.0 } else { 0.0 };
+        if ads_goal != brain.ads {
+            let step = dt / sniper_feel::ADS_SECS;
+            let started = if ads_goal > brain.ads {
+                brain.ads == 0.0
+            } else {
+                brain.ads == 1.0
+            };
+            if started {
+                sound_bits |= if engaged { SND_AIM_IN } else { SND_AIM_OUT };
+            }
+            brain.ads = if ads_goal > brain.ads {
+                (brain.ads + step).min(1.0)
+            } else {
+                (brain.ads - step).max(0.0)
+            };
+        }
+
+        // The shot's animation, recoil kick and shake, then their decay.
+        if fire {
+            brain.last_shot_at = Some(now);
+            brain.rechambered = false;
+            brain.shake_trauma = (brain.shake_trauma + sniper_feel::SHAKE_ADD).min(1.0);
+            brain.shake_recoil = sniper_feel::RECOIL_KICK;
+        } else {
+            brain.shake_recoil *= (-sniper_feel::RECOIL_RETURN * dt).exp();
+            if brain.shake_recoil < 1.0e-5 {
+                brain.shake_recoil = 0.0;
+            }
+            brain.shake_trauma = (brain.shake_trauma - sniper_feel::SHAKE_DECAY * dt).max(0.0);
+            if brain.shake_trauma > 0.0 {
+                brain.shake_phase += dt * sniper_feel::SHAKE_FREQ;
+            } else {
+                brain.shake_phase = 0.0;
+            }
+        }
+        let since_shot = brain.last_shot_at.map_or(f32::INFINITY, |t| now - t);
+        // The bolt-cycle click, once the Shoot segment gives way to Rechamber.
+        if !brain.rechambered && since_shot >= sniper_feel::SHOOT_END_SECS {
+            brain.rechambered = true;
+            sound_bits |= SND_RECHAMBER;
+        }
+
         let eye = brain.feet + Vec3::Y * EYE_HEIGHT;
         action.0 = PlayerInput {
             translation: eye.to_array(),
@@ -430,9 +576,12 @@ fn drive_bots(
             fire_origin: eye.to_array(),
             fire_dir: fire_dir.to_array(),
             sound_bits,
-            // Aiming down the sights while engaged (the remote model's aim
-            // pose, and the kill cam's scope), hip otherwise.
-            ads_t: if engaged { 1.0 } else { 0.0 },
+            // The remote model's aim pose and the kill cam's scope.
+            ads_t: brain.ads,
+            anim_time: sniper_feel::anim_time(since_shot),
+            shake_trauma: brain.shake_trauma,
+            shake_phase: brain.shake_phase,
+            shake_recoil: brain.shake_recoil,
             jumping: !moved.grounded,
             ..default()
         };
@@ -536,6 +685,7 @@ mod tests {
             core::time::Duration::from_secs_f64(1.0 / 64.0),
         ));
         app.insert_resource(MapColliders::load());
+        app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -596,8 +746,41 @@ mod tests {
             "yaw {}",
             last.yaw
         );
-        // Aiming down the sights while engaged.
+        // Fully scoped by now (it's been engaged for seconds).
         assert_eq!(last.ads_t, 1.0);
+    }
+
+    #[test]
+    fn a_bots_recorded_first_person_feel_matches_a_real_players() {
+        let (mut app, bot) = world(
+            BotDifficulty::Veteran,
+            Vec3::new(-60.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, 0.0),
+        );
+        app.update(); // (the first update has no time delta)
+        let max_step = 1.0 / 64.0 / sniper_feel::ADS_SECS + 1e-4;
+        let (mut prev_ads, mut sum_bits) = (0.0_f32, 0u16);
+        let (mut saw_partial, mut saw_anim, mut saw_shake) = (false, false, false);
+        for _ in 0..(8 * 64) {
+            app.update();
+            let i = input(&app, bot);
+            // Never a snap: the scope moves at most one tick's worth per tick.
+            assert!(
+                (i.ads_t - prev_ads).abs() <= max_step,
+                "ads jumped {prev_ads} -> {}",
+                i.ads_t
+            );
+            prev_ads = i.ads_t;
+            saw_partial |= i.ads_t > 0.05 && i.ads_t < 0.95;
+            saw_anim |= i.anim_time > 0.0;
+            saw_shake |= i.shake_trauma > 0.0 && i.shake_recoil > 0.0;
+            sum_bits |= i.sound_bits;
+        }
+        assert!(saw_partial, "never saw a partly scoped frame");
+        assert!(saw_anim, "no fire animation recorded");
+        assert!(saw_shake, "no recoil / shake recorded");
+        assert_eq!(sum_bits & SND_AIM_IN, SND_AIM_IN);
+        assert_eq!(sum_bits & SND_RECHAMBER, SND_RECHAMBER);
     }
 
     #[test]
@@ -627,12 +810,48 @@ mod tests {
         for _ in 0..(8 * 64) {
             app.update();
             let i = input(&app, bot);
-            assert!(!i.fire, "shot through a wall");
-            assert!(i.translation[0] < 0.0, "walked through the wall to {:?}", i.translation);
+            // (Once it has rounded the wall's end it may see — and shoot — the
+            // target through the opening; along the wall it never can.)
+            assert!(!i.fire || i.translation[2] < -1.0, "shot through a wall from {:?}", i.translation);
+            // (The wall ends at z ≈ -1.4 — rounding that end, or past it, is fine.)
+            assert!(
+                i.translation[0] < 0.0 || i.translation[2] < -1.0,
+                "walked through the wall to {:?}",
+                i.translation
+            );
         }
         // It did try to get there: it ended up against the wall, not still at its spawn.
         let x = input(&app, bot).translation[0];
         assert!(x > -8.0 + 1.0, "never moved toward the target (x = {x})");
+    }
+
+    #[test]
+    fn a_bot_finds_its_way_up_the_ramps_to_a_target_on_the_top_floor() {
+        // Ground floor inside Ascension's building; the target is 13 m up, out of
+        // sight behind floors — going straight at it would just hit a wall.
+        let (mut app, bot) = world(
+            BotDifficulty::Veteran,
+            Vec3::new(9.5, 0.0, -6.5),
+            Vec3::new(26.5, 13.3, -9.5),
+        );
+        app.update(); // (the first update has no time delta)
+        let mut best_height = 0.0f32;
+        let mut arrived_at = None;
+        for tick in 0..(150 * 64) {
+            app.update();
+            let eye = input(&app, bot).translation;
+            best_height = best_height.max(eye[1] - EYE_HEIGHT);
+            // (Up on the top floor — it may well stop short of the target once it
+            // can see it and starts aiming.)
+            if eye[1] - EYE_HEIGHT > 12.0 {
+                arrived_at = Some(tick as f32 / 64.0);
+                break;
+            }
+        }
+        assert!(
+            arrived_at.is_some(),
+            "never reached the top floor (highest it got: {best_height:.1} m)"
+        );
     }
 
     #[test]

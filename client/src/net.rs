@@ -519,7 +519,8 @@ fn receive_respawn(
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             pending.to = Some((Vec3::from_array(msg.pos), msg.yaw));
-            pending.seen_killcam = false;
+            // A match-start spawn has no kill cam to wait for.
+            pending.seen_killcam = msg.immediate;
             pending.waited_secs = 0.0;
         }
     }
@@ -540,7 +541,8 @@ fn flush_pending_respawn(
     mut pending: ResMut<PendingRespawn>,
     active: Res<ActiveKillCam>,
     mut weapon: ResMut<crate::Weapon>,
-    player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+    player: Single<(&mut Transform, &mut PlayerPhysics), (With<Player>, Without<PlayerHead>)>,
+    mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
     mut respawned: EventWriter<LocalPlayerRespawned>,
 ) {
     let Some((pos, yaw)) = pending.to else {
@@ -567,6 +569,8 @@ fn flush_pending_respawn(
     // teleported.
     transform.translation = pos + Vec3::Y * crate::EYE_HEIGHT;
     transform.rotation = Quat::from_rotation_y(yaw);
+    // Always spawn looking level (pitch 0).
+    head.rotation = Quat::IDENTITY;
     *physics = PlayerPhysics::default();
     weapon.refill_ammo();
     pending.to = None;

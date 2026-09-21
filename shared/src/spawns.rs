@@ -27,6 +27,49 @@ const RETRIES: u32 = 8;
 /// spawn never lands flush against a container, only never inside one.
 const WALL_CLEARANCE: f32 = 1.0;
 
+/// One hand-placed spawn point: where on the ground (`x`, `z` — the eye is
+/// `EYE_HEIGHT` above it, the `y = 1.7` in `client/notes/shipment-spawn-points.md`)
+/// and which way to face. `yaw_deg` follows the game's convention: `0` faces
+/// -Z, positive turns **left**, negative turns **right** (the notes' "130 left"
+/// is `+130`, "140 right" is `-140`). Pitch is always `0`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpawnPoint {
+    pub x: f32,
+    pub z: f32,
+    pub yaw_deg: f32,
+}
+
+const fn sp(x: f32, z: f32, yaw_deg: f32) -> SpawnPoint {
+    SpawnPoint { x, z, yaw_deg }
+}
+
+/// `Shipment` / `ShipmentDay`'s spawn points, from
+/// `client/notes/shipment-spawn-points.md`.
+const SHIPMENT_SPAWNS: [SpawnPoint; 11] = [
+    sp(27.0, -27.0, 130.0),
+    sp(6.7, -27.5, -140.0),
+    sp(0.0, -26.8, 92.0),
+    sp(-26.0, -27.0, -130.0),
+    sp(-24.5, -0.85, 170.0),
+    sp(-26.0, 28.5, -48.0),
+    sp(-6.5, 28.5, 30.0),
+    sp(-2.5, 23.5, -90.0),
+    sp(26.5, 28.0, 36.0),
+    sp(7.0, 28.5, -37.0),
+    sp(25.0, -1.5, 12.0),
+];
+
+/// The hand-placed spawn points for `map`, if it has any. Everyone who spawns
+/// there — at the start of a match or on every respawn, players and bots
+/// alike — uses one of these (see [`spawn_point`]); maps without them fall back
+/// to a random spot on a ring around the map's centre.
+pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
+    match map {
+        MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),
+        _ => None,
+    }
+}
+
 /// Pick a ground spawn point (position + facing) for `GameMode::FreeForAll`,
 /// preferring one at least [`MIN_SEPARATION`] from every position in
 /// `others` (typically every other currently-alive player in the lobby),
@@ -35,6 +78,29 @@ const WALL_CLEARANCE: f32 = 1.0;
 /// past its walls, so a candidate can clear all of them while still landing
 /// beyond the map entirely.
 pub fn spawn_point(seed: u64, others: &[Vec3], map: MapId) -> (Vec3, f32) {
+    // A map with hand-placed spawns: a random one, facing the way it says —
+    // preferring one clear of everyone (in the ground plane), else the one
+    // that's farthest from the nearest person.
+    if let Some(points) = designated_spawns(map) {
+        let start = (rand01(seed) * points.len() as f32) as usize % points.len();
+        let mut best: Option<(SpawnPoint, f32)> = None;
+        for k in 0..points.len() {
+            let p = points[(start + k) % points.len()];
+            let min_dist = others
+                .iter()
+                .map(|o| Vec3::new(o.x - p.x, 0.0, o.z - p.z).length())
+                .fold(f32::INFINITY, f32::min);
+            if min_dist >= MIN_SEPARATION {
+                best = Some((p, min_dist));
+                break;
+            }
+            if best.is_none_or(|(_, d)| min_dist > d) {
+                best = Some((p, min_dist));
+            }
+        }
+        let p = best.map(|(p, _)| p).unwrap_or(points[start]);
+        return (Vec3::new(p.x, 0.0, p.z), p.yaw_deg.to_radians());
+    }
     let mut best: Option<(Vec3, f32, f32)> = None; // (pos, yaw, min_dist)
     for i in 0..RETRIES {
         let s = seed ^ (i as u64).wrapping_mul(0x2545_f491_4f6c_dd1d);
@@ -90,25 +156,49 @@ mod tests {
     }
 
     #[test]
-    fn spawn_point_never_lands_inside_a_shipment_wall() {
+    fn shipment_spawns_are_the_hand_placed_points_facing_as_set() {
+        let points = designated_spawns(MapId::Shipment).unwrap();
+        assert_eq!(points.len(), 11);
+        assert_eq!(designated_spawns(MapId::ShipmentDay), Some(points));
+        assert!(designated_spawns(MapId::BasicMap).is_none());
         for seed in 0..2000u64 {
-            let (pos, _) = spawn_point(seed, &[], MapId::Shipment);
-            assert!(
-                !map::point_blocked(MapId::Shipment, pos.x, pos.z, 0.0, map::SHIPMENT_SCALE),
-                "seed {seed} landed inside a wall at {pos:?}"
-            );
+            let (pos, yaw) = spawn_point(seed, &[], MapId::Shipment);
+            let p = points
+                .iter()
+                .find(|p| p.x == pos.x && p.z == pos.z)
+                .unwrap_or_else(|| panic!("seed {seed} spawned off the list at {pos:?}"));
+            assert_eq!(pos.y, 0.0, "spawns are on the ground (the eye is 1.7 above)");
+            assert!((yaw - p.yaw_deg.to_radians()).abs() < 1e-6, "seed {seed}: wrong facing");
         }
     }
 
     #[test]
-    fn spawn_point_never_lands_outside_the_shipment_walls() {
+    fn every_shipment_spawn_gets_used() {
+        let mut seen = std::collections::HashSet::new();
         for seed in 0..2000u64 {
             let (pos, _) = spawn_point(seed, &[], MapId::Shipment);
-            assert!(
-                map::in_bounds(MapId::Shipment, pos.x, pos.z, map::SHIPMENT_SCALE),
-                "seed {seed} landed outside the map at {pos:?}"
-            );
+            seen.insert((pos.x.to_bits(), pos.z.to_bits()));
         }
+        assert_eq!(seen.len(), 11, "some spawn point never came up");
+    }
+
+    #[test]
+    fn a_shipment_spawn_avoids_someone_standing_on_a_point_when_it_can() {
+        let points = designated_spawns(MapId::Shipment).unwrap();
+        let on_first = [Vec3::new(points[0].x, 0.0, points[0].z)];
+        for seed in 0..500u64 {
+            let (pos, _) = spawn_point(seed, &on_first, MapId::Shipment);
+            let d = Vec3::new(pos.x - on_first[0].x, 0.0, pos.z - on_first[0].z).length();
+            assert!(d >= MIN_SEPARATION - 1e-3, "seed {seed} spawned {d} m from someone");
+        }
+    }
+
+    #[test]
+    fn a_full_lobby_still_gets_a_spawn_when_everyone_else_is_at_every_point() {
+        let points = designated_spawns(MapId::Shipment).unwrap();
+        let everyone: Vec<Vec3> = points.iter().map(|p| Vec3::new(p.x, 0.0, p.z)).collect();
+        let (pos, _) = spawn_point(1, &everyone, MapId::Shipment);
+        assert!(points.iter().any(|p| p.x == pos.x && p.z == pos.z));
     }
 
     #[test]

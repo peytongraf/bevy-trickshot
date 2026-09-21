@@ -23,6 +23,7 @@ mod health;
 mod killcam;
 mod knives;
 mod lobby;
+mod nav;
 mod net;
 mod pvp;
 mod sim;
