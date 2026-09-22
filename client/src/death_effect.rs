@@ -142,7 +142,11 @@ pub(crate) fn show_overlay_and_hide_weapon(
         commands
             .spawn((
                 DeathOverlay,
-                GlobalZIndex(10),
+                // Below every HUD element (ammo/crosshair/fps default to 0,
+                // health/score popup go up to 9) so it never covers HUD text,
+                // but still a `bevy_ui` node on the HUD camera, so it still
+                // draws over the whole 3D view underneath.
+                GlobalZIndex(-1),
                 Node {
                     position_type: PositionType::Absolute,
                     width: Val::Percent(100.0),

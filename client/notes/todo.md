@@ -6,18 +6,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Add sniper glint to remote players when they ads
 - Turn down remote player rechamber volume by a lot.
-- When a player is killed, before the killcam plays they shouldn't be able to do anything at all except open the menu with escape
 - Blood splatter / red tint for health is over top of hud on the z axis
 - Make other players and bots not able to be ran through
-- Add sniper glint to remote players when they ads
 - On throwing knife killcam, once the player throws the knife, the camera should follow the throwing knife
-- On shipment some bullet impacts don't show. This is probably because the asset like the container is slightly larger than it should be so the impact is shown behind the surface.
-- Download high quality arms model along with a sniper and knife. Create own custom animations with it.
 - Increase aim sway
 - On windows terminal pops up to play prod client
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
-- Update to bevy 0.19 from 0.16
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 - Ensure that when leaving a match that everything is being reset and works properly when joinging a new match
 - When leaving with party the lobby should still be together
@@ -28,11 +24,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 ## Do Later
 
+- Update to bevy 0.19 from 0.16
+- Download high quality arms model along with a sniper and knife. Create own custom animations with it.
 - Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
 - Add tabs to top right controls ui to group other tabs into
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
+- On shipment some bullet impacts don't show. This is probably because the asset like the container is slightly larger than it should be so the impact is shown behind the surface.
 
 ## Bugs
 
