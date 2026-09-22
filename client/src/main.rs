@@ -242,6 +242,7 @@ fn main() {
         .init_resource::<BulbLightSettings>()
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
+        .init_resource::<SniperGlintSettings>()
         .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
@@ -263,6 +264,9 @@ fn main() {
                 setup_rain,
             ),
         )
+        // `PostStartup`, not `Startup` — a `Startup` system blacks out the
+        // in-game 3D view.
+        .add_systems(PostStartup, setup_sniper_glint_assets)
         .add_systems(
             OnEnter(AppState::InGame),
             (

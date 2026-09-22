@@ -75,6 +75,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
+            ResMut<SniperGlintSettings>,
         ),
     ),
 ) -> Result {
@@ -93,7 +94,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -618,6 +619,36 @@ pub(crate) fn ads_tuning_ui(
                 );
                 if ui.button("Reset remote player anim speed").clicked() {
                     *sa = SoldierAnimSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Sniper glint", |ui| {
+                let g = &mut *sniper_glint;
+                ui.label(
+                    "sniper_glint.png sprite off another player's or bot's scope while \
+                     they're ADS — gives away a camping sniper, Call of Duty-style. Always \
+                     faces you, wherever you're standing.",
+                );
+                ui.label("offset from their eye position, in their own facing:");
+                ui.add(egui::Slider::new(&mut g.offset.x, -1.0f32..=1.0).text("x (right +)"));
+                ui.add(egui::Slider::new(&mut g.offset.y, -2.0f32..=3.0).text("y (up +)"));
+                ui.add(egui::Slider::new(&mut g.offset.z, -1.0f32..=1.0).text("z (forward +)"));
+                ui.add(egui::Slider::new(&mut g.scale, 0.01f32..=2.0).text("sprite size (m)"));
+                ui.add(
+                    egui::Slider::new(&mut g.ads_threshold, 0.0f32..=0.99)
+                        .text("ads amount to start fading in at"),
+                );
+
+                if ui.button("Copy sniper glint to console").clicked() {
+                    info!(
+                        "sniper glint: offset: Vec3::new({:.2}, {:.2}, {:.2}), scale: {:.2}, \
+                         ads_threshold: {:.2}",
+                        g.offset.x, g.offset.y, g.offset.z, g.scale, g.ads_threshold,
+                    );
+                }
+                if ui.button("Reset sniper glint").clicked() {
+                    *g = SniperGlintSettings::default();
                 }
             });
 

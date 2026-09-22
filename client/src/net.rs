@@ -17,6 +17,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
 use bevy::audio::{SpatialScale, Volume};
 use bevy::prelude::*;
+use bevy::render::view::NoFrustumCulling;
 use lightyear::prelude::client::{ClientPlugins, NetcodeClient, NetcodeConfig};
 use lightyear::prelude::input::client::InputSet;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
@@ -31,8 +32,8 @@ use crate::fall_death;
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
     play_bot_death, Ads, AppState, BloodImpact, BotAnimationPlayer, BotAnimations, BotVisual,
-    GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, TrickScoredEvent,
-    TrickState,
+    GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, SniperGlint,
+    SniperGlintAssets, SniperGlintBone, SniperGlintSettings, TrickScoredEvent, TrickState,
     WorldModelCamera, NOSCOPE_ADS_MAX,
 };
 
@@ -152,6 +153,8 @@ impl Plugin for ClientNetPlugin {
                 follow_remote_avatars,
                 animate_remote_avatars,
                 hide_remote_avatars_during_killcam,
+                spawn_sniper_glints,
+                update_sniper_glints,
                 spawn_bot_avatars,
                 follow_bot_avatars,
                 receive_shots,
@@ -807,6 +810,135 @@ fn follow_remote_avatars(
                 commands.entity(entity).try_despawn();
             }
         }
+    }
+}
+
+/// Spawn a [`SniperGlint`] for every [`RemoteAvatar`] that doesn't have one
+/// yet — mirrors `spawn_remote_avatars`'s polling, kept as its own entity
+/// rather than a child of it (see [`SniperGlint`]'s doc comment for why).
+/// Each gets its own material clone off [`SniperGlintAssets::texture`] so its
+/// alpha can fade independently of every other glint's (mirrors
+/// `vfx::impacts`).
+fn spawn_sniper_glints(
+    avatars: Query<(Entity, &RemoteAvatar)>,
+    glints: Query<&SniperGlint>,
+    assets: Res<SniperGlintAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let have: std::collections::HashSet<Entity> = glints.iter().map(|g| g.avatar).collect();
+    for (avatar_entity, avatar) in &avatars {
+        if have.contains(&avatar_entity) {
+            continue;
+        }
+        let material = materials.add(StandardMaterial {
+            base_color_texture: Some(assets.texture.clone()),
+            base_color: Color::srgba(1.0, 1.0, 1.0, 0.0),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            SniperGlint {
+                src: avatar.src,
+                avatar: avatar_entity,
+            },
+            Mesh3d(assets.quad.clone()),
+            MeshMaterial3d(material),
+            Transform::default(),
+            Visibility::Hidden,
+            NoFrustumCulling,
+        ));
+    }
+}
+
+/// Follows each [`SniperGlint`] to its anchor — [`SniperGlintBone`]'s current
+/// animated `GlobalTransform` plus `SniperGlintSettings::offset` rotated into
+/// its orientation, once the scene has found the gun mesh node (falls back to
+/// the replicated pose, unanimated, for the frame or so before it has) — so
+/// it rides along with the actual gun mesh through every animation (walk bob,
+/// aim raise, recoil) instead of floating in place while the model moves
+/// under it. Billboards it to face the local camera dead-on, and fades its
+/// opacity with `PlayerPose::ads_t` past `ads_threshold`, so it appears right
+/// as the remote avatar visibly raises its rifle. Forced off while the owner
+/// is dead — same priority `animate_remote_avatars` gives `Dead` over `Aim` —
+/// so it doesn't linger on a corpse for the moment `Ads::t` takes to decay
+/// back to `0` after the killing blow. Also forced off during a kill cam —
+/// the live avatar itself is hidden then too (see
+/// `hide_remote_avatars_during_killcam`), replaced by the replay's own
+/// stand-ins, which don't carry a glint of their own.
+#[allow(clippy::too_many_arguments)]
+fn update_sniper_glints(
+    poses: Query<&PlayerPose>,
+    bones: Query<Option<&SniperGlintBone>, With<RemoteAvatar>>,
+    transforms: Query<&GlobalTransform>,
+    settings: Res<SniperGlintSettings>,
+    killcam: Res<killcam::ActiveKillCam>,
+    camera: Single<&GlobalTransform, With<WorldModelCamera>>,
+    mut glints: Query<(
+        Entity,
+        &SniperGlint,
+        &mut Transform,
+        &mut Visibility,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let cam_pos = camera.translation();
+
+    for (entity, glint, mut tf, mut vis, material) in &mut glints {
+        let Ok(pose) = poses.get(glint.src) else {
+            commands.entity(entity).try_despawn();
+            continue;
+        };
+
+        // The gun bone's `GlobalTransform` carries the huge
+        // `RemoteAvatarSettings::scale` (~21×) baked into its own scale
+        // component, so only its translation/rotation are used — the offset
+        // stays in real-world metres regardless, same as the pose fallback.
+        let anchor = bones
+            .get(glint.avatar)
+            .ok()
+            .flatten()
+            .and_then(|bone| transforms.get(bone.0).ok());
+        let (origin, rotation) = match anchor {
+            Some(gt) => (gt.translation(), gt.rotation()),
+            None => (pose.translation, Quat::from_rotation_y(pose.yaw)),
+        };
+        let pos = origin
+            + rotation * Vec3::X * settings.offset.x
+            + rotation * Vec3::Y * settings.offset.y
+            + rotation * Vec3::NEG_Z * settings.offset.z;
+
+        // Always face the local player dead-on, regardless of the gun's own
+        // orientation — `looking_at`'s `up` only matters when the look
+        // direction is near-parallel to it, which a roughly-horizontal sight
+        // line to another player's scope never is.
+        tf.translation = pos;
+        tf.rotation = Transform::from_translation(pos)
+            .looking_at(cam_pos, Vec3::Y)
+            .rotation;
+        tf.scale = Vec3::splat(settings.scale.max(1.0e-4));
+
+        let amount = if killcam.0.is_some() || !pose.alive {
+            0.0
+        } else {
+            let span = (1.0 - settings.ads_threshold).max(1e-3);
+            ((pose.ads_t - settings.ads_threshold) / span).clamp(0.0, 1.0)
+        };
+
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.base_color = Color::srgba(1.0, 1.0, 1.0, amount);
+        }
+        *vis = if amount > 0.0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 

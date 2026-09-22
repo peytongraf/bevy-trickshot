@@ -179,6 +179,109 @@ impl Default for RemoteAvatarSettings {
     }
 }
 
+/// A remote player's (or bot's) sniper-glint sprite — `textures/sniper_glint.png`
+/// on a quad, catching the eye off their scope while they're aiming down
+/// sight, giving away a camping sniper the same way Call of Duty's own scope
+/// glint does. Not parented to the `RemoteAvatar` model: its offset is meant
+/// in real-world metres, and `RemoteAvatarSettings::scale` (~21×) would scale
+/// a child's local translation right along with it. One spawned per
+/// aiming-capable remote avatar by `net::spawn_sniper_glints`; followed,
+/// billboarded to face the local camera, faded in/out with
+/// `PlayerPose::ads_t` and despawned with its owner by
+/// `net::update_sniper_glints`.
+#[derive(Component)]
+pub(crate) struct SniperGlint {
+    /// The `PlayerPose` entity this glint follows — same as `RemoteAvatar::src`.
+    pub(crate) src: Entity,
+    /// The `RemoteAvatar` entity itself — looked up each frame for its
+    /// [`SniperGlintBone`], if the scene has found one yet.
+    pub(crate) avatar: Entity,
+}
+
+/// glTF node name of the joint that actually drives the gun mesh's on-screen
+/// position in `models/soldier.glb`: **not** the gun mesh's own node
+/// (Blender's `Object_10` / glTF node `gun_LOD0_055_056` — both dead weight,
+/// with no animation channel anywhere in either one's ancestry, since the
+/// mesh is *skinned* rather than rigidly parented — a skinned mesh's own
+/// `Transform` never moves; the vertices are deformed by joint matrices in
+/// the shader instead). Inspecting `Object_10`'s per-vertex skin weights
+/// directly (every one of its 999 vertices) showed all of them at 100%
+/// weight on this single joint — the right-hand bone — so it, not the gun
+/// mesh's own node, is what actually carries the walk sway / recoil kick /
+/// reload motion the gun visibly follows.
+pub(crate) const SNIPER_GLINT_BONE_NAME: &str = "Bind_RightHand_037_038";
+
+/// The animated joint the gun mesh is actually 100%-weighted to (see
+/// [`SNIPER_GLINT_BONE_NAME`]'s doc comment) inside a `RemoteAvatar`'s
+/// spawned scene — set by `start_soldier_animation` once it's found among
+/// the scene's descendants. `SniperGlint` reads this entity's
+/// `GlobalTransform` every frame instead of the replicated (unanimated)
+/// `PlayerPose`, so it rides along with the actual animated gun mesh — walk
+/// bob, aim raise, recoil — rather than floating in place while the avatar's
+/// model moves under it during a movement / aim animation.
+#[derive(Component)]
+pub(crate) struct SniperGlintBone(pub(crate) Entity);
+
+/// Shared quad mesh + the glint texture (`net::spawn_sniper_glints` clones a
+/// fresh material per glint off `texture` so each one's alpha can fade on its
+/// own — mirrors `vfx::impacts::ImpactAssets`). Built once by
+/// `setup_sniper_glint_assets`, added to `PostStartup` (never `Startup`,
+/// which blacks out the in-game 3D view).
+#[derive(Resource)]
+pub(crate) struct SniperGlintAssets {
+    pub(crate) quad: Handle<Mesh>,
+    pub(crate) texture: Handle<Image>,
+}
+
+/// Build [`SniperGlintAssets`].
+pub(crate) fn setup_sniper_glint_assets(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    commands.insert_resource(SniperGlintAssets {
+        quad: meshes.add(Rectangle::new(1.0, 1.0)),
+        texture: asset_server.load("textures/sniper_glint.png"),
+    });
+}
+
+/// Panel-adjustable sniper-glint placement/size ("Sniper glint" debug-panel
+/// section), applied every frame by `net::update_sniper_glints`.
+#[derive(Resource)]
+pub(crate) struct SniperGlintSettings {
+    /// Offset (world metres) from [`SniperGlintBone`]'s current animated
+    /// position, in *its own* local orientation: `x` right(+)/left(-), `y`
+    /// up(+)/down(-), `z` forward(+)/back(-) — whichever way those map onto
+    /// the right-hand bone's own rest-pose axes in `models/soldier.glb` (the
+    /// gun mesh is rigidly skinned to it — see [`SNIPER_GLINT_BONE_NAME`]).
+    /// Falls back to the replicated pose (its `yaw` for `x`/`z`, world up for
+    /// `y`) for the one frame or so before the scene's found the bone. Dial
+    /// in against the raised-rifle aim pose from the debug panel — the
+    /// sprite should sit still on the scope through every animation once
+    /// this is right.
+    pub(crate) offset: Vec3,
+    /// Uniform size of the sprite quad (world metres).
+    pub(crate) scale: f32,
+    /// `PlayerPose::ads_t` the glint starts fading in at, reaching full
+    /// opacity by `1.0` — defaults to the same cutoff
+    /// `net::animate_remote_avatars` uses to switch into the aim pose, so it
+    /// appears right as the avatar visibly raises its rifle.
+    pub(crate) ads_threshold: f32,
+}
+
+impl Default for SniperGlintSettings {
+    fn default() -> Self {
+        // Dialed in by the user against the real `Bind_RightHand_037_038`
+        // bone (see `SNIPER_GLINT_BONE_NAME`) in the debug panel — sits right
+        // on the scope through the aim / shooting animations.
+        Self {
+            offset: Vec3::new(0.28, 0.4, 0.0),
+            scale: 0.65,
+            ads_threshold: 0.5,
+        }
+    }
+}
+
 /// Build the remote-player animation graph. Added to the same `Startup` tuple
 /// as `setup_bot_assets` — see its comment for why a separate
 /// `add_systems(Startup, ...)` (even from a plugin) can't be used instead.
@@ -251,15 +354,18 @@ pub(crate) fn setup_soldier_assets(
 }
 
 /// Fires once a remote-player avatar's `SceneRoot` (tagged [`SoldierVisual`])
-/// finishes spawning: starts the idle animation looping and remembers which
-/// descendant holds the `AnimationPlayer`, via [`SoldierAnimationPlayer`].
-/// Mirrors `start_bot_animation`.
+/// finishes spawning: starts the idle animation looping, remembers which
+/// descendant holds the `AnimationPlayer` via [`SoldierAnimationPlayer`], and
+/// remembers the right-hand bone the gun mesh is skinned to
+/// ([`SNIPER_GLINT_BONE_NAME`]) via [`SniperGlintBone`] so the sniper glint
+/// can ride along with it. Mirrors `start_bot_animation`.
 pub(crate) fn start_soldier_animation(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     soldiers: Query<(), With<SoldierVisual>>,
     mut players: Query<&mut AnimationPlayer>,
+    names: Query<&Name>,
     anims: Res<SoldierAnimations>,
 ) {
     let root = trigger.target();
@@ -280,6 +386,10 @@ pub(crate) fn start_soldier_animation(
                 .entity(entity)
                 .insert((AnimationGraphHandle(anims.graph.clone()), transitions));
             commands.entity(root).insert(SoldierAnimationPlayer(entity));
+        }
+
+        if names.get(entity).map(Name::as_str) == Ok(SNIPER_GLINT_BONE_NAME) {
+            commands.entity(root).insert(SniperGlintBone(entity));
         }
     }
 }

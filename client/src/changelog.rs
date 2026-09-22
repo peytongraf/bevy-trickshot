@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Other players (and bots) now show a bright sniper glint off their scope while they're aiming down sight — just like Call of Duty, it can give away a camping sniper's position.",
         "Fixed the red tint and blood splatter overlay covering up your HUD (health, ammo, hit markers, etc) when you take damage or die. It now stays behind all on-screen text and UI.",
         "Fixed the red tint and blood splatter (and heartbeat) staying on screen after you respawn. Respawning now fully resets you: health, the hurt effects, camera shake, aiming, sprint / slide / mantle state, and any half-finished trick or shot. The server brings you back to life the moment you respawn, too, so skipping your kill cam no longer leaves you unable to hit anyone until a timer runs out.",
         "Fixed being able to move, aim, shoot and throw knives after being killed while waiting for the kill cam to start. Once you're dead you can't do anything except open the menu with Escape and use it.",
