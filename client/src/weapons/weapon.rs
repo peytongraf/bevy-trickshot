@@ -29,10 +29,19 @@ use super::view_model::{
 };
 
 /// Magazine capacity and the total number of magazines the player carries
-/// (current mag + reserve = `MAG_SIZE * TOTAL_MAGS`).
+/// in `FreeForAll` (current mag + reserve = `MAG_SIZE * TOTAL_MAGS`).
 pub(crate) const MAG_SIZE: u32 = 5;
-#[allow(dead_code)] // TEMP: unused while reserve is hard-coded for reload testing
 pub(crate) const TOTAL_MAGS: u32 = 6;
+/// Reserve rounds in `Freestyle` — effectively unlimited for practice.
+const FREESTYLE_RESERVE: u32 = 1000;
+
+/// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`.
+fn starting_reserve(mode: shared::GameMode) -> u32 {
+    match mode {
+        shared::GameMode::Freestyle => FREESTYLE_RESERVE,
+        shared::GameMode::FreeForAll => MAG_SIZE * (TOTAL_MAGS - 1),
+    }
+}
 
 /// A weapon action (fire / swap-to-secondary) cut a busy queue short — stash
 /// whatever bolt-cycle work is still outstanding as `weapon.interrupted` so it
@@ -165,9 +174,9 @@ pub(crate) struct Weapon {
     /// throwing-knife key does nothing.
     pub(crate) throwing_knives: u32,
     /// Set by a fresh loadout (`Default` / [`Weapon::refill_ammo`]):
-    /// [`apply_knife_loadout`] fills `throwing_knives` for the lobby's
-    /// `GameMode` as soon as that's known, then clears it.
-    knives_pending_refill: bool,
+    /// [`apply_loadout`] fills `reserve` and `throwing_knives` for the
+    /// lobby's `GameMode` as soon as that's known, then clears it.
+    loadout_pending: bool,
     pub(crate) busy: Option<WeaponBusy>,
     /// The slot currently equipped (switched the instant the swap key is
     /// pressed; the Hide / Show animation then plays out via `busy`).
@@ -278,9 +287,10 @@ impl Default for Weapon {
     fn default() -> Self {
         Self {
             mag: MAG_SIZE,
-            reserve: 1000, // TEMP: high reserve for reload-sound testing
+            // Both filled per game mode by `apply_loadout`.
+            reserve: 0,
             throwing_knives: 0,
-            knives_pending_refill: true,
+            loadout_pending: true,
             busy: None,
             slot: WeaponSlot::Primary,
             interrupted: None,
@@ -299,20 +309,21 @@ impl Weapon {
         let fresh = Self::default();
         self.mag = fresh.mag;
         self.reserve = fresh.reserve;
-        self.knives_pending_refill = true;
+        self.loadout_pending = true;
     }
 }
 
-/// Fill `Weapon::throwing_knives` for a fresh loadout — the count depends on
-/// the lobby's `GameMode` (`shared::throwing_knife::starting_knives`), which
-/// isn't known where the loadout is reset, so it's applied here once the
+/// Fill `Weapon::reserve` and `Weapon::throwing_knives` for a fresh loadout
+/// (game start or respawn) — both depend on the lobby's `GameMode`
+/// ([`starting_reserve`], `shared::throwing_knife::starting_knives`), which
+/// isn't known where the loadout is reset, so they're applied here once the
 /// local player's started lobby is found.
-pub(crate) fn apply_knife_loadout(
+pub(crate) fn apply_loadout(
     mut weapon: ResMut<Weapon>,
     local: Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
     lobbies: Query<&shared::Lobby>,
 ) {
-    if !weapon.knives_pending_refill {
+    if !weapon.loadout_pending {
         return;
     }
     let Some(me) = local.iter().next().map(|l| l.0) else {
@@ -321,8 +332,9 @@ pub(crate) fn apply_knife_loadout(
     let Some(lobby) = lobbies.iter().find(|l| l.started && l.has(me)) else {
         return;
     };
+    weapon.reserve = starting_reserve(lobby.mode);
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
-    weapon.knives_pending_refill = false;
+    weapon.loadout_pending = false;
 }
 
 /// Where the throwing-knife key's sequence is up to. Independent of

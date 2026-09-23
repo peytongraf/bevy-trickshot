@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Sniper ammo limit (6 mags in FFA)
 - CoD-style ammo HUD with throwing knives
 - Throwing knife ammo limit (2 in FFA)
 - Ascension map removed
@@ -19,7 +20,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Turn down remote player rechamber volume by a lot.
 - Increase aim sway
 - On windows terminal pops up to play prod client
-- Limit sniper ammo on free for all. The max mags for the sniper should be 6.
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Make other players and bots not able to be ran through
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.

@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Sniper ammo is now limited in Free For All: 6 mags per life.",
         "New Call of Duty style ammo HUD, with throwing knives shown.",
         "Throwing knives are now limited: 2 per life in Free For All.",
         "Removed the Ascension map.",
