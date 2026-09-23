@@ -2,8 +2,11 @@
 //! at all right now" gate every other HUD element defers to.
 
 use bevy::prelude::*;
+use bevy::render::camera::CameraOutputMode;
+use bevy::render::render_resource::BlendState;
 use bevy::render::view::RenderLayers;
 use bevy::ui::IsDefaultUiCamera;
+use bevy_egui::PrimaryEguiContext;
 
 use crate::{killcam, menu, AppState, UI_LAYER};
 
@@ -42,9 +45,19 @@ pub(crate) fn setup_ui_camera(mut commands: Commands) {
         Camera {
             order: 2,
             clear_color: ClearColorConfig::None,
+            // Always blend over the 3D view — left unset, Bevy may pick this
+            // camera as the opaque one and black out the world (see the world
+            // camera's `output_mode` in `main.rs`).
+            output_mode: CameraOutputMode::Write {
+                blend_state: Some(BlendState::ALPHA_BLENDING),
+                clear_color: ClearColorConfig::None,
+            },
             ..default()
         },
         RenderLayers::layer(UI_LAYER),
         IsDefaultUiCamera,
+        // The debug panels draw here too, on top of everything and
+        // untouched by 3D post-processing.
+        PrimaryEguiContext,
     ));
 }

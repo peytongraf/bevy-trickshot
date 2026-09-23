@@ -51,8 +51,12 @@ only place a player learns anything changed.
   finish it, update the todo list and changelog, then stop and let the user
   test it before starting the next one. Don't chain multiple todo items into
   one uninterrupted pass.
-- Never add a system to the client's `Startup` schedule — it blacks out the
-  in-game 3D view. Use `PostStartup` instead.
+- Black 3D view with only the HUD showing = a camera's output blend. Bevy
+  picks which window camera blits opaquely by render-world iteration order
+  (which shifts whenever systems/plugins are added), so the world, view-model
+  and HUD cameras all set `output_mode` explicitly (`main.rs`,
+  `hud/setup.rs`). Any new camera drawing to the window must do the same.
+  Egui is pinned to the HUD camera (`PrimaryEguiContext`), not auto-assigned.
 
 ## Changelog / "What's New" panel
 

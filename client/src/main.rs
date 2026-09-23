@@ -87,13 +87,14 @@ use bevy::{
     pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
     prelude::*,
     render::{
+        camera::CameraOutputMode,
         render_asset::RenderAssetUsages,
-        render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
+        render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages},
         view::{NoFrustumCulling, RenderLayers},
     },
     window::{CursorGrabMode, PrimaryWindow},
 };
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
 
 /// Render layer used by the view model (the gun + arms) and its dedicated
@@ -146,6 +147,13 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
+        // Egui lives on the HUD camera (`setup_ui_camera`), not whichever
+        // camera egui finds first — on a 3D camera it's drawn before (and
+        // warped by) the shroom post-process and depends on spawn order.
+        .insert_resource(EguiGlobalSettings {
+            auto_create_primary_context: false,
+            ..default()
+        })
         // Collision only (see the `bevy_rapier3d` dependency comment) — no
         // `RigidBody` is ever spawned, so `PhysicsSet::StepSimulation` has
         // nothing to integrate each frame, just static colliders to query.
@@ -172,6 +180,7 @@ fn main() {
             respawn::RespawnResetPlugin,
             BulletHolePlugin,
         ))
+        .add_plugins(ShroomPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,
@@ -264,8 +273,6 @@ fn main() {
                 setup_rain,
             ),
         )
-        // `PostStartup`, not `Startup` — a `Startup` system blacks out the
-        // in-game 3D view.
         .add_systems(PostStartup, setup_sniper_glint_assets)
         .add_systems(
             OnEnter(AppState::InGame),
@@ -940,6 +947,18 @@ fn setup_player(
                                         Camera3d::default(),
                                         Camera {
                                             hdr: true,
+                                            // Explicit, not left to Bevy: with no blend
+                                            // set, Bevy makes whichever window camera it
+                                            // happens to iterate first opaque and blends
+                                            // the rest — and that order shifts whenever
+                                            // systems/plugins are added. When the HUD
+                                            // camera lands first, its blit paints over
+                                            // the whole 3D view (black world, HUD only).
+                                            // So: world opaque, the rest alpha-blended.
+                                            output_mode: CameraOutputMode::Write {
+                                                blend_state: Some(BlendState::REPLACE),
+                                                clear_color: ClearColorConfig::Default,
+                                            },
                                             ..default()
                                         },
                                         Projection::from(PerspectiveProjection {
@@ -1014,6 +1033,11 @@ fn setup_player(
                                         Camera {
                                             order: 1,
                                             hdr: true,
+                                            // See the world camera's `output_mode`.
+                                            output_mode: CameraOutputMode::Write {
+                                                blend_state: Some(BlendState::ALPHA_BLENDING),
+                                                clear_color: ClearColorConfig::Default,
+                                            },
                                             ..default()
                                         },
                                         Projection::from(PerspectiveProjection {

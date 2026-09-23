@@ -76,6 +76,7 @@ pub(crate) fn ads_tuning_ui(
             Res<Settings>,
             ResMut<LensSettings>,
             ResMut<SniperGlintSettings>,
+            ResMut<ShroomSettings>,
         ),
     ),
 ) -> Result {
@@ -94,7 +95,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1427,6 +1428,46 @@ pub(crate) fn ads_tuning_ui(
                 }
                 if ui.button("Reset bulb lights").clicked() {
                     *b = BulbLightSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Shroom effect", |ui| {
+                let s = &mut *shroom;
+                ui.checkbox(&mut s.enabled, "enabled");
+                ui.add(egui::Slider::new(&mut s.fade_secs, 0.0f32..=15.0).text("fade in / out (s)"));
+                ui.label("Wavy distortion");
+                ui.add(
+                    egui::Slider::new(&mut s.wave_amplitude, 0.0f32..=0.05)
+                        .text("wave strength")
+                        .fixed_decimals(4),
+                );
+                ui.add(egui::Slider::new(&mut s.wave_frequency, 0.5f32..=20.0).text("wave size  (higher = smaller)"));
+                ui.add(egui::Slider::new(&mut s.wave_speed, 0.0f32..=4.0).text("wave speed"));
+                ui.add(
+                    egui::Slider::new(&mut s.center_clear, 0.0f32..=1.0)
+                        .text("steady centre  (1 = aim point still)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut s.breathe_amplitude, 0.0f32..=0.08)
+                        .text("breathing zoom")
+                        .fixed_decimals(3),
+                );
+                ui.add(egui::Slider::new(&mut s.breathe_speed, 0.0f32..=4.0).text("breathing speed"));
+                ui.label("Colour");
+                ui.add(egui::Slider::new(&mut s.saturation, 0.0f32..=3.0).text("saturation"));
+                ui.add(egui::Slider::new(&mut s.hue_drift, 0.0f32..=1.5).text("hue shimmer (rad)"));
+                ui.add(egui::Slider::new(&mut s.hue_speed, 0.0f32..=3.0).text("hue shimmer speed"));
+                ui.add(
+                    egui::Slider::new(&mut s.chromatic, 0.0f32..=0.1)
+                        .text("colour fringing (edges)")
+                        .fixed_decimals(3),
+                );
+                if ui.button("Reset shroom").clicked() {
+                    *s = ShroomSettings {
+                        enabled: s.enabled,
+                        ..default()
+                    };
                 }
             });
 
