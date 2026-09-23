@@ -12,6 +12,16 @@ use bevy::math::{Mat3, Quat, Vec3};
 use crate::ballistics::Target;
 use crate::hitbox::{ray_capsule, Capsule};
 use crate::map::CollisionWorld;
+use crate::GameMode;
+
+/// Throwing knives a player starts each life with in `mode` — a near-endless
+/// supply for practising in `Freestyle`, just two in `FreeForAll`.
+pub fn starting_knives(mode: GameMode) -> u32 {
+    match mode {
+        GameMode::Freestyle => 1000,
+        GameMode::FreeForAll => 2,
+    }
+}
 
 /// Most knives one player can have in the world at once (also how many a
 /// kill-cam frame carries — see [`crate::KillCamSample::thrown_knives`]).

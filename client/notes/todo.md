@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- CoD-style ammo HUD with throwing knives
+- Throwing knife ammo limit (2 in FFA)
 - Ascension map removed
 - Blood splatter / health tint no longer draws over the HUD
 - Lights added inside shipment containers
@@ -17,7 +19,7 @@ Everything below is ordered easiest → hardest, within each section.
 - Turn down remote player rechamber volume by a lot.
 - Increase aim sway
 - On windows terminal pops up to play prod client
-- Limit throwing knife and sniper ammo on free for all. The player should get 2 throwing knives and the max mags for the sniper should be 6.
+- Limit sniper ammo on free for all. The max mags for the sniper should be 6.
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Make other players and bots not able to be ran through
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
@@ -48,7 +50,6 @@ Everything below is ordered easiest → hardest, within each section.
 ## UI / HUD
 
 - Add ping ui beside fps
-- Add throwing knife to ammo hud And update that ui to look like cod
 - Add heart beat sound and red around screen when health low
 - Add tab to show leaderboard
 - Add end game screen with play again button

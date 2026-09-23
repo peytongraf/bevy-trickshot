@@ -160,6 +160,14 @@ pub(crate) struct Weapon {
     pub(crate) mag: u32,
     /// Rounds not in the magazine.
     pub(crate) reserve: u32,
+    /// Throwing knives left this life. One is used when a knife actually
+    /// leaves the hand (a cancelled throw costs nothing); at 0 the
+    /// throwing-knife key does nothing.
+    pub(crate) throwing_knives: u32,
+    /// Set by a fresh loadout (`Default` / [`Weapon::refill_ammo`]):
+    /// [`apply_knife_loadout`] fills `throwing_knives` for the lobby's
+    /// `GameMode` as soon as that's known, then clears it.
+    knives_pending_refill: bool,
     pub(crate) busy: Option<WeaponBusy>,
     /// The slot currently equipped (switched the instant the swap key is
     /// pressed; the Hide / Show animation then plays out via `busy`).
@@ -271,6 +279,8 @@ impl Default for Weapon {
         Self {
             mag: MAG_SIZE,
             reserve: 1000, // TEMP: high reserve for reload-sound testing
+            throwing_knives: 0,
+            knives_pending_refill: true,
             busy: None,
             slot: WeaponSlot::Primary,
             interrupted: None,
@@ -289,7 +299,30 @@ impl Weapon {
         let fresh = Self::default();
         self.mag = fresh.mag;
         self.reserve = fresh.reserve;
+        self.knives_pending_refill = true;
     }
+}
+
+/// Fill `Weapon::throwing_knives` for a fresh loadout — the count depends on
+/// the lobby's `GameMode` (`shared::throwing_knife::starting_knives`), which
+/// isn't known where the loadout is reset, so it's applied here once the
+/// local player's started lobby is found.
+pub(crate) fn apply_knife_loadout(
+    mut weapon: ResMut<Weapon>,
+    local: Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+) {
+    if !weapon.knives_pending_refill {
+        return;
+    }
+    let Some(me) = local.iter().next().map(|l| l.0) else {
+        return;
+    };
+    let Some(lobby) = lobbies.iter().find(|l| l.started && l.has(me)) else {
+        return;
+    };
+    weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
+    weapon.knives_pending_refill = false;
 }
 
 /// Where the throwing-knife key's sequence is up to. Independent of
@@ -585,6 +618,7 @@ pub(crate) fn weapon_system(
     // same weapon comes back.
     if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
         && knife.phase == ThrowPhase::Idle
+        && weapon.throwing_knives > 0
     {
         knife.active = true;
         knife.thrown = false;
@@ -733,6 +767,7 @@ pub(crate) fn weapon_system(
                 && (done || clip.is_some_and(|a| a.seek_time() >= arms_settings.throw_release_secs))
             {
                 knife.throw_sent = true;
+                weapon.throwing_knives = weapon.throwing_knives.saturating_sub(1);
                 if let Ok(cam) = cam.single() {
                     knife.pending_throw = Some((cam.translation(), cam.forward().as_vec3()));
                 }

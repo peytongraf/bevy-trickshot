@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "New Call of Duty style ammo HUD, with throwing knives shown.",
+        "Throwing knives are now limited: 2 per life in Free For All.",
         "Removed the Ascension map.",
         "Other players (and bots) now show a bright sniper glint off their scope while they're aiming down sight — just like Call of Duty, it can give away a camping sniper's position.",
         "Fixed the red tint and blood splatter overlay covering up your HUD (health, ammo, hit markers, etc) when you take damage or die. It now stays behind all on-screen text and UI.",
