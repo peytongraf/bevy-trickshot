@@ -67,11 +67,6 @@ pub enum MapId {
     /// client's fog/sky/lighting/weather differ; collision, spawns and bounds
     /// are identical (see [`MapId::is_shipment`]).
     ShipmentDay,
-    /// `models/ascenion_map.glb` (sic — that's the file's name) — a
-    /// multi-level blockout climbed by ramps, on a snowy mountain hillside.
-    /// Like [`MapId::BasicMap`] it has no separate visual model: the
-    /// collision mesh is what's rendered.
-    Ascension,
     /// `models/break_point_map.glb` — a walled compound of low buildings and
     /// blocks, under a clear mid-day sky. Like [`MapId::BasicMap`] it has no separate
     /// visual model: the collision mesh is what's rendered.
@@ -84,7 +79,6 @@ impl MapId {
             MapId::BasicMap => "BASIC MAP",
             MapId::Shipment => "SHIPMENT",
             MapId::ShipmentDay => "SHIPMENT DAY",
-            MapId::Ascension => "ASCENSION",
             MapId::BreakPoint => "BREAK POINT",
         }
     }

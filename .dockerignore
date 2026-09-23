@@ -12,7 +12,6 @@ client/assets/*
 client/assets/models/*
 !client/assets/models/basic_map.glb
 !client/assets/models/shipment.glb
-!client/assets/models/ascenion_map.glb
 !client/assets/models/break_point_map.glb
 client/sniper.glb
 client/notes

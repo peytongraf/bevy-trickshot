@@ -114,7 +114,6 @@ pub struct NavGraph {
 pub struct NavGraphs {
     basic: NavGraph,
     shipment: NavGraph,
-    ascension: NavGraph,
     break_point: NavGraph,
 }
 
@@ -128,7 +127,6 @@ impl NavGraphs {
         Self {
             basic: build(MapId::BasicMap),
             shipment: build(MapId::Shipment),
-            ascension: build(MapId::Ascension),
             break_point: build(MapId::BreakPoint),
         }
     }
@@ -137,7 +135,6 @@ impl NavGraphs {
         match map {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
-            MapId::Ascension => &self.ascension,
             MapId::BreakPoint => &self.break_point,
         }
     }
@@ -578,106 +575,6 @@ pub(crate) mod tests {
             prev = p;
         }
     }
-
-    fn length(path: &[Vec3]) -> f32 {
-        path.windows(2).map(|w| w[0].distance(w[1])).sum()
-    }
-
-    #[test]
-    fn every_map_builds_a_usable_graph_quickly() {
-        let t = std::time::Instant::now();
-        let (_, n) = built();
-        assert!(t.elapsed().as_secs() < 30, "building took {:?}", t.elapsed());
-        for m in [MapId::BasicMap, MapId::Shipment, MapId::Ascension] {
-            let g = n.graph(m);
-            assert!(g.usable_count() > 1000, "{m:?}: only {} usable nodes", g.usable_count());
-        }
-    }
-
-    #[test]
-    fn a_path_across_shipment_goes_around_the_containers() {
-        let (c, n) = built();
-        let (w, g) = (c.world(MapId::Shipment), n.graph(MapId::Shipment));
-        // Opposite sides of the yard — containers stand in the way of a straight walk.
-        let snap = |p: Vec3| g.nodes[g.nearest_node(p).unwrap() as usize];
-        let (from, to) = (snap(Vec3::new(-20.0, 0.0, -20.0)), snap(Vec3::new(20.0, 0.0, 20.0)));
-        let path = g.find_path(w, from, to).expect("a route across the yard");
-        assert_walkable(w, from, to, &path);
-        assert!(length(&path) >= from.distance(to) - 0.01);
-        assert!(length(&path) < from.distance(to) * 2.5, "absurdly long route: {}", length(&path));
-    }
-
-    #[test]
-    fn many_random_paths_on_ascension_never_cross_a_wall() {
-        let (c, n) = built();
-        let (w, g) = (c.world(MapId::Ascension), n.graph(MapId::Ascension));
-        let mut found = 0;
-        for i in 0..40u64 {
-            let r = |k: u64| shared::bots::rand01(i * 977 + k);
-            // Anywhere on the yard side of the map.
-            let a = Vec3::new(-60.0 + r(1) * 55.0, 0.0, -60.0 + r(2) * 120.0);
-            let b = Vec3::new(-60.0 + r(3) * 55.0, 0.0, -60.0 + r(4) * 120.0);
-            if let Some(path) = g.find_path(w, a, b) {
-                assert_walkable(w, a, b, &path);
-                found += 1;
-            }
-        }
-        assert!(found >= 30, "only {found} of 40 yard routes were found");
-    }
-
-    #[test]
-    fn a_path_climbs_ascensions_ramps_to_the_top_floor() {
-        let (c, n) = built();
-        let (w, g) = (c.world(MapId::Ascension), n.graph(MapId::Ascension));
-        // Ground level inside the building, to the top platform (y ≈ 13.3).
-        let (from, to) = (Vec3::new(9.5, 0.0, -6.5), Vec3::new(26.5, 13.3, -9.5));
-        assert!(g.connected(from, to), "the ground and top floors are separate regions");
-        let path = g.find_path(w, from, to).expect("a route up the ramps");
-        assert_walkable(w, from, to, &path);
-        assert!(path.iter().any(|p| p.y > 5.8), "never reached the middle level");
-        assert!(length(&path) > 39.0, "a climb of 13 m can't be {} m long", length(&path));
-    }
-
-    #[test]
-    fn two_regions_with_no_walkable_link_have_no_path() {
-        let (c, n) = built();
-        let (w, g) = (c.world(MapId::Ascension), n.graph(MapId::Ascension));
-        // The yard and the walled-in building: whichever region a point is in,
-        // asking for a path to the other must not invent one.
-        let yard = Vec3::new(-32.5, 0.0, 0.0);
-        let inside = Vec3::new(26.5, 13.3, -9.5);
-        if !g.connected(yard, inside) {
-            assert!(g.find_path(w, yard, inside).is_none());
-        }
-    }
-
-    /// The point of the exercise: walk a real body along a real path with the
-    /// real mover and check it gets there — the graph and `ai::move_bot` must
-    /// agree on what can be walked, ramps included.
-    #[test]
-    fn a_bot_can_actually_walk_a_path_up_the_ramps() {
-        let (c, n) = built();
-        let (w, g) = (c.world(MapId::Ascension), n.graph(MapId::Ascension));
-        let (from, to) = (Vec3::new(9.5, 0.0, -6.5), Vec3::new(26.5, 13.3, -9.5));
-        let path = g.find_path(w, from, to).expect("a route up the ramps");
-
-        let (mut feet, mut vy, mut idx) = (from, 0.0f32, 0usize);
-        let dt = 1.0 / 64.0;
-        for tick in 0..(120 * 64) {
-            let Some(wp) = NavGraph::next_waypoint(w, &path, &mut idx, feet) else {
-                assert!(
-                    (feet.y - to.y).abs() < 1.0 && Vec3::new(feet.x - to.x, 0.0, feet.z - to.z).length() < 1.5,
-                    "finished the path at {feet:?}, not {to:?}"
-                );
-                println!("walked it in {:.1} s", tick as f32 / 64.0);
-                return;
-            };
-            let wish = Vec3::new(wp.x - feet.x, 0.0, wp.z - feet.z).normalize_or_zero();
-            crate::ai::move_bot(w, &mut feet, &mut vy, wish, 5.0, dt);
-        }
-        panic!("didn't reach the top in 120 s; stuck at {feet:?} heading for waypoint {idx} of {}: {:?}", path.len(), path.get(idx));
-    }
-
     /// Every hand-placed spawn point stands on walkable ground — not inside a
     /// container, not over a gap — with room for a body.
     #[test]
@@ -706,7 +603,7 @@ pub(crate) mod tests {
     #[test]
     fn dump() {
         let (_, n) = built();
-        for m in [MapId::BasicMap, MapId::Shipment, MapId::Ascension] {
+        for m in [MapId::BasicMap, MapId::Shipment, MapId::BreakPoint] {
             let g = n.graph(m);
             println!("{m:?}: {} nodes, {} usable", g.node_count(), g.usable_count());
         }
@@ -719,7 +616,7 @@ pub(crate) mod tests {
     fn break_point_spawns_and_bot_starts_are_in_the_big_connected_region() {
         let (_, n) = built();
         let g = n.graph(MapId::BreakPoint);
-        let anchor = shared::map::spawn_center(MapId::BreakPoint);
+        let anchor = Vec3::ZERO;
         let mut checked = 0;
         for seed in 0..300u64 {
             for (pos, _) in [

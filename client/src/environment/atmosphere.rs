@@ -119,36 +119,6 @@ impl Default for ShipmentDaySceneTuning {
     }
 }
 
-/// `ascenion_map.glb`'s look ([`shared::MapId::Ascension`]): a slightly
-/// overcast day on a snowy mountain hillside, under `snowy_hillside_02_8k.hdr`.
-/// A thin veil of cool, pale haze (mountain air is clear, so far more visible
-/// than Shipment's fog but softer than a clear day), a diffuse cool-white sun —
-/// weaker than a clear day's since the cloud cover scatters it — and a bright,
-/// bluish-white ambient fill, since snow bounces light back up and keeps the
-/// shadows from going dark. Live-tweakable from the debug panel's "Fog & Sky
-/// (Ascension)" section.
-#[derive(Resource)]
-pub(crate) struct AscensionSceneTuning(pub(crate) SceneTuning);
-
-impl Default for AscensionSceneTuning {
-    fn default() -> Self {
-        Self(SceneTuning {
-            fog_visibility_m: 700.0,
-            // r205 g214 b226 (0-255) — a pale cool grey-blue mountain haze.
-            fog_color: srgb_parts(Color::srgb(205.0 / 255.0, 214.0 / 255.0, 226.0 / 255.0)),
-            // Soft, wide scatter: the sun is behind cloud, not a hard disc.
-            fog_sun_exponent: 5.0,
-            sun_lux: 11_000.0,
-            // r238 g241 b247 (0-255) — cool, near-white light.
-            sun_color: srgb_parts(Color::srgb(238.0 / 255.0, 241.0 / 255.0, 247.0 / 255.0)),
-            // r186 g202 b224 (0-255) — sky + snow bounce.
-            ambient_color: srgb_parts(Color::srgb(186.0 / 255.0, 202.0 / 255.0, 224.0 / 255.0)),
-            ambient_lux: 320.0,
-            bloom_intensity: 0.09,
-        })
-    }
-}
-
 /// `break_point_map.glb`'s look ([`shared::MapId::BreakPoint`]): a clear
 /// mid-day under `sunflowers_puresky_8k.hdr`, with great visibility — the fog is
 /// pushed out to tens of kilometres, so nothing on the map is hazed at all. A
@@ -209,7 +179,7 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
 /// changes (also once at startup, which just re-applies the consts).
 /// Picks whichever of [`SceneTuning`] (`BasicMap`), [`ShipmentSceneTuning`]
-/// (`Shipment`), [`ShipmentDaySceneTuning`] (`ShipmentDay`) or [`AscensionSceneTuning`] (`Ascension`) is currently selected and pushes it onto the shared fog /
+/// (`Shipment`), [`ShipmentDaySceneTuning`] (`ShipmentDay`) or [`BreakPointSceneTuning`] (`BreakPoint`) is currently selected and pushes it onto the shared fog /
 /// sun / ambient light / bloom — there's only one of each in the world, so
 /// switching maps re-points them at a different look rather than swapping
 /// entities.
@@ -218,7 +188,6 @@ pub(crate) fn apply_scene_tuning(
     scene: Res<SceneTuning>,
     shipment_scene: Res<ShipmentSceneTuning>,
     shipment_day_scene: Res<ShipmentDaySceneTuning>,
-    ascension_scene: Res<AscensionSceneTuning>,
     break_point_scene: Res<BreakPointSceneTuning>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
@@ -229,7 +198,6 @@ pub(crate) fn apply_scene_tuning(
         && !scene.is_changed()
         && !shipment_scene.is_changed()
         && !shipment_day_scene.is_changed()
-        && !ascension_scene.is_changed()
         && !break_point_scene.is_changed()
     {
         return;
@@ -238,7 +206,6 @@ pub(crate) fn apply_scene_tuning(
         shared::MapId::BasicMap => &*scene,
         shared::MapId::Shipment => &shipment_scene.0,
         shared::MapId::ShipmentDay => &shipment_day_scene.0,
-        shared::MapId::Ascension => &ascension_scene.0,
         shared::MapId::BreakPoint => &break_point_scene.0,
     };
 

@@ -239,7 +239,6 @@ fn main() {
         .init_resource::<SceneTuning>()
         .init_resource::<ShipmentSceneTuning>()
         .init_resource::<ShipmentDaySceneTuning>()
-        .init_resource::<AscensionSceneTuning>()
         .init_resource::<BreakPointSceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<CurrentMap>()

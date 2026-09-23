@@ -182,11 +182,11 @@ impl Plugin for BotAiPlugin {
         let started = std::time::Instant::now();
         let navs = NavGraphs::build(&MapColliders::load());
         info!(
-            "built the bot navigation graphs in {:?} ({} / {} / {} usable nodes: basic / shipment / ascension)",
+            "built the bot navigation graphs in {:?} ({} / {} / {} usable nodes: basic / shipment / break point)",
             started.elapsed(),
             navs.graph(shared::MapId::BasicMap).usable_count(),
             navs.graph(shared::MapId::Shipment).usable_count(),
-            navs.graph(shared::MapId::Ascension).usable_count(),
+            navs.graph(shared::MapId::BreakPoint).usable_count(),
         );
 
         app.insert_resource(navs)
@@ -628,8 +628,9 @@ mod tests {
     #[test]
     fn a_bot_walks_across_open_ground_and_stays_on_it() {
         let c = MapColliders::load();
-        let world = c.world(MapId::Ascension);
-        let mut feet = Vec3::new(-60.0, 0.0, 0.0);
+        let world = c.world(MapId::BreakPoint);
+        // A flat, open strip along the south of Break Point.
+        let mut feet = Vec3::new(-30.0, 0.0, -40.0);
         let mut vy = 0.0;
         let start = feet;
         for _ in 0..64 {
@@ -641,17 +642,18 @@ mod tests {
     }
 
     #[test]
-    fn a_bot_is_stopped_by_a_wall_and_never_ends_up_inside_the_building() {
+    fn a_bot_is_stopped_by_a_wall_and_never_walks_through_it() {
         let c = MapColliders::load();
-        let world = c.world(MapId::Ascension);
-        // Just west of Ascension's west wall (x = 0), walking straight at it.
-        let mut feet = Vec3::new(-5.0, 0.0, 40.0);
+        let world = c.world(MapId::BreakPoint);
+        // Just west of Break Point's tall wall at x ≈ 11.9 (running z 24..60),
+        // walking straight at it.
+        let mut feet = Vec3::new(6.0, 0.0, 40.0);
         let mut vy = 0.0;
         let mut blocked_once = false;
         for _ in 0..(4 * 64) {
             let m = move_bot(world, &mut feet, &mut vy, Vec3::X, WALK_SPEED, 1.0 / 64.0);
             blocked_once |= m.blocked;
-            assert!(feet.x < 0.0, "walked through the wall to x = {}", feet.x);
+            assert!(feet.x < 11.9, "walked through the wall to x = {}", feet.x);
         }
         assert!(blocked_once, "never noticed the wall");
     }
@@ -659,8 +661,8 @@ mod tests {
     #[test]
     fn a_bot_off_the_edge_of_the_ground_falls() {
         let c = MapColliders::load();
-        let world = c.world(MapId::Ascension);
-        let mut feet = Vec3::new(-50.0, 30.0, 0.0);
+        let world = c.world(MapId::BreakPoint);
+        let mut feet = Vec3::new(-20.0, 30.0, -40.0);
         let mut vy = 0.0;
         for _ in 0..8 {
             let m = move_bot(world, &mut feet, &mut vy, Vec3::ZERO, 0.0, 1.0 / 64.0);
@@ -679,7 +681,7 @@ mod tests {
             name: "test".into(),
             leader: bot_peer(0),
             mode: GameMode::FreeForAll,
-            map: MapId::Ascension,
+            map: MapId::BreakPoint,
             started,
             time_limit_secs: 300,
             time_left_secs: 300,
@@ -737,8 +739,8 @@ mod tests {
         // Open yard, target 30 m due east (+X), nothing in between.
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-60.0, 0.0, 0.0),
-            Vec3::new(-30.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, -40.0),
+            Vec3::new(0.0, 0.0, -40.0),
         );
         let mut fired = 0;
         app.update(); // (the first update has no time delta)
@@ -768,8 +770,8 @@ mod tests {
     fn a_bots_recorded_first_person_feel_matches_a_real_players() {
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-60.0, 0.0, 0.0),
-            Vec3::new(-30.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, -40.0),
+            Vec3::new(0.0, 0.0, -40.0),
         );
         app.update(); // (the first update has no time delta)
         let max_step = 1.0 / 64.0 / sniper_feel::ADS_SECS + 1e-4;
@@ -800,7 +802,7 @@ mod tests {
     #[test]
     fn a_recruit_is_slower_to_react_and_shoot_than_a_veteran() {
         let count = |d: BotDifficulty| {
-            let (mut app, bot) = world(d, Vec3::new(-60.0, 0.0, 0.0), Vec3::new(-30.0, 0.0, 0.0));
+            let (mut app, bot) = world(d, Vec3::new(-30.0, 0.0, -40.0), Vec3::new(0.0, 0.0, -40.0));
             let mut fired = 0;
             for _ in 0..(10 * 64) {
                 app.update();
@@ -813,67 +815,38 @@ mod tests {
 
     #[test]
     fn a_bot_with_a_wall_in_the_way_walks_toward_it_but_never_shoots_through_it() {
-        // Bot in the yard just west of Ascension's west wall (x = 0); the target
-        // is inside the building at ground level, x = +20.
+        // Bot just west of Break Point's tall wall at x ≈ 11.9 (running
+        // z 24..60); the target stands right behind it at ground level.
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-8.0, 0.0, 40.0),
-            Vec3::new(20.0, 0.0, 40.0),
+            Vec3::new(6.0, 0.0, 40.0),
+            Vec3::new(17.0, 0.0, 40.0),
         );
         app.update(); // (the first update has no time delta)
         for _ in 0..(8 * 64) {
             app.update();
             let i = input(&app, bot);
-            // (Once it has rounded the wall's end it may see — and shoot — the
-            // target through the opening; along the wall it never can.)
-            assert!(!i.fire || i.translation[2] < -1.0, "shot through a wall from {:?}", i.translation);
-            // (The wall ends at z ≈ -1.4 — rounding that end, or past it, is fine.)
+            // (Once it has rounded the wall's south end it may see — and shoot
+            // — the target; along the wall it never can.)
+            assert!(!i.fire || i.translation[2] < 24.0, "shot through a wall from {:?}", i.translation);
+            // (The wall ends at z = 24 — rounding that end, or past it, is fine.)
             assert!(
-                i.translation[0] < 0.0 || i.translation[2] < -1.0,
+                i.translation[0] < 11.9 || i.translation[2] < 24.0,
                 "walked through the wall to {:?}",
                 i.translation
             );
         }
-        // It did try to get there: it ended up against the wall, not still at its spawn.
-        let x = input(&app, bot).translation[0];
-        assert!(x > -8.0 + 1.0, "never moved toward the target (x = {x})");
+        // It did try to get there: it isn't still standing at its spawn.
+        let t = input(&app, bot).translation;
+        let moved = Vec3::new(t[0] - 6.0, 0.0, t[2] - 40.0).length();
+        assert!(moved > 1.0, "never moved toward the target (at {t:?})");
     }
-
-    #[test]
-    fn a_bot_finds_its_way_up_the_ramps_to_a_target_on_the_top_floor() {
-        // Ground floor inside Ascension's building; the target is 13 m up, out of
-        // sight behind floors — going straight at it would just hit a wall.
-        let (mut app, bot) = world(
-            BotDifficulty::Veteran,
-            Vec3::new(9.5, 0.0, -6.5),
-            Vec3::new(26.5, 13.3, -9.5),
-        );
-        app.update(); // (the first update has no time delta)
-        let mut best_height = 0.0f32;
-        let mut arrived_at = None;
-        for tick in 0..(150 * 64) {
-            app.update();
-            let eye = input(&app, bot).translation;
-            best_height = best_height.max(eye[1] - EYE_HEIGHT);
-            // (Up on the top floor — it may well stop short of the target once it
-            // can see it and starts aiming.)
-            if eye[1] - EYE_HEIGHT > 12.0 {
-                arrived_at = Some(tick as f32 / 64.0);
-                break;
-            }
-        }
-        assert!(
-            arrived_at.is_some(),
-            "never reached the top floor (highest it got: {best_height:.1} m)"
-        );
-    }
-
     #[test]
     fn a_bot_in_a_lobby_whose_match_is_ending_stands_still_and_fires_nothing() {
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-60.0, 0.0, 0.0),
-            Vec3::new(-30.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, -40.0),
+            Vec3::new(0.0, 0.0, -40.0),
         );
         let lobby = app.world().get::<LobbyPlayer>(bot).unwrap().lobby;
         app.update(); // (the first update has no time delta)
@@ -898,8 +871,8 @@ mod tests {
     fn a_dead_bot_stands_still_and_never_fires() {
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-60.0, 0.0, 0.0),
-            Vec3::new(-30.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, -40.0),
+            Vec3::new(0.0, 0.0, -40.0),
         );
         app.world_mut().get_mut::<PlayerCombat>(bot).unwrap().alive = false;
         let start = input(&app, bot).translation;
@@ -910,15 +883,15 @@ mod tests {
             let _ = start;
         }
         let i = input(&app, bot);
-        assert!((i.translation[0] - (-60.0)).abs() < 0.01, "a dead bot moved: {:?}", i.translation);
+        assert!((i.translation[0] - (-30.0)).abs() < 0.01, "a dead bot moved: {:?}", i.translation);
     }
 
     #[test]
     fn a_bot_in_a_lobby_that_has_not_started_does_nothing() {
         let (mut app, bot) = world(
             BotDifficulty::Veteran,
-            Vec3::new(-60.0, 0.0, 0.0),
-            Vec3::new(-30.0, 0.0, 0.0),
+            Vec3::new(-30.0, 0.0, -40.0),
+            Vec3::new(0.0, 0.0, -40.0),
         );
         let lobby = app.world().get::<LobbyPlayer>(bot).unwrap().lobby;
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().started = false;

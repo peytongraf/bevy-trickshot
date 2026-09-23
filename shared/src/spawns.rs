@@ -107,7 +107,7 @@ pub fn spawn_point(seed: u64, others: &[Vec3], map: MapId) -> (Vec3, f32) {
         let r = (RING_MIN_RADIUS + rand01(s) * (RING_MAX_RADIUS - RING_MIN_RADIUS))
             * map::area_scale(map);
         let a = rand01(s ^ 0xa1) * core::f32::consts::TAU;
-        let pos = map::spawn_center(map) + Vec3::new(r * a.cos(), 0.0, r * a.sin());
+        let pos = Vec3::new(r * a.cos(), 0.0, r * a.sin());
         let yaw = rand01(s ^ 0xb2) * core::f32::consts::TAU;
         let scale = map::placement(map).scale;
         if map::point_blocked(map, pos.x, pos.z, WALL_CLEARANCE, scale)
@@ -127,7 +127,7 @@ pub fn spawn_point(seed: u64, others: &[Vec3], map: MapId) -> (Vec3, f32) {
         }
     }
     best.map(|(p, y, _)| (p, y))
-        .unwrap_or((map::spawn_center(map), 0.0))
+        .unwrap_or((Vec3::ZERO, 0.0))
 }
 
 #[cfg(test)]
@@ -200,22 +200,6 @@ mod tests {
         let everyone: Vec<Vec3> = points.iter().map(|p| Vec3::new(p.x, 0.0, p.z)).collect();
         let (pos, _) = spawn_point(1, &everyone, MapId::Shipment);
         assert!(points.iter().any(|p| p.x == pos.x && p.z == pos.z));
-    }
-
-    #[test]
-    fn ascension_spawns_are_in_the_open_yard_never_in_the_building() {
-        for seed in 0..3000u64 {
-            let (pos, _) = spawn_point(seed, &[], MapId::Ascension);
-            let scale = map::placement(MapId::Ascension).scale;
-            assert!(
-                !map::point_blocked(MapId::Ascension, pos.x, pos.z, 0.0, scale),
-                "seed {seed} landed inside the building at {pos:?}"
-            );
-            assert!(
-                map::in_bounds(MapId::Ascension, pos.x, pos.z, scale),
-                "seed {seed} landed off the map at {pos:?}"
-            );
-        }
     }
 
     #[test]

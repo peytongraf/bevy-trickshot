@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Ascension map removed
 - Blood splatter / health tint no longer draws over the HUD
 - Lights added inside shipment containers
 
@@ -16,7 +17,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Turn down remote player rechamber volume by a lot.
 - Increase aim sway
 - On windows terminal pops up to play prod client
-- Remove ascension map
 - Limit throwing knife and sniper ammo on free for all. The player should get 2 throwing knives and the max mags for the sniper should be 6.
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Make other players and bots not able to be ran through

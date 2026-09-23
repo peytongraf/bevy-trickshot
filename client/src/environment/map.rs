@@ -99,8 +99,8 @@ pub(crate) fn map_ready(state: &MapLoadState, map: shared::MapId) -> bool {
     state.model_ready && (map_visual_path(map).is_none() || state.visual_ready)
 }
 
-/// Push `MapSettings` onto the loaded `basic_map.glb` scene (or Ascension's
-/// fixed placement onto `ascenion_map.glb`) every frame it's
+/// Push `MapSettings` onto the loaded `basic_map.glb` scene (or Break
+/// Point's fixed placement onto `break_point_map.glb`) every frame it's
 /// the selected map — cheap (one `Transform` write), and unconditional so a
 /// freshly re-spawned model (see `sync_map_model`, after switching away from
 /// and back to this map) always picks the placement back up, rather than only
@@ -110,15 +110,11 @@ pub(crate) fn apply_map_transform(
     map: Res<MapSettings>,
     mut models: Query<&mut Transform, With<MapGeometry>>,
 ) {
-    // `BasicMap` is live-tunable (`MapSettings`); `Ascension` / `BreakPoint` are placed by their
-    // fixed shared placements — the same constants the server places its own
+    // `BasicMap` is live-tunable (`MapSettings`); `BreakPoint` is placed by its
+    // fixed shared placement — the same constants the server places its own
     // copy of the collision mesh with.
     let (position, rotation_deg, scale) = match current.0 {
         shared::MapId::BasicMap => (map.position, map.rotation_deg, map.scale),
-        shared::MapId::Ascension => {
-            let p = shared::map::ASCENSION_PLACEMENT;
-            (p.position, p.yaw_deg, p.scale)
-        }
         shared::MapId::BreakPoint => {
             let p = shared::map::BREAK_POINT_PLACEMENT;
             (p.position, p.yaw_deg, p.scale)
@@ -209,7 +205,7 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 /// entry here once a map gets a `MapVisualModel` of its own.
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
-        shared::MapId::BasicMap | shared::MapId::Ascension | shared::MapId::BreakPoint => None,
+        shared::MapId::BasicMap | shared::MapId::BreakPoint => None,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/shipment_visual.glb"),
     }
 }

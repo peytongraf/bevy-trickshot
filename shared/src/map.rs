@@ -35,15 +35,6 @@ pub const BASIC_MAP_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.65,
 };
 
-/// `ascenion_map.glb`'s placement: at the origin, scaled to match
-/// [`BASIC_MAP_PLACEMENT`] — natively its ground plane spans ±100 m and its
-/// two-level building rises to ~20 m; at this scale that's ±65 m and ~13 m.
-pub const ASCENSION_PLACEMENT: MapPlacement = MapPlacement {
-    position: Vec3::ZERO,
-    yaw_deg: 0.0,
-    scale: BASIC_MAP_PLACEMENT.scale,
-};
-
 /// `break_point_map.glb`'s placement: at the origin, at 0.6 scale — natively
 /// its ground plane spans x ±60, z ±100 (ringed by boundary walls); at this
 /// scale that's 72 × 120 m.
@@ -55,13 +46,11 @@ pub const BREAK_POINT_PLACEMENT: MapPlacement = MapPlacement {
 
 /// The collision model file for `map`, relative to the client's assets
 /// directory — `shipment.glb` for both Shipment variants. The server embeds
-/// these same files at build time (`server::collision`). (Ascension's file is
-/// spelled `ascenion_map.glb` on disk.)
+/// these same files at build time (`server::collision`).
 pub fn collision_model_path(map: MapId) -> &'static str {
     match map {
         MapId::BasicMap => "models/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
-        MapId::Ascension => "models/ascenion_map.glb",
         MapId::BreakPoint => "models/break_point_map.glb",
     }
 }
@@ -71,7 +60,6 @@ pub fn collision_model_path(map: MapId) -> &'static str {
 pub fn placement(map: MapId) -> MapPlacement {
     match map {
         MapId::BasicMap => BASIC_MAP_PLACEMENT,
-        MapId::Ascension => ASCENSION_PLACEMENT,
         MapId::BreakPoint => BREAK_POINT_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
@@ -162,24 +150,9 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
     match map {
         MapId::BasicMap => BASIC_MAP_WALLS,
         MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
-        MapId::Ascension => ASCENSION_WALLS,
         MapId::BreakPoint => BREAK_POINT_WALLS,
     }
 }
-
-/// `ascenion_map.glb`: the whole building's footprint (its walled, multi-level
-/// structure spans x 0..100, z -20..100) is one solid block as far as spawn /
-/// bot placement is concerned — only the open yard around it (west of x = 0,
-/// and the strip south of z = -20) is used, so nobody starts up a ramp, on a
-/// slab or wedged in a wall. Hand-measured from the model in native units
-/// ([`walls`] callers scale them by [`ASCENSION_PLACEMENT`]'s scale).
-const ASCENSION_WALLS: &[WallBox] = &[WallBox {
-    x: (-1.0, 101.0),
-    z: (-21.0, 101.0),
-}];
-
-/// The middle of Ascension's western yard, in the model's native units.
-const ASCENSION_YARD_CENTER: Vec3 = Vec3::new(-50.0, 0.0, 0.0);
 
 /// `break_point_map.glb`'s solid blocks and walls that reach the ground, in
 /// native units (generated from the model's node transforms: every box whose
@@ -223,26 +196,6 @@ pub fn area_scale(map: MapId) -> f32 {
     }
 }
 
-/// Where players' spawn ring is centred (`crate::spawns::spawn_point`): the
-/// world origin, except on Ascension, where the origin is a corner of the
-/// building — there it's the middle of the western yard.
-pub fn spawn_center(map: MapId) -> Vec3 {
-    match map {
-        MapId::Ascension => ASCENSION_YARD_CENTER * ASCENSION_PLACEMENT.scale,
-        _ => Vec3::ZERO,
-    }
-}
-
-/// Where `Freestyle` bots respawn around (`crate::bots::respawn_pose`), by
-/// distance tier — `default` (the usual `BOT_AREA_CENTER`) except on
-/// Ascension, where it's the middle of the western yard too.
-pub fn bot_center(map: MapId, default: Vec3) -> Vec3 {
-    match map {
-        MapId::Ascension => ASCENSION_YARD_CENTER * ASCENSION_PLACEMENT.scale,
-        _ => default,
-    }
-}
-
 /// `true` if a circle of `radius` centred at world-space `(x, z)` overlaps
 /// any of `map`'s walls once they're scaled by `scale` (see [`walls`]).
 pub fn point_blocked(map: MapId, x: f32, z: f32, radius: f32, scale: f32) -> bool {
@@ -261,8 +214,6 @@ fn bounds(map: MapId) -> Option<WallBox> {
     match map {
         MapId::BasicMap => None,
         MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
-        // The ground plane's ±100 m, with a margin off its edge.
-        MapId::Ascension => Some(WallBox { x: (-97.0, 97.0), z: (-97.0, 97.0) }),
         // The ground plane's x ±60, z ±100, with a margin off the boundary walls.
         MapId::BreakPoint => Some(WallBox { x: (-58.0, 58.0), z: (-98.0, 98.0) }),
     }

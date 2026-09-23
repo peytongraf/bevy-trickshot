@@ -25,9 +25,6 @@ use shared::MapId;
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.glb");
-// (The file really is spelled `ascenion_map.glb`.)
-const ASCENSION_GLB: &[u8] = include_bytes!("../../client/assets/models/ascenion_map.glb");
-
 const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/break_point_map.glb");
 
 /// One map's collision mesh, in world space.
@@ -40,7 +37,6 @@ pub struct MapMesh {
 pub struct MapColliders {
     basic: MapMesh,
     shipment: MapMesh,
-    ascension: MapMesh,
     break_point: MapMesh,
 }
 
@@ -53,8 +49,6 @@ impl MapColliders {
                 .expect("basic_map.glb collision model"),
             shipment: MapMesh::from_glb(SHIPMENT_GLB, map::placement(MapId::Shipment))
                 .expect("shipment.glb collision model"),
-            ascension: MapMesh::from_glb(ASCENSION_GLB, map::placement(MapId::Ascension))
-                .expect("ascenion_map.glb collision model"),
             break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
                 .expect("break_point_map.glb collision model"),
         }
@@ -65,7 +59,6 @@ impl MapColliders {
         match map {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
-            MapId::Ascension => &self.ascension,
             MapId::BreakPoint => &self.break_point,
         }
     }
@@ -227,7 +220,7 @@ mod tests {
     #[test]
     fn both_maps_load_with_geometry() {
         let c = colliders();
-        for map in [MapId::BasicMap, MapId::Shipment, MapId::Ascension, MapId::BreakPoint] {
+        for map in [MapId::BasicMap, MapId::Shipment, MapId::BreakPoint] {
             let (lo, hi) = c.world(map).bounds();
             assert!(hi.x > lo.x && hi.y >= lo.y && hi.z > lo.z, "{map:?}: {lo} .. {hi}");
         }
@@ -247,43 +240,6 @@ mod tests {
             "width {w} (expected about {expected}), depth {d}",
         );
     }
-
-    #[test]
-    fn basic_map_is_placed_at_its_shared_offset() {
-        let (lo, hi) = colliders().world(MapId::BasicMap).bounds();
-        let p = map::BASIC_MAP_PLACEMENT.position;
-        // The placement's own offset shifts the whole mesh — its centre can't
-        // be sitting on the world origin by accident.
-        let centre = (lo + hi) * 0.5;
-        assert!(
-            (centre.x - p.x).abs() < 40.0 && (centre.z - p.z).abs() < 40.0,
-            "centre {centre} vs placement {p}",
-        );
-    }
-
-    #[test]
-    fn ascension_is_placed_at_the_basic_maps_scale() {
-        // A ±100 m ground plane and a building rising to ~20 m natively.
-        let s = map::BASIC_MAP_PLACEMENT.scale;
-        assert_eq!(map::placement(MapId::Ascension).scale, s);
-        let (lo, hi) = colliders().world(MapId::Ascension).bounds();
-        assert!((lo.x + 100.0 * s).abs() < 1.0 && (hi.x - 100.0 * s).abs() < 1.5, "x {lo} .. {hi}");
-        assert!(hi.y > 19.0 * s && hi.y < 22.0 * s, "height {}", hi.y);
-    }
-
-    #[test]
-    fn a_ball_dropped_in_the_ascension_yard_lands_on_the_ground_and_the_roof_is_higher() {
-        let c = colliders();
-        let w = c.world(MapId::Ascension);
-        // The open yard west of the building: bare ground.
-        let yard = w.raycast(Vec3::new(-32.5, 40.0, 0.0), Vec3::NEG_Y, 100.0).expect("ground");
-        assert!((yard.distance - 40.0).abs() < 0.5, "yard at {}", yard.distance);
-        assert!(yard.normal.y > 0.9);
-        // Over the upper level: something is much higher than the ground.
-        let roof = w.raycast(Vec3::new(32.5, 40.0, -9.0), Vec3::NEG_Y, 100.0).expect("roof");
-        assert!(roof.distance < 30.0, "expected a raised surface, hit at {}", roof.distance);
-    }
-
     #[test]
     fn break_point_is_placed_at_point_six_scale() {
         // x ±60, z ±100 natively, walls up to 20 m tall.

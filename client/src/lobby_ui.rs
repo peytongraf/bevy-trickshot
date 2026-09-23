@@ -876,13 +876,6 @@ fn build_room(
                         spawn_map_button(
                             row,
                             asset_server,
-                            "ASCENSION",
-                            shared::MapId::Ascension,
-                            lobby.map,
-                        );
-                        spawn_map_button(
-                            row,
-                            asset_server,
                             "BREAK POINT",
                             shared::MapId::BreakPoint,
                             lobby.map,

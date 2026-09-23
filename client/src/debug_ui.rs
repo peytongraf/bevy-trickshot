@@ -71,7 +71,6 @@ pub(crate) fn ads_tuning_ui(
             ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
             ResMut<ShipmentDaySceneTuning>,
-            ResMut<AscensionSceneTuning>,
             ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
@@ -95,7 +94,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut ascension_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1297,15 +1296,6 @@ pub(crate) fn ads_tuning_ui(
                 scene_tuning_sliders(ui, &mut shipment_day_scene.0);
                 if ui.button("Reset fog & sky").clicked() {
                     *shipment_day_scene = ShipmentDaySceneTuning::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Fog & Sky (Ascension)", |ui| {
-                ui.label("Slightly overcast day on a snowy mountain hillside");
-                scene_tuning_sliders(ui, &mut ascension_scene.0);
-                if ui.button("Reset fog & sky").clicked() {
-                    *ascension_scene = AscensionSceneTuning::default();
                 }
             });
 
