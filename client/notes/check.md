@@ -1,0 +1,4 @@
+- Player who isn't party members screen still shows end game screen with continue button even after a game starts.
+- Z says capslock won't work to set as crouch / slide keybind
+- When backing out of free for all then going to the basic map free style, players don't see each others remote model moving
+- Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear

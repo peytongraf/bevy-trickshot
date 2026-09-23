@@ -16,11 +16,19 @@ only place a player learns anything changed.
 
 ## Working in this repo
 
-- `client/notes/todo.md` is the backlog. `# Added` is unsorted/incoming work;
-  `# Done` and the other headed sections below it are worked through roughly
-  easiest → hardest. When you finish an item, move it out of `# Added` into an
-  appropriate `# Done` subsection (or delete it if it was pure housekeeping
-  with nothing worth recording).
+- `client/notes/todo.md` is the backlog. **Read it at the start of every
+  conversation.** `# Done` sits at the top of the file; `# Added` and its
+  subsections below it are ordered easiest → hardest — keep that order when
+  adding new items.
+- Whenever a todo item gets completed — even if the user didn't reference
+  the todo and it just happens to match what they asked for — remove it from
+  wherever it is and add it under `# Done` at the top of the file. Keep each
+  `# Done` line very short and concise (a few words, not an explanation).
+- **Every change must reset cleanly between games.** When adding a feature or
+  fix that introduces any state (resources, components, timers, UI, audio,
+  flags, spawned entities), make sure that state is fully reset when the
+  player leaves a lobby/match, when a game ends, and when a new game starts.
+  Stale state carrying into the next match is a recurring bug class here.
 - After any player-facing change, add a changelog line — see the section right
   below. Purely internal fixes (stale asset paths, refactors, dev-log cleanup)
   don't need one.
@@ -56,7 +64,9 @@ the only place players see what changed — the client self-updates silently
 **Whenever you finish a player-facing feature or bug fix, add a line to
 `ENTRIES` in `client/src/changelog.rs`** under the current in-progress
 version (newest version first, newest line first within a version). If you
-don't, players never find out it happened.
+don't, players never find out it happened. Keep each line very short and
+concise — a few words a player can skim on the main menu (e.g. "Added sniper
+glint"), not a technical explanation.
 
 Bump the version in both places together when starting a new round of
 changes destined for the next release:
