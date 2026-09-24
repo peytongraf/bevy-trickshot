@@ -101,8 +101,8 @@ pub(crate) struct ViewModelAnimation {
 }
 
 /// Set by `start_view_model_animation` on the descendant entity that carries
-/// the sniper's `AnimationPlayer`. Bots have their own `AnimationPlayer`s now
-/// (see [`BotAnimationPlayer`]), so anywhere that used to assume "the"
+/// the sniper's `AnimationPlayer`. Remote players and bots have their own
+/// `AnimationPlayer`s (see [`crate::SoldierAnimationPlayer`]), so anywhere that used to assume "the"
 /// `AnimationPlayer` in the world was the sniper's needs to filter on this.
 #[derive(Component)]
 pub(crate) struct SniperAnimationPlayer;

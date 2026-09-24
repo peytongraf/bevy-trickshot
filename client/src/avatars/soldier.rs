@@ -156,17 +156,15 @@ impl Default for SoldierAnimSettings {
 }
 
 /// Set by `start_soldier_animation` once it finds the `AnimationPlayer` inside
-/// a remote-player avatar's spawned scene. Mirrors [`BotAnimationPlayer`],
-/// kept as its own type since it points into a different graph. Read by
-/// `net::animate_remote_avatars` to switch between idle/walk/sprint, the same
-/// way `play_bot_death` uses `BotAnimationPlayer`.
+/// a remote-player (or bot) avatar's spawned scene. Read by
+/// `net::animate_remote_avatars` to switch between idle/walk/sprint.
 #[derive(Component)]
 pub(crate) struct SoldierAnimationPlayer(pub(crate) Entity);
 
 /// Panel-adjustable uniform scale for the `models/soldier.glb` remote-player
 /// avatar ("Remote players" debug-panel section), applied by
 /// `net::follow_remote_avatars`. Live-tweakable rather than a baked constant
-/// like `BOT_MODEL_SCALE` — the model's authored size relative to a real
+/// — the model's authored size relative to a real
 /// player isn't known up front.
 #[derive(Resource)]
 pub(crate) struct RemoteAvatarSettings {
@@ -282,9 +280,8 @@ impl Default for SniperGlintSettings {
     }
 }
 
-/// Build the remote-player animation graph. Added to the same `Startup` tuple
-/// as `setup_bot_assets` — see its comment for why a separate
-/// `add_systems(Startup, ...)` (even from a plugin) can't be used instead.
+/// Build the remote-player animation graph. Part of `main.rs`'s one
+/// `Startup` tuple rather than its own `add_systems(Startup, ...)`.
 pub(crate) fn setup_soldier_assets(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -358,7 +355,7 @@ pub(crate) fn setup_soldier_assets(
 /// descendant holds the `AnimationPlayer` via [`SoldierAnimationPlayer`], and
 /// remembers the right-hand bone the gun mesh is skinned to
 /// ([`SNIPER_GLINT_BONE_NAME`]) via [`SniperGlintBone`] so the sniper glint
-/// can ride along with it. Mirrors `start_bot_animation`.
+/// can ride along with it.
 pub(crate) fn start_soldier_animation(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,

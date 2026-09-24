@@ -6,10 +6,12 @@ use bevy::math::Vec3;
 use crate::map;
 use crate::protocol::MapId;
 
-/// Bot hitbox dimensions (fed to [`crate::hitbox::Capsule`]).
+/// Bot hitbox dimensions (fed to [`crate::hitbox::Capsule`]) — the same as a
+/// player's (`server::sim::PLAYER_*`), since bots are drawn with the same
+/// `models/soldier.glb` avatar.
 pub const BOT_HEIGHT: f32 = 1.8;
-pub const BOT_RADIUS: f32 = 0.4;
-pub const BOT_HEAD_RADIUS: f32 = 0.14;
+pub const BOT_RADIUS: f32 = 0.35;
+pub const BOT_HEAD_RADIUS: f32 = 0.12;
 
 /// How many bots a game keeps alive at once.
 pub const BOTS_ALIVE: usize = 10;
@@ -17,6 +19,9 @@ pub const BOTS_ALIVE: usize = 10;
 pub const BOT_FALL_SECS: f32 = 0.4;
 /// Seconds a dead bot lingers before it's removed (and one respawns).
 pub const BOT_DEAD_SECS: f32 = 2.0;
+
+/// How long (s) a ping (`crate::PingBot`) keeps a bot marked.
+pub const PING_SECS: f32 = 5.0;
 
 /// Bots respawn on the ground somewhere around this point, in front of spawn.
 pub const BOT_AREA_CENTER: Vec3 = Vec3::new(0.0, 0.0, -5.0);

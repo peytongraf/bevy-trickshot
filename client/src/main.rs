@@ -251,6 +251,7 @@ fn main() {
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<SniperGlintSettings>()
+        .init_resource::<NameTagSettings>()
         .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
@@ -267,7 +268,6 @@ fn main() {
                 setup_crosshair,
                 setup_ammo_ui,
                 setup_fps_ui,
-                setup_bot_assets,
                 setup_soldier_assets,
                 setup_rain,
             ),
@@ -296,6 +296,21 @@ fn main() {
         // touches `Menu` afterward.
         .add_systems(OnEnter(AppState::InLobby), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
+        .add_systems(Update, spawn_name_tags.run_if(in_state(AppState::InGame)))
+        .add_systems(
+            Update,
+            ping_bots.run_if(
+                in_state(AppState::InGame)
+                    .and(menu::game_active)
+                    .and(killcam::no_killcam),
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            (apply_name_tag_scale, update_name_tags)
+                .before(bevy::ui::UiSystem::Layout)
+                .run_if(in_state(AppState::InGame)),
+        )
         .add_systems(Update, apply_master_volume)
         // Unconditional (not gated on `AppState`) so the map (and its ground)
         // behind the menu/lobby UI is already right the instant a game starts.

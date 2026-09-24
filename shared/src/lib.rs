@@ -31,7 +31,7 @@ pub use protocol::{
     AddBots, AssetsReady, Bot, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
-    LobbyMember, MapId, MatchEnding, MatchOver, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
+    LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
     PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetMap,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore,

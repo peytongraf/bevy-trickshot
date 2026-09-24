@@ -8,6 +8,13 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Ping readout beside fps
 
+# Today
+
+- On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
+- Change bot look from remote player look
+- Add ping on free style
+- Add tdm
+
 # Added
 
 Everything below is ordered easiest → hardest, within each section.

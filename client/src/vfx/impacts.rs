@@ -138,7 +138,7 @@ impl Default for DustSettings {
 
 /// A shot connected with a bot at `point`, travelling along `dir` (unit).
 /// Consumed by `spawn_blood_impact`, which squirts a blood burst out along the
-/// shot from that point. Written by `net::follow_bot_avatars` when a
+/// shot from that point. Written by `net::sync_bot_poses` when a
 /// server-owned bot drops.
 #[derive(Event)]
 pub(crate) struct BloodImpact {

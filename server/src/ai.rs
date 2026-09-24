@@ -52,7 +52,7 @@ const SND_FOOTSTEP: u16 = 1 << 7;
 /// Walking / sprinting speeds (m/s) — the client's `WALK_SPEED` / `SPRINT_SPEED`
 /// defaults, so a bot's remote model plays the right animation (the client
 /// picks walk vs. sprint from how fast the avatar actually moves).
-const WALK_SPEED: f32 = 5.0;
+pub(crate) const WALK_SPEED: f32 = 5.0;
 const SPRINT_SPEED: f32 = 9.0;
 /// A bot sprints toward a target farther than this (if its difficulty sprints).
 const SPRINT_MIN_DISTANCE: f32 = 30.0;
@@ -271,7 +271,7 @@ pub(crate) fn move_bot(
 }
 
 /// Wrap `to - from` into `(-π, π]`.
-fn shortest_angle(from: f32, to: f32) -> f32 {
+pub(crate) fn shortest_angle(from: f32, to: f32) -> f32 {
     let tau = core::f32::consts::TAU;
     let d = (to - from).rem_euclid(tau);
     if d > core::f32::consts::PI {
@@ -283,7 +283,7 @@ fn shortest_angle(from: f32, to: f32) -> f32 {
 
 /// Yaw / pitch (radians) that look along `dir` — the client's convention:
 /// yaw 0 faces -Z, positive pitch looks up.
-fn look_angles(dir: Vec3) -> (f32, f32) {
+pub(crate) fn look_angles(dir: Vec3) -> (f32, f32) {
     (f32::atan2(-dir.x, -dir.z), dir.y.clamp(-1.0, 1.0).asin())
 }
 

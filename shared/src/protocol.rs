@@ -599,8 +599,7 @@ impl ActorSample {
     }
 }
 
-/// One bot (a `Freestyle` target, shown as `models/bot.glb`) or other player (as
-/// `models/soldier.glb` — including `FreeForAll` bots) across a kill-cam
+/// One bot or other player (all shown as `models/soldier.glb`) across a kill-cam
 /// window, oldest sample first. Never the killer themselves: the replay is a
 /// first-person fly-through of their own recorded view, so they'd have no
 /// body to show. It includes whoever was shot, whose death shows up as their
@@ -853,6 +852,10 @@ pub struct Bot {
     pub alive: bool,
     /// `0.0` upright … `1.0` flat on the ground. Ramps up after death.
     pub fall: f32,
+    /// A lobby member pinged it ([`PingBot`]) within the last
+    /// [`crate::bots::PING_SECS`] — every member's client shows a diamond over
+    /// it, through walls. Cleared early if it dies.
+    pub pinged: bool,
 }
 
 impl Ease for Bot {
@@ -862,6 +865,7 @@ impl Ease for Bot {
             yaw: lerp_angle(start.yaw, end.yaw, t),
             alive: end.alive,
             fall: start.fall + (end.fall - start.fall) * t,
+            pinged: end.pinged,
         })
     }
 }
@@ -993,6 +997,21 @@ impl MapEntities for JoinLobby {
     }
 }
 
+/// Client → server: ping this `Freestyle` bot (the client checked it was
+/// under its crosshair) so every member of the lobby sees it marked. `bot` is
+/// the confirmed entity as the client knows it; lightyear maps it to the
+/// server's on arrival (`add_map_entities`).
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct PingBot {
+    pub bot: Entity,
+}
+
+impl MapEntities for PingBot {
+    fn map_entities<M: EntityMapper>(&mut self, mapper: &mut M) {
+        self.bot = mapper.get_mapped(self.bot);
+    }
+}
+
 /// Client → server: leave whatever lobby the sender is in (server derives it).
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct LeaveLobby;
@@ -1098,6 +1117,9 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<FallLanded>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<RespawnReady>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PingBot>()
+            .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

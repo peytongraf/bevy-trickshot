@@ -31,7 +31,7 @@ use shared::{
 use crate::fall_death;
 use crate::killcam::{self, ActiveKillCam, ReplaySoundBits};
 use crate::{
-    play_bot_death, Ads, AppState, BloodImpact, BotAnimationPlayer, BotAnimations, BotVisual,
+    Ads, AppState, BloodImpact,
     GroundImpact, MatchEndedEvent, PendingShot, Player, PlayerHead, PlayerPhysics, SniperGlint,
     SniperGlintAssets, SniperGlintBone, SniperGlintSettings, TrickScoredEvent, TrickState,
     WorldModelCamera, NOSCOPE_ADS_MAX,
@@ -156,7 +156,7 @@ impl Plugin for ClientNetPlugin {
                 spawn_sniper_glints,
                 update_sniper_glints,
                 spawn_bot_avatars,
-                follow_bot_avatars,
+                sync_bot_poses,
                 receive_shots,
                 receive_remote_sounds,
                 receive_trick_scores,
@@ -771,21 +771,30 @@ fn spawn_remote_avatars(
         if have.contains(&src) {
             continue;
         }
-        commands
-            .spawn((
-                StateScoped(AppState::InGame),
-                RemoteAvatar { src },
-                RemoteAvatarMotion::default(),
-                crate::SoldierVisual,
-                Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
-                Visibility::default(),
-                SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
-                ),
-            ))
-            .observe(crate::start_soldier_animation);
+        spawn_soldier_avatar(&mut commands, &asset_server, remote_avatar_settings.scale, src);
         info!("remote player {src:?} — spawned soldier avatar");
     }
+}
+
+/// A live `models/soldier.glb` [`RemoteAvatar`] following the `PlayerPose` on
+/// `src` — another player's, or a `Freestyle` bot's [`BotPose`] stand-in.
+fn spawn_soldier_avatar(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    scale: f32,
+    src: Entity,
+) {
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            RemoteAvatar { src },
+            RemoteAvatarMotion::default(),
+            crate::SoldierVisual,
+            Transform::from_scale(Vec3::splat(scale)),
+            Visibility::default(),
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb"))),
+        ))
+        .observe(crate::start_soldier_animation);
 }
 
 fn follow_remote_avatars(
@@ -1181,43 +1190,54 @@ fn animate_remote_avatars(
     }
 }
 
-// --- bots (models that play a death animation when shot) --------------
+// --- Freestyle target bots (drawn as remote-player soldiers) ----------
 
-/// Stands in for a server-owned [`shared::Bot`], as `models/bot.glb`.
+/// A client-only stand-in `PlayerPose` for a server-owned [`shared::Bot`] —
+/// the same trick the kill cam's `KillCamPose` uses — so the bot is drawn by a
+/// normal [`RemoteAvatar`] and walks / dies through exactly the same
+/// animation logic as another player. Despawned with the bot, which takes the
+/// avatar with it (`follow_remote_avatars`).
 #[derive(Component)]
-struct BotAvatar {
-    src: Entity,
-    /// Set once the death animation has been kicked off, so it isn't
-    /// restarted every replicated update after the bot dies.
+pub(crate) struct BotPose {
+    pub(crate) bot: Entity,
+    /// Set once the bot's death has been seen, so the blood burst fires once.
     died: bool,
 }
 
 const BOT_H: f32 = 1.8;
 
+/// A bot's state as the `PlayerPose` its avatar animates from (eye height,
+/// like a player's).
+fn bot_player_pose(bot: &Bot) -> PlayerPose {
+    PlayerPose {
+        translation: bot.pos + Vec3::Y * crate::EYE_HEIGHT,
+        yaw: bot.yaw,
+        alive: bot.alive,
+        ..default()
+    }
+}
+
 fn spawn_bot_avatars(
-    bots: Query<Entity, (With<Bot>, With<Interpolated>)>,
-    avatars: Query<&BotAvatar>,
+    bots: Query<(Entity, &Bot), With<Interpolated>>,
+    stand_ins: Query<&BotPose>,
+    remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
-    for src in &bots {
+    let have: std::collections::HashSet<Entity> = stand_ins.iter().map(|p| p.bot).collect();
+    for (src, bot) in &bots {
         if have.contains(&src) {
             continue;
         }
-        commands
+        let pose = commands
             .spawn((
                 StateScoped(AppState::InGame),
-                BotAvatar { src, died: false },
-                BotVisual,
-                crate::TargetBotVisual,
-                Transform::from_scale(Vec3::splat(crate::BOT_MODEL_SCALE)),
-                Visibility::default(),
-                SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/bot.glb")),
-                ),
+                // Already dead when first seen: no burst to play.
+                BotPose { bot: src, died: !bot.alive },
+                bot_player_pose(bot),
             ))
-            .observe(crate::start_bot_animation);
+            .id();
+        spawn_soldier_avatar(&mut commands, &asset_server, remote_avatar_settings.scale, pose);
         info!("bot {src:?} — spawned");
     }
 }
@@ -1264,38 +1284,35 @@ fn dev_auto_fire(
     *cooldown = 1.2;
 }
 
-#[allow(clippy::too_many_arguments)]
-fn follow_bot_avatars(
+/// Copy each bot's interpolated state onto its [`BotPose`] stand-in, with an
+/// upward blood burst the moment it dies; drop the stand-in once the bot is
+/// gone.
+fn sync_bot_poses(
     bots: Query<&Bot>,
-    mut avatars: Query<(Entity, &mut BotAvatar, &mut Transform)>,
-    roots: Query<&BotAnimationPlayer>,
-    mut players: Query<&mut AnimationPlayer>,
-    anims: Res<BotAnimations>,
+    mut stand_ins: Query<(Entity, &mut BotPose, &mut PlayerPose)>,
     mut blood: EventWriter<BloodImpact>,
     mut blood_rec: ResMut<killcam::ReplayBloodImpact>,
     mut commands: Commands,
 ) {
-    for (entity, mut avatar, mut tf) in &mut avatars {
-        match bots.get(avatar.src) {
-            Ok(bot) => {
-                tf.translation = bot.pos;
-                tf.rotation = Quat::from_rotation_y(bot.yaw);
-                if !bot.alive && !avatar.died {
-                    avatar.died = true;
-                    play_bot_death(entity, &roots, &mut players, &anims);
-                    // The server's `ShotResolved` reports a bot kill as a plain
-                    // miss with no hit point, so squirt an upward blood burst
-                    // from the bot's chest rather than a directed one.
-                    let point = bot.pos + Vec3::Y * (BOT_H * 0.55);
-                    blood.write(BloodImpact { point, dir: Vec3::Y });
-                    // Stamp it for this client's next input packet so a kill cam
-                    // built from our stream replays the squirt.
-                    blood_rec.0 = Some(point);
-                }
-            }
-            Err(_) => {
-                commands.entity(entity).try_despawn();
-            }
+    for (entity, mut stand_in, mut pose) in &mut stand_ins {
+        let Ok(bot) = bots.get(stand_in.bot) else {
+            commands.entity(entity).try_despawn();
+            continue;
+        };
+        let want = bot_player_pose(bot);
+        if *pose != want {
+            *pose = want;
+        }
+        if !bot.alive && !stand_in.died {
+            stand_in.died = true;
+            // The server's `ShotResolved` reports a bot kill as a plain
+            // miss with no hit point, so squirt an upward blood burst
+            // from the bot's chest rather than a directed one.
+            let point = bot.pos + Vec3::Y * (BOT_H * 0.55);
+            blood.write(BloodImpact { point, dir: Vec3::Y });
+            // Stamp it for this client's next input packet so a kill cam
+            // built from our stream replays the squirt.
+            blood_rec.0 = Some(point);
         }
     }
 }

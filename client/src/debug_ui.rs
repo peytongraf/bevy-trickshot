@@ -76,6 +76,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<LensSettings>,
             ResMut<SniperGlintSettings>,
             ResMut<ShroomSettings>,
+            ResMut<crate::hud::NameTagSettings>,
         ),
     ),
 ) -> Result {
@@ -94,7 +95,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, mut name_tags),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -649,6 +650,37 @@ pub(crate) fn ads_tuning_ui(
                 }
                 if ui.button("Reset sniper glint").clicked() {
                     *g = SniperGlintSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Name tags", |ui| {
+                let nt = &mut *name_tags;
+                ui.label("Diamond + name over other players' heads.");
+                ui.add(
+                    egui::Slider::new(&mut nt.height, 0.0f32..=2.0)
+                        .text("height above eye (m)"),
+                );
+                ui.add(egui::Slider::new(&mut nt.scale, 0.25f32..=4.0).text("scale (×)"));
+                ui.horizontal(|ui| {
+                    ui.label("enemy color (Free For All)");
+                    ui.color_edit_button_rgb(&mut nt.enemy_color);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("lobby member color (Freestyle)");
+                    ui.color_edit_button_rgb(&mut nt.friendly_color);
+                });
+                if ui.button("Copy name tags to console").clicked() {
+                    let [er, eg, eb] = nt.enemy_color;
+                    let [fr, fg, fb] = nt.friendly_color;
+                    info!(
+                        "name tags: height: {:.2}, scale: {:.2}, enemy_color: [{er:.2}, {eg:.2}, {eb:.2}], \
+                         friendly_color: [{fr:.2}, {fg:.2}, {fb:.2}]",
+                        nt.height, nt.scale,
+                    );
+                }
+                if ui.button("Reset name tags").clicked() {
+                    *nt = crate::hud::NameTagSettings::default();
                 }
             });
 

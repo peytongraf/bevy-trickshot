@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Ping bots in Freestyle with middle mouse; your whole lobby sees it.",
+        "Added name tags over players (blue in Freestyle, red in Free For All).",
+        "Freestyle bots now use the soldier model and walk around the map.",
         "Added a ping (ms) readout beside the FPS counter.",
         "Sniper ammo is now limited in Free For All: 6 mags per life.",
         "New Call of Duty style ammo HUD, with throwing knives shown.",
