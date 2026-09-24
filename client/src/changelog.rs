@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "You can now jump just after running off a ledge.",
         "You can no longer run through other players and bots.",
         "Bots now have dark blue armour so you can tell them apart.",
         "Ping bots in Freestyle with middle mouse; your whole lobby sees it.",

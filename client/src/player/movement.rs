@@ -286,6 +286,28 @@ pub(crate) struct PlayerPhysics {
     pub(crate) horizontal_velocity: Vec3,
     pub(crate) vertical_velocity: f32,
     pub(crate) grounded: bool,
+    /// Seconds left in which a jump still counts after the feet leave a
+    /// surface without jumping — see [`LedgeJumpSettings`].
+    pub(crate) coyote_left: f32,
+}
+
+/// Panel-adjustable ledge-jump grace ("Ledge jump" debug-panel section):
+/// Call of Duty style, a jump pressed a split second after running off an
+/// edge still goes, instead of the player just dropping.
+#[derive(Resource)]
+pub(crate) struct LedgeJumpSettings {
+    pub(crate) enabled: bool,
+    /// How long (s) after leaving the edge a jump is still allowed.
+    pub(crate) grace_secs: f32,
+}
+
+impl Default for LedgeJumpSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            grace_secs: 0.15,
+        }
+    }
 }
 
 /// Panel-adjustable locomotion + gravity tuning.
@@ -465,9 +487,13 @@ pub(crate) fn jump(
     if slide.stance != Stance::Standing || slide.ate_jump {
         return;
     }
-    if physics.grounded && binds.jump.just_pressed(&keys, &mouse) {
+    // Standing on something, or just ran off it (`LedgeJumpSettings`).
+    let can_jump = physics.grounded || physics.coyote_left > 0.0;
+    if can_jump && binds.jump.just_pressed(&keys, &mouse) {
         physics.vertical_velocity = settings.jump_speed;
         physics.grounded = false;
+        // Spent — no second jump from the same ledge.
+        physics.coyote_left = 0.0;
         jumping.0 = true;
     }
 }
@@ -487,6 +513,7 @@ pub(crate) const GROUND_RAY_MAX_DIST: f32 = 500.0;
 pub(crate) fn apply_gravity(
     time: Res<Time>,
     settings: Res<MovementSettings>,
+    ledge: Res<LedgeJumpSettings>,
     slide: Res<Slide>,
     rapier: ReadRapierContext,
     sounds: Res<GameSounds>,
@@ -544,6 +571,14 @@ pub(crate) fn apply_gravity(
 
     if !was_grounded && physics.grounded {
         jumping.0 = false;
+    }
+
+    // Ledge-jump grace: full while on the ground, running down once off it.
+    // (`jump` zeroes it, so it only ever covers walking off an edge.)
+    if physics.grounded {
+        physics.coyote_left = if ledge.enabled { ledge.grace_secs } else { 0.0 };
+    } else {
+        physics.coyote_left = (physics.coyote_left - dt).max(0.0);
     }
 
     // Landing thump: airborne to grounded this frame. A dive lands on the

@@ -61,6 +61,7 @@ pub(crate) fn ads_tuning_ui(
         ResMut<WaterSettings>,
         ResMut<ShipmentSceneTuning>,
         ResMut<ShipmentLightSettings>,
+        ResMut<LedgeJumpSettings>,
         (
             ResMut<RainSettings>,
             ResMut<KnifeViewModelSettings>,
@@ -96,6 +97,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
+        mut ledge_jump,
         (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, mut name_tags, mut bot_look),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
@@ -942,6 +944,30 @@ pub(crate) fn ads_tuning_ui(
                 );
                 if ui.button("Reset movement").clicked() {
                     *m = MovementSettings::default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Ledge jump", |ui| {
+                let l = &mut *ledge_jump;
+                ui.label(
+                    "Grace period after running off an edge in which jump still works \
+                     (Call of Duty style), instead of just dropping.",
+                );
+                ui.checkbox(&mut l.enabled, "enabled");
+                ui.add(
+                    egui::Slider::new(&mut l.grace_secs, 0.0f32..=0.5)
+                        .text("grace time (s)")
+                        .max_decimals(3),
+                );
+                let m = &*movement;
+                ui.label(format!(
+                    "≈ {:.2} m past the edge walking, {:.2} m sprinting",
+                    l.grace_secs * m.walk_speed,
+                    l.grace_secs * m.sprint_speed,
+                ));
+                if ui.button("Reset ledge jump").clicked() {
+                    *l = LedgeJumpSettings::default();
                 }
             });
 
