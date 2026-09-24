@@ -70,6 +70,99 @@ pub(crate) fn resolve_wall_collisions(
     transform.translation.z = pos.z;
 }
 
+/// Horizontal radius (m) of another player's / bot's body for
+/// [`resolve_body_collisions`] — their hitbox capsule's.
+pub(crate) const OTHER_BODY_RADIUS: f32 = 0.35;
+/// Height (m) of another player's / bot's body, standing...
+pub(crate) const OTHER_BODY_HEIGHT: f32 = 1.8;
+/// ...and crouched / sliding.
+pub(crate) const OTHER_BODY_CROUCH_HEIGHT: f32 = 1.2;
+
+/// Call of Duty style body blocking: other players and bots are solid. Each
+/// living one (as this client sees it — interpolated) is an upright cylinder;
+/// if the local body (a [`BODY_CAPSULE_RADIUS`] cylinder, feet to
+/// [`BODY_CAPSULE_HEIGHT`]) overlaps one after this frame's move, it's pushed
+/// straight back out — through [`sweep_and_slide`], so the push can't shove
+/// the player into a wall — and loses the part of its velocity heading into
+/// the body, so walking (or sliding) into someone slides around them rather
+/// than grinding. Pure maths, no colliders: shots, ground rays, mantling and
+/// line-of-sight checks never see these bodies. Dead bodies don't block.
+#[allow(clippy::type_complexity)]
+pub(crate) fn resolve_body_collisions(
+    rapier: ReadRapierContext,
+    others: Query<&shared::PlayerPose, With<lightyear::prelude::Interpolated>>,
+    bots: Query<&shared::Bot, With<lightyear::prelude::Interpolated>>,
+    mut player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+) {
+    let (transform, physics) = &mut *player;
+    let feet = transform.translation.y - EYE_HEIGHT;
+    let top = feet + BODY_CAPSULE_HEIGHT;
+    // (feet, body height) of everything solid.
+    let bodies = others
+        .iter()
+        .filter(|p| p.alive)
+        .map(|p| {
+            let h = if p.crouching || p.sliding {
+                OTHER_BODY_CROUCH_HEIGHT
+            } else {
+                OTHER_BODY_HEIGHT
+            };
+            (p.translation - Vec3::Y * EYE_HEIGHT, h)
+        })
+        .chain(bots.iter().filter(|b| b.alive).map(|b| (b.pos, OTHER_BODY_HEIGHT)));
+
+    let min_dist = BODY_CAPSULE_RADIUS + OTHER_BODY_RADIUS;
+    let mut push = Vec3::ZERO;
+    for (other_feet, height) in bodies {
+        // Only while the two actually overlap vertically — landing on top of
+        // someone's head isn't a wall.
+        if top <= other_feet.y + 0.05 || feet >= other_feet.y + height - 0.05 {
+            continue;
+        }
+        let mut away = Vec3::new(
+            transform.translation.x + push.x - other_feet.x,
+            0.0,
+            transform.translation.z + push.z - other_feet.z,
+        );
+        let dist = away.length();
+        if dist >= min_dist {
+            continue;
+        }
+        away = if dist > 1e-4 {
+            away / dist
+        } else {
+            // Dead centre: back out the way we came.
+            let back = -Vec3::new(physics.horizontal_velocity.x, 0.0, physics.horizontal_velocity.z);
+            back.try_normalize().unwrap_or(Vec3::X)
+        };
+        push += away * (min_dist - dist);
+        let into = physics.horizontal_velocity.dot(away);
+        if into < 0.0 {
+            physics.horizontal_velocity -= away * into;
+        }
+    }
+    if push.length_squared() < 1e-10 {
+        return;
+    }
+
+    // Apply the push through the same wall sweep as ordinary movement.
+    let Ok(rapier) = rapier.single() else {
+        transform.translation += push;
+        return;
+    };
+    let probe_bottom = feet + WALL_PROBE_CLEARANCE;
+    let half_height = ((top - probe_bottom) / 2.0 - BODY_CAPSULE_RADIUS).max(0.01);
+    let probe = Collider::capsule_y(half_height, BODY_CAPSULE_RADIUS);
+    let pos = Vec3::new(
+        transform.translation.x,
+        (probe_bottom + top) / 2.0,
+        transform.translation.z,
+    );
+    let moved = sweep_and_slide(&rapier, pos, push, &probe);
+    transform.translation.x += moved.x;
+    transform.translation.z += moved.z;
+}
+
 /// Sweeps `probe` from `origin` toward `delta`, sliding along any wall-like
 /// hit instead of stopping dead: the leftover distance for that hit is
 /// projected onto the wall's tangent plane (dropping only the component that

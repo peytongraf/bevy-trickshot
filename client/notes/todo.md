@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Players/bots block movement
 - Ping readout beside fps
 
 # Today
@@ -22,7 +23,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Increase aim sway
 - On windows terminal pops up to play prod client
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
-- Make other players and bots not able to be ran through
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add spawn points for all maps
 - Clear all client runtime errors so that logging will work for things like position

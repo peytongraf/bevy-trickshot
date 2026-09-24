@@ -370,6 +370,7 @@ fn main() {
                     crouch_slide,
                     move_player,
                     resolve_wall_collisions,
+                    resolve_body_collisions,
                     teleport_home,
                     jump,
                     apply_gravity,
