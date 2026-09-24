@@ -606,7 +606,11 @@ impl ActorSample {
 /// `alive` flag clearing.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KillCamActor {
+    /// A `Freestyle` target bot (its samples' `pos` is its feet).
     pub bot: bool,
+    /// A `FreeForAll` bot player (recorded like any other player) — so the
+    /// replay can draw it with the bot look too.
+    pub bot_player: bool,
     pub samples: Vec<ActorSample>,
 }
 

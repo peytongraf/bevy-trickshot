@@ -150,6 +150,8 @@ impl Plugin for ClientNetPlugin {
             (
                 mark_local_input,
                 spawn_remote_avatars,
+                mark_bot_avatars,
+                crate::tint_bot_avatars,
                 follow_remote_avatars,
                 animate_remote_avatars,
                 hide_remote_avatars_during_killcam,
@@ -818,6 +820,25 @@ fn follow_remote_avatars(
             Err(_) => {
                 commands.entity(entity).try_despawn();
             }
+        }
+    }
+}
+
+/// Give the bot look ([`crate::BotLook`]) to every live avatar that's a bot:
+/// a `Freestyle` target's [`BotPose`] stand-in, or a `FreeForAll` bot player
+/// (a bot peer id). Polled, since an avatar can exist a frame before its
+/// source's `PlayerId` arrives. (Kill-cam stand-ins get it when spawned.)
+fn mark_bot_avatars(
+    avatars: Query<(Entity, &RemoteAvatar), Without<crate::BotLook>>,
+    sources: Query<(Option<&PlayerId>, Has<BotPose>)>,
+    mut commands: Commands,
+) {
+    for (entity, avatar) in &avatars {
+        let Ok((id, stand_in)) = sources.get(avatar.src) else {
+            continue;
+        };
+        if stand_in || id.is_some_and(|id| shared::bot_players::is_bot_peer(id.0)) {
+            commands.entity(entity).insert(crate::BotLook);
         }
     }
 }

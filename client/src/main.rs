@@ -252,6 +252,7 @@ fn main() {
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<SniperGlintSettings>()
         .init_resource::<NameTagSettings>()
+        .init_resource::<BotLookSettings>()
         .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D

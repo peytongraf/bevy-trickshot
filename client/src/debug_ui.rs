@@ -77,6 +77,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<SniperGlintSettings>,
             ResMut<ShroomSettings>,
             ResMut<crate::hud::NameTagSettings>,
+            ResMut<BotLookSettings>,
         ),
     ),
 ) -> Result {
@@ -95,7 +96,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut shipment_light,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, mut name_tags),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, mut name_tags, mut bot_look),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -576,6 +577,19 @@ pub(crate) fn ads_tuning_ui(
                 );
                 if ui.button("Reset remote player scale").clicked() {
                     *ra = RemoteAvatarSettings::default();
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("bot tint (× body texture)");
+                    ui.color_edit_button_rgb(&mut bot_look.tint);
+                });
+                if ui.button("Copy bot tint to console").clicked() {
+                    let [r, g, b] = bot_look.tint;
+                    info!("bot tint: [{r:.3}, {g:.3}, {b:.3}]");
+                }
+                if ui.button("Reset bot tint").clicked() {
+                    *bot_look = BotLookSettings::default();
                 }
 
                 ui.separator();

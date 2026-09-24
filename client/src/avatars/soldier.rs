@@ -177,6 +177,101 @@ impl Default for RemoteAvatarSettings {
     }
 }
 
+/// On a soldier avatar that's a bot (a `Freestyle` target, a `FreeForAll` bot
+/// player, or either's kill-cam stand-in): [`tint_bot_avatars`] swaps its body
+/// material for a tinted one, so bots can be told apart from real players at
+/// a glance while still using the same model.
+#[derive(Component)]
+pub(crate) struct BotLook;
+
+/// Set once [`tint_bot_avatars`] has re-skinned a [`BotLook`] avatar.
+#[derive(Component)]
+pub(crate) struct BotLookApplied;
+
+/// Panel-adjustable bot body tint ("Remote players" debug-panel section).
+#[derive(Resource)]
+pub(crate) struct BotLookSettings {
+    /// sRGB multiplier on the body texture — `models/soldier.glb`'s armour is
+    /// mostly white, so this comes out as the armour's colour, with the
+    /// texture's detail and shading intact.
+    pub(crate) tint: [f32; 3],
+}
+
+impl Default for BotLookSettings {
+    fn default() -> Self {
+        Self {
+            tint: [0.12, 0.2, 0.55],
+        }
+    }
+}
+
+/// `models/soldier.glb`'s body material (index 0, "soldier"); index 1, the
+/// rifle, is left as-is.
+const SOLDIER_BODY_MATERIAL: usize = 0;
+
+/// Re-skin every [`BotLook`] avatar whose scene has finished spawning: each
+/// mesh using the body material gets one shared tinted copy of it instead
+/// (built on first use, re-tinted live when [`BotLookSettings`] changes).
+#[allow(clippy::type_complexity)]
+pub(crate) fn tint_bot_avatars(
+    settings: Res<BotLookSettings>,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut tinted: Local<Option<Handle<StandardMaterial>>>,
+    avatars: Query<
+        Entity,
+        (
+            With<BotLook>,
+            With<SoldierAnimationPlayer>,
+            Without<BotLookApplied>,
+        ),
+    >,
+    children: Query<&Children>,
+    mut meshes: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let tint = Color::srgb(settings.tint[0], settings.tint[1], settings.tint[2]);
+    if let Some(handle) = tinted.as_ref() {
+        // (`get` first: `get_mut` alone would re-upload the material every
+        // frame the debug panel's picker marks the settings changed.)
+        if settings.is_changed() && materials.get(handle).is_some_and(|m| m.base_color != tint) {
+            if let Some(m) = materials.get_mut(handle) {
+                m.base_color = tint;
+            }
+        }
+    }
+    if avatars.is_empty() {
+        return;
+    }
+    let body: Handle<StandardMaterial> = asset_server.load(
+        GltfAssetLabel::Material {
+            index: SOLDIER_BODY_MATERIAL,
+            is_scale_inverted: false,
+        }
+        .from_asset("models/soldier.glb"),
+    );
+    if tinted.is_none() {
+        // (The scene is spawned, so its materials are loaded.)
+        let Some(original) = materials.get(&body) else {
+            return;
+        };
+        let mut copy = original.clone();
+        copy.base_color = tint;
+        *tinted = Some(materials.add(copy));
+    }
+    let Some(tinted) = tinted.as_ref() else { return };
+    for root in &avatars {
+        for entity in children.iter_descendants(root) {
+            if let Ok(mut mat) = meshes.get_mut(entity) {
+                if mat.0 == body {
+                    mat.0 = tinted.clone();
+                }
+            }
+        }
+        commands.entity(root).insert(BotLookApplied);
+    }
+}
+
 /// A remote player's (or bot's) sniper-glint sprite — `textures/sniper_glint.png`
 /// on a quad, catching the eye off their scope while they're aiming down
 /// sight, giving away a camping sniper the same way Call of Duty's own scope

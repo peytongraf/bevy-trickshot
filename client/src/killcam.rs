@@ -230,6 +230,8 @@ struct KillCamPose {
 /// sample)`, oldest first. Every sample's `pos` is the *eye* (a `Freestyle`
 /// bot's recorded feet are raised to it on receipt), like `PlayerPose`.
 struct ActorTrack {
+    /// A bot of either mode — drawn with the bot look.
+    bot: bool,
     samples: Vec<(f32, shared::ActorSample)>,
 }
 
@@ -410,6 +412,7 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         .into_iter()
         .filter(|a| !a.samples.is_empty())
         .map(|a| ActorTrack {
+            bot: a.bot || a.bot_player,
             samples: a
                 .samples
                 .into_iter()
@@ -602,6 +605,9 @@ fn start_killcam(
             ))
             .observe(crate::start_soldier_animation)
             .id();
+        if actor.bot {
+            commands.entity(ghost).insert(crate::BotLook);
+        }
         run.ghosts.push(pose);
         run.ghosts.push(ghost);
     }

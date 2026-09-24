@@ -89,6 +89,7 @@ fn cut_actors(
                 order.push(a.key);
                 KillCamActor {
                     bot: a.bot,
+                    bot_player: a.peer.is_some_and(shared::bot_players::is_bot_peer),
                     samples: Vec::new(),
                 }
             });
