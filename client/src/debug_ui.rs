@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -39,6 +39,7 @@ pub(crate) fn ads_tuning_ui(
         ResMut<KnifeSounds>,
         Res<LocalHealth>,
         ResMut<crate::DrinkArmsSettings>,
+        ResMut<crate::zombies_hud::NitroBrew>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -345,6 +346,36 @@ pub(crate) fn ads_tuning_ui(
                     // Pose only — leaves the show toggle as it is.
                     *d = crate::DrinkArmsSettings {
                         show: d.show,
+                        ..default()
+                    };
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Nitro Brew", |ui| {
+                let n = &mut *nitro;
+                ui.label(
+                    "Zombies perk (yellow) — multipliers on movement, ADS, reload, rechamber \
+                     and weapon swap speed while owned (1 = normal).",
+                );
+                ui.label(if n.owned { "owned: yes" } else { "owned: no" });
+                ui.checkbox(&mut n.debug_force, "Force on (act as if owned)");
+                ui.add(egui::Slider::new(&mut n.move_mult, 0.5f32..=3.0).text("movement speed"));
+                ui.add(egui::Slider::new(&mut n.ads_mult, 0.5f32..=5.0).text("ADS speed"));
+                ui.add(egui::Slider::new(&mut n.reload_mult, 0.5f32..=5.0).text("reload speed"));
+                ui.add(egui::Slider::new(&mut n.rechamber_mult, 0.5f32..=5.0).text("rechamber speed"));
+                ui.add(egui::Slider::new(&mut n.swap_mult, 0.5f32..=5.0).text("weapon swap speed"));
+                if ui.button("Copy Nitro Brew settings to console").clicked() {
+                    info!(
+                        "nitro brew: move_mult: {:.2}, ads_mult: {:.2}, reload_mult: {:.2}, \
+                         rechamber_mult: {:.2}, swap_mult: {:.2}",
+                        n.move_mult, n.ads_mult, n.reload_mult, n.rechamber_mult, n.swap_mult,
+                    );
+                }
+                if ui.button("Reset Nitro Brew multipliers").clicked() {
+                    *n = crate::zombies_hud::NitroBrew {
+                        owned: n.owned,
+                        debug_force: n.debug_force,
                         ..default()
                     };
                 }
@@ -953,7 +984,7 @@ pub(crate) fn ads_tuning_ui(
                     ("sniper: equip", &mut v.sniper_equip),
                     ("heartbeat (at zero health)", &mut v.heartbeat),
                     ("hit marker", &mut v.hit_marker),
-                    ("zombies: buy Shroom Tea", &mut v.shroom_tea_buy),
+                    ("zombies: buy perk", &mut v.perk_buy),
                 ] {
                     ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                 }

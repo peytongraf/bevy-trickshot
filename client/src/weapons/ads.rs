@@ -132,6 +132,7 @@ pub(crate) fn update_ads(
     mut commands: Commands,
     freeze: Res<crate::match_end::MatchEndFreeze>,
     death: Res<crate::death_effect::DeathEffect>,
+    nitro: Res<crate::zombies_hud::NitroBrew>,
 ) {
     if tuning.force_full {
         ads.t = 1.0;
@@ -159,7 +160,8 @@ pub(crate) fn update_ads(
     }
 
     let target = if aiming { 1.0 } else { 0.0 };
-    let step = time.delta_secs() / (tuning.ads_duration_ms.max(1.0) / 1000.0);
+    // Nitro Brew's ADS speed-up (1 without it).
+    let step = time.delta_secs() / (tuning.ads_duration_ms.max(1.0) / 1000.0) * nitro.ads();
     ads.t = if ads.t < target {
         (ads.t + step).min(target)
     } else {

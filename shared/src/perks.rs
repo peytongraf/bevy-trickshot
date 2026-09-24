@@ -10,14 +10,21 @@ use crate::MapId;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Perk {
-    /// Shroom Tea — for now just the shroom screen effect; more to come.
+    /// Shroom Tea — the shroom screen effect, x-ray and a little aim assist.
     ShroomTea,
+    /// Nitro Brew — faster movement, ADS, reload, rechamber and weapon swap
+    /// (the multipliers are client-side: `zombies_hud::NitroBrew`).
+    NitroBrew,
 }
 
 impl Perk {
+    /// Every perk, in the order their icons sit in the HUD.
+    pub const ALL: [Perk; 2] = [Perk::ShroomTea, Perk::NitroBrew];
+
     pub fn label(self) -> &'static str {
         match self {
             Perk::ShroomTea => "Shroom Tea",
+            Perk::NitroBrew => "Nitro Brew",
         }
     }
 
@@ -25,6 +32,7 @@ impl Perk {
     pub fn cost(self) -> u32 {
         match self {
             Perk::ShroomTea => 100,
+            Perk::NitroBrew => 100,
         }
     }
 
@@ -36,6 +44,9 @@ impl Perk {
             // reports eye height (6.5); the ground is 1.7 m below that.
             (Perk::ShroomTea, MapId::BreakPoint) => Vec3::new(-2.66, 6.5 - 1.7, -59.73),
             (Perk::ShroomTea, _) => Vec3::ZERO,
+            (Perk::NitroBrew, MapId::BreakPoint) => Vec3::new(-35.72, 7.7 - 1.7, 10.24),
+            // Clear of Shroom Tea's origin spot.
+            (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
         }
     }
 }
@@ -67,5 +78,18 @@ mod tests {
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m + Vec3::X * 3.0, 0.0));
         // A floor below doesn't count.
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m - Vec3::Y * 4.0, 0.0));
+    }
+
+    #[test]
+    fn no_two_machines_can_be_bought_from_the_same_spot() {
+        for map in [MapId::BasicMap, MapId::Shipment, MapId::ShipmentDay, MapId::BreakPoint] {
+            for a in Perk::ALL {
+                for b in Perk::ALL {
+                    if a != b {
+                        assert!(!in_range(b, map, a.machine_pos(map), 0.75), "{a:?}/{b:?} on {map:?}");
+                    }
+                }
+            }
+        }
     }
 }

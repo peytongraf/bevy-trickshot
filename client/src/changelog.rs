@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: perk icons line up in the order you bought them.",
+        "Zombies: new Nitro Brew perk — move, aim, reload and swap faster.",
         "Zombies: you now drink Shroom Tea when you buy it.",
         "Zombies: buying Shroom Tea now plays a drink sound.",
         "Zombies: enemies-left counter on the left of the screen.",

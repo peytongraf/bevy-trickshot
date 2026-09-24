@@ -2,7 +2,8 @@
 //! vertically centred), every member's points / health / name panel (bottom
 //! left, ours at the bottom of the stack), the perk machines (placeholder boxes for now) with
 //! their "press F to buy" prompt, and switching on what an owned perk does
-//! (Shroom Tea: the shroom screen effect).
+//! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
+//! speed multipliers).
 //!
 //! Everything reads the replicated `Lobby` — the server owns the round, the
 //! count, points and purchases (`server::zombies`) — so nothing here needs
@@ -35,9 +36,73 @@ impl Plugin for ZombiesHudPlugin {
                 )
                     .run_if(in_state(AppState::InGame)),
             )
-            // Not gated on `InGame`: it's what switches the effect back *off*
+            .init_resource::<NitroBrew>()
+            // Not gated on `InGame`: it's what switches the effects back *off*
             // once the game is left.
-            .add_systems(Update, sync_shroom_perk);
+            .add_systems(Update, sync_owned_perks);
+    }
+}
+
+/// Each perk's colour — its machine and its bottle in the drinking arms.
+pub(crate) fn perk_color(perk: Perk) -> Color {
+    match perk {
+        Perk::ShroomTea => Color::srgb_u8(0x6a, 0x1f, 0xbf),
+        Perk::NitroBrew => Color::srgb_u8(0xff, 0xd4, 0x00),
+    }
+}
+
+/// Nitro Brew's multipliers (the debug panel's "Nitro Brew" section) and
+/// whether we own it right now (`sync_owned_perks`, so it's off again the
+/// moment a game ends or is left). Each accessor is the multiplier while the
+/// perk's active, `1.0` otherwise.
+#[derive(Resource)]
+pub(crate) struct NitroBrew {
+    pub(crate) owned: bool,
+    /// Debug: act as if owned, to tune without buying it. Never saved.
+    pub(crate) debug_force: bool,
+    pub(crate) move_mult: f32,
+    pub(crate) ads_mult: f32,
+    pub(crate) reload_mult: f32,
+    pub(crate) rechamber_mult: f32,
+    pub(crate) swap_mult: f32,
+}
+
+impl Default for NitroBrew {
+    fn default() -> Self {
+        Self {
+            owned: false,
+            debug_force: false,
+            move_mult: 1.15,
+            ads_mult: 1.5,
+            reload_mult: 1.5,
+            rechamber_mult: 1.5,
+            swap_mult: 1.5,
+        }
+    }
+}
+
+impl NitroBrew {
+    fn pick(&self, mult: f32) -> f32 {
+        if self.owned || self.debug_force {
+            mult.max(0.01)
+        } else {
+            1.0
+        }
+    }
+    pub(crate) fn movement(&self) -> f32 {
+        self.pick(self.move_mult)
+    }
+    pub(crate) fn ads(&self) -> f32 {
+        self.pick(self.ads_mult)
+    }
+    pub(crate) fn reload(&self) -> f32 {
+        self.pick(self.reload_mult)
+    }
+    pub(crate) fn rechamber(&self) -> f32 {
+        self.pick(self.rechamber_mult)
+    }
+    pub(crate) fn swap(&self) -> f32 {
+        self.pick(self.swap_mult)
     }
 }
 
@@ -149,16 +214,23 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ..default()
             },
         ))
-        .with_child((
-            PerkIcon(Perk::ShroomTea),
-            ImageNode::new(asset_server.load("textures/shroom_tea_icon.png")),
-            Node {
-                width: Val::Px(PERK_ICON_SIZE),
-                height: Val::Px(PERK_ICON_SIZE),
-                ..default()
-            },
-            Visibility::Hidden,
-        ));
+        .with_children(|row| {
+            // One slot per perk there is, filled in purchase order by
+            // `update_perk_icons`; unused slots take no room, so the row
+            // stays centred however many are owned.
+            for index in 0..Perk::ALL.len() {
+                row.spawn((
+                    PerkIconSlot { index, shown: None },
+                    ImageNode::default(),
+                    Node {
+                        width: Val::Px(PERK_ICON_SIZE),
+                        height: Val::Px(PERK_ICON_SIZE),
+                        display: Display::None,
+                        ..default()
+                    },
+                ));
+            }
+        });
 
     // The perk prompt: centred, a little below the crosshair.
     commands
@@ -235,19 +307,33 @@ fn sync_perk_machines(
         }
         return;
     };
-    let perk = Perk::ShroomTea;
-    if machines.iter().any(|(_, m)| m.0 == perk) {
-        return;
+    for perk in Perk::ALL {
+        if !machines.iter().any(|(_, m)| m.0 == perk) {
+            spawn_perk_machine(perk, lobby.map, &mut meshes, &mut materials, &mut commands);
+        }
     }
-    let base = perk.machine_pos(lobby.map);
+}
+
+/// One perk's placeholder machine: a box in a dark shade of the perk's
+/// colour, with a glowing sign and a soft light in its full colour.
+fn spawn_perk_machine(
+    perk: Perk,
+    map: shared::MapId,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    commands: &mut Commands,
+) {
+    let color = perk_color(perk);
+    let lin = color.to_linear();
+    let base = perk.machine_pos(map);
     let body = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.32, 0.12, 0.42),
+        base_color: Color::LinearRgba(lin * 0.3).with_alpha(1.0),
         perceptual_roughness: 0.5,
         ..default()
     });
     let sign = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.9, 0.5, 1.0),
-        emissive: LinearRgba::rgb(3.0, 1.2, 4.0),
+        base_color: color,
+        emissive: lin * 4.0,
         ..default()
     });
     commands
@@ -269,7 +355,7 @@ fn sync_perk_machines(
             // ...and a soft light so it reads from a distance.
             m.spawn((
                 PointLight {
-                    color: Color::srgb(0.85, 0.5, 1.0),
+                    color,
                     intensity: 60_000.0,
                     range: 6.0,
                     shadows_enabled: false,
@@ -459,29 +545,57 @@ const PERK_ICON_SIZE: f32 = 64.0;
 const PERK_ICON_BOTTOM: f32 = 36.0;
 
 /// One perk's icon in the bottom-centre row, shown while we own it.
+/// The `index`th slot in the bottom-centre icon row: the icon of the
+/// `index`th perk we bought (`LobbyMember::perks` is in purchase order), so
+/// the first bought sits leftmost.
 #[derive(Component)]
-struct PerkIcon(Perk);
+struct PerkIconSlot {
+    index: usize,
+    /// Which perk's icon it's showing, so the image is only swapped on change.
+    shown: Option<Perk>,
+}
 
-/// Show each perk's icon while we own it in a running `Zombies` game (hidden
-/// behind menus and during a kill cam, like the rest of the HUD).
+/// A perk's HUD icon.
+fn perk_icon_path(perk: Perk) -> &'static str {
+    match perk {
+        Perk::ShroomTea => "textures/shroom_tea_icon.png",
+        Perk::NitroBrew => "textures/nitro_brew_icon.png",
+    }
+}
+
+/// Fill the icon row with the perks we own in a running `Zombies` game, in
+/// the order we bought them (hidden behind menus and during a kill cam, like
+/// the rest of the HUD).
 fn update_perk_icons(
     menu: Res<menu::Menu>,
     active_killcam: Res<killcam::ActiveKillCam>,
+    asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut icons: Query<(&PerkIcon, &mut Visibility)>,
+    mut slots: Query<(&mut PerkIconSlot, &mut ImageNode, &mut Visibility, &mut Node)>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let owned: &[Perk] = zombies_game(&local, &lobbies)
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
         .map_or(&[], |m| m.perks.as_slice());
     let hud_up = !menu.is_open() && active_killcam.0.is_none();
-    for (icon, mut vis) in &mut icons {
-        vis.set_if_neq(if hud_up && owned.contains(&icon.0) {
+    for (mut slot, mut image, mut vis, mut node) in &mut slots {
+        let perk = owned.get(slot.index).copied();
+        if slot.shown != perk {
+            slot.shown = perk;
+            if let Some(perk) = perk {
+                image.image = asset_server.load(perk_icon_path(perk));
+            }
+        }
+        vis.set_if_neq(if hud_up && perk.is_some() {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         });
+        let display = if perk.is_some() { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -490,10 +604,9 @@ fn update_perk_icons(
 /// or aren't in a `Zombies` game.
 fn perk_here(lobby: &Lobby, me: lightyear::prelude::PeerId, feet: Vec3) -> Option<(Perk, bool)> {
     let member = lobby.members.iter().find(|m| m.peer == me)?;
-    let perk = Perk::ShroomTea;
-    if member.perks.contains(&perk) || !shared::perks::in_range(perk, lobby.map, feet, 0.0) {
-        return None;
-    }
+    let perk = Perk::ALL.into_iter().find(|&p| {
+        !member.perks.contains(&p) && shared::perks::in_range(p, lobby.map, feet, 0.0)
+    })?;
     Some((perk, member.score >= perk.cost()))
 }
 
@@ -570,39 +683,56 @@ fn buy_perk(
     }
 }
 
-/// Shroom Tea's effect for now: the shroom screen effect, on for as long as we
-/// own the perk in a running `Zombies` game — and off again the moment we
-/// don't (game over, left, or not in a game at all). The moment it switches
-/// on is our purchase going through, so that's when the buy sound and the
-/// drinking arms play — for us only, since it keys off our own member's perks.
-fn sync_shroom_perk(
+/// Switch on what each perk does for as long as we own it in a running
+/// `Zombies` game — Shroom Tea's shroom effect, Nitro Brew's multipliers —
+/// and off again the moment we don't (game over, left, or not in a game at
+/// all). A perk newly in our list is our purchase going through, so that's
+/// when the buy sound plays and the drinking arms drink it — for us only,
+/// since it keys off our own member's perks.
+#[allow(clippy::too_many_arguments)]
+fn sync_owned_perks(
     state: Res<State<AppState>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     sounds: Option<Res<GameSounds>>,
-    mut perk: ResMut<ShroomPerk>,
+    mut shroom: ResMut<ShroomPerk>,
+    mut nitro: ResMut<NitroBrew>,
     mut drink: ResMut<crate::PerkDrink>,
+    // What we owned last frame (empty out of a game, so a new game starts
+    // clean).
+    mut prev: Local<Vec<Perk>>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
-    let owned = *state.get() == AppState::InGame
-        && zombies_game(&local, &lobbies).is_some_and(|l| {
-            l.members
-                .iter()
-                .any(|m| Some(m.peer) == me && m.perks.contains(&Perk::ShroomTea))
-        });
-    if perk.0 != owned {
-        perk.0 = owned;
-        if owned {
-            // Stow the weapon and drink it (`weapons::drink_arms`).
-            drink.requested = true;
-        }
-        if let (true, Some(sounds)) = (owned, sounds) {
+    let owned: Vec<Perk> = if *state.get() == AppState::InGame {
+        zombies_game(&local, &lobbies)
+            .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
+            .map(|m| m.perks.clone())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    if *prev == owned {
+        return;
+    }
+    for &perk in owned.iter().filter(|p| !prev.contains(p)) {
+        // Stow the weapon and drink it (`weapons::drink_arms`).
+        drink.requested = Some(perk);
+        if let Some(sounds) = &sounds {
             commands.spawn((
                 StateScoped(AppState::InGame),
-                AudioPlayer::new(sounds.shroom_tea_buy.clone()),
+                AudioPlayer::new(sounds.perk_buy.clone()),
                 PlaybackSettings::DESPAWN,
             ));
         }
     }
+    let has_shroom = owned.contains(&Perk::ShroomTea);
+    if shroom.0 != has_shroom {
+        shroom.0 = has_shroom;
+    }
+    let has_nitro = owned.contains(&Perk::NitroBrew);
+    if nitro.owned != has_nitro {
+        nitro.owned = has_nitro;
+    }
+    *prev = owned;
 }

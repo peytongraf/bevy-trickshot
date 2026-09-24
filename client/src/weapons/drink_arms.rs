@@ -1,6 +1,6 @@
 //! The perk-drinking arms view model (`models/arms_drinking.glb`) — a pair of
 //! arms raising a bottle and drinking from it, played once when the player
-//! buys a perk. Buying one (`zombies_hud::sync_shroom_perk`) sets
+//! buys a perk. Buying one (`zombies_hud::sync_owned_perks`) sets
 //! [`PerkDrink::requested`]; `weapon::weapon_system` stows the equipped weapon
 //! (the throwing knife's quick Hide), then [`play_perk_drink`] shows the arms
 //! and plays the drink once, and the weapon is drawn again after. The debug
@@ -12,8 +12,9 @@
 //! three.js version (`AnimationUtils.subclip(clip, "drink", 160, 410)` at a
 //! time scale of 5), so the lead-in and wind-down never play.
 //!
-//! The bottle (`Object_15`) is tinted the perk's colour, with a faint glow of
-//! the same colour; the label (`Object_16`) is left alone.
+//! The bottle (`Object_15`) is tinted the perk's colour
+//! (`zombies_hud::perk_color`), with a glow of the same colour; the label
+//! (`Object_16`) is left alone.
 
 use std::f32::consts::PI;
 
@@ -25,7 +26,9 @@ use bevy::scene::SceneInstanceReady;
 use crate::death_effect::DeathEffect;
 use crate::fall_death::FallDeathState;
 use crate::killcam::ActiveKillCam;
+use crate::zombies_hud::perk_color;
 use crate::VIEW_MODEL_RENDER_LAYER;
+use shared::perks::Perk;
 
 /// First / last frame of the glb's clip that's played, and the frame rate
 /// they're counted at (three.js `subclip`'s default).
@@ -37,13 +40,6 @@ const CLIP_END: f32 = CLIP_END_FRAME / CLIP_FPS;
 
 /// The glb's bottle mesh node.
 const BOTTLE_NODE: &str = "Object_15";
-
-/// Shroom Tea's bottle colour (sRGB `#6a1fbf`).
-pub(crate) const SHROOM_TEA_BOTTLE: Color = Color::srgb(
-    0x6a as f32 / 255.0,
-    0x1f as f32 / 255.0,
-    0xbf as f32 / 255.0,
-);
 
 pub(crate) struct DrinkArmsPlugin;
 
@@ -72,10 +68,12 @@ pub(crate) enum DrinkPhase {
 /// respawn (`respawn::reset_on_respawn`).
 #[derive(Resource, Default)]
 pub(crate) struct PerkDrink {
-    /// A perk was just bought; `weapon_system` starts the drink as soon as
-    /// nothing else (a throwing-knife sequence) is under way.
-    pub(crate) requested: bool,
+    /// A perk was just bought; `weapon_system` starts drinking it as soon as
+    /// nothing else (a throwing-knife sequence, another drink) is under way.
+    pub(crate) requested: Option<Perk>,
     pub(crate) phase: DrinkPhase,
+    /// The perk being drunk — its colour goes on the bottle.
+    pub(crate) perk: Option<Perk>,
     /// Seconds spent in [`DrinkPhase::Stowing`] (see `stow_finished`).
     pub(crate) stow_elapsed: f32,
     /// The drink clip has been started this [`DrinkPhase::Drinking`].
@@ -115,8 +113,6 @@ pub(crate) struct DrinkArmsSettings {
     pub(crate) scale: f32,
     /// Playback speed of the trimmed clip (5 = the three.js version's).
     pub(crate) speed: f32,
-    /// The bottle's colour — Shroom Tea's purple, the only perk for now.
-    pub(crate) bottle_color: Color,
     /// Strength of the bottle's glow in its own colour (three.js'
     /// `emissiveIntensity`).
     pub(crate) glow: f32,
@@ -133,7 +129,6 @@ impl Default for DrinkArmsSettings {
             roll: 0.0,
             scale: 1.2,
             speed: 5.0,
-            bottle_color: SHROOM_TEA_BOTTLE,
             glow: 4.0,
             show: false,
         }
@@ -275,20 +270,25 @@ pub(crate) fn play_perk_drink(
     }
 }
 
-/// Keep the bottle its perk colour, with a faint glow of the same colour.
+/// Keep the bottle the colour of the perk being drunk (Shroom Tea's when
+/// none is, for the debug loop), with a glow of the same colour.
 fn tint_drink_bottle(
     settings: Res<DrinkArmsSettings>,
+    drink: Res<PerkDrink>,
     bottles: Query<&DrinkBottle>,
     added: Query<(), Added<DrinkBottle>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !settings.is_changed() && added.is_empty() {
+    if !settings.is_changed() && !drink.is_changed() && added.is_empty() {
         return;
     }
+    let color = perk_color(drink.perk.unwrap_or(Perk::ShroomTea));
     for bottle in &bottles {
         if let Some(mat) = materials.get_mut(&bottle.0) {
-            mat.base_color = settings.bottle_color;
-            mat.emissive = settings.bottle_color.to_linear() * settings.glow;
+            if mat.base_color != color {
+                mat.base_color = color;
+            }
+            mat.emissive = color.to_linear() * settings.glow;
         }
     }
 }

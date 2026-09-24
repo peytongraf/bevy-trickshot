@@ -89,6 +89,19 @@ pub(crate) fn play_segment(
     active.resume();
 }
 
+/// [`play_segment`] at `speed`× (Nitro Brew's reload / swap speed-ups).
+pub(crate) fn play_segment_at(
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    seg: AnimationSegment,
+    speed: f32,
+) {
+    play_segment(player, node, seg);
+    if let Some(active) = player.animation_mut(node) {
+        active.set_speed(speed);
+    }
+}
+
 /// The loaded sniper scene root.
 #[derive(Component)]
 pub(crate) struct ViewModel;

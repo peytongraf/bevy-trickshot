@@ -25,7 +25,7 @@ use super::throw_arms::{
     park_throw_arms, play_throw, ThrowArmsAnimation, ThrowArmsAnimationPlayer, ThrowArmsSettings,
 };
 use super::view_model::{
-    play_segment, AnimationSegment, AnimationSettings, SniperAnimationPlayer, ViewModel,
+    play_segment, play_segment_at, AnimationSegment, AnimationSettings, SniperAnimationPlayer, ViewModel,
     ViewModelAnimation, SEGMENTS, SEG_HIDE, SEG_RECHAMBER, SEG_RELOAD, SEG_SHOOT, SEG_SHOW,
 };
 
@@ -625,11 +625,12 @@ fn redraw_active_weapon(
     knife_node: AnimationNodeIndex,
     view_model_vis: &mut Visibility,
     knife_vis: &mut Visibility,
+    swap_speed: f32,
 ) {
     match weapon.slot {
         WeaponSlot::Primary => {
             *view_model_vis = Visibility::Inherited;
-            play_segment(player, node, SEGMENTS[SEG_SHOW]);
+            play_segment_at(player, node, SEGMENTS[SEG_SHOW], swap_speed);
             weapon.busy = Some(WeaponBusy {
                 remaining: vec![SEGMENTS[SEG_SHOW]],
                 seg_end: SEGMENTS[SEG_SHOW].end_secs(),
@@ -638,7 +639,7 @@ fn redraw_active_weapon(
         }
         WeaponSlot::Secondary => {
             *knife_vis = Visibility::Inherited;
-            play_segment(knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW]);
+            play_segment_at(knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW], swap_speed);
             knife_state.busy = Some(KnifeBusy {
                 remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
                 seg_end: KNIFE_SEGMENTS[KNIFE_SEG_SHOW].end_secs(),
@@ -718,7 +719,7 @@ pub(crate) fn weapon_system(
     mut smoke: ResMut<SmokeEmission>,
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
-    (shake_cfg, sounds, anim, ads, spread_cfg, settings, time, arms_settings): (
+    (shake_cfg, sounds, anim, ads, spread_cfg, settings, time, arms_settings, nitro): (
         Res<ShakeSettings>,
         Res<GameSounds>,
         Res<AnimationSettings>,
@@ -727,10 +728,15 @@ pub(crate) fn weapon_system(
         Res<Settings>,
         Res<Time>,
         Res<ThrowArmsSettings>,
+        Res<crate::zombies_hud::NitroBrew>,
     ),
     mut commands: Commands,
 ) {
     let node = view_model.index;
+    // Nitro Brew's speed-ups (all `1.0` without it). The sped-up Hide for the
+    // throwing / drinking arms gets the swap speed-up on top.
+    let (reload_speed, rechamber_speed, swap_speed) = (nitro.reload(), nitro.rechamber(), nitro.swap());
+    let stow_speed = arms_settings.weapon_hide_speed * swap_speed;
     let Some(mut player) = players.iter_mut().next() else {
         return;
     };
@@ -768,8 +774,8 @@ pub(crate) fn weapon_system(
     // (`drink_arms::play_perk_drink`) and hand back with `DrinkPhase::Done`,
     // when the weapon that was out is drawn again. Waits for a throwing-knife
     // sequence already under way to finish first.
-    if drink.requested && drink.phase == DrinkPhase::Idle && knife.phase == ThrowPhase::Idle {
-        drink.requested = false;
+    if drink.requested.is_some() && drink.phase == DrinkPhase::Idle && knife.phase == ThrowPhase::Idle {
+        drink.perk = drink.requested.take();
         drink.stow_elapsed = 0.0;
         let nothing_shown = stow_equipped(
             &mut weapon,
@@ -782,7 +788,7 @@ pub(crate) fn weapon_system(
             &mut knife_vis,
             &action_sounds,
             &mut commands,
-            arms_settings.weapon_hide_speed,
+            stow_speed,
         );
         drink.phase = if nothing_shown {
             DrinkPhase::Drinking
@@ -804,7 +810,7 @@ pub(crate) fn weapon_system(
                 &mut view_model_vis,
                 &mut knife_vis,
                 drink.stow_elapsed,
-                arms_settings.weapon_hide_speed,
+                stow_speed,
             ) {
                 drink.phase = DrinkPhase::Drinking;
             }
@@ -823,6 +829,7 @@ pub(crate) fn weapon_system(
                 knife_node,
                 &mut view_model_vis,
                 &mut knife_vis,
+                swap_speed,
             );
             return;
         }
@@ -830,7 +837,7 @@ pub(crate) fn weapon_system(
 
     if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
         && knife.phase == ThrowPhase::Idle
-        && !drink.requested
+        && drink.requested.is_none()
         && weapon.throwing_knives > 0
     {
         knife.active = true;
@@ -852,7 +859,7 @@ pub(crate) fn weapon_system(
             &mut knife_vis,
             &action_sounds,
             &mut commands,
-            arms_settings.weapon_hide_speed,
+            stow_speed,
         );
         knife.phase = if nothing_shown {
             ThrowPhase::Held
@@ -876,7 +883,7 @@ pub(crate) fn weapon_system(
                 &mut view_model_vis,
                 &mut knife_vis,
                 knife.stow_elapsed,
-                arms_settings.weapon_hide_speed,
+                stow_speed,
             ) {
                 knife.phase = ThrowPhase::Held;
             }
@@ -945,6 +952,7 @@ pub(crate) fn weapon_system(
                     knife_node,
                     &mut view_model_vis,
                     &mut knife_vis,
+                    swap_speed,
                 );
             }
             return;
@@ -966,7 +974,7 @@ pub(crate) fn weapon_system(
                     stash_interrupted(&mut weapon, busy);
                 }
                 weapon.slot = WeaponSlot::Secondary;
-                play_segment(&mut player, node, SEGMENTS[SEG_HIDE]);
+                play_segment_at(&mut player, node, SEGMENTS[SEG_HIDE], swap_speed);
                 weapon.busy = Some(WeaponBusy {
                     remaining: vec![SEGMENTS[SEG_HIDE]],
                     seg_end: SEGMENTS[SEG_HIDE].end_secs(),
@@ -980,10 +988,11 @@ pub(crate) fn weapon_system(
                 // only actually flips back to `Primary`, and the sniper's
                 // own Show plays, once the knife's Hide finishes — see the
                 // knife-busy advance block below.
-                play_segment(
+                play_segment_at(
                     &mut knife_player,
                     knife_node,
                     KNIFE_SEGMENTS[KNIFE_SEG_HIDE],
+                    swap_speed,
                 );
                 knife_state.busy = Some(KnifeBusy {
                     remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_HIDE]],
@@ -1022,21 +1031,24 @@ pub(crate) fn weapon_system(
                 if next.name == SEGMENTS[SEG_RECHAMBER].name {
                     commands.spawn((
                         AudioPlayer::new(sounds.rechamber.clone()),
-                        PlaybackSettings::DESPAWN,
+                        PlaybackSettings::DESPAWN.with_speed(rechamber_speed),
                         WeaponActionSound,
                     ));
                     snd.note(killcam::SND_RECHAMBER);
                     if let Some(active) = player.animation_mut(node) {
-                        active.set_speed(anim.rechamber_speed);
+                        active.set_speed(anim.rechamber_speed * rechamber_speed);
                     }
                 } else if next.name == SEGMENTS[SEG_RELOAD].name {
                     // Auto-reload rolling straight out of the Shoot segment.
                     commands.spawn((
                         AudioPlayer::new(sounds.reload.clone()),
-                        PlaybackSettings::DESPAWN,
+                        PlaybackSettings::DESPAWN.with_speed(reload_speed),
                         WeaponActionSound,
                     ));
                     snd.note(killcam::SND_RELOAD);
+                    if let Some(active) = player.animation_mut(node) {
+                        active.set_speed(reload_speed);
+                    }
                 }
             }
             Err(on_finish) => {
@@ -1067,10 +1079,11 @@ pub(crate) fn weapon_system(
                             AudioPlayer::new(sounds.knife_equip.clone()),
                             PlaybackSettings::DESPAWN,
                         ));
-                        play_segment(
+                        play_segment_at(
                             &mut knife_player,
                             knife_node,
                             KNIFE_SEGMENTS[KNIFE_SEG_SHOW],
+                            swap_speed,
                         );
                         knife_state.busy = Some(KnifeBusy {
                             remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
@@ -1091,20 +1104,23 @@ pub(crate) fn weapon_system(
                             if seg.name == SEGMENTS[SEG_RECHAMBER].name {
                                 commands.spawn((
                                     AudioPlayer::new(sounds.rechamber.clone()),
-                                    PlaybackSettings::DESPAWN,
+                                    PlaybackSettings::DESPAWN.with_speed(rechamber_speed),
                                     WeaponActionSound,
                                 ));
                                 snd.note(killcam::SND_RECHAMBER);
                                 if let Some(active) = player.animation_mut(node) {
-                                    active.set_speed(anim.rechamber_speed);
+                                    active.set_speed(anim.rechamber_speed * rechamber_speed);
                                 }
                             } else if seg.name == SEGMENTS[SEG_RELOAD].name {
                                 commands.spawn((
                                     AudioPlayer::new(sounds.reload.clone()),
-                                    PlaybackSettings::DESPAWN,
+                                    PlaybackSettings::DESPAWN.with_speed(reload_speed),
                                     WeaponActionSound,
                                 ));
                                 snd.note(killcam::SND_RELOAD);
+                                if let Some(active) = player.animation_mut(node) {
+                                    active.set_speed(reload_speed);
+                                }
                             }
                             weapon.busy = Some(resumed);
                         }
@@ -1170,7 +1186,7 @@ pub(crate) fn weapon_system(
                         AudioPlayer::new(sounds.sniper_equip.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
-                    play_segment(&mut player, node, SEGMENTS[SEG_SHOW]);
+                    play_segment_at(&mut player, node, SEGMENTS[SEG_SHOW], swap_speed);
                     weapon.busy = Some(WeaponBusy {
                         remaining: vec![SEGMENTS[SEG_SHOW]],
                         seg_end: SEGMENTS[SEG_SHOW].end_secs(),
@@ -1304,11 +1320,11 @@ pub(crate) fn weapon_system(
         // TEMP: reload allowed even with a full mag, for reload-sound testing
         commands.spawn((
             AudioPlayer::new(sounds.reload.clone()),
-            PlaybackSettings::DESPAWN,
+            PlaybackSettings::DESPAWN.with_speed(reload_speed),
             WeaponActionSound,
         ));
         snd.note(killcam::SND_RELOAD);
-        play_segment(&mut player, node, SEGMENTS[SEG_RELOAD]);
+        play_segment_at(&mut player, node, SEGMENTS[SEG_RELOAD], reload_speed);
         // `mag == 0` only when the last round was fired and never rechambered
         // (there's no separate "round chambered" flag — an empty mag is the
         // one moment the chamber is guaranteed empty too), so the bolt still
