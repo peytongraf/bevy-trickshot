@@ -56,6 +56,26 @@ pub(crate) struct ShroomSettings {
     pub(crate) hue_drift: f32,
     /// How fast the hue shimmer moves.
     pub(crate) hue_speed: f32,
+    /// See-through-walls enemy ghosts (`shroom_xray`): sRGB colour...
+    pub(crate) xray_color: [f32; 3],
+    /// ...glow multiplier (above 1 blooms)...
+    pub(crate) xray_brightness: f32,
+    /// ...peak opacity...
+    pub(crate) xray_opacity: f32,
+    /// ...how far (m) the haze puffs out past the body...
+    pub(crate) xray_inflate: f32,
+    /// ...base opacity right out at the edge (0 = edges fully fade)...
+    pub(crate) xray_fill: f32,
+    /// ...how quickly it fades toward the outline (higher = thinner, softer
+    /// edge)...
+    pub(crate) xray_edge_softness: f32,
+    /// ...smoke wisp size (higher = finer), drift speed, and how much it
+    /// breaks the haze up...
+    pub(crate) xray_smoke_scale: f32,
+    pub(crate) xray_smoke_speed: f32,
+    pub(crate) xray_smoke_amount: f32,
+    /// ...and the psychedelic hue wobble (radians).
+    pub(crate) xray_shimmer: f32,
 }
 
 impl Default for ShroomSettings {
@@ -73,6 +93,16 @@ impl Default for ShroomSettings {
             saturation: 1.65,
             hue_drift: 0.15,
             hue_speed: 1.25,
+            xray_color: [1.0, 0.92, 0.2],
+            xray_brightness: 3.0,
+            xray_opacity: 0.85,
+            xray_inflate: 0.06,
+            xray_fill: 0.1,
+            xray_edge_softness: 1.5,
+            xray_smoke_scale: 3.0,
+            xray_smoke_speed: 0.8,
+            xray_smoke_amount: 0.6,
+            xray_shimmer: 0.35,
         }
     }
 }

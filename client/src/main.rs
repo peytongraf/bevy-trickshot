@@ -182,6 +182,7 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(ShroomPlugin)
+        .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,

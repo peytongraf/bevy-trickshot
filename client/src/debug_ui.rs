@@ -1543,6 +1543,24 @@ pub(crate) fn ads_tuning_ui(
                         .text("colour fringing (edges)")
                         .fixed_decimals(3),
                 );
+                ui.label("Enemies through walls");
+                ui.horizontal(|ui| {
+                    ui.label("ghost colour");
+                    ui.color_edit_button_rgb(&mut s.xray_color);
+                });
+                ui.add(egui::Slider::new(&mut s.xray_brightness, 0.0f32..=12.0).text("glow (×)"));
+                ui.add(egui::Slider::new(&mut s.xray_opacity, 0.0f32..=1.0).text("opacity"));
+                ui.add(
+                    egui::Slider::new(&mut s.xray_inflate, 0.0f32..=0.4)
+                        .text("haze spread past body (m)")
+                        .fixed_decimals(3),
+                );
+                ui.add(egui::Slider::new(&mut s.xray_fill, 0.0f32..=1.0).text("edge opacity  (0 = edges fade out)"));
+                ui.add(egui::Slider::new(&mut s.xray_edge_softness, 0.1f32..=6.0).text("edge softness"));
+                ui.add(egui::Slider::new(&mut s.xray_smoke_scale, 0.1f32..=12.0).text("smoke size  (higher = finer)"));
+                ui.add(egui::Slider::new(&mut s.xray_smoke_speed, 0.0f32..=4.0).text("smoke drift speed"));
+                ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
+                ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
                 if ui.button("Reset shroom").clicked() {
                     *s = ShroomSettings {
                         enabled: s.enabled,
