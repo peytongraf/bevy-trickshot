@@ -76,6 +76,19 @@ pub(crate) struct ShroomSettings {
     pub(crate) xray_smoke_amount: f32,
     /// ...and the psychedelic hue wobble (radians).
     pub(crate) xray_shimmer: f32,
+    /// Aim assist (`player::shroom_aim_assist`) while aimed down sight: on /
+    /// off...
+    pub(crate) assist_enabled: bool,
+    /// ...how far off the crosshair (degrees) a bot still pulls...
+    pub(crate) assist_cone_deg: f32,
+    /// ...how hard it pulls (per second — higher snaps on quicker)...
+    pub(crate) assist_strength: f32,
+    /// ...the fastest it may turn the aim (degrees / s)...
+    pub(crate) assist_max_speed_deg: f32,
+    /// ...how far (m) away a bot can be...
+    pub(crate) assist_range: f32,
+    /// ...and how scoped in (`Ads::t`, 0..=1) the player must be.
+    pub(crate) assist_min_ads: f32,
 }
 
 impl Default for ShroomSettings {
@@ -103,6 +116,12 @@ impl Default for ShroomSettings {
             xray_smoke_speed: 0.8,
             xray_smoke_amount: 0.6,
             xray_shimmer: 0.35,
+            assist_enabled: true,
+            assist_cone_deg: 4.0,
+            assist_strength: 5.0,
+            assist_max_speed_deg: 25.0,
+            assist_range: 150.0,
+            assist_min_ads: 0.8,
         }
     }
 }

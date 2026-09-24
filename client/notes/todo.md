@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Shroom Tea perk (effect, x-ray, aim assist)
 - Players/bots block movement
 - Ping readout beside fps
 
@@ -30,7 +31,6 @@ Everything below is ordered easiest → hardest, within each section.
 - On throwing knife killcam, once the player throws the knife, the camera should follow the throwing knife
 - Add jumpshot points. There can be an icon the player can aim at and when their aim is near it it will highlight. They can then press a keybind to teleport to that point.
 - Use Large file storage, r2, etc to store assets so that a map can be used that is over 100mb. Use whatever makes the most sense and is cheap. Only a few friends will be playing occasionally in production.
-- Create an egui toggle that turns on the Shroom shader effect. This effect will be used in the future as a cod zombies style perk. The perk should give slight aim assist ( when aim is near a target while ads it should pull the aim to the target slightly ) and also add a glow around enemies that aren't visible meaning the player can see a glow around their body through walls. The main effect though will be adding distortions that look like a realistic mushroom trip. The point is for the player to drink this mushroom perk that aids them and for there to be a cool visual distortion that occurs so that it has a side effect unlike typical cod zombie perks. Also the saturation should be increased. Possibly add some other effects that would be similar to a mushroom trip.
 
 ## Bugs
 

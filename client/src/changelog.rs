@@ -16,6 +16,7 @@ pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
         "Zombies: enemies-left counter on the left of the screen.",
+        "Shroom Tea adds a slight aim assist while aiming down sight.",
         "Shroom Tea lets you see enemies through walls.",
         "Zombies: party points, health and names in the bottom left.",
         "Zombies: owned perks show as icons at the bottom.",

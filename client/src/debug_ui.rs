@@ -1561,6 +1561,13 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut s.xray_smoke_speed, 0.0f32..=4.0).text("smoke drift speed"));
                 ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
                 ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
+                ui.label("Aim assist (while aimed down sight)");
+                ui.checkbox(&mut s.assist_enabled, "aim assist enabled");
+                ui.add(egui::Slider::new(&mut s.assist_cone_deg, 0.1f32..=20.0).text("pull cone (° off crosshair)"));
+                ui.add(egui::Slider::new(&mut s.assist_strength, 0.0f32..=30.0).text("pull strength (/s)"));
+                ui.add(egui::Slider::new(&mut s.assist_max_speed_deg, 0.0f32..=180.0).text("max pull speed (°/s)"));
+                ui.add(egui::Slider::new(&mut s.assist_range, 5.0f32..=300.0).text("range (m)"));
+                ui.add(egui::Slider::new(&mut s.assist_min_ads, 0.0f32..=1.0).text("min scope-in (0 = hip too)"));
                 if ui.button("Reset shroom").clicked() {
                     *s = ShroomSettings {
                         enabled: s.enabled,

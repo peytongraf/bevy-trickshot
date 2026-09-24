@@ -1,7 +1,8 @@
 //! The local player: rig transform + physics, crouch/slide/dive, ledge
-//! mantling, footsteps, mouse look, the debug teleport key, and trickshot
-//! spin tracking.
+//! mantling, footsteps, mouse look (plus the shroom aim assist), the debug
+//! teleport key, and trickshot spin tracking.
 
+mod aim_assist;
 mod camera;
 mod footsteps;
 mod mantle;
@@ -10,6 +11,7 @@ mod slide;
 mod teleport;
 mod trick;
 
+pub(crate) use aim_assist::*;
 pub(crate) use camera::*;
 pub(crate) use footsteps::*;
 pub(crate) use mantle::*;

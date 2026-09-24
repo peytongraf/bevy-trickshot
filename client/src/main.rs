@@ -304,6 +304,19 @@ fn main() {
         .add_systems(Update, spawn_name_tags.run_if(in_state(AppState::InGame)))
         .add_systems(
             Update,
+            // Right after mouse look, under the same conditions (no menu, kill
+            // cam, fall death or death look-at in charge of the view).
+            shroom_aim_assist.after(look_around).run_if(
+                in_state(AppState::InGame)
+                    .and(menu::game_active)
+                    .and(killcam::no_killcam)
+                    .and(fall_death::no_fall_death)
+                    .and(not(death_effect::death_effect_active))
+                    .and(not(fall_death::effect_active)),
+            ),
+        )
+        .add_systems(
+            Update,
             ping_bots.run_if(
                 in_state(AppState::InGame)
                     .and(menu::game_active)
