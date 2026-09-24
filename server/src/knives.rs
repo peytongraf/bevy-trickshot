@@ -161,7 +161,7 @@ fn step_knives(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
-    poses: Query<(&PlayerId, &PlayerPose)>,
+    poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     bots: Query<(Entity, &Bot, &LobbyBot)>,
     mut knives: Query<(Entity, &mut KnifeSim, &mut ThrownKnife)>,
@@ -181,9 +181,16 @@ fn step_knives(
         let mut victims: HashMap<u64, Victim> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
         match lobby.mode {
-            GameMode::FreeForAll => {
-                for (id, pose) in &poses {
-                    if id.0 == sim.owner || !lobby.has(id.0) {
+            GameMode::FreeForAll | GameMode::Zombies => {
+                for (id, pose, lp) in &poses {
+                    if id.0 == sim.owner || lp.lobby != sim.lobby {
+                        continue;
+                    }
+                    // `Zombies`: a player's knife only kills zombies.
+                    if lobby.mode == GameMode::Zombies
+                        && shared::bot_players::is_bot_peer(id.0)
+                            == shared::bot_players::is_bot_peer(sim.owner)
+                    {
                         continue;
                     }
                     if combats.iter().any(|(c_id, c)| c_id.0 == id.0 && !c.alive) {

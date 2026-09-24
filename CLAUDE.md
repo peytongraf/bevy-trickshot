@@ -7,10 +7,12 @@ A multiplayer 3D trickshot game, Call-of-Duty-style, built in Rust end to end
 the workspace layout). Players sniper each other (or bots) and score style
 points for how they get the kill — no-scopes, spins, wallbangs, collaterals,
 headshots — not just for the kill itself (see `shared/src/scoring.rs` and the
-`# Scoring Points` section of `client/notes/todo.md`). There are currently two
+`# Scoring Points` section of `client/notes/todo.md`). There are currently three
 `GameMode`s (`shared/src/protocol.rs`): **Freestyle** (free-for-all against
-bots, highest score wins) and **Free For All** (real PvP, first to the kill
-limit or most kills when time runs out). The client self-updates silently on
+bots, highest score wins), **Free For All** (real PvP, first to the kill
+limit or most kills when time runs out) and **Zombies** (co-op rounds of bot
+"zombies" that get more numerous and better each round, game over when anyone
+dies — `server/src/zombies.rs`). The client self-updates silently on
 every launch (`client/src/updater.rs`), so the changelog panel below is the
 only place a player learns anything changed.
 

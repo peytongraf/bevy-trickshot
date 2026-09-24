@@ -43,6 +43,7 @@ impl Plugin for LobbyUiPlugin {
                     despawn_lobby_ui,
                     mark_scoreboard_dirty,
                     spawn_match_timer,
+                    spawn_round_counter,
                     sync_current_map,
                     reset_own_kill_tracking,
                 ),
@@ -71,6 +72,7 @@ impl Plugin for LobbyUiPlugin {
                 (
                     (watch_scores, rebuild_scoreboard).chain(),
                     update_match_timer,
+                    update_round_counter,
                     play_ffa_kill_sound,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -286,7 +288,8 @@ fn play_ffa_kill_sound(
     let Some(lobby) = lobbies.iter().find(|l| l.has(me)) else {
         return;
     };
-    if lobby.mode != shared::GameMode::FreeForAll {
+    // (`Zombies` scores a kill as points, so a rise in score is a kill too.)
+    if lobby.mode == shared::GameMode::Freestyle {
         return;
     }
     let Some(member) = lobby.members.iter().find(|m| m.peer == me) else {
@@ -769,6 +772,7 @@ fn build_room(
     let is_leader = me == Some(lobby.leader);
     let mins = lobby.time_limit_secs / 60;
     let is_ffa = lobby.mode == shared::GameMode::FreeForAll;
+    let is_zombies = lobby.mode == shared::GameMode::Zombies;
 
     commands
         .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
@@ -800,6 +804,8 @@ fn build_room(
                             lobby.kill_limit,
                             lobby.end_cam.label(),
                         )
+                    } else if is_zombies {
+                        format!("{}   \u{2022}   {}", lobby.mode.label(), lobby.map.label())
                     } else {
                         format!(
                             "{}   \u{2022}   {}   \u{2022}   {mins} MIN",
@@ -814,7 +820,15 @@ fn build_room(
                 if let Some((winner, score)) = last_match {
                     col.spawn(label_hud(
                         asset_server,
-                        format!("LAST MATCH — {winner} won with {score}"),
+                        if is_zombies && lobby.round > 0 {
+                            let survived = lobby.round - 1;
+                            format!(
+                                "LAST GAME — survived {survived} round{}",
+                                if survived == 1 { "" } else { "s" }
+                            )
+                        } else {
+                            format!("LAST MATCH — {winner} won with {score}")
+                        },
                         14.0,
                         ACCENT,
                     ));
@@ -841,6 +855,13 @@ fn build_room(
                             asset_server,
                             "FREE FOR ALL",
                             shared::GameMode::FreeForAll,
+                            lobby.mode,
+                        );
+                        spawn_mode_button(
+                            row,
+                            asset_server,
+                            "ZOMBIES",
+                            shared::GameMode::Zombies,
                             lobby.mode,
                         );
                     });
@@ -882,23 +903,26 @@ fn build_room(
                         );
                     });
 
-                    col.spawn(Node {
-                        column_gap: Val::Px(10.0),
-                        align_items: AlignItems::Center,
-                        ..default()
-                    })
-                    .with_children(|row| {
-                        row.spawn(label_hud(asset_server, "TIME LIMIT", 14.0, TEXT_DIM));
-                        spawn_button_hud(
-                            row, asset_server, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT,
-                            UiSound::MENU,
-                        );
-                        row.spawn(label_hud(asset_server, format!("{mins} min"), 16.0, TEXT));
-                        spawn_button_hud(
-                            row, asset_server, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT,
-                            UiSound::MENU,
-                        );
-                    });
+                    // (`Zombies` has no clock — it lasts until someone dies.)
+                    if !is_zombies {
+                        col.spawn(Node {
+                            column_gap: Val::Px(10.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            row.spawn(label_hud(asset_server, "TIME LIMIT", 14.0, TEXT_DIM));
+                            spawn_button_hud(
+                                row, asset_server, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT,
+                                UiSound::MENU,
+                            );
+                            row.spawn(label_hud(asset_server, format!("{mins} min"), 16.0, TEXT));
+                            spawn_button_hud(
+                                row, asset_server, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT,
+                                UiSound::MENU,
+                            );
+                        });
+                    }
 
                     if is_ffa {
                         col.spawn(Node {
@@ -1356,10 +1380,10 @@ fn rebuild_scoreboard(
             BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|panel| {
-            let header = if lobby.mode == shared::GameMode::FreeForAll {
-                "KILLS"
-            } else {
-                "SCORES"
+            let header = match lobby.mode {
+                shared::GameMode::FreeForAll => "KILLS",
+                shared::GameMode::Zombies => "POINTS",
+                shared::GameMode::Freestyle => "SCORES",
             };
             panel.spawn(label(header, 14.0, TEXT_DIM));
             for (name, score, is_me) in rows {
@@ -1418,16 +1442,74 @@ fn update_match_timer(
     let Ok(mut text) = text.single_mut() else {
         return;
     };
+    // (No clock in `Zombies` — the round counter takes its place.)
     let left = local
         .iter()
         .next()
         .map(|l| l.0)
         .and_then(|me| lobbies.iter().find(|l| l.has(me)))
+        .filter(|l| l.mode != shared::GameMode::Zombies)
         .map(|l| l.time_left_secs);
     let wanted = match left {
         Some(s) => format!("{}:{:02}", s / 60, s % 60),
         None => String::new(),
     };
+    if text.0 != wanted {
+        text.0 = wanted;
+    }
+}
+
+// --- zombies round counter (top right) -------------------------------
+
+#[derive(Component)]
+struct RoundCounterLabel;
+
+/// Call of Duty zombies' round tally: a big red number in the top-right
+/// corner. Blank outside `Zombies` (and before round 1 starts).
+fn spawn_round_counter(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            GlobalZIndex(5),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(10.0),
+                right: Val::Px(28.0),
+                ..default()
+            },
+        ))
+        .with_child((
+            RoundCounterLabel,
+            Text::new(""),
+            TextFont {
+                font: asset_server.load(crate::HUD_FONT),
+                font_size: 84.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.72, 0.04, 0.04)),
+            TextShadow {
+                offset: Vec2::splat(2.0),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.75),
+            },
+        ));
+}
+
+fn update_round_counter(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut text: Query<&mut Text, With<RoundCounterLabel>>,
+) {
+    let Ok(mut text) = text.single_mut() else {
+        return;
+    };
+    let round = local
+        .iter()
+        .next()
+        .map(|l| l.0)
+        .and_then(|me| lobbies.iter().find(|l| l.has(me)))
+        .filter(|l| l.mode == shared::GameMode::Zombies && l.round > 0)
+        .map(|l| l.round);
+    let wanted = round.map(|r| r.to_string()).unwrap_or_default();
     if text.0 != wanted {
         text.0 = wanted;
     }

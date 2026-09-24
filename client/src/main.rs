@@ -52,6 +52,7 @@ mod updater;
 mod util;
 mod vfx;
 mod weapons;
+mod zombies_hud;
 
 use audio::*;
 use avatars::*;
@@ -181,6 +182,7 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(ShroomPlugin)
+        .add_plugins(zombies_hud::ZombiesHudPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,

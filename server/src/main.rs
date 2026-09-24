@@ -27,6 +27,7 @@ mod nav;
 mod net;
 mod pvp;
 mod sim;
+mod zombies;
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::diagnostic::DiagnosticsPlugin;
@@ -62,5 +63,6 @@ fn main() {
         .add_plugins(killcam::KillCamPlugin)
         .add_plugins(knives::KnivesPlugin)
         .add_plugins(ai::BotAiPlugin)
+        .add_plugins(zombies::ZombiesPlugin)
         .run();
 }

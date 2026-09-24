@@ -329,6 +329,9 @@ pub(crate) fn update_name_tags(
                     }
                     GameMode::Freestyle => return None,
                     GameMode::FreeForAll => (member.name.as_str(), srgb(settings.enemy_color), false),
+                    // Every member is on your side; the zombies aren't
+                    // members, so they're never tagged.
+                    GameMode::Zombies => (member.name.as_str(), srgb(settings.friendly_color), true),
                 }
             };
             let (cam_gt, cam_pos) = (cam_gt?, cam_pos?);

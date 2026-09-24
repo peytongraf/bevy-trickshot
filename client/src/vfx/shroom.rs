@@ -77,6 +77,12 @@ impl Default for ShroomSettings {
     }
 }
 
+/// Whether the local player has the `Zombies` Shroom Tea perk right now (set
+/// by `zombies_hud::sync_shroom_perk`) — turns the effect on alongside the
+/// debug panel's own toggle.
+#[derive(Resource, Default)]
+pub(crate) struct ShroomPerk(pub(crate) bool);
+
 /// How far the effect is faded in right now, 0..=1 — eased toward
 /// `ShroomSettings::enabled` over `fade_secs` by [`sync_shroom`].
 #[derive(Resource, Default)]
@@ -127,6 +133,7 @@ impl Plugin for ShroomPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShroomSettings>()
             .init_resource::<ShroomLevel>()
+            .init_resource::<ShroomPerk>()
             .add_plugins((
                 ExtractComponentPlugin::<ShroomUniform>::default(),
                 UniformComponentPlugin::<ShroomUniform>::default(),
@@ -163,6 +170,7 @@ fn sync_shroom(
     mut commands: Commands,
     time: Res<Time>,
     settings: Res<ShroomSettings>,
+    perk: Res<ShroomPerk>,
     mut level: ResMut<ShroomLevel>,
     new_cams: Query<Entity, (With<ViewModelCamera>, Without<ShroomUniform>)>,
     mut uniforms: Query<&mut ShroomUniform, With<ViewModelCamera>>,
@@ -171,7 +179,7 @@ fn sync_shroom(
         commands.entity(cam).insert(ShroomUniform::default());
     }
 
-    let target = if settings.enabled { 1.0 } else { 0.0 };
+    let target = if settings.enabled || perk.0 { 1.0 } else { 0.0 };
     level.0 = if settings.fade_secs <= 0.0 {
         target
     } else {

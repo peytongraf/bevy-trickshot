@@ -90,6 +90,10 @@ pub struct KeyBindings {
     pub killcam_skip: Binding,
     /// Ping the bot under the crosshair (`Freestyle`) — see `hud::ping_bots`.
     pub ping: Binding,
+    /// Use / buy what's in front of you — a `Zombies` perk machine (see
+    /// `zombies_hud`). F like Call of Duty; it shares F with
+    /// `killcam_skip`, which only acts during a kill cam (`Zombies` has none).
+    pub interact: Binding,
     /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
     pub cursor_toggle: Binding,
 }
@@ -116,6 +120,7 @@ impl Default for KeyBindings {
             save_teleport_point: Key(KeyCode::KeyG),
             killcam_skip: Key(KeyCode::KeyF),
             ping: Mouse(MouseButton::Middle),
+            interact: Key(KeyCode::KeyF),
             cursor_toggle: Key(KeyCode::KeyL),
         }
     }
@@ -142,6 +147,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Save Teleport Point", |b| &mut b.save_teleport_point),
     ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Ping Enemy", |b| &mut b.ping),
+    ("Interact / Buy", |b| &mut b.interact),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];
 

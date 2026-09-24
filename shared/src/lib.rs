@@ -19,6 +19,7 @@ pub mod health;
 pub mod hitbox;
 pub mod map;
 pub mod melee;
+pub mod perks;
 pub mod protocol;
 pub mod scoring;
 pub mod spawns;
@@ -28,7 +29,7 @@ pub mod weapon;
 use bevy::prelude::*;
 
 pub use protocol::{
-    AddBots, AssetsReady, Bot, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
+    AddBots, AssetsReady, Bot, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
@@ -36,7 +37,7 @@ pub use protocol::{
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore,
 };
-pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS};
+pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
 pub const TICK_HZ: f64 = 64.0;

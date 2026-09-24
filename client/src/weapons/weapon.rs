@@ -38,7 +38,8 @@ const FREESTYLE_RESERVE: u32 = 1000;
 /// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`.
 fn starting_reserve(mode: shared::GameMode) -> u32 {
     match mode {
-        shared::GameMode::Freestyle => FREESTYLE_RESERVE,
+        // (`Zombies` has no respawns or ammo pickups, so it isn't rationed.)
+        shared::GameMode::Freestyle | shared::GameMode::Zombies => FREESTYLE_RESERVE,
         shared::GameMode::FreeForAll => MAG_SIZE * (TOTAL_MAGS - 1),
     }
 }

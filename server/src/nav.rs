@@ -385,6 +385,43 @@ impl NavGraph {
         best.map(|(_, n)| n)
     }
 
+    /// A random place a body can stand, `min..=max` metres (horizontally) from
+    /// feet position `center` and walkably connected to it — always a graph
+    /// node, so never inside a wall / crate / container or on a sliver nothing
+    /// can reach. `seed` picks which; `None` if nothing fits (e.g. `center`
+    /// isn't on the map).
+    pub fn random_spot_near(&self, center: Vec3, min: f32, max: f32, seed: u64) -> Option<Vec3> {
+        let region = self.region[self.nearest_node(center)? as usize];
+        let roll = |i: u64| shared::bots::rand01(seed ^ i.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        for i in 0..48u64 {
+            // Uniform by area over the annulus.
+            let r = (roll(i * 3) * (max * max - min * min) + min * min).sqrt();
+            let a = roll(i * 3 + 1) * core::f32::consts::TAU;
+            let p = center + Vec3::new(r * a.cos(), 0.0, r * a.sin());
+            let (cx, cz) = self.cell_of(p);
+            let Some(idx) = self.cell_index(cx, cz) else {
+                continue;
+            };
+            // Any floor in that cell on the same connected region — an upper
+            // level included, as long as it can be walked to.
+            let floors: Vec<u32> = self.cells[idx]
+                .iter()
+                .copied()
+                .filter(|&n| self.region[n as usize] == region)
+                .collect();
+            if floors.is_empty() {
+                continue;
+            }
+            let n = floors[(roll(i * 3 + 2) * floors.len() as f32) as usize % floors.len()];
+            let q = self.nodes[n as usize];
+            let flat = Vec3::new(q.x - center.x, 0.0, q.z - center.z).length();
+            if (min..=max).contains(&flat) {
+                return Some(q);
+            }
+        }
+        None
+    }
+
     /// A route for a body standing at feet position `from` to reach `to`: feet
     /// waypoints, straightened, ending at `to`. `None` if either end can't be
     /// placed on the map or nothing connects them.

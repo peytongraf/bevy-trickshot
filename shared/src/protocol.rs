@@ -40,13 +40,27 @@ pub enum GameMode {
     /// lobby's kill limit wins, or whoever has the most kills when the clock
     /// runs out. No bots.
     FreeForAll,
+    /// **Zombies** — Call of Duty zombies style co-op: every lobby member
+    /// against round after round of bot "zombies" that rise out of the ground
+    /// around them, more (and better) each round. [`ZOMBIE_KILL_POINTS`] per
+    /// kill; the game is over the moment any member dies.
+    Zombies,
 }
+
+/// Points a lobby member scores for each zombie they kill ([`GameMode::Zombies`]).
+pub const ZOMBIE_KILL_POINTS: u32 = 100;
+
+/// Most damage one zombie hit does to a player — the sniper one-shots at 200,
+/// which with "anyone dies, the game's over" would end a game on a single hit.
+/// Three hits (with health regenerating in between) instead.
+pub const ZOMBIE_HIT_DAMAGE: f32 = 34.0;
 
 impl GameMode {
     pub fn label(self) -> &'static str {
         match self {
             GameMode::Freestyle => "FREESTYLE",
             GameMode::FreeForAll => "FREE FOR ALL",
+            GameMode::Zombies => "ZOMBIES",
         }
     }
 }
@@ -773,6 +787,11 @@ pub struct LobbyMember {
     /// A bot's `peer` is a fake one ([`crate::bot_players::is_bot_peer`]) with
     /// no client behind it.
     pub bot: Option<crate::bot_players::BotDifficulty>,
+    /// How many enemies this member has killed this game ([`GameMode::Zombies`]'s
+    /// results screen; `FreeForAll` counts kills in `score` itself).
+    pub kills: u32,
+    /// [`GameMode::Zombies`] perks this member has bought this game.
+    pub perks: Vec<crate::perks::Perk>,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -799,6 +818,12 @@ pub struct Lobby {
     /// [`GameMode::FreeForAll`]'s end-of-match replay. Unused by `Freestyle`,
     /// which always replays its best-scoring shot.
     pub end_cam: EndCam,
+    /// [`GameMode::Zombies`]: the round being played (1 = the first), kept
+    /// after the game ends for the results screen. `0` before a game.
+    pub round: u32,
+    /// [`GameMode::Zombies`]: enemies still to kill this round (not yet
+    /// spawned + alive).
+    pub enemies_left: u32,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1016,6 +1041,14 @@ impl MapEntities for PingBot {
     }
 }
 
+/// Client → server: buy `perk` from its machine ([`GameMode::Zombies`]). The
+/// server checks the sender is next to it, can afford it and doesn't already
+/// have it.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyPerk {
+    pub perk: crate::perks::Perk,
+}
+
 /// Client → server: leave whatever lobby the sender is in (server derives it).
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct LeaveLobby;
@@ -1121,6 +1154,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<FallLanded>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<RespawnReady>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyPerk>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()

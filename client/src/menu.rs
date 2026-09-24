@@ -747,6 +747,11 @@ fn build_match_results(
     let me = local.iter().next().map(|l| l.0);
     let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
 
+    if let Some(lobby) = lobby.filter(|l| l.mode == shared::GameMode::Zombies) {
+        build_zombies_results(commands, asset_server, lobby, me);
+        return;
+    }
+
     let mut rows: Vec<(String, u32, bool)> = lobby
         .map(|l| {
             l.members
@@ -837,6 +842,121 @@ fn build_match_results(
                 );
             });
         });
+}
+
+/// `Zombies`' end screen (the game ends the moment anyone dies): how many
+/// rounds the party survived, then every member's points and kills.
+fn build_zombies_results(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    lobby: &shared::Lobby,
+    me: Option<PeerId>,
+) {
+    // Died during round N: N - 1 rounds fully survived.
+    let survived = lobby.round.saturating_sub(1);
+    let mut rows: Vec<(&str, u32, u32, bool)> = lobby
+        .members
+        .iter()
+        .map(|m| (m.name.as_str(), m.score, m.kills, Some(m.peer) == me))
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+
+    commands.spawn(overlay_root(true)).with_children(|root| {
+        root.spawn(Node {
+            width: Val::Px(560.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            padding: UiRect::all(Val::Px(40.0)),
+            row_gap: Val::Px(16.0),
+            ..default()
+        })
+        .with_children(|card| {
+            card.spawn(label_hud(asset_server, "GAME OVER", 64.0, DEFEAT));
+            card.spawn((
+                Node {
+                    width: Val::Px(90.0),
+                    height: Val::Px(5.0),
+                    ..default()
+                },
+                BackgroundColor(DEFEAT),
+            ));
+            card.spawn(label_hud(
+                asset_server,
+                format!(
+                    "YOU SURVIVED {survived} ROUND{}",
+                    if survived == 1 { "" } else { "S" }
+                ),
+                24.0,
+                TEXT,
+            ));
+
+            card.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(14.0)),
+                    row_gap: Val::Px(6.0),
+                    ..default()
+                },
+                BackgroundColor(PANEL_SOLID),
+                BorderRadius::all(Val::Px(8.0)),
+            ))
+            .with_children(|panel| {
+                // Column headings, then one row per member.
+                let row_node = || Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Row,
+                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                    column_gap: Val::Px(12.0),
+                    ..default()
+                };
+                let cell = |w: f32| Node {
+                    width: Val::Px(w),
+                    justify_content: JustifyContent::FlexEnd,
+                    ..default()
+                };
+                panel.spawn(row_node()).with_children(|row| {
+                    row.spawn(Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    })
+                    .with_child(label("PLAYER", 13.0, TEXT_DIM));
+                    row.spawn(cell(90.0)).with_child(label("KILLS", 13.0, TEXT_DIM));
+                    row.spawn(cell(90.0)).with_child(label("POINTS", 13.0, TEXT_DIM));
+                });
+                for (name, score, kills, is_me) in &rows {
+                    let col = if *is_me { ACCENT } else { TEXT };
+                    panel
+                        .spawn((
+                            row_node(),
+                            BackgroundColor(TRACK),
+                            BorderRadius::all(Val::Px(6.0)),
+                        ))
+                        .with_children(|row| {
+                            row.spawn(Node {
+                                flex_grow: 1.0,
+                                ..default()
+                            })
+                            .with_child(label(name.to_string(), 17.0, col));
+                            row.spawn(cell(90.0)).with_child(label(kills.to_string(), 17.0, col));
+                            row.spawn(cell(90.0)).with_child(label(score.to_string(), 17.0, col));
+                        });
+                }
+            });
+
+            spawn_button_hud(
+                card,
+                asset_server,
+                "CONTINUE",
+                20.0,
+                Btn::ContinueFromResults,
+                ACCENT_DIM,
+                ACCENT,
+                TEXT,
+                UiSound::MENU,
+            );
+        });
+    });
 }
 
 fn build_settings(

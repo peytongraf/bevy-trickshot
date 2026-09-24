@@ -85,10 +85,26 @@ const REPATH_TARGET_MOVED: f32 = 4.0;
 #[derive(Resource, Default)]
 pub struct NextBotId(pub u64);
 
+/// Rising up out of the ground (a `Zombies` spawn): the feet climb from
+/// [`RISE_DEPTH`] under `ground` up onto it over `secs`, the bot doing nothing
+/// else meanwhile.
+#[derive(Clone, Copy)]
+struct Rise {
+    start: f32,
+    secs: f32,
+    ground: Vec3,
+}
+
+/// How far under the ground (m) a rising bot starts — a whole body.
+const RISE_DEPTH: f32 = 1.9;
+
 /// A bot player's mind and body state.
 #[derive(Component)]
 pub struct BotBrain {
     difficulty: BotDifficulty,
+    /// Replaces `difficulty.skill()` when set (`Zombies` scales it by round).
+    skill_override: Option<BotSkill>,
+    rise: Option<Rise>,
     /// Feet position — the bot's authoritative place in the world (the pose
     /// published to clients is this plus the eye height).
     feet: Vec3,
@@ -133,6 +149,8 @@ impl BotBrain {
     pub fn new(difficulty: BotDifficulty, feet: Vec3, seed: u64) -> Self {
         Self {
             difficulty,
+            skill_override: None,
+            rise: None,
             feet,
             vertical_velocity: 0.0,
             yaw: rand01(seed) * core::f32::consts::TAU,
@@ -165,6 +183,30 @@ impl BotBrain {
     pub fn facing(mut self, yaw: f32) -> Self {
         self.yaw = yaw;
         self
+    }
+
+    /// Play with `skill` instead of the difficulty's own.
+    pub fn with_skill(mut self, skill: BotSkill) -> Self {
+        self.skill_override = Some(skill);
+        self
+    }
+
+    /// Start under the ground at the feet position and rise up onto it over
+    /// `secs` from `now`.
+    pub fn rising(mut self, now: f32, secs: f32) -> Self {
+        self.rise = Some(Rise {
+            start: now,
+            secs,
+            ground: self.feet,
+        });
+        self.feet -= Vec3::Y * RISE_DEPTH;
+        // No shooting the moment it's up, either.
+        self.next_fire_at = now + secs + 1.0;
+        self
+    }
+
+    fn skill(&self) -> BotSkill {
+        self.skill_override.unwrap_or_else(|| self.difficulty.skill())
     }
 
     fn roll(&mut self) -> f32 {
@@ -294,7 +336,7 @@ fn forward(yaw: f32, pitch: f32) -> Vec3 {
 /// One bot's whole turn: decide, move, aim, maybe fire, and write the result
 /// into its `ActionState` for the rest of the tick to consume.
 #[allow(clippy::too_many_arguments)]
-fn drive_bots(
+pub(crate) fn drive_bots(
     time: Res<Time>,
     colliders: Res<MapColliders>,
     navs: Res<NavGraphs>,
@@ -323,7 +365,11 @@ fn drive_bots(
         };
         let world = colliders.world(lobby.map);
         let nav = navs.graph(lobby.map);
-        let skill: BotSkill = brain.difficulty.skill();
+        let skill: BotSkill = brain.skill();
+        // Who it may go after: anyone else in a free-for-all; only the real
+        // players in `Zombies` (the zombies are all on one side).
+        let zombies = lobby.mode == shared::GameMode::Zombies;
+        let enemy = |peer: PeerId| peer != id.0 && !(zombies && shared::bot_players::is_bot_peer(peer));
 
         // The match is over (`EndingLobbies`): stand still, fire nothing.
         if endings.is_frozen(lp.lobby) {
@@ -346,6 +392,21 @@ fn drive_bots(
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
                 yaw: brain.yaw,
                 pitch: brain.pitch,
+                ..default()
+            };
+            continue;
+        }
+        // Still climbing out of the ground: just rise, nothing else.
+        if let Some(rise) = brain.rise {
+            let t = ((now - rise.start) / rise.secs.max(1e-3)).clamp(0.0, 1.0);
+            brain.feet = rise.ground - Vec3::Y * RISE_DEPTH * (1.0 - t);
+            if t >= 1.0 {
+                brain.rise = None;
+            }
+            action.0 = PlayerInput {
+                translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
+                yaw: brain.yaw,
+                pitch: 0.0,
                 ..default()
             };
             continue;
@@ -374,14 +435,14 @@ fn drive_bots(
         let target_alive = brain.target.is_some_and(|t| {
             others
                 .iter()
-                .any(|(pid, _, olp, oc)| pid.0 == t && olp.lobby == lp.lobby && oc.alive)
+                .any(|(pid, _, olp, oc)| pid.0 == t && olp.lobby == lp.lobby && oc.alive && enemy(t))
         });
         if !target_alive || now >= brain.retarget_at {
             brain.retarget_at = now + RETARGET_SECS;
             let previous = brain.target;
             brain.target = others
                 .iter()
-                .filter(|(pid, _, olp, oc)| pid.0 != id.0 && olp.lobby == lp.lobby && oc.alive)
+                .filter(|(pid, _, olp, oc)| enemy(pid.0) && olp.lobby == lp.lobby && oc.alive)
                 .min_by(|a, b| {
                     a.1.translation
                         .distance_squared(eye)
@@ -687,6 +748,8 @@ mod tests {
             time_left_secs: 300,
             kill_limit: 30,
             end_cam: shared::EndCam::default(),
+            round: 0,
+            enemies_left: 0,
             members: Vec::new(),
         }
     }

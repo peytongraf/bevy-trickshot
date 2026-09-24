@@ -15,6 +15,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: enemies-left counter on the left of the screen.",
+        "Zombies: party points, health and names in the bottom left.",
+        "Zombies: owned perks show as icons at the bottom.",
+        "Zombies: buy the Shroom Tea perk on Break Point.",
+        "New mode: ZOMBIES. Survive rounds of bots with your party.",
         "Throwing knives now leave a faint trail, in kill cams too.",
         "You can now jump just after running off a ledge.",
         "You can no longer run through other players and bots.",

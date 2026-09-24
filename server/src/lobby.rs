@@ -156,12 +156,16 @@ fn on_create(
                 time_left_secs: DEFAULT_TIME_LIMIT,
                 kill_limit: DEFAULT_KILL_LIMIT,
                 end_cam: shared::EndCam::default(),
+                round: 0,
+                enemies_left: 0,
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
                     score: 0,
                     loaded: false,
                     bot: None,
+                    kills: 0,
+                    perks: Vec::new(),
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -208,6 +212,8 @@ fn on_join(
             score: 0,
             loaded: false,
             bot: None,
+            kills: 0,
+            perks: Vec::new(),
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -243,8 +249,13 @@ fn on_start(
 
     lobby.started = true;
     lobby.time_left_secs = lobby.time_limit_secs;
+    // (`crate::zombies` starts round 1.)
+    lobby.round = 0;
+    lobby.enemies_left = 0;
     for m in &mut lobby.members {
         m.score = 0;
+        m.kills = 0;
+        m.perks.clear();
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
     }
@@ -296,7 +307,7 @@ fn on_start(
         // way it says; otherwise `FreeForAll` spreads them over a ring, and
         // `Freestyle` leaves a real player where their client already is.
         let designated = shared::spawns::designated_spawns(lobby.map).is_some();
-        let spawn = (designated || mode == GameMode::FreeForAll).then(|| {
+        let spawn = (designated || mode != GameMode::Freestyle).then(|| {
             let seed = time.elapsed().as_nanos() as u64
                 ^ member.peer.to_bits()
                 ^ lobby_entity.to_bits();
@@ -478,6 +489,8 @@ fn add_bots(
             score: 0,
             loaded: true,
             bot: Some(difficulty),
+            kills: 0,
+            perks: Vec::new(),
         });
         *next_id += 1;
     }
@@ -581,6 +594,8 @@ pub(crate) fn end_match(
     let mut best_play = match lobby.mode {
         GameMode::FreeForAll => ffa_plays.take(lobby_e, lobby.end_cam),
         GameMode::Freestyle => best_plays.take(lobby_e),
+        // No replays in `Zombies` — straight to the results.
+        GameMode::Zombies => None,
     };
     if let Some(best) = &mut best_play {
         best.best_play = true;
@@ -619,7 +634,8 @@ fn tick_match_clock(
     *acc -= 1.0;
 
     for (lobby_e, mut lobby) in &mut lobbies {
-        if !lobby.started || lobby.time_left_secs == 0 {
+        // `Zombies` has no clock: it lasts until someone dies.
+        if !lobby.started || lobby.time_left_secs == 0 || lobby.mode == GameMode::Zombies {
             continue;
         }
         lobby.time_left_secs -= 1;
@@ -659,12 +675,16 @@ mod tests {
             time_left_secs: 300,
             kill_limit: 30,
             end_cam: shared::EndCam::default(),
+            round: 0,
+            enemies_left: 0,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),
                 score: 0,
                 loaded: false,
                 bot: None,
+                kills: 0,
+                perks: Vec::new(),
             }],
         }
     }

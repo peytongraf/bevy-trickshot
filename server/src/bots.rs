@@ -430,6 +430,8 @@ mod tests {
                 time_left_secs: 300,
                 kill_limit: 30,
                 end_cam: EndCam::default(),
+                round: 0,
+                enemies_left: 0,
                 members: Vec::new(),
             })
             .id();
@@ -495,12 +497,16 @@ mod tests {
                 time_left_secs: 300,
                 kill_limit: 30,
                 end_cam: EndCam::default(),
+                round: 0,
+                enemies_left: 0,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),
                     name: "me".into(),
                     score: 0,
                     loaded: true,
                     bot: None,
+                    kills: 0,
+                    perks: Vec::new(),
                 }],
             })
             .id();

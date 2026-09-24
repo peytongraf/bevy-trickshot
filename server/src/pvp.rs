@@ -14,7 +14,8 @@ use lightyear::prelude::*;
 
 use shared::{
     FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
-    PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady,
+    PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady, ScoreLine, TrickScore,
+    ZOMBIE_KILL_POINTS,
 };
 
 use shared::bot_players::is_bot_peer;
@@ -122,14 +123,20 @@ fn apply_player_hits(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    endings: Res<crate::killcam::EndingLobbies>,
+    (mut endings, clock): (
+        ResMut<crate::killcam::EndingLobbies>,
+        Res<crate::killcam::ReplayClock>,
+    ),
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
+        // (A `Zombies` zombie isn't a lobby member — its lobby is its victim's
+        // or its killer's.)
+        let in_lobby = |l: &Lobby| l.has(ev.victim) || l.has(ev.killer);
         // The match is over: nothing counts (see `EndingLobbies`).
         if lobbies
             .iter()
-            .any(|(e, l)| l.has(ev.victim) && endings.is_frozen(e))
+            .any(|(e, l)| in_lobby(l) && (endings.is_frozen(e) || endings.is_ending(e) && l.mode == GameMode::Zombies))
         {
             continue;
         }
@@ -158,9 +165,41 @@ fn apply_player_hits(
         combat.alive = false;
         combat.respawn_at = time.elapsed_secs() + RESPAWN_DELAY_SECS;
 
-        let Some((_, mut lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(ev.victim)) else {
+        let Some((lobby_e, mut lobby)) = lobbies.iter_mut().find(|(_, l)| in_lobby(l)) else {
             continue;
         };
+
+        // `Zombies`: nobody respawns. A dead zombie scores its killer and is
+        // cleared away by `crate::zombies`; a dead *player* ends the game for
+        // everyone. No kill cams either way.
+        if lobby.mode == GameMode::Zombies {
+            combat.respawn_at = f32::INFINITY;
+            if is_bot_peer(ev.victim) {
+                if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
+                    m.score += ZOMBIE_KILL_POINTS;
+                    m.kills += 1;
+                    let trick = TrickScore {
+                        shooter: ev.killer,
+                        total: ZOMBIE_KILL_POINTS,
+                        lines: vec![ScoreLine {
+                            label: "KILL".into(),
+                            points: ZOMBIE_KILL_POINTS,
+                        }],
+                    };
+                    if let Err(e) = sender.send::<_, GameChannel>(
+                        &trick,
+                        server,
+                        &NetworkTarget::Single(ev.killer),
+                    ) {
+                        error!("failed to send zombie kill score: {e:?}");
+                    }
+                }
+            } else {
+                info!("{:?} was killed — zombies game over", ev.victim);
+                endings.begin(lobby_e, clock.0, false);
+            }
+            continue;
+        }
         if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
             m.score += 1;
         }
@@ -226,7 +265,11 @@ fn on_fell_to_death(
     mut sender: ServerMultiMessageSender,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
-    mut lobbies: Query<&mut Lobby>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    (mut endings, clock): (
+        ResMut<crate::killcam::EndingLobbies>,
+        Res<crate::killcam::ReplayClock>,
+    ),
 ) {
     fall_kill(
         trigger.from,
@@ -237,6 +280,7 @@ fn on_fell_to_death(
         &mut combats,
         &poses,
         &mut lobbies,
+        (&mut endings, clock.0),
     );
     info!("{:?} fell out of the world", trigger.from);
 }
@@ -255,7 +299,11 @@ fn on_fall_landed(
     mut sender: ServerMultiMessageSender,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
-    mut lobbies: Query<&mut Lobby>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    (mut endings, clock): (
+        ResMut<crate::killcam::EndingLobbies>,
+        Res<crate::killcam::ReplayClock>,
+    ),
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
@@ -283,6 +331,7 @@ fn on_fall_landed(
             &mut combats,
             &poses,
             &mut lobbies,
+            (&mut endings, clock.0),
         );
         info!("{peer:?} died from a {:.1} m fall", landed.distance);
     } else {
@@ -305,8 +354,13 @@ fn fall_kill(
     sender: &mut ServerMultiMessageSender,
     combats: &mut Query<(&PlayerId, &mut PlayerCombat)>,
     poses: &Query<(&PlayerId, &PlayerPose)>,
-    lobbies: &mut Query<&mut Lobby>,
+    lobbies: &mut Query<(Entity, &mut Lobby)>,
+    (endings, clock): (&mut crate::killcam::EndingLobbies, u64),
 ) {
+    let Some((lobby_e, lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(peer)) else {
+        return;
+    };
+    let zombies = lobby.mode == GameMode::Zombies;
     if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
         // Only a player who was already dead is skipped: a landing that just
         // took health to zero arrives here with `alive` still true.
@@ -315,12 +369,28 @@ fn fall_kill(
         }
         combat.alive = false;
         combat.health = 0.0;
-        combat.respawn_at = time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS;
+        combat.respawn_at = if zombies {
+            f32::INFINITY
+        } else {
+            time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS
+        };
     }
 
-    let Some(lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
+    // `Zombies`: any member dying ends the game — no respawn.
+    if zombies {
+        if let Some(speed) = speed {
+            if let Err(e) = sender.send::<_, GameChannel>(
+                &FallDeath { speed },
+                server,
+                &NetworkTarget::Single(peer),
+            ) {
+                error!("failed to send fall death to {peer:?}: {e:?}");
+            }
+        }
+        info!("{peer:?} fell to their death — zombies game over");
+        endings.begin(lobby_e, clock, false);
         return;
-    };
+    }
     let others: Vec<Vec3> = poses
         .iter()
         .filter(|(id, _)| id.0 != peer && lobby.has(id.0))

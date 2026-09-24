@@ -82,16 +82,18 @@ pub(crate) fn apply_client_pose(
 fn broadcast_remote_sounds(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
-    players: Query<(&PlayerId, &PlayerPose, &ActionState<PlayerInput>)>,
+    players: Query<(&PlayerId, &PlayerPose, &ActionState<PlayerInput>, &crate::lobby::LobbyPlayer)>,
     lobbies: Query<&Lobby>,
 ) {
     let server = server.into_inner();
-    for (id, pose, input) in &players {
+    for (id, pose, input, lp) in &players {
         let bits = input.0.sound_bits;
         if bits == 0 {
             continue;
         }
-        let Some(lobby) = lobbies.iter().find(|l| l.has(id.0)) else {
+        // (By the player entity's lobby, not membership — a `Zombies` zombie
+        // isn't a member, but its shots and footsteps should still be heard.)
+        let Ok(lobby) = lobbies.get(lp.lobby) else {
             continue;
         };
         // Real clients only — a bot player (`ai`) has nobody to send to — and
@@ -125,8 +127,8 @@ fn resolve_shots(
     server: Single<&Server>,
     colliders: Res<MapColliders>,
     mut sender: ServerMultiMessageSender,
-    shooters: Query<(&PlayerId, &ActionState<PlayerInput>)>,
-    poses: Query<(&PlayerId, &PlayerPose)>,
+    shooters: Query<(&PlayerId, &ActionState<PlayerInput>, &crate::lobby::LobbyPlayer)>,
+    poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
     mut bots: Query<(Entity, &Bot, &LobbyBot, &mut BotHealth)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -147,21 +149,34 @@ fn resolve_shots(
             .unwrap_or(true)
     };
 
-    for (shooter, input) in &shooters {
+    for (shooter, input, shooter_lp) in &shooters {
         let i = &input.0;
         if !(i.fire || i.melee) || !is_alive(shooter.0) {
             continue;
         }
-        // A shot only touches the shooter's own lobby's game.
-        let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.has(shooter.0)) else {
+        // A shot only touches the shooter's own lobby's game. (By the shooter's
+        // player entity, not lobby membership: a `Zombies` zombie shoots too.)
+        let Ok((lobby_e, lobby)) = lobbies.get(shooter_lp.lobby) else {
             continue;
         };
+        if !lobby.started {
+            continue;
+        }
+        let zombies = lobby.mode == GameMode::Zombies;
 
         let mut kind: HashMap<u64, HitKind> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
 
-        for (id, pose) in &poses {
-            if id.0 == shooter.0 || !lobby.has(id.0) || !is_alive(id.0) {
+        for (id, pose, lp) in &poses {
+            if id.0 == shooter.0 || lp.lobby != lobby_e || !is_alive(id.0) {
+                continue;
+            }
+            // `Zombies`: players and zombies only hit each other — no friendly
+            // fire on either side.
+            if zombies
+                && shared::bot_players::is_bot_peer(id.0)
+                    == shared::bot_players::is_bot_peer(shooter.0)
+            {
                 continue;
             }
             let key = id.0.to_bits();
@@ -224,7 +239,7 @@ fn resolve_shots(
                     }
                     info!("tick {tick}: {:?} knifed a bot for {points} pts", shooter.0);
                 }
-                Some((hit, HitKind::Player(victim))) if lobby.mode == GameMode::FreeForAll => {
+                Some((hit, HitKind::Player(victim))) if lobby.mode != GameMode::Freestyle => {
                     stabbed_at = Some(hit.point);
                     player_hits.write(PlayerHit {
                         victim: *victim,
@@ -240,8 +255,8 @@ fn resolve_shots(
             // swing from the attacker.
             let swing_at = poses
                 .iter()
-                .find(|(id, _)| id.0 == shooter.0)
-                .map_or(origin, |(_, pose)| pose.translation);
+                .find(|(id, ..)| id.0 == shooter.0)
+                .map_or(origin, |(_, pose, _)| pose.translation);
             let members: Vec<PeerId> = lobby.real_peers();
             let variant = ((tick as u64) ^ shooter.0.to_bits())
                 .wrapping_mul(0x2545_F491_4F6C_DD1D)
@@ -379,11 +394,17 @@ fn resolve_shots(
                             if hit.headshot { "HEADSHOT on" } else { "hit" },
                             p,
                         );
-                        if lobby.mode == GameMode::FreeForAll {
+                        if lobby.mode != GameMode::Freestyle {
+                            // A zombie's hit is capped — see `ZOMBIE_HIT_DAMAGE`.
+                            let damage = if zombies && shared::bot_players::is_bot_peer(shooter.0) {
+                                hit.damage.min(shared::ZOMBIE_HIT_DAMAGE)
+                            } else {
+                                hit.damage
+                            };
                             player_hits.write(PlayerHit {
                                 victim: *p,
                                 killer: shooter.0,
-                                damage: hit.damage,
+                                damage,
                             });
                         }
                         ShotOutcome::Hit {

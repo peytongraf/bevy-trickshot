@@ -18,7 +18,8 @@ use crate::GameMode;
 /// supply for practising in `Freestyle`, just two in `FreeForAll`.
 pub fn starting_knives(mode: GameMode) -> u32 {
     match mode {
-        GameMode::Freestyle => 1000,
+        // (`Zombies` has no respawns or pickups, so it isn't rationed either.)
+        GameMode::Freestyle | GameMode::Zombies => 1000,
         GameMode::FreeForAll => 2,
     }
 }
