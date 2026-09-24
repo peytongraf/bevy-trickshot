@@ -36,6 +36,7 @@ struct LifeState<'w> {
     trick: ResMut<'w, TrickState>,
     shot: ResMut<'w, PendingShot>,
     melee: ResMut<'w, PendingMelee>,
+    drink: ResMut<'w, crate::PerkDrink>,
 }
 
 fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: LifeState) {
@@ -51,4 +52,5 @@ fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: 
     *life.trick = TrickState::default();
     *life.shot = PendingShot::default();
     *life.melee = PendingMelee::default();
+    *life.drink = crate::PerkDrink::default();
 }

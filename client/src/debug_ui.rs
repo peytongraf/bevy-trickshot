@@ -31,13 +31,14 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
         ResMut<CrosshairSettings>,
         ResMut<KnifeSounds>,
         Res<LocalHealth>,
+        ResMut<crate::DrinkArmsSettings>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -301,6 +302,51 @@ pub(crate) fn ads_tuning_ui(
                     a.pitch = d.pitch;
                     a.roll = d.roll;
                     a.scale = d.scale;
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Drinking arms", |ui| {
+                let d = &mut *drink;
+                ui.label(
+                    "models/arms_drinking.glb — the perk-drinking arms (played once on buying \
+                     a perk), looping the trimmed drink clip while shown here. Angles are on top of the fixed half-turn that \
+                     points the model down the view.",
+                );
+                let show_label = if d.show { "Hide drinking arms" } else { "Show drinking arms" };
+                if ui.button(show_label).clicked() {
+                    d.show = !d.show;
+                }
+                ui.add(egui::Slider::new(&mut d.translation.x, -2.0f32..=2.0).text("x  (right +)"));
+                ui.add(egui::Slider::new(&mut d.translation.y, -2.0f32..=2.0).text("y  (up +)"));
+                ui.add(
+                    egui::Slider::new(&mut d.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
+                );
+                ui.add(egui::Slider::new(&mut d.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                ui.add(egui::Slider::new(&mut d.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                ui.add(egui::Slider::new(&mut d.roll, -180.0f32..=180.0).text("roll (°)"));
+                ui.add(
+                    egui::Slider::new(&mut d.scale, 0.01f32..=10.0)
+                        .text("scale")
+                        .logarithmic(true),
+                );
+                ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=10.0).text("animation speed"));
+                ui.add(egui::Slider::new(&mut d.glow, 0.0f32..=5.0).text("bottle glow"));
+
+                if ui.button("Copy drinking arms pose to console").clicked() {
+                    info!(
+                        "drinking arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
+                         pitch: {:.1}, roll: {:.1}, scale: {:.5}, speed: {:.2}, glow: {:.2}",
+                        d.translation.x, d.translation.y, d.translation.z, d.yaw, d.pitch, d.roll,
+                        d.scale, d.speed, d.glow,
+                    );
+                }
+                if ui.button("Reset drinking arms pose to default").clicked() {
+                    // Pose only — leaves the show toggle as it is.
+                    *d = crate::DrinkArmsSettings {
+                        show: d.show,
+                        ..default()
+                    };
                 }
             });
 
@@ -907,6 +953,7 @@ pub(crate) fn ads_tuning_ui(
                     ("sniper: equip", &mut v.sniper_equip),
                     ("heartbeat (at zero health)", &mut v.heartbeat),
                     ("hit marker", &mut v.hit_marker),
+                    ("zombies: buy Shroom Tea", &mut v.shroom_tea_buy),
                 ] {
                     ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                 }

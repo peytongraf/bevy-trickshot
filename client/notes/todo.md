@@ -6,12 +6,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Shroom Tea buy sound
 - Shroom Tea perk (effect, x-ray, aim assist)
 - Players/bots block movement
 - Ping readout beside fps
 
 # Today
 
+- On zombies when getting a kill the kill enemy sound plays twice each time
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm
 

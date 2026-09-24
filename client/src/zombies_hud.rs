@@ -16,7 +16,7 @@ use shared::{GameMode, Lobby};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
-use crate::{killcam, menu, AppState, Player, ShroomPerk, EYE_HEIGHT, HUD_FONT};
+use crate::{killcam, menu, AppState, GameSounds, Player, ShroomPerk, EYE_HEIGHT, HUD_FONT};
 
 pub(crate) struct ZombiesHudPlugin;
 
@@ -572,12 +572,17 @@ fn buy_perk(
 
 /// Shroom Tea's effect for now: the shroom screen effect, on for as long as we
 /// own the perk in a running `Zombies` game — and off again the moment we
-/// don't (game over, left, or not in a game at all).
+/// don't (game over, left, or not in a game at all). The moment it switches
+/// on is our purchase going through, so that's when the buy sound and the
+/// drinking arms play — for us only, since it keys off our own member's perks.
 fn sync_shroom_perk(
     state: Res<State<AppState>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
+    sounds: Option<Res<GameSounds>>,
     mut perk: ResMut<ShroomPerk>,
+    mut drink: ResMut<crate::PerkDrink>,
+    mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let owned = *state.get() == AppState::InGame
@@ -588,5 +593,16 @@ fn sync_shroom_perk(
         });
     if perk.0 != owned {
         perk.0 = owned;
+        if owned {
+            // Stow the weapon and drink it (`weapons::drink_arms`).
+            drink.requested = true;
+        }
+        if let (true, Some(sounds)) = (owned, sounds) {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                AudioPlayer::new(sounds.shroom_tea_buy.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+        }
     }
 }

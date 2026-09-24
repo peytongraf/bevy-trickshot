@@ -184,6 +184,7 @@ fn main() {
         .add_plugins(ShroomPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
+        .add_plugins(DrinkArmsPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,
@@ -854,6 +855,7 @@ fn setup_player(
     poses: Res<ViewModelPoses>,
     knife_settings: Res<KnifeViewModelSettings>,
     arms_settings: Res<ThrowArmsSettings>,
+    drink_settings: Res<DrinkArmsSettings>,
     throw_knife_settings: Res<ThrowKnifeModelSettings>,
     settings: Res<settings::Settings>,
 ) {
@@ -873,6 +875,13 @@ fn setup_player(
         .load(GltfAssetLabel::Animation(0).from_asset("models/arms_throwing.glb"));
     let (arms_graph, arms_index) = AnimationGraph::from_clip(arms_clip);
     let arms_graph = graphs.add(arms_graph);
+
+    // And the drinking arms' single clip (trimmed at playback — see
+    // `weapons::drink_arms`).
+    let drink_clip: Handle<AnimationClip> = asset_server
+        .load(GltfAssetLabel::Animation(0).from_asset("models/arms_drinking.glb"));
+    let (drink_graph, drink_index) = AnimationGraph::from_clip(drink_clip);
+    let drink_graph = graphs.add(drink_graph);
     let knife_graph = graphs.add(knife_graph);
 
     // Image the scope camera renders into and the scope lens samples.
@@ -1151,6 +1160,23 @@ fn setup_player(
                                 ))
                                 .observe(start_throw_knife_model);
                             });
+
+                            // The perk-drinking arms — debug-only for now,
+                            // shown from the "Drinking arms" panel section.
+                            rig.spawn((
+                                DrinkArmsViewModel,
+                                DrinkArmsAnimation {
+                                    graph: drink_graph,
+                                    index: drink_index,
+                                },
+                                SceneRoot(asset_server.load(
+                                    GltfAssetLabel::Scene(0).from_asset("models/arms_drinking.glb"),
+                                )),
+                                drink_settings.transform(),
+                                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                Visibility::Hidden,
+                            ))
+                            .observe(start_drink_arms_animation);
 
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.

@@ -15,6 +15,7 @@ use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::WeaponId;
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
+use super::drink_arms::{DrinkPhase, PerkDrink};
 use super::knife_view_model::{
     KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, KNIFE_SEGMENTS, KNIFE_SEG_ADJUST_GRIP,
     KNIFE_SEG_HIDE, KNIFE_SEG_SHOW, KNIFE_SLICE_SEGMENTS,
@@ -426,11 +427,13 @@ impl ThrowingKnife {
 pub(crate) fn reset_weapon(
     mut weapon: ResMut<Weapon>,
     mut knife: ResMut<ThrowingKnife>,
+    mut drink: ResMut<PerkDrink>,
     mut view_model: Query<(&ViewModelAnimation, &mut Visibility), With<ViewModel>>,
     mut players: Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
 ) {
     *weapon = Weapon::default();
     *knife = ThrowingKnife::default();
+    *drink = PerkDrink::default();
     if let Ok((vm, mut vis)) = view_model.single_mut() {
         *vis = Visibility::Inherited;
         if let Some(mut player) = players.iter_mut().next() {
@@ -479,7 +482,137 @@ fn request_stab(cam: &Query<&GlobalTransform, With<WorldModelCamera>>, pending: 
     pending.0 = Some((cam.translation(), cam.forward().as_vec3()));
 }
 
-/// Draw whichever weapon was out before the throwing arms came up — the
+/// Start the quick stow shared by the throwing knife and perk drinking: play
+/// the equipped weapon's Hide at `hide_speed`, cutting a sniper reload /
+/// rechamber short (it resumes when the weapon's drawn again). First settles a
+/// half-finished swap so "the weapon that was out" is unambiguous, and so
+/// there's nothing visible to play a Hide on: a sniper Hide in progress (slot
+/// already `Secondary`) just finishes instantly, and a knife Hide in progress
+/// hands the slot straight back to the sniper with both models already away.
+/// Returns `true` if that left nothing on screen (no Hide to wait for).
+#[allow(clippy::too_many_arguments)]
+fn stow_equipped(
+    weapon: &mut Weapon,
+    knife_state: &mut KnifeAnimState,
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    knife_player: &mut AnimationPlayer,
+    knife_node: AnimationNodeIndex,
+    view_model_vis: &mut Visibility,
+    knife_vis: &mut Visibility,
+    action_sounds: &Query<Entity, With<WeaponActionSound>>,
+    commands: &mut Commands,
+    hide_speed: f32,
+) -> bool {
+    let mut nothing_shown = false;
+    if weapon.slot == WeaponSlot::Secondary
+        && weapon
+            .busy
+            .as_ref()
+            .is_some_and(|b| b.on_finish == WeaponFinish::Holster)
+    {
+        weapon.busy = None;
+        for e in action_sounds {
+            commands.entity(e).try_despawn();
+        }
+        if let Some(active_anim) = player.animation_mut(node) {
+            active_anim.seek_to(0.0);
+            active_anim.pause();
+        }
+        *view_model_vis = Visibility::Hidden;
+        nothing_shown = true;
+    }
+    if let Some(busy) = knife_state.busy.take() {
+        if busy.on_finish == KnifeFinish::Hidden {
+            weapon.slot = WeaponSlot::Primary;
+            *knife_vis = Visibility::Hidden;
+            nothing_shown = true;
+        }
+        if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+            active_anim.seek_to(0.0);
+            active_anim.pause();
+        }
+    }
+    if nothing_shown {
+        return true;
+    }
+    match weapon.slot {
+        WeaponSlot::Primary => {
+            if let Some(busy) = weapon.busy.take() {
+                for e in action_sounds {
+                    commands.entity(e).try_despawn();
+                }
+                stash_interrupted(weapon, busy);
+            }
+            play_segment(player, node, SEGMENTS[SEG_HIDE]);
+            if let Some(active_anim) = player.animation_mut(node) {
+                active_anim.set_speed(hide_speed);
+            }
+        }
+        WeaponSlot::Secondary => {
+            play_segment(knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE]);
+            if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+                active_anim.set_speed(hide_speed);
+            }
+        }
+    }
+    false
+}
+
+/// Whether [`stow_equipped`]'s sped-up Hide is done — and if so, drop the
+/// model and park its animation. `elapsed` is the time spent stowing, so a
+/// Hide clip that never reports done (e.g. reset by a kill cam) can't wedge
+/// the sequence.
+#[allow(clippy::too_many_arguments)]
+fn stow_finished(
+    weapon: &Weapon,
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    knife_player: &mut AnimationPlayer,
+    knife_node: AnimationNodeIndex,
+    view_model_vis: &mut Visibility,
+    knife_vis: &mut Visibility,
+    elapsed: f32,
+    hide_speed: f32,
+) -> bool {
+    let (seg, done) = match weapon.slot {
+        WeaponSlot::Primary => (
+            SEGMENTS[SEG_HIDE],
+            player
+                .animation(node)
+                .is_none_or(|a| a.is_finished() || a.seek_time() >= SEGMENTS[SEG_HIDE].end_secs()),
+        ),
+        WeaponSlot::Secondary => (
+            KNIFE_SEGMENTS[KNIFE_SEG_HIDE],
+            knife_player.animation(knife_node).is_none_or(|a| {
+                a.is_finished() || a.seek_time() >= KNIFE_SEGMENTS[KNIFE_SEG_HIDE].end_secs()
+            }),
+        ),
+    };
+    let expected = (seg.end_secs() - seg.start_secs()) / hide_speed.max(0.01);
+    if !done && elapsed <= expected + 0.25 {
+        return false;
+    }
+    match weapon.slot {
+        WeaponSlot::Primary => {
+            if let Some(active_anim) = player.animation_mut(node) {
+                active_anim.seek_to(0.0);
+                active_anim.pause();
+            }
+            *view_model_vis = Visibility::Hidden;
+        }
+        WeaponSlot::Secondary => {
+            if let Some(active_anim) = knife_player.animation_mut(knife_node) {
+                active_anim.seek_to(0.0);
+                active_anim.pause();
+            }
+            *knife_vis = Visibility::Hidden;
+        }
+    }
+    true
+}
+
+/// Draw whichever weapon was out before the throwing / drinking arms came up — the
 /// sniper (its normal Show, resuming any interrupted reload once that
 /// finishes) or the knife (its own Show, then idle-out).
 #[allow(clippy::too_many_arguments)]
@@ -573,10 +706,11 @@ pub(crate) fn weapon_system(
         >,
     ),
     mut weapon: ResMut<Weapon>,
-    (mut knife, mut knife_state, mut pending_melee): (
+    (mut knife, mut knife_state, mut pending_melee, mut drink): (
         ResMut<ThrowingKnife>,
         ResMut<KnifeAnimState>,
         ResMut<PendingMelee>,
+        ResMut<PerkDrink>,
     ),
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
@@ -629,8 +763,74 @@ pub(crate) fn weapon_system(
     // Show, resuming whatever the press interrupted. Swap-weapon while the
     // arms are out cancels instead: no clip, the arms slide away and the
     // same weapon comes back.
+    // A perk just bought: stow the weapon the same quick way as the throwing
+    // knife does, then the drinking arms play their clip once
+    // (`drink_arms::play_perk_drink`) and hand back with `DrinkPhase::Done`,
+    // when the weapon that was out is drawn again. Waits for a throwing-knife
+    // sequence already under way to finish first.
+    if drink.requested && drink.phase == DrinkPhase::Idle && knife.phase == ThrowPhase::Idle {
+        drink.requested = false;
+        drink.stow_elapsed = 0.0;
+        let nothing_shown = stow_equipped(
+            &mut weapon,
+            &mut knife_state,
+            &mut player,
+            node,
+            &mut knife_player,
+            knife_node,
+            &mut view_model_vis,
+            &mut knife_vis,
+            &action_sounds,
+            &mut commands,
+            arms_settings.weapon_hide_speed,
+        );
+        drink.phase = if nothing_shown {
+            DrinkPhase::Drinking
+        } else {
+            DrinkPhase::Stowing
+        };
+        return;
+    }
+    match drink.phase {
+        DrinkPhase::Idle => {}
+        DrinkPhase::Stowing => {
+            drink.stow_elapsed += time.delta_secs();
+            if stow_finished(
+                &weapon,
+                &mut player,
+                node,
+                &mut knife_player,
+                knife_node,
+                &mut view_model_vis,
+                &mut knife_vis,
+                drink.stow_elapsed,
+                arms_settings.weapon_hide_speed,
+            ) {
+                drink.phase = DrinkPhase::Drinking;
+            }
+            return;
+        }
+        // The drinking arms own this phase; nothing else is accepted.
+        DrinkPhase::Drinking => return,
+        DrinkPhase::Done => {
+            drink.phase = DrinkPhase::Idle;
+            redraw_active_weapon(
+                &mut weapon,
+                &mut knife_state,
+                &mut player,
+                node,
+                &mut knife_player,
+                knife_node,
+                &mut view_model_vis,
+                &mut knife_vis,
+            );
+            return;
+        }
+    }
+
     if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
         && knife.phase == ThrowPhase::Idle
+        && !drink.requested
         && weapon.throwing_knives > 0
     {
         knife.active = true;
@@ -641,65 +841,24 @@ pub(crate) fn weapon_system(
         if let Some(arms) = arms_player.as_mut() {
             park_throw_arms(arms, arms_node);
         }
-        // Settle a half-finished swap so "the weapon that was out" is
-        // unambiguous, and so there's nothing visible to play a Hide on: a
-        // sniper Hide in progress (slot already `Secondary`) just finishes
-        // instantly, and a knife Hide in progress hands the slot straight
-        // back to the sniper with both models already away.
-        let mut nothing_shown = false;
-        if weapon.slot == WeaponSlot::Secondary
-            && weapon
-                .busy
-                .as_ref()
-                .is_some_and(|b| b.on_finish == WeaponFinish::Holster)
-        {
-            weapon.busy = None;
-            for e in &action_sounds {
-                commands.entity(e).try_despawn();
-            }
-            if let Some(active_anim) = player.animation_mut(node) {
-                active_anim.seek_to(0.0);
-                active_anim.pause();
-            }
-            **view_model_vis = Visibility::Hidden;
-            nothing_shown = true;
-        }
-        if let Some(busy) = knife_state.busy.take() {
-            if busy.on_finish == KnifeFinish::Hidden {
-                weapon.slot = WeaponSlot::Primary;
-                **knife_vis = Visibility::Hidden;
-                nothing_shown = true;
-            }
-            if let Some(active_anim) = knife_player.animation_mut(knife_node) {
-                active_anim.seek_to(0.0);
-                active_anim.pause();
-            }
-        }
-        if nothing_shown {
-            knife.phase = ThrowPhase::Held;
-            return;
-        }
-        knife.phase = ThrowPhase::Stowing;
-        match weapon.slot {
-            WeaponSlot::Primary => {
-                if let Some(busy) = weapon.busy.take() {
-                    for e in &action_sounds {
-                        commands.entity(e).try_despawn();
-                    }
-                    stash_interrupted(&mut weapon, busy);
-                }
-                play_segment(&mut player, node, SEGMENTS[SEG_HIDE]);
-                if let Some(active_anim) = player.animation_mut(node) {
-                    active_anim.set_speed(arms_settings.weapon_hide_speed);
-                }
-            }
-            WeaponSlot::Secondary => {
-                play_segment(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE]);
-                if let Some(active_anim) = knife_player.animation_mut(knife_node) {
-                    active_anim.set_speed(arms_settings.weapon_hide_speed);
-                }
-            }
-        }
+        let nothing_shown = stow_equipped(
+            &mut weapon,
+            &mut knife_state,
+            &mut player,
+            node,
+            &mut knife_player,
+            knife_node,
+            &mut view_model_vis,
+            &mut knife_vis,
+            &action_sounds,
+            &mut commands,
+            arms_settings.weapon_hide_speed,
+        );
+        knife.phase = if nothing_shown {
+            ThrowPhase::Held
+        } else {
+            ThrowPhase::Stowing
+        };
         return;
     }
     match knife.phase {
@@ -708,38 +867,17 @@ pub(crate) fn weapon_system(
             // Wait out the sped-up Hide (a swap press is ignored — it only
             // lasts a moment), then drop the model and bring the arms in.
             knife.stow_elapsed += time.delta_secs();
-            let (seg, done) = match weapon.slot {
-                WeaponSlot::Primary => (
-                    SEGMENTS[SEG_HIDE],
-                    player
-                        .animation(node)
-                        .is_none_or(|a| a.is_finished() || a.seek_time() >= SEGMENTS[SEG_HIDE].end_secs()),
-                ),
-                WeaponSlot::Secondary => (
-                    KNIFE_SEGMENTS[KNIFE_SEG_HIDE],
-                    knife_player.animation(knife_node).is_none_or(|a| {
-                        a.is_finished() || a.seek_time() >= KNIFE_SEGMENTS[KNIFE_SEG_HIDE].end_secs()
-                    }),
-                ),
-            };
-            let expected = (seg.end_secs() - seg.start_secs()) / arms_settings.weapon_hide_speed.max(0.01);
-            if done || knife.stow_elapsed > expected + 0.25 {
-                match weapon.slot {
-                    WeaponSlot::Primary => {
-                        if let Some(active_anim) = player.animation_mut(node) {
-                            active_anim.seek_to(0.0);
-                            active_anim.pause();
-                        }
-                        **view_model_vis = Visibility::Hidden;
-                    }
-                    WeaponSlot::Secondary => {
-                        if let Some(active_anim) = knife_player.animation_mut(knife_node) {
-                            active_anim.seek_to(0.0);
-                            active_anim.pause();
-                        }
-                        **knife_vis = Visibility::Hidden;
-                    }
-                }
+            if stow_finished(
+                &weapon,
+                &mut player,
+                node,
+                &mut knife_player,
+                knife_node,
+                &mut view_model_vis,
+                &mut knife_vis,
+                knife.stow_elapsed,
+                arms_settings.weapon_hide_speed,
+            ) {
                 knife.phase = ThrowPhase::Held;
             }
             return;

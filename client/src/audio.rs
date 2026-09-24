@@ -42,6 +42,9 @@ pub(crate) struct GameSounds {
     /// `audio/not-used-yet/hit-marker-sound.mp3` — one of your shots damaged
     /// (but didn't kill) a bot / player (`hit_marker`).
     pub(crate) hit_marker: Handle<AudioSource>,
+    /// `audio/buy-and-drink-cola-sound.mp3` — we just bought Shroom Tea in
+    /// `Zombies` (`zombies_hud::sync_shroom_perk`).
+    pub(crate) shroom_tea_buy: Handle<AudioSource>,
     /// `audio/not-used-yet/heartbeat-sound.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
@@ -169,6 +172,7 @@ pub(crate) struct SoundVolumes {
     /// health recovers) — see `health::update_heartbeat`.
     pub(crate) heartbeat: f32,
     pub(crate) hit_marker: f32,
+    pub(crate) shroom_tea_buy: f32,
 }
 
 impl Default for SoundVolumes {
@@ -194,6 +198,7 @@ impl Default for SoundVolumes {
             sniper_equip: 1.0,
             heartbeat: 1.0,
             hit_marker: 1.0,
+            shroom_tea_buy: 1.0,
         }
     }
 }
@@ -225,6 +230,7 @@ impl SoundVolumes {
             (sounds.knife_equip.id(), self.knife_equip),
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
+            (sounds.shroom_tea_buy.id(), self.shroom_tea_buy),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -312,6 +318,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         sniper_equip: asset_server.load("audio/equip_sniper.mp3"),
         heartbeat: asset_server.load("audio/not-used-yet/heartbeat-sound.mp3"),
         hit_marker: asset_server.load("audio/not-used-yet/hit-marker-sound.mp3"),
+        shroom_tea_buy: asset_server.load("audio/buy-and-drink-cola-sound.mp3"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
             .collect(),
