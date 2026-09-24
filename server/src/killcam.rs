@@ -42,6 +42,10 @@ const CAP: usize = (PRE + MAX_BEST_SPAN + POST + 32) as usize;
 #[derive(Component, Default)]
 pub struct ReplayBuffer {
     frames: VecDeque<(u64, KillCamSample)>,
+    /// Which of this player's thrown knives owns each
+    /// `KillCamSample::thrown_knives` slot — a knife keeps its slot until
+    /// it's gone, so the replay never blends one knife into another.
+    knife_slots: [Option<Entity>; shared::throwing_knife::MAX_KNIVES_PER_PLAYER],
 }
 
 /// One [`ACTOR_STRIDE_TICKS`]-spaced snapshot of a lobby: every bot and player in
@@ -357,17 +361,36 @@ fn record_frames(
     for (id, action, mut buf) in &mut players {
         let i = &action.0;
         // This player's own thrown knives right now (the server owns their
-        // simulation, so it's stamped here rather than sent by the client),
-        // in a stable (entity) order so a knife keeps its slot across frames.
+        // simulation, so it's stamped here rather than sent by the client).
+        // Each keeps the slot it was first given for as long as it exists —
+        // re-packing them would shift a still-flying knife into a removed
+        // one's slot, and the replay would blend between the two.
         let mut mine: Vec<(Entity, &ThrownKnife)> =
             knives.iter().filter(|(_, k)| k.owner == id.0).collect();
         mine.sort_by_key(|(e, _)| *e);
+        for slot in buf.knife_slots.iter_mut() {
+            if slot.is_some_and(|e| !mine.iter().any(|(m, _)| *m == e)) {
+                *slot = None;
+            }
+        }
         let mut thrown_knives = [None; shared::throwing_knife::MAX_KNIVES_PER_PLAYER];
-        for (slot, (_, k)) in thrown_knives.iter_mut().zip(mine) {
-            *slot = Some(KnifeSample {
-                pos: k.pos.to_array(),
-                rot: k.rot.to_array(),
-            });
+        for (e, k) in mine {
+            let slot = match buf.knife_slots.iter().position(|s| *s == Some(e)) {
+                Some(i) => Some(i),
+                None => {
+                    let free = buf.knife_slots.iter().position(Option::is_none);
+                    if let Some(i) = free {
+                        buf.knife_slots[i] = Some(e);
+                    }
+                    free
+                }
+            };
+            if let Some(i) = slot {
+                thrown_knives[i] = Some(KnifeSample {
+                    pos: k.pos.to_array(),
+                    rot: k.rot.to_array(),
+                });
+            }
         }
         buf.frames.push_back((clock.0, sample_from_input(i, thrown_knives)));
         while buf.frames.len() > CAP {
@@ -770,6 +793,42 @@ mod tests {
         e.begin(free, 1, false);
         assert!(e.is_ending(free) && !e.is_frozen(free));
         assert!(!e.is_frozen(Entity::from_raw(9)));
+    }
+
+    #[test]
+    fn a_thrown_knife_keeps_its_replay_slot_when_an_earlier_one_is_removed() {
+        let mut app = App::new();
+        app.init_resource::<ReplayClock>();
+        app.add_systems(Update, record_frames);
+        let me = PeerId::Netcode(1);
+        let player = app
+            .world_mut()
+            .spawn((
+                PlayerId(me),
+                ActionState::<PlayerInput>::default(),
+                ReplayBuffer::default(),
+            ))
+            .id();
+        let knife = |x: f32| ThrownKnife {
+            owner: me,
+            pos: Vec3::new(x, 0.0, 0.0),
+            rot: Quat::IDENTITY,
+            resting: false,
+        };
+        let first = app.world_mut().spawn(knife(1.0)).id();
+        app.world_mut().spawn(knife(2.0));
+        app.update();
+        app.world_mut().despawn(first);
+        app.update();
+
+        let buf = app.world().get::<ReplayBuffer>(player).unwrap();
+        let before = &buf.frames[0].1.thrown_knives;
+        let after = &buf.frames[1].1.thrown_knives;
+        assert_eq!(before[0].unwrap().pos[0], 1.0);
+        assert_eq!(before[1].unwrap().pos[0], 2.0);
+        // The second knife stays in slot 1; slot 0 is just empty now.
+        assert!(after[0].is_none(), "{after:?}");
+        assert_eq!(after[1].unwrap().pos[0], 2.0);
     }
 
     fn entry(key: u64, bot: bool, peer: Option<PeerId>, x: f32, alive: bool) -> ActorEntry {

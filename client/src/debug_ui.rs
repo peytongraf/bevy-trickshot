@@ -455,6 +455,24 @@ pub(crate) fn ads_tuning_ui(
                     ui.color_edit_button_rgb(&mut tr.smoke_color);
                 });
 
+                ui.label("throwing knife trail");
+                ui.add(
+                    egui::Slider::new(&mut tr.knife_trail_alpha, 0.0f32..=1.0)
+                        .text("start opacity"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.knife_trail_radius, 0.001f32..=0.1)
+                        .text("radius (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut tr.knife_trail_secs, 0.1f32..=6.0)
+                        .text("fade time (s)"),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("knife trail color");
+                    ui.color_edit_button_rgb(&mut tr.knife_trail_color);
+                });
+
                 if ui.button("Reset tracer").clicked() {
                     *tr = TracerSettings::default();
                 }

@@ -473,7 +473,12 @@ fn start_killcam(
     ads: Res<Ads>,
     mut active: ResMut<ActiveKillCam>,
     mut rig: Query<(&mut Transform, RigTags), RigFilter>,
-    stale_fx: Query<Entity, Or<(With<crate::Smoke>, With<crate::ImpactParticle>, With<Tracer>)>>,
+    stale_fx: Query<Entity, Or<(
+            With<crate::Smoke>,
+            With<crate::ImpactParticle>,
+            With<Tracer>,
+            With<crate::KnifeTrail>,
+        )>,>,
     // Every currently-playing one-shot (shot, reload, rechamber, footsteps,
     // aim in/out, ...) except the looping ambience bed — a reload or the like
     // started right before death would otherwise keep playing straight
@@ -1072,7 +1077,7 @@ fn drive_killcam_throw(
         (With<crate::ThrowKnifeModel>, Without<crate::ThrowArmsViewModel>),
     >,
     mut ghost_parts: Query<
-        (&mut Transform, &mut Visibility),
+        (&mut Transform, &mut Visibility, &mut crate::KnifeTrailHead),
         (
             With<KillCamKnifeGhost>,
             Without<crate::ThrowArmsViewModel>,
@@ -1081,6 +1086,11 @@ fn drive_killcam_throw(
     >,
     mut ghosts: Local<Vec<Entity>>,
     mut saved: Local<Option<SavedArmsClip>>,
+    (trail_assets, trail_settings, mut materials): (
+        Res<crate::TracerAssets>,
+        Res<crate::TracerSettings>,
+        ResMut<Assets<StandardMaterial>>,
+    ),
 ) {
     let node = arms_anim.index;
 
@@ -1130,6 +1140,7 @@ fn drive_killcam_throw(
             let e = commands
                 .spawn((
                     KillCamKnifeGhost,
+                    crate::KnifeTrailHead::default(),
                     StateScoped(AppState::InGame),
                     Transform::default(),
                     Visibility::Hidden,
@@ -1186,9 +1197,10 @@ fn drive_killcam_throw(
         }
     }
 
-    // The killer's thrown knives, each in its own recorded slot.
+    // The killer's thrown knives, each in its own recorded slot, laying the
+    // same faint trail as a live knife.
     for (i, &e) in ghosts.iter().enumerate() {
-        let Ok((mut tf, mut vis)) = ghost_parts.get_mut(e) else {
+        let Ok((mut tf, mut vis, mut head)) = ghost_parts.get_mut(e) else {
             continue;
         };
         let pose = match (a.thrown_knives[i], b.thrown_knives[i]) {
@@ -1206,9 +1218,21 @@ fn drive_killcam_throw(
                 tf.translation = pos;
                 tf.rotation = rot.normalize();
                 vis.set_if_neq(Visibility::Inherited);
+                // (A knife at rest just stops adding pieces — it isn't moving.)
+                crate::lay_knife_trail(
+                    &mut head,
+                    pos,
+                    true,
+                    &trail_assets,
+                    &trail_settings,
+                    &mut materials,
+                    &mut commands,
+                );
             }
             None => {
                 vis.set_if_neq(Visibility::Hidden);
+                // Slot empty: the next knife in it starts a fresh trail.
+                head.0 = None;
             }
         }
     }

@@ -48,6 +48,12 @@ pub(crate) struct TracerSettings {
     pub(crate) smoke_start_alpha: f32,
     /// Line radius (m) the smoke trail has widened to by the end of its fade.
     pub(crate) smoke_radius: f32,
+    /// Thrown-knife trail ([`KnifeTrail`]): color, starting opacity, line
+    /// radius (m), and seconds each piece takes to fade out.
+    pub(crate) knife_trail_color: [f32; 3],
+    pub(crate) knife_trail_alpha: f32,
+    pub(crate) knife_trail_radius: f32,
+    pub(crate) knife_trail_secs: f32,
 }
 
 impl Default for TracerSettings {
@@ -61,6 +67,10 @@ impl Default for TracerSettings {
             smoke_color: srgb_parts(Color::srgb(0.72, 0.7, 0.66)),
             smoke_start_alpha: 0.03,
             smoke_radius: 0.05,
+            knife_trail_color: srgb_parts(Color::srgb_u8(245, 252, 255)),
+            knife_trail_alpha: 0.5,
+            knife_trail_radius: 0.012,
+            knife_trail_secs: 1.2,
         }
     }
 }
@@ -163,6 +173,98 @@ pub(crate) fn update_tracers(
             let radius = settings.flash_radius.lerp(settings.smoke_radius, t);
             transform.scale.x = radius * 2.0;
             transform.scale.z = radius * 2.0;
+        }
+    }
+}
+
+/// Length (m) of each piece of a thrown knife's trail — short enough that the
+/// pieces follow its arc (and bounces) as a smooth line.
+const KNIFE_TRAIL_SEGMENT: f32 = 0.25;
+
+/// A thrown knife's trail: a faint line of short pieces laid down along the
+/// path it has actually flown (see [`lay_knife_trail`]), each fading out on
+/// its own, so it thins away from the tail first.
+#[derive(Component)]
+pub(crate) struct KnifeTrail {
+    age: f32,
+}
+
+/// Where a knife's trail last left off. On the knife's avatar.
+#[derive(Component, Default)]
+pub(crate) struct KnifeTrailHead(pub(crate) Option<Vec3>);
+
+/// Lay the next piece of trail from where `head` left off to `pos`, once the
+/// knife has moved [`KNIFE_TRAIL_SEGMENT`] — or reset the head while it's at
+/// rest / hidden (`flying == false`), so a trail never bridges a gap.
+pub(crate) fn lay_knife_trail(
+    head: &mut KnifeTrailHead,
+    pos: Vec3,
+    flying: bool,
+    assets: &TracerAssets,
+    settings: &TracerSettings,
+    materials: &mut Assets<StandardMaterial>,
+    commands: &mut Commands,
+) {
+    if !flying {
+        head.0 = None;
+        return;
+    }
+    let Some(from) = head.0 else {
+        head.0 = Some(pos);
+        return;
+    };
+    let delta = pos - from;
+    let len = delta.length();
+    if len < KNIFE_TRAIL_SEGMENT {
+        return;
+    }
+    head.0 = Some(pos);
+    let color = color_from_parts(settings.knife_trail_color);
+    let material = materials.add(StandardMaterial {
+        base_color: color.with_alpha(settings.knife_trail_alpha),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+    commands.spawn((
+        KnifeTrail { age: 0.0 },
+        StateScoped(AppState::InGame),
+        Mesh3d(assets.mesh.clone()),
+        MeshMaterial3d(material),
+        Transform {
+            translation: from + delta * 0.5,
+            rotation: Quat::from_rotation_arc(Vec3::Y, delta / len),
+            scale: Vec3::new(
+                settings.knife_trail_radius * 2.0,
+                len,
+                settings.knife_trail_radius * 2.0,
+            ),
+        },
+        NotShadowCaster,
+    ));
+}
+
+/// Fade each knife-trail piece out over `knife_trail_secs`, then despawn it
+/// and free its (per-piece) material.
+pub(crate) fn update_knife_trails(
+    time: Res<Time>,
+    settings: Res<TracerSettings>,
+    mut trails: Query<(Entity, &mut KnifeTrail, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let secs = settings.knife_trail_secs.max(1.0e-4);
+    for (entity, mut trail, material) in &mut trails {
+        trail.age += time.delta_secs();
+        if trail.age >= secs {
+            materials.remove(&material.0);
+            commands.entity(entity).despawn();
+            continue;
+        }
+        if let Some(m) = materials.get_mut(&material.0) {
+            let fade = 1.0 - trail.age / secs;
+            m.base_color = color_from_parts(settings.knife_trail_color)
+                .with_alpha(settings.knife_trail_alpha * fade);
         }
     }
 }

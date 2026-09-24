@@ -12,7 +12,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Today
 
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
-- Change bot look from remote player look
 - Add tdm
 
 # Added
@@ -23,7 +22,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Increase aim sway
 - On windows terminal pops up to play prod client
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
-- Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add spawn points for all maps
 - Clear all client runtime errors so that logging will work for things like position
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
@@ -40,7 +38,7 @@ Everything below is ordered easiest → hardest, within each section.
 
 ## Sound
 
-- Add equip sniper sound ( equip ak74 in old game )
+- Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound
 - Add mantle sound
 - Add footstep sounds for other players

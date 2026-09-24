@@ -24,8 +24,9 @@ use bevy::audio::Volume;
 use crate::killcam::ActiveKillCam;
 use crate::net::GameClient;
 use crate::{
-    distance_falloff, positional_playback, AppState, GameSounds, KnifeSounds, RemoteSoundEmitter,
-    RemoteSoundSettings, SoundVolumes, ThrowingKnife, WorldModelCamera,
+    distance_falloff, lay_knife_trail, positional_playback, update_knife_trails, AppState,
+    GameSounds, KnifeSounds, KnifeTrailHead, RemoteSoundEmitter, RemoteSoundSettings,
+    SoundVolumes, ThrowingKnife, TracerAssets, TracerSettings, WorldModelCamera,
 };
 
 /// Uniform scale of the knife model in the world. `throwing_knife.glb` is
@@ -43,6 +44,7 @@ impl Plugin for ThrownKnifePlugin {
                 send_throw_requests,
                 spawn_knife_avatars,
                 follow_knife_avatars,
+                update_knife_trails,
                 update_knife_air_sounds,
                 receive_knife_hits,
                 receive_knife_impacts,
@@ -110,6 +112,7 @@ fn spawn_knife_avatars(
             .spawn((
                 StateScoped(AppState::InGame),
                 KnifeAvatar { src },
+                KnifeTrailHead::default(),
                 Transform::default(),
                 Visibility::default(),
             ))
@@ -137,13 +140,23 @@ fn spawn_knife_avatars(
     }
 }
 
-/// Follow the replicated (interpolated) state; drop the avatar once the
-/// server removes the knife. Hidden during a kill cam, which replays its own
-/// frozen world.
+/// Follow the replicated (interpolated) state, laying its faint trail while
+/// it flies; drop the avatar once the server removes the knife. Hidden (and
+/// trail-less) during a kill cam, which replays its own frozen world.
+#[allow(clippy::too_many_arguments)]
 fn follow_knife_avatars(
     knives: Query<&ThrownKnife>,
-    mut avatars: Query<(Entity, &KnifeAvatar, &mut Transform, &mut Visibility)>,
+    mut avatars: Query<(
+        Entity,
+        &KnifeAvatar,
+        &mut KnifeTrailHead,
+        &mut Transform,
+        &mut Visibility,
+    )>,
     killcam: Res<ActiveKillCam>,
+    trail_assets: Res<TracerAssets>,
+    trail_settings: Res<TracerSettings>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     let wanted = if killcam.0.is_some() {
@@ -151,12 +164,21 @@ fn follow_knife_avatars(
     } else {
         Visibility::Inherited
     };
-    for (entity, avatar, mut tf, mut vis) in &mut avatars {
+    for (entity, avatar, mut head, mut tf, mut vis) in &mut avatars {
         match knives.get(avatar.src) {
             Ok(knife) => {
                 tf.translation = knife.pos;
                 tf.rotation = knife.rot;
                 vis.set_if_neq(wanted);
+                lay_knife_trail(
+                    &mut head,
+                    knife.pos,
+                    !knife.resting && killcam.0.is_none(),
+                    &trail_assets,
+                    &trail_settings,
+                    &mut materials,
+                    &mut commands,
+                );
             }
             Err(_) => commands.entity(entity).try_despawn(),
         }
