@@ -8,3 +8,4 @@
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
 - On shipment some bullet impacts don't show. This is probably because the asset like the container is slightly larger than it should be so the impact is shown behind the surface.
+- Add effect to scope so it looks like actually being aimed through a scope.

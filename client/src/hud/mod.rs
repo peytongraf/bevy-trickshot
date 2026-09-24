@@ -1,5 +1,5 @@
 //! HUD: the dedicated UI camera and visibility gate, the crosshair, the
-//! ammo/FPS readouts, and the score-popup stack.
+//! ammo/FPS/ping readouts, and the score-popup stack.
 
 mod ammo_text;
 mod crosshair;

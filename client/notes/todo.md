@@ -6,12 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Sniper ammo limit (6 mags in FFA)
-- CoD-style ammo HUD with throwing knives
-- Throwing knife ammo limit (2 in FFA)
-- Ascension map removed
-- Blood splatter / health tint no longer draws over the HUD
-- Lights added inside shipment containers
+- Ping readout beside fps
 
 # Added
 
@@ -29,7 +24,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Ensure state is fully reset when leaving a match / starting a new game, and everything works properly when joining a new match
 - When leaving with party the lobby should still be together
 - On throwing knife killcam, once the player throws the knife, the camera should follow the throwing knife
-- Add effect to scope so it looks like actually being aimed through a scope.
 - Add jumpshot points. There can be an icon the player can aim at and when their aim is near it it will highlight. They can then press a keybind to teleport to that point.
 - Use Large file storage, r2, etc to store assets so that a map can be used that is over 100mb. Use whatever makes the most sense and is cheap. Only a few friends will be playing occasionally in production.
 - Create an egui toggle that turns on the Shroom shader effect. This effect will be used in the future as a cod zombies style perk. The perk should give slight aim assist ( when aim is near a target while ads it should pull the aim to the target slightly ) and also add a glow around enemies that aren't visible meaning the player can see a glow around their body through walls. The main effect though will be adding distortions that look like a realistic mushroom trip. The point is for the player to drink this mushroom perk that aids them and for there to be a cool visual distortion that occurs so that it has a side effect unlike typical cod zombie perks. Also the saturation should be increased. Possibly add some other effects that would be similar to a mushroom trip.
@@ -43,13 +37,11 @@ Everything below is ordered easiest → hardest, within each section.
 - Add equip sniper sound ( equip ak74 in old game )
 - Add save teleport sound
 - Add mantle sound
-- Add knife sounds
 - Add footstep sounds for other players
 - Organize audio directory, stick to naming convention, and possibly convert audio to wav files.
 
 ## UI / HUD
 
-- Add ping ui beside fps
 - Add heart beat sound and red around screen when health low
 - Add tab to show leaderboard
 - Add end game screen with play again button
