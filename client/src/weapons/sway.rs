@@ -189,10 +189,10 @@ pub(crate) fn weapon_sway(
 /// The sway transform for a lag `offset` (yaw, pitch in radians): the tip
 /// rotation, plus a shift the same way the weapon is currently tipped, so
 /// the two read as one coherent motion instead of a rotation with an
-/// unrelated wobble on top. Shared by [`weapon_sway`] (sniper) and
-/// [`knife_weapon_sway`] so both view models sway identically off the same
-/// [`WeaponSwaySettings`].
-fn sway_pose(offset: Vec2, tuning: &WeaponSwaySettings, ads_t: f32) -> Transform {
+/// unrelated wobble on top. Shared by [`weapon_sway`] (sniper),
+/// [`knife_weapon_sway`] and the gun flashlight (`player::flashlight`) so all
+/// of them sway identically off the same [`WeaponSwaySettings`].
+pub(crate) fn sway_pose(offset: Vec2, tuning: &WeaponSwaySettings, ads_t: f32) -> Transform {
     let sway = Quat::from_euler(EulerRot::YXZ, offset.x, offset.y, 0.0);
     let shift_m = tuning.hip_shift_m.lerp(tuning.ads_shift_m, ads_t);
     let shift = Vec3::new(-offset.x, -offset.y, 0.0) * shift_m;

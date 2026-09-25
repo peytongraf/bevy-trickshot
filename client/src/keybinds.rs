@@ -83,6 +83,9 @@ pub struct KeyBindings {
     /// Hold to instantly snap the current weapon away and show the throwing-knife
     /// crosshair; release to draw the weapon back out.
     pub throwing_knife: Binding,
+    /// Quick melee: with the sniper out, snap it away, draw the knife fast,
+    /// stab, and bring the sniper back; with the knife out, a normal stab.
+    pub melee: Binding,
     pub teleport_home: Binding,
     /// Save the player's current position as the point `teleport_home` returns to.
     pub save_teleport_point: Binding,
@@ -116,6 +119,7 @@ impl Default for KeyBindings {
             reload: Key(KeyCode::KeyR),
             swap_weapon: Key(KeyCode::KeyQ),
             throwing_knife: Key(KeyCode::KeyV),
+            melee: Key(KeyCode::KeyE),
             teleport_home: Key(KeyCode::KeyT),
             save_teleport_point: Key(KeyCode::KeyG),
             killcam_skip: Key(KeyCode::KeyF),
@@ -143,6 +147,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Reload", |b| &mut b.reload),
     ("Swap Weapon", |b| &mut b.swap_weapon),
     ("Throwing Knife", |b| &mut b.throwing_knife),
+    ("Melee", |b| &mut b.melee),
     ("Teleport to Point", |b| &mut b.teleport_home),
     ("Save Teleport Point", |b| &mut b.save_teleport_point),
     ("Skip Kill Cam", |b| &mut b.killcam_skip),

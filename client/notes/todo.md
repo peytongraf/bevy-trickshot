@@ -6,9 +6,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Organized audio directory
 # Today
 
+- Knife won't stab when enemies are totally point blank
+- Could make shroom tea brighten map slightly like a sort of night vision
+- Add lights to break point and add a way to turn on the power.
 - On zombies could add a boss that can only take damage from trick shots
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm
@@ -47,7 +49,6 @@ Everything below is ordered easiest → hardest, within each section.
 - Add tab to show leaderboard
 - Add end game screen with play again button
 - Add dot over other players head when playing trickshot mode that goes to the correct side of the screen when looking away from them
-- Update main menu / current lobby menu / loadout / in game settings menu ui to look like a call of duty menu instead of a basic indy looking game menu
 
 ## Ideas
 

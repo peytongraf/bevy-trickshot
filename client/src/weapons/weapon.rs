@@ -1,5 +1,5 @@
 //! Weapon state machine: ammo, the sniper's fire/reload/rechamber queue, weapon
-//! swap, and the throwing-knife throw/melee mechanic.
+//! swap, the throwing-knife throw/melee mechanic, and the quick-melee key.
 
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -422,16 +422,64 @@ impl ThrowingKnife {
     }
 }
 
+/// Where a quick melee (the melee key with the sniper out) is up to. Like
+/// the throwing knife it's an overlay, not a real weapon switch —
+/// `Weapon::slot` stays `Primary` throughout: the sniper's Hide plays sped up
+/// (`ThrowArmsSettings::weapon_hide_speed`, the throwing knife's quick stow),
+/// the knife's Show plays at that same speed, one slice (the stab — filed for
+/// the server the moment it starts), the knife's Hide sped up, and then the
+/// sniper's normal Show, resuming any reload / rechamber the press cut short.
+/// With the knife already out, the melee key is just a normal stab and none
+/// of this runs.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub(crate) enum MeleePhase {
+    #[default]
+    Idle,
+    /// The sniper's quick Hide.
+    Stowing,
+    /// The knife's quick Show.
+    Drawing,
+    /// The slice.
+    Stabbing,
+    /// The knife's quick Hide; the sniper comes back once it's done.
+    Holstering,
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct QuickMelee {
+    pub(crate) phase: MeleePhase,
+    /// Seconds in the current phase — each phase also ends once its clip
+    /// should have finished, so a clip parked by a kill cam can't wedge it.
+    elapsed: f32,
+}
+
+/// Whether `seg` has played out on `player` (at `speed`), or — however the
+/// clip reports — has had long enough to (`elapsed` seconds in).
+fn segment_done(
+    player: &AnimationPlayer,
+    node: AnimationNodeIndex,
+    seg: AnimationSegment,
+    elapsed: f32,
+    speed: f32,
+) -> bool {
+    let finished = player
+        .animation(node)
+        .is_none_or(|a| a.is_finished() || a.seek_time() >= seg.end_secs());
+    finished || elapsed > (seg.end_secs() - seg.start_secs()) / speed.max(0.01) + 0.25
+}
+
 /// Re-entering the world always starts on the sniper, model shown, animation
 /// parked at rest — so quitting mid-swap can't leave the next game weaponless.
 pub(crate) fn reset_weapon(
     mut weapon: ResMut<Weapon>,
+    mut melee: ResMut<QuickMelee>,
     mut knife: ResMut<ThrowingKnife>,
     mut drink: ResMut<PerkDrink>,
     mut view_model: Query<(&ViewModelAnimation, &mut Visibility), With<ViewModel>>,
     mut players: Query<&mut AnimationPlayer, With<SniperAnimationPlayer>>,
 ) {
     *weapon = Weapon::default();
+    *melee = QuickMelee::default();
     *knife = ThrowingKnife::default();
     *drink = PerkDrink::default();
     if let Ok((vm, mut vis)) = view_model.single_mut() {
@@ -707,11 +755,12 @@ pub(crate) fn weapon_system(
         >,
     ),
     mut weapon: ResMut<Weapon>,
-    (mut knife, mut knife_state, mut pending_melee, mut drink): (
+    (mut knife, mut knife_state, mut pending_melee, mut drink, mut melee): (
         ResMut<ThrowingKnife>,
         ResMut<KnifeAnimState>,
         ResMut<PendingMelee>,
         ResMut<PerkDrink>,
+        ResMut<QuickMelee>,
     ),
     mut pending_shot: ResMut<PendingShot>,
     mut shake: ResMut<Shake>,
@@ -759,6 +808,8 @@ pub(crate) fn weapon_system(
         knife.debug_hold_prev = debug_hold;
     }
     let key_held = debug_hold || binds.throwing_knife.pressed(&keys, &mouse);
+    let melee_pressed = locked && binds.melee.just_pressed(&keys, &mouse);
+    let melee_idle = melee.phase == MeleePhase::Idle;
 
     // Throwing knife — see [`ThrowPhase`]. Press: settle any half-finished
     // swap, then play the equipped weapon's Hide (sped up), which also cuts a
@@ -774,7 +825,11 @@ pub(crate) fn weapon_system(
     // (`drink_arms::play_perk_drink`) and hand back with `DrinkPhase::Done`,
     // when the weapon that was out is drawn again. Waits for a throwing-knife
     // sequence already under way to finish first.
-    if drink.requested.is_some() && drink.phase == DrinkPhase::Idle && knife.phase == ThrowPhase::Idle {
+    if drink.requested.is_some()
+        && drink.phase == DrinkPhase::Idle
+        && knife.phase == ThrowPhase::Idle
+        && melee_idle
+    {
         drink.perk = drink.requested.take();
         drink.stow_elapsed = 0.0;
         let nothing_shown = stow_equipped(
@@ -838,6 +893,7 @@ pub(crate) fn weapon_system(
     if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
         && knife.phase == ThrowPhase::Idle
         && drink.requested.is_none()
+        && melee_idle
         && weapon.throwing_knives > 0
     {
         knife.active = true;
@@ -943,6 +999,108 @@ pub(crate) fn weapon_system(
             // back.
             if knife.slide <= 0.0 {
                 knife.phase = ThrowPhase::Idle;
+                redraw_active_weapon(
+                    &mut weapon,
+                    &mut knife_state,
+                    &mut player,
+                    node,
+                    &mut knife_player,
+                    knife_node,
+                    &mut view_model_vis,
+                    &mut knife_vis,
+                    swap_speed,
+                );
+            }
+            return;
+        }
+    }
+
+    // Quick melee — see [`MeleePhase`]. Only from the sniper (with the knife
+    // out the key is a normal stab, below), and not while the knife is still
+    // mid-swap. Like the throwing knife, it cuts a reload / rechamber short.
+    if melee_idle
+        && melee_pressed
+        && weapon.slot == WeaponSlot::Primary
+        && knife_state.busy.is_none()
+    {
+        melee.elapsed = 0.0;
+        stow_equipped(
+            &mut weapon,
+            &mut knife_state,
+            &mut player,
+            node,
+            &mut knife_player,
+            knife_node,
+            &mut view_model_vis,
+            &mut knife_vis,
+            &action_sounds,
+            &mut commands,
+            stow_speed,
+        );
+        melee.phase = MeleePhase::Stowing;
+        return;
+    }
+    let dt = time.delta_secs();
+    match melee.phase {
+        MeleePhase::Idle => {}
+        MeleePhase::Stowing => {
+            melee.elapsed += dt;
+            if stow_finished(
+                &weapon,
+                &mut player,
+                node,
+                &mut knife_player,
+                knife_node,
+                &mut view_model_vis,
+                &mut knife_vis,
+                melee.elapsed,
+                stow_speed,
+            ) {
+                **knife_vis = Visibility::Inherited;
+                play_segment_at(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW], stow_speed);
+                melee.phase = MeleePhase::Drawing;
+                melee.elapsed = 0.0;
+            }
+            return;
+        }
+        MeleePhase::Drawing => {
+            melee.elapsed += dt;
+            if segment_done(&knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW], melee.elapsed, stow_speed) {
+                start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
+                request_stab(&cam, &mut pending_melee);
+                melee.phase = MeleePhase::Stabbing;
+                melee.elapsed = 0.0;
+            }
+            return;
+        }
+        MeleePhase::Stabbing => {
+            melee.elapsed += dt;
+            // (No slice left in `knife_state` — e.g. a kill cam reset it —
+            // counts as done.)
+            let done = knife_state
+                .busy
+                .as_ref()
+                .and_then(|b| b.remaining.first().copied())
+                .is_none_or(|seg| segment_done(&knife_player, knife_node, seg, melee.elapsed, 1.0));
+            if done {
+                knife_state.busy = None;
+                play_segment_at(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE], stow_speed);
+                melee.phase = MeleePhase::Holstering;
+                melee.elapsed = 0.0;
+            }
+            return;
+        }
+        MeleePhase::Holstering => {
+            melee.elapsed += dt;
+            if segment_done(&knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE], melee.elapsed, stow_speed) {
+                if let Some(active) = knife_player.animation_mut(knife_node) {
+                    active.seek_to(0.0);
+                    active.pause();
+                }
+                **knife_vis = Visibility::Hidden;
+                melee.phase = MeleePhase::Idle;
+                // `slot` is still `Primary`: the sniper's Show, resuming
+                // whatever the press cut short.
                 redraw_active_weapon(
                     &mut weapon,
                     &mut knife_state,
@@ -1145,7 +1303,7 @@ pub(crate) fn weapon_system(
             .busy
             .as_ref()
             .is_some_and(|b| b.interruptible)
-            && binds.fire.just_pressed(&keys, &mouse)
+            && (binds.fire.just_pressed(&keys, &mouse) || melee_pressed)
         {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
             request_stab(&cam, &mut pending_melee);
@@ -1203,9 +1361,9 @@ pub(crate) fn weapon_system(
         return;
     }
     if weapon.slot == WeaponSlot::Secondary {
-        // Knife idle-out, waiting on a left click — one of the four slices,
-        // picked at random each time.
-        if binds.fire.just_pressed(&keys, &mouse) {
+        // Knife idle-out, waiting on a left click (or the melee key) — one of
+        // the four slices, picked at random each time.
+        if binds.fire.just_pressed(&keys, &mouse) || melee_pressed {
             start_knife_slice(&mut knife_state, &mut knife_player, knife_node);
             request_stab(&cam, &mut pending_melee);
             return;

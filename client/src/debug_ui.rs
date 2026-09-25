@@ -1279,6 +1279,7 @@ pub(crate) fn ads_tuning_ui(
                         ("heartbeat (at zero health)", &mut v.heartbeat),
                         ("hit marker", &mut v.hit_marker),
                         ("zombies: buy perk", &mut v.perk_buy),
+                        ("zombies: perk jingle", &mut v.perk_jingle),
                     ] {
                         ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                     }

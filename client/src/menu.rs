@@ -29,9 +29,9 @@ use crate::settings::{
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    field_box, label, label_hud, spawn_button, spawn_button_hud, ui_sound, Hoverable, UiSound,
-    ACCENT, ACCENT_DIM, BACKDROP, DEFEAT, PANEL, PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM,
-    TRACK, VICTORY,
+    divider, field_box, label_body, label_hud, page_title, section_heading, spawn_button_hud,
+    ui_sound, Hoverable, UiSound, ACCENT, ACCENT_DIM, BACKDROP, DEFEAT, EDGE, PANEL, PANEL_SOLID,
+    ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK, VICTORY,
 };
 use crate::{crosshair_asset_path, AppState};
 
@@ -686,10 +686,10 @@ fn rebuild_menu(
     }
     match menu.screen {
         Screen::None => {}
-        Screen::Username => build_username(&mut commands),
+        Screen::Username => build_username(&mut commands, &asset_server),
         Screen::Settings => {
             let leave = leave_ctx(&app_state, &local, &lobbies, &paused);
-            build_settings(&mut commands, &menu, &settings, &binds, &leave);
+            build_settings(&mut commands, &asset_server, &menu, &settings, &binds, &leave);
         }
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
@@ -714,41 +714,241 @@ fn overlay_root(solid: bool) -> impl Bundle {
     )
 }
 
-fn build_username(commands: &mut Commands) {
-    commands.spawn(overlay_root(true)).with_children(|root| {
-        root.spawn((
+/// A full-screen page (settings / loadout): the standard margins, black —
+/// see-through in game, so the world stays visible behind.
+fn page_root() -> impl Bundle {
+    (
+        MenuRoot,
+        GlobalZIndex(50),
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::axes(Val::Px(56.0), Val::Px(40.0)),
+            row_gap: Val::Px(16.0),
+            ..default()
+        },
+        BackgroundColor(BACKDROP),
+    )
+}
+
+/// A line of explanatory copy under a setting.
+fn desc(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, text: &str) {
+    content.spawn((
+        label_body(asset_server, text, 14.0, TEXT_DIM),
+        Node {
+            max_width: Val::Px(760.0),
+            margin: UiRect::bottom(Val::Px(6.0)),
+            ..default()
+        },
+    ));
+}
+
+/// One settings line: the setting's name on the left, its controls after it,
+/// a hairline underneath.
+fn setting_row(
+    content: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    name: &str,
+    controls: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    content
+        .spawn((
             Node {
-                width: Val::Px(520.0),
-                flex_direction: FlexDirection::Column,
+                width: Val::Percent(100.0),
+                max_width: Val::Px(1100.0),
+                min_height: Val::Px(56.0),
                 align_items: AlignItems::Center,
-                padding: UiRect::all(Val::Px(40.0)),
-                row_gap: Val::Px(18.0),
+                column_gap: Val::Px(16.0),
+                padding: UiRect::vertical(Val::Px(6.0)),
+                border: UiRect::bottom(Val::Px(1.0)),
+                flex_shrink: 0.0,
                 ..default()
             },
-            BackgroundColor(PANEL),
-            BorderRadius::all(Val::Px(10.0)),
+            BorderColor(EDGE),
         ))
+        .with_children(|row| {
+            row.spawn(Node {
+                width: Val::Px(280.0),
+                flex_shrink: 0.0,
+                ..default()
+            })
+            .with_child(label_hud(asset_server, name, 22.0, TEXT));
+            row.spawn(Node {
+                flex_grow: 1.0,
+                flex_wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(8.0),
+                row_gap: Val::Px(8.0),
+                ..default()
+            })
+            .with_children(controls);
+        });
+}
+
+/// A button in the menus' condensed caps. `selected` gives it the gold
+/// "current choice" look.
+#[allow(clippy::too_many_arguments)]
+fn option_button(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    btn: Btn,
+    selected: bool,
+    sfx: UiSound,
+) {
+    spawn_button_hud(
+        parent,
+        asset_server,
+        text,
+        18.0,
+        btn,
+        if selected { ACCENT } else { ROW },
+        ROW_HOVER,
+        if selected { PANEL_SOLID } else { TEXT },
+        sfx,
+    );
+}
+
+/// A plain (unselected-look) menu button.
+fn plain_button(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    btn: Btn,
+    sfx: UiSound,
+) {
+    spawn_button_hud(parent, asset_server, text, 18.0, btn, ROW, ROW_HOVER, TEXT, sfx);
+}
+
+/// An ON / OFF toggle button (its text optionally live-patched by
+/// [`refresh_dynamic`]).
+fn toggle_button(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    on: bool,
+    btn: Btn,
+    live: Option<DynText>,
+) {
+    let (normal, text) = if on { (ACCENT, PANEL_SOLID) } else { (ROW, TEXT) };
+    parent
+        .spawn((
+            Button,
+            Interaction::default(),
+            btn,
+            Hoverable::new(normal, ROW_HOVER, text),
+            ui_sound(UiSound::BUTTON),
+            Node {
+                min_width: Val::Px(96.0),
+                padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(normal),
+        ))
+        .with_children(|b| {
+            let mut t = b.spawn(label_hud(asset_server, if on { "ON" } else { "OFF" }, 18.0, text));
+            if let Some(live) = live {
+                t.insert(live);
+            }
+        });
+}
+
+fn build_username(commands: &mut Commands, asset_server: &AssetServer) {
+    commands.spawn(overlay_root(true)).with_children(|root| {
+        root.spawn(Node {
+            width: Val::Px(560.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(18.0),
+            ..default()
+        })
         .with_children(|card| {
-            card.spawn(label("CHOOSE A USERNAME", 30.0, TEXT));
-            card.spawn(label(
+            page_title(card, asset_server, "WELCOME", "CHOOSE A USERNAME");
+            card.spawn(divider());
+            card.spawn(label_body(
+                asset_server,
                 "This is how other players will see you. You can change it later in Settings.",
                 15.0,
                 TEXT_DIM,
             ));
-            card.spawn(field_box(360.0)).with_children(|f| {
-                f.spawn((label("", 22.0, TEXT), DynText::Username));
+            card.spawn(field_box(560.0)).with_children(|f| {
+                f.spawn((label_hud(asset_server, "", 26.0, TEXT), DynText::Username));
             });
-            spawn_button(
-                card,
-                "CONFIRM",
-                20.0,
-                Btn::ConfirmUsername,
-                ACCENT,
-                ACCENT,
-                PANEL_SOLID,
-                UiSound::MENU,
-            );
+            card.spawn(Node::default()).with_children(|row| {
+                option_button(
+                    row,
+                    asset_server,
+                    "CONFIRM",
+                    Btn::ConfirmUsername,
+                    true,
+                    UiSound::MENU,
+                );
+            });
         });
+    });
+}
+
+/// The results screens' player list: a header line, then one row per member
+/// (ours marked in gold), each with the given value columns.
+fn results_table(
+    card: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    headings: &[&str],
+    rows: &[(String, Vec<String>, bool)],
+) {
+    let cell = || Node {
+        width: Val::Px(110.0),
+        justify_content: JustifyContent::FlexEnd,
+        ..default()
+    };
+    card.spawn(Node {
+        width: Val::Percent(100.0),
+        flex_direction: FlexDirection::Column,
+        row_gap: Val::Px(4.0),
+        ..default()
+    })
+    .with_children(|table| {
+        table
+            .spawn(Node {
+                width: Val::Percent(100.0),
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(4.0)),
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    flex_grow: 1.0,
+                    ..default()
+                })
+                .with_child(label_hud(asset_server, "PLAYER", 16.0, TEXT_DIM));
+                for h in headings {
+                    row.spawn(cell()).with_child(label_hud(asset_server, *h, 16.0, TEXT_DIM));
+                }
+            });
+        for (name, values, is_me) in rows {
+            let col = if *is_me { ACCENT } else { TEXT };
+            table
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
+                        border: UiRect::left(Val::Px(3.0)),
+                        ..default()
+                    },
+                    BackgroundColor(ROW),
+                    BorderColor(if *is_me { ACCENT } else { Color::NONE }),
+                ))
+                .with_children(|row| {
+                    row.spawn(Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    })
+                    .with_child(label_hud(asset_server, name.to_uppercase(), 24.0, col));
+                    for v in values {
+                        row.spawn(cell()).with_child(label_hud(asset_server, v.clone(), 24.0, col));
+                    }
+                });
+        }
     });
 }
 
@@ -787,80 +987,41 @@ fn build_match_results(
     let won = rows.iter().any(|(_, score, is_me)| *is_me && *score == top_score);
 
     let (headline, color) = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };
+    let table: Vec<(String, Vec<String>, bool)> = rows
+        .into_iter()
+        .map(|(name, score, is_me)| (name, vec![score.to_string()], is_me))
+        .collect();
 
-    commands
-        .spawn(overlay_root(true))
-        .with_children(|root| {
-            root.spawn(Node {
-                width: Val::Px(520.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                padding: UiRect::all(Val::Px(40.0)),
-                row_gap: Val::Px(16.0),
-                ..default()
-            })
-            .with_children(|card| {
-                card.spawn(label_hud(asset_server, headline, 64.0, color));
-                card.spawn((
-                    Node {
-                        width: Val::Px(90.0),
-                        height: Val::Px(5.0),
-                        ..default()
-                    },
-                    BackgroundColor(color),
-                ));
-                card.spawn(label(
-                    format!("{top_name} wins with {top_score} points"),
-                    16.0,
-                    TEXT_DIM,
-                ));
-
-                card.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(14.0)),
-                        row_gap: Val::Px(6.0),
-                        ..default()
-                    },
-                    BackgroundColor(PANEL_SOLID),
-                    BorderRadius::all(Val::Px(8.0)),
-                ))
-                .with_children(|panel| {
-                    for (name, score, is_me) in &rows {
-                        let col = if *is_me { ACCENT } else { TEXT };
-                        panel
-                            .spawn((
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    flex_direction: FlexDirection::Row,
-                                    justify_content: JustifyContent::SpaceBetween,
-                                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-                                    ..default()
-                                },
-                                BackgroundColor(TRACK),
-                                BorderRadius::all(Val::Px(6.0)),
-                            ))
-                            .with_children(|row| {
-                                row.spawn(label(name.clone(), 17.0, col));
-                                row.spawn(label(score.to_string(), 17.0, col));
-                            });
-                    }
-                });
-
-                spawn_button_hud(
-                    card,
+    commands.spawn(overlay_root(true)).with_children(|root| {
+        root.spawn(Node {
+            width: Val::Px(640.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(16.0),
+            ..default()
+        })
+        .with_children(|card| {
+            card.spawn(label_hud(asset_server, "MATCH COMPLETE", 18.0, TEXT_DIM));
+            card.spawn(label_hud(asset_server, headline, 96.0, color));
+            card.spawn(label_hud(
+                asset_server,
+                format!("{} WINS WITH {top_score}", top_name.to_uppercase()),
+                22.0,
+                TEXT,
+            ));
+            card.spawn(divider());
+            results_table(card, asset_server, &["SCORE"], &table);
+            card.spawn(Node::default()).with_children(|row| {
+                option_button(
+                    row,
                     asset_server,
                     "CONTINUE",
-                    20.0,
                     Btn::ContinueFromResults,
-                    ACCENT_DIM,
-                    ACCENT,
-                    TEXT,
+                    true,
                     UiSound::MENU,
                 );
             });
         });
+    });
 }
 
 /// `Zombies`' end screen (the game ends the moment anyone dies): how many
@@ -879,313 +1040,268 @@ fn build_zombies_results(
         .map(|m| (m.name.as_str(), m.score, m.kills, Some(m.peer) == me))
         .collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1));
+    let table: Vec<(String, Vec<String>, bool)> = rows
+        .into_iter()
+        .map(|(name, score, kills, is_me)| {
+            (name.to_string(), vec![kills.to_string(), score.to_string()], is_me)
+        })
+        .collect();
 
     commands.spawn(overlay_root(true)).with_children(|root| {
         root.spawn(Node {
-            width: Val::Px(560.0),
+            width: Val::Px(680.0),
             flex_direction: FlexDirection::Column,
-            align_items: AlignItems::Center,
-            padding: UiRect::all(Val::Px(40.0)),
             row_gap: Val::Px(16.0),
             ..default()
         })
         .with_children(|card| {
-            card.spawn(label_hud(asset_server, "GAME OVER", 64.0, DEFEAT));
-            card.spawn((
-                Node {
-                    width: Val::Px(90.0),
-                    height: Val::Px(5.0),
-                    ..default()
-                },
-                BackgroundColor(DEFEAT),
-            ));
+            card.spawn(label_hud(asset_server, "ZOMBIES", 18.0, TEXT_DIM));
+            card.spawn(label_hud(asset_server, "GAME OVER", 96.0, DEFEAT));
             card.spawn(label_hud(
                 asset_server,
                 format!(
                     "YOU SURVIVED {survived} ROUND{}",
                     if survived == 1 { "" } else { "S" }
                 ),
-                24.0,
+                26.0,
                 TEXT,
             ));
-
-            card.spawn((
-                Node {
-                    width: Val::Percent(100.0),
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(14.0)),
-                    row_gap: Val::Px(6.0),
-                    ..default()
-                },
-                BackgroundColor(PANEL_SOLID),
-                BorderRadius::all(Val::Px(8.0)),
-            ))
-            .with_children(|panel| {
-                // Column headings, then one row per member.
-                let row_node = || Node {
-                    width: Val::Percent(100.0),
-                    flex_direction: FlexDirection::Row,
-                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-                    column_gap: Val::Px(12.0),
-                    ..default()
-                };
-                let cell = |w: f32| Node {
-                    width: Val::Px(w),
-                    justify_content: JustifyContent::FlexEnd,
-                    ..default()
-                };
-                panel.spawn(row_node()).with_children(|row| {
-                    row.spawn(Node {
-                        flex_grow: 1.0,
-                        ..default()
-                    })
-                    .with_child(label("PLAYER", 13.0, TEXT_DIM));
-                    row.spawn(cell(90.0)).with_child(label("KILLS", 13.0, TEXT_DIM));
-                    row.spawn(cell(90.0)).with_child(label("POINTS", 13.0, TEXT_DIM));
-                });
-                for (name, score, kills, is_me) in &rows {
-                    let col = if *is_me { ACCENT } else { TEXT };
-                    panel
-                        .spawn((
-                            row_node(),
-                            BackgroundColor(TRACK),
-                            BorderRadius::all(Val::Px(6.0)),
-                        ))
-                        .with_children(|row| {
-                            row.spawn(Node {
-                                flex_grow: 1.0,
-                                ..default()
-                            })
-                            .with_child(label(name.to_string(), 17.0, col));
-                            row.spawn(cell(90.0)).with_child(label(kills.to_string(), 17.0, col));
-                            row.spawn(cell(90.0)).with_child(label(score.to_string(), 17.0, col));
-                        });
-                }
+            card.spawn(divider());
+            results_table(card, asset_server, &["KILLS", "POINTS"], &table);
+            card.spawn(Node::default()).with_children(|row| {
+                option_button(
+                    row,
+                    asset_server,
+                    "CONTINUE",
+                    Btn::ContinueFromResults,
+                    true,
+                    UiSound::MENU,
+                );
             });
-
-            spawn_button_hud(
-                card,
-                asset_server,
-                "CONTINUE",
-                20.0,
-                Btn::ContinueFromResults,
-                ACCENT_DIM,
-                ACCENT,
-                TEXT,
-                UiSound::MENU,
-            );
         });
     });
 }
 
+/// A tab in the settings screen's top bar: bright with a gold underline when
+/// it's the open one.
+fn tab_button(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    btn: Btn,
+    selected: bool,
+) {
+    let text_color = if selected { TEXT } else { TEXT_DIM };
+    parent
+        .spawn((
+            Button,
+            Interaction::default(),
+            btn,
+            Hoverable::new(Color::NONE, ROW_HOVER, text_color),
+            ui_sound(UiSound::BUTTON),
+            Node {
+                padding: UiRect::axes(Val::Px(18.0), Val::Px(8.0)),
+                border: UiRect::bottom(Val::Px(3.0)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            BorderColor(if selected { ACCENT } else { Color::NONE }),
+        ))
+        .with_child(label_hud(asset_server, text, 26.0, text_color));
+}
+
 fn build_settings(
     commands: &mut Commands,
+    asset_server: &AssetServer,
     menu: &Menu,
     settings: &Settings,
     binds: &KeyBindings,
     leave: &LeaveCtx,
 ) {
-    commands
-        .spawn((
-            MenuRoot,
-            GlobalZIndex(50),
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
-            // Translucent full-screen panel: the game stays dimly visible behind it.
-            BackgroundColor(BACKDROP),
-        ))
-        .with_children(|panel| {
-            // header
-            panel
-                .spawn((
-                    Node {
-                        padding: UiRect::axes(Val::Px(28.0), Val::Px(20.0)),
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(8.0),
-                        ..default()
-                    },
-                    BorderColor(TRACK),
-                ))
-                .with_children(|h| {
-                    h.spawn(label("SETTINGS", 28.0, TEXT));
-                    h.spawn((
-                        Node {
-                            width: Val::Px(46.0),
-                            height: Val::Px(3.0),
-                            ..default()
-                        },
-                        BackgroundColor(ACCENT),
-                    ));
-                });
+    commands.spawn(page_root()).with_children(|page| {
+        page_title(
+            page,
+            asset_server,
+            if leave.in_game { "IN GAME" } else { "MAIN MENU" },
+            "SETTINGS",
+        );
 
-            // body: left categories + right content
-            panel
-                .spawn(Node {
-                    flex_grow: 1.0,
-                    flex_direction: FlexDirection::Row,
+        // tabs across the top, the Loadout at the far end
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::FlexEnd,
+            column_gap: Val::Px(4.0),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|tabs| {
+            for (tab, name) in [
+                (Tab::Profile, "PROFILE"),
+                (Tab::Controls, "CONTROLS"),
+                (Tab::Graphics, "GRAPHICS"),
+                (Tab::Audio, "AUDIO"),
+                (Tab::Keybinds, "KEYBINDS"),
+                (Tab::Multiplayer, "MULTIPLAYER"),
+            ] {
+                tab_button(tabs, asset_server, name, Btn::SelectTab(tab), menu.tab == tab);
+            }
+            tabs.spawn(Node {
+                flex_grow: 1.0,
+                ..default()
+            });
+            plain_button(tabs, asset_server, "LOADOUT", Btn::OpenLoadout, UiSound::BUTTON);
+        });
+        page.spawn(divider());
+
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::vertical(Val::Px(8.0)),
+            overflow: Overflow::clip(),
+            ..default()
+        })
+        .with_children(|content| match menu.tab {
+            Tab::Profile => build_profile(content, asset_server),
+            Tab::Controls => build_controls(content, asset_server, settings),
+            Tab::Graphics => build_graphics(content, asset_server, settings),
+            Tab::Audio => build_audio(content, asset_server, settings),
+            Tab::Keybinds => build_keybinds(content, asset_server, menu, binds),
+            Tab::Multiplayer => build_multiplayer(content, asset_server, settings),
+        });
+
+        // footer: key hints left; in game, the pause / leave actions right
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(24.0),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|f| {
+            f.spawn(Node {
+                column_gap: Val::Px(28.0),
+                ..default()
+            })
+            .with_children(|hints| {
+                hints.spawn(label_hud(
+                    asset_server,
+                    if leave.in_game { "[ESC]  RESUME" } else { "[ESC]  BACK" },
+                    18.0,
+                    TEXT_DIM,
+                ));
+                hints.spawn(label_hud(asset_server, "CHANGES SAVE AUTOMATICALLY", 18.0, TEXT_DIM));
+            });
+
+            if leave.in_game {
+                f.spawn(Node {
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(10.0),
                     ..default()
                 })
-                .with_children(|body| {
-                    body.spawn((
-                        Node {
-                            width: Val::Px(230.0),
-                            height: Val::Percent(100.0),
-                            flex_direction: FlexDirection::Column,
-                            padding: UiRect::all(Val::Px(14.0)),
-                            row_gap: Val::Px(6.0),
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
-                    ))
-                    .with_children(|cats| {
-                        for (tab, name) in [
-                            (Tab::Profile, "PROFILE"),
-                            (Tab::Controls, "CONTROLS"),
-                            (Tab::Graphics, "GRAPHICS"),
-                            (Tab::Audio, "AUDIO"),
-                            (Tab::Keybinds, "KEYBINDS"),
-                            (Tab::Multiplayer, "MULTIPLAYER"),
-                        ] {
-                            let selected = menu.tab == tab;
-                            spawn_button(
-                                cats,
-                                name,
-                                17.0,
-                                Btn::SelectTab(tab),
-                                if selected { ROW_HOVER } else { PANEL },
-                                ROW_HOVER,
-                                if selected { ACCENT } else { TEXT_DIM },
-                                UiSound::BUTTON,
-                            );
-                        }
-                        cats.spawn((
+                .with_children(|actions| {
+                    if leave.is_leader {
+                        actions.spawn((
+                            label_body(
+                                asset_server,
+                                "Leaving without the party promotes a new leader; the match continues.",
+                                13.0,
+                                TEXT_DIM,
+                            ),
                             Node {
-                                height: Val::Px(1.0),
-                                margin: UiRect::vertical(Val::Px(4.0)),
+                                max_width: Val::Px(260.0),
                                 ..default()
                             },
-                            BackgroundColor(TRACK),
                         ));
-                        spawn_button(
-                            cats,
-                            "LOADOUT",
-                            17.0,
-                            Btn::OpenLoadout,
-                            PANEL,
-                            ROW_HOVER,
-                            TEXT_DIM,
+                        option_button(
+                            actions,
+                            asset_server,
+                            if leave.paused { "RESUME GAME" } else { "PAUSE GAME" },
+                            Btn::TogglePause,
+                            true,
                             UiSound::BUTTON,
                         );
-                    });
-
-                    body.spawn(Node {
-                        flex_grow: 1.0,
-                        flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(30.0)),
-                        row_gap: Val::Px(16.0),
-                        overflow: Overflow::clip(),
-                        ..default()
-                    })
-                    .with_children(|content| match menu.tab {
-                        Tab::Profile => build_profile(content),
-                        Tab::Controls => build_controls(content, settings),
-                        Tab::Graphics => build_graphics(content, settings),
-                        Tab::Audio => build_audio(content, settings),
-                        Tab::Keybinds => build_keybinds(content, menu, binds),
-                        Tab::Multiplayer => build_multiplayer(content, settings),
-                    });
+                        plain_button(
+                            actions,
+                            asset_server,
+                            "LEAVE WITH PARTY",
+                            Btn::LeaveWithParty,
+                            UiSound::BUTTON_BACK,
+                        );
+                        plain_button(
+                            actions,
+                            asset_server,
+                            "LEAVE WITHOUT PARTY",
+                            Btn::LeaveGame,
+                            UiSound::BUTTON_BACK,
+                        );
+                    } else {
+                        actions.spawn(label_body(
+                            asset_server,
+                            "The match continues for the other players.",
+                            13.0,
+                            TEXT_DIM,
+                        ));
+                        plain_button(
+                            actions,
+                            asset_server,
+                            "LEAVE GAME",
+                            Btn::LeaveGame,
+                            UiSound::BUTTON_BACK,
+                        );
+                    }
                 });
-
-            // leave-game controls (only while in a game)
-            if leave.in_game {
-                panel
-                    .spawn((
-                        Node {
-                            padding: UiRect::axes(Val::Px(28.0), Val::Px(16.0)),
-                            column_gap: Val::Px(12.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
-                    ))
-                    .with_children(|f| {
-                        if leave.is_leader {
-                            spawn_button(
-                                f,
-                                if leave.paused { "RESUME GAME" } else { "PAUSE GAME" },
-                                16.0,
-                                Btn::TogglePause,
-                                ACCENT_DIM,
-                                ACCENT,
-                                TEXT,
-                                UiSound::BUTTON,
-                            );
-                            spawn_button(
-                                f,
-                                "LEAVE WITH PARTY",
-                                16.0,
-                                Btn::LeaveWithParty,
-                                ACCENT_DIM,
-                                ACCENT,
-                                TEXT,
-                                UiSound::BUTTON_BACK,
-                            );
-                            spawn_button(
-                                f,
-                                "LEAVE WITHOUT PARTY",
-                                16.0,
-                                Btn::LeaveGame,
-                                ROW,
-                                ROW_HOVER,
-                                TEXT,
-                                UiSound::BUTTON_BACK,
-                            );
-                            f.spawn(label(
-                                "Leaving without the party promotes a new leader; the match \
-                                 continues.",
-                                13.0,
-                                TEXT_DIM,
-                            ));
-                        } else {
-                            spawn_button(
-                                f,
-                                "LEAVE GAME",
-                                16.0,
-                                Btn::LeaveGame,
-                                ROW,
-                                ROW_HOVER,
-                                TEXT,
-                                UiSound::BUTTON_BACK,
-                            );
-                            f.spawn(label(
-                                "The match continues for the other players.",
-                                13.0,
-                                TEXT_DIM,
-                            ));
-                        }
-                    });
             }
-
-            // footer
-            panel
-                .spawn((
-                    Node {
-                        padding: UiRect::axes(Val::Px(28.0), Val::Px(14.0)),
-                        column_gap: Val::Px(24.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
-                ))
-                .with_children(|f| {
-                    f.spawn(label("[Esc] Close", 14.0, TEXT_DIM));
-                    f.spawn(label("Changes save automatically", 14.0, TEXT_DIM));
-                });
         });
+    });
+}
+
+/// One Loadout tile: gold-edged and marked EQUIPPED when it's the current
+/// choice. (Hover is a light lift rather than the white fill, so the reticle
+/// images stay readable.)
+fn loadout_tile(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    btn: Btn,
+    selected: bool,
+    contents: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    let normal = if selected { ACCENT_DIM } else { ROW };
+    row.spawn((
+        Button,
+        Interaction::default(),
+        btn,
+        Hoverable {
+            normal,
+            hover: Color::srgba(1.0, 1.0, 1.0, 0.18),
+            text: None,
+        },
+        ui_sound(UiSound::BUTTON),
+        Node {
+            width: Val::Px(200.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            padding: UiRect::all(Val::Px(14.0)),
+            row_gap: Val::Px(10.0),
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(normal),
+        BorderColor(if selected { ACCENT } else { EDGE }),
+    ))
+    .with_children(|tile| {
+        contents(tile);
+        tile.spawn(label_hud(
+            asset_server,
+            if selected { "EQUIPPED" } else { " " },
+            15.0,
+            ACCENT,
+        ));
+    });
 }
 
 /// The Loadout screen — crosshair and scope zoom selection. Built purely
@@ -1193,202 +1309,108 @@ fn build_settings(
 /// behaves identically whether opened from the main menu or the in-game
 /// pause menu — see `Screen::Loadout`'s doc comment.
 fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer) {
-    commands
-        .spawn((
-            MenuRoot,
-            GlobalZIndex(50),
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
-            BackgroundColor(BACKDROP),
-        ))
-        .with_children(|panel| {
-            // header
-            panel
-                .spawn(Node {
-                    padding: UiRect::axes(Val::Px(28.0), Val::Px(20.0)),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(8.0),
-                    ..default()
-                })
-                .with_children(|h| {
-                    h.spawn(label("LOADOUT", 28.0, TEXT));
-                    h.spawn((
-                        Node {
-                            width: Val::Px(46.0),
-                            height: Val::Px(3.0),
-                            ..default()
-                        },
-                        BackgroundColor(ACCENT),
-                    ));
-                });
+    commands.spawn(page_root()).with_children(|page| {
+        page_title(page, asset_server, "MULTIPLAYER", "LOADOUT");
+        page.spawn(divider());
 
-            // body
-            panel
-                .spawn(Node {
-                    flex_grow: 1.0,
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(30.0)),
-                    row_gap: Val::Px(16.0),
-                    ..default()
-                })
-                .with_children(|content| {
-                    content.spawn(label("CROSSHAIR", 15.0, TEXT_DIM));
-                    content
-                        .spawn(Node {
-                            flex_direction: FlexDirection::Row,
-                            column_gap: Val::Px(16.0),
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            for id in CrosshairId::ALL {
-                                let selected = settings.crosshair == id;
-                                row.spawn((
-                                    Button,
-                                    Interaction::default(),
-                                    Btn::SetCrosshair(id),
-                                    Hoverable {
-                                        normal: PANEL,
-                                        hover: ROW_HOVER,
-                                    },
-                                    ui_sound(UiSound::BUTTON),
-                                    Node {
-                                        width: Val::Px(160.0),
-                                        flex_direction: FlexDirection::Column,
-                                        align_items: AlignItems::Center,
-                                        padding: UiRect::all(Val::Px(10.0)),
-                                        row_gap: Val::Px(8.0),
-                                        border: UiRect::all(Val::Px(3.0)),
-                                        ..default()
-                                    },
-                                    BackgroundColor(PANEL),
-                                    BorderColor(if selected { ACCENT } else { TRACK }),
-                                    BorderRadius::all(Val::Px(8.0)),
-                                ))
-                                .with_children(|tile| {
-                                    tile.spawn((
-                                        ImageNode::new(asset_server.load(crosshair_asset_path(id))),
-                                        Node {
-                                            width: Val::Px(120.0),
-                                            height: Val::Px(120.0),
-                                            ..default()
-                                        },
-                                    ));
-                                    tile.spawn(label(
-                                        id.label(),
-                                        14.0,
-                                        if selected { ACCENT } else { TEXT_DIM },
-                                    ));
-                                });
-                            }
-                        });
-
-                    content.spawn(label("SCOPE ZOOM", 15.0, TEXT_DIM));
-                    content
-                        .spawn(Node {
-                            flex_direction: FlexDirection::Row,
-                            column_gap: Val::Px(16.0),
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            for zoom in ScopeZoom::ALL {
-                                let selected = settings.scope_zoom == zoom;
-                                row.spawn((
-                                    Button,
-                                    Interaction::default(),
-                                    Btn::SetScopeZoom(zoom),
-                                    Hoverable {
-                                        normal: PANEL,
-                                        hover: ROW_HOVER,
-                                    },
-                                    ui_sound(UiSound::BUTTON),
-                                    Node {
-                                        width: Val::Px(160.0),
-                                        justify_content: JustifyContent::Center,
-                                        padding: UiRect::all(Val::Px(18.0)),
-                                        border: UiRect::all(Val::Px(3.0)),
-                                        ..default()
-                                    },
-                                    BackgroundColor(PANEL),
-                                    BorderColor(if selected { ACCENT } else { TRACK }),
-                                    BorderRadius::all(Val::Px(8.0)),
-                                ))
-                                .with_children(|tile| {
-                                    tile.spawn(label(
-                                        zoom.label(),
-                                        22.0,
-                                        if selected { ACCENT } else { TEXT_DIM },
-                                    ));
-                                });
-                            }
-                        });
-                });
-
-            // footer
-            panel
-                .spawn((
-                    Node {
-                        padding: UiRect::axes(Val::Px(28.0), Val::Px(14.0)),
-                        column_gap: Val::Px(24.0),
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.055, 0.064, 0.08)),
-                ))
-                .with_children(|f| {
-                    spawn_button(
-                        f,
-                        "BACK",
-                        15.0,
-                        Btn::CloseLoadout,
-                        ROW,
-                        ROW_HOVER,
-                        TEXT,
-                        UiSound::BUTTON_BACK,
-                    );
-                    f.spawn(label("Changes save automatically", 14.0, TEXT_DIM));
-                });
-        });
-}
-
-fn build_profile(content: &mut ChildSpawnerCommands) {
-    content.spawn(label("USERNAME", 15.0, TEXT_DIM));
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(14.0),
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(16.0),
+            padding: UiRect::vertical(Val::Px(8.0)),
+            overflow: Overflow::clip(),
             ..default()
         })
-        .with_children(|row| {
-            row.spawn(field_box(320.0)).with_children(|f| {
-                f.spawn((label("", 22.0, TEXT), DynText::Username));
+        .with_children(|content| {
+            section_heading(content, asset_server, "CROSSHAIR");
+            content
+                .spawn(Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: Val::Px(14.0),
+                    row_gap: Val::Px(14.0),
+                    ..default()
+                })
+                .with_children(|row| {
+                    for id in CrosshairId::ALL {
+                        let selected = settings.crosshair == id;
+                        loadout_tile(row, asset_server, Btn::SetCrosshair(id), selected, |tile| {
+                            tile.spawn((
+                                ImageNode::new(asset_server.load(crosshair_asset_path(id))),
+                                Node {
+                                    width: Val::Px(150.0),
+                                    height: Val::Px(150.0),
+                                    ..default()
+                                },
+                            ));
+                            tile.spawn(label_hud(
+                                asset_server,
+                                id.label().to_uppercase(),
+                                20.0,
+                                if selected { TEXT } else { TEXT_DIM },
+                            ));
+                        });
+                    }
+                });
+
+            content.spawn(Node {
+                height: Val::Px(8.0),
+                ..default()
             });
-            spawn_button(
-                row,
-                "APPLY",
-                17.0,
-                Btn::ConfirmUsername,
-                ACCENT,
-                ACCENT,
-                PANEL_SOLID,
-                UiSound::BUTTON,
-            );
+            section_heading(content, asset_server, "SCOPE ZOOM");
+            content
+                .spawn(Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: Val::Px(14.0),
+                    row_gap: Val::Px(14.0),
+                    ..default()
+                })
+                .with_children(|row| {
+                    for zoom in ScopeZoom::ALL {
+                        let selected = settings.scope_zoom == zoom;
+                        loadout_tile(row, asset_server, Btn::SetScopeZoom(zoom), selected, |tile| {
+                            tile.spawn(label_hud(
+                                asset_server,
+                                zoom.label().to_uppercase(),
+                                40.0,
+                                if selected { TEXT } else { TEXT_DIM },
+                            ));
+                        });
+                    }
+                });
         });
-    content.spawn(label(
-        "Start typing to edit. Enter or Apply to save.",
-        14.0,
-        TEXT_DIM,
-    ));
+
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(28.0),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|f| {
+            plain_button(f, asset_server, "BACK", Btn::CloseLoadout, UiSound::BUTTON_BACK);
+            f.spawn(label_hud(asset_server, "CHANGES SAVE AUTOMATICALLY", 18.0, TEXT_DIM));
+        });
+    });
 }
 
-fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
+fn build_profile(content: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
+    setting_row(content, asset_server, "USERNAME", |row| {
+        row.spawn(field_box(360.0)).with_children(|f| {
+            f.spawn((label_hud(asset_server, "", 24.0, TEXT), DynText::Username));
+        });
+        option_button(row, asset_server, "APPLY", Btn::ConfirmUsername, true, UiSound::BUTTON);
+    });
+    desc(content, asset_server, "Start typing to edit. Enter or Apply to save.");
+}
+
+fn build_controls(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
     spawn_slider_row(
         content,
+        asset_server,
         "MOUSE SENSITIVITY",
         SliderField::Sensitivity,
         settings,
@@ -1396,260 +1418,185 @@ fn build_controls(content: &mut ChildSpawnerCommands, settings: &Settings) {
     );
     spawn_slider_row(
         content,
+        asset_server,
         "ADS SENSITIVITY",
         SliderField::AdsSensitivity,
         settings,
         0.05,
     );
-    spawn_slider_row(content, "FIELD OF VIEW", SliderField::Fov, settings, 1.0);
+    spawn_slider_row(content, asset_server, "FIELD OF VIEW", SliderField::Fov, settings, 1.0);
 
-    toggle_row(
+    setting_row(content, asset_server, "AUTO RELOAD", |row| {
+        toggle_button(row, asset_server, settings.auto_reload, Btn::ToggleAutoReload, None);
+    });
+    desc(
         content,
-        "AUTO RELOAD",
-        settings.auto_reload,
-        Btn::ToggleAutoReload,
-    );
-    content.spawn(label(
+        asset_server,
         "Automatically start reloading after the shot that empties the magazine, \
          instead of waiting for you to press reload.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
 
-    content.spawn(label("AUTOMATIC MANTLE", 15.0, TEXT_DIM));
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(8.0),
-            ..default()
-        })
-        .with_children(|row| {
-            for mode in AutoMantle::ALL {
-                let selected = settings.auto_mantle == mode;
-                spawn_button(
-                    row,
-                    mode.label(),
-                    15.0,
-                    Btn::SetAutoMantle(mode),
-                    if selected { ACCENT_DIM } else { ROW },
-                    ROW_HOVER,
-                    if selected { ACCENT } else { TEXT },
-                    UiSound::BUTTON,
-                );
-            }
-        });
-    content.spawn(label(
+    setting_row(content, asset_server, "AUTOMATIC MANTLE", |row| {
+        for mode in AutoMantle::ALL {
+            option_button(
+                row,
+                asset_server,
+                &mode.label().to_uppercase(),
+                Btn::SetAutoMantle(mode),
+                settings.auto_mantle == mode,
+                UiSound::BUTTON,
+            );
+        }
+    });
+    desc(
+        content,
+        asset_server,
         "Automatically climb a ledge you'd otherwise bonk into and fall from. Off never \
          catches you; Semi-Auto only while jumping toward one; Full-Auto any time you're \
          airborne and moving toward one, jump or not.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
 
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(16.0),
-            margin: UiRect::top(Val::Px(8.0)),
-            ..default()
-        })
-        .with_children(|row| {
-            row.spawn((
-                label("DEBUG MODE", 15.0, TEXT_DIM),
-                Node {
-                    width: Val::Px(220.0),
-                    ..default()
-                },
-            ));
-            spawn_button(
-                row,
-                if settings.debug_mode { "ON" } else { "OFF" },
-                17.0,
-                Btn::ToggleDebug,
-                ROW,
-                ROW_HOVER,
-                if settings.debug_mode { ACCENT } else { TEXT },
-                UiSound::BUTTON,
-            );
-            // keep the toggle label live without a rebuild
-            row.spawn((
-                label("", 0.001, Color::NONE),
-                DynText::Debug,
-                Node {
-                    width: Val::Px(0.0),
-                    ..default()
-                },
-            ));
-        });
-    content.spawn(label(
+    setting_row(content, asset_server, "DEBUG MODE", |row| {
+        // (Its ON / OFF stays live without a rebuild — `DynText::Debug`.)
+        toggle_button(
+            row,
+            asset_server,
+            settings.debug_mode,
+            Btn::ToggleDebug,
+            Some(DynText::Debug),
+        );
+    });
+    desc(
+        content,
+        asset_server,
         "Debug mode shows the muzzle-flash / smoke / gravity tuning panels (top-right).",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
 }
 
-fn build_audio(content: &mut ChildSpawnerCommands, settings: &Settings) {
+fn build_audio(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
     spawn_slider_row(
         content,
+        asset_server,
         "MASTER VOLUME",
         SliderField::MasterVolume,
         settings,
         0.05,
     );
-    content.spawn(label(
+    desc(
+        content,
+        asset_server,
         "Controls the volume of every game sound — gunshots, footsteps, kills, the \
          ambience, all of it.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
 }
 
-fn build_graphics(content: &mut ChildSpawnerCommands, settings: &Settings) {
-    content.spawn(label("DISPLAY", 15.0, TEXT_DIM));
-    toggle_row(content, "VSYNC", settings.vsync, Btn::ToggleVsync);
-    content.spawn(label(
+fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
+    section_heading(content, asset_server, "DISPLAY");
+    setting_row(content, asset_server, "VSYNC", |row| {
+        toggle_button(row, asset_server, settings.vsync, Btn::ToggleVsync, None);
+    });
+    desc(
+        content,
+        asset_server,
         "Off by default: this is a fast-aim shooter, and vsync's queued frames add \
          input-to-screen latency and frame-pacing judder on top of capping the frame rate \
          to your monitor's refresh rate. Turning it on removes screen tearing at the cost \
          of that extra latency.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
     if !settings.vsync {
-        spawn_slider_row(content, "FRAME RATE LIMIT", SliderField::FrameLimit, settings, 10.0);
+        spawn_slider_row(
+            content,
+            asset_server,
+            "FRAME RATE LIMIT",
+            SliderField::FrameLimit,
+            settings,
+            10.0,
+        );
     }
 
-    content.spawn(label("SHADOW MAP", 15.0, TEXT_DIM));
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(8.0),
-            ..default()
-        })
-        .with_children(|row| {
-            for quality in ShadowQuality::ALL {
-                let selected = settings.shadow_quality == quality;
-                spawn_button(
-                    row,
-                    quality.label(),
-                    15.0,
-                    Btn::SetShadowQuality(quality),
-                    if selected { ACCENT_DIM } else { ROW },
-                    ROW_HOVER,
-                    if selected { ACCENT } else { TEXT },
-                    UiSound::BUTTON,
-                );
-            }
-        });
-    content.spawn(label(
+    setting_row(content, asset_server, "SHADOW MAP", |row| {
+        for quality in ShadowQuality::ALL {
+            option_button(
+                row,
+                asset_server,
+                &quality.label().to_uppercase(),
+                Btn::SetShadowQuality(quality),
+                settings.shadow_quality == quality,
+                UiSound::BUTTON,
+            );
+        }
+    });
+    desc(
+        content,
+        asset_server,
         "Adjusts the resolution and draw distance of shadows cast by the sun. Higher \
          settings look more accurate at longer range but cost more performance. Disabled \
          removes shadows entirely.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
 }
 
-fn build_multiplayer(content: &mut ChildSpawnerCommands, settings: &Settings) {
-    content.spawn(label("DEV CONVENIENCE", 15.0, TEXT_DIM));
-    content.spawn(label(
+fn build_multiplayer(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
+    section_heading(content, asset_server, "DEV CONVENIENCE");
+    desc(
+        content,
+        asset_server,
         "Skip clicking when launching two clients locally. On reaching the main \
          menu: join an open lobby if one exists, otherwise create one.",
-        14.0,
-        TEXT_DIM,
-    ));
-
-    toggle_row(
-        content,
-        "AUTO-CREATE LOBBY",
-        settings.dev_auto_create_lobby,
-        Btn::ToggleAutoCreate,
     );
-    toggle_row(
-        content,
-        "AUTO-JOIN LOBBY",
-        settings.dev_auto_join_lobby,
-        Btn::ToggleAutoJoin,
-    );
-}
-
-/// A "LABEL  [ON/OFF]" row. The menu rebuilds on click so the label stays live.
-fn toggle_row(content: &mut ChildSpawnerCommands, name: &str, on: bool, btn: Btn) {
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(16.0),
-            margin: UiRect::top(Val::Px(8.0)),
-            ..default()
-        })
-        .with_children(|row| {
-            row.spawn((
-                label(name, 15.0, TEXT_DIM),
-                Node {
-                    width: Val::Px(240.0),
-                    ..default()
-                },
-            ));
-            spawn_button(
-                row,
-                if on { "ON" } else { "OFF" },
-                17.0,
-                btn,
-                ROW,
-                ROW_HOVER,
-                if on { ACCENT } else { TEXT },
-                UiSound::BUTTON,
-            );
-        });
+    setting_row(content, asset_server, "AUTO-CREATE LOBBY", |row| {
+        toggle_button(
+            row,
+            asset_server,
+            settings.dev_auto_create_lobby,
+            Btn::ToggleAutoCreate,
+            None,
+        );
+    });
+    setting_row(content, asset_server, "AUTO-JOIN LOBBY", |row| {
+        toggle_button(
+            row,
+            asset_server,
+            settings.dev_auto_join_lobby,
+            Btn::ToggleAutoJoin,
+            None,
+        );
+    });
 }
 
 fn spawn_slider_row(
     content: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
     name: &str,
     field: SliderField,
     settings: &Settings,
     step: f32,
 ) {
-    content
-        .spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(12.0),
-            ..default()
-        })
-        .with_children(|row| {
-            row.spawn((
-                label(name, 15.0, TEXT_DIM),
+    setting_row(content, asset_server, name, |row| {
+        plain_button(row, asset_server, "\u{2212}", Btn::Step(field, -step), UiSound::BUTTON);
+        // track (a wide, thin bar; the whole node is the drag target)
+        row.spawn((
+            Button,
+            Interaction::default(),
+            SliderTrack(field),
+            RelativeCursorPosition::default(),
+            Node {
+                width: Val::Px(380.0),
+                height: Val::Px(24.0),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .with_children(|hit| {
+            hit.spawn((
                 Node {
-                    width: Val::Px(220.0),
-                    ..default()
-                },
-            ));
-            spawn_button(
-                row,
-                "-",
-                18.0,
-                Btn::Step(field, -step),
-                ROW,
-                ROW_HOVER,
-                TEXT,
-                UiSound::BUTTON,
-            );
-            // track
-            row.spawn((
-                Button,
-                Interaction::default(),
-                SliderTrack(field),
-                RelativeCursorPosition::default(),
-                Node {
-                    width: Val::Px(300.0),
-                    height: Val::Px(10.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Px(6.0),
                     ..default()
                 },
                 BackgroundColor(TRACK),
-                BorderRadius::all(Val::Px(5.0)),
+                // Clicks land on the track (the drag target), not this bar.
+                bevy::picking::Pickable::IGNORE,
             ))
             .with_children(|track| {
                 track.spawn((
@@ -1660,41 +1607,40 @@ fn spawn_slider_row(
                         ..default()
                     },
                     BackgroundColor(ACCENT),
-                    BorderRadius::all(Val::Px(5.0)),
+                    bevy::picking::Pickable::IGNORE,
                 ));
             });
-            spawn_button(
-                row,
-                "+",
-                18.0,
-                Btn::Step(field, step),
-                ROW,
-                ROW_HOVER,
-                TEXT,
-                UiSound::BUTTON,
-            );
-            row.spawn((
-                label(field_value_text(settings, field), 18.0, TEXT),
-                DynText::SliderValue(field),
-                Node {
-                    width: Val::Px(54.0),
-                    ..default()
-                },
-            ));
         });
+        plain_button(row, asset_server, "+", Btn::Step(field, step), UiSound::BUTTON);
+        row.spawn((
+            label_hud(asset_server, field_value_text(settings, field), 24.0, TEXT),
+            DynText::SliderValue(field),
+            Node {
+                width: Val::Px(70.0),
+                ..default()
+            },
+        ));
+    });
 }
 
-fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBindings) {
-    content.spawn(label(
+fn build_keybinds(
+    content: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    menu: &Menu,
+    binds: &KeyBindings,
+) {
+    desc(
+        content,
+        asset_server,
         "Click a binding, then press a key or mouse button. Esc cancels.",
-        14.0,
-        TEXT_DIM,
-    ));
+    );
     content
         .spawn((
             Node {
+                width: Val::Percent(100.0),
+                max_width: Val::Px(1100.0),
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(2.0),
                 flex_grow: 1.0,
                 min_height: Val::Px(0.0),
                 overflow: Overflow::scroll_y(),
@@ -1709,42 +1655,40 @@ fn build_keybinds(content: &mut ChildSpawnerCommands, menu: &Menu, binds: &KeyBi
                         flex_direction: FlexDirection::Row,
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::SpaceBetween,
-                        padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+                        padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
+                        flex_shrink: 0.0,
                         ..default()
                     },
-                    BackgroundColor(if i % 2 == 0 { PANEL } else { ROW }),
-                    BorderRadius::all(Val::Px(3.0)),
+                    BackgroundColor(if i % 2 == 0 { PANEL } else { Color::NONE }),
                 ))
                 .with_children(|row| {
-                    row.spawn(label(*name, 15.0, TEXT));
+                    row.spawn(label_hud(asset_server, name.to_uppercase(), 20.0, TEXT));
                     let capturing = menu.rebinding == Some(i);
-                    spawn_button(
+                    spawn_button_hud(
                         row,
+                        asset_server,
                         &if capturing {
                             "PRESS ANY KEY".to_string()
                         } else {
-                            binds.slot(i).label()
+                            binds.slot(i).label().to_uppercase()
                         },
-                        15.0,
+                        18.0,
                         Btn::Rebind(i),
-                        if capturing { ACCENT_DIM } else { TRACK },
+                        if capturing { ACCENT } else { ROW },
                         ROW_HOVER,
-                        if capturing { ACCENT } else { TEXT },
+                        if capturing { PANEL_SOLID } else { TEXT },
                         UiSound::BUTTON,
                     );
                 });
             }
         });
-    spawn_button(
-        content,
-        "RESET TO DEFAULTS",
-        15.0,
-        Btn::ResetKeybinds,
-        ROW,
-        ROW_HOVER,
-        TEXT_DIM,
-        UiSound::BUTTON,
-    );
+    content.spawn(Node {
+        margin: UiRect::top(Val::Px(10.0)),
+        ..default()
+    })
+    .with_children(|row| {
+        plain_button(row, asset_server, "RESET TO DEFAULTS", Btn::ResetKeybinds, UiSound::BUTTON);
+    });
 }
 
 #[cfg(test)]

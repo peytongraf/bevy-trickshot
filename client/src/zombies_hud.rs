@@ -30,6 +30,7 @@ impl Plugin for ZombiesHudPlugin {
                 (
                     update_enemies_left,
                     sync_perk_machines,
+                    (play_perk_jingles, update_perk_jingles).chain(),
                     update_perk_card,
                     update_perk_icons,
                     update_party_panels,
@@ -266,6 +267,76 @@ fn update_enemies_left(
 /// A perk machine's stand-in model (a glowing box until there's a real one).
 #[derive(Component)]
 struct PerkMachine(Perk);
+
+/// A perk machine's jingle, playing from the machine (see
+/// [`play_perk_jingles`]). Its loudness follows the listener's distance every
+/// frame ([`update_perk_jingles`]); it despawns when the clip ends, and it's
+/// `StateScoped(InGame)` so leaving cuts it off.
+#[derive(Component)]
+struct PerkJingle;
+
+/// Anyone in our `Zombies` game just bought a perk — a new entry in their
+/// replicated `LobbyMember::perks`, which every client sees — so play that
+/// perk's jingle from its machine, for the whole lobby at once. The lists are
+/// compared frame to frame; outside a `Zombies` game there's nothing to
+/// compare against, so a new game starts fresh.
+fn play_perk_jingles(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    sounds: Option<Res<GameSounds>>,
+    mut seen: Local<Option<std::collections::HashMap<lightyear::prelude::PeerId, Vec<Perk>>>>,
+    mut commands: Commands,
+) {
+    let Some(lobby) = zombies_game(&local, &lobbies) else {
+        *seen = None;
+        return;
+    };
+    let now: std::collections::HashMap<_, _> =
+        lobby.members.iter().map(|m| (m.peer, m.perks.clone())).collect();
+    if let (Some(prev), Some(sounds)) = (seen.as_ref(), sounds.as_ref()) {
+        for (peer, perks) in &now {
+            let before = prev.get(peer);
+            for &perk in perks.iter().filter(|p| before.is_none_or(|b| !b.contains(p))) {
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    PerkJingle,
+                    // Volume is ours to set (`update_perk_jingles`), not the
+                    // one-shot volume pass's.
+                    crate::RemoteSoundEmitter,
+                    AudioPlayer::new(sounds.jingle(perk)),
+                    // From about the machine's sign.
+                    Transform::from_translation(
+                        perk.machine_pos(lobby.map) + Vec3::Y * MACHINE_SIZE.y * 0.8,
+                    ),
+                    // Starts silent; the real volume is set from the next frame.
+                    crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                ));
+            }
+        }
+    }
+    *seen = Some(now);
+}
+
+/// Keep each playing jingle's loudness matched to how far the listener is
+/// from its machine — the same fade as other players' sounds ("Remote
+/// sounds" range) — times the "perk jingle" volume.
+fn update_perk_jingles(
+    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    sound_vol: Res<crate::SoundVolumes>,
+    remote: Res<crate::RemoteSoundSettings>,
+    global_volume: Res<GlobalVolume>,
+    mut jingles: Query<(&GlobalTransform, &mut SpatialAudioSink), With<PerkJingle>>,
+) {
+    let Ok(ear) = listener.single() else {
+        return;
+    };
+    let ear = ear.translation();
+    for (gt, mut sink) in &mut jingles {
+        let loudness =
+            sound_vol.perk_jingle * crate::distance_falloff(ear.distance(gt.translation()), &remote);
+        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+    }
+}
 
 /// Placeholder machine size (m): width, height, depth.
 const MACHINE_SIZE: Vec3 = Vec3::new(1.0, 2.1, 0.8);

@@ -215,6 +215,7 @@ fn main() {
         .init_resource::<Weapon>()
         .init_resource::<ThrowingKnife>()
         .init_resource::<KnifeAnimState>()
+        .init_resource::<QuickMelee>()
         .init_resource::<PendingShot>()
         .init_resource::<PendingMelee>()
         .add_event::<LocalShot>()

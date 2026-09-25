@@ -1,7 +1,8 @@
 //! Gun-mounted flashlights for `BreakPointNight`: a spotlight on the local
 //! player's view (a child of the [`WorldModelCamera`], offset to where a
 //! rail light would sit on the gun, so it turns, shakes and recoils with the
-//! view) and the same light on every other player — real or `FreeForAll` bot,
+//! view — and lags behind a turn exactly like the gun does, from the same
+//! `WeaponSwayState`) and the same light on every other player — real or `FreeForAll` bot,
 //! not `Zombies` zombies — following where their replicated pose is looking.
 //!
 //! Always on on that map and off everywhere else (the debug panel's
@@ -26,7 +27,8 @@ impl Plugin for FlashlightPlugin {
         app.init_resource::<FlashlightSettings>().add_systems(
             Update,
             (
-                sync_local_flashlight,
+                // After the gun's sway, so it reads this frame's lag.
+                sync_local_flashlight.after(crate::weapons::weapon_sway),
                 spawn_remote_flashlights,
                 update_remote_flashlights,
             )
@@ -64,7 +66,7 @@ impl Default for FlashlightSettings {
     fn default() -> Self {
         Self {
             force_on: false,
-            intensity: 10_000_000.0,
+            intensity: 2_000_000.0,
             range: 45.0,
             outer_angle_deg: 43.0,
             inner_angle_deg: 38.0,
@@ -116,10 +118,17 @@ fn visibility(on: bool) -> Visibility {
 }
 
 /// Give the world camera its flashlight (the camera is respawned each game)
-/// and keep it matching the settings and the map.
+/// and keep it matching the settings and the map. Its mount is swung by the
+/// gun's own turn lag (`sway_pose` of `WeaponSwayState`) — the same pivot
+/// (the eye) and the same maths as the view model — so beam and gun lag a
+/// turn together.
+#[allow(clippy::too_many_arguments)]
 fn sync_local_flashlight(
     settings: Res<FlashlightSettings>,
     current: Res<CurrentMap>,
+    sway: Res<crate::weapons::WeaponSwayState>,
+    sway_tuning: Res<crate::weapons::WeaponSwaySettings>,
+    ads: Res<crate::Ads>,
     camera: Query<Entity, With<WorldModelCamera>>,
     mut lights: Query<(&mut SpotLight, &mut Transform, &mut Visibility), With<LocalFlashlight>>,
     mut commands: Commands,
@@ -137,9 +146,10 @@ fn sync_local_flashlight(
         }
         return;
     }
+    let lag = crate::weapons::sway_pose(sway.offset, &sway_tuning, ads.t.clamp(0.0, 1.0));
     for (mut light, mut tf, mut vis) in &mut lights {
         *light = settings.light(1.0, settings.shadows);
-        tf.translation = settings.offset;
+        *tf = lag * Transform::from_translation(settings.offset);
         vis.set_if_neq(visibility(on));
     }
 }

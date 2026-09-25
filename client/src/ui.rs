@@ -1,24 +1,35 @@
-//! Shared `bevy_ui` building blocks — the dark/orange palette and a few spawn
-//! helpers used by both the settings menu (`menu.rs`) and the main-menu / lobby
-//! screens (`lobby_ui.rs`).
-//!
-//! A real font can be dropped in later: load `assets/fonts/<x>.ttf` and thread a
-//! `Handle<Font>` into `TextFont`. Until then this uses Bevy's embedded default.
+//! Shared `bevy_ui` building blocks for the menus — the settings / pause menu
+//! (`menu.rs`) and the main-menu / lobby screens (`lobby_ui.rs`) — styled
+//! after a modern Call of Duty front end: black (or, in game, see-through
+//! black) backgrounds, flat square panels and buttons tinted faintly white,
+//! condensed all-caps headings, gold for what's selected / the main action,
+//! and a solid white hover with black text.
 
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
 // ---- palette --------------------------------------------------------------
-pub const BACKDROP: Color = Color::srgba(0.03, 0.04, 0.055, 0.9);
-pub const PANEL: Color = Color::srgb(0.072, 0.083, 0.10);
-pub const PANEL_SOLID: Color = Color::srgb(0.03, 0.035, 0.05);
-pub const ROW: Color = Color::srgb(0.11, 0.125, 0.150);
-pub const ROW_HOVER: Color = Color::srgb(0.17, 0.19, 0.23);
-pub const TRACK: Color = Color::srgb(0.16, 0.175, 0.205);
-pub const ACCENT: Color = Color::srgb(0.96, 0.62, 0.12);
-pub const ACCENT_DIM: Color = Color::srgb(0.42, 0.30, 0.10);
-pub const TEXT: Color = Color::srgb(0.90, 0.92, 0.94);
-pub const TEXT_DIM: Color = Color::srgb(0.55, 0.58, 0.63);
+/// In-game menus: black, but see-through enough that the world shows behind.
+pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.78);
+/// A panel / card: a faint white lift off the black.
+pub const PANEL: Color = Color::srgba(1.0, 1.0, 1.0, 0.035);
+/// Solid black — the out-of-game screens' background, and the text colour on
+/// gold / white fills.
+pub const PANEL_SOLID: Color = Color::BLACK;
+/// A button / row at rest.
+pub const ROW: Color = Color::srgba(1.0, 1.0, 1.0, 0.07);
+/// Hovered: solid white (its text flips to black — see [`Hoverable`]).
+pub const ROW_HOVER: Color = Color::srgb(0.94, 0.94, 0.94);
+/// Slider tracks, list rows, dividers.
+pub const TRACK: Color = Color::srgba(1.0, 1.0, 1.0, 0.12);
+/// Gold: what's selected, the screen's main action, and highlights.
+pub const ACCENT: Color = Color::srgb(0.96, 0.78, 0.2);
+/// A quiet gold wash behind a selected option whose text is [`ACCENT`].
+pub const ACCENT_DIM: Color = Color::srgba(0.96, 0.78, 0.2, 0.16);
+pub const TEXT: Color = Color::srgb(0.94, 0.94, 0.94);
+pub const TEXT_DIM: Color = Color::srgb(0.58, 0.59, 0.62);
+/// Hairline borders on panels and buttons.
+pub const EDGE: Color = Color::srgba(1.0, 1.0, 1.0, 0.1);
 /// "VICTORY" headline — the match-results screen (`menu.rs`).
 pub const VICTORY: Color = Color::srgb(0.16, 0.85, 0.62);
 /// "DEFEAT" headline — matches the kill-cam banner's red.
@@ -106,7 +117,7 @@ impl UiSound {
 
 /// Bundle to attach to a manually-built `Button` entity so it gets hover/click
 /// sounds via [`UiSound`] — for the handful of buttons that don't go through
-/// [`spawn_button`] / [`spawn_button_hud`] (e.g. a row with custom children).
+/// [`spawn_button_hud`] (e.g. a row with custom children).
 pub fn ui_sound(sfx: UiSound) -> impl Bundle {
     (sfx, SfxState::default())
 }
@@ -141,22 +152,125 @@ fn play_ui_sfx(
     }
 }
 
-/// Put on any `Button` to have [`hover_tint`] swap its background on hover.
+/// Put on any `Button` to have [`hover_tint`] swap its background on hover —
+/// and, if `text` is set, the colour of every text inside it (`(normal,
+/// hovered)`), so a white hover can flip its label to black.
 #[derive(Component)]
 pub struct Hoverable {
     pub normal: Color,
     pub hover: Color,
+    pub text: Option<(Color, Color)>,
+}
+
+impl Hoverable {
+    /// `normal` → `hover` background, with the text in `text` flipped to
+    /// black whenever the hover fill is light enough to need it.
+    pub fn new(normal: Color, hover: Color, text: Color) -> Self {
+        Self {
+            normal,
+            hover,
+            text: Some((text, readable_on(hover, text))),
+        }
+    }
+}
+
+/// `text`, or black if `bg` is too light for it to read.
+fn readable_on(bg: Color, text: Color) -> Color {
+    let c = bg.to_srgba();
+    let light = (0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue) * c.alpha > 0.55;
+    if light {
+        PANEL_SOLID
+    } else {
+        text
+    }
 }
 
 fn hover_tint(
-    mut q: Query<(&Interaction, &Hoverable, &mut BackgroundColor), Changed<Interaction>>,
+    mut q: Query<(Entity, &Interaction, &Hoverable, &mut BackgroundColor), Changed<Interaction>>,
+    children: Query<&Children>,
+    mut texts: Query<&mut TextColor>,
 ) {
-    for (interaction, hover, mut bg) in &mut q {
-        bg.0 = match interaction {
-            Interaction::Hovered | Interaction::Pressed => hover.hover,
-            Interaction::None => hover.normal,
-        };
+    for (entity, interaction, hover, mut bg) in &mut q {
+        let hovered = matches!(interaction, Interaction::Hovered | Interaction::Pressed);
+        bg.0 = if hovered { hover.hover } else { hover.normal };
+        if let Some((normal, hovered_text)) = hover.text {
+            let want = if hovered { hovered_text } else { normal };
+            for child in children.iter_descendants(entity) {
+                if let Ok(mut color) = texts.get_mut(child) {
+                    color.0 = want;
+                }
+            }
+        }
     }
+}
+
+// ---- page furniture ---------------------------------------------------------
+
+/// A page's heading, CoD style: a small grey breadcrumb over a big
+/// condensed title.
+pub fn page_title(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    breadcrumb: &str,
+    title: &str,
+) {
+    parent
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(2.0),
+            ..default()
+        })
+        .with_children(|h| {
+            h.spawn(label_hud(asset_server, breadcrumb, 16.0, TEXT_DIM));
+            h.spawn(label_hud(asset_server, title, 56.0, TEXT));
+        });
+}
+
+/// A small section heading with a hairline running off to its right.
+pub fn section_heading(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, text: &str) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(12.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn(label_hud(asset_server, text, 17.0, TEXT_DIM));
+            row.spawn((
+                Node {
+                    flex_grow: 1.0,
+                    height: Val::Px(1.0),
+                    ..default()
+                },
+                BackgroundColor(EDGE),
+            ));
+        });
+}
+
+/// A full-width hairline.
+pub fn divider() -> impl Bundle {
+    (
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Px(1.0),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(EDGE),
+    )
+}
+
+/// A flat square panel with a hairline edge.
+pub fn panel_node(node: Node) -> impl Bundle {
+    (
+        Node {
+            border: UiRect::all(Val::Px(1.0)),
+            ..node
+        },
+        BackgroundColor(PANEL),
+        BorderColor(EDGE),
+    )
 }
 
 /// A plain text node.
@@ -218,52 +332,18 @@ pub fn field_box(width: f32) -> impl Bundle {
             height: Val::Px(44.0),
             align_items: AlignItems::Center,
             padding: UiRect::horizontal(Val::Px(14.0)),
-            border: UiRect::all(Val::Px(2.0)),
+            border: UiRect::bottom(Val::Px(2.0)),
             ..default()
         },
         BackgroundColor(ROW),
         BorderColor(ACCENT),
-        BorderRadius::all(Val::Px(4.0)),
     )
 }
 
 /// Spawn a labelled button carrying `marker` (any component — each screen uses
-/// its own click-intent enum). `sfx` picks the hover/click sound pair (see
-/// [`UiSound`]).
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_button<M: Component>(
-    parent: &mut ChildSpawnerCommands,
-    text: &str,
-    size: f32,
-    marker: M,
-    normal: Color,
-    hover: Color,
-    text_color: Color,
-    sfx: UiSound,
-) {
-    parent
-        .spawn((
-            Button,
-            Interaction::default(),
-            marker,
-            Hoverable { normal, hover },
-            ui_sound(sfx),
-            Node {
-                padding: UiRect::axes(Val::Px(16.0), Val::Px(9.0)),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(normal),
-            BorderRadius::all(Val::Px(4.0)),
-        ))
-        .with_children(|b| {
-            b.spawn(label(text, size, text_color));
-        });
-}
-
-/// [`spawn_button`], but its label is set in [`crate::HUD_FONT`] (see
-/// [`label_hud`]).
+/// its own click-intent enum), its label set in [`crate::HUD_FONT`] (see
+/// [`label_hud`]). `sfx` picks the hover/click sound pair (see [`UiSound`]);
+/// the label flips to black when the hover fill is light (see [`Hoverable`]).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_button_hud<M: Component>(
     parent: &mut ChildSpawnerCommands,
@@ -281,16 +361,15 @@ pub fn spawn_button_hud<M: Component>(
             Button,
             Interaction::default(),
             marker,
-            Hoverable { normal, hover },
+            Hoverable::new(normal, hover, text_color),
             ui_sound(sfx),
             Node {
-                padding: UiRect::axes(Val::Px(16.0), Val::Px(9.0)),
+                padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 ..default()
             },
             BackgroundColor(normal),
-            BorderRadius::all(Val::Px(4.0)),
         ))
         .with_children(|b| {
             b.spawn(label_hud(asset_server, text, size, text_color));

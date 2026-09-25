@@ -5,9 +5,10 @@
 //! * `MainMenu` — lobby browser. `CREATE LOBBY` / clicking a row sends a
 //!   trigger and, once the replicated [`shared::Lobby`] shows us as a member,
 //!   we move to `InLobby`.
-//! * `InLobby` — member list, a `★` by the party leader, leader-only
-//!   `START GAME`, and `LEAVE`. When our lobby's `started` flips true we move to
-//!   `InGame`.
+//! * `InLobby` — the game setup (editable by the leader, read-only for
+//!   everyone else), the party roster with a `★` by the leader, leader-only
+//!   `START GAME`, and `LEAVE`. When our lobby's `started` flips true we move
+//!   to `InGame`.
 //!
 //! The tree is rebuilt from scratch whenever [`LobbyUi::dirty`] is set (state
 //! change or any replicated `Lobby` change), mirroring `menu.rs`.
@@ -20,8 +21,9 @@ use crate::menu::{Menu, Screen};
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
-    label, label_hud, overlay_root, spawn_button_hud, ui_sound, UiSound, ACCENT, PANEL,
-    PANEL_SOLID, ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK,
+    divider, label, label_hud, page_title, panel_node, section_heading, spawn_button_hud,
+    ui_sound, Hoverable, UiSound, ACCENT, ACCENT_DIM, EDGE, PANEL, PANEL_SOLID, ROW, ROW_HOVER,
+    TEXT, TEXT_DIM, TRACK, VICTORY,
 };
 use crate::AppState;
 
@@ -507,6 +509,159 @@ fn rebuild(
     }
 }
 
+/// A full-screen, black out-of-game page (`LobbyUiRoot`): a column with the
+/// standard page margins.
+fn page_root() -> impl Bundle {
+    (
+        LobbyUiRoot,
+        GlobalZIndex(10),
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::axes(Val::Px(56.0), Val::Px(40.0)),
+            row_gap: Val::Px(20.0),
+            ..default()
+        },
+        BackgroundColor(PANEL_SOLID),
+    )
+}
+
+/// A big, full-width, left-aligned menu tile — title with a small line of
+/// detail under it. `primary` fills it gold (the screen's main action).
+fn menu_tile(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    title: &str,
+    detail: &str,
+    marker: MenuBtn,
+    primary: bool,
+) {
+    let (normal, text, sub) = if primary {
+        (ACCENT, PANEL_SOLID, PANEL_SOLID)
+    } else {
+        (ROW, TEXT, TEXT_DIM)
+    };
+    parent
+        .spawn((
+            Button,
+            Interaction::default(),
+            marker,
+            Hoverable {
+                normal,
+                hover: ROW_HOVER,
+                text: Some((text, PANEL_SOLID)),
+            },
+            ui_sound(UiSound::MENU),
+            Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::axes(Val::Px(22.0), Val::Px(14.0)),
+                border: UiRect::left(Val::Px(4.0)),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            BackgroundColor(normal),
+            BorderColor(if primary { ACCENT } else { EDGE }),
+        ))
+        .with_children(|b| {
+            b.spawn(label_hud(asset_server, title, 34.0, text));
+            b.spawn(crate::ui::label_body(asset_server, detail, 13.0, sub));
+        });
+}
+
+/// One option in a segmented picker — gold when it's the current choice.
+fn option_button(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    text: &str,
+    marker: MenuBtn,
+    selected: bool,
+) {
+    spawn_button_hud(
+        row,
+        asset_server,
+        text,
+        18.0,
+        marker,
+        if selected { ACCENT } else { ROW },
+        ROW_HOVER,
+        if selected { PANEL_SOLID } else { TEXT },
+        UiSound::MENU,
+    );
+}
+
+/// A `−  value  +` stepper.
+fn stepper(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    value: String,
+    down: MenuBtn,
+    up: MenuBtn,
+) {
+    spawn_button_hud(row, asset_server, "\u{2212}", 20.0, down, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+    row.spawn((
+        Node {
+            min_width: Val::Px(110.0),
+            height: Val::Px(40.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::bottom(Val::Px(2.0)),
+            ..default()
+        },
+        BorderColor(ACCENT),
+    ))
+    .with_child(label_hud(asset_server, value, 22.0, TEXT));
+    spawn_button_hud(row, asset_server, "+", 20.0, up, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+}
+
+/// One labelled line of the lobby's game setup: the setting's name in a
+/// fixed column, then its controls (or its value, for non-leaders).
+fn setting_row(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    name: &str,
+    controls: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            min_height: Val::Px(56.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(16.0),
+            padding: UiRect::vertical(Val::Px(8.0)),
+            border: UiRect::bottom(Val::Px(1.0)),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .insert(BorderColor(EDGE))
+        .with_children(|row| {
+            row.spawn((
+                Node {
+                    width: Val::Px(170.0),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+            ))
+            .with_child(label_hud(asset_server, name, 20.0, TEXT_DIM));
+            row.spawn(Node {
+                flex_grow: 1.0,
+                flex_wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(8.0),
+                row_gap: Val::Px(8.0),
+                ..default()
+            })
+            .with_children(controls);
+        });
+}
+
+/// A read-only setting value (what non-leaders see).
+fn setting_value(row: &mut ChildSpawnerCommands, asset_server: &AssetServer, value: String) {
+    row.spawn(label_hud(asset_server, value, 24.0, TEXT));
+}
+
 fn build_browser(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -515,251 +670,232 @@ fn build_browser(
 ) {
     let open: Vec<(Entity, &shared::Lobby)> = lobbies.iter().filter(|(_, l)| !l.started).collect();
 
-    commands
-        .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
-        .with_children(|root| {
-            // The whole screen tall, with padding all round: the title, the lobby
-            // list and the buttons keep their size, and the updates panel takes
-            // whatever's left (scrolling), so the buttons never leave the screen.
-            root.spawn(Node {
-                width: Val::Px(760.0),
-                max_width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
+    commands.spawn(page_root()).with_children(|page| {
+        // header: title left, connection status right
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::FlexEnd,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|h| {
+            page_title(h, asset_server, "MULTIPLAYER", "BEVY TRICKSHOT");
+            h.spawn(Node {
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(10.0),
+                padding: UiRect::bottom(Val::Px(10.0)),
+                ..default()
+            })
+            .with_children(|s| {
+                s.spawn((
+                    Node {
+                        width: Val::Px(10.0),
+                        height: Val::Px(10.0),
+                        ..default()
+                    },
+                    BackgroundColor(if online { VICTORY } else { ACCENT }),
+                ));
+                s.spawn(label_hud(
+                    asset_server,
+                    if online { "CONNECTED" } else { "CONNECTING…" },
+                    20.0,
+                    if online { TEXT } else { ACCENT },
+                ));
+            });
+        });
+        page.spawn(divider());
+
+        // body
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            column_gap: Val::Px(40.0),
+            ..default()
+        })
+        .with_children(|body| {
+            // left: actions, then the open lobbies
+            body.spawn(Node {
+                width: Val::Px(480.0),
+                flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(20.0),
-                padding: UiRect::all(Val::Px(32.0)),
+                row_gap: Val::Px(12.0),
+                min_height: Val::Px(0.0),
                 ..default()
             })
             .with_children(|col| {
-                col.spawn(label_hud(asset_server, "BEVY TRICKSHOT", 46.0, TEXT));
-                col.spawn((
-                    Node {
-                        width: Val::Px(90.0),
-                        height: Val::Px(4.0),
-                        ..default()
-                    },
-                    BackgroundColor(ACCENT),
-                ));
-                col.spawn(label_hud(
+                menu_tile(
+                    col,
                     asset_server,
-                    if online { "CONNECTED" } else { "CONNECTING…" },
-                    14.0,
-                    if online { TEXT_DIM } else { ACCENT },
-                ));
-
-                // what's new — see `changelog::ENTRIES` doc comment: add a line
-                // there with every shipped feature or fix, this panel is the
-                // only place players see it.
-                //
-                // The panel fills the leftover height (`flex_basis: 0` so its
-                // content doesn't set its size) and its list scrolls with the
-                // mouse wheel.
-                col.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        flex_direction: FlexDirection::Column,
-                        flex_grow: 1.0,
-                        flex_shrink: 1.0,
-                        flex_basis: Val::Px(0.0),
-                        min_height: Val::Px(80.0),
-                        padding: UiRect::all(Val::Px(16.0)),
-                        row_gap: Val::Px(8.0),
-                        ..default()
-                    },
-                    BackgroundColor(PANEL),
-                    BorderRadius::all(Val::Px(8.0)),
-                ))
-                .with_children(|panel| {
-                    panel.spawn(label_hud(
-                        asset_server,
-                        format!("WHAT'S NEW — v{}", crate::updater::current_version()),
-                        15.0,
-                        TEXT_DIM,
-                    ));
-                    panel
-                        .spawn((
-                            WheelScroll,
-                            bevy::picking::Pickable::IGNORE,
-                            ScrollPosition::default(),
-                            Node {
-                                width: Val::Percent(100.0),
-                                flex_direction: FlexDirection::Column,
-                                flex_grow: 1.0,
-                                flex_basis: Val::Px(0.0),
-                                min_height: Val::Px(0.0),
-                                row_gap: Val::Px(6.0),
-                                // Room for the content not to sit under the
-                                // scroll edge.
-                                padding: UiRect::right(Val::Px(6.0)),
-                                overflow: Overflow::scroll_y(),
-                                ..default()
-                            },
-                        ))
-                        .with_children(|list| {
-                            for (version, notes) in crate::changelog::ENTRIES {
-                                list.spawn(label_hud(
-                                    asset_server,
-                                    format!("v{version}"),
-                                    14.0,
-                                    ACCENT,
-                                ));
-                                for note in *notes {
-                                    list.spawn(crate::ui::label_body(
-                                        asset_server,
-                                        format!("•  {note}"),
-                                        14.0,
-                                        TEXT,
-                                    ));
-                                }
-                            }
-                        });
+                    "CREATE LOBBY",
+                    "Host a private match for your party",
+                    MenuBtn::CreateLobby,
+                    true,
+                );
+                menu_tile(
+                    col,
+                    asset_server,
+                    "LOADOUT",
+                    "Crosshair and scope zoom",
+                    MenuBtn::OpenLoadout,
+                    false,
+                );
+                col.spawn(Node {
+                    height: Val::Px(8.0),
+                    flex_shrink: 0.0,
+                    ..default()
                 });
-
-                // lobby list
-                // (A fixed height that never shrinks — a long lobby list scrolls
-                // inside it instead of growing and pushing the buttons off.)
+                section_heading(col, asset_server, &format!("OPEN LOBBIES  ({})", open.len()));
+                // (Takes whatever height is left and scrolls a long list,
+                // so nothing is ever pushed off screen.)
                 col.spawn((
                     WheelScroll,
                     bevy::picking::Pickable::IGNORE,
                     ScrollPosition::default(),
                     Node {
                         width: Val::Percent(100.0),
-                        height: Val::Px(260.0),
-                        flex_shrink: 0.0,
+                        flex_grow: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        min_height: Val::Px(60.0),
                         flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(16.0)),
                         row_gap: Val::Px(6.0),
                         overflow: Overflow::scroll_y(),
                         ..default()
                     },
-                    BackgroundColor(PANEL),
-                    BorderRadius::all(Val::Px(8.0)),
                 ))
-                .with_children(|panel| {
-                    panel.spawn(label_hud(asset_server, "LOBBIES", 15.0, TEXT_DIM));
+                .with_children(|list| {
                     if open.is_empty() {
-                        panel
-                            .spawn(Node {
-                                flex_grow: 1.0,
+                        list.spawn(label_hud(
+                            asset_server,
+                            "NO OPEN LOBBIES — CREATE ONE",
+                            20.0,
+                            TEXT_DIM,
+                        ));
+                    }
+                    for (entity, lobby) in &open {
+                        list.spawn((
+                            Button,
+                            Interaction::default(),
+                            MenuBtn::Join(*entity),
+                            Hoverable::new(ROW, ROW_HOVER, TEXT),
+                            ui_sound(UiSound::MENU),
+                            Node {
+                                width: Val::Percent(100.0),
+                                padding: UiRect::axes(Val::Px(16.0), Val::Px(12.0)),
+                                justify_content: JustifyContent::SpaceBetween,
                                 align_items: AlignItems::Center,
-                                justify_content: JustifyContent::Center,
+                                flex_shrink: 0.0,
+                                ..default()
+                            },
+                            BackgroundColor(ROW),
+                        ))
+                        .with_children(|row| {
+                            row.spawn(Node {
+                                flex_direction: FlexDirection::Column,
                                 ..default()
                             })
-                            .with_children(|e| {
-                                e.spawn(label_hud(asset_server, "NO LOBBIES AVAILABLE", 20.0, TEXT_DIM));
+                            .with_children(|c| {
+                                c.spawn(label_hud(asset_server, lobby.name.to_uppercase(), 24.0, TEXT));
+                                c.spawn(label_hud(
+                                    asset_server,
+                                    format!("{}  \u{2022}  {}", lobby.mode.label(), lobby.map.label()),
+                                    15.0,
+                                    TEXT,
+                                ));
                             });
-                    } else {
-                        for (entity, lobby) in &open {
-                            panel
-                                .spawn((
-                                    Button,
-                                    Interaction::default(),
-                                    MenuBtn::Join(*entity),
-                                    crate::ui::Hoverable {
-                                        normal: ROW,
-                                        hover: ROW_HOVER,
-                                    },
-                                    ui_sound(UiSound::MENU),
-                                    Node {
-                                        width: Val::Percent(100.0),
-                                        padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
-                                        justify_content: JustifyContent::SpaceBetween,
-                                        align_items: AlignItems::Center,
-                                        ..default()
-                                    },
-                                    BackgroundColor(ROW),
-                                    BorderRadius::all(Val::Px(5.0)),
-                                ))
-                                .with_children(|row| {
-                                    row.spawn(label_hud(asset_server, lobby.name.clone(), 18.0, TEXT));
-                                    row.spawn(label_hud(
-                                        asset_server,
-                                        format!("{}/8", lobby.real_count()),
-                                        16.0,
-                                        TEXT_DIM,
-                                    ));
-                                });
-                        }
+                            row.spawn(label_hud(
+                                asset_server,
+                                format!("{}/8", lobby.real_count()),
+                                24.0,
+                                TEXT,
+                            ));
+                        });
                     }
                 });
+            });
 
-                // actions (never squeezed: they stay at the bottom, fully on screen)
-                col.spawn(Node {
-                    column_gap: Val::Px(14.0),
-                    flex_shrink: 0.0,
-                    ..default()
-                })
-                .with_children(|row| {
-                    spawn_button_hud(
-                        row,
-                        asset_server,
-                        "CREATE LOBBY",
-                        20.0,
-                        MenuBtn::CreateLobby,
-                        ACCENT,
-                        ACCENT,
-                        PANEL_SOLID,
-                        UiSound::MENU,
-                    );
-                    spawn_button_hud(
-                        row,
-                        asset_server,
-                        "LOADOUT",
-                        20.0,
-                        MenuBtn::OpenLoadout,
-                        ROW,
-                        ROW_HOVER,
-                        TEXT,
-                        UiSound::MENU,
-                    );
-                });
+            // right: what's new — see `changelog::ENTRIES` doc comment: add a
+            // line there with every shipped feature or fix, this panel is the
+            // only place players see it. Scrolls with the mouse wheel.
+            body.spawn(panel_node(Node {
+                flex_grow: 1.0,
+                max_width: Val::Px(760.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(22.0)),
+                row_gap: Val::Px(12.0),
+                min_height: Val::Px(0.0),
+                ..default()
+            }))
+            .with_children(|panel| {
+                panel.spawn(label_hud(asset_server, "WHAT'S NEW", 30.0, TEXT));
+                panel.spawn(label_hud(
+                    asset_server,
+                    format!("VERSION {}", crate::updater::current_version()),
+                    15.0,
+                    ACCENT,
+                ));
+                panel.spawn(divider());
+                panel
+                    .spawn((
+                        WheelScroll,
+                        bevy::picking::Pickable::IGNORE,
+                        ScrollPosition::default(),
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            flex_grow: 1.0,
+                            flex_basis: Val::Px(0.0),
+                            min_height: Val::Px(0.0),
+                            row_gap: Val::Px(6.0),
+                            // Room for the content not to sit under the
+                            // scroll edge.
+                            padding: UiRect::right(Val::Px(6.0)),
+                            overflow: Overflow::scroll_y(),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|list| {
+                        for (i, (version, notes)) in crate::changelog::ENTRIES.iter().enumerate() {
+                            list.spawn((
+                                label_hud(asset_server, format!("v{version}"), 18.0, ACCENT),
+                                Node {
+                                    margin: UiRect::top(Val::Px(if i == 0 { 0.0 } else { 10.0 })),
+                                    ..default()
+                                },
+                            ));
+                            for note in *notes {
+                                list.spawn(crate::ui::label_body(
+                                    asset_server,
+                                    format!("\u{2022}  {note}"),
+                                    14.0,
+                                    TEXT,
+                                ));
+                            }
+                        }
+                    });
             });
         });
-}
 
-/// One segmented mode-picker button — accent-solid when `mode` is the
-/// lobby's current selection, a plain row button otherwise.
-fn spawn_mode_button(
-    row: &mut ChildSpawnerCommands,
-    asset_server: &AssetServer,
-    text: &str,
-    mode: shared::GameMode,
-    current: shared::GameMode,
-) {
-    let selected = mode == current;
-    spawn_button_hud(
-        row,
-        asset_server,
-        text,
-        15.0,
-        MenuBtn::SetMode(mode),
-        if selected { ACCENT } else { ROW },
-        if selected { ACCENT } else { ROW_HOVER },
-        if selected { PANEL_SOLID } else { TEXT },
-        UiSound::MENU,
-    );
-}
-
-/// One segmented map-picker button — same look as [`spawn_mode_button`].
-fn spawn_map_button(
-    row: &mut ChildSpawnerCommands,
-    asset_server: &AssetServer,
-    text: &str,
-    map: shared::MapId,
-    current: shared::MapId,
-) {
-    let selected = map == current;
-    spawn_button_hud(
-        row,
-        asset_server,
-        text,
-        15.0,
-        MenuBtn::SetMap(map),
-        if selected { ACCENT } else { ROW },
-        if selected { ACCENT } else { ROW_HOVER },
-        if selected { PANEL_SOLID } else { TEXT },
-        UiSound::MENU,
-    );
+        // footer: key hints
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|f| {
+            f.spawn(label_hud(asset_server, "[ESC]  SETTINGS", 16.0, TEXT_DIM));
+            f.spawn(label_hud(
+                asset_server,
+                format!("v{}", crate::updater::current_version()),
+                16.0,
+                TEXT_DIM,
+            ));
+        });
+    });
 }
 
 fn build_room(
@@ -771,243 +907,188 @@ fn build_room(
     bot_selection: &BotSelection,
 ) {
     let is_leader = me == Some(lobby.leader);
+    let can_edit = is_leader && !lobby.started;
     let mins = lobby.time_limit_secs / 60;
     let is_ffa = lobby.mode == shared::GameMode::FreeForAll;
     let is_zombies = lobby.mode == shared::GameMode::Zombies;
 
-    commands
-        .spawn((LobbyUiRoot, GlobalZIndex(10), overlay_root(true)))
-        .with_children(|root| {
-            root.spawn(Node {
-                width: Val::Px(620.0),
+    commands.spawn(page_root()).with_children(|page| {
+        // header: lobby name left, mode / map right
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::FlexEnd,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|h| {
+            page_title(h, asset_server, "PRIVATE MATCH", &lobby.name.to_uppercase());
+            h.spawn(Node {
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(18.0),
+                align_items: AlignItems::FlexEnd,
+                padding: UiRect::bottom(Val::Px(6.0)),
                 ..default()
             })
+            .with_children(|c| {
+                c.spawn(label_hud(asset_server, lobby.mode.label(), 34.0, ACCENT));
+                c.spawn(label_hud(asset_server, lobby.map.label(), 22.0, TEXT));
+            });
+        });
+        page.spawn(divider());
+
+        if let Some((winner, score)) = last_match {
+            page.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(16.0),
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
+                    border: UiRect::left(Val::Px(4.0)),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                BackgroundColor(ACCENT_DIM),
+                BorderColor(ACCENT),
+            ))
+            .with_children(|b| {
+                let (title, text) = if is_zombies && lobby.round > 0 {
+                    let survived = lobby.round - 1;
+                    (
+                        "LAST GAME",
+                        format!("Survived {survived} round{}", if survived == 1 { "" } else { "s" }),
+                    )
+                } else {
+                    ("LAST MATCH", format!("{winner} won with {score}"))
+                };
+                b.spawn(label_hud(asset_server, title, 18.0, ACCENT));
+                b.spawn(label_hud(asset_server, text.to_uppercase(), 20.0, TEXT));
+            });
+        }
+
+        // body: game setup (left) and the party (right)
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            column_gap: Val::Px(40.0),
+            ..default()
+        })
+        .with_children(|body| {
+            body.spawn((
+                WheelScroll,
+                bevy::picking::Pickable::IGNORE,
+                ScrollPosition::default(),
+                Node {
+                    flex_grow: 1.0,
+                    max_width: Val::Px(900.0),
+                    min_height: Val::Px(0.0),
+                    flex_direction: FlexDirection::Column,
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+            ))
             .with_children(|col| {
-                col.spawn(label_hud(asset_server, lobby.name.to_uppercase(), 34.0, TEXT));
-                col.spawn((
-                    Node {
-                        width: Val::Px(70.0),
-                        height: Val::Px(4.0),
-                        ..default()
-                    },
-                    BackgroundColor(ACCENT),
-                ));
+                section_heading(col, asset_server, "GAME SETUP");
 
-                col.spawn(label_hud(
-                    asset_server,
-                    if is_ffa {
-                        format!(
-                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN   \u{2022}   {} KILLS   \u{2022}   {} AT THE END",
-                            lobby.mode.label(),
-                            lobby.map.label(),
-                            lobby.kill_limit,
-                            lobby.end_cam.label(),
-                        )
-                    } else if is_zombies {
-                        format!("{}   \u{2022}   {}", lobby.mode.label(), lobby.map.label())
+                setting_row(col, asset_server, "MODE", |row| {
+                    if can_edit {
+                        for (text, mode) in [
+                            ("FREESTYLE", shared::GameMode::Freestyle),
+                            ("FREE FOR ALL", shared::GameMode::FreeForAll),
+                            ("ZOMBIES", shared::GameMode::Zombies),
+                        ] {
+                            option_button(row, asset_server, text, MenuBtn::SetMode(mode), mode == lobby.mode);
+                        }
                     } else {
-                        format!(
-                            "{}   \u{2022}   {}   \u{2022}   {mins} MIN",
-                            lobby.mode.label(),
-                            lobby.map.label(),
-                        )
-                    },
-                    14.0,
-                    TEXT_DIM,
-                ));
+                        setting_value(row, asset_server, lobby.mode.label().to_string());
+                    }
+                });
 
-                if let Some((winner, score)) = last_match {
-                    col.spawn(label_hud(
-                        asset_server,
-                        if is_zombies && lobby.round > 0 {
-                            let survived = lobby.round - 1;
-                            format!(
-                                "LAST GAME — survived {survived} round{}",
-                                if survived == 1 { "" } else { "s" }
-                            )
+                setting_row(col, asset_server, "MAP", |row| {
+                    if can_edit {
+                        for map in [
+                            shared::MapId::BasicMap,
+                            shared::MapId::Shipment,
+                            shared::MapId::ShipmentDay,
+                            shared::MapId::BreakPoint,
+                            shared::MapId::BreakPointNight,
+                        ] {
+                            option_button(row, asset_server, map.label(), MenuBtn::SetMap(map), map == lobby.map);
+                        }
+                    } else {
+                        setting_value(row, asset_server, lobby.map.label().to_string());
+                    }
+                });
+
+                // (`Zombies` has no clock — it lasts until someone dies.)
+                if !is_zombies {
+                    setting_row(col, asset_server, "TIME LIMIT", |row| {
+                        if can_edit {
+                            stepper(row, asset_server, format!("{mins} MIN"), MenuBtn::TimeDown, MenuBtn::TimeUp);
                         } else {
-                            format!("LAST MATCH — {winner} won with {score}")
-                        },
-                        14.0,
-                        ACCENT,
-                    ));
+                            setting_value(row, asset_server, format!("{mins} MIN"));
+                        }
+                    });
                 }
 
-                // Leader-only controls, while the lobby is still waiting.
-                if is_leader && !lobby.started {
-                    col.spawn(Node {
-                        column_gap: Val::Px(10.0),
-                        align_items: AlignItems::Center,
-                        ..default()
-                    })
-                    .with_children(|row| {
-                        row.spawn(label_hud(asset_server, "MODE", 14.0, TEXT_DIM));
-                        spawn_mode_button(
-                            row,
-                            asset_server,
-                            "FREESTYLE",
-                            shared::GameMode::Freestyle,
-                            lobby.mode,
-                        );
-                        spawn_mode_button(
-                            row,
-                            asset_server,
-                            "FREE FOR ALL",
-                            shared::GameMode::FreeForAll,
-                            lobby.mode,
-                        );
-                        spawn_mode_button(
-                            row,
-                            asset_server,
-                            "ZOMBIES",
-                            shared::GameMode::Zombies,
-                            lobby.mode,
-                        );
+                if is_ffa {
+                    setting_row(col, asset_server, "KILL LIMIT", |row| {
+                        let value = format!("{} KILLS", lobby.kill_limit);
+                        if can_edit {
+                            stepper(row, asset_server, value, MenuBtn::KillDown, MenuBtn::KillUp);
+                        } else {
+                            setting_value(row, asset_server, value);
+                        }
                     });
-
-                    col.spawn(Node {
-                        column_gap: Val::Px(10.0),
-                        row_gap: Val::Px(8.0),
-                        // Five maps: wrap rather than run off a narrow window.
-                        flex_wrap: FlexWrap::Wrap,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    })
-                    .with_children(|row| {
-                        row.spawn(label_hud(asset_server, "MAP", 14.0, TEXT_DIM));
-                        spawn_map_button(
-                            row,
-                            asset_server,
-                            "BASIC MAP",
-                            shared::MapId::BasicMap,
-                            lobby.map,
-                        );
-                        spawn_map_button(
-                            row,
-                            asset_server,
-                            "SHIPMENT",
-                            shared::MapId::Shipment,
-                            lobby.map,
-                        );
-                        spawn_map_button(
-                            row,
-                            asset_server,
-                            "SHIPMENT DAY",
-                            shared::MapId::ShipmentDay,
-                            lobby.map,
-                        );
-                        spawn_map_button(
-                            row,
-                            asset_server,
-                            "BREAK POINT",
-                            shared::MapId::BreakPoint,
-                            lobby.map,
-                        );
-                        spawn_map_button(
-                            row,
-                            asset_server,
-                            "BREAK POINT NIGHT",
-                            shared::MapId::BreakPointNight,
-                            lobby.map,
-                        );
-                    });
-
-                    // (`Zombies` has no clock — it lasts until someone dies.)
-                    if !is_zombies {
-                        col.spawn(Node {
-                            column_gap: Val::Px(10.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            row.spawn(label_hud(asset_server, "TIME LIMIT", 14.0, TEXT_DIM));
-                            spawn_button_hud(
-                                row, asset_server, "\u{2212}", 18.0, MenuBtn::TimeDown, ROW, ROW_HOVER, TEXT,
-                                UiSound::MENU,
-                            );
-                            row.spawn(label_hud(asset_server, format!("{mins} min"), 16.0, TEXT));
-                            spawn_button_hud(
-                                row, asset_server, "+", 18.0, MenuBtn::TimeUp, ROW, ROW_HOVER, TEXT,
-                                UiSound::MENU,
-                            );
-                        });
-                    }
-
-                    if is_ffa {
-                        col.spawn(Node {
-                            column_gap: Val::Px(10.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            row.spawn(label_hud(asset_server, "KILL LIMIT", 14.0, TEXT_DIM));
-                            spawn_button_hud(
-                                row, asset_server, "\u{2212}", 18.0, MenuBtn::KillDown, ROW,
-                                ROW_HOVER, TEXT, UiSound::MENU,
-                            );
-                            row.spawn(label_hud(
-                                asset_server,
-                                format!("{} kills", lobby.kill_limit),
-                                16.0,
-                                TEXT,
-                            ));
-                            spawn_button_hud(
-                                row, asset_server, "+", 18.0, MenuBtn::KillUp, ROW, ROW_HOVER, TEXT,
-                                UiSound::MENU,
-                            );
-                        });
-
-                        // What everyone watches when the match ends.
-                        col.spawn(Node {
-                            column_gap: Val::Px(10.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            row.spawn(label_hud(asset_server, "END OF MATCH", 14.0, TEXT_DIM));
+                    // What everyone watches when the match ends.
+                    setting_row(col, asset_server, "END OF MATCH", |row| {
+                        if can_edit {
                             for cam in [shared::EndCam::BestPlay, shared::EndCam::FinalKill] {
-                                let selected = cam == lobby.end_cam;
-                                spawn_button_hud(
+                                option_button(
                                     row,
                                     asset_server,
                                     cam.label(),
-                                    15.0,
                                     MenuBtn::SetEndCam(cam),
-                                    if selected { ACCENT } else { ROW },
-                                    if selected { ACCENT } else { ROW_HOVER },
-                                    if selected { PANEL_SOLID } else { TEXT },
-                                    UiSound::MENU,
+                                    cam == lobby.end_cam,
+                                );
+                            }
+                        } else {
+                            setting_value(row, asset_server, lobby.end_cam.label().to_string());
+                        }
+                    });
+
+                    // Bots: a counter and a difficulty, then ADD. Sent as one
+                    // request each press, so different counts / difficulties
+                    // can be stacked (e.g. 4 recruits, then 5 veterans).
+                    if can_edit {
+                        col.spawn(Node {
+                            height: Val::Px(18.0),
+                            flex_shrink: 0.0,
+                            ..default()
+                        });
+                        section_heading(col, asset_server, "ADD BOTS");
+                        setting_row(col, asset_server, "HOW MANY", |row| {
+                            stepper(
+                                row,
+                                asset_server,
+                                bot_selection.count.to_string(),
+                                MenuBtn::BotCountDown,
+                                MenuBtn::BotCountUp,
+                            );
+                        });
+                        setting_row(col, asset_server, "DIFFICULTY", |row| {
+                            for d in shared::bot_players::BotDifficulty::ALL {
+                                option_button(
+                                    row,
+                                    asset_server,
+                                    d.label(),
+                                    MenuBtn::BotDifficulty(d),
+                                    d == bot_selection.difficulty,
                                 );
                             }
                         });
-
-                        // Bots: a counter and a difficulty, then ADD. Sent as one
-                        // request each press, so different counts / difficulties
-                        // can be stacked (e.g. 4 recruits, then 5 veterans).
-                        let bots_in = lobby.bot_count();
-                        col.spawn(Node {
-                            column_gap: Val::Px(10.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            row.spawn(label_hud(asset_server, "BOTS", 14.0, TEXT_DIM));
-                            spawn_button_hud(
-                                row, asset_server, "\u{2212}", 18.0, MenuBtn::BotCountDown, ROW,
-                                ROW_HOVER, TEXT, UiSound::MENU,
-                            );
-                            row.spawn(label_hud(
-                                asset_server,
-                                format!("{}", bot_selection.count),
-                                16.0,
-                                TEXT,
-                            ));
-                            spawn_button_hud(
-                                row, asset_server, "+", 18.0, MenuBtn::BotCountUp, ROW, ROW_HOVER,
-                                TEXT, UiSound::MENU,
-                            );
+                        setting_row(col, asset_server, "", |row| {
                             spawn_button_hud(
                                 row,
                                 asset_server,
@@ -1017,182 +1098,174 @@ fn build_room(
                                     bot_selection.difficulty.label(),
                                     if bot_selection.count == 1 { "" } else { "S" },
                                 ),
-                                15.0,
+                                18.0,
                                 MenuBtn::AddBots,
                                 ACCENT,
-                                ACCENT,
+                                ROW_HOVER,
                                 PANEL_SOLID,
                                 UiSound::MENU,
                             );
-                            if bots_in > 0 {
-                                spawn_button_hud(
-                                    row, asset_server, "CLEAR", 15.0, MenuBtn::ClearBots, ROW,
-                                    ROW_HOVER, TEXT, UiSound::MENU,
-                                );
-                            }
-                        });
-                        col.spawn(Node {
-                            column_gap: Val::Px(10.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            row.spawn(label_hud(asset_server, "DIFFICULTY", 14.0, TEXT_DIM));
-                            for d in shared::bot_players::BotDifficulty::ALL {
-                                let selected = d == bot_selection.difficulty;
+                            if lobby.bot_count() > 0 {
                                 spawn_button_hud(
                                     row,
                                     asset_server,
-                                    d.label(),
-                                    15.0,
-                                    MenuBtn::BotDifficulty(d),
-                                    if selected { ACCENT } else { ROW },
-                                    if selected { ACCENT } else { ROW_HOVER },
-                                    if selected { PANEL_SOLID } else { TEXT },
+                                    "CLEAR ALL BOTS",
+                                    18.0,
+                                    MenuBtn::ClearBots,
+                                    ROW,
+                                    ROW_HOVER,
+                                    TEXT,
                                     UiSound::MENU,
                                 );
                             }
                         });
                     }
                 }
+            });
 
-                col.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(16.0)),
-                        row_gap: Val::Px(4.0),
-                        ..default()
-                    },
-                    BackgroundColor(PANEL),
-                    BorderRadius::all(Val::Px(8.0)),
-                ))
-                .with_children(|panel| {
-                    panel.spawn(label_hud(
-                        asset_server,
-                        format!("PARTY  ({}/8)", lobby.real_count()),
-                        15.0,
-                        TEXT_DIM,
-                    ));
-                    for m in lobby.members.iter().filter(|m| m.bot.is_none()) {
-                        panel
-                            .spawn((
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-                                    column_gap: Val::Px(10.0),
-                                    align_items: AlignItems::Center,
-                                    ..default()
-                                },
-                                BackgroundColor(TRACK),
-                                BorderRadius::all(Val::Px(5.0)),
-                            ))
-                            .with_children(|row| {
-                                if m.peer == lobby.leader {
-                                    row.spawn(label_hud(asset_server, "\u{2605}", 18.0, ACCENT)); // ★
-                                }
-                                row.spawn(label_hud(asset_server, m.name.clone(), 18.0, TEXT));
-                            });
-                    }
-
-                    // Bots go in compact chips (there can be up to 20), each
-                    // with its difficulty.
-                    if lobby.bot_count() > 0 {
-                        panel.spawn(label_hud(
-                            asset_server,
-                            format!(
-                                "BOTS  ({}/{})",
-                                lobby.bot_count(),
-                                shared::bot_players::MAX_BOTS
-                            ),
-                            15.0,
-                            TEXT_DIM,
-                        ));
-                        panel
-                            .spawn(Node {
-                                width: Val::Percent(100.0),
-                                flex_wrap: FlexWrap::Wrap,
-                                column_gap: Val::Px(8.0),
-                                row_gap: Val::Px(6.0),
-                                ..default()
-                            })
-                            .with_children(|chips| {
-                                for m in lobby.members.iter().filter(|m| m.bot.is_some()) {
-                                    chips
-                                        .spawn((
-                                            Node {
-                                                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-                                                column_gap: Val::Px(8.0),
-                                                align_items: AlignItems::Center,
-                                                ..default()
-                                            },
-                                            BackgroundColor(TRACK),
-                                            BorderRadius::all(Val::Px(5.0)),
-                                        ))
-                                        .with_children(|chip| {
-                                            chip.spawn(label_hud(
-                                                asset_server,
-                                                m.name.clone(),
-                                                15.0,
-                                                TEXT,
-                                            ));
-                                            if let Some(d) = m.bot {
-                                                chip.spawn(label_hud(
-                                                    asset_server,
-                                                    d.label(),
-                                                    11.0,
-                                                    TEXT_DIM,
-                                                ));
-                                            }
-                                        });
-                                }
-                            });
-                    }
-                });
-
-                if is_leader {
-                    col.spawn(label_hud(asset_server, "You are the party leader.", 13.0, TEXT_DIM));
-                } else {
-                    col.spawn(label_hud(
-                        asset_server,
-                        "Waiting for the party leader to start…",
-                        13.0,
-                        TEXT_DIM,
-                    ));
+            // the party
+            body.spawn(Node {
+                width: Val::Px(400.0),
+                flex_shrink: 0.0,
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(6.0),
+                min_height: Val::Px(0.0),
+                overflow: Overflow::clip_y(),
+                ..default()
+            })
+            .with_children(|col| {
+                section_heading(col, asset_server, &format!("PARTY  {}/8", lobby.real_count()));
+                let players: Vec<&shared::LobbyMember> =
+                    lobby.members.iter().filter(|m| m.bot.is_none()).collect();
+                for slot in 0..8 {
+                    let member = players.get(slot);
+                    col.spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(44.0),
+                            padding: UiRect::horizontal(Val::Px(14.0)),
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            border: UiRect::left(Val::Px(3.0)),
+                            flex_shrink: 0.0,
+                            ..default()
+                        },
+                        BackgroundColor(if member.is_some() { ROW } else { PANEL }),
+                        BorderColor(match member {
+                            Some(m) if Some(m.peer) == me => ACCENT,
+                            Some(_) => TEXT_DIM,
+                            None => Color::NONE,
+                        }),
+                    ))
+                    .with_children(|row| match member {
+                        Some(m) => {
+                            row.spawn(label_hud(asset_server, m.name.to_uppercase(), 22.0, TEXT));
+                            if m.peer == lobby.leader {
+                                row.spawn(label_hud(asset_server, "\u{2605} LEADER", 16.0, ACCENT));
+                            }
+                        }
+                        None => {
+                            row.spawn(label_hud(asset_server, "OPEN SLOT", 18.0, TRACK));
+                        }
+                    });
                 }
 
-                col.spawn(Node {
-                    column_gap: Val::Px(14.0),
-                    ..default()
-                })
-                .with_children(|row| {
-                    if is_leader {
-                        spawn_button_hud(
-                            row,
-                            asset_server,
-                            "START GAME",
-                            20.0,
-                            MenuBtn::Start,
-                            ACCENT,
-                            ACCENT,
-                            PANEL_SOLID,
-                            UiSound::MENU,
-                        );
-                    }
-                    spawn_button_hud(
-                        row,
+                // Bots go in compact chips (there can be up to 20), each
+                // with its difficulty.
+                if lobby.bot_count() > 0 {
+                    col.spawn(Node {
+                        height: Val::Px(10.0),
+                        flex_shrink: 0.0,
+                        ..default()
+                    });
+                    section_heading(
+                        col,
                         asset_server,
-                        "LEAVE",
-                        20.0,
-                        MenuBtn::Leave,
-                        ROW,
-                        ROW_HOVER,
-                        TEXT,
-                        UiSound::MENU_BACK,
+                        &format!("BOTS  {}/{}", lobby.bot_count(), shared::bot_players::MAX_BOTS),
                     );
-                });
+                    col.spawn(Node {
+                        width: Val::Percent(100.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(6.0),
+                        ..default()
+                    })
+                    .with_children(|chips| {
+                        for m in lobby.members.iter().filter(|m| m.bot.is_some()) {
+                            chips
+                                .spawn((
+                                    Node {
+                                        padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+                                        column_gap: Val::Px(8.0),
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    },
+                                    BackgroundColor(ROW),
+                                ))
+                                .with_children(|chip| {
+                                    chip.spawn(label_hud(asset_server, m.name.to_uppercase(), 16.0, TEXT));
+                                    if let Some(d) = m.bot {
+                                        chip.spawn(label_hud(asset_server, d.label(), 13.0, TEXT_DIM));
+                                    }
+                                });
+                        }
+                    });
+                }
             });
         });
+
+        // action bar: status left, LEAVE / START GAME right
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|bar| {
+            bar.spawn(label_hud(
+                asset_server,
+                if is_leader {
+                    "YOU ARE THE PARTY LEADER"
+                } else {
+                    "WAITING FOR THE PARTY LEADER TO START…"
+                },
+                18.0,
+                TEXT_DIM,
+            ));
+            bar.spawn(Node {
+                column_gap: Val::Px(12.0),
+                ..default()
+            })
+            .with_children(|b| {
+                spawn_button_hud(
+                    b,
+                    asset_server,
+                    "LEAVE",
+                    24.0,
+                    MenuBtn::Leave,
+                    ROW,
+                    ROW_HOVER,
+                    TEXT,
+                    UiSound::MENU_BACK,
+                );
+                if is_leader {
+                    spawn_button_hud(
+                        b,
+                        asset_server,
+                        "START GAME",
+                        24.0,
+                        MenuBtn::Start,
+                        ACCENT,
+                        ROW_HOVER,
+                        PANEL_SOLID,
+                        UiSound::MENU,
+                    );
+                }
+            });
+        });
+    });
 }
 
 // --- input ------------------------------------------------------------

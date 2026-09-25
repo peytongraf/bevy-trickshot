@@ -52,12 +52,29 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/buy_perk.mp3` — we just bought a perk in
     /// `Zombies` (`zombies_hud::sync_owned_perks`).
     pub(crate) perk_buy: Handle<AudioSource>,
+    /// `audio/zombies/jingles/<perk>.wav` — a perk machine's jingle, played
+    /// from the machine for the whole lobby when anyone buys that perk
+    /// (`zombies_hud::play_perk_jingles`). Pick one with [`Self::jingle`].
+    jingle_shroom_tea: Handle<AudioSource>,
+    jingle_nitro_brew: Handle<AudioSource>,
+    jingle_liquid_courage: Handle<AudioSource>,
     /// `audio/combat/heartbeat.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
     /// `audio/movement/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
+}
+
+impl GameSounds {
+    /// `perk`'s machine jingle.
+    pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Handle<AudioSource> {
+        match perk {
+            shared::perks::Perk::ShroomTea => self.jingle_shroom_tea.clone(),
+            shared::perks::Perk::NitroBrew => self.jingle_nitro_brew.clone(),
+            shared::perks::Perk::LiquidCourage => self.jingle_liquid_courage.clone(),
+        }
+    }
 }
 
 /// One clip from a [`SoundSet`], with its own volume multiplier.
@@ -180,6 +197,8 @@ pub(crate) struct SoundVolumes {
     pub(crate) heartbeat: f32,
     pub(crate) hit_marker: f32,
     pub(crate) perk_buy: f32,
+    /// Every perk machine's jingle (on top of its distance fade).
+    pub(crate) perk_jingle: f32,
 }
 
 impl Default for SoundVolumes {
@@ -206,6 +225,7 @@ impl Default for SoundVolumes {
             heartbeat: 1.0,
             hit_marker: 1.0,
             perk_buy: 1.0,
+            perk_jingle: 1.0,
         }
     }
 }
@@ -370,6 +390,9 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),
         hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),
         perk_buy: asset_server.load("audio/zombies/buy_perk.mp3"),
+        jingle_shroom_tea: asset_server.load("audio/zombies/jingles/shroom_tea.wav"),
+        jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
+        jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),
