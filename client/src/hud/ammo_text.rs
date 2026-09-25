@@ -70,13 +70,13 @@ pub(crate) struct KnifeKeyCap;
 pub(crate) struct KnifeGroup;
 
 /// Fixed on-screen size of [`WeaponIcon`], regardless of which texture is
-/// showing — both `sniper_icon.png` and `knife_icon.png` are drawn to this
+/// showing — both `icons/weapons/sniper.png` and `icons/weapons/knife.png` are drawn to this
 /// same 1774×887 (2:1) canvas specifically so a weapon swap can never resize
 /// this box and shift the ammo readout beside it.
 const WEAPON_ICON_SIZE: (f32, f32) = (128.0, 64.0);
-/// `bullet_icon.png` is 1402×1122.
+/// `icons/weapons/bullet.png` is 1402×1122.
 const BULLET_ICON_SIZE: (f32, f32) = (25.0, 20.0);
-/// `throwing_knife_icon.png` is 1536×1024.
+/// `icons/weapons/throwing_knife.png` is 1536×1024.
 const KNIFE_ICON_SIZE: (f32, f32) = (42.0, 28.0);
 
 /// Drop shadow behind the white HUD text and icons.
@@ -85,11 +85,11 @@ const SHADOW_OFFSET: f32 = 2.0;
 /// Opacity of the knife group once it's out of knives.
 const EMPTY_ALPHA: f32 = 0.35;
 
-/// `Weapon::slot` → its HUD icon path under `assets/textures/icons/`.
+/// `Weapon::slot` → its HUD icon path under `assets/textures/icons/weapons/`.
 fn weapon_icon_path(slot: WeaponSlot) -> &'static str {
     match slot {
-        WeaponSlot::Primary => "textures/icons/sniper_icon.png",
-        WeaponSlot::Secondary => "textures/icons/knife_icon.png",
+        WeaponSlot::Primary => "textures/icons/weapons/sniper.png",
+        WeaponSlot::Secondary => "textures/icons/weapons/knife.png",
     }
 }
 
@@ -203,7 +203,7 @@ pub(crate) fn setup_ammo_ui(
                     col.spawn((ReserveText, Text::new(""), text(18.0)));
                     spawn_shadowed_icon(
                         col,
-                        asset_server.load("textures/icons/bullet_icon.png"),
+                        asset_server.load("textures/icons/weapons/bullet.png"),
                         BULLET_ICON_SIZE,
                         PlainIcon,
                     );
@@ -241,7 +241,7 @@ pub(crate) fn setup_ammo_ui(
                 knife.spawn((KnifeCountText, Text::new(""), text(18.0)));
                 spawn_shadowed_icon(
                     knife,
-                    asset_server.load("textures/icons/throwing_knife_icon.png"),
+                    asset_server.load("textures/icons/weapons/throwing_knife.png"),
                     KNIFE_ICON_SIZE,
                     PlainIcon,
                 );

@@ -90,15 +90,15 @@ pub(crate) struct ScopeRenderTarget(pub(crate) Handle<Image>);
 #[derive(Resource)]
 pub(crate) struct ScopeReticleMaterial(pub(crate) Handle<StandardMaterial>);
 
-/// `Settings::crosshair` → its texture path under `assets/textures/`. Kept
+/// `Settings::crosshair` → its texture path under `assets/textures/reticles/`. Kept
 /// here (next to the one place that loads it) rather than on the enum
 /// itself, the same way `environment::map` keeps `MapId`'s `.glb` paths out
 /// of `shared::MapId`.
 pub(crate) fn crosshair_asset_path(id: CrosshairId) -> &'static str {
     match id {
-        CrosshairId::HashReticle => "textures/hash_reticle.png",
-        CrosshairId::DuplexReticle => "textures/duplex_reticle.png",
-        CrosshairId::HashReticleRedDot => "textures/hash_reticle_red_dot.png",
+        CrosshairId::HashReticle => "textures/reticles/hash.png",
+        CrosshairId::DuplexReticle => "textures/reticles/duplex.png",
+        CrosshairId::HashReticleRedDot => "textures/reticles/hash_red_dot.png",
     }
 }
 

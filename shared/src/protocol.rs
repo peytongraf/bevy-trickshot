@@ -966,11 +966,13 @@ pub struct FallDeath {
     pub speed: f32,
 }
 
-/// Server → the shooter only: their shot damaged a bot or player without
-/// killing them — the client shows a hit marker and plays the hit-marker sound.
-/// (A kill has its own feedback and sends none.)
+/// Server → the attacker only: their shot / stab / thrown knife hurt a bot or
+/// player (`kill: false` — a white X and the hit-marker sound) or killed one
+/// (`kill: true` — a red X; the kill sound comes from its own feedback).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub struct HitMarker;
+pub struct HitMarker {
+    pub kill: bool,
+}
 
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
 /// `Freestyle`, another player in `FreeForAll`) at `point` — every client

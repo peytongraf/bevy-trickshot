@@ -580,7 +580,7 @@ fn setup_world(
 
     // Ocean: a big, tinted, semi-transparent plane just below Shipment's
     // ground level, ringing the yard the way MW3 Shipment's cargo-ship
-    // setting does. `water_normal.png` supplies rippling detail via a
+    // setting does. `environment/water_normal.png` supplies rippling detail via a
     // normal map — loaded `is_srgb: false` since it encodes surface
     // directions, not colour (the default `true` would gamma-decode the
     // vectors and distort them), and with `Repeat` addressing so
@@ -595,7 +595,7 @@ fn setup_world(
     // of truth instead of duplicating numbers that `apply_water_settings`
     // would immediately overwrite on the first `Update` anyway.
     let water_normal = asset_server.load_with_settings(
-        "textures/water_normal.png",
+        "textures/environment/water_normal.png",
         |settings: &mut ImageLoaderSettings| {
             settings.is_srgb = false;
             settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
@@ -922,7 +922,7 @@ fn setup_player(
     // Muzzle-flash quad (`muzzle-flash.png`).
     let muzzle_mesh = meshes.add(Rectangle::new(1.0, 1.0));
     let muzzle_material = materials.add(StandardMaterial {
-        base_color_texture: Some(asset_server.load("textures/muzzle_flash.png")),
+        base_color_texture: Some(asset_server.load("textures/vfx/muzzle_flash.png")),
         unlit: true,
         alpha_mode: AlphaMode::Blend,
         double_sided: true,
@@ -933,16 +933,16 @@ fn setup_player(
     // Shared smoke mesh + texture (`emit_smoke` clones these per particle).
     commands.insert_resource(SmokeAssets {
         mesh: meshes.add(Rectangle::new(1.0, 1.0)),
-        texture: asset_server.load("textures/smoke.png"),
+        texture: asset_server.load("textures/vfx/smoke.png"),
     });
 
     // Bullet-impact debris (`spawn_ground_impact` / `spawn_blood_impact` clone a
     // material per particle).
     commands.insert_resource(ImpactAssets {
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
-        dust: asset_server.load("textures/dust.png"),
-        rocks: asset_server.load("textures/rocks.png"),
-        blood: asset_server.load("textures/blood-splatter-texture.png"),
+        dust: asset_server.load("textures/vfx/dust.png"),
+        rocks: asset_server.load("textures/vfx/rocks.png"),
+        blood: asset_server.load("textures/vfx/blood_splatter.png"),
     });
 
     // Unit cylinder (`spawn_tracers` scales + colors it per shot).

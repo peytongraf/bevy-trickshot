@@ -747,9 +747,9 @@ struct PerkIconSlot {
 /// owned-perk row along the bottom (`update_perk_icons`).
 fn perk_icon_path(perk: Perk) -> &'static str {
     match perk {
-        Perk::ShroomTea => "textures/icons/shroom_tea_icon.png",
-        Perk::NitroBrew => "textures/icons/nitro_brew_icon.png",
-        Perk::LiquidCourage => "textures/icons/liquid_courage_icon.png",
+        Perk::ShroomTea => "textures/icons/perks/shroom_tea.png",
+        Perk::NitroBrew => "textures/icons/perks/nitro_brew.png",
+        Perk::LiquidCourage => "textures/icons/perks/liquid_courage.png",
     }
 }
 

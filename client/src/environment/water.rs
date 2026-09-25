@@ -28,7 +28,7 @@ pub(crate) const WATER_LEVEL_DROP: f32 = 3.0;
 #[derive(Component, Clone)]
 pub(crate) struct WaterMaterial(pub(crate) Handle<StandardMaterial>);
 
-/// How many `water_normal.png` tiles span [`WaterPlane`]'s full width by
+/// How many `environment/water_normal.png` tiles span [`WaterPlane`]'s full width by
 /// default — picked by eye so ripples read as roughly wave-sized rather
 /// than either a single stretched blur or distractingly tiny repetition.
 pub(crate) const WATER_NORMAL_TILING: f32 = 60.0;

@@ -908,7 +908,7 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
                 ui.collapsing("Bullet impacts", |ui| {
                     ui.label(
-                        "textures/bullet_impact.png stuck flat on the surface a shot hit — for every \
+                        "textures/vfx/bullet_hole.png stuck flat on the surface a shot hit — for every \
                          player in the lobby, removed after 1 minute. Scale applies to the holes \
                          already in the world too.",
                     );
@@ -1058,7 +1058,7 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Sniper glint", |ui| {
                     let g = &mut *sniper_glint;
                     ui.label(
-                        "sniper_glint.png sprite off another player's or bot's scope while \
+                        "vfx/sniper_glint.png sprite off another player's or bot's scope while \
                          they're ADS — gives away a camping sniper, Call of Duty-style. Always \
                          faces you, wherever you're standing.",
                     );

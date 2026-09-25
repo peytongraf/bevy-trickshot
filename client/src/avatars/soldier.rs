@@ -272,7 +272,7 @@ pub(crate) fn tint_bot_avatars(
     }
 }
 
-/// A remote player's (or bot's) sniper-glint sprite — `textures/sniper_glint.png`
+/// A remote player's (or bot's) sniper-glint sprite — `textures/vfx/sniper_glint.png`
 /// on a quad, catching the eye off their scope while they're aiming down
 /// sight, giving away a camping sniper the same way Call of Duty's own scope
 /// glint does. Not parented to the `RemoteAvatar` model: its offset is meant
@@ -334,7 +334,7 @@ pub(crate) fn setup_sniper_glint_assets(
 ) {
     commands.insert_resource(SniperGlintAssets {
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
-        texture: asset_server.load("textures/sniper_glint.png"),
+        texture: asset_server.load("textures/vfx/sniper_glint.png"),
     });
 }
 

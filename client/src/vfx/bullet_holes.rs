@@ -1,4 +1,4 @@
-//! Bullet holes: `textures/bullet_impact.png` stuck flat on whatever surface a
+//! Bullet holes: `textures/vfx/bullet_hole.png` stuck flat on whatever surface a
 //! shot hit, for everyone in the lobby, gone again after a minute.
 //!
 //! Where a shot lands comes from the same two places as the ground dust: the
@@ -91,7 +91,7 @@ fn setup_bullet_hole_assets(
         // A 1 × 1 quad facing +Y; scaled to `BulletHoleSettings::size`.
         mesh: meshes.add(Plane3d::default().mesh().size(1.0, 1.0)),
         material: materials.add(StandardMaterial {
-            base_color_texture: Some(asset_server.load("textures/bullet_impact.png")),
+            base_color_texture: Some(asset_server.load("textures/vfx/bullet_hole.png")),
             alpha_mode: AlphaMode::Blend,
             perceptual_roughness: 1.0,
             reflectance: 0.0,

@@ -133,7 +133,7 @@ fn spawn_damage_overlay(mut commands: Commands, asset_server: Res<AssetServer>) 
         ))
         .with_child((
             DamageBlood,
-            ImageNode::new(asset_server.load("textures/blur-blood-splatter-overlay.png"))
+            ImageNode::new(asset_server.load("textures/hud/blood_overlay.png"))
                 .with_color(Color::srgba(1.0, 1.0, 1.0, 0.0)),
             Node {
                 position_type: PositionType::Absolute,

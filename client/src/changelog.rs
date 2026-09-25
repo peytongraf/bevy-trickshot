@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Red X on kills; hit markers now burst outward.",
         "Zombies: new, bigger perk icons.",
         "Shroom Tea: enemies only glow when hidden behind cover.",
         "Zombies: Shroom Tea and Liquid Courage hit hard for a few seconds after drinking.",

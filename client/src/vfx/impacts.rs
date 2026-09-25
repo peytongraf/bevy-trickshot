@@ -16,7 +16,7 @@ use crate::AppState;
 /// Hard cap on live bullet-impact particles (rocks + dust together).
 pub(crate) const IMPACT_MAX: usize = 400;
 
-/// `rocks.png` is a loose grid of rocks; each rock sprite shows one cell of this
+/// `vfx/rocks.png` is a loose grid of rocks; each rock sprite shows one cell of this
 /// many columns × rows so it's a single rock, not the whole sheet.
 pub(crate) const ROCK_COLS: u32 = 3;
 pub(crate) const ROCK_ROWS: u32 = 4;
@@ -245,7 +245,7 @@ pub(crate) fn spawn_ground_impact(
                 .wrapping_add(0x11);
             let dir = cone_dir(Vec3::Y, rocks.spread_deg.to_radians(), s);
             let speed = rocks.speed * (0.55 + 0.45 * rand01(s ^ 0x9e37));
-            // `rocks.png` is a sheet of ~25 rocks; show one 1/ROCK_COLS × 1/ROCK_ROWS
+            // `vfx/rocks.png` is a sheet of ~25 rocks; show one 1/ROCK_COLS × 1/ROCK_ROWS
             // cell of it per particle so each sprite is a single rock, not the pile.
             let col = (rand01(s ^ 0x3) * ROCK_COLS as f32) as u32 % ROCK_COLS;
             let row = (rand01(s ^ 0x5) * ROCK_ROWS as f32) as u32 % ROCK_ROWS;
@@ -346,7 +346,7 @@ pub(crate) fn spawn_blood_impact(
                 .wrapping_add(0xb100d);
             let dir = cone_dir(jet, blood.spread_deg.to_radians(), s);
             let speed = blood.speed * (0.35 + 0.65 * rand01(s ^ 0x9e37));
-            // `blood-splatter-texture.png` is one wide field of droplets on
+            // `vfx/blood_splatter.png` is one wide field of droplets on
             // transparent; show a small random window into it per particle so
             // each droplet sprite is a handful of specks, not the whole field.
             // Bias toward the dense centre-left so a window is never empty.

@@ -157,7 +157,7 @@ pub(crate) fn show_overlay_and_hide_weapon(
             ))
             .with_children(|root| {
                 root.spawn((
-                    ImageNode::new(asset_server.load("textures/blur-blood-splatter-overlay.png")),
+                    ImageNode::new(asset_server.load("textures/hud/blood_overlay.png")),
                     Node {
                         position_type: PositionType::Absolute,
                         width: Val::Percent(100.0),

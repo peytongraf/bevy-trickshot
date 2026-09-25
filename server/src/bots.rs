@@ -191,9 +191,12 @@ fn ensure_bots(
     }
 }
 
-/// Apply queued hits: mark dead, record the time, score the shooter.
+/// Apply queued hits: mark dead, record the time, score the shooter, and send
+/// them their red kill marker.
 fn apply_bot_hits(
     time: Res<Time>,
+    server: Single<&lightyear::prelude::server::Server>,
+    mut sender: ServerMultiMessageSender,
     mut events: EventReader<BotHit>,
     mut bots: Query<&mut Bot>,
     mut lobbies: Query<&mut Lobby>,
@@ -217,6 +220,15 @@ fn apply_bot_hits(
         if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(ev.by)) {
             if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.by) {
                 m.score += ev.points;
+            }
+        }
+        if !shared::bot_players::is_bot_peer(ev.by) {
+            if let Err(e) = sender.send::<_, shared::GameChannel>(
+                &shared::HitMarker { kill: true },
+                *server,
+                &NetworkTarget::Single(ev.by),
+            ) {
+                error!("failed to send kill marker to {:?}: {e:?}", ev.by);
             }
         }
         info!("bot {:?} shot by {:?} for {} pts", ev.bot, ev.by, ev.points);

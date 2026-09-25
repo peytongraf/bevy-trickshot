@@ -72,7 +72,7 @@ impl ShadowQuality {
 }
 
 /// Which reticle texture the scope shows — the Loadout screen's only current
-/// option (see `menu::build_loadout`). The actual `assets/textures/*.png`
+/// option (see `menu::build_loadout`). The actual `assets/textures/reticles/*.png`
 /// path for each is `weapons::scope::crosshair_asset_path` — kept out of this
 /// enum the same way `MapId` keeps its `.glb` paths out in `environment::map`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]

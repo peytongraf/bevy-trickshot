@@ -158,7 +158,7 @@ fn apply_player_hits(
             // no client to show it to).
             if !is_bot_peer(ev.killer) {
                 if let Err(e) = sender.send::<_, GameChannel>(
-                    &HitMarker,
+                    &HitMarker { kill: false },
                     server,
                     &NetworkTarget::Single(ev.killer),
                 ) {
@@ -169,6 +169,16 @@ fn apply_player_hits(
         }
         combat.alive = false;
         combat.respawn_at = time.elapsed_secs() + RESPAWN_DELAY_SECS;
+        // The killer's red kill marker (a bot killer has no client).
+        if !is_bot_peer(ev.killer) && ev.killer != ev.victim {
+            if let Err(e) = sender.send::<_, GameChannel>(
+                &HitMarker { kill: true },
+                server,
+                &NetworkTarget::Single(ev.killer),
+            ) {
+                error!("failed to send kill marker to {:?}: {e:?}", ev.killer);
+            }
+        }
 
         let Some((lobby_e, mut lobby)) = lobbies.iter_mut().find(|(_, l)| in_lobby(l)) else {
             continue;
