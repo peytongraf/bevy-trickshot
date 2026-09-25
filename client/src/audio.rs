@@ -188,7 +188,7 @@ impl Default for SoundVolumes {
             out_of_ammo: 1.0,
             slide: 1.0,
             dive: 1.0,
-            kill_enemy: 5.5,
+            kill_enemy: 3.0,
             jump_land: 0.5,
             teleport: 1.0,
             knife_throw: 1.0,
@@ -261,6 +261,17 @@ pub(crate) struct RemoteSoundSettings {
     pub(crate) volume: f32,
     /// Distance (m) at which a remote sound has faded to silence.
     pub(crate) max_distance: f32,
+    /// Per-sound gain for another player's (or bot's) actions — one per
+    /// `killcam::SND_*` bit that's played remotely (not aim in / out), on top of `volume` and the clip's `SoundVolumes`
+    /// entry. See [`Self::for_bit`].
+    pub(crate) shot: f32,
+    pub(crate) reload: f32,
+    pub(crate) rechamber: f32,
+    pub(crate) slide: f32,
+    pub(crate) dive: f32,
+    pub(crate) footstep: f32,
+    pub(crate) jump_land: f32,
+    pub(crate) knife_throw: f32,
 }
 
 impl Default for RemoteSoundSettings {
@@ -268,7 +279,40 @@ impl Default for RemoteSoundSettings {
         Self {
             volume: 1.0,
             max_distance: 60.0,
+            shot: 1.0,
+            reload: 1.0,
+            rechamber: 0.05,
+            slide: 1.0,
+            dive: 1.0,
+            footstep: 1.0,
+            jump_land: 1.0,
+            knife_throw: 1.0,
         }
+    }
+}
+
+impl RemoteSoundSettings {
+    /// The per-sound gain field for a `killcam::SND_*` bit, with its panel
+    /// label — `None` for a bit that isn't played remotely.
+    pub(crate) fn field_mut(&mut self, bit: u16) -> Option<(&'static str, &mut f32)> {
+        use crate::killcam::*;
+        Some(match bit {
+            SND_SHOT => ("shot", &mut self.shot),
+            SND_RELOAD => ("reload", &mut self.reload),
+            SND_RECHAMBER => ("rechamber", &mut self.rechamber),
+            SND_SLIDE => ("slide", &mut self.slide),
+            SND_DIVE => ("dive", &mut self.dive),
+            SND_FOOTSTEP => ("footstep", &mut self.footstep),
+            SND_JUMP_LAND => ("jump land", &mut self.jump_land),
+            SND_THROW => ("knife throw", &mut self.knife_throw),
+            _ => return None,
+        })
+    }
+
+    /// The per-sound gain for a `killcam::SND_*` bit (`1.0` for an unknown one).
+    pub(crate) fn for_bit(&self, bit: u16) -> f32 {
+        let mut copy = *self;
+        copy.field_mut(bit).map_or(1.0, |(_, v)| *v)
     }
 }
 

@@ -226,12 +226,18 @@ fn apply_bot_hits(
 /// Topple dead bots, then remove them once their time is up.
 fn tick_bots(
     time: Res<Time>,
-    mut bots: Query<(Entity, &mut Bot, &BotDeath)>,
+    lobbies: Query<&Lobby>,
+    mut bots: Query<(Entity, &mut Bot, &mut BotDeath, &LobbyBot)>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     let step = time.delta_secs() / BOT_FALL_SECS;
-    for (entity, mut bot, death) in &mut bots {
+    for (entity, mut bot, mut death, lb) in &mut bots {
+        // Paused: hold the fall, and push the removal back by the pause.
+        if lobbies.get(lb.lobby).is_ok_and(|l| l.paused) {
+            death.at += time.delta_secs();
+            continue;
+        }
         if bot.fall < 1.0 {
             bot.fall = (bot.fall + step).min(1.0);
         }
@@ -277,7 +283,7 @@ fn wander_bots(
         let Some(lobby) = lobbies.get(lb.lobby).ok().filter(|l| l.started) else {
             continue;
         };
-        if !bot.alive || endings.is_frozen(lb.lobby) {
+        if !bot.alive || endings.is_frozen(lb.lobby) || lobby.paused {
             continue;
         }
         let world = colliders.world(lobby.map);
@@ -432,6 +438,7 @@ mod tests {
                 end_cam: EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                paused: false,
                 members: Vec::new(),
             })
             .id();
@@ -499,6 +506,7 @@ mod tests {
                 end_cam: EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                paused: false,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),
                     name: "me".into(),

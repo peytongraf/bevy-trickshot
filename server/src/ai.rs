@@ -371,8 +371,9 @@ pub(crate) fn drive_bots(
         let zombies = lobby.mode == shared::GameMode::Zombies;
         let enemy = |peer: PeerId| peer != id.0 && !(zombies && shared::bot_players::is_bot_peer(peer));
 
-        // The match is over (`EndingLobbies`): stand still, fire nothing.
-        if endings.is_frozen(lp.lobby) {
+        // The match is over (`EndingLobbies`) or paused: stand still, fire
+        // nothing.
+        if endings.is_frozen(lp.lobby) || lobby.paused {
             action.0 = PlayerInput {
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
                 yaw: brain.yaw,
@@ -750,6 +751,7 @@ mod tests {
             end_cam: shared::EndCam::default(),
             round: 0,
             enemies_left: 0,
+            paused: false,
             members: Vec::new(),
         }
     }

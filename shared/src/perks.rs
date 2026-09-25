@@ -28,6 +28,43 @@ impl Perk {
         }
     }
 
+    /// One-line blurb for the machine's card (CoD style).
+    pub fn description(self) -> &'static str {
+        match self {
+            Perk::ShroomTea => "See enemies through walls and gain aim assist.",
+            Perk::NitroBrew => "Move, aim, reload, rechamber and swap weapons faster.",
+        }
+    }
+
+    /// What's in it, for the machine's card (`client/notes/perk-ingredients.md`).
+    pub fn ingredients(self) -> &'static [&'static str] {
+        match self {
+            Perk::ShroomTea => &[
+                "Heroic dose of psilocybin mushrooms",
+                "Fresh-squeezed lemon juice",
+                "Bioluminescent foxfire fungus",
+                "Lion's mane extract",
+                "Cordyceps, harvested off a zombie",
+                "Carrot concentrate and bilberry",
+                "Owl eyeball garnish",
+                "Ground-up x-ray film",
+                "Third eye drops",
+            ],
+            Perk::NitroBrew => &[
+                "Caffeine anhydrous",
+                "Distilled rocket fuel",
+                "Methamphetamine",
+                "Dash of preworkout",
+                "Crushed adderall",
+                "Splash of nitroglycerin",
+                "Twelve energy drinks, boiled down",
+                "Freeze-dried hummingbird heartbeats",
+                "Squirt of WD-40",
+                "Cheetah sweat",
+            ],
+        }
+    }
+
     /// Points it costs (low for now, for testing).
     pub fn cost(self) -> u32 {
         match self {

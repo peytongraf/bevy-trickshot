@@ -159,7 +159,7 @@ fn resolve_shots(
         let Ok((lobby_e, lobby)) = lobbies.get(shooter_lp.lobby) else {
             continue;
         };
-        if !lobby.started {
+        if !lobby.started || lobby.paused {
             continue;
         }
         let zombies = lobby.mode == GameMode::Zombies;

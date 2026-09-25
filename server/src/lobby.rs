@@ -17,7 +17,8 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetMap, SetTimeLimit, StartGame,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetMap, SetPaused, SetTimeLimit,
+    StartGame,
 };
 
 use crate::ai::{BotBrain, NextBotId};
@@ -54,6 +55,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_start)
             .add_observer(on_assets_ready)
             .add_observer(on_end_game)
+            .add_observer(on_set_paused)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
@@ -108,6 +110,9 @@ fn remove_peer(
             if lobby.leader == peer {
                 // (`real_count() > 0` here, so there is a real member to promote.)
                 lobby.leader = lobby.real_peers()[0];
+                // Only the leader can resume, so don't leave the new one
+                // stuck in a pause they never chose.
+                lobby.paused = false;
                 info!("lobby {entity:?}: leader left, promoted {:?}", lobby.leader);
             }
         }
@@ -158,6 +163,7 @@ fn on_create(
                 end_cam: shared::EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                paused: false,
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -248,6 +254,7 @@ fn on_start(
     };
 
     lobby.started = true;
+    lobby.paused = false;
     lobby.time_left_secs = lobby.time_limit_secs;
     // (`crate::zombies` starts round 1.)
     lobby.round = 0;
@@ -422,6 +429,25 @@ fn on_end_game(
     }
     despawn(&mut commands, lobby_entity);
     info!("{peer:?} ended the game for lobby {lobby_entity:?} (leave with party)");
+}
+
+/// The leader pauses / resumes their running game for the whole party. Not
+/// once the match is ending (nothing to pause — it's already frozen).
+fn on_set_paused(
+    trigger: Trigger<RemoteTrigger<SetPaused>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+) {
+    let peer = trigger.from;
+    let paused = trigger.trigger.paused;
+    let Some((lobby_e, mut lobby)) = lobbies.iter_mut().find(|(_, l)| l.leader == peer && l.started) else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused == paused {
+        return;
+    }
+    lobby.paused = paused;
+    info!("lobby {lobby_e:?} {} by {peer:?}", if paused { "paused" } else { "resumed" });
 }
 
 /// The leader picks the match length while the lobby is still waiting.
@@ -615,6 +641,7 @@ pub(crate) fn end_match(
         error!("failed to broadcast match result: {e:?}");
     }
     lobby.started = false;
+    lobby.paused = false;
     info!("match over — {winner_name} wins with {winner_score}");
 }
 
@@ -635,7 +662,7 @@ fn tick_match_clock(
 
     for (lobby_e, mut lobby) in &mut lobbies {
         // `Zombies` has no clock: it lasts until someone dies.
-        if !lobby.started || lobby.time_left_secs == 0 || lobby.mode == GameMode::Zombies {
+        if !lobby.started || lobby.paused || lobby.time_left_secs == 0 || lobby.mode == GameMode::Zombies {
             continue;
         }
         lobby.time_left_secs -= 1;
@@ -677,6 +704,7 @@ mod tests {
             end_cam: shared::EndCam::default(),
             round: 0,
             enemies_left: 0,
+            paused: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),

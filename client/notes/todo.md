@@ -6,14 +6,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Shroom Tea buy sound
-- Shroom Tea perk (effect, x-ray, aim assist)
-- Players/bots block movement
-- Ping readout beside fps
+- Quieter remote rechamber
+- Zombies double kill sound
 
 # Today
 
-- On zombies when getting a kill the kill enemy sound plays twice each time
+- On zombies could add a boss that can only take damage from trick shots
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm
 
@@ -21,7 +19,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 Everything below is ordered easiest → hardest, within each section.
 
-- Turn down remote player rechamber volume by a lot.
 - Increase aim sway
 - On windows terminal pops up to play prod client
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well

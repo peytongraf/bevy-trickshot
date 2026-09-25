@@ -113,17 +113,19 @@ impl Menu {
 }
 
 /// Run condition: gameplay systems only tick while no menu is up, the match
-/// hasn't just ended and the player isn't dead.
+/// hasn't just ended or been paused, and the player isn't dead.
 pub fn game_active(
     menu: Res<Menu>,
     freeze: Res<crate::match_end::MatchEndFreeze>,
     death: Res<crate::death_effect::DeathEffect>,
+    paused: Res<crate::pause::GamePaused>,
 ) -> bool {
     // Also off for a `FreeForAll` match's end-of-match freeze (see
     // `match_end`: nothing counts, so no input does either), and from the
     // moment the local player is killed until their kill cam takes over —
     // dead players can't move, aim, shoot or throw (only the menu still works).
-    !menu.is_open() && !freeze.active && !death.is_active()
+    // Paused by the party leader (`pause`): frozen in place for everyone.
+    !menu.is_open() && !freeze.active && !death.is_active() && !paused.0
 }
 
 /// Run condition for the egui dev panels.
@@ -333,6 +335,9 @@ enum Btn {
     LeaveWithParty,
     /// Dismiss the match-results screen and head back to the lobby room.
     ContinueFromResults,
+    /// Party-leader only: pause / resume the game for the whole party
+    /// ([`shared::SetPaused`]; see `pause`).
+    TogglePause,
 }
 
 /// Which leave-game buttons the pause menu should show, derived each rebuild.
@@ -341,18 +346,22 @@ struct LeaveCtx {
     in_game: bool,
     /// We're the party leader of that match.
     is_leader: bool,
+    /// That match is paused (`pause::GamePaused`).
+    paused: bool,
 }
 
 fn leave_ctx(
     app_state: &State<AppState>,
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &Query<&shared::Lobby>,
+    paused: &crate::pause::GamePaused,
 ) -> LeaveCtx {
     let me = local.iter().next().map(|l| l.0);
     let my_lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
     LeaveCtx {
         in_game: *app_state.get() == AppState::InGame,
         is_leader: matches!((me, my_lobby), (Some(me), Some(l)) if l.leader == me),
+        paused: paused.0,
     }
 }
 
@@ -387,6 +396,8 @@ fn menu_click(
     mut next: ResMut<NextState<AppState>>,
     mut leave_lobby: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
     mut end_game: Query<&mut TriggerSender<shared::EndGame>, With<GameClient>>,
+    mut set_paused: Query<&mut TriggerSender<shared::SetPaused>, With<GameClient>>,
+    paused: Res<crate::pause::GamePaused>,
 ) {
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
@@ -470,6 +481,13 @@ fn menu_click(
                 // client to the main menu when the lobby disbands.
                 if let Ok(mut s) = end_game.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::EndGame);
+                }
+            }
+            Btn::TogglePause => {
+                // The button's label flips once the server's answer is
+                // replicated back (`pause::sync_paused` rebuilds the menu).
+                if let Ok(mut s) = set_paused.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetPaused { paused: !paused.0 });
                 }
             }
             Btn::ContinueFromResults => {
@@ -656,6 +674,7 @@ fn rebuild_menu(
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
+    paused: Res<crate::pause::GamePaused>,
     existing: Query<Entity, With<MenuRoot>>,
 ) {
     if !menu.dirty {
@@ -669,7 +688,7 @@ fn rebuild_menu(
         Screen::None => {}
         Screen::Username => build_username(&mut commands),
         Screen::Settings => {
-            let leave = leave_ctx(&app_state, &local, &lobbies);
+            let leave = leave_ctx(&app_state, &local, &lobbies, &paused);
             build_settings(&mut commands, &menu, &settings, &binds, &leave);
         }
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
@@ -1096,6 +1115,16 @@ fn build_settings(
                     ))
                     .with_children(|f| {
                         if leave.is_leader {
+                            spawn_button(
+                                f,
+                                if leave.paused { "RESUME GAME" } else { "PAUSE GAME" },
+                                16.0,
+                                Btn::TogglePause,
+                                ACCENT_DIM,
+                                ACCENT,
+                                TEXT,
+                                UiSound::BUTTON,
+                            );
                             spawn_button(
                                 f,
                                 "LEAVE WITH PARTY",
@@ -1733,7 +1762,13 @@ mod tests {
         world.init_resource::<Menu>();
         world.init_resource::<crate::match_end::MatchEndFreeze>();
         world.init_resource::<crate::death_effect::DeathEffect>();
+        world.init_resource::<crate::pause::GamePaused>();
         assert!(active(&mut world), "alive, no menu");
+
+        world.resource_mut::<crate::pause::GamePaused>().0 = true;
+        assert!(!active(&mut world), "paused by the leader");
+        world.resource_mut::<crate::pause::GamePaused>().0 = false;
+        assert!(active(&mut world));
 
         world
             .resource_mut::<crate::death_effect::DeathEffect>()

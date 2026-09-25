@@ -117,1581 +117,1605 @@ pub(crate) fn ads_tuning_ui(
             ui.label(format!("ads.t = {:.2}", ads.t));
 
             ui.separator();
-            ui.collapsing("FOV", |ui| {
-                let optic = Optic::live(&settings);
-                ui.label(format!(
-                    "{:.0}x scope at {:.0}° hip FOV: world {:.2}°, scope {:.2}°",
-                    optic.zoom,
-                    optic.hip_fov_deg,
-                    full_ads_fov_rad(optic).to_degrees(),
-                    full_scope_fov_rad(optic, &tuning).to_degrees(),
-                ));
-                ui.add(
-                    egui::Slider::new(&mut tuning.lens_fit, 0.3f32..=1.2)
-                        .text("lens fit  (scope tan / world tan; same for every zoom)"),
-                );
-                if ui.button("Reset FOV").clicked() {
-                    tuning.lens_fit = AdsTuning::default().lens_fit;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("ADS speed", |ui| {
-                ui.add(
-                    egui::Slider::new(&mut tuning.ads_duration_ms, 20.0f32..=1000.0)
-                        .text("ADS time (ms)  (lower = snappier)")
-                        .suffix(" ms")
-                        .max_decimals(0),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tuning.ads_ease, 0.0f32..=1.0)
-                        .text("easing  (0 = linear, 1 = ease in/out)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tuning.scope_picture_at, 0.0f32..=0.95)
-                        .text("scope picture in at (ads.t)  (higher = later)"),
-                );
-                if ui.button("Reset ADS speed").clicked() {
-                    let d = AdsTuning::default();
-                    tuning.ads_duration_ms = d.ads_duration_ms;
-                    tuning.ads_ease = d.ads_ease;
-                    tuning.scope_picture_at = d.scope_picture_at;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("ADS pose", |ui| {
-                let a = &mut poses.ads;
-                ui.add(egui::Slider::new(&mut a.translation.x, -0.4f32..=0.4).text("x  (right +)"));
-                ui.add(egui::Slider::new(&mut a.translation.y, -0.4f32..=0.4).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut a.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.yaw, (-PI)..=PI)
-                        .text("yaw")
-                        .step_by(0.001),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.pitch, -0.6f32..=0.6)
-                        .text("pitch")
-                        .step_by(0.001),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-
-                if ui.button("Copy pose to console").clicked() {
-                    info!(
-                        "ads: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                         yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                        a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.scale,
+            ui.collapsing("Weapon & arms", |ui| {
+                ui.collapsing("FOV", |ui| {
+                    let optic = Optic::live(&settings);
+                    ui.label(format!(
+                        "{:.0}x scope at {:.0}° hip FOV: world {:.2}°, scope {:.2}°",
+                        optic.zoom,
+                        optic.hip_fov_deg,
+                        full_ads_fov_rad(optic).to_degrees(),
+                        full_scope_fov_rad(optic, &tuning).to_degrees(),
+                    ));
+                    ui.add(
+                        egui::Slider::new(&mut tuning.lens_fit, 0.3f32..=1.2)
+                            .text("lens fit  (scope tan / world tan; same for every zoom)"),
                     );
-                }
-                if ui.button("Reset to default").clicked() {
-                    *a = ViewModelPoses::default().ads;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Hip pose", |ui| {
-                let h = &mut poses.hip;
-                ui.add(egui::Slider::new(&mut h.translation.x, -0.4f32..=0.4).text("x  (right +)"));
-                ui.add(egui::Slider::new(&mut h.translation.y, -0.4f32..=0.4).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut h.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut h.yaw, (-PI)..=PI)
-                        .text("yaw")
-                        .step_by(0.001),
-                );
-                ui.add(
-                    egui::Slider::new(&mut h.pitch, -0.6f32..=0.6)
-                        .text("pitch")
-                        .step_by(0.001),
-                );
-                ui.add(
-                    egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-
-                if ui.button("Copy hip pose to console").clicked() {
-                    info!(
-                        "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                         yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                        h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
-                    );
-                }
-                if ui.button("Reset hip pose to default").clicked() {
-                    *h = ViewModelPoses::default().hip;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Knife", |ui| {
-                let k = &mut *knife_view;
-                ui.label("models/knife.glb — position and scale only (see WeaponSlot::Secondary)");
-                ui.label(
-                    "Position range is wide on purpose — push it out past the normal hip-pose \
-                     range to stand it next to a bot in world space and check the scale reads \
-                     right, then dial it back in for the actual view-model pose.",
-                );
-                ui.add(
-                    egui::Slider::new(&mut k.translation.x, -20.0f32..=20.0).text("x  (right +)"),
-                );
-                ui.add(egui::Slider::new(&mut k.translation.y, -20.0f32..=20.0).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut k.translation.z, -40.0f32..=5.0).text("z  (forward -)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut k.scale, 0.001f32..=0.05)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-
-                if ui.button("Copy knife pose to console").clicked() {
-                    info!(
-                        "knife: translation: Vec3::new({:.4}, {:.4}, {:.4}), scale: {:.5}",
-                        k.translation.x, k.translation.y, k.translation.z, k.scale,
-                    );
-                }
-                if ui.button("Reset knife pose to default").clicked() {
-                    *k = KnifeViewModelSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Throwing arms", |ui| {
-                let a = &mut *arms_view;
-                ui.label(
-                    "models/arms_throwing.glb — where the arms sit while the throwing-knife key \
-                     is held. Angles are on top of the fixed half-turn that points the \
-                     model down the view.",
-                );
-                ui.add(egui::Slider::new(&mut a.translation.x, -2.0f32..=2.0).text("x  (right +)"));
-                ui.add(egui::Slider::new(&mut a.translation.y, -2.0f32..=2.0).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut a.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
-                );
-                ui.add(egui::Slider::new(&mut a.yaw, -180.0f32..=180.0).text("yaw (°)"));
-                ui.add(egui::Slider::new(&mut a.pitch, -180.0f32..=180.0).text("pitch (°)"));
-                ui.add(egui::Slider::new(&mut a.roll, -180.0f32..=180.0).text("roll (°)"));
-                ui.add(
-                    egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-
-                if ui.button("Copy arms pose to console").clicked() {
-                    info!(
-                        "arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
-                         pitch: {:.1}, roll: {:.1}, scale: {:.5}",
-                        a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.roll,
-                        a.scale,
-                    );
-                }
-                if ui.button("Reset arms pose to default").clicked() {
-                    // Pose only — the timing values live in the "Throwing knife"
-                    // section below.
-                    let d = ThrowArmsSettings::default();
-                    a.translation = d.translation;
-                    a.yaw = d.yaw;
-                    a.pitch = d.pitch;
-                    a.roll = d.roll;
-                    a.scale = d.scale;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Drinking arms", |ui| {
-                let d = &mut *drink;
-                ui.label(
-                    "models/arms_drinking.glb — the perk-drinking arms (played once on buying \
-                     a perk), looping the trimmed drink clip while shown here. Angles are on top of the fixed half-turn that \
-                     points the model down the view.",
-                );
-                let show_label = if d.show { "Hide drinking arms" } else { "Show drinking arms" };
-                if ui.button(show_label).clicked() {
-                    d.show = !d.show;
-                }
-                ui.add(egui::Slider::new(&mut d.translation.x, -2.0f32..=2.0).text("x  (right +)"));
-                ui.add(egui::Slider::new(&mut d.translation.y, -2.0f32..=2.0).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut d.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
-                );
-                ui.add(egui::Slider::new(&mut d.yaw, -180.0f32..=180.0).text("yaw (°)"));
-                ui.add(egui::Slider::new(&mut d.pitch, -180.0f32..=180.0).text("pitch (°)"));
-                ui.add(egui::Slider::new(&mut d.roll, -180.0f32..=180.0).text("roll (°)"));
-                ui.add(
-                    egui::Slider::new(&mut d.scale, 0.01f32..=10.0)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-                ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=10.0).text("animation speed"));
-                ui.add(egui::Slider::new(&mut d.glow, 0.0f32..=5.0).text("bottle glow"));
-
-                if ui.button("Copy drinking arms pose to console").clicked() {
-                    info!(
-                        "drinking arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
-                         pitch: {:.1}, roll: {:.1}, scale: {:.5}, speed: {:.2}, glow: {:.2}",
-                        d.translation.x, d.translation.y, d.translation.z, d.yaw, d.pitch, d.roll,
-                        d.scale, d.speed, d.glow,
-                    );
-                }
-                if ui.button("Reset drinking arms pose to default").clicked() {
-                    // Pose only — leaves the show toggle as it is.
-                    *d = crate::DrinkArmsSettings {
-                        show: d.show,
-                        ..default()
-                    };
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Nitro Brew", |ui| {
-                let n = &mut *nitro;
-                ui.label(
-                    "Zombies perk (yellow) — multipliers on movement, ADS, reload, rechamber \
-                     and weapon swap speed while owned (1 = normal).",
-                );
-                ui.label(if n.owned { "owned: yes" } else { "owned: no" });
-                ui.checkbox(&mut n.debug_force, "Force on (act as if owned)");
-                ui.add(egui::Slider::new(&mut n.move_mult, 0.5f32..=3.0).text("movement speed"));
-                ui.add(egui::Slider::new(&mut n.ads_mult, 0.5f32..=5.0).text("ADS speed"));
-                ui.add(egui::Slider::new(&mut n.reload_mult, 0.5f32..=5.0).text("reload speed"));
-                ui.add(egui::Slider::new(&mut n.rechamber_mult, 0.5f32..=5.0).text("rechamber speed"));
-                ui.add(egui::Slider::new(&mut n.swap_mult, 0.5f32..=5.0).text("weapon swap speed"));
-                if ui.button("Copy Nitro Brew settings to console").clicked() {
-                    info!(
-                        "nitro brew: move_mult: {:.2}, ads_mult: {:.2}, reload_mult: {:.2}, \
-                         rechamber_mult: {:.2}, swap_mult: {:.2}",
-                        n.move_mult, n.ads_mult, n.reload_mult, n.rechamber_mult, n.swap_mult,
-                    );
-                }
-                if ui.button("Reset Nitro Brew multipliers").clicked() {
-                    *n = crate::zombies_hud::NitroBrew {
-                        owned: n.owned,
-                        debug_force: n.debug_force,
-                        ..default()
-                    };
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Bullet impacts", |ui| {
-                ui.label(
-                    "textures/bullet_impact.png stuck flat on the surface a shot hit — for every \
-                     player in the lobby, removed after 1 minute. Scale applies to the holes \
-                     already in the world too.",
-                );
-                ui.add(
-                    egui::Slider::new(&mut bullet_holes.size, 0.05f32..=3.0)
-                        .text("size (m)")
-                        .logarithmic(true),
-                );
-                if ui.button("Reset bullet impact size").clicked() {
-                    *bullet_holes = BulletHoleSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Throwing knife model", |ui| {
-                let k = &mut *knife_model;
-                ui.label(
-                    "models/throwing_knife.glb — the knife held in the throwing arms' hand, \
-                     positioned in the ARMS' local space (a child of the arms), so it stays in \
-                     the hand however the arms move. One unit = the arms' scale in metres \
-                     (0.01 by default, so units are ~cm). Visible from the key press until the \
-                     throw animation starts. Hold the throwing-knife key to see it.",
-                );
-                ui.checkbox(
-                    &mut arms_view.debug_hold_key,
-                    "Hold throwing knife key (as if held — untick to throw)",
-                );
-                ui.add(egui::Slider::new(&mut k.translation.x, -100.0f32..=100.0).text("x"));
-                ui.add(egui::Slider::new(&mut k.translation.y, -100.0f32..=100.0).text("y"));
-                ui.add(egui::Slider::new(&mut k.translation.z, -100.0f32..=100.0).text("z"));
-                ui.add(egui::Slider::new(&mut k.yaw, -180.0f32..=180.0).text("yaw (°)"));
-                ui.add(egui::Slider::new(&mut k.pitch, -180.0f32..=180.0).text("pitch (°)"));
-                ui.add(egui::Slider::new(&mut k.roll, -180.0f32..=180.0).text("roll (°)"));
-                ui.add(
-                    egui::Slider::new(&mut k.scale, 0.1f32..=30.0)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-                if ui.button("Copy knife model pose to console").clicked() {
-                    info!(
-                        "throwing knife model: translation: Vec3::new({:.3}, {:.3}, {:.3}), \
-                         yaw: {:.1}, pitch: {:.1}, roll: {:.1}, scale: {:.3}",
-                        k.translation.x, k.translation.y, k.translation.z, k.yaw, k.pitch, k.roll,
-                        k.scale,
-                    );
-                }
-                if ui.button("Reset knife model pose to default").clicked() {
-                    *k = ThrowKnifeModelSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Throwing knife", |ui| {
-                let a = &mut *arms_view;
-                ui.label(
-                    "Hold the throwing-knife key: the equipped weapon plays its Hide (sped up), \
-                     then the throwing arms slide up from below. On release the throw plays; the \
-                     server-simulated knife is launched part-way through it. Afterwards the arms \
-                     slide back down, and only then does the weapon start to show again.",
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.weapon_hide_speed, 0.5f32..=12.0)
-                        .text("weapon hide speed (x normal)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.throw_release_secs, 0.0f32..=0.66)
-                        .text("knife leaves the hand (s into the throw)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.slide_speed, 0.5f32..=20.0)
-                        .text("arms show / hide speed (slides/s)")
-                        .logarithmic(true),
-                );
-                ui.add(
-                    egui::Slider::new(&mut a.hide_drop, 0.0f32..=2.0)
-                        .text("arms hidden drop (m below)"),
-                );
-                if ui.button("Reset throwing knife timing to default").clicked() {
-                    let d = ThrowArmsSettings::default();
-                    a.weapon_hide_speed = d.weapon_hide_speed;
-                    a.slide_speed = d.slide_speed;
-                    a.hide_drop = d.hide_drop;
-                    a.throw_release_secs = d.throw_release_secs;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Muzzle flash", |ui| {
-                let m = &mut *muzzle;
-                ui.label("position");
-                ui.add(egui::Slider::new(&mut m.translation.x, -0.6f32..=0.6).text("x  (right +)"));
-                ui.add(egui::Slider::new(&mut m.translation.y, -0.6f32..=0.6).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut m.translation.z, -2.0f32..=0.0).text("z  (forward -)"),
-                );
-                ui.label("size (m)");
-                ui.add(egui::Slider::new(&mut m.size.x, 0.01f32..=2.0).text("width"));
-                ui.add(egui::Slider::new(&mut m.size.y, 0.01f32..=2.0).text("height"));
-
-                if ui.button("Copy muzzle flash to console").clicked() {
-                    info!(
-                        "muzzle: translation Vec3::new({:.4}, {:.4}, {:.4}), \
-                         size Vec2::new({:.4}, {:.4})",
-                        m.translation.x, m.translation.y, m.translation.z, m.size.x, m.size.y,
-                    );
-                }
-                if ui.button("Reset muzzle flash").clicked() {
-                    *m = MuzzleFlashSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Tracer", |ui| {
-                let tr = &mut *tracer;
-                ui.label("flash (just fired)");
-                ui.add(
-                    egui::Slider::new(&mut tr.flash_secs, 0.0f32..=0.3).text("flash duration (s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.flash_radius, 0.005f32..=0.15)
-                        .text("flash radius (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.flash_emissive_boost, 0.0f32..=15.0)
-                        .text("flash glow (emissive ×)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.label("flash color");
-                    ui.color_edit_button_rgb(&mut tr.flash_color);
+                    if ui.button("Reset FOV").clicked() {
+                        tuning.lens_fit = AdsTuning::default().lens_fit;
+                    }
                 });
 
-                ui.label("smoke trail");
-                ui.add(
-                    egui::Slider::new(&mut tr.smoke_secs, 0.1f32..=8.0).text("fade duration (s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.smoke_start_alpha, 0.0f32..=1.0)
-                        .text("starting opacity"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.smoke_radius, 0.01f32..=0.4).text("end radius (m)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.label("smoke color");
-                    ui.color_edit_button_rgb(&mut tr.smoke_color);
-                });
-
-                ui.label("throwing knife trail");
-                ui.add(
-                    egui::Slider::new(&mut tr.knife_trail_alpha, 0.0f32..=1.0)
-                        .text("start opacity"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.knife_trail_radius, 0.001f32..=0.1)
-                        .text("radius (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut tr.knife_trail_secs, 0.1f32..=6.0)
-                        .text("fade time (s)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.label("knife trail color");
-                    ui.color_edit_button_rgb(&mut tr.knife_trail_color);
-                });
-
-                if ui.button("Reset tracer").clicked() {
-                    *tr = TracerSettings::default();
-                }
-            });
-
             ui.separator();
-            ui.collapsing("Map", |ui| {
-                let mp = &mut *map;
-                ui.label("position");
-                ui.add(egui::Slider::new(&mut mp.position.x, -100.0f32..=100.0).text("x"));
-                ui.add(egui::Slider::new(&mut mp.position.y, -20.0f32..=20.0).text("y"));
-                ui.add(egui::Slider::new(&mut mp.position.z, -100.0f32..=100.0).text("z"));
-                ui.add(
-                    egui::Slider::new(&mut mp.rotation_deg, -180.0f32..=180.0)
-                        .text("rotation°  (yaw)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut mp.scale, 0.1f32..=5.0)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-
-                if ui.button("Copy map transform to console").clicked() {
-                    info!(
-                        "map: position Vec3::new({:.2}, {:.2}, {:.2}), rotation_deg: {:.1}, \
-                         scale: {:.3}",
-                        mp.position.x, mp.position.y, mp.position.z, mp.rotation_deg, mp.scale,
+                ui.collapsing("ADS speed", |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut tuning.ads_duration_ms, 20.0f32..=1000.0)
+                            .text("ADS time (ms)  (lower = snappier)")
+                            .suffix(" ms")
+                            .max_decimals(0),
                     );
-                }
-                if ui.button("Reset map transform").clicked() {
-                    *mp = MapSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Shipment map", |ui| {
-                let sh = &mut *shipment;
-                ui.label("models/shipment.glb — spawned at the origin, scale only");
-                ui.add(
-                    egui::Slider::new(&mut sh.scale, 0.05f32..=2.0)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-                ui.label(
-                    "Only affects this client's own rendering + collision — the server's \
-                     spawn/respawn placement always uses shared::map::SHIPMENT_SCALE, so \
-                     update that constant to match once you've found the right number.",
-                );
-
-                if ui.button("Copy shipment scale to console").clicked() {
-                    info!("shipment: SHIPMENT_SCALE = {:.3};", sh.scale);
-                }
-                if ui.button("Reset shipment scale").clicked() {
-                    *sh = ShipmentSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Water", |ui| {
-                let w = &mut *water;
-                ui.label("Shipment / Shipment Day — the MW3-style cargo-ship setting's ocean plane");
-                ui.add(
-                    egui::Slider::new(&mut w.level_drop, -3.0f32..=8.0)
-                        .text("level drop below ground (m)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.label("tint");
-                    ui.color_edit_button_rgb(&mut w.tint);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("tint (Shipment Day)");
-                    ui.color_edit_button_rgb(&mut w.day_tint);
-                });
-                ui.add(egui::Slider::new(&mut w.alpha, 0.0f32..=1.0).text("opacity"));
-                ui.add(
-                    egui::Slider::new(&mut w.roughness, 0.0f32..=1.0)
-                        .text("roughness  (lower = shinier)"),
-                );
-                ui.add(egui::Slider::new(&mut w.reflectance, 0.0f32..=1.0).text("reflectance"));
-                ui.add(
-                    egui::Slider::new(&mut w.normal_tiling, 5.0f32..=200.0)
-                        .text("ripple tiling  (higher = smaller ripples)")
-                        .logarithmic(true),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.scroll_speed.x, -0.1f32..=0.1).text("ripple scroll x"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.scroll_speed.y, -0.1f32..=0.1).text("ripple scroll y"),
-                );
-
-                if ui.button("Copy water settings to console").clicked() {
-                    info!(
-                        "water: level_drop: {:.3}, tint: Color::srgb({:.3}, {:.3}, {:.3}), \
-                         alpha: {:.3}, roughness: {:.3}, reflectance: {:.3}, normal_tiling: \
-                         {:.1}, scroll_speed: Vec2::new({:.4}, {:.4})",
-                        w.level_drop,
-                        w.tint[0],
-                        w.tint[1],
-                        w.tint[2],
-                        w.alpha,
-                        w.roughness,
-                        w.reflectance,
-                        w.normal_tiling,
-                        w.scroll_speed.x,
-                        w.scroll_speed.y,
+                    ui.add(
+                        egui::Slider::new(&mut tuning.ads_ease, 0.0f32..=1.0)
+                            .text("easing  (0 = linear, 1 = ease in/out)"),
                     );
-                }
-                if ui.button("Reset water").clicked() {
-                    *w = WaterSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Remote players", |ui| {
-                let ra = &mut *remote_avatar;
-                ui.label("models/soldier.glb");
-                ui.add(
-                    egui::Slider::new(&mut ra.scale, 0.01f32..=100.0)
-                        .text("scale")
-                        .logarithmic(true),
-                );
-                if ui.button("Reset remote player scale").clicked() {
-                    *ra = RemoteAvatarSettings::default();
-                }
-
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("bot tint (× body texture)");
-                    ui.color_edit_button_rgb(&mut bot_look.tint);
-                });
-                if ui.button("Copy bot tint to console").clicked() {
-                    let [r, g, b] = bot_look.tint;
-                    info!("bot tint: [{r:.3}, {g:.3}, {b:.3}]");
-                }
-                if ui.button("Reset bot tint").clicked() {
-                    *bot_look = BotLookSettings::default();
-                }
-
-                ui.separator();
-                ui.label("Player walk/sprint speed also drives these clips — see \"Movement\".");
-                let sa = &mut *soldier_anim;
-                ui.add(
-                    egui::Slider::new(&mut sa.base_walk_speed, 0.1f32..=8.0)
-                        .text(format!("walk anim speed (× at {WALK_SPEED} m/s)")),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.base_sprint_speed, 0.1f32..=8.0)
-                        .text(format!("sprint anim speed (× at {SPRINT_SPEED} m/s)")),
-                );
-                ui.label("No walk-and-shoot clip — runAndShooting covers both aiming states:");
-                ui.add(
-                    egui::Slider::new(&mut sa.base_aim_walk_speed, 0.1f32..=8.0)
-                        .text(format!("aim+walk anim speed (× at {WALK_SPEED} m/s)")),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.base_aim_sprint_speed, 0.1f32..=8.0)
-                        .text(format!("aim+sprint anim speed (× at {SPRINT_SPEED} m/s)")),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.base_crouch_walk_speed, 0.1f32..=8.0)
-                        .text(format!("crouch walk anim speed (× at {CROUCH_SPEED} m/s)")),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.base_strafe_speed, 0.1f32..=8.0).text(format!(
-                        "strafe anim speed (× at {} m/s)",
-                        WALK_SPEED * STRAFE_SPEED_MULT
-                    )),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.base_backpaddle_speed, 0.1f32..=8.0).text(format!(
-                        "backpaddle anim speed (× at {} m/s)",
-                        WALK_SPEED * BACKWARD_SPEED_MULT
-                    )),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sa.death_speed, 0.1f32..=5.0)
-                        .text("death anim speed (×)"),
-                );
-                if ui.button("Reset remote player anim speed").clicked() {
-                    *sa = SoldierAnimSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Sniper glint", |ui| {
-                let g = &mut *sniper_glint;
-                ui.label(
-                    "sniper_glint.png sprite off another player's or bot's scope while \
-                     they're ADS — gives away a camping sniper, Call of Duty-style. Always \
-                     faces you, wherever you're standing.",
-                );
-                ui.label("offset from their eye position, in their own facing:");
-                ui.add(egui::Slider::new(&mut g.offset.x, -1.0f32..=1.0).text("x (right +)"));
-                ui.add(egui::Slider::new(&mut g.offset.y, -2.0f32..=3.0).text("y (up +)"));
-                ui.add(egui::Slider::new(&mut g.offset.z, -1.0f32..=1.0).text("z (forward +)"));
-                ui.add(egui::Slider::new(&mut g.scale, 0.01f32..=2.0).text("sprite size (m)"));
-                ui.add(
-                    egui::Slider::new(&mut g.ads_threshold, 0.0f32..=0.99)
-                        .text("ads amount to start fading in at"),
-                );
-
-                if ui.button("Copy sniper glint to console").clicked() {
-                    info!(
-                        "sniper glint: offset: Vec3::new({:.2}, {:.2}, {:.2}), scale: {:.2}, \
-                         ads_threshold: {:.2}",
-                        g.offset.x, g.offset.y, g.offset.z, g.scale, g.ads_threshold,
+                    ui.add(
+                        egui::Slider::new(&mut tuning.scope_picture_at, 0.0f32..=0.95)
+                            .text("scope picture in at (ads.t)  (higher = later)"),
                     );
-                }
-                if ui.button("Reset sniper glint").clicked() {
-                    *g = SniperGlintSettings::default();
-                }
-            });
+                    if ui.button("Reset ADS speed").clicked() {
+                        let d = AdsTuning::default();
+                        tuning.ads_duration_ms = d.ads_duration_ms;
+                        tuning.ads_ease = d.ads_ease;
+                        tuning.scope_picture_at = d.scope_picture_at;
+                    }
+                });
 
             ui.separator();
-            ui.collapsing("Name tags", |ui| {
-                let nt = &mut *name_tags;
-                ui.label("Diamond + name over other players' heads.");
-                ui.add(
-                    egui::Slider::new(&mut nt.height, 0.0f32..=2.0)
-                        .text("height above eye (m)"),
-                );
-                ui.add(egui::Slider::new(&mut nt.scale, 0.25f32..=4.0).text("scale (×)"));
-                ui.horizontal(|ui| {
-                    ui.label("enemy color (Free For All)");
-                    ui.color_edit_button_rgb(&mut nt.enemy_color);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("lobby member color (Freestyle)");
-                    ui.color_edit_button_rgb(&mut nt.friendly_color);
-                });
-                if ui.button("Copy name tags to console").clicked() {
-                    let [er, eg, eb] = nt.enemy_color;
-                    let [fr, fg, fb] = nt.friendly_color;
-                    info!(
-                        "name tags: height: {:.2}, scale: {:.2}, enemy_color: [{er:.2}, {eg:.2}, {eb:.2}], \
-                         friendly_color: [{fr:.2}, {fg:.2}, {fb:.2}]",
-                        nt.height, nt.scale,
+                ui.collapsing("ADS pose", |ui| {
+                    let a = &mut poses.ads;
+                    ui.add(egui::Slider::new(&mut a.translation.x, -0.4f32..=0.4).text("x  (right +)"));
+                    ui.add(egui::Slider::new(&mut a.translation.y, -0.4f32..=0.4).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut a.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
                     );
-                }
-                if ui.button("Reset name tags").clicked() {
-                    *nt = crate::hud::NameTagSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Remote sounds", |ui| {
-                ui.label("Other players' footsteps/jump/slide/reload/rechamber/shot/dive.");
-                let rs = &mut *remote_sound;
-                ui.add(egui::Slider::new(&mut rs.volume, 0.0f32..=3.0).text("volume (×)"));
-                ui.add(
-                    egui::Slider::new(&mut rs.max_distance, 5.0f32..=300.0)
-                        .text("max distance (m)"),
-                );
-                if ui.button("Reset remote sounds").clicked() {
-                    *rs = RemoteSoundSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Smoke", |ui| {
-                let sm = &mut *smoke;
-                ui.label("spawn offset (from camera)");
-                ui.add(
-                    egui::Slider::new(&mut sm.spawn_offset.x, -0.8f32..=0.8).text("x  (right +)"),
-                );
-                ui.add(egui::Slider::new(&mut sm.spawn_offset.y, -0.8f32..=0.8).text("y  (up +)"));
-                ui.add(
-                    egui::Slider::new(&mut sm.spawn_offset.z, -3.0f32..=0.0).text("z  (forward -)"),
-                );
-                ui.add(egui::Slider::new(&mut sm.scale, 0.02f32..=3.0).text("scale (m)"));
-                ui.add(egui::Slider::new(&mut sm.rise_rate, 0.0f32..=4.0).text("rise rate (m/s)"));
-                ui.add(egui::Slider::new(&mut sm.spread, 0.0f32..=2.0).text("spread (m/s)"));
-                ui.add(egui::Slider::new(&mut sm.fade_in, 0.0f32..=5.0).text("fade in (s)"));
-                ui.add(egui::Slider::new(&mut sm.fade_time, 0.1f32..=10.0).text("fade out (s)"));
-                ui.add(
-                    egui::Slider::new(&mut sm.spawn_rate, 0.0f32..=150.0).text("spawn rate (/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut sm.duration, 0.05f32..=5.0).text("burst duration (s)"),
-                );
-                ui.add(egui::Slider::new(&mut sm.max_opacity, 0.0f32..=1.0).text("max opacity"));
-
-                if ui.button("Copy smoke to console").clicked() {
-                    info!(
-                        "smoke: spawn_offset Vec3::new({:.4}, {:.4}, {:.4}), scale {:.4}, \
-                         rise_rate {:.4}, spread {:.4}, fade_in {:.4}, fade_time {:.4}, \
-                         spawn_rate {:.4}, duration {:.4}, max_opacity {:.4}",
-                        sm.spawn_offset.x,
-                        sm.spawn_offset.y,
-                        sm.spawn_offset.z,
-                        sm.scale,
-                        sm.rise_rate,
-                        sm.spread,
-                        sm.fade_in,
-                        sm.fade_time,
-                        sm.spawn_rate,
-                        sm.duration,
-                        sm.max_opacity,
+                    ui.add(
+                        egui::Slider::new(&mut a.yaw, (-PI)..=PI)
+                            .text("yaw")
+                            .step_by(0.001),
                     );
-                }
-                if ui.button("Reset smoke").clicked() {
-                    *sm = SmokeSettings::default();
-                }
-            });
+                    ui.add(
+                        egui::Slider::new(&mut a.pitch, -0.6f32..=0.6)
+                            .text("pitch")
+                            .step_by(0.001),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
 
-            ui.separator();
-            ui.collapsing("Impact rocks", |ui| {
-                let r = &mut *rocks;
-                ui.label("debris kicked up where a shot hits the ground");
-                ui.add(egui::Slider::new(&mut r.count, 0u32..=40).text("rocks per hit"));
-                ui.add(egui::Slider::new(&mut r.speed, 0.0f32..=20.0).text("launch speed (m/s)"));
-                ui.add(egui::Slider::new(&mut r.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
-                ui.add(egui::Slider::new(&mut r.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
-                ui.add(egui::Slider::new(&mut r.spin, 0.0f32..=40.0).text("tumble (rad/s)"));
-                ui.add(egui::Slider::new(&mut r.scale, 0.01f32..=0.5).text("size (m)"));
-                ui.add(egui::Slider::new(&mut r.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
-                if ui.button("Reset rocks").clicked() {
-                    *r = RockSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Impact dust", |ui| {
-                let d = &mut *dust;
-                ui.label("dust cloud where a shot hits the ground");
-                ui.add(egui::Slider::new(&mut d.count, 0u32..=40).text("puffs per hit"));
-                ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=12.0).text("launch speed (m/s)"));
-                ui.add(egui::Slider::new(&mut d.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
-                ui.add(egui::Slider::new(&mut d.rise, 0.0f32..=4.0).text("extra rise (m/s)"));
-                ui.add(egui::Slider::new(&mut d.drag, 0.0f32..=10.0).text("drag (/s)"));
-                ui.add(egui::Slider::new(&mut d.start_scale, 0.02f32..=2.0).text("start size (m)"));
-                ui.add(egui::Slider::new(&mut d.end_scale, 0.02f32..=4.0).text("end size (m)"));
-                ui.add(egui::Slider::new(&mut d.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
-                ui.add(egui::Slider::new(&mut d.fade_in, 0.0f32..=1.0).text("fade in (s)"));
-                ui.add(egui::Slider::new(&mut d.opacity, 0.0f32..=1.0).text("opacity"));
-                if ui.button("Reset dust").clicked() {
-                    *d = DustSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Blood splatter", |ui| {
-                let b = &mut *blood;
-                ui.label("squirted from a bot along the shot where it hits");
-                ui.add(egui::Slider::new(&mut b.count, 0u32..=60).text("droplets per hit"));
-                ui.add(egui::Slider::new(&mut b.speed, 0.0f32..=25.0).text("squirt speed (m/s)"));
-                ui.add(egui::Slider::new(&mut b.spread_deg, 0.0f32..=90.0).text("spray cone (°)"));
-                ui.add(egui::Slider::new(&mut b.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
-                ui.add(egui::Slider::new(&mut b.drag, 0.0f32..=10.0).text("drag (/s)"));
-                ui.add(egui::Slider::new(&mut b.scale, 0.01f32..=0.8).text("droplet size (m)"));
-                ui.add(egui::Slider::new(&mut b.growth, 1.0f32..=4.0).text("grow ×  (over life)"));
-                ui.add(egui::Slider::new(&mut b.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
-                ui.add(egui::Slider::new(&mut b.opacity, 0.0f32..=1.0).text("opacity"));
-                ui.horizontal(|ui| {
-                    ui.label("tint  (white = texture as-is)");
-                    ui.color_edit_button_rgb(&mut b.color);
+                    if ui.button("Copy pose to console").clicked() {
+                        info!(
+                            "ads: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
+                             yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
+                            a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.scale,
+                        );
+                    }
+                    if ui.button("Reset to default").clicked() {
+                        *a = ViewModelPoses::default().ads;
+                    }
                 });
-                if ui.button("Reset blood").clicked() {
-                    *b = BloodSettings::default();
-                }
-            });
 
             ui.separator();
-            ui.collapsing("Footsteps", |ui| {
-                let f = &mut *footsteps;
-                ui.checkbox(&mut f.enabled, "enabled");
-                ui.add(egui::Slider::new(&mut f.volume, 0.0f32..=10.0).text("overall volume"));
-                ui.label("stride — metres per step (lower = faster cadence)");
-                ui.add(egui::Slider::new(&mut f.walk_stride, 0.5f32..=5.0).text("walk"));
-                ui.add(egui::Slider::new(&mut f.sprint_stride, 0.5f32..=5.0).text("sprint"));
-                ui.add(egui::Slider::new(&mut f.crouch_stride, 0.5f32..=5.0).text("crouch"));
-                ui.add(egui::Slider::new(&mut f.prone_stride, 0.5f32..=5.0).text("prone"));
-                ui.label("per-stance volume");
-                ui.add(egui::Slider::new(&mut f.walk_volume, 0.0f32..=1.0).text("walk"));
-                ui.add(egui::Slider::new(&mut f.sprint_volume, 0.0f32..=1.0).text("sprint"));
-                ui.add(egui::Slider::new(&mut f.crouch_volume, 0.0f32..=1.0).text("crouch"));
-                ui.add(egui::Slider::new(&mut f.prone_volume, 0.0f32..=1.0).text("prone"));
-                ui.add(
-                    egui::Slider::new(&mut f.pitch_jitter, 0.0f32..=0.5).text("pitch jitter (±)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut f.min_speed, 0.0f32..=3.0).text("stopped below (m/s)"),
-                );
-                if ui.button("Reset footsteps").clicked() {
-                    *f = FootstepSettings::default();
-                }
-            });
+                ui.collapsing("Hip pose", |ui| {
+                    let h = &mut poses.hip;
+                    ui.add(egui::Slider::new(&mut h.translation.x, -0.4f32..=0.4).text("x  (right +)"));
+                    ui.add(egui::Slider::new(&mut h.translation.y, -0.4f32..=0.4).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut h.translation.z, -0.8f32..=0.0).text("z  (forward -)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut h.yaw, (-PI)..=PI)
+                            .text("yaw")
+                            .step_by(0.001),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut h.pitch, -0.6f32..=0.6)
+                            .text("pitch")
+                            .step_by(0.001),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+
+                    if ui.button("Copy hip pose to console").clicked() {
+                        info!(
+                            "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
+                             yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
+                            h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
+                        );
+                    }
+                    if ui.button("Reset hip pose to default").clicked() {
+                        *h = ViewModelPoses::default().hip;
+                    }
+                });
 
             ui.separator();
-            ui.collapsing("Health", |ui| {
-                ui.label(
-                    "Health is server-side: shots and falls both take it off, it holds for 3 s \
-                     after damage then recovers, and the client just shows it (red tint + blood, \
-                     heartbeat). The fall-damage distances and recovery rate are constants in \
-                     shared/src/health.rs.",
-                );
-                ui.label(format!(
-                    "health (from the server): {:.0} / {:.0}",
-                    local_health.health,
-                    shared::health::FULL_HEALTH,
-                ));
-                ui.label(format!(
-                    "fall damage: none under {:.0} m, lethal at {:.0} m",
-                    shared::health::FALL_MIN_DISTANCE,
-                    shared::health::FALL_MAX_DISTANCE,
-                ));
-            });
-
-            ui.separator();
-            ui.collapsing("Sound volumes", |ui| {
-                let v = &mut *sound_vol;
-                ui.label("per-sound multiplier (1 = built-in level)");
-                for (label, slot) in [
-                    ("shot", &mut v.shot),
-                    ("rechamber", &mut v.rechamber),
-                    ("reload", &mut v.reload),
-                    ("ambient", &mut v.ambient),
-                    ("shipment ambient", &mut v.shipment_ambient),
-                    ("aim in", &mut v.aim_in),
-                    ("aim out", &mut v.aim_out),
-                    ("out of ammo", &mut v.out_of_ammo),
-                    ("slide", &mut v.slide),
-                    ("dive", &mut v.dive),
-                    ("kill enemy", &mut v.kill_enemy),
-                    ("jump land", &mut v.jump_land),
-                    ("teleport", &mut v.teleport),
-                    ("throwing knife: throw", &mut v.knife_throw),
-                    ("throwing knife: hit enemy", &mut v.knife_hit),
-                    ("throwing knife: in air", &mut v.knife_in_air),
-                    ("knife: equip", &mut v.knife_equip),
-                    ("sniper: equip", &mut v.sniper_equip),
-                    ("heartbeat (at zero health)", &mut v.heartbeat),
-                    ("hit marker", &mut v.hit_marker),
-                    ("zombies: buy perk", &mut v.perk_buy),
-                ] {
-                    ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
-                }
-                // One slider per clip in each folder-backed set (one of a set's
-                // clips plays at random per event).
-                let ks = &mut *knife_sounds;
-                for (title, set) in [
-                    ("throwing knife: surface impacts", &mut ks.impact),
-                    ("knife: stabs (hit a bot / player)", &mut ks.stab),
-                    ("knife: swings (miss)", &mut ks.swing),
-                ] {
-                    ui.collapsing(title, |ui| {
-                        if set.clips.is_empty() {
-                            ui.label("(no clips found in this folder)");
-                        }
-                        for clip in &mut set.clips {
-                            ui.add(egui::Slider::new(&mut clip.volume, 0.0f32..=10.0).text(&clip.name));
-                        }
+                ui.collapsing("Scope lens (hip)", |ui| {
+                    let l = &mut *lens_cfg;
+                    ui.label("how the lens glass looks when not aiming — it fades to a matte black backing as you scope in");
+                    ui.horizontal(|ui| {
+                        ui.label("tint");
+                        egui::color_picker::color_edit_button_rgb(ui, &mut l.tint);
                     });
-                }
-                if ui.button("Reset sound volumes").clicked() {
-                    *v = SoundVolumes::default();
-                    for clip in &mut ks.impact.clips {
-                        clip.volume = 0.3;
+                    ui.add(egui::Slider::new(&mut l.alpha, 0.0f32..=1.0).text("opacity"));
+                    ui.add(
+                        egui::Slider::new(&mut l.roughness, 0.0f32..=1.0)
+                            .text("roughness  (low = tight, mirror-like glint)"),
+                    );
+                    ui.add(egui::Slider::new(&mut l.metallic, 0.0f32..=1.0).text("metallic"));
+                    ui.add(egui::Slider::new(&mut l.reflectance, 0.0f32..=1.0).text("reflectance"));
+                    if ui.button("Reset lens").clicked() {
+                        *l = LensSettings::default();
                     }
-                    for clip in ks.stab.clips.iter_mut().chain(&mut ks.swing.clips) {
-                        clip.volume = 1.0;
+                });
+
+            ui.separator();
+                ui.collapsing("No-scope spread", |ui| {
+                    let n = &mut *noscope;
+                    ui.label("random up/down + L/R miss angle — wide at the hip, gone at full ADS");
+                    ui.add(
+                        egui::Slider::new(&mut n.hip_max_deg, 0.0f32..=15.0)
+                            .text("max miss at hip (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut n.curve, 1.0f32..=6.0)
+                            .text("accuracy curve  (1 = linear, higher = tightens late)"),
+                    );
+                    ui.label(format!(
+                        "cap now @ ads.t {:.2}: ±{:.2}°",
+                        ads.t,
+                        noscope_spread_angle(n, ads.t).to_degrees(),
+                    ));
+                    if ui.button("Reset no-scope spread").clicked() {
+                        *n = NoScopeSpread::default();
                     }
-                }
+                });
+
+            ui.separator();
+                ui.collapsing("Animations", |ui| {
+                    let a = &mut *anim;
+                    ui.add(
+                        egui::Slider::new(&mut a.rechamber_speed, 0.1f32..=4.0)
+                            .text("rechamber speed (×)"),
+                    );
+                    if ui.button("Reset animations").clicked() {
+                        *a = AnimationSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Weapon sway", |ui| {
+                    let w = &mut *sway;
+                    ui.label(
+                        "the gun angles away from the turn and catches up — this is the ADS \
+                         sway now (the scope reticle itself never moves, see Crosshair)",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.hip_strength, 0.0f32..=2.0)
+                            .text("hip strength (s of lag)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.ads_strength, 0.0f32..=1.0)
+                            .text("ADS strength (s of lag)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.return_speed, 1.0f32..=20.0).text("catch-up speed"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=30.0).text("max offset (°)"),
+                    );
+                    ui.label("shift — the gun also translates the way it's angled");
+                    ui.add(
+                        egui::Slider::new(&mut w.hip_shift_m, 0.0f32..=0.1)
+                            .text("hip shift (m per rad of lag)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.ads_shift_m, 0.0f32..=0.2)
+                            .text("ADS shift (m per rad of lag)"),
+                    );
+                    ui.label(format!(
+                        "live strength @ ads.t {:.2} = {:.4}",
+                        ads.t,
+                        w.hip_strength.lerp(w.ads_strength, ads.t.clamp(0.0, 1.0)),
+                    ));
+
+                    if ui.button("Copy weapon sway to console").clicked() {
+                        info!(
+                            "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
+                             return_speed {:.4}, max_offset_deg {:.4}, hip_shift_m {:.4}, \
+                             ads_shift_m {:.4}",
+                            w.hip_strength,
+                            w.ads_strength,
+                            w.return_speed,
+                            w.max_offset_deg,
+                            w.hip_shift_m,
+                            w.ads_shift_m,
+                        );
+                    }
+                    if ui.button("Reset weapon sway").clicked() {
+                        *w = WeaponSwaySettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Idle sway", |ui| {
+                    let s = &mut *idle_sway;
+                    ui.label("weapon 'breathing' drift while standing still, hip only");
+                    ui.add(
+                        egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=2.0).text("amplitude X (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=2.0).text("amplitude Y (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
+                            .text("frequency X (Hz)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
+                            .text("frequency Y (Hz)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.blend_speed, 0.2f32..=10.0)
+                            .text("blend speed (stop / go)"),
+                    );
+                    if ui.button("Reset idle sway").clicked() {
+                        *s = IdleSwaySettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Aim sway", |ui| {
+                    let s = &mut *aim_sway;
+                    ui.label(
+                        "REAL aim breathing while scoped (scales up into ADS) — actually turns \
+                         the camera, so it moves where a shot lands. The reticle stays pinned to \
+                         the screen; the world drifts under it instead.",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0).text("amplitude X (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=1.0).text("amplitude Y (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
+                            .text("frequency X (Hz)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
+                            .text("frequency Y (Hz)"),
+                    );
+                    if ui.button("Reset aim sway").clicked() {
+                        *s = AimSwaySettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Knife", |ui| {
+                    let k = &mut *knife_view;
+                    ui.label("models/knife.glb — position and scale only (see WeaponSlot::Secondary)");
+                    ui.label(
+                        "Position range is wide on purpose — push it out past the normal hip-pose \
+                         range to stand it next to a bot in world space and check the scale reads \
+                         right, then dial it back in for the actual view-model pose.",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut k.translation.x, -20.0f32..=20.0).text("x  (right +)"),
+                    );
+                    ui.add(egui::Slider::new(&mut k.translation.y, -20.0f32..=20.0).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut k.translation.z, -40.0f32..=5.0).text("z  (forward -)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut k.scale, 0.001f32..=0.05)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+
+                    if ui.button("Copy knife pose to console").clicked() {
+                        info!(
+                            "knife: translation: Vec3::new({:.4}, {:.4}, {:.4}), scale: {:.5}",
+                            k.translation.x, k.translation.y, k.translation.z, k.scale,
+                        );
+                    }
+                    if ui.button("Reset knife pose to default").clicked() {
+                        *k = KnifeViewModelSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Throwing arms", |ui| {
+                    let a = &mut *arms_view;
+                    ui.label(
+                        "models/arms_throwing.glb — where the arms sit while the throwing-knife key \
+                         is held. Angles are on top of the fixed half-turn that points the \
+                         model down the view.",
+                    );
+                    ui.add(egui::Slider::new(&mut a.translation.x, -2.0f32..=2.0).text("x  (right +)"));
+                    ui.add(egui::Slider::new(&mut a.translation.y, -2.0f32..=2.0).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut a.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
+                    );
+                    ui.add(egui::Slider::new(&mut a.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                    ui.add(egui::Slider::new(&mut a.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                    ui.add(egui::Slider::new(&mut a.roll, -180.0f32..=180.0).text("roll (°)"));
+                    ui.add(
+                        egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+
+                    if ui.button("Copy arms pose to console").clicked() {
+                        info!(
+                            "arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
+                             pitch: {:.1}, roll: {:.1}, scale: {:.5}",
+                            a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.roll,
+                            a.scale,
+                        );
+                    }
+                    if ui.button("Reset arms pose to default").clicked() {
+                        // Pose only — the timing values live in the "Throwing knife"
+                        // section below.
+                        let d = ThrowArmsSettings::default();
+                        a.translation = d.translation;
+                        a.yaw = d.yaw;
+                        a.pitch = d.pitch;
+                        a.roll = d.roll;
+                        a.scale = d.scale;
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Drinking arms", |ui| {
+                    let d = &mut *drink;
+                    ui.label(
+                        "models/arms_drinking.glb — the perk-drinking arms (played once on buying \
+                         a perk), looping the trimmed drink clip while shown here. Angles are on top of the fixed half-turn that \
+                         points the model down the view.",
+                    );
+                    let show_label = if d.show { "Hide drinking arms" } else { "Show drinking arms" };
+                    if ui.button(show_label).clicked() {
+                        d.show = !d.show;
+                    }
+                    ui.add(egui::Slider::new(&mut d.translation.x, -2.0f32..=2.0).text("x  (right +)"));
+                    ui.add(egui::Slider::new(&mut d.translation.y, -2.0f32..=2.0).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut d.translation.z, -3.0f32..=1.0).text("z  (forward -)"),
+                    );
+                    ui.add(egui::Slider::new(&mut d.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                    ui.add(egui::Slider::new(&mut d.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                    ui.add(egui::Slider::new(&mut d.roll, -180.0f32..=180.0).text("roll (°)"));
+                    ui.add(
+                        egui::Slider::new(&mut d.scale, 0.01f32..=10.0)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+                    ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=10.0).text("animation speed"));
+                    ui.add(egui::Slider::new(&mut d.glow, 0.0f32..=5.0).text("bottle glow"));
+
+                    if ui.button("Copy drinking arms pose to console").clicked() {
+                        info!(
+                            "drinking arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
+                             pitch: {:.1}, roll: {:.1}, scale: {:.5}, speed: {:.2}, glow: {:.2}",
+                            d.translation.x, d.translation.y, d.translation.z, d.yaw, d.pitch, d.roll,
+                            d.scale, d.speed, d.glow,
+                        );
+                    }
+                    if ui.button("Reset drinking arms pose to default").clicked() {
+                        // Pose only — leaves the show toggle as it is.
+                        *d = crate::DrinkArmsSettings {
+                            show: d.show,
+                            ..default()
+                        };
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Throwing knife model", |ui| {
+                    let k = &mut *knife_model;
+                    ui.label(
+                        "models/throwing_knife.glb — the knife held in the throwing arms' hand, \
+                         positioned in the ARMS' local space (a child of the arms), so it stays in \
+                         the hand however the arms move. One unit = the arms' scale in metres \
+                         (0.01 by default, so units are ~cm). Visible from the key press until the \
+                         throw animation starts. Hold the throwing-knife key to see it.",
+                    );
+                    ui.checkbox(
+                        &mut arms_view.debug_hold_key,
+                        "Hold throwing knife key (as if held — untick to throw)",
+                    );
+                    ui.add(egui::Slider::new(&mut k.translation.x, -100.0f32..=100.0).text("x"));
+                    ui.add(egui::Slider::new(&mut k.translation.y, -100.0f32..=100.0).text("y"));
+                    ui.add(egui::Slider::new(&mut k.translation.z, -100.0f32..=100.0).text("z"));
+                    ui.add(egui::Slider::new(&mut k.yaw, -180.0f32..=180.0).text("yaw (°)"));
+                    ui.add(egui::Slider::new(&mut k.pitch, -180.0f32..=180.0).text("pitch (°)"));
+                    ui.add(egui::Slider::new(&mut k.roll, -180.0f32..=180.0).text("roll (°)"));
+                    ui.add(
+                        egui::Slider::new(&mut k.scale, 0.1f32..=30.0)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+                    if ui.button("Copy knife model pose to console").clicked() {
+                        info!(
+                            "throwing knife model: translation: Vec3::new({:.3}, {:.3}, {:.3}), \
+                             yaw: {:.1}, pitch: {:.1}, roll: {:.1}, scale: {:.3}",
+                            k.translation.x, k.translation.y, k.translation.z, k.yaw, k.pitch, k.roll,
+                            k.scale,
+                        );
+                    }
+                    if ui.button("Reset knife model pose to default").clicked() {
+                        *k = ThrowKnifeModelSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Throwing knife", |ui| {
+                    let a = &mut *arms_view;
+                    ui.label(
+                        "Hold the throwing-knife key: the equipped weapon plays its Hide (sped up), \
+                         then the throwing arms slide up from below. On release the throw plays; the \
+                         server-simulated knife is launched part-way through it. Afterwards the arms \
+                         slide back down, and only then does the weapon start to show again.",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut a.weapon_hide_speed, 0.5f32..=12.0)
+                            .text("weapon hide speed (x normal)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut a.throw_release_secs, 0.0f32..=0.66)
+                            .text("knife leaves the hand (s into the throw)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut a.slide_speed, 0.5f32..=20.0)
+                            .text("arms show / hide speed (slides/s)")
+                            .logarithmic(true),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut a.hide_drop, 0.0f32..=2.0)
+                            .text("arms hidden drop (m below)"),
+                    );
+                    if ui.button("Reset throwing knife timing to default").clicked() {
+                        let d = ThrowArmsSettings::default();
+                        a.weapon_hide_speed = d.weapon_hide_speed;
+                        a.slide_speed = d.slide_speed;
+                        a.hide_drop = d.hide_drop;
+                        a.throw_release_secs = d.throw_release_secs;
+                    }
+                });
             });
 
             ui.separator();
             ui.collapsing("Movement", |ui| {
-                let m = &mut *movement;
-                ui.add(
-                    egui::Slider::new(&mut m.walk_speed, 0.0f32..=20.0).text("walk speed (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.sprint_speed, 0.0f32..=30.0)
-                        .text("sprint speed (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.strafe_speed_mult, 0.1f32..=1.5)
-                        .text("strafe speed (×)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.backward_speed_mult, 0.1f32..=1.5)
-                        .text("backward speed (×)"),
-                );
-                ui.add(egui::Slider::new(&mut m.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
-                ui.add(
-                    egui::Slider::new(&mut m.jump_speed, 0.0f32..=20.0).text("jump strength (m/s)"),
-                );
-                if ui.button("Reset movement").clicked() {
-                    *m = MovementSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Ledge jump", |ui| {
-                let l = &mut *ledge_jump;
-                ui.label(
-                    "Grace period after running off an edge in which jump still works \
-                     (Call of Duty style), instead of just dropping.",
-                );
-                ui.checkbox(&mut l.enabled, "enabled");
-                ui.add(
-                    egui::Slider::new(&mut l.grace_secs, 0.0f32..=0.5)
-                        .text("grace time (s)")
-                        .max_decimals(3),
-                );
-                let m = &*movement;
-                ui.label(format!(
-                    "≈ {:.2} m past the edge walking, {:.2} m sprinting",
-                    l.grace_secs * m.walk_speed,
-                    l.grace_secs * m.sprint_speed,
-                ));
-                if ui.button("Reset ledge jump").clicked() {
-                    *l = LedgeJumpSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Slide", |ui| {
-                let s = &mut *slide_cfg;
-                ui.label("crouch = key while still; slide = key while moving; jump cancels");
-                ui.add(egui::Slider::new(&mut s.crouch_drop, 0.0f32..=1.5).text("crouch drop (m)"));
-                ui.add(
-                    egui::Slider::new(&mut s.crouch_speed, 0.0f32..=8.0)
-                        .text("crouch-walk speed (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.slide_speed, 0.0f32..=20.0)
-                        .text("slide launch speed (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.sprint_bonus, 0.0f32..=12.0)
-                        .text("sprint slide bonus (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.friction, 0.5f32..=25.0).text("slide friction (m/s²)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.min_speed, 0.1f32..=8.0).text("slide end speed (m/s)"),
-                );
-                ui.add(egui::Slider::new(&mut s.max_time, 0.2f32..=4.0).text("slide time cap (s)"));
-                ui.add(
-                    egui::Slider::new(&mut s.duck_speed, 2.0f32..=30.0).text("duck-down rate (/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.stand_speed, 2.0f32..=30.0).text("stand-up rate (/s)"),
-                );
-                if ui.button("Reset slide").clicked() {
-                    *s = SlideSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Dive & prone", |ui| {
-                let s = &mut *slide_cfg;
-                ui.label("prone key while still toggles prone; while moving = dolphin dive");
-                ui.add(egui::Slider::new(&mut s.prone_drop, 0.2f32..=1.6).text("prone drop (m)"));
-                ui.add(
-                    egui::Slider::new(&mut s.prone_speed, 0.0f32..=6.0).text("prone crawl (m/s)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.dive_speed, 0.0f32..=22.0)
-                        .text("dive launch speed (m/s)"),
-                );
-                ui.add(egui::Slider::new(&mut s.dive_jump, 0.0f32..=12.0).text("dive hop (m/s)"));
-                ui.add(
-                    egui::Slider::new(&mut s.dive_tuck_speed, 2.0f32..=30.0)
-                        .text("dive tuck rate (/s)"),
-                );
-                if ui.button("Reset dive & prone").clicked() {
-                    let d = SlideSettings::default();
-                    s.prone_drop = d.prone_drop;
-                    s.prone_speed = d.prone_speed;
-                    s.dive_speed = d.dive_speed;
-                    s.dive_jump = d.dive_jump;
-                    s.dive_tuck_speed = d.dive_tuck_speed;
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Mantle", |ui| {
-                let m = &mut *mantle_cfg;
-                ui.label(
-                    "Player-facing on/off is Settings → Controls → Automatic Mantle, not here.",
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.min_height, 0.0f32..=1.5)
-                        .text("min ledge height (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.max_height, 0.5f32..=3.5)
-                        .text("max ledge height (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.probe_height, 0.2f32..=2.0)
-                        .text("wall probe height (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.forward_dist, 0.1f32..=2.0)
-                        .text("forward probe distance (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.ledge_probe_forward, 0.05f32..=1.0)
-                        .text("ledge-top probe offset (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut m.duration, 0.1f32..=1.5).text("climb duration (s)"),
-                );
-                if ui.button("Reset mantle").clicked() {
-                    *m = MantleSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Weapon sway", |ui| {
-                let w = &mut *sway;
-                ui.label(
-                    "the gun angles away from the turn and catches up — this is the ADS \
-                     sway now (the scope reticle itself never moves, see Crosshair)",
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.hip_strength, 0.0f32..=2.0)
-                        .text("hip strength (s of lag)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.ads_strength, 0.0f32..=1.0)
-                        .text("ADS strength (s of lag)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.return_speed, 1.0f32..=20.0).text("catch-up speed"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=30.0).text("max offset (°)"),
-                );
-                ui.label("shift — the gun also translates the way it's angled");
-                ui.add(
-                    egui::Slider::new(&mut w.hip_shift_m, 0.0f32..=0.1)
-                        .text("hip shift (m per rad of lag)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut w.ads_shift_m, 0.0f32..=0.2)
-                        .text("ADS shift (m per rad of lag)"),
-                );
-                ui.label(format!(
-                    "live strength @ ads.t {:.2} = {:.4}",
-                    ads.t,
-                    w.hip_strength.lerp(w.ads_strength, ads.t.clamp(0.0, 1.0)),
-                ));
-
-                if ui.button("Copy weapon sway to console").clicked() {
-                    info!(
-                        "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
-                         return_speed {:.4}, max_offset_deg {:.4}, hip_shift_m {:.4}, \
-                         ads_shift_m {:.4}",
-                        w.hip_strength,
-                        w.ads_strength,
-                        w.return_speed,
-                        w.max_offset_deg,
-                        w.hip_shift_m,
-                        w.ads_shift_m,
+                ui.collapsing("Movement", |ui| {
+                    let m = &mut *movement;
+                    ui.add(
+                        egui::Slider::new(&mut m.walk_speed, 0.0f32..=20.0).text("walk speed (m/s)"),
                     );
-                }
-                if ui.button("Reset weapon sway").clicked() {
-                    *w = WeaponSwaySettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Idle sway", |ui| {
-                let s = &mut *idle_sway;
-                ui.label("weapon 'breathing' drift while standing still, hip only");
-                ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=2.0).text("amplitude X (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=2.0).text("amplitude Y (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
-                        .text("frequency X (Hz)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
-                        .text("frequency Y (Hz)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.blend_speed, 0.2f32..=10.0)
-                        .text("blend speed (stop / go)"),
-                );
-                if ui.button("Reset idle sway").clicked() {
-                    *s = IdleSwaySettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Aim sway", |ui| {
-                let s = &mut *aim_sway;
-                ui.label(
-                    "REAL aim breathing while scoped (scales up into ADS) — actually turns \
-                     the camera, so it moves where a shot lands. The reticle stays pinned to \
-                     the screen; the world drifts under it instead.",
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.x, 0.0f32..=1.0).text("amplitude X (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.amplitude_deg.y, 0.0f32..=1.0).text("amplitude Y (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.frequency_hz.x, 0.02f32..=1.0)
-                        .text("frequency X (Hz)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.frequency_hz.y, 0.02f32..=1.0)
-                        .text("frequency Y (Hz)"),
-                );
-                if ui.button("Reset aim sway").clicked() {
-                    *s = AimSwaySettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Crosshair", |ui| {
-                let c = &mut *crosshair_cfg;
-
-                ui.label("size on the glass");
-                ui.add(
-                    egui::Slider::new(&mut c.scale, 0.3f32..=3.0)
-                        .text("scale  (>1 pushes the ends past the edge)"),
-                );
-
-                ui.label("aim-in drift — starts off-centre, slides to the middle");
-                ui.add(
-                    egui::Slider::new(&mut c.aim_in_frac.x, -10.0f32..=10.0)
-                        .text("start X  (+ = left, × scope half-view)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.aim_in_frac.y, -10.0f32..=10.0)
-                        .text("start Y  (+ = up, × scope half-view)"),
-                );
-                ui.label("counter-sway — reticle moves opposite the weapon sway");
-                ui.add(
-                    egui::Slider::new(&mut c.sway_counter.x, -10.0f32..=10.0)
-                        .text("counter X  (half-views per rad of yaw sway)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.sway_counter.y, -10.0f32..=10.0)
-                        .text("counter Y  (half-views per rad of pitch sway)"),
-                );
-                ui.label(
-                    "that raise slide is the reticle's only motion — no turn lag any more, \
-                     it's pinned to dead centre once scoped (see Weapon sway / Aim sway \
-                     instead: that's where the sway went).",
-                );
-
-                ui.checkbox(&mut c.center_dot_always, "keep centre dot on (no fade)");
-
-                if ui.button("Reset crosshair").clicked() {
-                    *c = CrosshairSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Scope lens (hip)", |ui| {
-                let l = &mut *lens_cfg;
-                ui.label("how the lens glass looks when not aiming — it fades to a matte black backing as you scope in");
-                ui.horizontal(|ui| {
-                    ui.label("tint");
-                    egui::color_picker::color_edit_button_rgb(ui, &mut l.tint);
+                    ui.add(
+                        egui::Slider::new(&mut m.sprint_speed, 0.0f32..=30.0)
+                            .text("sprint speed (m/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.strafe_speed_mult, 0.1f32..=1.5)
+                            .text("strafe speed (×)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.backward_speed_mult, 0.1f32..=1.5)
+                            .text("backward speed (×)"),
+                    );
+                    ui.add(egui::Slider::new(&mut m.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+                    ui.add(
+                        egui::Slider::new(&mut m.jump_speed, 0.0f32..=20.0).text("jump strength (m/s)"),
+                    );
+                    if ui.button("Reset movement").clicked() {
+                        *m = MovementSettings::default();
+                    }
                 });
-                ui.add(egui::Slider::new(&mut l.alpha, 0.0f32..=1.0).text("opacity"));
-                ui.add(
-                    egui::Slider::new(&mut l.roughness, 0.0f32..=1.0)
-                        .text("roughness  (low = tight, mirror-like glint)"),
-                );
-                ui.add(egui::Slider::new(&mut l.metallic, 0.0f32..=1.0).text("metallic"));
-                ui.add(egui::Slider::new(&mut l.reflectance, 0.0f32..=1.0).text("reflectance"));
-                if ui.button("Reset lens").clicked() {
-                    *l = LensSettings::default();
-                }
-            });
 
             ui.separator();
-            ui.collapsing("Camera shake", |ui| {
-                let c = &mut *shake_cfg;
-                ui.label("per-shot kick — up/down + side/side only");
-                ui.add(
-                    egui::Slider::new(&mut c.trauma_per_shot, 0.0f32..=1.0).text("trauma per shot"),
-                );
-                ui.add(egui::Slider::new(&mut c.decay, 0.5f32..=12.0).text("trauma decay (/s)"));
-                ui.add(egui::Slider::new(&mut c.frequency, 5.0f32..=120.0).text("frequency"));
-                ui.add(
-                    egui::Slider::new(&mut c.pos_max, 0.0f32..=0.4)
-                        .text("up/down + L/R amount (m)"),
-                );
-                ui.add(egui::Slider::new(&mut c.ads_scale, 0.0f32..=1.0).text(
-                    "ADS scale — jitter + punch + shudder left at full ADS \
-                         (ramps to full at the hip)",
-                ));
-                ui.separator();
-                ui.label("view punch — rotates gun + cameras together (scaled by ADS scale)");
-                ui.add(
-                    egui::Slider::new(&mut c.view_punch_deg, 0.0f32..=12.0)
-                        .text("view punch up (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.view_jitter_deg, 0.0f32..=6.0)
-                        .text("view punch chaos (°)"),
-                );
-                ui.separator();
-                ui.label(
-                    "weapon shudder — gun kicks back toward the eye, muzzle climbs \
-                     (scaled by ADS scale)",
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4)
-                        .text("weapon kick back (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.weapon_kick_deg, 0.0f32..=15.0)
-                        .text("weapon muzzle climb (°)"),
-                );
-                ui.separator();
-                ui.label("front/back: eye punches back off the scope, then returns");
-                ui.add(
-                    egui::Slider::new(&mut c.recoil_kick, 0.0f32..=2.0).text("backward kick (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0)
-                        .text("return speed (/s)"),
-                );
-                ui.label(format!("recoil now: {:.3} m", shake.recoil));
-
-                if ui.button("Copy camera shake to console").clicked() {
-                    info!(
-                        "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
-                         pos_max {:.4}, view_punch_deg {:.4}, view_jitter_deg {:.4}, \
-                         weapon_kick {:.4}, weapon_kick_deg {:.4}, recoil_kick {:.4}, \
-                         recoil_return {:.4}, ads_scale {:.4}",
-                        c.trauma_per_shot,
-                        c.decay,
-                        c.frequency,
-                        c.pos_max,
-                        c.view_punch_deg,
-                        c.view_jitter_deg,
-                        c.weapon_kick,
-                        c.weapon_kick_deg,
-                        c.recoil_kick,
-                        c.recoil_return,
-                        c.ads_scale,
+                ui.collapsing("Ledge jump", |ui| {
+                    let l = &mut *ledge_jump;
+                    ui.label(
+                        "Grace period after running off an edge in which jump still works \
+                         (Call of Duty style), instead of just dropping.",
                     );
-                }
-                if ui.button("Reset camera shake").clicked() {
-                    *c = ShakeSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("No-scope spread", |ui| {
-                let n = &mut *noscope;
-                ui.label("random up/down + L/R miss angle — wide at the hip, gone at full ADS");
-                ui.add(
-                    egui::Slider::new(&mut n.hip_max_deg, 0.0f32..=15.0)
-                        .text("max miss at hip (°)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut n.curve, 1.0f32..=6.0)
-                        .text("accuracy curve  (1 = linear, higher = tightens late)"),
-                );
-                ui.label(format!(
-                    "cap now @ ads.t {:.2}: ±{:.2}°",
-                    ads.t,
-                    noscope_spread_angle(n, ads.t).to_degrees(),
-                ));
-                if ui.button("Reset no-scope spread").clicked() {
-                    *n = NoScopeSpread::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Animations", |ui| {
-                let a = &mut *anim;
-                ui.add(
-                    egui::Slider::new(&mut a.rechamber_speed, 0.1f32..=4.0)
-                        .text("rechamber speed (×)"),
-                );
-                if ui.button("Reset animations").clicked() {
-                    *a = AnimationSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Fog & Sky (Basic Map)", |ui| {
-                scene_tuning_sliders(ui, &mut scene);
-                if ui.button("Reset fog & sky").clicked() {
-                    *scene = SceneTuning::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Fog & Sky (Shipment)", |ui| {
-                ui.label("MW3-style setting: dark, foggy, overcast, out on open water");
-                scene_tuning_sliders(ui, &mut shipment_scene.0);
-                if ui.button("Reset fog & sky").clicked() {
-                    *shipment_scene = ShipmentSceneTuning::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Fog & Sky (Shipment Day)", |ui| {
-                ui.label("Bright, clear daytime — barely any fog, no rain");
-                scene_tuning_sliders(ui, &mut shipment_day_scene.0);
-                if ui.button("Reset fog & sky").clicked() {
-                    *shipment_day_scene = ShipmentDaySceneTuning::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Fog & Sky (Break Point)", |ui| {
-                ui.label("Clear mid-day — bright sun, virtually no fog (very high visibility)");
-                scene_tuning_sliders(ui, &mut break_point_scene.0);
-                if ui.button("Reset fog & sky").clicked() {
-                    *break_point_scene = BreakPointSceneTuning::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Shipment Lights", |ui| {
-                ui.checkbox(
-                    &mut shipment_light.markers_visible,
-                    "show position/aim markers",
-                );
-                ui.label(
-                    "Off by default — the bulb + rod gizmo is only there to help place the \
-                     lights, not something to leave on.",
-                );
-            });
-
-            ui.separator();
-            ui.collapsing("Shipment Light 1", |ui| {
-                shipment_light_sliders(ui, &mut shipment_light.lights[0], 0);
-            });
-
-            ui.separator();
-            ui.collapsing("Shipment Light 2", |ui| {
-                shipment_light_sliders(ui, &mut shipment_light.lights[1], 1);
-            });
-
-            ui.separator();
-            ui.collapsing("Fluorescent Light", |ui| {
-                let f = &mut *fluoro;
-                ui.label("Shipment only — the tube fixture model inside one container");
-                ui.checkbox(&mut f.markers_visible, "show position marker");
-                ui.add(egui::Slider::new(&mut f.position.x, -80.0f32..=80.0).text("x"));
-                ui.add(egui::Slider::new(&mut f.position.y, 0.0f32..=60.0).text("y (height)"));
-                ui.add(egui::Slider::new(&mut f.position.z, -80.0f32..=80.0).text("z"));
-                point_light_sliders(
-                    ui,
-                    &mut f.color,
-                    &mut f.intensity,
-                    &mut f.range,
-                    &mut f.shadows_enabled,
-                );
-
-                if ui.button("Copy fluorescent light to console").clicked() {
-                    info!(
-                        "fluoro: position: Vec3::new({:.2}, {:.2}, {:.2}), color: \
-                         Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, range: {:.1}, \
-                         shadows_enabled: {}",
-                        f.position.x,
-                        f.position.y,
-                        f.position.z,
-                        f.color[0],
-                        f.color[1],
-                        f.color[2],
-                        f.intensity,
-                        f.range,
-                        f.shadows_enabled,
+                    ui.checkbox(&mut l.enabled, "enabled");
+                    ui.add(
+                        egui::Slider::new(&mut l.grace_secs, 0.0f32..=0.5)
+                            .text("grace time (s)")
+                            .max_decimals(3),
                     );
-                }
-                if ui.button("Reset fluorescent light").clicked() {
-                    *f = FluoroLightSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Bulb Lights", |ui| {
-                let b = &mut *bulbs;
-                ui.label(
-                    "Shipment only — two bare bulbs in another container; everything below is \
-                     shared between both, only position is per-bulb",
-                );
-                ui.checkbox(&mut b.markers_visible, "show position markers");
-                ui.label("Bulb 1 position");
-                ui.add(egui::Slider::new(&mut b.positions[0].x, -80.0f32..=80.0).text("x"));
-                ui.add(
-                    egui::Slider::new(&mut b.positions[0].y, 0.0f32..=60.0).text("y (height)"),
-                );
-                ui.add(egui::Slider::new(&mut b.positions[0].z, -80.0f32..=80.0).text("z"));
-                ui.label("Bulb 2 position");
-                ui.add(egui::Slider::new(&mut b.positions[1].x, -80.0f32..=80.0).text("x"));
-                ui.add(
-                    egui::Slider::new(&mut b.positions[1].y, 0.0f32..=60.0).text("y (height)"),
-                );
-                ui.add(egui::Slider::new(&mut b.positions[1].z, -80.0f32..=80.0).text("z"));
-                ui.separator();
-                ui.label("Shared");
-                point_light_sliders(
-                    ui,
-                    &mut b.color,
-                    &mut b.intensity,
-                    &mut b.range,
-                    &mut b.shadows_enabled,
-                );
-
-                if ui.button("Copy bulb lights to console").clicked() {
-                    info!(
-                        "bulbs: positions: [Vec3::new({:.2}, {:.2}, {:.2}), Vec3::new({:.2}, \
-                         {:.2}, {:.2})], color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: \
-                         {:.0}, range: {:.1}, shadows_enabled: {}",
-                        b.positions[0].x,
-                        b.positions[0].y,
-                        b.positions[0].z,
-                        b.positions[1].x,
-                        b.positions[1].y,
-                        b.positions[1].z,
-                        b.color[0],
-                        b.color[1],
-                        b.color[2],
-                        b.intensity,
-                        b.range,
-                        b.shadows_enabled,
-                    );
-                }
-                if ui.button("Reset bulb lights").clicked() {
-                    *b = BulbLightSettings::default();
-                }
-            });
-
-            ui.separator();
-            ui.collapsing("Shroom effect", |ui| {
-                let s = &mut *shroom;
-                ui.checkbox(&mut s.enabled, "enabled");
-                ui.add(egui::Slider::new(&mut s.fade_secs, 0.0f32..=15.0).text("fade in / out (s)"));
-                ui.label("Wavy distortion");
-                ui.add(
-                    egui::Slider::new(&mut s.wave_amplitude, 0.0f32..=0.05)
-                        .text("wave strength")
-                        .fixed_decimals(4),
-                );
-                ui.add(egui::Slider::new(&mut s.wave_frequency, 0.5f32..=20.0).text("wave size  (higher = smaller)"));
-                ui.add(egui::Slider::new(&mut s.wave_speed, 0.0f32..=4.0).text("wave speed"));
-                ui.add(
-                    egui::Slider::new(&mut s.center_clear, 0.0f32..=1.0)
-                        .text("steady centre  (1 = aim point still)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut s.breathe_amplitude, 0.0f32..=0.08)
-                        .text("breathing zoom")
-                        .fixed_decimals(3),
-                );
-                ui.add(egui::Slider::new(&mut s.breathe_speed, 0.0f32..=4.0).text("breathing speed"));
-                ui.label("Colour");
-                ui.add(egui::Slider::new(&mut s.saturation, 0.0f32..=3.0).text("saturation"));
-                ui.add(egui::Slider::new(&mut s.hue_drift, 0.0f32..=1.5).text("hue shimmer (rad)"));
-                ui.add(egui::Slider::new(&mut s.hue_speed, 0.0f32..=3.0).text("hue shimmer speed"));
-                ui.add(
-                    egui::Slider::new(&mut s.chromatic, 0.0f32..=0.1)
-                        .text("colour fringing (edges)")
-                        .fixed_decimals(3),
-                );
-                ui.label("Enemies through walls");
-                ui.horizontal(|ui| {
-                    ui.label("ghost colour");
-                    ui.color_edit_button_rgb(&mut s.xray_color);
+                    let m = &*movement;
+                    ui.label(format!(
+                        "≈ {:.2} m past the edge walking, {:.2} m sprinting",
+                        l.grace_secs * m.walk_speed,
+                        l.grace_secs * m.sprint_speed,
+                    ));
+                    if ui.button("Reset ledge jump").clicked() {
+                        *l = LedgeJumpSettings::default();
+                    }
                 });
-                ui.add(egui::Slider::new(&mut s.xray_brightness, 0.0f32..=12.0).text("glow (×)"));
-                ui.add(egui::Slider::new(&mut s.xray_opacity, 0.0f32..=1.0).text("opacity"));
-                ui.add(
-                    egui::Slider::new(&mut s.xray_inflate, 0.0f32..=0.4)
-                        .text("haze spread past body (m)")
-                        .fixed_decimals(3),
-                );
-                ui.add(egui::Slider::new(&mut s.xray_fill, 0.0f32..=1.0).text("edge opacity  (0 = edges fade out)"));
-                ui.add(egui::Slider::new(&mut s.xray_edge_softness, 0.1f32..=6.0).text("edge softness"));
-                ui.add(egui::Slider::new(&mut s.xray_smoke_scale, 0.1f32..=12.0).text("smoke size  (higher = finer)"));
-                ui.add(egui::Slider::new(&mut s.xray_smoke_speed, 0.0f32..=4.0).text("smoke drift speed"));
-                ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
-                ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
-                ui.label("Aim assist (while aimed down sight)");
-                ui.checkbox(&mut s.assist_enabled, "aim assist enabled");
-                ui.add(egui::Slider::new(&mut s.assist_cone_deg, 0.1f32..=20.0).text("pull cone (° off crosshair)"));
-                ui.add(egui::Slider::new(&mut s.assist_strength, 0.0f32..=30.0).text("pull strength (/s)"));
-                ui.add(egui::Slider::new(&mut s.assist_max_speed_deg, 0.0f32..=180.0).text("max pull speed (°/s)"));
-                ui.add(egui::Slider::new(&mut s.assist_range, 5.0f32..=300.0).text("range (m)"));
-                ui.add(egui::Slider::new(&mut s.assist_min_ads, 0.0f32..=1.0).text("min scope-in (0 = hip too)"));
-                if ui.button("Reset shroom").clicked() {
-                    *s = ShroomSettings {
-                        enabled: s.enabled,
-                        ..default()
-                    };
-                }
+
+            ui.separator();
+                ui.collapsing("Slide", |ui| {
+                    let s = &mut *slide_cfg;
+                    ui.label("crouch = key while still; slide = key while moving; jump cancels");
+                    ui.add(egui::Slider::new(&mut s.crouch_drop, 0.0f32..=1.5).text("crouch drop (m)"));
+                    ui.add(
+                        egui::Slider::new(&mut s.crouch_speed, 0.0f32..=8.0)
+                            .text("crouch-walk speed (m/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.slide_speed, 0.0f32..=20.0)
+                            .text("slide launch speed (m/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.sprint_bonus, 0.0f32..=12.0)
+                            .text("sprint slide bonus (m/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.friction, 0.5f32..=25.0).text("slide friction (m/s²)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.min_speed, 0.1f32..=8.0).text("slide end speed (m/s)"),
+                    );
+                    ui.add(egui::Slider::new(&mut s.max_time, 0.2f32..=4.0).text("slide time cap (s)"));
+                    ui.add(
+                        egui::Slider::new(&mut s.duck_speed, 2.0f32..=30.0).text("duck-down rate (/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.stand_speed, 2.0f32..=30.0).text("stand-up rate (/s)"),
+                    );
+                    if ui.button("Reset slide").clicked() {
+                        *s = SlideSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Dive & prone", |ui| {
+                    let s = &mut *slide_cfg;
+                    ui.label("prone key while still toggles prone; while moving = dolphin dive");
+                    ui.add(egui::Slider::new(&mut s.prone_drop, 0.2f32..=1.6).text("prone drop (m)"));
+                    ui.add(
+                        egui::Slider::new(&mut s.prone_speed, 0.0f32..=6.0).text("prone crawl (m/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.dive_speed, 0.0f32..=22.0)
+                            .text("dive launch speed (m/s)"),
+                    );
+                    ui.add(egui::Slider::new(&mut s.dive_jump, 0.0f32..=12.0).text("dive hop (m/s)"));
+                    ui.add(
+                        egui::Slider::new(&mut s.dive_tuck_speed, 2.0f32..=30.0)
+                            .text("dive tuck rate (/s)"),
+                    );
+                    if ui.button("Reset dive & prone").clicked() {
+                        let d = SlideSettings::default();
+                        s.prone_drop = d.prone_drop;
+                        s.prone_speed = d.prone_speed;
+                        s.dive_speed = d.dive_speed;
+                        s.dive_jump = d.dive_jump;
+                        s.dive_tuck_speed = d.dive_tuck_speed;
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Mantle", |ui| {
+                    let m = &mut *mantle_cfg;
+                    ui.label(
+                        "Player-facing on/off is Settings → Controls → Automatic Mantle, not here.",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.min_height, 0.0f32..=1.5)
+                            .text("min ledge height (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.max_height, 0.5f32..=3.5)
+                            .text("max ledge height (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.probe_height, 0.2f32..=2.0)
+                            .text("wall probe height (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.forward_dist, 0.1f32..=2.0)
+                            .text("forward probe distance (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.ledge_probe_forward, 0.05f32..=1.0)
+                            .text("ledge-top probe offset (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.duration, 0.1f32..=1.5).text("climb duration (s)"),
+                    );
+                    if ui.button("Reset mantle").clicked() {
+                        *m = MantleSettings::default();
+                    }
+                });
             });
 
             ui.separator();
-            ui.collapsing("Rain", |ui| {
-                let r = &mut *rain;
-                ui.label("Shipment only — real 3D streaks, not a screen overlay");
-                ui.checkbox(&mut r.enabled, "enabled");
-                ui.add(egui::Slider::new(&mut r.count, 0..=RAIN_MAX_DROPS).text("streak count"));
-                ui.add(
-                    egui::Slider::new(&mut r.radius, 2.0f32..=60.0)
-                        .text("radius around player (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut r.spawn_height, 2.0f32..=60.0)
-                        .text("spawn height above player (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut r.fall_speed, 0.5f32..=30.0).text("fall speed (m/s)"),
-                );
-                ui.add(egui::Slider::new(&mut r.wind.x, -10.0f32..=10.0).text("wind x (m/s)"));
-                ui.add(egui::Slider::new(&mut r.wind.y, -10.0f32..=10.0).text("wind z (m/s)"));
-                ui.separator();
-                ui.label("Streak look");
-                ui.add(
-                    egui::Slider::new(&mut r.streak_length, 0.05f32..=3.0)
-                        .text("streak length (m)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut r.streak_radius, 0.002f32..=0.1)
-                        .text("streak thickness (m)"),
-                );
-                ui.horizontal(|ui| {
-                    ui.color_edit_button_rgb(&mut r.color);
-                    ui.label("colour");
-                });
-                ui.add(egui::Slider::new(&mut r.opacity, 0.0f32..=1.0).text("opacity"));
+            ui.collapsing("Shot effects", |ui| {
+                ui.collapsing("Muzzle flash", |ui| {
+                    let m = &mut *muzzle;
+                    ui.label("position");
+                    ui.add(egui::Slider::new(&mut m.translation.x, -0.6f32..=0.6).text("x  (right +)"));
+                    ui.add(egui::Slider::new(&mut m.translation.y, -0.6f32..=0.6).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut m.translation.z, -2.0f32..=0.0).text("z  (forward -)"),
+                    );
+                    ui.label("size (m)");
+                    ui.add(egui::Slider::new(&mut m.size.x, 0.01f32..=2.0).text("width"));
+                    ui.add(egui::Slider::new(&mut m.size.y, 0.01f32..=2.0).text("height"));
 
-                if ui.button("Reset rain").clicked() {
-                    *r = RainSettings::default();
-                }
+                    if ui.button("Copy muzzle flash to console").clicked() {
+                        info!(
+                            "muzzle: translation Vec3::new({:.4}, {:.4}, {:.4}), \
+                             size Vec2::new({:.4}, {:.4})",
+                            m.translation.x, m.translation.y, m.translation.z, m.size.x, m.size.y,
+                        );
+                    }
+                    if ui.button("Reset muzzle flash").clicked() {
+                        *m = MuzzleFlashSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Tracer", |ui| {
+                    let tr = &mut *tracer;
+                    ui.label("flash (just fired)");
+                    ui.add(
+                        egui::Slider::new(&mut tr.flash_secs, 0.0f32..=0.3).text("flash duration (s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.flash_radius, 0.005f32..=0.15)
+                            .text("flash radius (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.flash_emissive_boost, 0.0f32..=15.0)
+                            .text("flash glow (emissive ×)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("flash color");
+                        ui.color_edit_button_rgb(&mut tr.flash_color);
+                    });
+
+                    ui.label("smoke trail");
+                    ui.add(
+                        egui::Slider::new(&mut tr.smoke_secs, 0.1f32..=8.0).text("fade duration (s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.smoke_start_alpha, 0.0f32..=1.0)
+                            .text("starting opacity"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.smoke_radius, 0.01f32..=0.4).text("end radius (m)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("smoke color");
+                        ui.color_edit_button_rgb(&mut tr.smoke_color);
+                    });
+
+                    ui.label("throwing knife trail");
+                    ui.add(
+                        egui::Slider::new(&mut tr.knife_trail_alpha, 0.0f32..=1.0)
+                            .text("start opacity"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.knife_trail_radius, 0.001f32..=0.1)
+                            .text("radius (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut tr.knife_trail_secs, 0.1f32..=6.0)
+                            .text("fade time (s)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("knife trail color");
+                        ui.color_edit_button_rgb(&mut tr.knife_trail_color);
+                    });
+
+                    if ui.button("Reset tracer").clicked() {
+                        *tr = TracerSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Smoke", |ui| {
+                    let sm = &mut *smoke;
+                    ui.label("spawn offset (from camera)");
+                    ui.add(
+                        egui::Slider::new(&mut sm.spawn_offset.x, -0.8f32..=0.8).text("x  (right +)"),
+                    );
+                    ui.add(egui::Slider::new(&mut sm.spawn_offset.y, -0.8f32..=0.8).text("y  (up +)"));
+                    ui.add(
+                        egui::Slider::new(&mut sm.spawn_offset.z, -3.0f32..=0.0).text("z  (forward -)"),
+                    );
+                    ui.add(egui::Slider::new(&mut sm.scale, 0.02f32..=3.0).text("scale (m)"));
+                    ui.add(egui::Slider::new(&mut sm.rise_rate, 0.0f32..=4.0).text("rise rate (m/s)"));
+                    ui.add(egui::Slider::new(&mut sm.spread, 0.0f32..=2.0).text("spread (m/s)"));
+                    ui.add(egui::Slider::new(&mut sm.fade_in, 0.0f32..=5.0).text("fade in (s)"));
+                    ui.add(egui::Slider::new(&mut sm.fade_time, 0.1f32..=10.0).text("fade out (s)"));
+                    ui.add(
+                        egui::Slider::new(&mut sm.spawn_rate, 0.0f32..=150.0).text("spawn rate (/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sm.duration, 0.05f32..=5.0).text("burst duration (s)"),
+                    );
+                    ui.add(egui::Slider::new(&mut sm.max_opacity, 0.0f32..=1.0).text("max opacity"));
+
+                    if ui.button("Copy smoke to console").clicked() {
+                        info!(
+                            "smoke: spawn_offset Vec3::new({:.4}, {:.4}, {:.4}), scale {:.4}, \
+                             rise_rate {:.4}, spread {:.4}, fade_in {:.4}, fade_time {:.4}, \
+                             spawn_rate {:.4}, duration {:.4}, max_opacity {:.4}",
+                            sm.spawn_offset.x,
+                            sm.spawn_offset.y,
+                            sm.spawn_offset.z,
+                            sm.scale,
+                            sm.rise_rate,
+                            sm.spread,
+                            sm.fade_in,
+                            sm.fade_time,
+                            sm.spawn_rate,
+                            sm.duration,
+                            sm.max_opacity,
+                        );
+                    }
+                    if ui.button("Reset smoke").clicked() {
+                        *sm = SmokeSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Bullet impacts", |ui| {
+                    ui.label(
+                        "textures/bullet_impact.png stuck flat on the surface a shot hit — for every \
+                         player in the lobby, removed after 1 minute. Scale applies to the holes \
+                         already in the world too.",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut bullet_holes.size, 0.05f32..=3.0)
+                            .text("size (m)")
+                            .logarithmic(true),
+                    );
+                    if ui.button("Reset bullet impact size").clicked() {
+                        *bullet_holes = BulletHoleSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Impact rocks", |ui| {
+                    let r = &mut *rocks;
+                    ui.label("debris kicked up where a shot hits the ground");
+                    ui.add(egui::Slider::new(&mut r.count, 0u32..=40).text("rocks per hit"));
+                    ui.add(egui::Slider::new(&mut r.speed, 0.0f32..=20.0).text("launch speed (m/s)"));
+                    ui.add(egui::Slider::new(&mut r.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
+                    ui.add(egui::Slider::new(&mut r.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+                    ui.add(egui::Slider::new(&mut r.spin, 0.0f32..=40.0).text("tumble (rad/s)"));
+                    ui.add(egui::Slider::new(&mut r.scale, 0.01f32..=0.5).text("size (m)"));
+                    ui.add(egui::Slider::new(&mut r.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                    if ui.button("Reset rocks").clicked() {
+                        *r = RockSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Impact dust", |ui| {
+                    let d = &mut *dust;
+                    ui.label("dust cloud where a shot hits the ground");
+                    ui.add(egui::Slider::new(&mut d.count, 0u32..=40).text("puffs per hit"));
+                    ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=12.0).text("launch speed (m/s)"));
+                    ui.add(egui::Slider::new(&mut d.spread_deg, 0.0f32..=90.0).text("cone spread (°)"));
+                    ui.add(egui::Slider::new(&mut d.rise, 0.0f32..=4.0).text("extra rise (m/s)"));
+                    ui.add(egui::Slider::new(&mut d.drag, 0.0f32..=10.0).text("drag (/s)"));
+                    ui.add(egui::Slider::new(&mut d.start_scale, 0.02f32..=2.0).text("start size (m)"));
+                    ui.add(egui::Slider::new(&mut d.end_scale, 0.02f32..=4.0).text("end size (m)"));
+                    ui.add(egui::Slider::new(&mut d.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                    ui.add(egui::Slider::new(&mut d.fade_in, 0.0f32..=1.0).text("fade in (s)"));
+                    ui.add(egui::Slider::new(&mut d.opacity, 0.0f32..=1.0).text("opacity"));
+                    if ui.button("Reset dust").clicked() {
+                        *d = DustSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Blood splatter", |ui| {
+                    let b = &mut *blood;
+                    ui.label("squirted from a bot along the shot where it hits");
+                    ui.add(egui::Slider::new(&mut b.count, 0u32..=60).text("droplets per hit"));
+                    ui.add(egui::Slider::new(&mut b.speed, 0.0f32..=25.0).text("squirt speed (m/s)"));
+                    ui.add(egui::Slider::new(&mut b.spread_deg, 0.0f32..=90.0).text("spray cone (°)"));
+                    ui.add(egui::Slider::new(&mut b.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+                    ui.add(egui::Slider::new(&mut b.drag, 0.0f32..=10.0).text("drag (/s)"));
+                    ui.add(egui::Slider::new(&mut b.scale, 0.01f32..=0.8).text("droplet size (m)"));
+                    ui.add(egui::Slider::new(&mut b.growth, 1.0f32..=4.0).text("grow ×  (over life)"));
+                    ui.add(egui::Slider::new(&mut b.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+                    ui.add(egui::Slider::new(&mut b.opacity, 0.0f32..=1.0).text("opacity"));
+                    ui.horizontal(|ui| {
+                        ui.label("tint  (white = texture as-is)");
+                        ui.color_edit_button_rgb(&mut b.color);
+                    });
+                    if ui.button("Reset blood").clicked() {
+                        *b = BloodSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Camera shake", |ui| {
+                    let c = &mut *shake_cfg;
+                    ui.label("per-shot kick — up/down + side/side only");
+                    ui.add(
+                        egui::Slider::new(&mut c.trauma_per_shot, 0.0f32..=1.0).text("trauma per shot"),
+                    );
+                    ui.add(egui::Slider::new(&mut c.decay, 0.5f32..=12.0).text("trauma decay (/s)"));
+                    ui.add(egui::Slider::new(&mut c.frequency, 5.0f32..=120.0).text("frequency"));
+                    ui.add(
+                        egui::Slider::new(&mut c.pos_max, 0.0f32..=0.4)
+                            .text("up/down + L/R amount (m)"),
+                    );
+                    ui.add(egui::Slider::new(&mut c.ads_scale, 0.0f32..=1.0).text(
+                        "ADS scale — jitter + punch + shudder left at full ADS \
+                             (ramps to full at the hip)",
+                    ));
+                    ui.separator();
+                    ui.label("view punch — rotates gun + cameras together (scaled by ADS scale)");
+                    ui.add(
+                        egui::Slider::new(&mut c.view_punch_deg, 0.0f32..=12.0)
+                            .text("view punch up (°)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.view_jitter_deg, 0.0f32..=6.0)
+                            .text("view punch chaos (°)"),
+                    );
+                    ui.separator();
+                    ui.label(
+                        "weapon shudder — gun kicks back toward the eye, muzzle climbs \
+                         (scaled by ADS scale)",
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.weapon_kick, 0.0f32..=0.4)
+                            .text("weapon kick back (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.weapon_kick_deg, 0.0f32..=15.0)
+                            .text("weapon muzzle climb (°)"),
+                    );
+                    ui.separator();
+                    ui.label("front/back: eye punches back off the scope, then returns");
+                    ui.add(
+                        egui::Slider::new(&mut c.recoil_kick, 0.0f32..=2.0).text("backward kick (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.recoil_return, 2.0f32..=60.0)
+                            .text("return speed (/s)"),
+                    );
+                    ui.label(format!("recoil now: {:.3} m", shake.recoil));
+
+                    if ui.button("Copy camera shake to console").clicked() {
+                        info!(
+                            "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
+                             pos_max {:.4}, view_punch_deg {:.4}, view_jitter_deg {:.4}, \
+                             weapon_kick {:.4}, weapon_kick_deg {:.4}, recoil_kick {:.4}, \
+                             recoil_return {:.4}, ads_scale {:.4}",
+                            c.trauma_per_shot,
+                            c.decay,
+                            c.frequency,
+                            c.pos_max,
+                            c.view_punch_deg,
+                            c.view_jitter_deg,
+                            c.weapon_kick,
+                            c.weapon_kick_deg,
+                            c.recoil_kick,
+                            c.recoil_return,
+                            c.ads_scale,
+                        );
+                    }
+                    if ui.button("Reset camera shake").clicked() {
+                        *c = ShakeSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Sniper glint", |ui| {
+                    let g = &mut *sniper_glint;
+                    ui.label(
+                        "sniper_glint.png sprite off another player's or bot's scope while \
+                         they're ADS — gives away a camping sniper, Call of Duty-style. Always \
+                         faces you, wherever you're standing.",
+                    );
+                    ui.label("offset from their eye position, in their own facing:");
+                    ui.add(egui::Slider::new(&mut g.offset.x, -1.0f32..=1.0).text("x (right +)"));
+                    ui.add(egui::Slider::new(&mut g.offset.y, -2.0f32..=3.0).text("y (up +)"));
+                    ui.add(egui::Slider::new(&mut g.offset.z, -1.0f32..=1.0).text("z (forward +)"));
+                    ui.add(egui::Slider::new(&mut g.scale, 0.01f32..=2.0).text("sprite size (m)"));
+                    ui.add(
+                        egui::Slider::new(&mut g.ads_threshold, 0.0f32..=0.99)
+                            .text("ads amount to start fading in at"),
+                    );
+
+                    if ui.button("Copy sniper glint to console").clicked() {
+                        info!(
+                            "sniper glint: offset: Vec3::new({:.2}, {:.2}, {:.2}), scale: {:.2}, \
+                             ads_threshold: {:.2}",
+                            g.offset.x, g.offset.y, g.offset.z, g.scale, g.ads_threshold,
+                        );
+                    }
+                    if ui.button("Reset sniper glint").clicked() {
+                        *g = SniperGlintSettings::default();
+                    }
+                });
+            });
+
+            ui.separator();
+            ui.collapsing("Players & HUD", |ui| {
+                ui.collapsing("Remote players", |ui| {
+                    let ra = &mut *remote_avatar;
+                    ui.label("models/soldier.glb");
+                    ui.add(
+                        egui::Slider::new(&mut ra.scale, 0.01f32..=100.0)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+                    if ui.button("Reset remote player scale").clicked() {
+                        *ra = RemoteAvatarSettings::default();
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label("bot tint (× body texture)");
+                        ui.color_edit_button_rgb(&mut bot_look.tint);
+                    });
+                    if ui.button("Copy bot tint to console").clicked() {
+                        let [r, g, b] = bot_look.tint;
+                        info!("bot tint: [{r:.3}, {g:.3}, {b:.3}]");
+                    }
+                    if ui.button("Reset bot tint").clicked() {
+                        *bot_look = BotLookSettings::default();
+                    }
+
+                    ui.separator();
+                    ui.label("Player walk/sprint speed also drives these clips — see \"Movement\".");
+                    let sa = &mut *soldier_anim;
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_walk_speed, 0.1f32..=8.0)
+                            .text(format!("walk anim speed (× at {WALK_SPEED} m/s)")),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_sprint_speed, 0.1f32..=8.0)
+                            .text(format!("sprint anim speed (× at {SPRINT_SPEED} m/s)")),
+                    );
+                    ui.label("No walk-and-shoot clip — runAndShooting covers both aiming states:");
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_aim_walk_speed, 0.1f32..=8.0)
+                            .text(format!("aim+walk anim speed (× at {WALK_SPEED} m/s)")),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_aim_sprint_speed, 0.1f32..=8.0)
+                            .text(format!("aim+sprint anim speed (× at {SPRINT_SPEED} m/s)")),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_crouch_walk_speed, 0.1f32..=8.0)
+                            .text(format!("crouch walk anim speed (× at {CROUCH_SPEED} m/s)")),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_strafe_speed, 0.1f32..=8.0).text(format!(
+                            "strafe anim speed (× at {} m/s)",
+                            WALK_SPEED * STRAFE_SPEED_MULT
+                        )),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.base_backpaddle_speed, 0.1f32..=8.0).text(format!(
+                            "backpaddle anim speed (× at {} m/s)",
+                            WALK_SPEED * BACKWARD_SPEED_MULT
+                        )),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut sa.death_speed, 0.1f32..=5.0)
+                            .text("death anim speed (×)"),
+                    );
+                    if ui.button("Reset remote player anim speed").clicked() {
+                        *sa = SoldierAnimSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Name tags", |ui| {
+                    let nt = &mut *name_tags;
+                    ui.label("Diamond + name over other players' heads.");
+                    ui.add(
+                        egui::Slider::new(&mut nt.height, 0.0f32..=2.0)
+                            .text("height above eye (m)"),
+                    );
+                    ui.add(egui::Slider::new(&mut nt.scale, 0.25f32..=4.0).text("scale (×)"));
+                    ui.horizontal(|ui| {
+                        ui.label("enemy color (Free For All)");
+                        ui.color_edit_button_rgb(&mut nt.enemy_color);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("lobby member color (Freestyle)");
+                        ui.color_edit_button_rgb(&mut nt.friendly_color);
+                    });
+                    if ui.button("Copy name tags to console").clicked() {
+                        let [er, eg, eb] = nt.enemy_color;
+                        let [fr, fg, fb] = nt.friendly_color;
+                        info!(
+                            "name tags: height: {:.2}, scale: {:.2}, enemy_color: [{er:.2}, {eg:.2}, {eb:.2}], \
+                             friendly_color: [{fr:.2}, {fg:.2}, {fb:.2}]",
+                            nt.height, nt.scale,
+                        );
+                    }
+                    if ui.button("Reset name tags").clicked() {
+                        *nt = crate::hud::NameTagSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Health", |ui| {
+                    ui.label(
+                        "Health is server-side: shots and falls both take it off, it holds for 3 s \
+                         after damage then recovers, and the client just shows it (red tint + blood, \
+                         heartbeat). The fall-damage distances and recovery rate are constants in \
+                         shared/src/health.rs.",
+                    );
+                    ui.label(format!(
+                        "health (from the server): {:.0} / {:.0}",
+                        local_health.health,
+                        shared::health::FULL_HEALTH,
+                    ));
+                    ui.label(format!(
+                        "fall damage: none under {:.0} m, lethal at {:.0} m",
+                        shared::health::FALL_MIN_DISTANCE,
+                        shared::health::FALL_MAX_DISTANCE,
+                    ));
+                });
+
+            ui.separator();
+                ui.collapsing("Crosshair", |ui| {
+                    let c = &mut *crosshair_cfg;
+
+                    ui.label("size on the glass");
+                    ui.add(
+                        egui::Slider::new(&mut c.scale, 0.3f32..=3.0)
+                            .text("scale  (>1 pushes the ends past the edge)"),
+                    );
+
+                    ui.label("aim-in drift — starts off-centre, slides to the middle");
+                    ui.add(
+                        egui::Slider::new(&mut c.aim_in_frac.x, -10.0f32..=10.0)
+                            .text("start X  (+ = left, × scope half-view)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.aim_in_frac.y, -10.0f32..=10.0)
+                            .text("start Y  (+ = up, × scope half-view)"),
+                    );
+                    ui.label("counter-sway — reticle moves opposite the weapon sway");
+                    ui.add(
+                        egui::Slider::new(&mut c.sway_counter.x, -10.0f32..=10.0)
+                            .text("counter X  (half-views per rad of yaw sway)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.sway_counter.y, -10.0f32..=10.0)
+                            .text("counter Y  (half-views per rad of pitch sway)"),
+                    );
+                    ui.label(
+                        "that raise slide is the reticle's only motion — no turn lag any more, \
+                         it's pinned to dead centre once scoped (see Weapon sway / Aim sway \
+                         instead: that's where the sway went).",
+                    );
+
+                    ui.checkbox(&mut c.center_dot_always, "keep centre dot on (no fade)");
+
+                    if ui.button("Reset crosshair").clicked() {
+                        *c = CrosshairSettings::default();
+                    }
+                });
+            });
+
+            ui.separator();
+            ui.collapsing("Audio", |ui| {
+                ui.collapsing("Sound volumes", |ui| {
+                    let v = &mut *sound_vol;
+                    ui.label("per-sound multiplier (1 = built-in level)");
+                    for (label, slot) in [
+                        ("shot", &mut v.shot),
+                        ("rechamber", &mut v.rechamber),
+                        ("reload", &mut v.reload),
+                        ("ambient", &mut v.ambient),
+                        ("shipment ambient", &mut v.shipment_ambient),
+                        ("aim in", &mut v.aim_in),
+                        ("aim out", &mut v.aim_out),
+                        ("out of ammo", &mut v.out_of_ammo),
+                        ("slide", &mut v.slide),
+                        ("dive", &mut v.dive),
+                        ("kill enemy", &mut v.kill_enemy),
+                        ("jump land", &mut v.jump_land),
+                        ("teleport", &mut v.teleport),
+                        ("throwing knife: throw", &mut v.knife_throw),
+                        ("throwing knife: hit enemy", &mut v.knife_hit),
+                        ("throwing knife: in air", &mut v.knife_in_air),
+                        ("knife: equip", &mut v.knife_equip),
+                        ("sniper: equip", &mut v.sniper_equip),
+                        ("heartbeat (at zero health)", &mut v.heartbeat),
+                        ("hit marker", &mut v.hit_marker),
+                        ("zombies: buy perk", &mut v.perk_buy),
+                    ] {
+                        ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
+                    }
+                    // One slider per clip in each folder-backed set (one of a set's
+                    // clips plays at random per event).
+                    let ks = &mut *knife_sounds;
+                    for (title, set) in [
+                        ("throwing knife: surface impacts", &mut ks.impact),
+                        ("knife: stabs (hit a bot / player)", &mut ks.stab),
+                        ("knife: swings (miss)", &mut ks.swing),
+                    ] {
+                        ui.collapsing(title, |ui| {
+                            if set.clips.is_empty() {
+                                ui.label("(no clips found in this folder)");
+                            }
+                            for clip in &mut set.clips {
+                                ui.add(egui::Slider::new(&mut clip.volume, 0.0f32..=10.0).text(&clip.name));
+                            }
+                        });
+                    }
+                    if ui.button("Reset sound volumes").clicked() {
+                        *v = SoundVolumes::default();
+                        for clip in &mut ks.impact.clips {
+                            clip.volume = 0.3;
+                        }
+                        for clip in ks.stab.clips.iter_mut().chain(&mut ks.swing.clips) {
+                            clip.volume = 1.0;
+                        }
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Remote sounds", |ui| {
+                    ui.label("Other players' (and bots') footsteps/jump/slide/reload/rechamber/shot/dive/throw.");
+                    let rs = &mut *remote_sound;
+                    ui.add(egui::Slider::new(&mut rs.volume, 0.0f32..=3.0).text("volume (×)"));
+                    ui.add(
+                        egui::Slider::new(&mut rs.max_distance, 5.0f32..=300.0)
+                            .text("max distance (m)"),
+                    );
+                    ui.label("Per sound (× on top of volume) — players and bots alike:");
+                    for bit in crate::killcam::ALL_SND_BITS {
+                        if let Some((label, v)) = rs.field_mut(bit) {
+                            ui.add(egui::Slider::new(v, 0.0f32..=4.0).text(label));
+                        }
+                    }
+                    if ui.button("Reset remote sounds").clicked() {
+                        *rs = RemoteSoundSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Footsteps", |ui| {
+                    let f = &mut *footsteps;
+                    ui.checkbox(&mut f.enabled, "enabled");
+                    ui.add(egui::Slider::new(&mut f.volume, 0.0f32..=10.0).text("overall volume"));
+                    ui.label("stride — metres per step (lower = faster cadence)");
+                    ui.add(egui::Slider::new(&mut f.walk_stride, 0.5f32..=5.0).text("walk"));
+                    ui.add(egui::Slider::new(&mut f.sprint_stride, 0.5f32..=5.0).text("sprint"));
+                    ui.add(egui::Slider::new(&mut f.crouch_stride, 0.5f32..=5.0).text("crouch"));
+                    ui.add(egui::Slider::new(&mut f.prone_stride, 0.5f32..=5.0).text("prone"));
+                    ui.label("per-stance volume");
+                    ui.add(egui::Slider::new(&mut f.walk_volume, 0.0f32..=1.0).text("walk"));
+                    ui.add(egui::Slider::new(&mut f.sprint_volume, 0.0f32..=1.0).text("sprint"));
+                    ui.add(egui::Slider::new(&mut f.crouch_volume, 0.0f32..=1.0).text("crouch"));
+                    ui.add(egui::Slider::new(&mut f.prone_volume, 0.0f32..=1.0).text("prone"));
+                    ui.add(
+                        egui::Slider::new(&mut f.pitch_jitter, 0.0f32..=0.5).text("pitch jitter (±)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut f.min_speed, 0.0f32..=3.0).text("stopped below (m/s)"),
+                    );
+                    if ui.button("Reset footsteps").clicked() {
+                        *f = FootstepSettings::default();
+                    }
+                });
+            });
+
+            ui.separator();
+            ui.collapsing("Zombies perks", |ui| {
+                ui.collapsing("Nitro Brew", |ui| {
+                    let n = &mut *nitro;
+                    ui.label(
+                        "Zombies perk (yellow) — multipliers on movement, ADS, reload, rechamber \
+                         and weapon swap speed while owned (1 = normal).",
+                    );
+                    ui.label(if n.owned { "owned: yes" } else { "owned: no" });
+                    ui.checkbox(&mut n.debug_force, "Force on (act as if owned)");
+                    ui.add(egui::Slider::new(&mut n.move_mult, 0.5f32..=3.0).text("movement speed"));
+                    ui.add(egui::Slider::new(&mut n.ads_mult, 0.5f32..=5.0).text("ADS speed"));
+                    ui.add(egui::Slider::new(&mut n.reload_mult, 0.5f32..=5.0).text("reload speed"));
+                    ui.add(egui::Slider::new(&mut n.rechamber_mult, 0.5f32..=5.0).text("rechamber speed"));
+                    ui.add(egui::Slider::new(&mut n.swap_mult, 0.5f32..=5.0).text("weapon swap speed"));
+                    if ui.button("Copy Nitro Brew settings to console").clicked() {
+                        info!(
+                            "nitro brew: move_mult: {:.2}, ads_mult: {:.2}, reload_mult: {:.2}, \
+                             rechamber_mult: {:.2}, swap_mult: {:.2}",
+                            n.move_mult, n.ads_mult, n.reload_mult, n.rechamber_mult, n.swap_mult,
+                        );
+                    }
+                    if ui.button("Reset Nitro Brew multipliers").clicked() {
+                        *n = crate::zombies_hud::NitroBrew {
+                            owned: n.owned,
+                            debug_force: n.debug_force,
+                            ..default()
+                        };
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Shroom effect", |ui| {
+                    let s = &mut *shroom;
+                    ui.checkbox(&mut s.enabled, "enabled");
+                    ui.add(egui::Slider::new(&mut s.fade_secs, 0.0f32..=15.0).text("fade in / out (s)"));
+                    ui.label("Wavy distortion");
+                    ui.add(
+                        egui::Slider::new(&mut s.wave_amplitude, 0.0f32..=0.05)
+                            .text("wave strength")
+                            .fixed_decimals(4),
+                    );
+                    ui.add(egui::Slider::new(&mut s.wave_frequency, 0.5f32..=20.0).text("wave size  (higher = smaller)"));
+                    ui.add(egui::Slider::new(&mut s.wave_speed, 0.0f32..=4.0).text("wave speed"));
+                    ui.add(
+                        egui::Slider::new(&mut s.center_clear, 0.0f32..=1.0)
+                            .text("steady centre  (1 = aim point still)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut s.breathe_amplitude, 0.0f32..=0.08)
+                            .text("breathing zoom")
+                            .fixed_decimals(3),
+                    );
+                    ui.add(egui::Slider::new(&mut s.breathe_speed, 0.0f32..=4.0).text("breathing speed"));
+                    ui.label("Colour");
+                    ui.add(egui::Slider::new(&mut s.saturation, 0.0f32..=3.0).text("saturation"));
+                    ui.add(egui::Slider::new(&mut s.hue_drift, 0.0f32..=1.5).text("hue shimmer (rad)"));
+                    ui.add(egui::Slider::new(&mut s.hue_speed, 0.0f32..=3.0).text("hue shimmer speed"));
+                    ui.add(
+                        egui::Slider::new(&mut s.chromatic, 0.0f32..=0.1)
+                            .text("colour fringing (edges)")
+                            .fixed_decimals(3),
+                    );
+                    ui.label("Enemies through walls");
+                    ui.horizontal(|ui| {
+                        ui.label("ghost colour");
+                        ui.color_edit_button_rgb(&mut s.xray_color);
+                    });
+                    ui.add(egui::Slider::new(&mut s.xray_brightness, 0.0f32..=12.0).text("glow (×)"));
+                    ui.add(egui::Slider::new(&mut s.xray_opacity, 0.0f32..=1.0).text("opacity"));
+                    ui.add(
+                        egui::Slider::new(&mut s.xray_inflate, 0.0f32..=0.4)
+                            .text("haze spread past body (m)")
+                            .fixed_decimals(3),
+                    );
+                    ui.add(egui::Slider::new(&mut s.xray_fill, 0.0f32..=1.0).text("edge opacity  (0 = edges fade out)"));
+                    ui.add(egui::Slider::new(&mut s.xray_edge_softness, 0.1f32..=6.0).text("edge softness"));
+                    ui.add(egui::Slider::new(&mut s.xray_smoke_scale, 0.1f32..=12.0).text("smoke size  (higher = finer)"));
+                    ui.add(egui::Slider::new(&mut s.xray_smoke_speed, 0.0f32..=4.0).text("smoke drift speed"));
+                    ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
+                    ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
+                    ui.label("Aim assist (while aimed down sight)");
+                    ui.checkbox(&mut s.assist_enabled, "aim assist enabled");
+                    ui.add(egui::Slider::new(&mut s.assist_cone_deg, 0.1f32..=20.0).text("pull cone (° off crosshair)"));
+                    ui.add(egui::Slider::new(&mut s.assist_strength, 0.0f32..=30.0).text("pull strength (/s)"));
+                    ui.add(egui::Slider::new(&mut s.assist_max_speed_deg, 0.0f32..=180.0).text("max pull speed (°/s)"));
+                    ui.add(egui::Slider::new(&mut s.assist_range, 5.0f32..=300.0).text("range (m)"));
+                    ui.add(egui::Slider::new(&mut s.assist_min_ads, 0.0f32..=1.0).text("min scope-in (0 = hip too)"));
+                    if ui.button("Reset shroom").clicked() {
+                        *s = ShroomSettings {
+                            enabled: s.enabled,
+                            ..default()
+                        };
+                    }
+                });
+            });
+
+            ui.separator();
+            ui.collapsing("Maps & lighting", |ui| {
+                ui.collapsing("Map", |ui| {
+                    let mp = &mut *map;
+                    ui.label("position");
+                    ui.add(egui::Slider::new(&mut mp.position.x, -100.0f32..=100.0).text("x"));
+                    ui.add(egui::Slider::new(&mut mp.position.y, -20.0f32..=20.0).text("y"));
+                    ui.add(egui::Slider::new(&mut mp.position.z, -100.0f32..=100.0).text("z"));
+                    ui.add(
+                        egui::Slider::new(&mut mp.rotation_deg, -180.0f32..=180.0)
+                            .text("rotation°  (yaw)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut mp.scale, 0.1f32..=5.0)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+
+                    if ui.button("Copy map transform to console").clicked() {
+                        info!(
+                            "map: position Vec3::new({:.2}, {:.2}, {:.2}), rotation_deg: {:.1}, \
+                             scale: {:.3}",
+                            mp.position.x, mp.position.y, mp.position.z, mp.rotation_deg, mp.scale,
+                        );
+                    }
+                    if ui.button("Reset map transform").clicked() {
+                        *mp = MapSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Shipment map", |ui| {
+                    let sh = &mut *shipment;
+                    ui.label("models/shipment.glb — spawned at the origin, scale only");
+                    ui.add(
+                        egui::Slider::new(&mut sh.scale, 0.05f32..=2.0)
+                            .text("scale")
+                            .logarithmic(true),
+                    );
+                    ui.label(
+                        "Only affects this client's own rendering + collision — the server's \
+                         spawn/respawn placement always uses shared::map::SHIPMENT_SCALE, so \
+                         update that constant to match once you've found the right number.",
+                    );
+
+                    if ui.button("Copy shipment scale to console").clicked() {
+                        info!("shipment: SHIPMENT_SCALE = {:.3};", sh.scale);
+                    }
+                    if ui.button("Reset shipment scale").clicked() {
+                        *sh = ShipmentSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Water", |ui| {
+                    let w = &mut *water;
+                    ui.label("Shipment / Shipment Day — the MW3-style cargo-ship setting's ocean plane");
+                    ui.add(
+                        egui::Slider::new(&mut w.level_drop, -3.0f32..=8.0)
+                            .text("level drop below ground (m)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("tint");
+                        ui.color_edit_button_rgb(&mut w.tint);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("tint (Shipment Day)");
+                        ui.color_edit_button_rgb(&mut w.day_tint);
+                    });
+                    ui.add(egui::Slider::new(&mut w.alpha, 0.0f32..=1.0).text("opacity"));
+                    ui.add(
+                        egui::Slider::new(&mut w.roughness, 0.0f32..=1.0)
+                            .text("roughness  (lower = shinier)"),
+                    );
+                    ui.add(egui::Slider::new(&mut w.reflectance, 0.0f32..=1.0).text("reflectance"));
+                    ui.add(
+                        egui::Slider::new(&mut w.normal_tiling, 5.0f32..=200.0)
+                            .text("ripple tiling  (higher = smaller ripples)")
+                            .logarithmic(true),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.scroll_speed.x, -0.1f32..=0.1).text("ripple scroll x"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.scroll_speed.y, -0.1f32..=0.1).text("ripple scroll y"),
+                    );
+
+                    if ui.button("Copy water settings to console").clicked() {
+                        info!(
+                            "water: level_drop: {:.3}, tint: Color::srgb({:.3}, {:.3}, {:.3}), \
+                             alpha: {:.3}, roughness: {:.3}, reflectance: {:.3}, normal_tiling: \
+                             {:.1}, scroll_speed: Vec2::new({:.4}, {:.4})",
+                            w.level_drop,
+                            w.tint[0],
+                            w.tint[1],
+                            w.tint[2],
+                            w.alpha,
+                            w.roughness,
+                            w.reflectance,
+                            w.normal_tiling,
+                            w.scroll_speed.x,
+                            w.scroll_speed.y,
+                        );
+                    }
+                    if ui.button("Reset water").clicked() {
+                        *w = WaterSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Rain", |ui| {
+                    let r = &mut *rain;
+                    ui.label("Shipment only — real 3D streaks, not a screen overlay");
+                    ui.checkbox(&mut r.enabled, "enabled");
+                    ui.add(egui::Slider::new(&mut r.count, 0..=RAIN_MAX_DROPS).text("streak count"));
+                    ui.add(
+                        egui::Slider::new(&mut r.radius, 2.0f32..=60.0)
+                            .text("radius around player (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut r.spawn_height, 2.0f32..=60.0)
+                            .text("spawn height above player (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut r.fall_speed, 0.5f32..=30.0).text("fall speed (m/s)"),
+                    );
+                    ui.add(egui::Slider::new(&mut r.wind.x, -10.0f32..=10.0).text("wind x (m/s)"));
+                    ui.add(egui::Slider::new(&mut r.wind.y, -10.0f32..=10.0).text("wind z (m/s)"));
+                    ui.separator();
+                    ui.label("Streak look");
+                    ui.add(
+                        egui::Slider::new(&mut r.streak_length, 0.05f32..=3.0)
+                            .text("streak length (m)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut r.streak_radius, 0.002f32..=0.1)
+                            .text("streak thickness (m)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.color_edit_button_rgb(&mut r.color);
+                        ui.label("colour");
+                    });
+                    ui.add(egui::Slider::new(&mut r.opacity, 0.0f32..=1.0).text("opacity"));
+
+                    if ui.button("Reset rain").clicked() {
+                        *r = RainSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Fog & Sky", |ui| {
+                    ui.collapsing("Basic Map", |ui| {
+                        scene_tuning_sliders(ui, &mut scene);
+                        if ui.button("Reset fog & sky").clicked() {
+                            *scene = SceneTuning::default();
+                        }
+                    });
+
+                ui.separator();
+                    ui.collapsing("Shipment", |ui| {
+                        ui.label("MW3-style setting: dark, foggy, overcast, out on open water");
+                        scene_tuning_sliders(ui, &mut shipment_scene.0);
+                        if ui.button("Reset fog & sky").clicked() {
+                            *shipment_scene = ShipmentSceneTuning::default();
+                        }
+                    });
+
+                ui.separator();
+                    ui.collapsing("Shipment Day", |ui| {
+                        ui.label("Bright, clear daytime — barely any fog, no rain");
+                        scene_tuning_sliders(ui, &mut shipment_day_scene.0);
+                        if ui.button("Reset fog & sky").clicked() {
+                            *shipment_day_scene = ShipmentDaySceneTuning::default();
+                        }
+                    });
+
+                ui.separator();
+                    ui.collapsing("Break Point", |ui| {
+                        ui.label("Clear mid-day — bright sun, virtually no fog (very high visibility)");
+                        scene_tuning_sliders(ui, &mut break_point_scene.0);
+                        if ui.button("Reset fog & sky").clicked() {
+                            *break_point_scene = BreakPointSceneTuning::default();
+                        }
+                    });
+                });
+
+            ui.separator();
+                ui.collapsing("Shipment lights", |ui| {
+                    ui.collapsing("Markers", |ui| {
+                        ui.checkbox(
+                            &mut shipment_light.markers_visible,
+                            "show position/aim markers",
+                        );
+                        ui.label(
+                            "Off by default — the bulb + rod gizmo is only there to help place the \
+                             lights, not something to leave on.",
+                        );
+                    });
+
+                ui.separator();
+                    ui.collapsing("Shipment Light 1", |ui| {
+                        shipment_light_sliders(ui, &mut shipment_light.lights[0], 0);
+                    });
+
+                ui.separator();
+                    ui.collapsing("Shipment Light 2", |ui| {
+                        shipment_light_sliders(ui, &mut shipment_light.lights[1], 1);
+                    });
+
+                ui.separator();
+                    ui.collapsing("Fluorescent Light", |ui| {
+                        let f = &mut *fluoro;
+                        ui.label("Shipment only — the tube fixture model inside one container");
+                        ui.checkbox(&mut f.markers_visible, "show position marker");
+                        ui.add(egui::Slider::new(&mut f.position.x, -80.0f32..=80.0).text("x"));
+                        ui.add(egui::Slider::new(&mut f.position.y, 0.0f32..=60.0).text("y (height)"));
+                        ui.add(egui::Slider::new(&mut f.position.z, -80.0f32..=80.0).text("z"));
+                        point_light_sliders(
+                            ui,
+                            &mut f.color,
+                            &mut f.intensity,
+                            &mut f.range,
+                            &mut f.shadows_enabled,
+                        );
+
+                        if ui.button("Copy fluorescent light to console").clicked() {
+                            info!(
+                                "fluoro: position: Vec3::new({:.2}, {:.2}, {:.2}), color: \
+                                 Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, range: {:.1}, \
+                                 shadows_enabled: {}",
+                                f.position.x,
+                                f.position.y,
+                                f.position.z,
+                                f.color[0],
+                                f.color[1],
+                                f.color[2],
+                                f.intensity,
+                                f.range,
+                                f.shadows_enabled,
+                            );
+                        }
+                        if ui.button("Reset fluorescent light").clicked() {
+                            *f = FluoroLightSettings::default();
+                        }
+                    });
+
+                ui.separator();
+                    ui.collapsing("Bulb Lights", |ui| {
+                        let b = &mut *bulbs;
+                        ui.label(
+                            "Shipment only — two bare bulbs in another container; everything below is \
+                             shared between both, only position is per-bulb",
+                        );
+                        ui.checkbox(&mut b.markers_visible, "show position markers");
+                        ui.label("Bulb 1 position");
+                        ui.add(egui::Slider::new(&mut b.positions[0].x, -80.0f32..=80.0).text("x"));
+                        ui.add(
+                            egui::Slider::new(&mut b.positions[0].y, 0.0f32..=60.0).text("y (height)"),
+                        );
+                        ui.add(egui::Slider::new(&mut b.positions[0].z, -80.0f32..=80.0).text("z"));
+                        ui.label("Bulb 2 position");
+                        ui.add(egui::Slider::new(&mut b.positions[1].x, -80.0f32..=80.0).text("x"));
+                        ui.add(
+                            egui::Slider::new(&mut b.positions[1].y, 0.0f32..=60.0).text("y (height)"),
+                        );
+                        ui.add(egui::Slider::new(&mut b.positions[1].z, -80.0f32..=80.0).text("z"));
+                        ui.separator();
+                        ui.label("Shared");
+                        point_light_sliders(
+                            ui,
+                            &mut b.color,
+                            &mut b.intensity,
+                            &mut b.range,
+                            &mut b.shadows_enabled,
+                        );
+
+                        if ui.button("Copy bulb lights to console").clicked() {
+                            info!(
+                                "bulbs: positions: [Vec3::new({:.2}, {:.2}, {:.2}), Vec3::new({:.2}, \
+                                 {:.2}, {:.2})], color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: \
+                                 {:.0}, range: {:.1}, shadows_enabled: {}",
+                                b.positions[0].x,
+                                b.positions[0].y,
+                                b.positions[0].z,
+                                b.positions[1].x,
+                                b.positions[1].y,
+                                b.positions[1].z,
+                                b.color[0],
+                                b.color[1],
+                                b.color[2],
+                                b.intensity,
+                                b.range,
+                                b.shadows_enabled,
+                            );
+                        }
+                        if ui.button("Reset bulb lights").clicked() {
+                            *b = BulbLightSettings::default();
+                        }
+                    });
+                });
             });
         });
     Ok(())

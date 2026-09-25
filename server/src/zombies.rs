@@ -135,6 +135,15 @@ fn run_rounds(
             continue;
         }
         let members = lobby.real_count();
+        // Paused: push every pending time back by the pause, so the break /
+        // next spawn is exactly as far off when it resumes.
+        if lobby.paused {
+            if let Some(mut rounds) = rounds {
+                rounds.break_until += time.delta_secs();
+                rounds.next_spawn_at += time.delta_secs();
+            }
+            continue;
+        }
         let Some(mut rounds) = rounds else {
             lobby.round = 1;
             lobby.enemies_left = zombies_in_round(1, members);
@@ -245,7 +254,7 @@ fn on_buy_perk(
     else {
         return;
     };
-    if endings.is_ending(lobby_e) {
+    if endings.is_ending(lobby_e) || lobby.paused {
         return;
     }
     let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
@@ -337,6 +346,7 @@ mod tests {
                 end_cam: shared::EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                paused: false,
                 members: vec![shared::LobbyMember {
                     peer: me,
                     name: "me".into(),

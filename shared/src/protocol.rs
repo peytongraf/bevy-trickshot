@@ -824,6 +824,11 @@ pub struct Lobby {
     /// [`GameMode::Zombies`]: enemies still to kill this round (not yet
     /// spawned + alive).
     pub enemies_left: u32,
+    /// The party leader paused the running game ([`SetPaused`]): the server
+    /// freezes the clock, bots, zombies, knives and shots, and every member's
+    /// client stops taking gameplay input. Cleared whenever a game starts or
+    /// ends, and when the leader leaves.
+    pub paused: bool,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1072,6 +1077,13 @@ pub struct AssetsReady;
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct EndGame;
 
+/// Client → server: the party leader pauses / resumes the running game for
+/// the whole party ([`Lobby::paused`]). Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetPaused {
+    pub paused: bool,
+}
+
 /// Server → client: a lobby request could not be honoured.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LobbyError {
@@ -1132,6 +1144,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<AssetsReady>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<EndGame>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetPaused>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);

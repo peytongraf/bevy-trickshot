@@ -1,7 +1,7 @@
 //! `Zombies`-only client pieces: the "enemies left" counter (left edge,
 //! vertically centred), every member's points / health / name panel (bottom
 //! left, ours at the bottom of the stack), the perk machines (placeholder boxes for now) with
-//! their "press F to buy" prompt, and switching on what an owned perk does
+//! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
 //! speed multipliers).
 //!
@@ -29,7 +29,7 @@ impl Plugin for ZombiesHudPlugin {
                 (
                     update_enemies_left,
                     sync_perk_machines,
-                    update_perk_prompt,
+                    update_perk_card,
                     update_perk_icons,
                     update_party_panels,
                     buy_perk.run_if(menu::game_active.and(killcam::no_killcam)),
@@ -128,7 +128,8 @@ struct EnemiesLeftRoot;
 #[derive(Component)]
 struct EnemiesLeftCount;
 
-/// The "enemies left" counter and the (empty until needed) perk prompt.
+/// The "enemies left" counter, party panels, owned-perk icons and the
+/// (hidden until needed) perk card.
 fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     // Left edge, centred vertically: a full-height (row) container that
@@ -232,34 +233,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             }
         });
 
-    // The perk prompt: centred, a little below the crosshair.
-    commands
-        .spawn((
-            StateScoped(AppState::InGame),
-            GlobalZIndex(5),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Percent(60.0),
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-        ))
-        .with_child((
-            PerkPrompt,
-            Text::new(""),
-            TextFont {
-                font,
-                font_size: 22.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            TextShadow {
-                offset: Vec2::splat(1.5),
-                color: Color::srgba(0.0, 0.0, 0.0, 0.8),
-            },
-        ));
+    spawn_perk_card(&mut commands, &asset_server, font);
 }
 
 fn update_enemies_left(
@@ -366,8 +340,172 @@ fn spawn_perk_machine(
         });
 }
 
+// --- perk card (at a machine) -------------------------------------------
+
+/// The card shown while standing at a perk machine: centred, a little below
+/// the crosshair. Built once per game and filled in by `update_perk_card`.
 #[derive(Component)]
-struct PerkPrompt;
+struct PerkCard;
+
+#[derive(Component)]
+struct PerkCardIcon;
+
+/// The strip along the card's bottom saying what the interact key does.
+#[derive(Component)]
+struct PerkCardAction;
+
+/// Which of the card's texts a `Text` node is.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum PerkCardText {
+    Name,
+    Description,
+    Ingredients,
+    Cost,
+    Points,
+    Action,
+}
+
+const PERK_CARD_WIDTH: f32 = 440.0;
+const PERK_CARD_ICON: f32 = 64.0;
+const CARD_RED: Color = Color::srgb(0.9, 0.3, 0.3);
+const CARD_GREEN: Color = Color::srgb(0.35, 0.85, 0.45);
+
+fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Handle<Font>) {
+    let body = asset_server.load(crate::BODY_FONT);
+    let heading = |size: f32| TextFont {
+        font: font.clone(),
+        font_size: size,
+        ..default()
+    };
+    let plain = |size: f32| TextFont {
+        font: body.clone(),
+        font_size: size,
+        ..default()
+    };
+    let faint = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55));
+    let divider = (
+        Node {
+            height: Val::Px(1.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.15)),
+    );
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            GlobalZIndex(5),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Percent(57.0),
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_children(|row| {
+            row.spawn((
+                PerkCard,
+                Node {
+                    width: Val::Px(PERK_CARD_WIDTH),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(10.0),
+                    padding: UiRect::all(Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
+                BorderColor(Color::WHITE),
+                BorderRadius::all(Val::Px(6.0)),
+                Visibility::Hidden,
+            ))
+            .with_children(|card| {
+                // Icon beside the name and what it does.
+                card.spawn(Node {
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(14.0),
+                    ..default()
+                })
+                .with_children(|header| {
+                    header.spawn((
+                        PerkCardIcon,
+                        ImageNode::default(),
+                        Node {
+                            width: Val::Px(PERK_CARD_ICON),
+                            height: Val::Px(PERK_CARD_ICON),
+                            flex_shrink: 0.0,
+                            ..default()
+                        },
+                    ));
+                    header
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            flex_grow: 1.0,
+                            flex_shrink: 1.0,
+                            row_gap: Val::Px(2.0),
+                            ..default()
+                        })
+                        .with_children(|col| {
+                            col.spawn((PerkCardText::Name, Text::new(""), heading(38.0), TextColor::WHITE));
+                            col.spawn((
+                                PerkCardText::Description,
+                                Text::new(""),
+                                plain(14.0),
+                                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.85)),
+                            ));
+                        });
+                });
+                card.spawn(divider.clone());
+                card.spawn((Text::new("INGREDIENTS"), heading(17.0), faint));
+                card.spawn((
+                    PerkCardText::Ingredients,
+                    Text::new(""),
+                    plain(13.0),
+                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.75)),
+                    TextLayout::default().with_linebreak(LineBreak::WordBoundary),
+                ));
+                card.spawn(divider);
+                // Cost on the left, our points on the right.
+                card.spawn(Node {
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::End,
+                    ..default()
+                })
+                .with_children(|footer| {
+                    footer
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            ..default()
+                        })
+                        .with_children(|col| {
+                            col.spawn((Text::new("COST"), heading(16.0), faint));
+                            col.spawn((PerkCardText::Cost, Text::new(""), heading(30.0), TextColor(MONEY_YELLOW)));
+                        });
+                    footer
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::End,
+                            ..default()
+                        })
+                        .with_children(|col| {
+                            col.spawn((Text::new("YOUR POINTS"), heading(16.0), faint));
+                            col.spawn((PerkCardText::Points, Text::new(""), heading(30.0), TextColor::WHITE));
+                        });
+                });
+                card.spawn((
+                    PerkCardAction,
+                    Node {
+                        justify_content: JustifyContent::Center,
+                        padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    BorderRadius::all(Val::Px(4.0)),
+                ))
+                .with_child((PerkCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
+            });
+        });
+}
 
 // --- party panels (bottom left) ------------------------------------------
 
@@ -599,26 +737,53 @@ fn update_perk_icons(
     }
 }
 
-/// What (if anything) we can buy where we're standing: the perk and whether
-/// we can afford it. `None` if we're not at a machine, already own its perk,
-/// or aren't in a `Zombies` game.
-fn perk_here(lobby: &Lobby, me: lightyear::prelude::PeerId, feet: Vec3) -> Option<(Perk, bool)> {
-    let member = lobby.members.iter().find(|m| m.peer == me)?;
-    let perk = Perk::ALL.into_iter().find(|&p| {
-        !member.perks.contains(&p) && shared::perks::in_range(p, lobby.map, feet, 0.0)
-    })?;
-    Some((perk, member.score >= perk.cost()))
+/// Where we stand with the perk at the machine we're at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PerkStatus {
+    Buyable,
+    TooPoor,
+    Owned,
 }
 
-fn update_perk_prompt(
+/// The machine we're standing at (if any), how that perk stands for us, and
+/// our points. `None` if we're not at a machine or not in the lobby.
+fn perk_here(lobby: &Lobby, me: lightyear::prelude::PeerId, feet: Vec3) -> Option<(Perk, PerkStatus, u32)> {
+    let member = lobby.members.iter().find(|m| m.peer == me)?;
+    let perk = Perk::ALL
+        .into_iter()
+        .find(|&p| shared::perks::in_range(p, lobby.map, feet, 0.0))?;
+    let status = if member.perks.contains(&perk) {
+        PerkStatus::Owned
+    } else if member.score >= perk.cost() {
+        PerkStatus::Buyable
+    } else {
+        PerkStatus::TooPoor
+    };
+    Some((perk, status, member.score))
+}
+
+/// Fill in and show the perk card while we're at a machine (hidden behind
+/// menus and during a kill cam, like the rest of the HUD). It's the same card
+/// for every perk: red when we can't afford it, green once we own it.
+#[allow(clippy::too_many_arguments)]
+fn update_perk_card(
     menu: Res<menu::Menu>,
     active_killcam: Res<killcam::ActiveKillCam>,
     binds: Res<KeyBindings>,
+    asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut prompt: Single<(&mut Text, &mut TextColor), With<PerkPrompt>>,
+    card: Single<(&mut Visibility, &mut BorderColor), With<PerkCard>>,
+    mut icon: Single<&mut ImageNode, With<PerkCardIcon>>,
+    mut action_bar: Single<&mut BackgroundColor, With<PerkCardAction>>,
+    mut texts: Query<(&PerkCardText, &mut Text, &mut TextColor)>,
+    // The perk the card was last filled in for (the icon / ingredients only
+    // change with it). The card's respawned each game, so this is reset
+    // whenever it's hidden.
+    mut shown: Local<Option<Perk>>,
 ) {
+    let (mut vis, mut border) = card.into_inner();
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     let here = (!menu.is_open() && active_killcam.0.is_none())
         .then(|| {
@@ -626,28 +791,81 @@ fn update_perk_prompt(
             perk_here(lobby, local.iter().next()?.0, feet)
         })
         .flatten();
-    let (wanted, color) = match here {
-        Some((perk, true)) => (
-            format!(
-                "Press {} to buy {} [Cost: {}]",
-                binds.interact.label(),
-                perk.label(),
-                perk.cost()
-            ),
+    let Some((perk, status, points)) = here else {
+        vis.set_if_neq(Visibility::Hidden);
+        *shown = None;
+        return;
+    };
+    vis.set_if_neq(Visibility::Inherited);
+    if *shown != Some(perk) {
+        *shown = Some(perk);
+        icon.image = asset_server.load(perk_icon_path(perk));
+    }
+
+    let (edge, bar, cost_color, points_color, action, action_color) = match status {
+        PerkStatus::Buyable => (
+            perk_color(perk),
+            perk_color(perk).with_alpha(0.25),
+            MONEY_YELLOW,
+            Color::WHITE,
+            format!("PRESS {} TO BUY", binds.interact.label().to_uppercase()),
             Color::WHITE,
         ),
-        Some((perk, false)) => (
-            format!("{} costs {} — not enough points", perk.label(), perk.cost()),
-            Color::srgb(0.85, 0.35, 0.35),
+        PerkStatus::TooPoor => (
+            CARD_RED,
+            CARD_RED.with_alpha(0.2),
+            CARD_RED,
+            CARD_RED,
+            "NOT ENOUGH POINTS".to_string(),
+            CARD_RED,
         ),
-        None => (String::new(), Color::WHITE),
+        PerkStatus::Owned => (
+            CARD_GREEN,
+            CARD_GREEN.with_alpha(0.2),
+            Color::srgba(1.0, 1.0, 1.0, 0.45),
+            Color::WHITE,
+            "ALREADY OWNED".to_string(),
+            CARD_GREEN,
+        ),
     };
-    let (text, text_color) = &mut *prompt;
-    if text.0 != wanted {
-        text.0 = wanted;
+    if border.0 != edge {
+        border.0 = edge;
     }
-    if text_color.0 != color {
-        text_color.0 = color;
+    if action_bar.0 != bar {
+        action_bar.0 = bar;
+    }
+    // Greyed out while we can't afford it; full colour otherwise.
+    let tint = if status == PerkStatus::TooPoor {
+        Color::srgba(0.6, 0.6, 0.6, 0.8)
+    } else {
+        Color::WHITE
+    };
+    if icon.color != tint {
+        icon.color = tint;
+    }
+
+    for (which, mut text, mut color) in &mut texts {
+        let (wanted, wanted_color) = match which {
+            PerkCardText::Name => (perk.label().to_uppercase(), perk_color(perk)),
+            PerkCardText::Description => (perk.description().to_string(), color.0),
+            PerkCardText::Ingredients => (
+                perk.ingredients()
+                    .iter()
+                    .map(|i| format!("\u{2022} {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                color.0,
+            ),
+            PerkCardText::Cost => (format!("${}", perk.cost()), cost_color),
+            PerkCardText::Points => (format!("${points}"), points_color),
+            PerkCardText::Action => (action.clone(), action_color),
+        };
+        if text.0 != wanted {
+            text.0 = wanted;
+        }
+        if color.0 != wanted_color {
+            color.0 = wanted_color;
+        }
     }
 }
 
@@ -672,13 +890,13 @@ fn buy_perk(
         return;
     };
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    let Some((perk, true)) = perk_here(lobby, me, feet) else {
+    let Some((perk, PerkStatus::Buyable, _)) = perk_here(lobby, me, feet) else {
         return;
     };
     if let Ok(mut s) = sender.single_mut() {
         s.trigger::<shared::LobbyChannel>(shared::BuyPerk { perk });
-        // (The server logs "bought ..." when it goes through; the prompt
-        // disappears once that's replicated back.)
+        // (The server logs "bought ..." when it goes through; the card
+        // switches to owned once that's replicated back.)
         info!("asked the server to buy {}", perk.label());
     }
 }

@@ -273,7 +273,7 @@ fn reset_own_kill_tracking(mut last: ResMut<LastOwnScore>) {
 /// killer's client in any more direct way: `PlayerKilled` is a
 /// server-only event, and the paired `KillCam` message (see
 /// `killcam::receive_killcam`) is only ever sent to the victim.
-/// `Freestyle`'s equivalent is `TrickScoredEvent`, already handled by
+/// Bot kills' equivalent is `TrickScoredEvent`, already handled by
 /// `spawn_score_popup`.
 fn play_ffa_kill_sound(
     local: Query<&LocalId, With<GameClient>>,
@@ -288,8 +288,9 @@ fn play_ffa_kill_sound(
     let Some(lobby) = lobbies.iter().find(|l| l.has(me)) else {
         return;
     };
-    // (`Zombies` scores a kill as points, so a rise in score is a kill too.)
-    if lobby.mode == shared::GameMode::Freestyle {
+    // Bot kills (`Freestyle` and `Zombies`) already play it from their
+    // `TrickScoredEvent` — playing it here too doubled it in `Zombies`.
+    if lobby.mode != shared::GameMode::FreeForAll {
         return;
     }
     let Some(member) = lobby.members.iter().find(|m| m.peer == me) else {

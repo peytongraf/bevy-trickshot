@@ -661,7 +661,7 @@ fn receive_shots(
 }
 
 /// Server → everyone else in the shooter's lobby: play another player's
-/// one-shot sounds (footstep/jump/slide/reload/rechamber/shot/dive)
+/// one-shot sounds (footstep/jump/slide/reload/rechamber/shot/dive/throw)
 /// positionally at their reported position, falling off with distance. The
 /// server already excludes the triggering player from the message's targets
 /// (they hear their own local, non-spatial version instead), but the `me`
@@ -700,7 +700,9 @@ fn receive_remote_sounds(
             let falloff = (1.0 - distance / remote_sound.max_distance).powi(2);
 
             for bit in killcam::ALL_SND_BITS {
-                if msg.bits & bit == 0 {
+                // Another player's aiming isn't heard (only their kill cam
+                // replays it).
+                if msg.bits & bit == 0 || bit == killcam::SND_AIM_IN || bit == killcam::SND_AIM_OUT {
                     continue;
                 }
                 let clip = if bit == killcam::SND_FOOTSTEP {
@@ -712,7 +714,7 @@ fn receive_remote_sounds(
                 };
                 let Some(clip) = clip else { continue };
                 let category = sound_vol.oneshot_for(&clip, &sounds).unwrap_or(1.0);
-                let mult = (category * falloff * remote_sound.volume).max(0.0);
+                let mult = (category * remote_sound.for_bit(bit) * falloff * remote_sound.volume).max(0.0);
                 let volume = Volume::Linear(mult) * global_volume.volume;
                 commands.spawn((
                     crate::RemoteSoundEmitter,

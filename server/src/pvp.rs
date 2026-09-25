@@ -445,10 +445,21 @@ fn on_respawn_ready(
 /// Once a dead player's respawn timer is up, make them targetable / able to
 /// fire again. The actual reposition is client-driven (see
 /// `client::net::flush_pending_respawn`) — this only ungates hit detection.
-fn tick_respawns(time: Res<Time>, mut combats: Query<&mut PlayerCombat>) {
+fn tick_respawns(
+    time: Res<Time>,
+    lobbies: Query<&Lobby>,
+    mut combats: Query<(&mut PlayerCombat, Option<&crate::lobby::LobbyPlayer>)>,
+) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
-    for mut combat in &mut combats {
+    for (mut combat, lp) in &mut combats {
+        // Paused: push the respawn and the regen hold back by the pause, so
+        // neither timer runs down while the game's frozen.
+        if lp.is_some_and(|lp| lobbies.get(lp.lobby).is_ok_and(|l| l.paused)) {
+            combat.respawn_at += dt;
+            combat.last_damage += dt;
+            continue;
+        }
         if !combat.alive && now >= combat.respawn_at {
             combat.respawn();
         } else if combat.alive

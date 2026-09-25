@@ -43,6 +43,7 @@ mod lobby_ui;
 mod match_end;
 mod menu;
 mod net;
+mod pause;
 mod player;
 mod respawn;
 mod settings;
@@ -184,6 +185,7 @@ fn main() {
         .add_plugins(ShroomPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
+        .add_plugins(pause::PausePlugin)
         .add_plugins(DrinkArmsPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,

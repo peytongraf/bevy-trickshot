@@ -96,7 +96,7 @@ fn on_throw_knife(
     let peer = trigger.from;
     let req = &trigger.trigger;
 
-    let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.started && l.has(peer)) else {
+    let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
         return;
     };
     // `FreeForAll` players mid-respawn can't throw (`Freestyle` players have
@@ -176,6 +176,10 @@ fn step_knives(
         let Ok((_, lobby)) = lobbies.get(sim.lobby) else {
             continue; // `cull_orphan_knives` removes it
         };
+        // Paused: hang where it is.
+        if lobby.paused {
+            continue;
+        }
 
         // Who this knife may kill, per the lobby's mode.
         let mut victims: HashMap<u64, Victim> = HashMap::new();

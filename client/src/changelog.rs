@@ -15,6 +15,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Party leader can now pause the game from the Esc menu.",
+        "Other players' rechamber is much quieter; no more aim sounds.",
+        "Kill sound is a little quieter.",
+        "Zombies: kill sound no longer plays twice.",
+        "Zombies: new perk machine card with cost, points and ingredients.",
         "Zombies: perk icons line up in the order you bought them.",
         "Zombies: new Nitro Brew perk — move, aim, reload and swap faster.",
         "Zombies: you now drink Shroom Tea when you buy it.",
