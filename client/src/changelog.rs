@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "New map: BREAK POINT NIGHT — full night, with gun flashlights.",
         "Red X on kills; hit markers now burst outward.",
         "Zombies: new, bigger perk icons.",
         "Shroom Tea: enemies only glow when hidden behind cover.",

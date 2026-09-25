@@ -146,6 +146,33 @@ impl Default for BreakPointSceneTuning {
     }
 }
 
+/// `break_point_map.glb` at full night ([`shared::MapId::BreakPointNight`]),
+/// under `qwantani_night_puresky_8k.hdr`: no sun at all, a near-black blue
+/// fog closing in the distance, and a flat grey ambient fill so the map
+/// reads as dim shapes — the gun flashlights (`player::flashlight`) do the
+/// real lighting. Live-tweakable from the debug panel's
+/// "Fog & Sky" → "Break Point Night" section.
+#[derive(Resource)]
+pub(crate) struct BreakPointNightSceneTuning(pub(crate) SceneTuning);
+
+impl Default for BreakPointNightSceneTuning {
+    fn default() -> Self {
+        Self(SceneTuning {
+            fog_visibility_m: 500.0,
+            // r6 g8 b14 (0-255) — near-black night blue.
+            fog_color: srgb_parts(Color::srgb(6.0 / 255.0, 8.0 / 255.0, 14.0 / 255.0)),
+            fog_sun_exponent: 100.0,
+            // No sun (colour kept only for the fog's sun-scatter tint).
+            sun_lux: 0.0,
+            sun_color: srgb_parts(Color::srgb(150.0 / 255.0, 170.0 / 255.0, 220.0 / 255.0)),
+            // r136 g136 b136 (0-255) — flat grey.
+            ambient_color: srgb_parts(Color::srgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0)),
+            ambient_lux: 200.0,
+            bloom_intensity: 0.095,
+        })
+    }
+}
+
 /// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)",
 /// "Fog & Sky (Shipment)" and "Fog & Sky (Shipment Day)" — same [`SceneTuning`] shape, different resource
 /// (and therefore different defaults) behind each.
@@ -179,7 +206,9 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
 /// changes (also once at startup, which just re-applies the consts).
 /// Picks whichever of [`SceneTuning`] (`BasicMap`), [`ShipmentSceneTuning`]
-/// (`Shipment`), [`ShipmentDaySceneTuning`] (`ShipmentDay`) or [`BreakPointSceneTuning`] (`BreakPoint`) is currently selected and pushes it onto the shared fog /
+/// (`Shipment`), [`ShipmentDaySceneTuning`] (`ShipmentDay`), [`BreakPointSceneTuning`]
+/// (`BreakPoint`) or [`BreakPointNightSceneTuning`] (`BreakPointNight`) is
+/// currently selected and pushes it onto the shared fog /
 /// sun / ambient light / bloom — there's only one of each in the world, so
 /// switching maps re-points them at a different look rather than swapping
 /// entities.
@@ -189,6 +218,7 @@ pub(crate) fn apply_scene_tuning(
     shipment_scene: Res<ShipmentSceneTuning>,
     shipment_day_scene: Res<ShipmentDaySceneTuning>,
     break_point_scene: Res<BreakPointSceneTuning>,
+    break_point_night_scene: Res<BreakPointNightSceneTuning>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
@@ -199,6 +229,7 @@ pub(crate) fn apply_scene_tuning(
         && !shipment_scene.is_changed()
         && !shipment_day_scene.is_changed()
         && !break_point_scene.is_changed()
+        && !break_point_night_scene.is_changed()
     {
         return;
     }
@@ -207,6 +238,7 @@ pub(crate) fn apply_scene_tuning(
         shared::MapId::Shipment => &shipment_scene.0,
         shared::MapId::ShipmentDay => &shipment_day_scene.0,
         shared::MapId::BreakPoint => &break_point_scene.0,
+        shared::MapId::BreakPointNight => &break_point_night_scene.0,
     };
 
     ambient.color = color_from_parts(active.ambient_color);

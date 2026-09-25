@@ -109,12 +109,12 @@ impl Perk {
         match (self, map) {
             // Logged with the client's `P` key standing at the spot, which
             // reports eye height (6.5); the ground is 1.7 m below that.
-            (Perk::ShroomTea, MapId::BreakPoint) => Vec3::new(-2.66, 6.5 - 1.7, -59.73),
+            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-2.66, 6.5 - 1.7, -59.73),
             (Perk::ShroomTea, _) => Vec3::ZERO,
-            (Perk::NitroBrew, MapId::BreakPoint) => Vec3::new(-35.72, 7.7 - 1.7, 10.24),
+            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.72, 7.7 - 1.7, 10.24),
             // Clear of Shroom Tea's origin spot.
             (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
-            (Perk::LiquidCourage, MapId::BreakPoint) => Vec3::new(35.72, 7.7 - 1.7, 59.72),
+            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(35.72, 7.7 - 1.7, 59.72),
             (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
         }
     }
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn no_two_machines_can_be_bought_from_the_same_spot() {
-        for map in [MapId::BasicMap, MapId::Shipment, MapId::ShipmentDay, MapId::BreakPoint] {
+        for map in [MapId::BasicMap, MapId::Shipment, MapId::ShipmentDay, MapId::BreakPoint, MapId::BreakPointNight] {
             for a in Perk::ALL {
                 for b in Perk::ALL {
                     if a != b {

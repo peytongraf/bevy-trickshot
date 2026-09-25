@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, mut flashlight): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -49,6 +49,8 @@ pub(crate) fn ads_tuning_ui(
         >,
         ResMut<crate::ShroomKick>,
         ResMut<crate::DrunkKick>,
+        ResMut<BreakPointNightSceneTuning>,
+        ResMut<FlashlightSettings>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -1700,6 +1702,55 @@ pub(crate) fn ads_tuning_ui(
                             *break_point_scene = BreakPointSceneTuning::default();
                         }
                     });
+
+                ui.separator();
+                    ui.collapsing("Break Point Night", |ui| {
+                        ui.label("Full night — faint moonlight, dark fog; flashlights do the rest");
+                        scene_tuning_sliders(ui, &mut break_point_night_scene.0);
+                        if ui.button("Reset fog & sky").clicked() {
+                            *break_point_night_scene = BreakPointNightSceneTuning::default();
+                        }
+                    });
+                });
+
+            ui.separator();
+                ui.collapsing("Flashlight", |ui| {
+                    let f = &mut *flashlight;
+                    ui.label("Gun-mounted light — yours and every other player's (not zombies). Always on for Break Point Night.");
+                    ui.checkbox(&mut f.force_on, "force on (every map)");
+                    ui.add(
+                        egui::Slider::new(&mut f.intensity, 0.0f32..=40_000_000.0)
+                            .logarithmic(true)
+                            .text("brightness (lm)"),
+                    );
+                    ui.add(egui::Slider::new(&mut f.range, 5.0f32..=300.0).text("range (m)"));
+                    ui.add(egui::Slider::new(&mut f.outer_angle_deg, 1.0f32..=80.0).text("beam edge (° half-angle)"));
+                    ui.add(egui::Slider::new(&mut f.inner_angle_deg, 0.0f32..=80.0).text("bright core (° half-angle)"));
+                    ui.horizontal(|ui| {
+                        ui.color_edit_button_rgb(&mut f.color);
+                        ui.label("colour");
+                    });
+                    ui.label("mount offset from the eye (m)");
+                    ui.add(egui::Slider::new(&mut f.offset.x, -1.0f32..=1.0).text("right"));
+                    ui.add(egui::Slider::new(&mut f.offset.y, -1.0f32..=1.0).text("up"));
+                    ui.add(egui::Slider::new(&mut f.offset.z, -1.5f32..=0.5).text("back (−forward)"));
+                    ui.checkbox(&mut f.shadows, "shadows (yours)");
+                    ui.add(egui::Slider::new(&mut f.remote_intensity_mult, 0.0f32..=3.0).text("other players' brightness (×)"));
+                    ui.checkbox(&mut f.remote_shadows, "shadows (other players' — costly)");
+                    if ui.button("Copy flashlight settings to console").clicked() {
+                        info!(
+                            "flashlight: intensity: {:.0}, range: {:.1}, outer_angle_deg: {:.1}, inner_angle_deg: {:.1}, \
+                             color: {:?}, offset: {:?}, shadows: {}, remote_intensity_mult: {:.2}, remote_shadows: {}",
+                            f.intensity, f.range, f.outer_angle_deg, f.inner_angle_deg, f.color, f.offset,
+                            f.shadows, f.remote_intensity_mult, f.remote_shadows,
+                        );
+                    }
+                    if ui.button("Reset flashlight").clicked() {
+                        *f = FlashlightSettings {
+                            force_on: f.force_on,
+                            ..default()
+                        };
+                    }
                 });
 
             ui.separator();

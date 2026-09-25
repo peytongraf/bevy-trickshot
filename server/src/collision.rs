@@ -59,7 +59,7 @@ impl MapColliders {
         match map {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
-            MapId::BreakPoint => &self.break_point,
+            MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
         }
     }
 }

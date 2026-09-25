@@ -869,6 +869,9 @@ fn build_room(
 
                     col.spawn(Node {
                         column_gap: Val::Px(10.0),
+                        row_gap: Val::Px(8.0),
+                        // Five maps: wrap rather than run off a narrow window.
+                        flex_wrap: FlexWrap::Wrap,
                         align_items: AlignItems::Center,
                         ..default()
                     })
@@ -900,6 +903,13 @@ fn build_room(
                             asset_server,
                             "BREAK POINT",
                             shared::MapId::BreakPoint,
+                            lobby.map,
+                        );
+                        spawn_map_button(
+                            row,
+                            asset_server,
+                            "BREAK POINT NIGHT",
+                            shared::MapId::BreakPointNight,
                             lobby.map,
                         );
                     });

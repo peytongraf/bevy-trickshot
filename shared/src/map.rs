@@ -51,7 +51,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
     match map {
         MapId::BasicMap => "models/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
-        MapId::BreakPoint => "models/break_point_map.glb",
+        MapId::BreakPoint | MapId::BreakPointNight => "models/break_point_map.glb",
     }
 }
 
@@ -60,7 +60,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
 pub fn placement(map: MapId) -> MapPlacement {
     match map {
         MapId::BasicMap => BASIC_MAP_PLACEMENT,
-        MapId::BreakPoint => BREAK_POINT_PLACEMENT,
+        MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
             yaw_deg: 0.0,
@@ -150,7 +150,7 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
     match map {
         MapId::BasicMap => BASIC_MAP_WALLS,
         MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
-        MapId::BreakPoint => BREAK_POINT_WALLS,
+        MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_WALLS,
     }
 }
 
@@ -191,7 +191,7 @@ const BREAK_POINT_WALLS: &[WallBox] = &[
 /// for maps of 100 m and up, so a compact map shrinks them to fit.
 pub fn area_scale(map: MapId) -> f32 {
     match map {
-        MapId::BreakPoint => BREAK_POINT_PLACEMENT.scale,
+        MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT.scale,
         _ => 1.0,
     }
 }
@@ -215,7 +215,7 @@ fn bounds(map: MapId) -> Option<WallBox> {
         MapId::BasicMap => None,
         MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
         // The ground plane's x ±60, z ±100, with a margin off the boundary walls.
-        MapId::BreakPoint => Some(WallBox { x: (-58.0, 58.0), z: (-98.0, 98.0) }),
+        MapId::BreakPoint | MapId::BreakPointNight => Some(WallBox { x: (-58.0, 58.0), z: (-98.0, 98.0) }),
     }
 }
 

@@ -188,6 +188,7 @@ fn main() {
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(pause::PausePlugin)
+        .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
@@ -248,6 +249,7 @@ fn main() {
         .init_resource::<ShipmentSceneTuning>()
         .init_resource::<ShipmentDaySceneTuning>()
         .init_resource::<BreakPointSceneTuning>()
+        .init_resource::<BreakPointNightSceneTuning>()
         .init_resource::<MapSettings>()
         .init_resource::<CurrentMap>()
         .init_resource::<MapLoadState>()

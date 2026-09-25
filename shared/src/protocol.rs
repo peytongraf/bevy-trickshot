@@ -85,6 +85,11 @@ pub enum MapId {
     /// blocks, under a clear mid-day sky. Like [`MapId::BasicMap`] it has no separate
     /// visual model: the collision mesh is what's rendered.
     BreakPoint,
+    /// The same `models/break_point_map.glb` as [`MapId::BreakPoint`] at full
+    /// night, with every player's gun flashlight on — only the client's
+    /// fog/sky/lighting differ; collision, spawns, bounds and perk machines
+    /// are identical (see [`MapId::is_break_point`]).
+    BreakPointNight,
 }
 
 impl MapId {
@@ -94,6 +99,7 @@ impl MapId {
             MapId::Shipment => "SHIPMENT",
             MapId::ShipmentDay => "SHIPMENT DAY",
             MapId::BreakPoint => "BREAK POINT",
+            MapId::BreakPointNight => "BREAK POINT NIGHT",
         }
     }
 
@@ -103,6 +109,12 @@ impl MapId {
     /// `== MapId::Shipment`.
     pub fn is_shipment(self) -> bool {
         matches!(self, MapId::Shipment | MapId::ShipmentDay)
+    }
+
+    /// `true` for either variant built on `break_point_map.glb` (day or
+    /// night) — the same idea as [`Self::is_shipment`].
+    pub fn is_break_point(self) -> bool {
+        matches!(self, MapId::BreakPoint | MapId::BreakPointNight)
     }
 }
 

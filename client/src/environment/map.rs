@@ -115,7 +115,7 @@ pub(crate) fn apply_map_transform(
     // copy of the collision mesh with.
     let (position, rotation_deg, scale) = match current.0 {
         shared::MapId::BasicMap => (map.position, map.rotation_deg, map.scale),
-        shared::MapId::BreakPoint => {
+        shared::MapId::BreakPoint | shared::MapId::BreakPointNight => {
             let p = shared::map::BREAK_POINT_PLACEMENT;
             (p.position, p.yaw_deg, p.scale)
         }
@@ -205,7 +205,7 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 /// entry here once a map gets a `MapVisualModel` of its own.
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint => None,
+        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight => None,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/shipment_visual.glb"),
     }
 }
