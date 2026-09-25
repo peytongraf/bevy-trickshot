@@ -829,6 +829,11 @@ pub struct Lobby {
     /// client stops taking gameplay input. Cleared whenever a game starts or
     /// ends, and when the leader leaves.
     pub paused: bool,
+    /// Debug (the leader's egui panel, [`SetBotsPassive`]): bots — `Zombies`
+    /// zombies and `FreeForAll` bots — still move and chase but never fire,
+    /// for testing without dying. Kept for the lobby's lifetime, like its
+    /// other settings; a new lobby starts with it off.
+    pub bots_passive: bool,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1077,6 +1082,13 @@ pub struct AssetsReady;
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct EndGame;
 
+/// Client → server (debug): the party leader turns [`Lobby::bots_passive`] on
+/// or off. Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetBotsPassive {
+    pub passive: bool,
+}
+
 /// Client → server: the party leader pauses / resumes the running game for
 /// the whole party ([`Lobby::paused`]). Ignored from anyone else.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -1146,6 +1158,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<EndGame>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetPaused>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetBotsPassive>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);

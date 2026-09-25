@@ -570,13 +570,18 @@ pub(crate) fn drive_bots(
             brain.vertical_velocity = 0.0;
         }
 
-        // Fire: aimed, engaged, and the bolt is cycled.
+        // Fire: aimed, engaged, and the bolt is cycled — unless the leader's
+        // debug panel made the lobby's bots passive.
         let mut fire = false;
         let mut fire_dir = forward(brain.yaw, brain.pitch);
         let aim_error = shortest_angle(brain.yaw, want_yaw)
             .abs()
             .max((brain.pitch - want_pitch).abs());
-        if engaged && now >= brain.next_fire_at && aim_error <= AIM_TOLERANCE_DEG.to_radians() {
+        if !lobby.bots_passive
+            && engaged
+            && now >= brain.next_fire_at
+            && aim_error <= AIM_TOLERANCE_DEG.to_radians()
+        {
             let err = skill.aim_error_deg.to_radians();
             let yaw = brain.yaw + (brain.roll() * 2.0 - 1.0) * err;
             let pitch = brain.pitch + (brain.roll() * 2.0 - 1.0) * err;
@@ -752,6 +757,7 @@ mod tests {
             round: 0,
             enemies_left: 0,
             paused: false,
+            bots_passive: false,
             members: Vec::new(),
         }
     }

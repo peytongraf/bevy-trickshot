@@ -26,6 +26,7 @@ use bevy::render::renderer::{RenderContext, RenderDevice};
 use bevy::render::view::ViewTarget;
 use bevy::render::RenderApp;
 
+use super::perk_kick::{KickSettings, KickState};
 use crate::player::ViewModelCamera;
 
 const SHADER_ASSET_PATH: &str = "shaders/shroom.wgsl";
@@ -76,6 +77,10 @@ pub(crate) struct ShroomSettings {
     pub(crate) xray_smoke_amount: f32,
     /// ...and the psychedelic hue wobble (radians).
     pub(crate) xray_shimmer: f32,
+    /// ...and how far (m) in front of the enemy something must be to count
+    /// as hiding it — so the enemy's own arms / gun / legs covering its body
+    /// don't light it up while it's in plain sight.
+    pub(crate) xray_min_gap: f32,
     /// Aim assist (`player::shroom_aim_assist`) while aimed down sight: on /
     /// off...
     pub(crate) assist_enabled: bool,
@@ -89,6 +94,9 @@ pub(crate) struct ShroomSettings {
     pub(crate) assist_range: f32,
     /// ...and how scoped in (`Ads::t`, 0..=1) the player must be.
     pub(crate) assist_min_ads: f32,
+    /// The strong spell of the screen effect right after it switches on (the
+    /// x-ray and aim assist aren't affected).
+    pub(crate) kick: KickSettings,
 }
 
 impl Default for ShroomSettings {
@@ -116,12 +124,14 @@ impl Default for ShroomSettings {
             xray_smoke_speed: 0.8,
             xray_smoke_amount: 0.6,
             xray_shimmer: 0.35,
+            xray_min_gap: 0.5,
             assist_enabled: true,
             assist_cone_deg: 4.0,
             assist_strength: 5.0,
             assist_max_speed_deg: 25.0,
             assist_range: 150.0,
             assist_min_ads: 0.8,
+            kick: KickSettings::default(),
         }
     }
 }
@@ -136,6 +146,10 @@ pub(crate) struct ShroomPerk(pub(crate) bool);
 /// `ShroomSettings::enabled` over `fade_secs` by [`sync_shroom`].
 #[derive(Resource, Default)]
 pub(crate) struct ShroomLevel(pub(crate) f32);
+
+/// The screen effect's kick-in (`pub(crate)` for the debug panel's replay).
+#[derive(Resource, Default)]
+pub(crate) struct ShroomKick(pub(crate) KickState);
 
 /// Per-camera uniform the shader reads. Lives on the [`ViewModelCamera`];
 /// only extracted to the render world while `strength > 0`, so the pass is
@@ -182,6 +196,7 @@ impl Plugin for ShroomPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShroomSettings>()
             .init_resource::<ShroomLevel>()
+            .init_resource::<ShroomKick>()
             .init_resource::<ShroomPerk>()
             .add_plugins((
                 ExtractComponentPlugin::<ShroomUniform>::default(),
@@ -221,6 +236,7 @@ fn sync_shroom(
     settings: Res<ShroomSettings>,
     perk: Res<ShroomPerk>,
     mut level: ResMut<ShroomLevel>,
+    mut kick: ResMut<ShroomKick>,
     new_cams: Query<Entity, (With<ViewModelCamera>, Without<ShroomUniform>)>,
     mut uniforms: Query<&mut ShroomUniform, With<ViewModelCamera>>,
 ) {
@@ -235,8 +251,10 @@ fn sync_shroom(
         let step = time.delta_secs() / settings.fade_secs;
         level.0 + (target - level.0).clamp(-step, step)
     };
-    // Smoothstep so the onset / wear-off eases in and out, not linearly.
-    let strength = level.0 * level.0 * (3.0 - 2.0 * level.0);
+    // Smoothstep so the onset / wear-off eases in and out, not linearly —
+    // times the kick-in's boost (1 once it's settled).
+    let boost = kick.0.update(target > 0.0, time.delta_secs(), &settings.kick);
+    let strength = level.0 * level.0 * (3.0 - 2.0 * level.0) * settings.kick.multiplier(boost);
 
     let s = &*settings;
     for mut u in &mut uniforms {
@@ -257,8 +275,9 @@ fn sync_shroom(
     }
 }
 
+/// `pub(super)` so the drunk pass can chain itself right after it.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct ShroomLabel;
+pub(super) struct ShroomLabel;
 
 #[derive(Default)]
 struct ShroomNode;

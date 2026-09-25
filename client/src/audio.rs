@@ -1,6 +1,13 @@
 //! Preloaded sound handles, per-category volume multipliers, and the
 //! looping ambience bed — plus pushing `Settings::master_volume` and the
 //! "Sound volumes" panel onto whatever's actually playing.
+//!
+//! `assets/audio/` layout: one folder per category — `ambient/`, `combat/`,
+//! `movement/` (+ `footsteps/`), `ui/`, `weapons/<weapon>/`, `zombies/`, and
+//! `unused/` for clips not wired up yet. Files are `snake_case`, named for
+//! what they are within their folder (no `-sound` suffix, no repeating the
+//! folder's name: `weapons/sniper/shot.wav`), with variations numbered
+//! `name_1`, `name_2`, …
 
 use bevy::audio::Volume;
 use bevy::prelude::*;
@@ -29,26 +36,26 @@ pub(crate) struct GameSounds {
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
     pub(crate) teleport: Handle<AudioSource>,
-    /// `audio/throwing_knife/throw.mp3` — the knife leaving the hand.
+    /// `audio/weapons/throwing_knife/throw.mp3` — the knife leaving the hand.
     pub(crate) knife_throw: Handle<AudioSource>,
-    /// `throwing_knife_hit_enemy.mp3` — a thrown knife killing a bot / player.
+    /// `audio/weapons/throwing_knife/hit_enemy.mp3` — a thrown knife killing a bot / player.
     pub(crate) knife_hit: Handle<AudioSource>,
-    /// `throwing_knife_in_air.mp3` — the whoosh that follows a thrown knife.
+    /// `audio/weapons/throwing_knife/in_air.mp3` — the whoosh that follows a thrown knife.
     pub(crate) knife_in_air: Handle<AudioSource>,
-    /// `audio/knife/equip-knife-sound.mp3` — switching to the regular knife.
+    /// `audio/weapons/knife/equip.mp3` — switching to the regular knife.
     pub(crate) knife_equip: Handle<AudioSource>,
-    /// `audio/equip_sniper.mp3` — switching to the sniper.
+    /// `audio/weapons/sniper/equip.mp3` — switching to the sniper.
     pub(crate) sniper_equip: Handle<AudioSource>,
-    /// `audio/not-used-yet/hit-marker-sound.mp3` — one of your shots damaged
+    /// `audio/combat/hit_marker.mp3` — one of your shots damaged
     /// (but didn't kill) a bot / player (`hit_marker`).
     pub(crate) hit_marker: Handle<AudioSource>,
-    /// `audio/buy-and-drink-cola-sound.mp3` — we just bought a perk in
+    /// `audio/zombies/buy_perk.mp3` — we just bought a perk in
     /// `Zombies` (`zombies_hud::sync_owned_perks`).
     pub(crate) perk_buy: Handle<AudioSource>,
-    /// `audio/not-used-yet/heartbeat-sound.mp3` — looped while the player is
+    /// `audio/combat/heartbeat.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
-    /// `audio/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
+    /// `audio/movement/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
 }
@@ -120,20 +127,20 @@ impl SoundSet {
 /// impacts, and the regular knife's stabs and swings.
 #[derive(Resource)]
 pub(crate) struct KnifeSounds {
-    /// `audio/throwing_knife/impact/` — a thrown knife striking a surface.
+    /// `audio/weapons/throwing_knife/impact/` — a thrown knife striking a surface.
     pub(crate) impact: SoundSet,
-    /// `audio/knife/stab/` — a stab landing on a bot / player.
+    /// `audio/weapons/knife/stab/` — a stab landing on a bot / player.
     pub(crate) stab: SoundSet,
-    /// `audio/knife/swing/` — a stab that hits nothing.
+    /// `audio/weapons/knife/swing/` — a stab that hits nothing.
     pub(crate) swing: SoundSet,
 }
 
 impl KnifeSounds {
     fn load(asset_server: &AssetServer) -> Self {
         Self {
-            impact: SoundSet::load(asset_server, "audio/throwing_knife/impact", 0.3),
-            stab: SoundSet::load(asset_server, "audio/knife/stab", 1.0),
-            swing: SoundSet::load(asset_server, "audio/knife/swing", 1.0),
+            impact: SoundSet::load(asset_server, "audio/weapons/throwing_knife/impact", 0.3),
+            stab: SoundSet::load(asset_server, "audio/weapons/knife/stab", 1.0),
+            swing: SoundSet::load(asset_server, "audio/weapons/knife/swing", 1.0),
         }
     }
 }
@@ -342,29 +349,29 @@ pub(crate) fn distance_falloff(distance: f32, remote: &RemoteSoundSettings) -> f
 pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(KnifeSounds::load(&asset_server));
     commands.insert_resource(GameSounds {
-        shot: asset_server.load("audio/sniper_shot.wav"),
-        rechamber: asset_server.load("audio/rechamber.wav"),
-        reload: asset_server.load("audio/reload.wav"),
-        ambient: asset_server.load("audio/ambient_nature.ogg"),
-        shipment_ambient: asset_server.load("audio/shipment_ambient.ogg"),
-        aim_in: asset_server.load("audio/aim-in-sound.mp3"),
-        aim_out: asset_server.load("audio/aim-out-sound.mp3"),
-        out_of_ammo: asset_server.load("audio/out-of-ammo-sound.mp3"),
-        slide: asset_server.load("audio/slide-sound.mp3"),
-        dive: asset_server.load("audio/dive-sound.mp3"),
-        kill_enemy: asset_server.load("audio/kill-enemy-sound.mp3"),
-        jump_land: asset_server.load("audio/jump-landing-sound.mp3"),
-        teleport: asset_server.load("audio/teleport.wav"),
-        knife_throw: asset_server.load("audio/throwing_knife/throw.mp3"),
-        knife_hit: asset_server.load("audio/throwing_knife/throwing_knife_hit_enemy.mp3"),
-        knife_in_air: asset_server.load("audio/throwing_knife/throwing_knife_in_air.mp3"),
-        knife_equip: asset_server.load("audio/knife/equip-knife-sound.mp3"),
-        sniper_equip: asset_server.load("audio/equip_sniper.mp3"),
-        heartbeat: asset_server.load("audio/not-used-yet/heartbeat-sound.mp3"),
-        hit_marker: asset_server.load("audio/not-used-yet/hit-marker-sound.mp3"),
-        perk_buy: asset_server.load("audio/buy-and-drink-cola-sound.mp3"),
+        shot: asset_server.load("audio/weapons/sniper/shot.wav"),
+        rechamber: asset_server.load("audio/weapons/sniper/rechamber.wav"),
+        reload: asset_server.load("audio/weapons/sniper/reload.wav"),
+        ambient: asset_server.load("audio/ambient/nature.ogg"),
+        shipment_ambient: asset_server.load("audio/ambient/shipment.ogg"),
+        aim_in: asset_server.load("audio/weapons/sniper/aim_in.mp3"),
+        aim_out: asset_server.load("audio/weapons/sniper/aim_out.mp3"),
+        out_of_ammo: asset_server.load("audio/weapons/sniper/out_of_ammo.mp3"),
+        slide: asset_server.load("audio/movement/slide.mp3"),
+        dive: asset_server.load("audio/movement/dive.mp3"),
+        kill_enemy: asset_server.load("audio/combat/kill_enemy.mp3"),
+        jump_land: asset_server.load("audio/movement/jump_land.mp3"),
+        teleport: asset_server.load("audio/movement/teleport.wav"),
+        knife_throw: asset_server.load("audio/weapons/throwing_knife/throw.mp3"),
+        knife_hit: asset_server.load("audio/weapons/throwing_knife/hit_enemy.mp3"),
+        knife_in_air: asset_server.load("audio/weapons/throwing_knife/in_air.mp3"),
+        knife_equip: asset_server.load("audio/weapons/knife/equip.mp3"),
+        sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
+        heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),
+        hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),
+        perk_buy: asset_server.load("audio/zombies/buy_perk.mp3"),
         footsteps: (1..=FOOTSTEP_CLIPS)
-            .map(|i| asset_server.load(format!("audio/footsteps/footstep_{i}.wav")))
+            .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),
     });
 }

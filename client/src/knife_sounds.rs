@@ -1,8 +1,8 @@
 //! The regular knife's stab and swing sounds. The server resolves every knife
 //! attack (`server::sim::resolve_shots`) and tells the whole lobby the
 //! outcome as a [`shared::KnifeAttackSound`]: a stab that landed on a bot /
-//! player plays one of `audio/knife/stab/` from the victim, anything else
-//! plays one of `audio/knife/swing/` from the attacker — the attacker
+//! player plays one of `audio/weapons/knife/stab/` from the victim, anything else
+//! plays one of `audio/weapons/knife/swing/` from the attacker — the attacker
 //! included, since only the server knows which it was. The server picks the
 //! clip, so everyone hears the same one. (The equip sound is local-only and
 //! lives in `weapon_system`.)

@@ -3,7 +3,8 @@
 //! left, ours at the bottom of the stack), the perk machines (placeholder boxes for now) with
 //! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
-//! speed multipliers).
+//! speed multipliers; Liquid Courage: the drunk screen effect — its damage
+//! cut is server-side).
 //!
 //! Everything reads the replicated `Lobby` — the server owns the round, the
 //! count, points and purchases (`server::zombies`) — so nothing here needs
@@ -48,6 +49,7 @@ pub(crate) fn perk_color(perk: Perk) -> Color {
     match perk {
         Perk::ShroomTea => Color::srgb_u8(0x6a, 0x1f, 0xbf),
         Perk::NitroBrew => Color::srgb_u8(0xff, 0xd4, 0x00),
+        Perk::LiquidCourage => Color::srgb_u8(0xc8, 0x14, 0x2d),
     }
 }
 
@@ -107,7 +109,10 @@ impl NitroBrew {
 }
 
 /// Our lobby, if we're in one.
-fn my_lobby<'a>(local: &Query<&LocalId, With<GameClient>>, lobbies: &'a Query<&Lobby>) -> Option<&'a Lobby> {
+fn my_lobby<'a>(
+    local: &Query<&LocalId, With<GameClient>>,
+    lobbies: &'a Query<&Lobby>,
+) -> Option<&'a Lobby> {
     let me = local.iter().next()?.0;
     lobbies.iter().find(|l| l.has(me))
 }
@@ -324,7 +329,11 @@ fn spawn_perk_machine(
             m.spawn((
                 Mesh3d(meshes.add(Cuboid::new(MACHINE_SIZE.x * 0.85, 0.4, 0.05))),
                 MeshMaterial3d(sign),
-                Transform::from_xyz(0.0, MACHINE_SIZE.y * 0.5 - 0.35, MACHINE_SIZE.z * 0.5 + 0.03),
+                Transform::from_xyz(
+                    0.0,
+                    MACHINE_SIZE.y * 0.5 - 0.35,
+                    MACHINE_SIZE.z * 0.5 + 0.03,
+                ),
             ));
             // ...and a soft light so it reads from a distance.
             m.spawn((
@@ -446,7 +455,12 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                             ..default()
                         })
                         .with_children(|col| {
-                            col.spawn((PerkCardText::Name, Text::new(""), heading(38.0), TextColor::WHITE));
+                            col.spawn((
+                                PerkCardText::Name,
+                                Text::new(""),
+                                heading(38.0),
+                                TextColor::WHITE,
+                            ));
                             col.spawn((
                                 PerkCardText::Description,
                                 Text::new(""),
@@ -479,7 +493,12 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                         })
                         .with_children(|col| {
                             col.spawn((Text::new("COST"), heading(16.0), faint));
-                            col.spawn((PerkCardText::Cost, Text::new(""), heading(30.0), TextColor(MONEY_YELLOW)));
+                            col.spawn((
+                                PerkCardText::Cost,
+                                Text::new(""),
+                                heading(30.0),
+                                TextColor(MONEY_YELLOW),
+                            ));
                         });
                     footer
                         .spawn(Node {
@@ -489,7 +508,12 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                         })
                         .with_children(|col| {
                             col.spawn((Text::new("YOUR POINTS"), heading(16.0), faint));
-                            col.spawn((PerkCardText::Points, Text::new(""), heading(30.0), TextColor::WHITE));
+                            col.spawn((
+                                PerkCardText::Points,
+                                Text::new(""),
+                                heading(30.0),
+                                TextColor::WHITE,
+                            ));
                         });
                 });
                 card.spawn((
@@ -502,7 +526,12 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     BackgroundColor(Color::NONE),
                     BorderRadius::all(Val::Px(4.0)),
                 ))
-                .with_child((PerkCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
+                .with_child((
+                    PerkCardText::Action,
+                    Text::new(""),
+                    heading(24.0),
+                    TextColor::WHITE,
+                ));
             });
         });
 }
@@ -557,7 +586,13 @@ fn spawn_party_panel(
             })
             .with_children(|row| {
                 row.spawn((Text::new("$"), text(26.0), TextColor(MONEY_YELLOW), shadow));
-                row.spawn((PartyMoney(peer), Text::new("0"), text(26.0), TextColor(Color::WHITE), shadow));
+                row.spawn((
+                    PartyMoney(peer),
+                    Text::new("0"),
+                    text(26.0),
+                    TextColor(Color::WHITE),
+                    shadow,
+                ));
             });
         panel
             .spawn(Node {
@@ -586,9 +621,20 @@ fn spawn_party_panel(
                     BackgroundColor(Color::WHITE),
                     BorderRadius::all(Val::Px(2.0)),
                 ));
-                row.spawn((PartyHealthText(peer), Text::new("100"), text(28.0), TextColor(Color::WHITE), shadow));
+                row.spawn((
+                    PartyHealthText(peer),
+                    Text::new("100"),
+                    text(28.0),
+                    TextColor(Color::WHITE),
+                    shadow,
+                ));
             });
-        panel.spawn((Text::new(name.to_string()), text(20.0), TextColor(Color::WHITE), shadow));
+        panel.spawn((
+            Text::new(name.to_string()),
+            text(20.0),
+            TextColor(Color::WHITE),
+            shadow,
+        ));
     });
 }
 
@@ -651,7 +697,11 @@ fn update_party_panels(
     }
 
     for (m, mut text) in &mut money {
-        let points = lobby.members.iter().find(|x| x.peer == m.0).map_or(0, |x| x.score);
+        let points = lobby
+            .members
+            .iter()
+            .find(|x| x.peer == m.0)
+            .map_or(0, |x| x.score);
         let s = points.to_string();
         if text.0 != s {
             text.0 = s;
@@ -679,7 +729,7 @@ fn update_party_panels(
 }
 
 /// Owned-perk icon size and its gap from the bottom of the screen (px).
-const PERK_ICON_SIZE: f32 = 64.0;
+const PERK_ICON_SIZE: f32 = 100.0;
 const PERK_ICON_BOTTOM: f32 = 36.0;
 
 /// One perk's icon in the bottom-centre row, shown while we own it.
@@ -693,11 +743,13 @@ struct PerkIconSlot {
     shown: Option<Perk>,
 }
 
-/// A perk's HUD icon.
+/// A perk's icon — on the machine's card (`update_perk_card`) and in the
+/// owned-perk row along the bottom (`update_perk_icons`).
 fn perk_icon_path(perk: Perk) -> &'static str {
     match perk {
-        Perk::ShroomTea => "textures/shroom_tea_icon.png",
-        Perk::NitroBrew => "textures/nitro_brew_icon.png",
+        Perk::ShroomTea => "textures/icons/shroom_tea_icon.png",
+        Perk::NitroBrew => "textures/icons/nitro_brew_icon.png",
+        Perk::LiquidCourage => "textures/icons/liquid_courage_icon.png",
     }
 }
 
@@ -710,7 +762,12 @@ fn update_perk_icons(
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut slots: Query<(&mut PerkIconSlot, &mut ImageNode, &mut Visibility, &mut Node)>,
+    mut slots: Query<(
+        &mut PerkIconSlot,
+        &mut ImageNode,
+        &mut Visibility,
+        &mut Node,
+    )>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let owned: &[Perk] = zombies_game(&local, &lobbies)
@@ -730,7 +787,11 @@ fn update_perk_icons(
         } else {
             Visibility::Hidden
         });
-        let display = if perk.is_some() { Display::Flex } else { Display::None };
+        let display = if perk.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
         if node.display != display {
             node.display = display;
         }
@@ -747,7 +808,11 @@ enum PerkStatus {
 
 /// The machine we're standing at (if any), how that perk stands for us, and
 /// our points. `None` if we're not at a machine or not in the lobby.
-fn perk_here(lobby: &Lobby, me: lightyear::prelude::PeerId, feet: Vec3) -> Option<(Perk, PerkStatus, u32)> {
+fn perk_here(
+    lobby: &Lobby,
+    me: lightyear::prelude::PeerId,
+    feet: Vec3,
+) -> Option<(Perk, PerkStatus, u32)> {
     let member = lobby.members.iter().find(|m| m.peer == me)?;
     let perk = Perk::ALL
         .into_iter()
@@ -902,7 +967,8 @@ fn buy_perk(
 }
 
 /// Switch on what each perk does for as long as we own it in a running
-/// `Zombies` game — Shroom Tea's shroom effect, Nitro Brew's multipliers —
+/// `Zombies` game — Shroom Tea's shroom effect, Nitro Brew's multipliers,
+/// Liquid Courage's drunk effect —
 /// and off again the moment we don't (game over, left, or not in a game at
 /// all). A perk newly in our list is our purchase going through, so that's
 /// when the buy sound plays and the drinking arms drink it — for us only,
@@ -915,6 +981,7 @@ fn sync_owned_perks(
     sounds: Option<Res<GameSounds>>,
     mut shroom: ResMut<ShroomPerk>,
     mut nitro: ResMut<NitroBrew>,
+    mut courage: ResMut<crate::LiquidCouragePerk>,
     mut drink: ResMut<crate::PerkDrink>,
     // What we owned last frame (empty out of a game, so a new game starts
     // clean).
@@ -951,6 +1018,10 @@ fn sync_owned_perks(
     let has_nitro = owned.contains(&Perk::NitroBrew);
     if nitro.owned != has_nitro {
         nitro.owned = has_nitro;
+    }
+    let has_courage = owned.contains(&Perk::LiquidCourage);
+    if courage.0 != has_courage {
+        courage.0 = has_courage;
     }
     *prev = owned;
 }

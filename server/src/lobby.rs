@@ -17,7 +17,7 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetMap, SetPaused, SetTimeLimit,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetMap, SetPaused, SetTimeLimit,
     StartGame,
 };
 
@@ -56,6 +56,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_assets_ready)
             .add_observer(on_end_game)
             .add_observer(on_set_paused)
+            .add_observer(on_set_bots_passive)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
@@ -164,6 +165,7 @@ fn on_create(
                 round: 0,
                 enemies_left: 0,
                 paused: false,
+                bots_passive: false,
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -450,6 +452,18 @@ fn on_set_paused(
     info!("lobby {lobby_e:?} {} by {peer:?}", if paused { "paused" } else { "resumed" });
 }
 
+/// Debug: the leader stops (or lets) their lobby's bots fire, any time.
+fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let passive = trigger.trigger.passive;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
+        if lobby.bots_passive != passive {
+            lobby.bots_passive = passive;
+            info!("lobby bots {} by {peer:?} (debug)", if passive { "made passive" } else { "allowed to attack" });
+        }
+    }
+}
+
 /// The leader picks the match length while the lobby is still waiting.
 fn on_set_time_limit(
     trigger: Trigger<RemoteTrigger<SetTimeLimit>>,
@@ -705,6 +719,7 @@ mod tests {
             round: 0,
             enemies_left: 0,
             paused: false,
+            bots_passive: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),

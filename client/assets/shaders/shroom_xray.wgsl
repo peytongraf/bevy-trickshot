@@ -1,8 +1,10 @@
 // Shroom "x-ray": a bright, hazy, smoke-edged ghost of an enemy seen through
 // walls. Drawn on a twin of each enemy mesh (same skin, so it animates with
 // it) whose pipeline only passes where something is *in front* of it (see
-// `ShroomXrayMaterial::specialize`) — so it shows exactly where the enemy is
-// hidden, and never over the enemy when you can see them. Driven by
+// `ShroomXrayMaterial::specialize`) — by at least `min_gap` metres, so the
+// enemy's own limbs / gun covering its body don't count — so it shows
+// exactly where the enemy is hidden, and never over the enemy when you can
+// see them. Driven by
 // `ShroomXrayMaterial` in `client/src/vfx/shroom_xray.rs`.
 
 #import bevy_pbr::{
@@ -24,6 +26,7 @@ struct XrayParams {
     smoke_speed: f32,
     smoke_amount: f32,
     shimmer: f32,
+    min_gap: f32,
 }
 @group(2) @binding(0) var<uniform> x: XrayParams;
 
@@ -102,7 +105,14 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
     out.world_position = world;
     out.world_normal = n;
-    out.position = position_world_to_clip(world.xyz);
+    // Depth-test from `min_gap` metres nearer the camera along the view ray:
+    // the same pixel on screen, but "hidden" now needs the occluder at least
+    // that far in front — more than the enemy's own arms or gun ever are.
+    // (Kept past the near plane for an enemy right in your face.)
+    let to = world.xyz - view.world_position;
+    let d = max(length(to), 1e-4);
+    let pulled = view.world_position + to * (max(d - x.min_gap, min(d, 0.15)) / d);
+    out.position = position_world_to_clip(pulled);
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = vertex.instance_index;
 #endif

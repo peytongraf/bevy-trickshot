@@ -11,7 +11,7 @@ use crate::GameSounds;
 use super::movement::{Player, PlayerPhysics, Sprinting};
 use super::slide::{Slide, Stance};
 
-/// How many `audio/footsteps/footstep_N.wav` clips there are (1-indexed).
+/// How many `audio/movement/footsteps/footstep_N.wav` clips there are (1-indexed).
 pub(crate) const FOOTSTEP_CLIPS: usize = 10;
 
 /// Panel-adjustable footstep audio ("Footsteps" panel section). One step plays

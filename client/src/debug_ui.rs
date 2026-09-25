@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -40,6 +40,15 @@ pub(crate) fn ads_tuning_ui(
         Res<LocalHealth>,
         ResMut<crate::DrinkArmsSettings>,
         ResMut<crate::zombies_hud::NitroBrew>,
+        ResMut<crate::DrunkSettings>,
+        Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
+        Query<&shared::Lobby>,
+        Query<
+            &mut lightyear::prelude::TriggerSender<shared::SetBotsPassive>,
+            With<crate::net::GameClient>,
+        >,
+        ResMut<crate::ShroomKick>,
+        ResMut<crate::DrunkKick>,
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -115,6 +124,33 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.checkbox(&mut tuning.force_full, "Force full ADS (ignore RMB)");
             ui.label(format!("ads.t = {:.2}", ads.t));
+
+            ui.separator();
+            ui.collapsing("Bots", |ui| {
+                // Lives on the server's lobby (`Lobby::bots_passive`) — the
+                // box shows what the server has, and a click asks it to flip.
+                let me = local_id.iter().next().map(|l| l.0);
+                let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)).map(|l| (l, l.leader == me)));
+                let Some((lobby, is_leader)) = lobby else {
+                    ui.label("Not in a lobby.");
+                    return;
+                };
+                let mut passive = lobby.bots_passive;
+                if ui
+                    .add_enabled(is_leader, egui::Checkbox::new(&mut passive, "Bots don't attack"))
+                    .changed()
+                {
+                    if let Ok(mut tx) = bots_passive_tx.single_mut() {
+                        tx.trigger::<shared::LobbyChannel>(shared::SetBotsPassive { passive });
+                    }
+                }
+                ui.label(if is_leader {
+                    "Zombies and Free For All bots still move and chase you, but never fire. \
+                     Stays set for this lobby until turned off."
+                } else {
+                    "Only the party leader can change this."
+                });
+            });
 
             ui.separator();
             ui.collapsing("Weapon & arms", |ui| {
@@ -1350,6 +1386,58 @@ pub(crate) fn ads_tuning_ui(
                     }
                 });
 
+                ui.separator();
+                ui.collapsing("Liquid Courage", |ui| {
+                    let d = &mut *drunk;
+                    ui.label(format!(
+                        "Zombies perk (red) — takes {:.0}% of normal damage (server-side \
+                         constant). The drunk look below stacks with the shroom effect.",
+                        shared::perks::LIQUID_COURAGE_DAMAGE_MULT * 100.0
+                    ));
+                    ui.checkbox(&mut d.enabled, "enabled (without the perk)");
+                    ui.add(egui::Slider::new(&mut d.fade_secs, 0.0f32..=15.0).text("fade in / out (s)"));
+                    ui.label("Head sway");
+                    ui.add(egui::Slider::new(&mut d.sway_roll_deg, 0.0f32..=5.0).text("roll (deg)"));
+                    ui.add(egui::Slider::new(&mut d.sway_drift, 0.0f32..=0.03).text("drift"));
+                    ui.add(egui::Slider::new(&mut d.sway_speed, 0.0f32..=3.0).text("speed"));
+                    ui.label("Double vision");
+                    ui.add(egui::Slider::new(&mut d.double_offset, 0.0f32..=0.04).text("separation"));
+                    ui.add(egui::Slider::new(&mut d.double_mix, 0.0f32..=1.0).text("ghost strength"));
+                    ui.add(egui::Slider::new(&mut d.double_speed, 0.0f32..=3.0).text("speed"));
+                    ui.label("Look");
+                    ui.add(egui::Slider::new(&mut d.vignette, 0.0f32..=1.0).text("dark edges"));
+                    ui.add(egui::Slider::new(&mut d.flush, 0.0f32..=1.0).text("warm flush"));
+                    ui.add(egui::Slider::new(&mut d.blur, 0.0f32..=0.02).text("blur (kick-in only)"));
+                    ui.add(
+                        egui::Slider::new(&mut d.vignette_kick_scale, 0.0f32..=1.0)
+                            .text("dark edges' share of the kick"),
+                    );
+                    ui.label("Kick-in (right after buying, then back to the above)");
+                    ui.add(egui::Slider::new(&mut d.kick.peak, 1.0f32..=8.0).text("peak (× normal)"));
+                    ui.add(egui::Slider::new(&mut d.kick.rise_secs, 0.0f32..=10.0).text("ramp up (s)"));
+                    ui.add(egui::Slider::new(&mut d.kick.hold_secs, 0.0f32..=10.0).text("hold (s)"));
+                    ui.add(egui::Slider::new(&mut d.kick.fall_secs, 0.0f32..=10.0).text("ramp down (s)"));
+                    if ui.button("Replay kick-in").clicked() {
+                        drunk_kick.0.replay();
+                    }
+                    if ui.button("Copy Liquid Courage settings to console").clicked() {
+                        info!(
+                            "liquid courage: sway_roll_deg: {:.2}, sway_drift: {:.4}, sway_speed: {:.2}, \
+                             double_offset: {:.4}, double_mix: {:.2}, double_speed: {:.2}, vignette: {:.2}, \
+                             flush: {:.2}, blur: {:.4}, vignette_kick_scale: {:.2}",
+                            d.sway_roll_deg, d.sway_drift, d.sway_speed, d.double_offset,
+                            d.double_mix, d.double_speed, d.vignette, d.flush, d.blur,
+                            d.vignette_kick_scale,
+                        );
+                    }
+                    if ui.button("Reset Liquid Courage").clicked() {
+                        *d = crate::DrunkSettings {
+                            enabled: d.enabled,
+                            ..default()
+                        };
+                    }
+                });
+
             ui.separator();
                 ui.collapsing("Shroom effect", |ui| {
                     let s = &mut *shroom;
@@ -1400,6 +1488,10 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut s.xray_smoke_speed, 0.0f32..=4.0).text("smoke drift speed"));
                     ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
                     ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
+                    ui.add(
+                        egui::Slider::new(&mut s.xray_min_gap, 0.0f32..=2.0)
+                            .text("min wall gap (m) — ignores own limbs/gun"),
+                    );
                     ui.label("Aim assist (while aimed down sight)");
                     ui.checkbox(&mut s.assist_enabled, "aim assist enabled");
                     ui.add(egui::Slider::new(&mut s.assist_cone_deg, 0.1f32..=20.0).text("pull cone (° off crosshair)"));
@@ -1407,6 +1499,14 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut s.assist_max_speed_deg, 0.0f32..=180.0).text("max pull speed (°/s)"));
                     ui.add(egui::Slider::new(&mut s.assist_range, 5.0f32..=300.0).text("range (m)"));
                     ui.add(egui::Slider::new(&mut s.assist_min_ads, 0.0f32..=1.0).text("min scope-in (0 = hip too)"));
+                    ui.label("Kick-in (right after buying, then back to the above)");
+                    ui.add(egui::Slider::new(&mut s.kick.peak, 1.0f32..=8.0).text("peak (× normal)"));
+                    ui.add(egui::Slider::new(&mut s.kick.rise_secs, 0.0f32..=10.0).text("ramp up (s)"));
+                    ui.add(egui::Slider::new(&mut s.kick.hold_secs, 0.0f32..=10.0).text("hold (s)"));
+                    ui.add(egui::Slider::new(&mut s.kick.fall_secs, 0.0f32..=10.0).text("ramp down (s)"));
+                    if ui.button("Replay kick-in").clicked() {
+                        shroom_kick.0.replay();
+                    }
                     if ui.button("Reset shroom").clicked() {
                         *s = ShroomSettings {
                             enabled: s.enabled,

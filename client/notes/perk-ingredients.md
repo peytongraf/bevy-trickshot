@@ -37,3 +37,20 @@ Side effect - Players vision begins to look like they are actually tripping on p
 - Owl eyeball garnish
 - Ground-up x-ray film
 - Third eye drops
+
+## Liquid Courage
+
+Pro - Player takes less damage (more effective health)
+Side effect - Players vision is subtly impaired like they're actually drunk: the view sways, slight double vision, soft blurry dark edges and a warm flush
+
+### Ingredients
+
+- A whole handle of cheap vodka
+- Smelling salts, to stay upright
+- Crushed ibuprofen
+- Bull's blood, freshly squeezed
+- Rhino hide shavings
+- Grandpa's war stories
+- A splash of cough syrup
+- Maraschino cherry juice
+- Pickle brine for the morning after

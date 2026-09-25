@@ -15,6 +15,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: new, bigger perk icons.",
+        "Shroom Tea: enemies only glow when hidden behind cover.",
+        "Zombies: Shroom Tea and Liquid Courage hit hard for a few seconds after drinking.",
+        "Zombies: new Liquid Courage perk — take less damage.",
         "Party leader can now pause the game from the Esc menu.",
         "Other players' rechamber is much quieter; no more aim sounds.",
         "Kill sound is a little quieter.",

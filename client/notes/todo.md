@@ -6,9 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Quieter remote rechamber
-- Zombies double kill sound
-
+- Organized audio directory
 # Today
 
 - On zombies could add a boss that can only take damage from trick shots
@@ -41,7 +39,7 @@ Everything below is ordered easiest → hardest, within each section.
 - Add save teleport sound
 - Add mantle sound
 - Add footstep sounds for other players
-- Organize audio directory, stick to naming convention, and possibly convert audio to wav files.
+- Possibly convert audio to wav files.
 
 ## UI / HUD
 

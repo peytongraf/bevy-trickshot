@@ -183,6 +183,8 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(ShroomPlugin)
+        // After `ShroomPlugin`: its pass chains onto the shroom one.
+        .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(pause::PausePlugin)

@@ -61,12 +61,12 @@ pub struct UiSfx {
 
 fn setup_ui_sfx(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(UiSfx {
-        menu_hover: asset_server.load("audio/ui/menu-hover-sound.mp3"),
-        menu_select: asset_server.load("audio/ui/menu-select-sound.mp3"),
-        button_hover: asset_server.load("audio/ui/button-hover-sound.mp3"),
-        button_click: asset_server.load("audio/ui/button-click-sound.mp3"),
-        denied: asset_server.load("audio/ui/denied-sound.mp3"),
-        menu_back: asset_server.load("audio/ui/menu-back-sound.mp3"),
+        menu_hover: asset_server.load("audio/ui/menu_hover.mp3"),
+        menu_select: asset_server.load("audio/ui/menu_select.mp3"),
+        button_hover: asset_server.load("audio/ui/button_hover.mp3"),
+        button_click: asset_server.load("audio/ui/button_click.mp3"),
+        denied: asset_server.load("audio/ui/denied.mp3"),
+        menu_back: asset_server.load("audio/ui/menu_back.mp3"),
     });
 }
 

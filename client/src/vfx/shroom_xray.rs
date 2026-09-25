@@ -7,7 +7,11 @@
 //! — drawn with [`ShroomXrayMaterial`] (`assets/shaders/shroom_xray.wgsl`).
 //! Its pipeline flips the depth test to pass only where something is in
 //! *front* of it and writes no depth, blending additively: so it appears
-//! exactly where the enemy is hidden. (A twin rather than a second material
+//! exactly where the enemy is hidden. "In front" means by at least
+//! `ShroomSettings::xray_min_gap`: the vertex shader pulls the twin that far
+//! toward the camera along each view ray (same spot on screen, only its
+//! depth moves), so the enemy's own limbs and gun covering its body — a few
+//! tens of centimetres in front — don't count, and only real cover does. (A twin rather than a second material
 //! on the same entity: Bevy 0.16 keeps one material per entity.)
 //!
 //! "Enemy bots" = avatars with [`crate::BotLook`] (a `Zombies` zombie, a
@@ -53,6 +57,7 @@ mod params {
         pub(crate) smoke_speed: f32,
         pub(crate) smoke_amount: f32,
         pub(crate) shimmer: f32,
+        pub(crate) min_gap: f32,
     }
 }
 
@@ -131,6 +136,7 @@ fn params(settings: &ShroomSettings, level: f32) -> XrayParams {
         smoke_speed: settings.xray_smoke_speed,
         smoke_amount: settings.xray_smoke_amount,
         shimmer: settings.xray_shimmer,
+        min_gap: settings.xray_min_gap,
     }
 }
 
@@ -219,6 +225,7 @@ fn update_xray(
             || p.smoke_speed != want.smoke_speed
             || p.smoke_amount != want.smoke_amount
             || p.shimmer != want.shimmer
+            || p.min_gap != want.min_gap
     });
     if changed {
         if let Some(m) = materials.get_mut(&handle.0) {

@@ -146,7 +146,12 @@ fn apply_player_hits(
         if !combat.alive {
             continue;
         }
-        combat.health -= ev.damage;
+        // Liquid Courage (a `Zombies` perk) softens every hit.
+        let perks: &[shared::perks::Perk] = lobbies
+            .iter()
+            .find_map(|(_, l)| l.members.iter().find(|m| m.peer == ev.victim))
+            .map_or(&[], |m| m.perks.as_slice());
+        combat.health -= shared::perks::damage_taken(perks, ev.damage);
         combat.last_damage = time.elapsed_secs();
         if combat.health > 0.0 {
             // Hurt but alive: the shooter gets a hit marker (a bot shooter has
@@ -307,7 +312,12 @@ fn on_fall_landed(
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
-    let damage = fall_damage(landed.distance);
+    // Liquid Courage (a `Zombies` perk) softens falls too.
+    let perks: &[shared::perks::Perk] = lobbies
+        .iter()
+        .find_map(|(_, l)| l.members.iter().find(|m| m.peer == peer))
+        .map_or(&[], |m| m.perks.as_slice());
+    let damage = shared::perks::damage_taken(perks, fall_damage(landed.distance));
     if damage <= 0.0 {
         return;
     }

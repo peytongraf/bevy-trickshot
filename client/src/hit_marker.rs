@@ -1,6 +1,6 @@
 //! Hit markers: when the server reports that one of *your* shots damaged a bot
 //! or player without killing them (`shared::HitMarker`, sent to the shooter
-//! only), play `hit-marker-sound.mp3` and flash a small white X at the
+//! only), play `audio/combat/hit_marker.mp3` and flash a small white X at the
 //! crosshair. A kill has its own feedback and sends none.
 
 use std::f32::consts::FRAC_PI_4;

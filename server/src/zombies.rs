@@ -347,6 +347,7 @@ mod tests {
                 round: 0,
                 enemies_left: 0,
                 paused: false,
+                bots_passive: false,
                 members: vec![shared::LobbyMember {
                     peer: me,
                     name: "me".into(),

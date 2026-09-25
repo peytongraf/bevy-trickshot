@@ -15,16 +15,33 @@ pub enum Perk {
     /// Nitro Brew — faster movement, ADS, reload, rechamber and weapon swap
     /// (the multipliers are client-side: `zombies_hud::NitroBrew`).
     NitroBrew,
+    /// Liquid Courage — takes less damage from everything
+    /// ([`LIQUID_COURAGE_DAMAGE_MULT`]), with a drunk screen effect.
+    LiquidCourage,
+}
+
+/// Damage a Liquid Courage owner takes, as a fraction of the normal amount
+/// (0.6 ≈ two thirds more health).
+pub const LIQUID_COURAGE_DAMAGE_MULT: f32 = 0.6;
+
+/// `damage` scaled by what `perks` protect against.
+pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
+    if perks.contains(&Perk::LiquidCourage) {
+        damage * LIQUID_COURAGE_DAMAGE_MULT
+    } else {
+        damage
+    }
 }
 
 impl Perk {
     /// Every perk, in the order their icons sit in the HUD.
-    pub const ALL: [Perk; 2] = [Perk::ShroomTea, Perk::NitroBrew];
+    pub const ALL: [Perk; 3] = [Perk::ShroomTea, Perk::NitroBrew, Perk::LiquidCourage];
 
     pub fn label(self) -> &'static str {
         match self {
             Perk::ShroomTea => "Shroom Tea",
             Perk::NitroBrew => "Nitro Brew",
+            Perk::LiquidCourage => "Liquid Courage",
         }
     }
 
@@ -33,6 +50,7 @@ impl Perk {
         match self {
             Perk::ShroomTea => "See enemies through walls and gain aim assist.",
             Perk::NitroBrew => "Move, aim, reload, rechamber and swap weapons faster.",
+            Perk::LiquidCourage => "Take less damage from everything.",
         }
     }
 
@@ -62,6 +80,17 @@ impl Perk {
                 "Squirt of WD-40",
                 "Cheetah sweat",
             ],
+            Perk::LiquidCourage => &[
+                "A whole handle of cheap vodka",
+                "Smelling salts, to stay upright",
+                "Crushed ibuprofen",
+                "Bull's blood, freshly squeezed",
+                "Rhino hide shavings",
+                "Grandpa's war stories",
+                "A splash of cough syrup",
+                "Maraschino cherry juice",
+                "Pickle brine for the morning after",
+            ],
         }
     }
 
@@ -70,6 +99,7 @@ impl Perk {
         match self {
             Perk::ShroomTea => 100,
             Perk::NitroBrew => 100,
+            Perk::LiquidCourage => 100,
         }
     }
 
@@ -84,6 +114,8 @@ impl Perk {
             (Perk::NitroBrew, MapId::BreakPoint) => Vec3::new(-35.72, 7.7 - 1.7, 10.24),
             // Clear of Shroom Tea's origin spot.
             (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
+            (Perk::LiquidCourage, MapId::BreakPoint) => Vec3::new(35.72, 7.7 - 1.7, 59.72),
+            (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
         }
     }
 }
@@ -115,6 +147,13 @@ mod tests {
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m + Vec3::X * 3.0, 0.0));
         // A floor below doesn't count.
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m - Vec3::Y * 4.0, 0.0));
+    }
+
+    #[test]
+    fn only_liquid_courage_cuts_damage() {
+        assert_eq!(damage_taken(&[], 50.0), 50.0);
+        assert_eq!(damage_taken(&[Perk::ShroomTea, Perk::NitroBrew], 50.0), 50.0);
+        assert_eq!(damage_taken(&[Perk::LiquidCourage], 50.0), 50.0 * LIQUID_COURAGE_DAMAGE_MULT);
     }
 
     #[test]
