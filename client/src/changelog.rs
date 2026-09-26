@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Liquid Courage: strong double vision right after drinking.",
         "Zombies: perk machines play their jingle when anyone buys one.",
         "New melee key (E): quick knife stab straight from the sniper.",
         "New Call of Duty style menus, lobby and loadout screens.",

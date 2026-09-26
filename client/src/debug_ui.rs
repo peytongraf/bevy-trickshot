@@ -1407,6 +1407,14 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut d.double_offset, 0.0f32..=0.04).text("separation"));
                     ui.add(egui::Slider::new(&mut d.double_mix, 0.0f32..=1.0).text("ghost strength"));
                     ui.add(egui::Slider::new(&mut d.double_speed, 0.0f32..=3.0).text("speed"));
+                    ui.add(
+                        egui::Slider::new(&mut d.double_offset_kick, 0.0f32..=0.08)
+                            .text("separation at kick-in peak"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut d.double_mix_kick, 0.0f32..=1.0)
+                            .text("ghost strength at kick-in peak"),
+                    );
                     ui.label("Look");
                     ui.add(egui::Slider::new(&mut d.vignette, 0.0f32..=1.0).text("dark edges"));
                     ui.add(egui::Slider::new(&mut d.flush, 0.0f32..=1.0).text("warm flush"));
@@ -1426,11 +1434,14 @@ pub(crate) fn ads_tuning_ui(
                     if ui.button("Copy Liquid Courage settings to console").clicked() {
                         info!(
                             "liquid courage: sway_roll_deg: {:.2}, sway_drift: {:.4}, sway_speed: {:.2}, \
-                             double_offset: {:.4}, double_mix: {:.2}, double_speed: {:.2}, vignette: {:.2}, \
-                             flush: {:.2}, blur: {:.4}, vignette_kick_scale: {:.2}",
+                             double_offset: {:.4}, double_mix: {:.2}, double_speed: {:.2}, \
+                             double_offset_kick: {:.4}, double_mix_kick: {:.2}, vignette: {:.2}, \
+                             flush: {:.2}, blur: {:.4}, vignette_kick_scale: {:.2}, kick peak: {:.2}, \
+                             rise: {:.2}, hold: {:.2}, fall: {:.2}",
                             d.sway_roll_deg, d.sway_drift, d.sway_speed, d.double_offset,
-                            d.double_mix, d.double_speed, d.vignette, d.flush, d.blur,
-                            d.vignette_kick_scale,
+                            d.double_mix, d.double_speed, d.double_offset_kick, d.double_mix_kick,
+                            d.vignette, d.flush, d.blur, d.vignette_kick_scale, d.kick.peak,
+                            d.kick.rise_secs, d.kick.hold_secs, d.kick.fall_secs,
                         );
                     }
                     if ui.button("Reset Liquid Courage").clicked() {

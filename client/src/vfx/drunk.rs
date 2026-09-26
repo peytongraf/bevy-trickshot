@@ -54,6 +54,11 @@ pub(crate) struct DrunkSettings {
     pub(crate) double_mix: f32,
     /// ...and how fast it drifts apart and back.
     pub(crate) double_speed: f32,
+    /// Double vision at the top of the kick-in: separation and ghost strength
+    /// it climbs to (instead of scaling the two above by the kick's peak),
+    /// then eases back down to them.
+    pub(crate) double_offset_kick: f32,
+    pub(crate) double_mix_kick: f32,
     /// How dark the edges get (0..=1).
     pub(crate) vignette: f32,
     /// Softening blur radius (fraction of screen height), stronger toward the
@@ -80,10 +85,12 @@ impl Default for DrunkSettings {
             double_offset: 0.001,
             double_mix: 0.35,
             double_speed: 0.5,
-            vignette: 0.48,
-            blur: 0.0025,
-            vignette_kick_scale: 0.5,
-            flush: 0.27,
+            double_offset_kick: 0.048,
+            double_mix_kick: 0.74,
+            vignette: 0.65,
+            blur: 0.0067,
+            vignette_kick_scale: 1.0,
+            flush: 1.0,
             kick: KickSettings::default(),
         }
     }
@@ -118,6 +125,8 @@ mod uniform {
         pub(crate) sway_roll: f32,
         pub(crate) sway_drift: f32,
         pub(crate) sway_speed: f32,
+        /// Final double-vision separation / ghost strength (fade and kick-in
+        /// already applied).
         pub(crate) double_offset: f32,
         pub(crate) double_mix: f32,
         pub(crate) double_speed: f32,
@@ -212,6 +221,10 @@ fn sync_drunk(
     let edge_peak = (settings.kick.peak * settings.vignette_kick_scale).max(1.0);
     let vignette = settings.vignette * fade * (1.0 + (edge_peak - 1.0) * boost);
     let blur = settings.blur * fade * boost;
+    // Double vision has its own kick-in peak: it climbs to the kick values
+    // and back down to the normal ones.
+    let double_offset = fade * settings.double_offset.lerp(settings.double_offset_kick, boost);
+    let double_mix = fade * settings.double_mix.lerp(settings.double_mix_kick, boost);
 
     let s = &*settings;
     for mut u in &mut uniforms {
@@ -221,8 +234,8 @@ fn sync_drunk(
             sway_roll: s.sway_roll_deg.to_radians(),
             sway_drift: s.sway_drift,
             sway_speed: s.sway_speed,
-            double_offset: s.double_offset,
-            double_mix: s.double_mix,
+            double_offset,
+            double_mix,
             double_speed: s.double_speed,
             vignette,
             blur,

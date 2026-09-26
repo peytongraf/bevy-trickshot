@@ -15,10 +15,10 @@ struct DrunkUniform {
     sway_roll: f32,
     sway_drift: f32,
     sway_speed: f32,
+    // Final values (fade + kick already applied on the CPU side).
     double_offset: f32,
     double_mix: f32,
     double_speed: f32,
-    // Final values (fade + kick already applied on the CPU side).
     vignette: f32,
     blur: f32,
     flush: f32,
@@ -58,14 +58,14 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Double vision: a ghost copy that drifts apart (mostly sideways, like
     // eyes that won't converge) and back.
     let dt = s.time * s.double_speed;
-    let sep = s.double_offset * k * (0.55 + 0.45 * sin(dt));
+    let sep = s.double_offset * (0.55 + 0.45 * sin(dt));
     let dir = normalize(vec2<f32>(1.0, 0.35 * sin(dt * 0.61 + 0.8)));
     let ghost = dir * sep / aspect;
 
     // Soft focus during the kick-in, blurrier toward the edges (radius 0 —
     // i.e. a plain sample — once it's settled).
     let br = vec2<f32>(s.blur * (0.35 + r)) / aspect;
-    var col = mix(soft(uv, br), soft(uv + ghost, br), clamp(s.double_mix * k, 0.0, 0.9));
+    var col = mix(soft(uv, br), soft(uv + ghost, br), clamp(s.double_mix, 0.0, 0.9));
 
     // Tunnel-ish dark edges.
     col = col * max(1.0 - s.vignette * smoothstep(0.3, 0.95, r), 0.0);
