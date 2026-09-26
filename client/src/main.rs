@@ -341,7 +341,7 @@ fn main() {
                 .before(bevy::ui::UiSystem::Layout)
                 .run_if(in_state(AppState::InGame)),
         )
-        .add_systems(Update, apply_master_volume)
+        .add_systems(Update, (apply_master_volume, sync_menu_music))
         // Unconditional (not gated on `AppState`) so the map (and its ground)
         // behind the menu/lobby UI is already right the instant a game starts.
         .add_systems(

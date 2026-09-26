@@ -3,7 +3,7 @@
 //! "Sound volumes" panel onto whatever's actually playing.
 //!
 //! `assets/audio/` layout: one folder per category — `ambient/`, `combat/`,
-//! `movement/` (+ `footsteps/`), `ui/`, `weapons/<weapon>/`, `zombies/`, and
+//! `movement/` (+ `footsteps/`), `music/`, `ui/`, `weapons/<weapon>/`, `zombies/`, and
 //! `unused/` for clips not wired up yet. Files are `snake_case`, named for
 //! what they are within their folder (no `-sound` suffix, no repeating the
 //! folder's name: `weapons/sniper/shot.wav`), with variations numbered
@@ -67,6 +67,9 @@ pub(crate) struct GameSounds {
     /// `audio/movement/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
+    /// `audio/music/main_menu.wav` — looped on the main menu and in lobbies
+    /// (`sync_menu_music`).
+    menu_music: Handle<AudioSource>,
 }
 
 impl GameSounds {
@@ -275,6 +278,15 @@ impl SoundVolumes {
 #[derive(Component)]
 pub(crate) struct AmbientAudio;
 
+/// Linear volume of the main-menu / lobby music loop (before master volume).
+pub(crate) const MENU_MUSIC_VOLUME: f32 = 0.5;
+
+/// The looping main-menu music. Plays whenever we're not `InGame` (main menu
+/// and lobby rooms) and is despawned as soon as a match starts — see
+/// [`sync_menu_music`].
+#[derive(Component)]
+pub(crate) struct MenuMusic;
+
 /// Tags a sound spawned by `net::receive_remote_sounds` for another player's
 /// action (reload, footstep, shot, ...), positioned at their world location.
 /// `apply_sound_volumes` skips these — their volume is already fully baked in
@@ -403,6 +415,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),
+        menu_music: asset_server.load("audio/music/main_menu.wav"),
     });
 }
 
@@ -437,18 +450,45 @@ pub(crate) fn start_ambient(
     ));
 }
 
+/// Keep the menu music loop playing on the main menu and in lobbies, and
+/// silent in a match: spawned the first time we're outside `InGame` with none
+/// playing (game launch, or leaving a match / lobby back to the menu), and
+/// despawned on entering `InGame`. Moving between `MainMenu` and `InLobby`
+/// leaves the one loop running rather than restarting it.
+pub(crate) fn sync_menu_music(
+    mut commands: Commands,
+    state: Res<State<AppState>>,
+    sounds: Res<GameSounds>,
+    music: Query<Entity, With<MenuMusic>>,
+) {
+    if *state.get() == AppState::InGame {
+        for e in &music {
+            commands.entity(e).despawn();
+        }
+    } else if music.is_empty() {
+        commands.spawn((
+            MenuMusic,
+            AudioPlayer::new(sounds.menu_music.clone()),
+            // `GlobalVolume` (master volume) is multiplied in at spawn.
+            PlaybackSettings::LOOP.with_volume(Volume::Linear(MENU_MUSIC_VOLUME)),
+        ));
+    }
+}
+
 /// Push `Settings::master_volume` onto Bevy's `GlobalVolume`, which scales
 /// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
 /// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
 /// audio that's already playing, though, so the looping ambience needs its own
 /// direct nudge here too — also picking up the "Sound volumes" panel's
-/// multiplier for whichever ambience loop `start_ambient` actually started.
+/// multiplier for whichever ambience loop `start_ambient` actually started —
+/// and the menu music loop likewise.
 pub(crate) fn apply_master_volume(
     settings: Res<Settings>,
     vols: Res<SoundVolumes>,
     current: Res<CurrentMap>,
     mut global_volume: ResMut<GlobalVolume>,
     mut ambient: Query<&mut AudioSink, With<AmbientAudio>>,
+    mut music: Query<&mut AudioSink, (With<MenuMusic>, Without<AmbientAudio>)>,
 ) {
     if !settings.is_changed() && !vols.is_changed() {
         return;
@@ -462,6 +502,9 @@ pub(crate) fn apply_master_volume(
         sink.set_volume(Volume::Linear(
             AMBIENT_VOLUME * ambient_mult * settings.master_volume,
         ));
+    }
+    for mut sink in &mut music {
+        sink.set_volume(Volume::Linear(MENU_MUSIC_VOLUME * settings.master_volume));
     }
 }
 

@@ -6,10 +6,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Collidable perk machines
-- Perk machines use a real position
-- Break Point Night lights + power switch
-
 # Today
 
 - Add starting money option for party leader.

@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "New main menu music.",
         "Zombies: round number on screen, with a sound and animation each new round.",
         "Zombies: turn on the power on Break Point Night to light up the map.",
         "Zombies: real, solid perk machines for every perk.",
