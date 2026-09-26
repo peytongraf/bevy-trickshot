@@ -226,7 +226,7 @@ fn step_knives(
             }
         }
 
-        let world = colliders.world(lobby.map);
+        let world = &colliders.for_lobby(lobby);
         let hit = sim.body.step(dt, world, &targets);
 
         if let Some(hit) = hit {

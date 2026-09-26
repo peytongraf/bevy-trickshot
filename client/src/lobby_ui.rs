@@ -45,7 +45,6 @@ impl Plugin for LobbyUiPlugin {
                     despawn_lobby_ui,
                     mark_scoreboard_dirty,
                     spawn_match_timer,
-                    spawn_round_counter,
                     sync_current_map,
                     reset_own_kill_tracking,
                 ),
@@ -74,7 +73,6 @@ impl Plugin for LobbyUiPlugin {
                 (
                     (watch_scores, rebuild_scoreboard).chain(),
                     update_match_timer,
-                    update_round_counter,
                     play_ffa_kill_sound,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -1538,62 +1536,6 @@ fn update_match_timer(
         Some(s) => format!("{}:{:02}", s / 60, s % 60),
         None => String::new(),
     };
-    if text.0 != wanted {
-        text.0 = wanted;
-    }
-}
-
-// --- zombies round counter (top right) -------------------------------
-
-#[derive(Component)]
-struct RoundCounterLabel;
-
-/// Call of Duty zombies' round tally: a big red number in the top-right
-/// corner. Blank outside `Zombies` (and before round 1 starts).
-fn spawn_round_counter(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
-        .spawn((
-            StateScoped(AppState::InGame),
-            GlobalZIndex(5),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(10.0),
-                right: Val::Px(28.0),
-                ..default()
-            },
-        ))
-        .with_child((
-            RoundCounterLabel,
-            Text::new(""),
-            TextFont {
-                font: asset_server.load(crate::HUD_FONT),
-                font_size: 84.0,
-                ..default()
-            },
-            TextColor(Color::srgb(0.72, 0.04, 0.04)),
-            TextShadow {
-                offset: Vec2::splat(2.0),
-                color: Color::srgba(0.0, 0.0, 0.0, 0.75),
-            },
-        ));
-}
-
-fn update_round_counter(
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&shared::Lobby>,
-    mut text: Query<&mut Text, With<RoundCounterLabel>>,
-) {
-    let Ok(mut text) = text.single_mut() else {
-        return;
-    };
-    let round = local
-        .iter()
-        .next()
-        .map(|l| l.0)
-        .and_then(|me| lobbies.iter().find(|l| l.has(me)))
-        .filter(|l| l.mode == shared::GameMode::Zombies && l.round > 0)
-        .map(|l| l.round);
-    let wanted = round.map(|r| r.to_string()).unwrap_or_default();
     if text.0 != wanted {
         text.0 = wanted;
     }

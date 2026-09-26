@@ -846,6 +846,10 @@ pub struct Lobby {
     /// for testing without dying. Kept for the lobby's lifetime, like its
     /// other settings; a new lobby starts with it off.
     pub bots_passive: bool,
+    /// [`GameMode::Zombies`]: someone threw the power switch
+    /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
+    /// starts or ends.
+    pub power_on: bool,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1073,6 +1077,12 @@ pub struct BuyPerk {
     pub perk: crate::perks::Perk,
 }
 
+/// Client → server: pay to turn the power on ([`GameMode::Zombies`]). The
+/// server checks the sender is at the switch (`crate::power`), can afford it
+/// and that it isn't already on.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct TurnOnPower;
+
 /// Client → server: leave whatever lobby the sender is in (server derives it).
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct LeaveLobby;
@@ -1198,6 +1208,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<RespawnReady>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyPerk>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()

@@ -58,6 +58,9 @@ pub(crate) struct GameSounds {
     jingle_shroom_tea: Handle<AudioSource>,
     jingle_nitro_brew: Handle<AudioSource>,
     jingle_liquid_courage: Handle<AudioSource>,
+    /// `audio/zombies/round_start.wav` — a `Zombies` round starting, for
+    /// everyone (`round_counter`).
+    pub(crate) round_start: Handle<AudioSource>,
     /// `audio/combat/heartbeat.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
@@ -199,6 +202,7 @@ pub(crate) struct SoundVolumes {
     pub(crate) perk_buy: f32,
     /// Every perk machine's jingle (on top of its distance fade).
     pub(crate) perk_jingle: f32,
+    pub(crate) round_start: f32,
 }
 
 impl Default for SoundVolumes {
@@ -226,6 +230,7 @@ impl Default for SoundVolumes {
             hit_marker: 1.0,
             perk_buy: 1.0,
             perk_jingle: 1.0,
+            round_start: 4.0,
         }
     }
 }
@@ -258,6 +263,7 @@ impl SoundVolumes {
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
             (sounds.perk_buy.id(), self.perk_buy),
+            (sounds.round_start.id(), self.round_start),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -393,6 +399,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         jingle_shroom_tea: asset_server.load("audio/zombies/jingles/shroom_tea.wav"),
         jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
         jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
+        round_start: asset_server.load("audio/zombies/round_start.wav"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),

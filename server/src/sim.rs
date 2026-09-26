@@ -281,7 +281,7 @@ fn resolve_shots(
         // no wallbangs (yet) — and the tracer ends on it.
         let aim = dir.normalize_or_zero();
         let wall = colliders
-            .world(lobby.map)
+            .for_lobby(lobby)
             .raycast(origin, aim, weapon.spec().max_range);
         let wall_dist = wall.map(|h| h.distance);
 

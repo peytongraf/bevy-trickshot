@@ -45,7 +45,9 @@ mod menu;
 mod net;
 mod pause;
 mod player;
+mod power;
 mod respawn;
+mod round_counter;
 mod settings;
 mod thrown_knife;
 mod ui;
@@ -187,6 +189,8 @@ fn main() {
         .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
+        .add_plugins(power::PowerPlugin)
+        .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)

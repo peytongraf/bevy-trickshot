@@ -6,11 +6,16 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Collidable perk machines
+- Perk machines use a real position
+- Break Point Night lights + power switch
+
 # Today
 
+- Add starting money option for party leader.
+- Add bg or even remote player models animated on main menus
 - Knife won't stab when enemies are totally point blank
 - Could make shroom tea brighten map slightly like a sort of night vision
-- Add lights to break point and add a way to turn on the power.
 - On zombies could add a boss that can only take damage from trick shots
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm

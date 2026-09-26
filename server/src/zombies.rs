@@ -21,7 +21,7 @@ use lightyear::prelude::*;
 
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
-use shared::{BuyPerk, GameMode, Lobby, PlayerId, PlayerInput, PlayerName, PlayerPose};
+use shared::{BuyPerk, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput, PlayerName, PlayerPose};
 
 use crate::ai::{BotBrain, NextBotId};
 use crate::lobby::LobbyPlayer;
@@ -102,7 +102,7 @@ pub struct ZombiesPlugin;
 
 impl Plugin for ZombiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_buy_perk).add_systems(
+        app.add_observer(on_buy_perk).add_observer(on_turn_on_power).add_systems(
             FixedUpdate,
             (run_rounds, clear_dead_zombies, cull_zombies)
                 .before(crate::ai::drive_bots),
@@ -275,6 +275,44 @@ fn on_buy_perk(
     info!("{peer:?} bought {}", perk.label());
 }
 
+/// A member wants to turn the power on: they must be in a running `Zombies`
+/// game on a map with a switch, alive, standing at it (a little slack), with
+/// the points, and it mustn't be on already. Anything else is ignored.
+fn on_turn_on_power(
+    trigger: Trigger<RemoteTrigger<TurnOnPower>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    let Some((lobby_e, mut lobby)) = lobbies
+        .iter_mut()
+        .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused || lobby.power_on {
+        return;
+    }
+    let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
+        return;
+    };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if !combat.alive || !shared::power::in_range(lobby.map, feet, 0.75) {
+        return;
+    }
+    let cost = shared::power::POWER_COST;
+    let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
+        return;
+    };
+    if member.score < cost {
+        return;
+    }
+    member.score -= cost;
+    lobby.power_on = true;
+    info!("{peer:?} turned the power on");
+}
+
 /// Let a dead zombie lie for [`CORPSE_SECS`] (its death animation), then
 /// remove it.
 fn clear_dead_zombies(
@@ -348,6 +386,7 @@ mod tests {
                 enemies_left: 0,
                 paused: false,
                 bots_passive: false,
+                power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: me,
                     name: "me".into(),
@@ -483,6 +522,46 @@ mod tests {
         });
         app.world_mut().flush();
         assert!(app.world().get::<Lobby>(lobby).unwrap().members[0].perks.is_empty());
+    }
+
+    #[test]
+    fn the_power_goes_on_once_for_whoever_pays_at_the_switch() {
+        let (mut app, lobby) = game();
+        app.add_observer(on_turn_on_power);
+        let me = PeerId::Netcode(1);
+        let flip = |app: &mut App| {
+            app.world_mut().trigger(RemoteTrigger { trigger: TurnOnPower, from: me });
+            app.world_mut().flush();
+        };
+        let player = app
+            .world_mut()
+            .query_filtered::<Entity, (With<PlayerCombat>, Without<Zombie>)>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        {
+            let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+            l.members[0].score = 250;
+            // Break Point (day) has no switch.
+            l.map = shared::MapId::BreakPoint;
+        }
+        let at_switch = Vec3::ZERO + Vec3::Y * EYE_HEIGHT;
+        app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_switch;
+        flip(&mut app);
+        assert!(!app.world().get::<Lobby>(lobby).unwrap().power_on, "no switch on this map");
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().map = shared::MapId::BreakPointNight;
+        // Too far away.
+        app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_switch + Vec3::X * 5.0;
+        flip(&mut app);
+        assert!(!app.world().get::<Lobby>(lobby).unwrap().power_on);
+        app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_switch;
+        flip(&mut app);
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert!(l.power_on);
+        assert_eq!(l.members[0].score, 250 - shared::power::POWER_COST);
+        // Already on: not charged again.
+        flip(&mut app);
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].score, 250 - shared::power::POWER_COST);
     }
 
     #[test]

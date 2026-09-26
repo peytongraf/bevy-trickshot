@@ -298,7 +298,7 @@ fn wander_bots(
         if !bot.alive || endings.is_frozen(lb.lobby) || lobby.paused {
             continue;
         }
-        let world = colliders.world(lobby.map);
+        let world = &colliders.for_lobby(lobby);
         let nav = navs.graph(lobby.map);
         // Plain `&mut`s so fields can be borrowed separately below.
         let (bot, w) = (&mut *bot, &mut *wander);
@@ -452,6 +452,7 @@ mod tests {
                 enemies_left: 0,
                 paused: false,
                 bots_passive: false,
+                power_on: false,
                 members: Vec::new(),
             })
             .id();
@@ -521,6 +522,7 @@ mod tests {
                 enemies_left: 0,
                 paused: false,
                 bots_passive: false,
+                power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),
                     name: "me".into(),

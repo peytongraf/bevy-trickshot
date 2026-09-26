@@ -1,6 +1,6 @@
 //! `Zombies`-only client pieces: the "enemies left" counter (left edge,
 //! vertically centred), every member's points / health / name panel (bottom
-//! left, ours at the bottom of the stack), the perk machines (placeholder boxes for now) with
+//! left, ours at the bottom of the stack), the perk machines (solid, with a light) with
 //! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
 //! speed multipliers; Liquid Courage: the drunk screen effect — its damage
@@ -39,6 +39,7 @@ impl Plugin for ZombiesHudPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             .init_resource::<NitroBrew>()
+            .init_resource::<PerkMachineSettings>()
             // Not gated on `InGame`: it's what switches the effects back *off*
             // once the game is left.
             .add_systems(Update, sync_owned_perks);
@@ -110,7 +111,7 @@ impl NitroBrew {
 }
 
 /// Our lobby, if we're in one.
-fn my_lobby<'a>(
+pub(crate) fn my_lobby<'a>(
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &'a Query<&Lobby>,
 ) -> Option<&'a Lobby> {
@@ -119,7 +120,7 @@ fn my_lobby<'a>(
 }
 
 /// Our lobby while it's a running `Zombies` game.
-fn zombies_game<'a>(
+pub(crate) fn zombies_game<'a>(
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &'a Query<&Lobby>,
 ) -> Option<&'a Lobby> {
@@ -264,9 +265,157 @@ fn update_enemies_left(
 
 // --- perk machines -----------------------------------------------------
 
-/// A perk machine's stand-in model (a glowing box until there's a real one).
+/// A perk machine's root: stands on its spot, turned to face its way
+/// ([`PerkMachineSettings::placement`]). Its parts are children.
 #[derive(Component)]
 struct PerkMachine(Perk);
+
+/// The pieces of a perk machine, placed relative to its root by
+/// [`sync_perk_machines`].
+#[derive(Component, Clone, Copy)]
+enum MachinePart {
+    /// The imported `.glb`.
+    Model,
+    /// Its solid box — players walk into it and shots / effects stop on it
+    /// (the server has the same box, `server::collision::LobbyWorld`).
+    Collider,
+    /// A soft light in the perk's colour above it.
+    Light,
+}
+
+/// The machine models' box in their own (Blender) units: half of each
+/// `*_perk_machine.glb`'s width, height and depth. Every machine is this box,
+/// just with its own material.
+const MODEL_HALF_EXTENTS: Vec3 = Vec3::new(1.25, 2.0, 0.6);
+
+/// A machine's nudge away from where `shared` puts it, from the debug panel.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct MachineNudge {
+    /// Metres from [`Perk::machine_pos`].
+    pub(crate) offset: Vec3,
+    /// Degrees on top of [`Perk::machine_yaw_deg`].
+    pub(crate) yaw_deg: f32,
+}
+
+/// The light every perk machine has, in the perk's colour.
+#[derive(Clone, Copy)]
+pub(crate) struct MachineLight {
+    /// Where it sits (m) from the ground under the machine's middle, in the
+    /// machine's own frame (x across its width, z out through its depth), so
+    /// it turns with the machine.
+    pub(crate) offset: Vec3,
+    /// Lumens.
+    pub(crate) intensity: f32,
+    /// How far (m) it reaches.
+    pub(crate) range: f32,
+    /// Size of the glowing source (m) — softens highlights.
+    pub(crate) radius: f32,
+    pub(crate) shadows: bool,
+}
+
+impl Default for MachineLight {
+    fn default() -> Self {
+        Self {
+            offset: Vec3::new(0.0, 1.4, 0.0),
+            intensity: 200_000.0,
+            range: 27.0,
+            radius: 0.0,
+            shadows: false,
+        }
+    }
+}
+
+impl MachineLight {
+    fn point_light(&self, color: Color) -> PointLight {
+        PointLight {
+            color,
+            intensity: self.intensity,
+            range: self.range,
+            radius: self.radius,
+            shadows_enabled: self.shadows,
+            ..default()
+        }
+    }
+}
+
+/// Panel-tunable perk machines ("Zombies perks" → "Perk machines"). The
+/// machines' real spots live in `shared::perks` so the server agrees on them
+/// (buy range, collision for bots and shots); these nudges move a machine —
+/// model, collider, light, jingle and the range for its card — on this
+/// client only, for finding a spot to bake into `shared`.
+#[derive(Resource, Clone)]
+pub(crate) struct PerkMachineSettings {
+    /// Model scale for every machine. At the default it matches the
+    /// server's `shared::perks::MACHINE_HALF_EXTENTS`.
+    pub(crate) scale: f32,
+    /// Every machine's light (only its colour is the perk's own).
+    pub(crate) light: MachineLight,
+    pub(crate) shroom: MachineNudge,
+    pub(crate) nitro: MachineNudge,
+    pub(crate) courage: MachineNudge,
+}
+
+impl Default for PerkMachineSettings {
+    fn default() -> Self {
+        Self {
+            scale: shared::perks::MACHINE_HALF_EXTENTS.y / MODEL_HALF_EXTENTS.y,
+            light: default(),
+            shroom: default(),
+            nitro: default(),
+            courage: default(),
+        }
+    }
+}
+
+impl PerkMachineSettings {
+    pub(crate) fn nudge_mut(&mut self, perk: Perk) -> &mut MachineNudge {
+        match perk {
+            Perk::ShroomTea => &mut self.shroom,
+            Perk::NitroBrew => &mut self.nitro,
+            Perk::LiquidCourage => &mut self.courage,
+        }
+    }
+
+    fn nudge(&self, perk: Perk) -> &MachineNudge {
+        match perk {
+            Perk::ShroomTea => &self.shroom,
+            Perk::NitroBrew => &self.nitro,
+            Perk::LiquidCourage => &self.courage,
+        }
+    }
+
+    /// Where `perk`'s machine stands on `map` (the ground under its middle)
+    /// and which way it faces (degrees), nudges included.
+    pub(crate) fn placement(&self, perk: Perk, map: shared::MapId) -> (Vec3, f32) {
+        let n = self.nudge(perk);
+        (perk.machine_pos(map) + n.offset, perk.machine_yaw_deg(map) + n.yaw_deg)
+    }
+
+    /// Half the machine's width, height and depth (m).
+    fn half_extents(&self) -> Vec3 {
+        MODEL_HALF_EXTENTS * self.scale.max(0.001)
+    }
+
+    fn part_transform(&self, part: MachinePart) -> Transform {
+        let half = self.half_extents();
+        match part {
+            MachinePart::Model => {
+                Transform::from_xyz(0.0, half.y, 0.0).with_scale(Vec3::splat(self.scale.max(0.001)))
+            }
+            MachinePart::Collider => Transform::from_xyz(0.0, half.y, 0.0),
+            MachinePart::Light => Transform::from_translation(self.light.offset),
+        }
+    }
+}
+
+/// Each perk's machine model.
+fn machine_model_path(perk: Perk) -> &'static str {
+    match perk {
+        Perk::ShroomTea => "models/shroom_tea_perk_machine.glb",
+        Perk::NitroBrew => "models/nitro_brew_perk_machine.glb",
+        Perk::LiquidCourage => "models/liquid_courage_perk_machine.glb",
+    }
+}
 
 /// A perk machine's jingle, playing from the machine (see
 /// [`play_perk_jingles`]). Its loudness follows the listener's distance every
@@ -284,6 +433,7 @@ fn play_perk_jingles(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     sounds: Option<Res<GameSounds>>,
+    machines: Res<PerkMachineSettings>,
     mut seen: Local<Option<std::collections::HashMap<lightyear::prelude::PeerId, Vec<Perk>>>>,
     mut commands: Commands,
 ) {
@@ -306,7 +456,8 @@ fn play_perk_jingles(
                     AudioPlayer::new(sounds.jingle(perk)),
                     // From about the machine's sign.
                     Transform::from_translation(
-                        perk.machine_pos(lobby.map) + Vec3::Y * MACHINE_SIZE.y * 0.8,
+                        machines.placement(perk, lobby.map).0
+                            + Vec3::Y * machines.half_extents().y * 1.6,
                     ),
                     // Starts silent; the real volume is set from the next frame.
                     crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
@@ -338,84 +489,84 @@ fn update_perk_jingles(
     }
 }
 
-/// Placeholder machine size (m): width, height, depth.
-const MACHINE_SIZE: Vec3 = Vec3::new(1.0, 2.1, 0.8);
-
 /// Put each perk's machine on the map while we're in a `Zombies` game (and
-/// take it away otherwise).
+/// take it away otherwise), and keep it where [`PerkMachineSettings`] says.
+#[allow(clippy::type_complexity)]
 fn sync_perk_machines(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    machines: Query<(Entity, &PerkMachine)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    settings: Res<PerkMachineSettings>,
+    asset_server: Res<AssetServer>,
+    mut machines: Query<(Entity, &PerkMachine, &mut Transform)>,
+    mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
+    mut colliders: Query<&mut bevy_rapier3d::prelude::Collider, With<MachinePart>>,
+    mut lights: Query<&mut PointLight, With<MachinePart>>,
     mut commands: Commands,
 ) {
     let Some(lobby) = zombies_game(&local, &lobbies) else {
-        for (e, _) in &machines {
+        for (e, ..) in &machines {
             commands.entity(e).despawn();
         }
         return;
     };
     for perk in Perk::ALL {
-        if !machines.iter().any(|(_, m)| m.0 == perk) {
-            spawn_perk_machine(perk, lobby.map, &mut meshes, &mut materials, &mut commands);
+        if !machines.iter().any(|(_, m, _)| m.0 == perk) {
+            spawn_perk_machine(perk, lobby.map, &settings, &asset_server, &mut commands);
+        }
+    }
+    for (_, m, mut t) in &mut machines {
+        t.set_if_neq(machine_transform(&settings, m.0, lobby.map));
+    }
+    if settings.is_changed() {
+        for (part, mut t) in &mut parts {
+            t.set_if_neq(settings.part_transform(*part));
+        }
+        let half = settings.half_extents();
+        for mut c in &mut colliders {
+            *c = bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z);
+        }
+        for mut l in &mut lights {
+            *l = settings.light.point_light(l.color);
         }
     }
 }
 
-/// One perk's placeholder machine: a box in a dark shade of the perk's
-/// colour, with a glowing sign and a soft light in its full colour.
+fn machine_transform(settings: &PerkMachineSettings, perk: Perk, map: shared::MapId) -> Transform {
+    let (pos, yaw_deg) = settings.placement(perk, map);
+    Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw_deg.to_radians()))
+}
+
+/// One perk's machine: its model, solid box and light.
 fn spawn_perk_machine(
     perk: Perk,
     map: shared::MapId,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    settings: &PerkMachineSettings,
+    asset_server: &AssetServer,
     commands: &mut Commands,
 ) {
-    let color = perk_color(perk);
-    let lin = color.to_linear();
-    let base = perk.machine_pos(map);
-    let body = materials.add(StandardMaterial {
-        base_color: Color::LinearRgba(lin * 0.3).with_alpha(1.0),
-        perceptual_roughness: 0.5,
-        ..default()
-    });
-    let sign = materials.add(StandardMaterial {
-        base_color: color,
-        emissive: lin * 4.0,
-        ..default()
-    });
+    let half = settings.half_extents();
     commands
         .spawn((
             StateScoped(AppState::InGame),
             PerkMachine(perk),
-            Transform::from_translation(base + Vec3::Y * MACHINE_SIZE.y * 0.5),
+            machine_transform(settings, perk, map),
             Visibility::default(),
-            Mesh3d(meshes.add(Cuboid::from_size(MACHINE_SIZE))),
-            MeshMaterial3d(body),
         ))
         .with_children(|m| {
-            // A glowing sign panel across the top of the front...
             m.spawn((
-                Mesh3d(meshes.add(Cuboid::new(MACHINE_SIZE.x * 0.85, 0.4, 0.05))),
-                MeshMaterial3d(sign),
-                Transform::from_xyz(
-                    0.0,
-                    MACHINE_SIZE.y * 0.5 - 0.35,
-                    MACHINE_SIZE.z * 0.5 + 0.03,
-                ),
+                MachinePart::Model,
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model_path(perk)))),
+                settings.part_transform(MachinePart::Model),
             ));
-            // ...and a soft light so it reads from a distance.
             m.spawn((
-                PointLight {
-                    color,
-                    intensity: 60_000.0,
-                    range: 6.0,
-                    shadows_enabled: false,
-                    ..default()
-                },
-                Transform::from_xyz(0.0, MACHINE_SIZE.y * 0.5 + 0.2, 0.0),
+                MachinePart::Collider,
+                bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
+                settings.part_transform(MachinePart::Collider),
+            ));
+            m.spawn((
+                MachinePart::Light,
+                settings.light.point_light(perk_color(perk)),
+                settings.part_transform(MachinePart::Light),
             ));
         });
 }
@@ -445,9 +596,9 @@ enum PerkCardText {
     Action,
 }
 
-const PERK_CARD_WIDTH: f32 = 440.0;
+pub(crate) const PERK_CARD_WIDTH: f32 = 440.0;
 const PERK_CARD_ICON: f32 = 64.0;
-const CARD_RED: Color = Color::srgb(0.9, 0.3, 0.3);
+pub(crate) const CARD_RED: Color = Color::srgb(0.9, 0.3, 0.3);
 const CARD_GREEN: Color = Color::srgb(0.35, 0.85, 0.45);
 
 fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Handle<Font>) {
@@ -624,7 +775,7 @@ struct PartyHealthText(lightyear::prelude::PeerId);
 /// Health bar width / height (px).
 const HEALTH_BAR_W: f32 = 240.0;
 const HEALTH_BAR_H: f32 = 7.0;
-const MONEY_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
+pub(crate) const MONEY_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
 
 /// One member's panel: a yellow `$` and their points; a white health bar over
 /// a grey track, the number beside it; their name.
@@ -883,11 +1034,12 @@ fn perk_here(
     lobby: &Lobby,
     me: lightyear::prelude::PeerId,
     feet: Vec3,
+    machines: &PerkMachineSettings,
 ) -> Option<(Perk, PerkStatus, u32)> {
     let member = lobby.members.iter().find(|m| m.peer == me)?;
     let perk = Perk::ALL
         .into_iter()
-        .find(|&p| shared::perks::in_range(p, lobby.map, feet, 0.0))?;
+        .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))?;
     let status = if member.perks.contains(&perk) {
         PerkStatus::Owned
     } else if member.score >= perk.cost() {
@@ -910,6 +1062,7 @@ fn update_perk_card(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
+    machines: Res<PerkMachineSettings>,
     card: Single<(&mut Visibility, &mut BorderColor), With<PerkCard>>,
     mut icon: Single<&mut ImageNode, With<PerkCardIcon>>,
     mut action_bar: Single<&mut BackgroundColor, With<PerkCardAction>>,
@@ -924,7 +1077,7 @@ fn update_perk_card(
     let here = (!menu.is_open() && active_killcam.0.is_none())
         .then(|| {
             let lobby = zombies_game(&local, &lobbies)?;
-            perk_here(lobby, local.iter().next()?.0, feet)
+            perk_here(lobby, local.iter().next()?.0, feet, &machines)
         })
         .flatten();
     let Some((perk, status, points)) = here else {
@@ -1014,6 +1167,7 @@ fn buy_perk(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
+    machines: Res<PerkMachineSettings>,
     mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
@@ -1026,7 +1180,7 @@ fn buy_perk(
         return;
     };
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    let Some((perk, PerkStatus::Buyable, _)) = perk_here(lobby, me, feet) else {
+    let Some((perk, PerkStatus::Buyable, _)) = perk_here(lobby, me, feet, &machines) else {
         return;
     };
     if let Ok(mut s) = sender.single_mut() {

@@ -19,9 +19,10 @@ use bevy::prelude::Resource;
 use gltf::mesh::Mode;
 use parry3d::math::{Isometry, Point, Vector};
 use parry3d::query::{cast_shapes, Ray, RayCast, ShapeCastOptions};
-use parry3d::shape::{Ball, TriMesh, TriMeshFlags};
+use parry3d::shape::{Ball, Cuboid, TriMesh, TriMeshFlags};
 use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
-use shared::MapId;
+use shared::perks::Perk;
+use shared::{GameMode, Lobby, MapId};
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.glb");
@@ -51,6 +52,30 @@ impl MapColliders {
                 .expect("shipment.glb collision model"),
             break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
                 .expect("break_point_map.glb collision model"),
+        }
+    }
+
+    /// What's solid in `lobby`'s game: its map, plus the perk machines in
+    /// `Zombies` (they're only on the map there).
+    pub fn for_lobby(&self, lobby: &Lobby) -> LobbyWorld<'_> {
+        self.for_game(lobby.map, lobby.mode)
+    }
+
+    /// [`Self::for_lobby`] from just the map and mode.
+    pub fn for_game(&self, map: MapId, mode: GameMode) -> LobbyWorld<'_> {
+        LobbyWorld {
+            map: self.world(map),
+            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map)),
+        }
+    }
+
+    /// `map` with its perk machines always in — what the bots' nav graphs are
+    /// built from, so paths go around the machines in `Zombies` (elsewhere
+    /// they just skirt a few empty spots).
+    pub fn with_machines(&self, map: MapId) -> LobbyWorld<'_> {
+        LobbyWorld {
+            map: self.world(map),
+            machines: Some(machine_boxes(map)),
         }
     }
 
@@ -209,6 +234,107 @@ impl CollisionWorld for MapMesh {
     }
 }
 
+/// One perk machine's solid box, placed.
+pub struct MachineBox {
+    iso: Isometry<f32>,
+    shape: Cuboid,
+}
+
+fn machine_boxes(map: MapId) -> [MachineBox; 3] {
+    Perk::ALL.map(|perk| {
+        let (center, rot, half) = perk.machine_box(map);
+        MachineBox {
+            iso: Isometry::from_parts(
+                parry3d::math::Translation::new(center.x, center.y, center.z),
+                parry3d::na::UnitQuaternion::from_quaternion(parry3d::na::Quaternion::new(
+                    rot.w, rot.x, rot.y, rot.z,
+                )),
+            ),
+            shape: Cuboid::new(Vector::new(half.x, half.y, half.z)),
+        }
+    })
+}
+
+/// A lobby's map mesh plus (in `Zombies`) its perk machines — see
+/// [`MapColliders::for_lobby`].
+pub struct LobbyWorld<'a> {
+    map: &'a MapMesh,
+    machines: Option<[MachineBox; 3]>,
+}
+
+impl LobbyWorld<'_> {
+    fn machines(&self) -> &[MachineBox] {
+        self.machines.as_ref().map_or(&[], |m| &m[..])
+    }
+}
+
+impl CollisionWorld for LobbyWorld<'_> {
+    fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool {
+        let d = b - a;
+        let len = d.length();
+        if len < 1e-6 {
+            return false;
+        }
+        self.raycast(a, d / len, len).is_some()
+    }
+
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RayHit> {
+        let mut best = self.map.raycast(origin, dir, max_dist);
+        let ray = Ray::new(point(origin), Vector::new(dir.x, dir.y, dir.z));
+        for m in self.machines() {
+            let limit = best.as_ref().map_or(max_dist, |h| h.distance);
+            if let Some(hit) = m.shape.cast_ray_and_get_normal(&m.iso, &ray, limit, true) {
+                let mut n = Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z);
+                if n.dot(dir) > 0.0 {
+                    n = -n;
+                }
+                best = Some(RayHit {
+                    distance: hit.time_of_impact,
+                    normal: n.normalize_or_zero(),
+                });
+            }
+        }
+        best
+    }
+
+    fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit> {
+        let mut best = self.map.sweep_sphere(from, to, radius);
+        let d = to - from;
+        if d.length_squared() < 1e-12 {
+            return best;
+        }
+        for m in self.machines() {
+            let limit = best.as_ref().map_or(1.0, |h| h.fraction);
+            let Ok(Some(hit)) = cast_shapes(
+                &Isometry::translation(from.x, from.y, from.z),
+                &Vector::new(d.x, d.y, d.z),
+                &Ball::new(radius),
+                &m.iso,
+                &Vector::zeros(),
+                &m.shape,
+                ShapeCastOptions {
+                    max_time_of_impact: limit,
+                    target_distance: 0.0,
+                    stop_at_penetration: true,
+                    compute_impact_geometry_on_penetration: true,
+                },
+            ) else {
+                continue;
+            };
+            // Same normal handling as the map mesh's sweep.
+            let mut n = Vec3::new(hit.normal1.x, hit.normal1.y, hit.normal1.z) * -1.0;
+            if n.dot(d) > 0.0 {
+                n = -n;
+            }
+            best = Some(WorldHit {
+                fraction: hit.time_of_impact.clamp(0.0, 1.0),
+                normal: n.normalize_or_zero(),
+            });
+        }
+        best
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +480,25 @@ mod tests {
         assert!(hit.normal.y > 0.9, "floor normal points up: {}", hit.normal);
         assert!(w.raycast(o, Vec3::NEG_Y, 10.0).is_none(), "beyond max_dist");
         assert!(w.raycast(o, Vec3::Y, 100.0).is_none(), "nothing above");
+    }
+
+    #[test]
+    fn perk_machines_are_solid_only_in_zombies() {
+        let c = colliders();
+        let map = MapId::BreakPoint;
+        let (center, _, half) = Perk::NitroBrew.machine_box(map);
+        // A ray fired sideways at the machine's middle from a metre and a
+        // half away...
+        let from = center + Vec3::X * 1.5;
+        let with = c.with_machines(map);
+        let hit = with.raycast(from, Vec3::NEG_X, 3.0).expect("hits the machine");
+        // (Nitro Brew is turned 90°, so its depth faces along x.)
+        assert!((hit.distance - (1.5 - half.z)).abs() < 0.01, "hit at {}", hit.distance);
+        let ffa = c.for_game(map, GameMode::FreeForAll);
+        assert!(ffa.raycast(from, Vec3::NEG_X, 1.4).is_none(), "no machine outside Zombies");
+        let zombies = c.for_game(map, GameMode::Zombies);
+        assert!(zombies.raycast(from, Vec3::NEG_X, 1.4).is_some());
+        assert!(zombies.sweep_sphere(from, center, 0.3).is_some(), "a body bumps into it");
     }
 
     #[test]

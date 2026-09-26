@@ -3,7 +3,7 @@
 //! owns purchases (`server::zombies::on_buy_perk`); each member's owned perks
 //! are replicated in `LobbyMember::perks`.
 
-use bevy::math::Vec3;
+use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::MapId;
@@ -103,22 +103,49 @@ impl Perk {
         }
     }
 
-    /// Where the perk's machine stands on `map` — the ground under it (feet
-    /// level, like `Bot::pos`). Maps without a spot yet use the origin.
+    /// Where the perk's machine stands on `map` — the centre of the ground
+    /// under it (feet level, like `Bot::pos`). The buy range, the machine's
+    /// collision box, its model, light and jingle all go from here. Maps
+    /// without a spot yet use somewhere near the origin.
     pub fn machine_pos(self, map: MapId) -> Vec3 {
         match (self, map) {
-            // Logged with the client's `P` key standing at the spot, which
-            // reports eye height (6.5); the ground is 1.7 m below that.
-            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-2.66, 6.5 - 1.7, -59.73),
+            // Tuned in the client's debug panel ("Machine placement").
+            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-2.76, 4.8, -57.43),
             (Perk::ShroomTea, _) => Vec3::ZERO,
-            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.72, 7.7 - 1.7, 10.24),
+            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.62, 6.0, 13.54),
             // Clear of Shroom Tea's origin spot.
             (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
-            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(35.72, 7.7 - 1.7, 59.72),
+            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(28.92, 6.0, 59.62),
             (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
         }
     }
+
+    /// Which way the perk's machine faces on `map`: its turn around the
+    /// vertical axis (degrees).
+    pub fn machine_yaw_deg(self, map: MapId) -> f32 {
+        match (self, map) {
+            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => -90.0,
+            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => 90.0,
+            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => 180.0,
+            _ => 0.0,
+        }
+    }
+
+    /// The machine's solid box on `map` (only there in `Zombies`):
+    /// `(centre, rotation, half extents)`.
+    pub fn machine_box(self, map: MapId) -> (Vec3, Quat, Vec3) {
+        (
+            self.machine_pos(map) + Vec3::Y * MACHINE_HALF_EXTENTS.y,
+            Quat::from_rotation_y(self.machine_yaw_deg(map).to_radians()),
+            MACHINE_HALF_EXTENTS,
+        )
+    }
 }
+
+/// Every perk machine is the same box (m): half its width, height and depth
+/// before it's turned. The models (`client/assets/models/*_perk_machine.glb`)
+/// are this box at the client's machine scale.
+pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.75, 1.2, 0.36);
 
 /// How close (m, horizontally) a player's feet must be to a machine to buy
 /// from it...
@@ -130,9 +157,14 @@ pub const PERK_USE_HEIGHT: f32 = 1.5;
 /// to buy it. `slack` widens the radius (the server's check allows for the
 /// client's pose being a moment old).
 pub fn in_range(perk: Perk, map: MapId, feet: Vec3, slack: f32) -> bool {
-    let m = perk.machine_pos(map);
-    Vec3::new(feet.x - m.x, 0.0, feet.z - m.z).length() <= PERK_USE_RADIUS + slack
-        && (feet.y - m.y).abs() <= PERK_USE_HEIGHT + slack
+    in_range_of(perk.machine_pos(map), feet, slack)
+}
+
+/// [`in_range`] for a machine standing at `machine` (the client's debug
+/// panel can move one away from its [`Perk::machine_pos`]).
+pub fn in_range_of(machine: Vec3, feet: Vec3, slack: f32) -> bool {
+    Vec3::new(feet.x - machine.x, 0.0, feet.z - machine.z).length() <= PERK_USE_RADIUS + slack
+        && (feet.y - machine.y).abs() <= PERK_USE_HEIGHT + slack
 }
 
 #[cfg(test)]

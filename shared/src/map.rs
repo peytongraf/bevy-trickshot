@@ -258,7 +258,7 @@ pub struct RayHit {
 }
 
 /// Static-geometry queries against a map's collision mesh.
-pub trait CollisionWorld: Send + Sync + 'static {
+pub trait CollisionWorld: Send + Sync {
     /// `true` if a straight segment from `a` to `b` is stopped by solid map
     /// geometry (so a bullet along it should not reach `b`).
     fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool;

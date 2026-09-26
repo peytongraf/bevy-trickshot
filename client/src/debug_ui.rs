@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, mut flashlight): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -50,7 +50,13 @@ pub(crate) fn ads_tuning_ui(
         ResMut<crate::ShroomKick>,
         ResMut<crate::DrunkKick>,
         ResMut<BreakPointNightSceneTuning>,
-        ResMut<FlashlightSettings>,
+        (
+            ResMut<FlashlightSettings>,
+            ResMut<crate::zombies_hud::PerkMachineSettings>,
+            Res<crate::CurrentMap>,
+            ResMut<crate::power::MapLightSettings>,
+            ResMut<crate::round_counter::RoundAnimSettings>,
+        ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
@@ -1280,6 +1286,7 @@ pub(crate) fn ads_tuning_ui(
                         ("hit marker", &mut v.hit_marker),
                         ("zombies: buy perk", &mut v.perk_buy),
                         ("zombies: perk jingle", &mut v.perk_jingle),
+                        ("zombies: round start", &mut v.round_start),
                     ] {
                         ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                     }
@@ -1359,7 +1366,145 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Zombies round counter", |ui| {
+                let r = &mut *round_anim;
+                ui.add(egui::Slider::new(&mut r.size, 20.0f32..=160.0).text("size (px)"));
+                ui.add(egui::Slider::new(&mut r.peak_scale, 1.0f32..=5.0).text("swell (× size)"));
+                ui.add(egui::Slider::new(&mut r.slide_in_secs, 0.0f32..=3.0).text("slide to middle (s)"));
+                ui.add(egui::Slider::new(&mut r.grow_secs, 0.0f32..=3.0).text("swell up (s)"));
+                ui.add(egui::Slider::new(&mut r.hold_secs, 0.0f32..=5.0).text("hold (s)"));
+                ui.add(egui::Slider::new(&mut r.return_secs, 0.0f32..=3.0).text("shrink + slide home (s)"));
+                if ui.button("Replay round start (with sound)").clicked() {
+                    r.replay = true;
+                }
+                if ui.button("Copy round counter settings to console").clicked() {
+                    info!(
+                        "round counter: size: {:.1}, peak_scale: {:.2}, slide_in_secs: {:.2}, grow_secs: {:.2}, \
+                         hold_secs: {:.2}, return_secs: {:.2}",
+                        r.size, r.peak_scale, r.slide_in_secs, r.grow_secs, r.hold_secs, r.return_secs,
+                    );
+                }
+                if ui.button("Reset round counter").clicked() {
+                    *r = default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Map lights (Break Point Night)", |ui| {
+                let ml = &mut *map_lights;
+                ui.label(
+                    "In Zombies they're off until someone turns the power on, then fade in; \
+                     in other modes they're just on.",
+                );
+                ui.checkbox(&mut ml.force_on, "force power on (untick / tick to replay the fade)");
+                ui.add(egui::Slider::new(&mut ml.fade_secs, 0.0f32..=15.0).text("fade in (s)"));
+                for (i, l) in ml.lights.iter_mut().enumerate() {
+                    ui.separator();
+                    ui.label(format!("Light {}", i + 1));
+                    ui.checkbox(&mut l.enabled, "on");
+                    ui.add(egui::Slider::new(&mut l.pos.x, -80.0f32..=80.0).text("x (m)"));
+                    ui.add(egui::Slider::new(&mut l.pos.y, -10.0f32..=60.0).text("y (m)"));
+                    ui.add(egui::Slider::new(&mut l.pos.z, -80.0f32..=80.0).text("z (m)"));
+                    ui.horizontal(|ui| {
+                        ui.label("colour");
+                        ui.color_edit_button_rgb(&mut l.color);
+                    });
+                    ui.add(
+                        egui::Slider::new(&mut l.intensity, 0.0f32..=100_000_000.0)
+                            .logarithmic(true)
+                            .text("intensity (lm)"),
+                    );
+                    ui.add(egui::Slider::new(&mut l.range, 1.0f32..=200.0).text("range (m)"));
+                    ui.add(egui::Slider::new(&mut l.radius, 0.0f32..=5.0).text("radius (m)"));
+                    ui.checkbox(&mut l.shadows, "shadows");
+                }
+                ui.separator();
+                if ui.button("Copy map lights to console").clicked() {
+                    info!("map lights: fade_secs: {:.2}", ml.fade_secs);
+                    for (i, l) in ml.lights.iter().enumerate() {
+                        info!(
+                            "map light {}: enabled: {}, pos: ({:.2}, {:.2}, {:.2}), color: ({:.3}, {:.3}, {:.3}), \
+                             intensity: {:.0}, range: {:.2}, radius: {:.2}, shadows: {}",
+                            i + 1,
+                            l.enabled,
+                            l.pos.x,
+                            l.pos.y,
+                            l.pos.z,
+                            l.color[0],
+                            l.color[1],
+                            l.color[2],
+                            l.intensity,
+                            l.range,
+                            l.radius,
+                            l.shadows,
+                        );
+                    }
+                }
+                if ui.button("Reset map lights").clicked() {
+                    *ml = crate::power::MapLightSettings {
+                        force_on: ml.force_on,
+                        ..default()
+                    };
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Zombies perks", |ui| {
+                ui.collapsing("Perk machines", |ui| {
+                    let m = &mut *machines;
+                    ui.label(
+                        "Moves the whole machine — model, collision, light, jingle and where its \
+                         card shows — on this client only. The server (buying, bots, shots) \
+                         still uses the spots in shared/src/perks.rs until they're copied there.",
+                    );
+                    ui.add(egui::Slider::new(&mut m.scale, 0.1f32..=2.0).text("scale (all machines)"));
+                    ui.label("Light (all machines; colour is each perk's own)");
+                    let l = &mut m.light;
+                    ui.add(egui::Slider::new(&mut l.offset.x, -3.0f32..=3.0).text("x — across (m)"));
+                    ui.add(egui::Slider::new(&mut l.offset.y, -1.0f32..=6.0).text("y — up from the ground (m)"));
+                    ui.add(egui::Slider::new(&mut l.offset.z, -3.0f32..=3.0).text("z — out the depth (m)"));
+                    ui.add(
+                        egui::Slider::new(&mut l.intensity, 0.0f32..=500_000.0)
+                            .logarithmic(true)
+                            .text("intensity (lm)"),
+                    );
+                    ui.add(egui::Slider::new(&mut l.range, 0.5f32..=30.0).text("range (m)"));
+                    ui.add(egui::Slider::new(&mut l.radius, 0.0f32..=2.0).text("radius (m)"));
+                    ui.checkbox(&mut l.shadows, "shadows");
+                    if ui.button("Copy perk machine light to console").clicked() {
+                        info!(
+                            "perk machine light: offset: ({:.2}, {:.2}, {:.2}), intensity: {:.0}, range: {:.2}, \
+                             radius: {:.2}, shadows: {}",
+                            l.offset.x, l.offset.y, l.offset.z, l.intensity, l.range, l.radius, l.shadows,
+                        );
+                    }
+                    for perk in shared::perks::Perk::ALL {
+                        ui.label(format!("{} (from its spot)", perk.label()));
+                        let n = m.nudge_mut(perk);
+                        ui.add(egui::Slider::new(&mut n.offset.x, -10.0f32..=10.0).text("x (m)"));
+                        ui.add(egui::Slider::new(&mut n.offset.y, -5.0f32..=5.0).text("y (m)"));
+                        ui.add(egui::Slider::new(&mut n.offset.z, -10.0f32..=10.0).text("z (m)"));
+                        ui.add(egui::Slider::new(&mut n.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
+                    }
+                    if ui.button("Copy perk machine placements to console").clicked() {
+                        let map = current_map.0;
+                        for perk in shared::perks::Perk::ALL {
+                            let (pos, yaw) = m.placement(perk, map);
+                            info!(
+                                "{} machine ({map:?}): pos: ({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}",
+                                perk.label(),
+                                pos.x,
+                                pos.y,
+                                pos.z,
+                                yaw,
+                            );
+                        }
+                        info!("perk machine scale: {:.3}", m.scale);
+                    }
+                    if ui.button("Reset perk machines").clicked() {
+                        *m = default();
+                    }
+                });
                 ui.collapsing("Nitro Brew", |ui| {
                     let n = &mut *nitro;
                     ui.label(

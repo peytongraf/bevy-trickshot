@@ -363,7 +363,7 @@ pub(crate) fn drive_bots(
         let Some(lobby) = lobbies.get(lp.lobby).ok().filter(|l| l.started) else {
             continue;
         };
-        let world = colliders.world(lobby.map);
+        let world = &colliders.for_lobby(lobby);
         let nav = navs.graph(lobby.map);
         let skill: BotSkill = brain.skill();
         // Who it may go after: anyone else in a free-for-all; only the real
@@ -758,6 +758,7 @@ mod tests {
             enemies_left: 0,
             paused: false,
             bots_passive: false,
+            power_on: false,
             members: Vec::new(),
         }
     }

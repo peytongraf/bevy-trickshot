@@ -120,9 +120,8 @@ pub struct NavGraphs {
 impl NavGraphs {
     pub fn build(colliders: &MapColliders) -> Self {
         let build = |map: MapId| {
-            let world = colliders.world(map);
-            let (lo, hi) = world.bounds();
-            NavGraph::build(world, lo, hi)
+            let (lo, hi) = colliders.world(map).bounds();
+            NavGraph::build(&colliders.with_machines(map), lo, hi)
         };
         Self {
             basic: build(MapId::BasicMap),

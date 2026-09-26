@@ -20,6 +20,7 @@ pub mod hitbox;
 pub mod map;
 pub mod melee;
 pub mod perks;
+pub mod power;
 pub mod protocol;
 pub mod scoring;
 pub mod spawns;
@@ -35,7 +36,7 @@ pub use protocol::{
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
     PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
-    ThrowingKnifeImpact, TrickScore,
+    ThrowingKnifeImpact, TrickScore, TurnOnPower,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
