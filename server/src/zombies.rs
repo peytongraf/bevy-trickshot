@@ -61,9 +61,11 @@ fn spawn_interval(round: u32) -> f32 {
     (2.5 - 0.15 * (round.max(1) - 1) as f32).max(0.6)
 }
 
-/// How good round `round`'s zombies are: well under a `Recruit` bot at first
-/// (slow to notice you, slow to turn, wild aim, slow to fire), climbing to
-/// about a `Veteran` by round 15. They start sprinting at round 10.
+/// How sharp round `round`'s zombies are: well under a `Recruit` bot at first
+/// (slow to notice you, slow to turn), climbing to about a `Veteran` by round
+/// 15. They don't shoot (they swipe — `ai::ZombieBody`), and how fast they
+/// walk or run is `shared::zombies::zombie_speed`, so the aim / fire / sprint
+/// parts of this go unused.
 pub fn zombie_skill(round: u32) -> BotSkill {
     let t = ((round.max(1) - 1) as f32 / 14.0).clamp(0.0, 1.0);
     let lerp = |a: f32, b: f32| a + (b - a) * t;
@@ -74,7 +76,7 @@ pub fn zombie_skill(round: u32) -> BotSkill {
         fire_interval_secs: lerp(5.0, veteran.fire_interval_secs),
         turn_deg_per_sec: lerp(60.0, veteran.turn_deg_per_sec),
         sight_range: lerp(45.0, veteran.sight_range),
-        sprints: round >= 10,
+        sprints: false,
     }
 }
 
@@ -102,11 +104,16 @@ pub struct ZombiesPlugin;
 
 impl Plugin for ZombiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_buy_perk).add_observer(on_turn_on_power).add_systems(
-            FixedUpdate,
-            (run_rounds, clear_dead_zombies, cull_zombies)
-                .before(crate::ai::drive_bots),
-        );
+        app.add_observer(on_buy_perk)
+            .add_observer(on_turn_on_power)
+            .add_systems(
+                FixedUpdate,
+                (run_rounds, clear_dead_zombies, cull_zombies).before(crate::ai::drive_bots),
+            )
+            .add_systems(
+                FixedUpdate,
+                publish_zombie_anims.after(crate::sim::apply_client_pose),
+            );
     }
 }
 
@@ -145,15 +152,17 @@ fn run_rounds(
             continue;
         }
         let Some(mut rounds) = rounds else {
-            lobby.round = 1;
-            lobby.enemies_left = zombies_in_round(1, members);
+            // The leader can start on a later round (`Lobby::start_round`).
+            let first = lobby.start_round.max(1);
+            lobby.round = first;
+            lobby.enemies_left = zombies_in_round(first, members);
             commands.entity(lobby_e).insert(ZombieRounds {
-                round: 1,
-                to_spawn: zombies_in_round(1, members),
+                round: first,
+                to_spawn: zombies_in_round(first, members),
                 next_spawn_at: now,
                 break_until: now + FIRST_ROUND_DELAY_SECS,
             });
-            info!("lobby {lobby_e:?}: zombies round 1");
+            info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
         };
         if now < rounds.break_until {
@@ -208,6 +217,12 @@ fn run_rounds(
 
         let peer = bot_peer(next_id.0);
         next_id.0 += 1;
+        // Walker or runner (more runners the later the round), and how fast.
+        let (runner, speed) = shared::zombies::zombie_speed(
+            rounds.round,
+            rand01(seed ^ 0x2a2a),
+            rand01(seed ^ 0x5151),
+        );
         let to_player = near - feet;
         let yaw = f32::atan2(-to_player.x, -to_player.z);
         let real = lobby.real_peers();
@@ -220,13 +235,15 @@ fn run_rounds(
             PlayerPose {
                 translation: feet + Vec3::Y * EYE_HEIGHT,
                 yaw,
+                zombie: shared::ZombieAnim::Idle,
                 ..default()
             },
             ActionState::<PlayerInput>::default(),
             BotBrain::new(BotDifficulty::Recruit, feet, seed)
                 .facing(yaw)
                 .with_skill(zombie_skill(rounds.round))
-                .rising(now, RISE_SECS),
+                .rising(now, RISE_SECS)
+                .zombie(runner, speed),
             PlayerCombat::default(),
             shared::PlayerHealth(shared::health::FULL_HEALTH),
             Replicate::to_clients(NetworkTarget::Only(real.clone())),
@@ -234,6 +251,17 @@ fn run_rounds(
         ));
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + spawn_interval(rounds.round);
+    }
+}
+
+/// Copy each zombie's animation state from its brain onto its replicated
+/// pose (after `sim::apply_client_pose` has rewritten the rest from input).
+fn publish_zombie_anims(mut zombies: Query<(&BotBrain, &mut PlayerPose), With<Zombie>>) {
+    for (brain, mut pose) in &mut zombies {
+        let anim = brain.zombie_anim();
+        if pose.zombie != anim {
+            pose.zombie = anim;
+        }
     }
 }
 
@@ -387,6 +415,8 @@ mod tests {
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,
+                start_round: 1,
+                start_points: 0,
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: me,
@@ -483,7 +513,7 @@ mod tests {
         let me = PeerId::Netcode(1);
         let perk = shared::perks::Perk::ShroomTea;
         let map = app.world().get::<Lobby>(lobby).unwrap().map;
-        // Stand at the machine with 250 points.
+        // Stand at the machine with 3000 points.
         let at_machine = perk.machine_pos(map) + Vec3::Y * EYE_HEIGHT;
         let player = app
             .world_mut()
@@ -492,7 +522,7 @@ mod tests {
             .next()
             .unwrap();
         app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_machine;
-        app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 250;
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 3000;
         let buy = |app: &mut App| {
             app.world_mut().trigger(RemoteTrigger {
                 trigger: BuyPerk { perk },
@@ -503,11 +533,11 @@ mod tests {
         buy(&mut app);
         let member = app.world().get::<Lobby>(lobby).unwrap().members[0].clone();
         assert_eq!(member.perks, vec![perk]);
-        assert_eq!(member.score, 250 - perk.cost());
+        assert_eq!(member.score, 3000 - perk.cost());
         // A second press doesn't charge again.
         buy(&mut app);
         let member = app.world().get::<Lobby>(lobby).unwrap().members[0].clone();
-        assert_eq!(member.score, 250 - perk.cost());
+        assert_eq!(member.score, 3000 - perk.cost());
     }
 
     #[test]
@@ -516,7 +546,7 @@ mod tests {
         app.add_observer(on_buy_perk);
         let perk = shared::perks::Perk::ShroomTea;
         // Standing at the map centre, far from Break Point's machine.
-        app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 1000;
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 10_000;
         app.world_mut().trigger(RemoteTrigger {
             trigger: BuyPerk { perk },
             from: PeerId::Netcode(1),
@@ -542,7 +572,7 @@ mod tests {
             .unwrap();
         {
             let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
-            l.members[0].score = 250;
+            l.members[0].score = 3000;
             // Break Point (day) has no switch.
             l.map = shared::MapId::BreakPoint;
         }
@@ -559,10 +589,10 @@ mod tests {
         flip(&mut app);
         let l = app.world().get::<Lobby>(lobby).unwrap();
         assert!(l.power_on);
-        assert_eq!(l.members[0].score, 250 - shared::power::POWER_COST);
+        assert_eq!(l.members[0].score, 3000 - shared::power::POWER_COST);
         // Already on: not charged again.
         flip(&mut app);
-        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].score, 250 - shared::power::POWER_COST);
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].score, 3000 - shared::power::POWER_COST);
     }
 
     #[test]

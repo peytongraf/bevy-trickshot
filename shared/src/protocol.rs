@@ -179,6 +179,36 @@ pub struct PlayerPose {
     /// on the last frame until this flips back to `true` on respawn.
     /// Discrete, same as `crouching`.
     pub alive: bool,
+    /// What a `Zombies` zombie is doing, for its animation — set server-side
+    /// from its brain (`server::zombies::publish_zombie_anims`), not from
+    /// input. [`ZombieAnim::None`] on everyone who isn't a zombie, which is
+    /// also how a client tells a zombie apart. Discrete, same as `crouching`.
+    pub zombie: ZombieAnim,
+}
+
+/// A `Zombies` zombie's animation state ([`PlayerPose::zombie`]). Its death
+/// isn't one — that's `PlayerPose::alive`, same as anyone's.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ZombieAnim {
+    /// Not a zombie.
+    #[default]
+    None,
+    /// Standing (or climbing out of the ground): looking around.
+    Idle,
+    /// Shambling along, arms down.
+    Walk,
+    /// Shambling along, arms up — a walker close to who it's after.
+    WalkArmsUp,
+    /// Running, arms up (a runner, later rounds).
+    Run,
+    /// Swinging at someone (see `crate::zombies::ZOMBIE_ATTACK_SECS`).
+    Attack,
+}
+
+impl ZombieAnim {
+    pub fn is_zombie(self) -> bool {
+        self != ZombieAnim::None
+    }
 }
 
 impl Default for PlayerPose {
@@ -193,6 +223,7 @@ impl Default for PlayerPose {
             jumping: false,
             sliding: false,
             alive: true,
+            zombie: ZombieAnim::None,
         }
     }
 }
@@ -209,6 +240,7 @@ impl Ease for PlayerPose {
             jumping: end.jumping,
             sliding: end.sliding,
             alive: end.alive,
+            zombie: end.zombie,
         })
     }
 }
@@ -716,6 +748,16 @@ pub struct SetEndCam {
     pub cam: EndCam,
 }
 
+/// Client (party leader) → server: set [`GameMode::Zombies`]'s starting round
+/// and starting points ([`Lobby::start_round`] / [`Lobby::start_points`])
+/// before starting — clamped to `crate::zombies::{MAX_START_ROUND,
+/// MAX_START_POINTS}`.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetZombiesStart {
+    pub round: u32,
+    pub points: u32,
+}
+
 /// Client (party leader) → server: set [`GameMode::FreeForAll`]'s kill limit
 /// before starting.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -850,6 +892,11 @@ pub struct Lobby {
     /// in this lobby explodes like a Bomb Shot trickshot, without the perk
     /// or the trickshot. Kept for the lobby's lifetime, like `bots_passive`.
     pub bomb_test: bool,
+    /// [`GameMode::Zombies`]: the round a game starts on (1 = the normal
+    /// start), set by the leader before starting ([`SetZombiesStart`]).
+    pub start_round: u32,
+    /// [`GameMode::Zombies`]: the points every member starts a game with.
+    pub start_points: u32,
     /// [`GameMode::Zombies`]: someone threw the power switch
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
@@ -1218,6 +1265,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetKillLimit>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetZombiesStart>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetEndCam>()
             .add_direction(NetworkDirection::ClientToServer);

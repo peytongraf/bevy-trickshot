@@ -33,7 +33,11 @@ use shared::bot_players::{BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::map::CollisionWorld;
 use shared::weapon::sniper_feel;
-use shared::{Lobby, PlayerId, PlayerInput, PlayerPose};
+use shared::zombies::{
+    ZOMBIE_ARMS_UP_DIST, ZOMBIE_ATTACK_HEIGHT, ZOMBIE_ATTACK_HIT_SECS, ZOMBIE_ATTACK_RANGE,
+    ZOMBIE_ATTACK_REACH, ZOMBIE_ATTACK_SECS, ZOMBIE_STOP_DIST, ZOMBIE_SWIPE_DAMAGE,
+};
+use shared::{Lobby, PlayerId, PlayerInput, PlayerPose, ZombieAnim};
 
 use crate::collision::MapColliders;
 use crate::lobby::LobbyPlayer;
@@ -98,6 +102,73 @@ struct Rise {
 /// How far under the ground (m) a rising bot starts — a whole body.
 const RISE_DEPTH: f32 = 1.9;
 
+/// Zombies never get closer than this (m, feet to feet, horizontally) to
+/// each other — about a body's width, so the models don't sink into one
+/// another. Overlap is pushed straight back out (through the map, so never
+/// into a wall).
+const ZOMBIE_MIN_SPACING: f32 = 0.9;
+/// ...and start steering away from each other inside this, so a crowd
+/// spreads around its target rather than queueing up on one spot.
+const ZOMBIE_SPREAD_RADIUS: f32 = 2.0;
+/// How hard that steering pulls against the way it wants to go (1 = as much
+/// as the goal itself, right up against another zombie).
+const ZOMBIE_SPREAD_WEIGHT: f32 = 1.4;
+/// A zombie's weave and flank fade out as it closes in: full from this far
+/// (m) from its target...
+const ZOMBIE_WANDER_FULL_DIST: f32 = 8.0;
+/// ...down to nothing this close, for a straight final lunge.
+const ZOMBIE_WANDER_NONE_DIST: f32 = 2.5;
+/// Pushing overlap out is capped at this speed (m/s), so a bad pile-up
+/// eases apart rather than popping.
+const ZOMBIE_PUSH_MAX_SPEED: f32 = 3.0;
+
+/// A `Zombies` zombie's body ([`BotBrain::zombie`]): no gun — it walks or
+/// runs at its own speed, stops just short of who it's after, and swipes at
+/// them (`shared::zombies`), the hit landing a moment into the swing.
+#[derive(Clone, Copy)]
+struct ZombieBody {
+    runner: bool,
+    speed: f32,
+    /// When the current swing started, and whether it's landed (or missed)
+    /// yet.
+    swing: Option<(f32, bool)>,
+    /// What it's doing, for its animation (published onto its pose by
+    /// `zombies::publish_zombie_anims`).
+    anim: ZombieAnim,
+    /// Its own gait, rolled at spawn so no two approach the same way: a slow
+    /// side-to-side weave (peak angle rad, Hz, phase)...
+    weave_amp: f32,
+    weave_hz: f32,
+    weave_phase: f32,
+    /// ...a fixed angle (rad, either side) it comes in at while it can see
+    /// its target, so a group fans out and arrives from different sides...
+    flank: f32,
+    /// ...and a lurching speed (± fraction of `speed`, Hz).
+    surge: f32,
+    surge_hz: f32,
+}
+
+impl ZombieBody {
+    /// How far off straight toward its goal it's heading right now (rad),
+    /// fading out as it gets close so the last couple of metres are direct.
+    fn wander_angle(&self, now: f32, flat_dist: f32, visible: bool) -> f32 {
+        let fade = ((flat_dist - ZOMBIE_WANDER_NONE_DIST)
+            / (ZOMBIE_WANDER_FULL_DIST - ZOMBIE_WANDER_NONE_DIST))
+            .clamp(0.0, 1.0);
+        let weave = self.weave_amp * (now * self.weave_hz * core::f32::consts::TAU + self.weave_phase).sin();
+        // Following a route round obstacles: only a gentle weave, so it
+        // doesn't wander off the route.
+        let flank = if visible { self.flank } else { 0.0 };
+        let weave = if visible { weave } else { weave * 0.5 };
+        fade * (weave + flank)
+    }
+
+    fn speed_now(&self, now: f32) -> f32 {
+        self.speed
+            * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin())
+    }
+}
+
 /// A bot player's mind and body state.
 #[derive(Component)]
 pub struct BotBrain {
@@ -105,6 +176,8 @@ pub struct BotBrain {
     /// Replaces `difficulty.skill()` when set (`Zombies` scales it by round).
     skill_override: Option<BotSkill>,
     rise: Option<Rise>,
+    /// Set on a `Zombies` zombie: melee instead of the sniper.
+    zombie: Option<ZombieBody>,
     /// Feet position — the bot's authoritative place in the world (the pose
     /// published to clients is this plus the eye height).
     feet: Vec3,
@@ -151,6 +224,7 @@ impl BotBrain {
             difficulty,
             skill_override: None,
             rise: None,
+            zombie: None,
             feet,
             vertical_velocity: 0.0,
             yaw: rand01(seed) * core::f32::consts::TAU,
@@ -203,6 +277,31 @@ impl BotBrain {
         // No shooting the moment it's up, either.
         self.next_fire_at = now + secs + 1.0;
         self
+    }
+
+    /// Make it a `Zombies` zombie: a walker or a runner at `speed` (m/s)
+    /// that swipes instead of shooting.
+    pub fn zombie(mut self, runner: bool, speed: f32) -> Self {
+        let side = if self.roll() < 0.5 { -1.0 } else { 1.0 };
+        self.zombie = Some(ZombieBody {
+            runner,
+            speed,
+            swing: None,
+            anim: ZombieAnim::Idle,
+            weave_amp: (8.0 + 14.0 * self.roll()).to_radians(),
+            weave_hz: 0.15 + 0.3 * self.roll(),
+            weave_phase: self.roll() * core::f32::consts::TAU,
+            flank: side * (5.0 + 30.0 * self.roll()).to_radians(),
+            surge: 0.04 + 0.1 * self.roll(),
+            surge_hz: 0.3 + 0.5 * self.roll(),
+        });
+        self
+    }
+
+    /// A zombie's current animation state ([`ZombieAnim::None`] for any
+    /// other bot).
+    pub fn zombie_anim(&self) -> ZombieAnim {
+        self.zombie.map_or(ZombieAnim::None, |z| z.anim)
     }
 
     fn skill(&self) -> BotSkill {
@@ -350,12 +449,21 @@ pub(crate) fn drive_bots(
         &mut BotBrain,
         &mut ActionState<PlayerInput>,
     )>,
+    mut hits: EventWriter<crate::pvp::PlayerHit>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     if dt <= 0.0 {
         return;
     }
+    // Every living zombie's feet (as of last tick), to keep them apart.
+    let zombie_feet: Vec<(PeerId, Entity, Vec3)> = others
+        .iter()
+        .filter(|(pid, pose, _, c)| {
+            c.alive && pose.zombie.is_zombie() && shared::bot_players::is_bot_peer(pid.0)
+        })
+        .map(|(pid, pose, lp, _)| (pid.0, lp.lobby, pose.translation - Vec3::Y * EYE_HEIGHT))
+        .collect();
 
     for (id, lp, combat, mut brain_ref, mut action) in &mut bots {
         // Plain `&mut` so its fields can be borrowed separately below.
@@ -399,6 +507,9 @@ pub(crate) fn drive_bots(
         }
         // Still climbing out of the ground: just rise, nothing else.
         if let Some(rise) = brain.rise {
+            if let Some(z) = brain.zombie.as_mut() {
+                z.anim = ZombieAnim::Idle;
+            }
             let t = ((now - rise.start) / rise.secs.max(1e-3)).clamp(0.0, 1.0);
             brain.feet = rise.ground - Vec3::Y * RISE_DEPTH * (1.0 - t);
             if t >= 1.0 {
@@ -476,7 +587,57 @@ pub(crate) fn drive_bots(
             visible = distance <= skill.sight_range && !world.segment_blocked(eye, chest);
         }
         brain.seen_for = if visible { brain.seen_for + dt } else { 0.0 };
-        let engaged = visible && brain.seen_for >= skill.reaction_secs;
+        // (A zombie never stops to shoot — it just keeps coming.)
+        let engaged = brain.zombie.is_none() && visible && brain.seen_for >= skill.reaction_secs;
+
+        // A zombie's swipe: start one when close enough, land it (if they're
+        // still in reach) a moment in, and hold still for the whole swing.
+        let (flat_dist, height_diff) = match target_pose {
+            Some(t_eye) => {
+                let t = t_eye - Vec3::Y * EYE_HEIGHT;
+                (
+                    Vec3::new(t.x - brain.feet.x, 0.0, t.z - brain.feet.z).length(),
+                    (t.y - brain.feet.y).abs(),
+                )
+            }
+            None => (f32::MAX, f32::MAX),
+        };
+        let mut hold = false;
+        if let Some(z) = brain.zombie.as_mut() {
+            if let Some((start, landed)) = z.swing {
+                hold = true;
+                if !landed && now - start >= ZOMBIE_ATTACK_HIT_SECS {
+                    z.swing = Some((start, true));
+                    if let Some(victim) = brain.target.filter(|_| {
+                        visible && flat_dist <= ZOMBIE_ATTACK_REACH && height_diff <= ZOMBIE_ATTACK_HEIGHT
+                    }) {
+                        hits.write(crate::pvp::PlayerHit {
+                            victim,
+                            killer: id.0,
+                            damage: ZOMBIE_SWIPE_DAMAGE,
+                            bomb_shot: false,
+                            blast: false,
+                        });
+                    }
+                }
+                if now - start >= ZOMBIE_ATTACK_SECS {
+                    z.swing = None;
+                }
+            }
+            // (The leader's debug "bots don't attack" stops the swipes too.)
+            if z.swing.is_none()
+                && !lobby.bots_passive
+                && visible
+                && flat_dist <= ZOMBIE_ATTACK_RANGE
+                && height_diff <= ZOMBIE_ATTACK_HEIGHT
+            {
+                z.swing = Some((now, false));
+                hold = true;
+            }
+            if flat_dist <= ZOMBIE_STOP_DIST {
+                hold = true;
+            }
+        }
 
         // Where to walk if not engaged: along the planned route to the target,
         // re-planned now and then; `None` (no route / no target) falls back to
@@ -503,8 +664,44 @@ pub(crate) fn drive_bots(
             }
         }
 
-        // Swing the aim toward the target (or the way it's walking).
-        let (mut want_yaw, want_pitch) = if visible && distance > 0.1 {
+        // A zombie: its own weave / flank on the way in, and steering away
+        // from other zombies nearby so a crowd spreads out around its target.
+        let mut spread = Vec3::ZERO;
+        if let Some(z) = brain.zombie {
+            for &(peer, lobby_e, other) in &zombie_feet {
+                if peer == id.0 || lobby_e != lp.lobby || (other.y - brain.feet.y).abs() > 1.5 {
+                    continue;
+                }
+                let away = Vec3::new(brain.feet.x - other.x, 0.0, brain.feet.z - other.z);
+                let d = away.length();
+                if d < ZOMBIE_SPREAD_RADIUS {
+                    // Two on the exact same spot: split them any old way.
+                    let dir = away.try_normalize().unwrap_or_else(|| {
+                        let a = (id.0.to_bits() % 628) as f32 / 100.0;
+                        Vec3::new(a.cos(), 0.0, a.sin())
+                    });
+                    spread += dir * (1.0 - d / ZOMBIE_SPREAD_RADIUS);
+                }
+            }
+            if !engaged {
+                let base = path_wish.or((flat_to_target != Vec3::ZERO).then_some(flat_to_target));
+                if let Some(base) = base {
+                    let turned =
+                        Quat::from_rotation_y(z.wander_angle(now, flat_dist, visible)) * base;
+                    path_wish = Some(
+                        (turned + spread * ZOMBIE_SPREAD_WEIGHT)
+                            .with_y(0.0)
+                            .try_normalize()
+                            .unwrap_or(turned),
+                    );
+                }
+            }
+        }
+
+        // Swing the aim toward the target (or the way it's walking — a
+        // zombie faces where it's going until it stops to swipe).
+        let face_target = brain.zombie.is_none() || hold;
+        let (mut want_yaw, want_pitch) = if visible && distance > 0.1 && face_target {
             look_angles(to_target / distance)
         } else if let Some(d) = path_wish {
             (look_angles(d).0, 0.0)
@@ -524,8 +721,8 @@ pub(crate) fn drive_bots(
 
         // Movement: stand and aim while engaged; otherwise close in.
         let mut wish = Vec3::ZERO;
-        let mut speed = WALK_SPEED;
-        if !engaged {
+        let mut speed = brain.zombie.map_or(WALK_SPEED, |z| z.speed_now(now));
+        if !engaged && !hold {
             if brain.detour_until > now {
                 wish = brain.detour_dir;
             } else if let Some(d) = path_wish {
@@ -536,16 +733,46 @@ pub(crate) fn drive_bots(
                 // Nobody to go after: wander the way it's facing.
                 wish = Vec3::new(-brain.yaw.sin(), 0.0, -brain.yaw.cos());
             }
-            if skill.sprints && distance > SPRINT_MIN_DISTANCE && !visible {
+            if brain.zombie.is_none() && skill.sprints && distance > SPRINT_MIN_DISTANCE && !visible {
                 speed = SPRINT_SPEED;
             }
         }
+        // Zombies never overlap: push this one out of any it's inside (half
+        // the overlap — the other one takes the other half on its turn),
+        // through the map so it can't be shoved into a wall.
+        let mut push_velocity = Vec3::ZERO;
+        if brain.zombie.is_some() {
+            let mut push = Vec3::ZERO;
+            for &(peer, lobby_e, other) in &zombie_feet {
+                if peer == id.0 || lobby_e != lp.lobby || (other.y - brain.feet.y).abs() > 1.5 {
+                    continue;
+                }
+                let away = Vec3::new(brain.feet.x - other.x, 0.0, brain.feet.z - other.z);
+                let d = away.length();
+                if d < ZOMBIE_MIN_SPACING {
+                    let dir = away.try_normalize().unwrap_or_else(|| {
+                        let a = (id.0.to_bits() % 628) as f32 / 100.0;
+                        Vec3::new(a.cos(), 0.0, a.sin())
+                    });
+                    push += dir * (ZOMBIE_MIN_SPACING - d) * 0.5;
+                }
+            }
+            let len = push.length();
+            if len > 1e-4 {
+                push_velocity = push / len * (len / dt).min(ZOMBIE_PUSH_MAX_SPEED);
+            }
+        }
+        // (One move for both, so gravity and the ground snap only run once.)
+        let velocity = wish * speed + push_velocity;
+        let move_speed = velocity.length();
+        let move_dir = if move_speed > 1e-4 { velocity / move_speed } else { Vec3::ZERO };
+
         let moved = move_bot(
             world,
             &mut brain.feet,
             &mut brain.vertical_velocity,
-            wish,
-            speed,
+            move_dir,
+            move_speed,
             dt,
         );
 
@@ -563,6 +790,19 @@ pub(crate) fn drive_bots(
             brain.detour_until = now + DETOUR_SECS;
             // Whatever it was following didn't work — plan again afterwards.
             brain.repath_at = now + DETOUR_SECS;
+        }
+        if let Some(z) = brain.zombie.as_mut() {
+            z.anim = if z.swing.is_some() {
+                ZombieAnim::Attack
+            } else if wish == Vec3::ZERO {
+                ZombieAnim::Idle
+            } else if z.runner {
+                ZombieAnim::Run
+            } else if flat_dist <= ZOMBIE_ARMS_UP_DIST {
+                ZombieAnim::WalkArmsUp
+            } else {
+                ZombieAnim::Walk
+            };
         }
         if brain.feet.y < VOID_Y {
             // Off the map somehow — back to a spawn point.
@@ -759,6 +999,8 @@ mod tests {
             paused: false,
             bots_passive: false,
             bomb_test: false,
+            start_round: 1,
+            start_points: 0,
             power_on: false,
             members: Vec::new(),
         }
@@ -775,6 +1017,7 @@ mod tests {
         app.insert_resource(MapColliders::load());
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.init_resource::<crate::killcam::EndingLobbies>();
+        app.add_event::<crate::pvp::PlayerHit>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -837,6 +1080,118 @@ mod tests {
         );
         // Fully scoped by now (it's been engaged for seconds).
         assert_eq!(last.ads_t, 1.0);
+    }
+
+    /// Swipes that land on `bot`'s target over `secs`, with when (s) each
+    /// landed — and panics if the bot ever fires.
+    fn zombie_swipes(app: &mut App, bot: Entity, secs: f32, mut each_tick: impl FnMut(&mut App)) -> Vec<f32> {
+        let mut landed = Vec::new();
+        let ticks = (secs * 64.0) as usize;
+        for tick in 0..ticks {
+            each_tick(app);
+            app.update();
+            assert!(!input(app, bot).fire, "a zombie fired");
+            let hits: Vec<_> = app
+                .world_mut()
+                .resource_mut::<Events<crate::pvp::PlayerHit>>()
+                .drain()
+                .collect();
+            for hit in hits {
+                assert_eq!(hit.damage, ZOMBIE_SWIPE_DAMAGE);
+                landed.push(tick as f32 / 64.0);
+            }
+        }
+        landed
+    }
+
+    fn zombie_world(target_feet: Vec3) -> (App, Entity) {
+        let feet = Vec3::new(-30.0, 0.0, -40.0);
+        let (mut app, bot) = world(BotDifficulty::Veteran, feet, target_feet);
+        app.world_mut()
+            .entity_mut(bot)
+            .insert(BotBrain::new(BotDifficulty::Veteran, feet, 7).zombie(false, 1.2));
+        app.update(); // (the first update has no time delta)
+        (app, bot)
+    }
+
+    #[test]
+    fn a_zombie_next_to_its_target_swipes_after_a_wind_up_and_never_shoots() {
+        let (mut app, bot) = zombie_world(Vec3::new(-28.8, 0.0, -40.0));
+        let landed = zombie_swipes(&mut app, bot, 2.5, |_| {});
+        assert!(landed.len() >= 2, "swipes landed at {landed:?}");
+        // Not instant: the arm has to come round first.
+        assert!(landed[0] >= ZOMBIE_ATTACK_HIT_SECS - 0.05, "first swipe at {}", landed[0]);
+    }
+
+    #[test]
+    fn zombies_piled_on_one_spot_spread_out_and_never_overlap() {
+        let target = Vec3::new(-26.0, 0.0, -40.0);
+        let start = Vec3::new(-30.0, 0.0, -40.0);
+        let (mut app, first) = world(BotDifficulty::Veteran, start, target);
+        app.add_systems(Update, crate::sim::apply_client_pose.after(drive_bots));
+        let lobby = app.world().get::<LobbyPlayer>(first).unwrap().lobby;
+        let mut zombies = vec![first];
+        for n in 0..5u64 {
+            zombies.push(
+                app.world_mut()
+                    .spawn((
+                        PlayerId(bot_peer(10 + n)),
+                        LobbyPlayer { lobby },
+                        PlayerCombat::default(),
+                        ActionState::<PlayerInput>::default(),
+                    ))
+                    .id(),
+            );
+        }
+        for (n, &z) in zombies.iter().enumerate() {
+            app.world_mut().entity_mut(z).insert((
+                BotBrain::new(BotDifficulty::Veteran, start, 100 + n as u64).zombie(false, 1.4),
+                PlayerPose {
+                    translation: start + Vec3::Y * EYE_HEIGHT,
+                    zombie: ZombieAnim::Idle,
+                    ..default()
+                },
+            ));
+        }
+        app.update(); // (the first update has no time delta)
+        for _ in 0..(5 * 64) {
+            app.update();
+            // (Swipes aren't the point here.)
+            app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().clear();
+        }
+        let feet: Vec<Vec3> = zombies
+            .iter()
+            .map(|&z| app.world().get::<PlayerPose>(z).unwrap().translation - Vec3::Y * EYE_HEIGHT)
+            .collect();
+        for (i, a) in feet.iter().enumerate() {
+            for b in &feet[i + 1..] {
+                let d = Vec3::new(a.x - b.x, 0.0, a.z - b.z).length();
+                assert!(d >= ZOMBIE_MIN_SPACING * 0.85, "two zombies {d:.2} m apart: {feet:?}");
+            }
+        }
+        // And they did close in on the target rather than just scattering.
+        for f in &feet {
+            assert!(f.distance(target) < 4.0, "a zombie hung back at {f:?}");
+        }
+    }
+
+    #[test]
+    fn stepping_out_of_reach_mid_swing_dodges_it() {
+        let (mut app, bot) = zombie_world(Vec3::new(-28.8, 0.0, -40.0));
+        // Right after the swing starts, the target backs off well out of reach.
+        let mut ticks = 0;
+        let landed = zombie_swipes(&mut app, bot, 0.9, |app| {
+            ticks += 1;
+            if ticks == 4 {
+                let mut q = app.world_mut().query::<(&PlayerId, &mut PlayerPose)>();
+                for (id, mut pose) in q.iter_mut(app.world_mut()) {
+                    if id.0 == bot_peer(1) {
+                        pose.translation.x += 6.0;
+                    }
+                }
+            }
+        });
+        assert!(landed.is_empty(), "swipes landed at {landed:?}");
     }
 
     #[test]

@@ -114,7 +114,8 @@ impl Default for ShroomSettings {
             saturation: 1.65,
             hue_drift: 0.15,
             hue_speed: 1.25,
-            xray_color: [1.0, 0.92, 0.2],
+            // White-hot yellow.
+            xray_color: [1.0, 0.95, 0.62],
             xray_brightness: 3.0,
             xray_opacity: 0.85,
             xray_inflate: 0.06,

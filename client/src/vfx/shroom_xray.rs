@@ -14,9 +14,9 @@
 //! tens of centimetres in front — don't count, and only real cover does. (A twin rather than a second material
 //! on the same entity: Bevy 0.16 keeps one material per entity.)
 //!
-//! "Enemy bots" = avatars with [`crate::BotLook`] (a `Zombies` zombie, a
-//! `FreeForAll` bot player, a `Freestyle` target), live ones only — not
-//! kill-cam stand-ins. Strength follows the shroom effect's own fade
+//! "Enemy bots" = `Zombies` zombies (their own model, [`crate::ZombieVisual`])
+//! and soldier avatars with [`crate::BotLook`] (a `FreeForAll` bot player, a
+//! `Freestyle` target), live ones only — not kill-cam stand-ins. Strength follows the shroom effect's own fade
 //! ([`ShroomLevel`]); the twins are hidden entirely while it's off. They're
 //! children of the avatar, so they go with it — nothing to reset per game.
 
@@ -148,11 +148,14 @@ fn twin_enemy_meshes(
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
     mut materials: ResMut<Assets<ShroomXrayMaterial>>,
+    // (Once the scene's in — the animation player is found then.)
     avatars: Query<
         Entity,
         (
-            With<crate::BotLook>,
-            With<crate::SoldierAnimationPlayer>,
+            Or<(
+                (With<crate::BotLook>, With<crate::SoldierAnimationPlayer>),
+                With<crate::ZombieAnimationPlayer>,
+            )>,
             Without<XrayTwinned>,
             Without<crate::killcam::KillCamPlayerGhost>,
         ),

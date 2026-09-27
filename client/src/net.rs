@@ -759,20 +759,26 @@ pub(crate) struct RemoteAvatarMotion {
     state: crate::SoldierAnimState,
 }
 
-/// Spawn a soldier avatar for every interpolated (i.e. *other*-player)
-/// `PlayerPose` entity that doesn't have one yet. Polled rather than an
-/// `OnAdd` observer so it doesn't matter whether `Interpolated` or
-/// `PlayerPose` lands first.
+/// Spawn an avatar for every interpolated (i.e. *other*-player)
+/// `PlayerPose` entity that doesn't have one yet: a soldier, or for a
+/// `Zombies` zombie (`PlayerPose::zombie`, set from its very first pose) a
+/// zombie. Polled rather than an `OnAdd` observer so it doesn't matter
+/// whether `Interpolated` or `PlayerPose` lands first.
 fn spawn_remote_avatars(
-    remotes: Query<Entity, (With<PlayerPose>, With<Interpolated>)>,
+    remotes: Query<(Entity, &PlayerPose), With<Interpolated>>,
     avatars: Query<&RemoteAvatar>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
+    zombie_settings: Res<crate::ZombieAvatarSettings>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
     let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
-    for src in &remotes {
+    for (src, pose) in &remotes {
         if have.contains(&src) {
+            continue;
+        }
+        if pose.zombie.is_zombie() {
+            crate::spawn_zombie_avatar(&mut commands, &asset_server, &zombie_settings, src);
             continue;
         }
         spawn_soldier_avatar(&mut commands, &asset_server, remote_avatar_settings.scale, src);
@@ -804,10 +810,11 @@ fn spawn_soldier_avatar(
 fn follow_remote_avatars(
     poses: Query<&PlayerPose>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
-    mut avatars: Query<(Entity, &RemoteAvatar, &mut Transform)>,
+    zombie_settings: Res<crate::ZombieAvatarSettings>,
+    mut avatars: Query<(Entity, &RemoteAvatar, &mut Transform, Has<crate::ZombieVisual>)>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, mut tf) in &mut avatars {
+    for (entity, avatar, mut tf, zombie) in &mut avatars {
         match poses.get(avatar.src) {
             Ok(pose) => {
                 // The replicated pose is at eye level; the model's origin is
@@ -816,6 +823,13 @@ fn follow_remote_avatars(
                 tf.translation = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
                 // `soldier.glb`'s forward faces +Z, opposite the local rig's
                 // -Z convention that `pose.yaw` is authored in, so flip it.
+                if zombie {
+                    tf.rotation = Quat::from_rotation_y(
+                        pose.yaw + zombie_settings.yaw_offset_deg.to_radians(),
+                    );
+                    tf.scale = Vec3::splat(zombie_settings.scale.max(0.001));
+                    continue;
+                }
                 tf.rotation = Quat::from_rotation_y(pose.yaw + std::f32::consts::PI);
                 tf.scale = Vec3::splat(remote_avatar_settings.scale);
             }
@@ -831,7 +845,7 @@ fn follow_remote_avatars(
 /// (a bot peer id). Polled, since an avatar can exist a frame before its
 /// source's `PlayerId` arrives. (Kill-cam stand-ins get it when spawned.)
 fn mark_bot_avatars(
-    avatars: Query<(Entity, &RemoteAvatar), Without<crate::BotLook>>,
+    avatars: Query<(Entity, &RemoteAvatar), (Without<crate::BotLook>, Without<crate::ZombieVisual>)>,
     sources: Query<(Option<&PlayerId>, Has<BotPose>)>,
     mut commands: Commands,
 ) {
@@ -852,7 +866,8 @@ fn mark_bot_avatars(
 /// alpha can fade independently of every other glint's (mirrors
 /// `vfx::impacts`).
 fn spawn_sniper_glints(
-    avatars: Query<(Entity, &RemoteAvatar)>,
+    // (A zombie has no gun.)
+    avatars: Query<(Entity, &RemoteAvatar), Without<crate::ZombieVisual>>,
     glints: Query<&SniperGlint>,
     assets: Res<SniperGlintAssets>,
     mut materials: ResMut<Assets<StandardMaterial>>,

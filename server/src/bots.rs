@@ -453,6 +453,8 @@ mod tests {
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,
+                start_round: 1,
+                start_points: 0,
                 power_on: false,
                 members: Vec::new(),
             })
@@ -524,6 +526,8 @@ mod tests {
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,
+                start_round: 1,
+                start_points: 0,
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),

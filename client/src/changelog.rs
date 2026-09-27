@@ -15,6 +15,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Shroom Tea: zombies glow through walls again.",
+        "Zombies: party leader can set the starting round and points.",
+        "Zombies: perks and power now cost real prices (1,500–2,500; power 750).",
+        "Zombies: no more piling into one spot; each shambles in its own way.",
+        "Zombies: real zombies — they shamble, run and claw instead of shooting.",
         "Zombies: new Kangabrew perk — jump higher and off walls.",
         "Zombies: new Bomb Shot perk — 360 no-scope kills explode.",
         "New main menu music.",

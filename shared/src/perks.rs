@@ -166,14 +166,24 @@ impl Perk {
         }
     }
 
-    /// Points it costs (low for now, for testing).
+    /// Points it costs. A zombie kill is worth 100 and round `n` sends
+    /// `4 + 2(n-1)` (solo), so one player has about 400 points after round
+    /// 1, 2,800 after round 4, 4,000 after round 5 and 10,800 after round 9:
+    /// the cheaper perks come around rounds 3–4, Liquid Courage (the
+    /// strongest, like Juggernog) around round 5, and the whole set plus
+    /// the power by about round 9.
     pub fn cost(self) -> u32 {
         match self {
-            Perk::ShroomTea => 100,
-            Perk::NitroBrew => 100,
-            Perk::LiquidCourage => 100,
-            Perk::BombShot => 100,
-            Perk::Kangabrew => 100,
+            // X-ray + a little aim assist: handy, not life-saving.
+            Perk::ShroomTea => 1500,
+            // Mobility — escape routes and high ground.
+            Perk::Kangabrew => 1500,
+            // Everything faster: movement, ADS, reload, rechamber, swap.
+            Perk::NitroBrew => 2000,
+            // Crowd clearing, but only off a 360 no-scope.
+            Perk::BombShot => 2000,
+            // Survive more hits — the one everyone wants first.
+            Perk::LiquidCourage => 2500,
         }
     }
 

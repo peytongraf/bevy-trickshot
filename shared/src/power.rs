@@ -8,8 +8,9 @@ use bevy::math::Vec3;
 use crate::perks::{PERK_USE_HEIGHT, PERK_USE_RADIUS};
 use crate::MapId;
 
-/// Points it costs to turn the power on.
-pub const POWER_COST: u32 = 100;
+/// Points it costs to turn the power on — affordable by round 2 or 3 (see
+/// `perks::Perk::cost` for the points pace).
+pub const POWER_COST: u32 = 750;
 
 /// Where the power switch stands on `map` (the ground under its middle), if
 /// that map has one. Only Break Point Night does for now.

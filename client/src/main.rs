@@ -195,6 +195,7 @@ fn main() {
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
         .add_plugins(ExplosionPlugin)
+        .add_plugins(ZombieAvatarPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,

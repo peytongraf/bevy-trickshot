@@ -17,7 +17,7 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetMap, SetPaused, SetTimeLimit,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetZombiesStart, SetMap, SetPaused, SetTimeLimit,
     StartGame,
 };
 
@@ -62,6 +62,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
             .add_observer(on_set_kill_limit)
+            .add_observer(on_set_zombies_start)
             .add_observer(on_set_end_cam)
             .add_observer(on_add_bots)
             .add_observer(on_clear_bots)
@@ -168,6 +169,8 @@ fn on_create(
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,
+                start_round: 1,
+                start_points: 0,
                 power_on: false,
                 members: vec![LobbyMember {
                     peer,
@@ -265,8 +268,10 @@ fn on_start(
     // (`crate::zombies` starts round 1.)
     lobby.round = 0;
     lobby.enemies_left = 0;
+    // `Zombies` points are money: everyone starts with what the leader set.
+    let start_points = if lobby.mode == GameMode::Zombies { lobby.start_points } else { 0 };
     for m in &mut lobby.members {
-        m.score = 0;
+        m.score = start_points;
         m.kills = 0;
         m.perks.clear();
         // A bot has no client to load anything.
@@ -609,6 +614,19 @@ fn on_set_kill_limit(trigger: Trigger<RemoteTrigger<SetKillLimit>>, mut lobbies:
     }
 }
 
+/// The leader picks a `Zombies` game's starting round and starting points
+/// while the lobby is still waiting.
+fn on_set_zombies_start(trigger: Trigger<RemoteTrigger<SetZombiesStart>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let round = trigger.trigger.round.clamp(1, shared::zombies::MAX_START_ROUND);
+    let points = trigger.trigger.points.min(shared::zombies::MAX_START_POINTS);
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        lobby.start_round = round;
+        lobby.start_points = points;
+        info!("lobby zombies start set to round {round}, {points} points by {peer:?}");
+    }
+}
+
 /// The leader picks what a `FreeForAll` match replays at the end while the
 /// lobby is still waiting.
 fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
@@ -739,6 +757,8 @@ mod tests {
             paused: false,
             bots_passive: false,
             bomb_test: false,
+            start_round: 1,
+            start_points: 0,
             power_on: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),

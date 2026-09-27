@@ -26,6 +26,7 @@ pub mod scoring;
 pub mod spawns;
 pub mod throwing_knife;
 pub mod weapon;
+pub mod zombies;
 
 use bevy::prelude::*;
 
@@ -34,9 +35,9 @@ pub use protocol::{
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
-    PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, BombExplosion, SetMap, SetPaused,
+    PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
-    ThrowingKnifeImpact, TrickScore, TurnOnPower,
+    ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 

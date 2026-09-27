@@ -430,6 +430,29 @@ enum MenuBtn {
     AddBots,
     /// Remove every bot from the lobby.
     ClearBots,
+    /// `Zombies`' starting round / starting points (leader only).
+    StartRoundDown,
+    StartRoundUp,
+    StartPointsDown,
+    StartPointsUp,
+}
+
+/// The − / + step for `Zombies`' starting round: one at a time early on,
+/// then five.
+fn start_round_step(round: u32, up: bool) -> u32 {
+    if (up && round >= 10) || (!up && round > 10) { 5 } else { 1 }
+}
+
+/// The − / + step for `Zombies`' starting points: bigger the more there is,
+/// so a huge testing bank is a few clicks away.
+fn start_points_step(points: u32, up: bool) -> u32 {
+    let p = if up { points } else { points.saturating_sub(1) };
+    match p {
+        0..5_000 => 500,
+        5_000..50_000 => 5_000,
+        50_000..500_000 => 50_000,
+        _ => 100_000,
+    }
 }
 
 /// Match-length step for the leader's − / + buttons (seconds).
@@ -950,7 +973,7 @@ fn build_room(
             ))
             .with_children(|b| {
                 let (title, text) = if is_zombies && lobby.round > 0 {
-                    let survived = lobby.round - 1;
+                    let survived = lobby.round.saturating_sub(lobby.start_round.max(1));
                     (
                         "LAST GAME",
                         format!("Survived {survived} round{}", if survived == 1 { "" } else { "s" }),
@@ -1026,6 +1049,25 @@ fn build_room(
                             stepper(row, asset_server, format!("{mins} MIN"), MenuBtn::TimeDown, MenuBtn::TimeUp);
                         } else {
                             setting_value(row, asset_server, format!("{mins} MIN"));
+                        }
+                    });
+                }
+
+                if is_zombies {
+                    setting_row(col, asset_server, "STARTING ROUND", |row| {
+                        let value = format!("ROUND {}", lobby.start_round.max(1));
+                        if can_edit {
+                            stepper(row, asset_server, value, MenuBtn::StartRoundDown, MenuBtn::StartRoundUp);
+                        } else {
+                            setting_value(row, asset_server, value);
+                        }
+                    });
+                    setting_row(col, asset_server, "STARTING POINTS", |row| {
+                        let value = format!("{} PTS", lobby.start_points);
+                        if can_edit {
+                            stepper(row, asset_server, value, MenuBtn::StartPointsDown, MenuBtn::StartPointsUp);
+                        } else {
+                            setting_value(row, asset_server, value);
                         }
                     });
                 }
@@ -1285,10 +1327,11 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
     ),
 ) {
     let name = player_name(&settings);
@@ -1309,11 +1352,25 @@ fn handle_clicks(
         }
     };
 
+    // `Zombies`' starting round / points: new values, sent together.
+    let mut set_start = |round: fn(u32) -> u32, points: fn(u32) -> u32| {
+        if let (Some(l), Ok(mut s)) = (my_lobby(), set_zombies_start.single_mut()) {
+            s.trigger::<shared::LobbyChannel>(shared::SetZombiesStart {
+                round: round(l.start_round.max(1)).clamp(1, shared::zombies::MAX_START_ROUND),
+                points: points(l.start_points).min(shared::zombies::MAX_START_POINTS),
+            });
+        }
+    };
+
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
             continue;
         }
         match btn {
+            MenuBtn::StartRoundDown => set_start(|r| r.saturating_sub(start_round_step(r, false)), |p| p),
+            MenuBtn::StartRoundUp => set_start(|r| r + start_round_step(r, true), |p| p),
+            MenuBtn::StartPointsDown => set_start(|r| r, |p| p.saturating_sub(start_points_step(p, false))),
+            MenuBtn::StartPointsUp => set_start(|r| r, |p| p + start_points_step(p, true)),
             MenuBtn::OpenLoadout => {
                 menu.loadout_return = menu.screen;
                 menu.screen = Screen::Loadout;
