@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -64,6 +64,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<crate::zombies_hud::Kangabrew>,
             ResMut<ZombieAvatarSettings>,
             Res<ZombieAnimReadout>,
+            ResMut<crate::zombie_sounds::ZombieSoundSettings>,
         ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
@@ -1296,6 +1297,11 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: round start", &mut v.round_start),
                         ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
+                        ("zombies: zombie moans", &mut v.zombie_moan),
+                        ("zombies: zombie spawn", &mut v.zombie_spawn),
+                        ("zombies: zombie death", &mut v.zombie_death),
+                        ("zombies: zombie swipe hit", &mut v.zombie_attack),
+                        ("zombies: final zombie", &mut v.final_zombie),
                     ] {
                         ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                     }
@@ -1380,8 +1386,8 @@ pub(crate) fn ads_tuning_ui(
                 ui.label(
                     "The walk / run clips play at the zombie's real speed (m/s) × the rate \
                      below — raise it if the feet slide backward, lower it if they slide \
-                     forward. Early rounds walk (arms up once close to who they're after), \
-                     runners show up from round 5.",
+                     forward. Zombies walk (arms up once close to who they're after) until \
+                     they're 3 m/s or faster — about round 10 — then run.",
                 );
                 match zombie_readout.nearest {
                     Some((speed, rate, state)) => ui.label(format!(
@@ -1417,6 +1423,24 @@ pub(crate) fn ads_tuning_ui(
                 }
                 if ui.button("Reset zombie settings").clicked() {
                     *z = default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Zombie sounds", |ui| {
+                let s = &mut *zombie_voice;
+                ui.label("Loudness per sound: Sound volumes → \"zombies: …\".");
+                ui.add(egui::Slider::new(&mut s.max_distance, 5.0f32..=150.0).text("heard up to (m)"));
+                ui.add(egui::Slider::new(&mut s.moan_min_secs, 0.5f32..=30.0).text("moan every, min (s)"));
+                ui.add(egui::Slider::new(&mut s.moan_max_secs, 0.5f32..=30.0).text("moan every, max (s)"));
+                ui.add(egui::Slider::new(&mut s.max_moans_at_once, 1u32..=10).text("moans at once, max"));
+                ui.add(egui::Slider::new(&mut s.moan_min_gap_secs, 0.0f32..=5.0).text("gap between moans (s)"));
+                ui.add(egui::Slider::new(&mut s.low_moan_below, 0.0f32..=10.0).text("low moans below (m/s)"));
+                ui.add(egui::Slider::new(&mut s.high_moan_above, 0.0f32..=12.0).text("high moans above (m/s)"));
+                ui.add(egui::Slider::new(&mut s.final_min_secs, 0.5f32..=30.0).text("final zombie every, min (s)"));
+                ui.add(egui::Slider::new(&mut s.final_max_secs, 0.5f32..=30.0).text("final zombie every, max (s)"));
+                if ui.button("Reset zombie sounds").clicked() {
+                    *s = default();
                 }
             });
 

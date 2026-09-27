@@ -1084,6 +1084,16 @@ pub struct BombExplosion {
     pub variant: u8,
 }
 
+/// Server → every member of a `Zombies` lobby: a zombie's swipe just landed
+/// on the player standing at `at` — everyone plays the hit sound from there
+/// (only the server knows a swing connected; the rest of the zombies' sounds
+/// — moans, spawns, deaths — each client works out for itself from what it
+/// sees).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieSwipeLanded {
+    pub at: [f32; 3],
+}
+
 /// Client → server: the player's throw animation reached the point where the
 /// knife leaves their hand. `origin` is their eye position and `dir` the
 /// aim direction at that moment; the server checks them against the player's
@@ -1228,6 +1238,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombieSwipeLanded>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<FallDeath>()
             .add_direction(NetworkDirection::ServerToClient);

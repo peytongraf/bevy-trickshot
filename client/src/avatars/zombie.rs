@@ -160,6 +160,13 @@ pub(crate) struct ZombieMotion {
     state: ZombieAnimState,
 }
 
+impl ZombieMotion {
+    /// How fast it's moving right now (m/s, horizontally, smoothed).
+    pub(crate) fn speed(&self) -> f32 {
+        self.speed
+    }
+}
+
 pub(crate) struct ZombieAvatarPlugin;
 
 impl Plugin for ZombieAvatarPlugin {

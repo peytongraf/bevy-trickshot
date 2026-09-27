@@ -85,6 +85,15 @@ const REPATH_SECS: f32 = 1.2;
 /// planned to.
 const REPATH_TARGET_MOVED: f32 = 4.0;
 
+/// A zombie's swipe landed on someone standing at `at` (their feet) in
+/// `lobby` — written by [`drive_bots`], sent on to the lobby's clients for
+/// the hit sound by `zombies::announce_zombie_swipes`.
+#[derive(Event)]
+pub struct ZombieSwipeLanded {
+    pub lobby: Entity,
+    pub at: Vec3,
+}
+
 /// Counter for handing out fake peer ids.
 #[derive(Resource, Default)]
 pub struct NextBotId(pub u64);
@@ -163,9 +172,15 @@ impl ZombieBody {
         fade * (weave + flank)
     }
 
+    /// Its speed right now, lurching a little either side of its own —
+    /// never outside `shared::zombies`' min / max.
     fn speed_now(&self, now: f32) -> f32 {
-        self.speed
-            * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin())
+        shared::zombies::clamp_speed(
+            self.speed
+                * (1.0
+                    + self.surge
+                        * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin()),
+        )
     }
 }
 
@@ -332,6 +347,7 @@ impl Plugin for BotAiPlugin {
 
         app.insert_resource(navs)
             .init_resource::<NextBotId>()
+            .add_event::<ZombieSwipeLanded>()
             .add_systems(
                 FixedUpdate,
                 drive_bots.before(crate::sim::apply_client_pose),
@@ -450,6 +466,7 @@ pub(crate) fn drive_bots(
         &mut ActionState<PlayerInput>,
     )>,
     mut hits: EventWriter<crate::pvp::PlayerHit>,
+    mut swipes: EventWriter<ZombieSwipeLanded>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -618,6 +635,12 @@ pub(crate) fn drive_bots(
                             bomb_shot: false,
                             blast: false,
                         });
+                        if let Some(t_eye) = target_pose {
+                            swipes.write(ZombieSwipeLanded {
+                                lobby: lp.lobby,
+                                at: t_eye - Vec3::Y * EYE_HEIGHT,
+                            });
+                        }
                     }
                 }
                 if now - start >= ZOMBIE_ATTACK_SECS {
@@ -1018,6 +1041,7 @@ mod tests {
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.add_event::<crate::pvp::PlayerHit>();
+        app.add_event::<ZombieSwipeLanded>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app

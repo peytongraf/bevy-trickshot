@@ -216,6 +216,12 @@ pub(crate) struct SoundVolumes {
     pub(crate) round_start: f32,
     /// A Bomb Shot explosion (on top of its distance fade).
     pub(crate) bomb_shot_explosion: f32,
+    /// Zombie voices (`zombie_sounds`), each on top of its distance fade.
+    pub(crate) zombie_moan: f32,
+    pub(crate) zombie_spawn: f32,
+    pub(crate) zombie_death: f32,
+    pub(crate) zombie_attack: f32,
+    pub(crate) final_zombie: f32,
 }
 
 impl Default for SoundVolumes {
@@ -245,6 +251,11 @@ impl Default for SoundVolumes {
             perk_jingle: 1.0,
             round_start: 4.0,
             bomb_shot_explosion: 1.0,
+            zombie_moan: 1.0,
+            zombie_spawn: 1.0,
+            zombie_death: 1.0,
+            zombie_attack: 1.0,
+            final_zombie: 1.0,
         }
     }
 }

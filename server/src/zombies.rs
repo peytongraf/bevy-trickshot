@@ -112,7 +112,10 @@ impl Plugin for ZombiesPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                publish_zombie_anims.after(crate::sim::apply_client_pose),
+                (
+                    publish_zombie_anims.after(crate::sim::apply_client_pose),
+                    announce_zombie_swipes.after(crate::ai::drive_bots),
+                ),
             );
     }
 }
@@ -217,12 +220,9 @@ fn run_rounds(
 
         let peer = bot_peer(next_id.0);
         next_id.0 += 1;
-        // Walker or runner (more runners the later the round), and how fast.
-        let (runner, speed) = shared::zombies::zombie_speed(
-            rounds.round,
-            rand01(seed ^ 0x2a2a),
-            rand01(seed ^ 0x5151),
-        );
+        // How fast (the round's speed, give or take a little), and so
+        // whether it walks or runs.
+        let (runner, speed) = shared::zombies::zombie_speed(rounds.round, rand01(seed ^ 0x2a2a));
         let to_player = near - feet;
         let yaw = f32::atan2(-to_player.x, -to_player.z);
         let real = lobby.real_peers();
@@ -251,6 +251,32 @@ fn run_rounds(
         ));
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + spawn_interval(rounds.round);
+    }
+}
+
+/// Tell every member of the lobby where a zombie's swipe just landed, for
+/// the hit sound.
+fn announce_zombie_swipes(
+    server: Single<&lightyear::prelude::server::Server>,
+    mut sender: lightyear::prelude::ServerMultiMessageSender,
+    mut swipes: EventReader<crate::ai::ZombieSwipeLanded>,
+    lobbies: Query<&Lobby>,
+) {
+    let server = server.into_inner();
+    for swipe in swipes.read() {
+        let Ok(lobby) = lobbies.get(swipe.lobby) else {
+            continue;
+        };
+        let msg = shared::ZombieSwipeLanded {
+            at: swipe.at.to_array(),
+        };
+        if let Err(e) = sender.send::<_, shared::GameChannel>(
+            &msg,
+            server,
+            &NetworkTarget::Only(lobby.real_peers()),
+        ) {
+            error!("failed to send zombie swipe: {e:?}");
+        }
     }
 }
 

@@ -2,22 +2,23 @@
 //! swipe — shared so the client's animation and the server's AI agree.
 //! (Rounds, spawning and the AI itself are `server::zombies` / `server::ai`.)
 
-/// A walker's speed (m/s) range in round 1, climbing [`WALK_SPEED_PER_ROUND`]
-/// a round up to [`WALK_SPEED_MAX`].
-const WALK_SPEED_MIN: f32 = 1.0;
-const WALK_SPEED_SPREAD: f32 = 0.4;
-const WALK_SPEED_PER_ROUND: f32 = 0.12;
-const WALK_SPEED_MAX: f32 = 2.4;
-/// A runner's speed (m/s) range when they first show up, climbing
-/// [`RUN_SPEED_PER_ROUND`] a round up to [`RUN_SPEED_MAX`].
-const RUN_SPEED_MIN: f32 = 4.2;
-const RUN_SPEED_SPREAD: f32 = 0.8;
-const RUN_SPEED_PER_ROUND: f32 = 0.1;
-const RUN_SPEED_MAX: f32 = 6.5;
-/// Round the first runners can show up in, and the round from which every
-/// zombie runs (the share ramps up in between).
-const FIRST_RUNNER_ROUND: u32 = 5;
-const ALL_RUNNERS_ROUND: u32 = 10;
+/// Slowest a zombie ever moves (m/s) — round 1's shamblers...
+pub const ZOMBIE_MIN_SPEED: f32 = 1.0;
+/// ...and fastest: a sprinting player with Nitro Brew (the client's
+/// `DEFAULT_SPRINT_SPEED` 9 m/s × `NitroBrew::move_mult` 1.15), reached at
+/// [`ZOMBIE_MAX_SPEED_ROUND`].
+pub const ZOMBIE_MAX_SPEED: f32 = 9.0 * 1.15;
+pub const ZOMBIE_MAX_SPEED_ROUND: u32 = 50;
+/// How the speed climbs from round 1 to [`ZOMBIE_MAX_SPEED_ROUND`] (below 1:
+/// quicker early, easing off toward the top) — about 1.3 m/s in round 2,
+/// 2.1 in round 5, 3.2 in round 10, 4.9 in round 20, 6.5 in round 30.
+const SPEED_CURVE: f32 = 0.85;
+/// Each zombie's own speed is its round's ± this fraction (then kept within
+/// [`ZOMBIE_MIN_SPEED`]..=[`ZOMBIE_MAX_SPEED`]).
+pub const ZOMBIE_SPEED_VARIANCE: f32 = 0.12;
+/// A zombie this fast or faster runs (arms up) rather than walks — about
+/// round 10, with the variance mixing walkers and runners either side.
+pub const ZOMBIE_RUN_SPEED: f32 = 3.0;
 
 /// A zombie stops closing in this close (m, horizontally, feet to feet) to
 /// who it's after, rather than walking into them...
@@ -44,28 +45,22 @@ pub const ZOMBIE_ARMS_UP_DIST: f32 = 8.0;
 pub const MAX_START_ROUND: u32 = 100;
 pub const MAX_START_POINTS: u32 = 1_000_000;
 
-/// The chance a zombie spawned in `round` is a runner.
-pub fn runner_chance(round: u32) -> f32 {
-    if round < FIRST_RUNNER_ROUND {
-        return 0.0;
-    }
-    let span = (ALL_RUNNERS_ROUND - FIRST_RUNNER_ROUND + 1) as f32;
-    ((round - FIRST_RUNNER_ROUND + 1) as f32 / span).min(1.0)
+/// Round `round`'s typical zombie speed (m/s), before each one's variance.
+pub fn round_speed(round: u32) -> f32 {
+    let t = (round.max(1) - 1) as f32 / (ZOMBIE_MAX_SPEED_ROUND - 1) as f32;
+    ZOMBIE_MIN_SPEED + (ZOMBIE_MAX_SPEED - ZOMBIE_MIN_SPEED) * t.clamp(0.0, 1.0).powf(SPEED_CURVE)
 }
 
-/// A zombie spawned in `round`: whether it runs, and its speed (m/s). `roll`
-/// / `speed_roll` are uniform `0..1` rolls.
-pub fn zombie_speed(round: u32, roll: f32, speed_roll: f32) -> (bool, f32) {
-    let round = round.max(1);
-    let runner = roll < runner_chance(round);
-    let speed = if runner {
-        let extra = (round - FIRST_RUNNER_ROUND.min(round)) as f32 * RUN_SPEED_PER_ROUND;
-        (RUN_SPEED_MIN + RUN_SPEED_SPREAD * speed_roll + extra).min(RUN_SPEED_MAX)
-    } else {
-        let extra = (round - 1) as f32 * WALK_SPEED_PER_ROUND;
-        (WALK_SPEED_MIN + WALK_SPEED_SPREAD * speed_roll + extra).min(WALK_SPEED_MAX)
-    };
-    (runner, speed)
+/// `speed` kept within [`ZOMBIE_MIN_SPEED`]..=[`ZOMBIE_MAX_SPEED`].
+pub fn clamp_speed(speed: f32) -> f32 {
+    speed.clamp(ZOMBIE_MIN_SPEED, ZOMBIE_MAX_SPEED)
+}
+
+/// A zombie spawned in `round`: whether it runs, and its speed (m/s).
+/// `roll` is a uniform `0..1` roll for its variance.
+pub fn zombie_speed(round: u32, roll: f32) -> (bool, f32) {
+    let speed = clamp_speed(round_speed(round) * (1.0 + (roll * 2.0 - 1.0) * ZOMBIE_SPEED_VARIANCE));
+    (speed >= ZOMBIE_RUN_SPEED, speed)
 }
 
 #[cfg(test)]
@@ -73,25 +68,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn early_rounds_only_walk_slowly_and_late_rounds_all_run() {
-        for roll in [0.0, 0.5, 0.999] {
-            let (runner, speed) = zombie_speed(1, roll, roll);
-            assert!(!runner);
-            assert!((WALK_SPEED_MIN..=WALK_SPEED_MIN + WALK_SPEED_SPREAD).contains(&speed));
-            let (runner, speed) = zombie_speed(ALL_RUNNERS_ROUND, roll, roll);
-            assert!(runner);
-            assert!((RUN_SPEED_MIN..=RUN_SPEED_MAX).contains(&speed));
+    fn speed_climbs_from_the_min_to_a_nitro_sprinter_at_round_50_and_stays_in_bounds() {
+        assert_eq!(round_speed(1), ZOMBIE_MIN_SPEED);
+        assert!((round_speed(ZOMBIE_MAX_SPEED_ROUND) - ZOMBIE_MAX_SPEED).abs() < 1e-4);
+        assert_eq!(round_speed(500), ZOMBIE_MAX_SPEED);
+        for r in 1..ZOMBIE_MAX_SPEED_ROUND {
+            assert!(round_speed(r + 1) > round_speed(r));
         }
-        assert_eq!(runner_chance(FIRST_RUNNER_ROUND - 1), 0.0);
-        assert!(runner_chance(FIRST_RUNNER_ROUND) > 0.0 && runner_chance(FIRST_RUNNER_ROUND) < 1.0);
+        for round in [1, 2, 10, 49, 50, 80] {
+            for roll in [0.0, 0.3, 0.5, 0.999] {
+                let (_, s) = zombie_speed(round, roll);
+                assert!((ZOMBIE_MIN_SPEED..=ZOMBIE_MAX_SPEED).contains(&s), "round {round}: {s}");
+            }
+        }
     }
 
     #[test]
-    fn speeds_are_capped_however_late_the_round() {
-        let (runner, run) = zombie_speed(1000, 0.0, 1.0);
-        assert!(runner && run <= RUN_SPEED_MAX);
-        let (runner, walk) = zombie_speed(ALL_RUNNERS_ROUND - 1, 0.999, 1.0);
-        assert!(!runner && walk <= WALK_SPEED_MAX);
+    fn early_rounds_walk_and_late_rounds_run() {
+        for roll in [0.0, 0.5, 0.999] {
+            assert!(!zombie_speed(1, roll).0);
+            assert!(!zombie_speed(5, roll).0);
+            assert!(zombie_speed(20, roll).0);
+        }
     }
 
     #[test]

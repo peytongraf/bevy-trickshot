@@ -37,7 +37,7 @@ pub use protocol::{
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
     PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
-    ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim,
+    ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieSwipeLanded,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 

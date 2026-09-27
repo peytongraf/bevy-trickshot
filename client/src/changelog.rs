@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: zombies moan, groan as they rise, and cry out when they die.",
+        "Zombies: hear zombie swipes landing, and the last zombie calling out.",
+        "Zombies: speed climbs every round, up to a Nitro Brew sprint by round 50.",
         "Shroom Tea: zombies glow through walls again.",
         "Zombies: party leader can set the starting round and points.",
         "Zombies: perks and power now cost real prices (1,500–2,500; power 750).",
