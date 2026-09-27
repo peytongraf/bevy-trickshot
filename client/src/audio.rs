@@ -59,9 +59,14 @@ pub(crate) struct GameSounds {
     jingle_nitro_brew: Handle<AudioSource>,
     jingle_liquid_courage: Handle<AudioSource>,
     jingle_bomb_shot: Handle<AudioSource>,
+    jingle_kangabrew: Handle<AudioSource>,
     /// `audio/zombies/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
+    /// `audio/zombies/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
+    /// Bomb Shot blast, from where it went off (`vfx::spawn_explosions`);
+    /// the server picks which one so the whole lobby hears the same clip.
+    pub(crate) bomb_shot_explosions: Vec<Handle<AudioSource>>,
     /// `audio/combat/heartbeat.mp3` — looped while the player is
     /// hurt (`health::update_heartbeat`).
     pub(crate) heartbeat: Handle<AudioSource>,
@@ -74,13 +79,14 @@ pub(crate) struct GameSounds {
 }
 
 impl GameSounds {
-    /// `perk`'s machine jingle.
-    pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Handle<AudioSource> {
+    /// `perk`'s machine jingle — `None` for a perk that doesn't have one yet.
+    pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Option<Handle<AudioSource>> {
         match perk {
-            shared::perks::Perk::ShroomTea => self.jingle_shroom_tea.clone(),
-            shared::perks::Perk::NitroBrew => self.jingle_nitro_brew.clone(),
-            shared::perks::Perk::LiquidCourage => self.jingle_liquid_courage.clone(),
-            shared::perks::Perk::BombShot => self.jingle_bomb_shot.clone(),
+            shared::perks::Perk::ShroomTea => Some(self.jingle_shroom_tea.clone()),
+            shared::perks::Perk::NitroBrew => Some(self.jingle_nitro_brew.clone()),
+            shared::perks::Perk::LiquidCourage => Some(self.jingle_liquid_courage.clone()),
+            shared::perks::Perk::BombShot => Some(self.jingle_bomb_shot.clone()),
+            shared::perks::Perk::Kangabrew => Some(self.jingle_kangabrew.clone()),
         }
     }
 }
@@ -208,6 +214,8 @@ pub(crate) struct SoundVolumes {
     /// Every perk machine's jingle (on top of its distance fade).
     pub(crate) perk_jingle: f32,
     pub(crate) round_start: f32,
+    /// A Bomb Shot explosion (on top of its distance fade).
+    pub(crate) bomb_shot_explosion: f32,
 }
 
 impl Default for SoundVolumes {
@@ -236,6 +244,7 @@ impl Default for SoundVolumes {
             perk_buy: 1.0,
             perk_jingle: 1.0,
             round_start: 4.0,
+            bomb_shot_explosion: 1.0,
         }
     }
 }
@@ -414,7 +423,11 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
         jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
         jingle_bomb_shot: asset_server.load("audio/zombies/jingles/bomb_shot.wav"),
+        jingle_kangabrew: asset_server.load("audio/zombies/jingles/kangabrew.wav"),
         round_start: asset_server.load("audio/zombies/round_start.wav"),
+        bomb_shot_explosions: (1..=3)
+            .map(|i| asset_server.load(format!("audio/zombies/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
+            .collect(),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),

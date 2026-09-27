@@ -33,6 +33,9 @@ const EXPLOSION_MAX: usize = 900;
 #[derive(Event)]
 pub(crate) struct Explosion {
     pub(crate) feet: Vec3,
+    /// Which explosion sound (`% clips`) — the server's pick, so everyone
+    /// hears the same one.
+    pub(crate) variant: u8,
 }
 
 /// Panel-adjustable explosion look. `scale` multiplies every size/speed so the
@@ -92,6 +95,9 @@ pub(crate) struct ExplosionSettings {
     pub(crate) shake: f32,
     /// Distance (m) past which there's no shake.
     pub(crate) shake_radius: f32,
+    /// Distance (m) at which the explosion sound has faded to silence —
+    /// much further than other players' sounds, it's a bomb.
+    pub(crate) sound_max_distance: f32,
 }
 
 impl Default for ExplosionSettings {
@@ -142,6 +148,7 @@ impl Default for ExplosionSettings {
 
             shake: 0.9,
             shake_radius: 35.0,
+            sound_max_distance: 160.0,
         }
     }
 }
@@ -356,6 +363,7 @@ fn receive_bomb_explosions(
         for msg in rx.receive() {
             boom.write(Explosion {
                 feet: Vec3::from_array(msg.feet),
+                variant: msg.variant,
             });
         }
     }
@@ -367,16 +375,21 @@ fn fire_preview(
     mut settings: ResMut<ExplosionSettings>,
     player: Single<&Transform, With<Player>>,
     mut boom: EventWriter<Explosion>,
+    mut count: Local<u8>,
 ) {
     if !settings.preview_requested {
         return;
     }
     settings.preview_requested = false;
+    *count = count.wrapping_add(1);
     let mut fwd = player.rotation * Vec3::NEG_Z;
     fwd.y = 0.0;
     let feet = player.translation - Vec3::Y * crate::player::EYE_HEIGHT
         + fwd.normalize_or(Vec3::NEG_Z) * 10.0;
-    boom.write(Explosion { feet });
+    boom.write(Explosion {
+        feet,
+        variant: *count,
+    });
 }
 
 fn spawn_explosions(
@@ -386,6 +399,7 @@ fn spawn_explosions(
     player: Single<&Transform, With<Player>>,
     existing: Query<(), With<ExplosionParticle>>,
     mut shake: ResMut<Shake>,
+    (sounds, volumes): (Option<Res<crate::GameSounds>>, Res<crate::SoundVolumes>),
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
     mut seq: Local<u32>,
@@ -403,6 +417,26 @@ fn spawn_explosions(
         let dist = player.translation.distance(center);
         let falloff = (1.0 - dist / s.shake_radius.max(0.1)).clamp(0.0, 1.0);
         shake.trauma = (shake.trauma + s.shake * falloff * falloff).min(1.0);
+
+        // The boom, from the blast (positional), fading with distance.
+        let clip = sounds
+            .as_ref()
+            .filter(|snd| !snd.bomb_shot_explosions.is_empty())
+            .map(|snd| {
+                snd.bomb_shot_explosions[ev.variant as usize % snd.bomb_shot_explosions.len()].clone()
+            });
+        let fade = (1.0 - dist / s.sound_max_distance.max(1.0)).clamp(0.0, 1.0);
+        let loudness = volumes.bomb_shot_explosion * fade * fade;
+        if let (Some(clip), true) = (clip, loudness > 0.0) {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                // Volume is ours (distance fade), not the one-shot pass's.
+                crate::RemoteSoundEmitter,
+                AudioPlayer::new(clip),
+                Transform::from_translation(center),
+                crate::positional_playback(bevy::audio::Volume::Linear(loudness)),
+            ));
+        }
 
         commands.spawn((
             StateScoped(AppState::InGame),
@@ -839,6 +873,13 @@ pub(crate) fn explosion_section(ui: &mut egui::Ui, s: &mut ExplosionSettings) {
     ui.collapsing("Camera shake", |ui| {
         ui.add(egui::Slider::new(&mut s.shake, 0.0f32..=1.0).text("trauma up close"));
         ui.add(egui::Slider::new(&mut s.shake_radius, 1.0f32..=100.0).text("radius (m)"));
+    });
+    ui.collapsing("Sound", |ui| {
+        ui.add(
+            egui::Slider::new(&mut s.sound_max_distance, 10.0f32..=400.0)
+                .text("heard up to (m)"),
+        );
+        ui.label("Loudness: Sound volumes → \"zombies: bomb shot explosion\".");
     });
     ui.separator();
     if ui.button("Copy explosion settings to console").clicked() {

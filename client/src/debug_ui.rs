@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -61,6 +61,7 @@ pub(crate) fn ads_tuning_ui(
                 &mut lightyear::prelude::TriggerSender<shared::SetBombTest>,
                 With<crate::net::GameClient>,
             >,
+            ResMut<crate::zombies_hud::Kangabrew>,
         ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
@@ -1292,6 +1293,7 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: buy perk", &mut v.perk_buy),
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: round start", &mut v.round_start),
+                        ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
                     ] {
                         ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                     }
@@ -1637,6 +1639,47 @@ pub(crate) fn ads_tuning_ui(
                     }
                     ui.separator();
                     explosion_section(ui, &mut explosion);
+                });
+
+                ui.separator();
+                ui.collapsing("Kangabrew", |ui| {
+                    let k = &mut *kanga;
+                    ui.label(
+                        "Zombies perk (green) — higher jumps, and in the air right up against a \
+                         wall, jump again to kick off it (Black Ops 7 style).",
+                    );
+                    ui.label(if k.owned { "owned: yes" } else { "owned: no" });
+                    ui.checkbox(&mut k.debug_force, "Force on (act as if owned)");
+                    ui.add(
+                        egui::Slider::new(&mut k.jump_height_mult, 1.0f32..=6.0)
+                            .text("jump height (× normal)"),
+                    );
+                    ui.checkbox(&mut k.wall_jumps, "wall jumps");
+                    ui.add(
+                        egui::Slider::new(&mut k.wall_jump_height_mult, 0.0f32..=6.0)
+                            .text("wall jump height (× normal jump)"),
+                    );
+                    ui.add(egui::Slider::new(&mut k.wall_push, 0.0f32..=15.0).text("push off wall (m/s)"));
+                    ui.add(egui::Slider::new(&mut k.wall_steer, 0.0f32..=15.0).text("toward look (m/s)"));
+                    ui.add(egui::Slider::new(&mut k.wall_reach, 0.05f32..=1.5).text("wall reach (m)"));
+                    ui.add(egui::Slider::new(&mut k.max_wall_jumps, 0u32..=10).text("wall jumps per air time"));
+                    ui.add(egui::Slider::new(&mut k.wall_cooldown, 0.0f32..=1.0).text("wall jump cooldown (s)"));
+                    if ui.button("Copy Kangabrew settings to console").clicked() {
+                        info!(
+                            "kangabrew: jump_height_mult: {:.2}, wall_jumps: {}, wall_jump_height_mult: {:.2}, \
+                             wall_push: {:.2}, wall_steer: {:.2}, wall_reach: {:.2}, max_wall_jumps: {}, \
+                             wall_cooldown: {:.2}",
+                            k.jump_height_mult, k.wall_jumps, k.wall_jump_height_mult, k.wall_push,
+                            k.wall_steer, k.wall_reach, k.max_wall_jumps, k.wall_cooldown,
+                        );
+                    }
+                    if ui.button("Reset Kangabrew").clicked() {
+                        *k = crate::zombies_hud::Kangabrew {
+                            owned: k.owned,
+                            debug_force: k.debug_force,
+                            ..default()
+                        };
+                    }
                 });
 
             ui.separator();

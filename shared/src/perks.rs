@@ -22,6 +22,10 @@ pub enum Perk {
     /// explodes, killing zombies close by and hurting ones a little further
     /// out ([`bomb_shot_damage`]).
     BombShot,
+    /// Kangabrew — jump much higher, and jump off walls mid-air (Black Ops 7
+    /// style). Movement is client-authoritative, so it's all client-side:
+    /// `client::zombies_hud::Kangabrew`.
+    Kangabrew,
 }
 
 /// Damage a Liquid Courage owner takes, as a fraction of the normal amount
@@ -73,7 +77,13 @@ pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
 
 impl Perk {
     /// Every perk, in the order their icons sit in the HUD.
-    pub const ALL: [Perk; 4] = [Perk::ShroomTea, Perk::NitroBrew, Perk::LiquidCourage, Perk::BombShot];
+    pub const ALL: [Perk; 5] = [
+        Perk::ShroomTea,
+        Perk::NitroBrew,
+        Perk::LiquidCourage,
+        Perk::BombShot,
+        Perk::Kangabrew,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -81,6 +91,7 @@ impl Perk {
             Perk::NitroBrew => "Nitro Brew",
             Perk::LiquidCourage => "Liquid Courage",
             Perk::BombShot => "Bomb Shot",
+            Perk::Kangabrew => "Kangabrew",
         }
     }
 
@@ -91,6 +102,7 @@ impl Perk {
             Perk::NitroBrew => "Move, aim, reload, rechamber and swap weapons faster.",
             Perk::LiquidCourage => "Take less damage from everything.",
             Perk::BombShot => "360 no-scope kills explode, blowing up nearby zombies.",
+            Perk::Kangabrew => "Jump three times as high, and jump again off walls.",
         }
     }
 
@@ -141,6 +153,16 @@ impl Perk {
                 "Dizziness, bottled mid-spin",
                 "Tears of a camping sniper",
             ],
+            Perk::Kangabrew => &[
+                "Kangaroo tail soup",
+                "Pogo stick springs, finely ground",
+                "Moon gravity, bottled on the dark side",
+                "Eucalyptus leaves",
+                "Trampoline sweat",
+                "Frog legs, still twitching",
+                "A pinch of helium",
+                "Crushed parkour YouTube thumbnails",
+            ],
         }
     }
 
@@ -151,6 +173,7 @@ impl Perk {
             Perk::NitroBrew => 100,
             Perk::LiquidCourage => 100,
             Perk::BombShot => 100,
+            Perk::Kangabrew => 100,
         }
     }
 
@@ -169,8 +192,11 @@ impl Perk {
             (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(28.92, 6.0, 59.62),
             (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
             // Ground floor, under the upper walkway.
-            (Perk::BombShot, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-30.6, 0.0, 0.12),
+            (Perk::BombShot, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-30.7, 0.0, -2.03),
             (Perk::BombShot, _) => Vec3::new(0.0, 0.0, 6.0),
+            // Up on the level Nitro Brew is on.
+            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-33.8, 6.0, 19.5),
+            (Perk::Kangabrew, _) => Vec3::new(0.0, 0.0, -6.0),
         }
     }
 

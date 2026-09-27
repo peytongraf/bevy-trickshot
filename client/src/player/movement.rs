@@ -468,35 +468,127 @@ pub(crate) fn move_player(
     transform.translation += physics.horizontal_velocity * time.delta_secs();
 }
 
+/// Kangabrew wall jumps made since the feet last touched the ground, and the
+/// cooldown until the next is allowed. Cleared on landing (`jump`), on
+/// respawn and when a game starts.
+#[derive(Resource, Default)]
+pub(crate) struct WallJump {
+    pub(crate) used: u32,
+    pub(crate) cooldown: f32,
+}
+
+pub(crate) fn reset_wall_jump(mut wall: ResMut<WallJump>) {
+    *wall = WallJump::default();
+}
+
 /// Launches the player upward when they're standing on something. While
 /// crouched or sliding the jump key is spoken for (stand up / slide-cancel — see
 /// `crouch_slide`), so this bails on anything but a plain standing jump.
+///
+/// Kangabrew (a `Zombies` perk) makes that jump higher, and adds Black Ops 7
+/// style wall jumps: in the air, right up against a wall, jump again to kick
+/// off it — up, out from the wall and toward where you're looking.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn jump(
+    time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<MovementSettings>,
     slide: Res<Slide>,
+    kanga: Res<crate::zombies_hud::Kangabrew>,
+    rapier: ReadRapierContext,
+    mut wall: ResMut<WallJump>,
     mut jumping: ResMut<Jumping>,
-    mut physics: Single<&mut PlayerPhysics, With<Player>>,
+    player: Single<(&Transform, &mut PlayerPhysics), With<Player>>,
 ) {
+    let (transform, mut physics) = player.into_inner();
+    wall.cooldown = (wall.cooldown - time.delta_secs()).max(0.0);
+    if physics.grounded {
+        wall.used = 0;
+    }
     if window.cursor_options.grab_mode == CursorGrabMode::None {
         return;
     }
     if slide.stance != Stance::Standing || slide.ate_jump {
         return;
     }
+    if !binds.jump.just_pressed(&keys, &mouse) {
+        return;
+    }
     // Standing on something, or just ran off it (`LedgeJumpSettings`).
-    let can_jump = physics.grounded || physics.coyote_left > 0.0;
-    if can_jump && binds.jump.just_pressed(&keys, &mouse) {
-        physics.vertical_velocity = settings.jump_speed;
+    if physics.grounded || physics.coyote_left > 0.0 {
+        physics.vertical_velocity = kanga.jump_speed(settings.jump_speed);
         physics.grounded = false;
         // Spent — no second jump from the same ledge.
         physics.coyote_left = 0.0;
         jumping.0 = true;
+        return;
     }
+
+    // Kangabrew wall jump.
+    if !kanga.active()
+        || !kanga.wall_jumps
+        || wall.used >= kanga.max_wall_jumps
+        || wall.cooldown > 0.0
+    {
+        return;
+    }
+    let Ok(rapier) = rapier.single() else {
+        return;
+    };
+    let Some(normal) = nearest_wall(&rapier, transform.translation, BODY_CAPSULE_RADIUS + kanga.wall_reach)
+    else {
+        return;
+    };
+    // Keep the speed running along the wall, drop whatever was heading into
+    // it, then kick straight out plus a push toward where we're looking.
+    let h = Vec3::new(physics.horizontal_velocity.x, 0.0, physics.horizontal_velocity.z);
+    let along = h - normal * h.dot(normal);
+    let mut look = *transform.forward();
+    look.y = 0.0;
+    let mut look = look.normalize_or_zero();
+    if look.dot(normal) < 0.0 {
+        look -= normal * look.dot(normal);
+    }
+    physics.horizontal_velocity = along + normal * kanga.wall_push + look * kanga.wall_steer;
+    physics.vertical_velocity = kanga.wall_jump_speed(settings.jump_speed);
+    wall.used += 1;
+    wall.cooldown = kanga.wall_cooldown;
+    jumping.0 = true;
+}
+
+/// The outward normal (horizontal, unit) of the nearest wall within `reach`
+/// (m) of the body's centre line, felt for at chest and waist height in
+/// eight directions. `eye` is the player's eye position.
+fn nearest_wall(rapier: &RapierContext, eye: Vec3, reach: f32) -> Option<Vec3> {
+    let feet = eye.y - EYE_HEIGHT;
+    let mut best: Option<(f32, Vec3)> = None;
+    for height in [0.6, 1.2] {
+        let from = Vec3::new(eye.x, feet + height, eye.z);
+        for i in 0..8 {
+            let a = i as f32 * std::f32::consts::FRAC_PI_4;
+            let dir = Vec3::new(a.cos(), 0.0, a.sin());
+            let Some((_, hit)) =
+                rapier.cast_ray_and_get_normal(from, dir, reach, true, QueryFilter::default())
+            else {
+                continue;
+            };
+            // A wall face, not a floor, ramp or ceiling.
+            if hit.normal.y.abs() >= 0.5 {
+                continue;
+            }
+            let mut n = Vec3::new(hit.normal.x, 0.0, hit.normal.z).normalize_or_zero();
+            if n.dot(dir) > 0.0 {
+                n = -n;
+            }
+            if n != Vec3::ZERO && best.is_none_or(|(d, _)| hit.time_of_impact < d) {
+                best = Some((hit.time_of_impact, n));
+            }
+        }
+    }
+    best.map(|(_, n)| n)
 }
 
 /// Max distance [`apply_gravity`]'s ground raycast searches below the feet —

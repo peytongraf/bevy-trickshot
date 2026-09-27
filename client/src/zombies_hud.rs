@@ -39,6 +39,7 @@ impl Plugin for ZombiesHudPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             .init_resource::<NitroBrew>()
+            .init_resource::<Kangabrew>()
             .init_resource::<PerkMachineSettings>()
             // Not gated on `InGame`: it's what switches the effects back *off*
             // once the game is left.
@@ -53,6 +54,7 @@ pub(crate) fn perk_color(perk: Perk) -> Color {
         Perk::NitroBrew => Color::srgb_u8(0xff, 0xd4, 0x00),
         Perk::LiquidCourage => Color::srgb_u8(0xc8, 0x14, 0x2d),
         Perk::BombShot => Color::srgb_u8(0xff, 0x6a, 0x00),
+        Perk::Kangabrew => Color::srgb_u8(0x2e, 0xd1, 0x4a),
     }
 }
 
@@ -108,6 +110,73 @@ impl NitroBrew {
     }
     pub(crate) fn swap(&self) -> f32 {
         self.pick(self.swap_mult)
+    }
+}
+
+/// Kangabrew (the debug panel's "Kangabrew" section): higher jumps and
+/// Black Ops 7 style wall jumps — see `player::movement::jump`. `owned` is
+/// kept in step with our perks by `sync_owned_perks`, so it's off again the
+/// moment a game ends or is left.
+#[derive(Resource)]
+pub(crate) struct Kangabrew {
+    pub(crate) owned: bool,
+    /// Debug: act as if owned, to tune without buying it. Never saved.
+    pub(crate) debug_force: bool,
+    /// How high a jump goes, as a multiple of a normal one (2 = twice as
+    /// high).
+    pub(crate) jump_height_mult: f32,
+    pub(crate) wall_jumps: bool,
+    /// How high a wall jump goes from where it's made, as a multiple of a
+    /// normal (perk-less) jump's height.
+    pub(crate) wall_jump_height_mult: f32,
+    /// Speed (m/s) a wall jump pushes you straight out from the wall.
+    pub(crate) wall_push: f32,
+    /// Extra speed (m/s) toward where you're looking (never back into the
+    /// wall), so you can steer off it.
+    pub(crate) wall_steer: f32,
+    /// How close (m) the edge of your body must be to a wall.
+    pub(crate) wall_reach: f32,
+    /// Wall jumps allowed before touching the ground again.
+    pub(crate) max_wall_jumps: u32,
+    /// Seconds between wall jumps.
+    pub(crate) wall_cooldown: f32,
+}
+
+impl Default for Kangabrew {
+    fn default() -> Self {
+        Self {
+            owned: false,
+            debug_force: false,
+            jump_height_mult: 3.0,
+            wall_jumps: true,
+            wall_jump_height_mult: 2.0,
+            wall_push: 5.0,
+            wall_steer: 3.0,
+            wall_reach: 0.5,
+            max_wall_jumps: 3,
+            wall_cooldown: 0.25,
+        }
+    }
+}
+
+impl Kangabrew {
+    pub(crate) fn active(&self) -> bool {
+        self.owned || self.debug_force
+    }
+
+    /// Launch speed for a ground jump: `base` scaled so the jump reaches
+    /// `jump_height_mult` × the height (height goes with speed squared).
+    pub(crate) fn jump_speed(&self, base: f32) -> f32 {
+        if self.active() {
+            base * self.jump_height_mult.max(0.01).sqrt()
+        } else {
+            base
+        }
+    }
+
+    /// Launch speed for a wall jump (see [`Self::wall_jump_height_mult`]).
+    pub(crate) fn wall_jump_speed(&self, base: f32) -> f32 {
+        base * self.wall_jump_height_mult.max(0.01).sqrt()
     }
 }
 
@@ -355,6 +424,7 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) nitro: MachineNudge,
     pub(crate) courage: MachineNudge,
     pub(crate) bomb: MachineNudge,
+    pub(crate) kanga: MachineNudge,
 }
 
 impl Default for PerkMachineSettings {
@@ -366,6 +436,7 @@ impl Default for PerkMachineSettings {
             nitro: default(),
             courage: default(),
             bomb: default(),
+            kanga: default(),
         }
     }
 }
@@ -377,6 +448,7 @@ impl PerkMachineSettings {
             Perk::NitroBrew => &mut self.nitro,
             Perk::LiquidCourage => &mut self.courage,
             Perk::BombShot => &mut self.bomb,
+            Perk::Kangabrew => &mut self.kanga,
         }
     }
 
@@ -386,6 +458,7 @@ impl PerkMachineSettings {
             Perk::NitroBrew => &self.nitro,
             Perk::LiquidCourage => &self.courage,
             Perk::BombShot => &self.bomb,
+            Perk::Kangabrew => &self.kanga,
         }
     }
 
@@ -413,14 +486,14 @@ impl PerkMachineSettings {
     }
 }
 
-/// Each perk's machine model — `None` for a perk that doesn't have one yet
-/// and stands in as a plain box in its colour ([`spawn_perk_machine`]).
-fn machine_model_path(perk: Perk) -> Option<&'static str> {
+/// Each perk's machine model.
+fn machine_model_path(perk: Perk) -> &'static str {
     match perk {
-        Perk::ShroomTea => Some("models/shroom_tea_perk_machine.glb"),
-        Perk::NitroBrew => Some("models/nitro_brew_perk_machine.glb"),
-        Perk::LiquidCourage => Some("models/liquid_courage_perk_machine.glb"),
-        Perk::BombShot => None,
+        Perk::ShroomTea => "models/shroom_tea_perk_machine.glb",
+        Perk::NitroBrew => "models/nitro_brew_perk_machine.glb",
+        Perk::LiquidCourage => "models/liquid_courage_perk_machine.glb",
+        Perk::BombShot => "models/bomb_shot_perk_machine.glb",
+        Perk::Kangabrew => "models/kangabrew_perk_machine.glb",
     }
 }
 
@@ -454,13 +527,16 @@ fn play_perk_jingles(
         for (peer, perks) in &now {
             let before = prev.get(peer);
             for &perk in perks.iter().filter(|p| before.is_none_or(|b| !b.contains(p))) {
+                let Some(jingle) = sounds.jingle(perk) else {
+                    continue;
+                };
                 commands.spawn((
                     StateScoped(AppState::InGame),
                     PerkJingle,
                     // Volume is ours to set (`update_perk_jingles`), not the
                     // one-shot volume pass's.
                     crate::RemoteSoundEmitter,
-                    AudioPlayer::new(sounds.jingle(perk)),
+                    AudioPlayer::new(jingle),
                     // From about the machine's sign.
                     Transform::from_translation(
                         machines.placement(perk, lobby.map).0
@@ -508,7 +584,6 @@ fn sync_perk_machines(
     mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
     mut colliders: Query<&mut bevy_rapier3d::prelude::Collider, With<MachinePart>>,
     mut lights: Query<&mut PointLight, With<MachinePart>>,
-    (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
     mut commands: Commands,
 ) {
     let Some(lobby) = zombies_game(&local, &lobbies) else {
@@ -519,15 +594,7 @@ fn sync_perk_machines(
     };
     for perk in Perk::ALL {
         if !machines.iter().any(|(_, m, _)| m.0 == perk) {
-            spawn_perk_machine(
-                perk,
-                lobby.map,
-                &settings,
-                &asset_server,
-                &mut meshes,
-                &mut materials,
-                &mut commands,
-            );
+            spawn_perk_machine(perk, lobby.map, &settings, &asset_server, &mut commands);
         }
     }
     for (_, m, mut t) in &mut machines {
@@ -558,8 +625,6 @@ fn spawn_perk_machine(
     map: shared::MapId,
     settings: &PerkMachineSettings,
     asset_server: &AssetServer,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
     commands: &mut Commands,
 ) {
     let half = settings.half_extents();
@@ -571,31 +636,11 @@ fn spawn_perk_machine(
             Visibility::default(),
         ))
         .with_children(|m| {
-            match machine_model_path(perk) {
-                Some(path) => {
-                    m.spawn((
-                        MachinePart::Model,
-                        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
-                        settings.part_transform(MachinePart::Model),
-                    ));
-                }
-                // Temporary stand-in: a box the size of the models, in the
-                // perk's colour with a faint glow so it reads at night.
-                None => {
-                    let color = perk_color(perk);
-                    m.spawn((
-                        MachinePart::Model,
-                        Mesh3d(meshes.add(Cuboid::from_size(MODEL_HALF_EXTENTS * 2.0))),
-                        MeshMaterial3d(materials.add(StandardMaterial {
-                            base_color: color,
-                            emissive: LinearRgba::from(color) * 0.4,
-                            perceptual_roughness: 0.45,
-                            ..default()
-                        })),
-                        settings.part_transform(MachinePart::Model),
-                    ));
-                }
-            }
+            m.spawn((
+                MachinePart::Model,
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model_path(perk)))),
+                settings.part_transform(MachinePart::Model),
+            ));
             m.spawn((
                 MachinePart::Collider,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
@@ -1011,6 +1056,7 @@ fn perk_icon_path(perk: Perk) -> &'static str {
         Perk::NitroBrew => "textures/icons/perks/nitro_brew.png",
         Perk::LiquidCourage => "textures/icons/perks/liquid_courage.png",
         Perk::BombShot => "textures/icons/perks/bomb_shot.png",
+        Perk::Kangabrew => "textures/icons/perks/kangabrew.png",
     }
 }
 
@@ -1244,7 +1290,7 @@ fn sync_owned_perks(
     lobbies: Query<&Lobby>,
     sounds: Option<Res<GameSounds>>,
     mut shroom: ResMut<ShroomPerk>,
-    mut nitro: ResMut<NitroBrew>,
+    (mut nitro, mut kanga): (ResMut<NitroBrew>, ResMut<Kangabrew>),
     mut courage: ResMut<crate::LiquidCouragePerk>,
     mut drink: ResMut<crate::PerkDrink>,
     // What we owned last frame (empty out of a game, so a new game starts
@@ -1282,6 +1328,10 @@ fn sync_owned_perks(
     let has_nitro = owned.contains(&Perk::NitroBrew);
     if nitro.owned != has_nitro {
         nitro.owned = has_nitro;
+    }
+    let has_kanga = owned.contains(&Perk::Kangabrew);
+    if kanga.owned != has_kanga {
+        kanga.owned = has_kanga;
     }
     let has_courage = owned.contains(&Perk::LiquidCourage);
     if courage.0 != has_courage {

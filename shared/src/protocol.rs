@@ -1026,12 +1026,15 @@ pub struct KnifeAttackSound {
     pub variant: u8,
 }
 
-/// Server → everyone in a `Zombies` lobby: a Bomb Shot went off with its
-/// base at `feet` (the dead zombie's feet) — play the explosion there. The
-/// blast damage is the server's (`server::zombies::apply_bomb_blasts`).
+/// Server → every member of a `Zombies` lobby: a Bomb Shot went off with
+/// its base at `feet` (the dead zombie's feet) — show the explosion and play
+/// its sound from there. `variant` is the server's random pick of sound
+/// (`variant % clips`), so the whole lobby hears the same one. The blast
+/// damage is the server's (`server::pvp::apply_bomb_blasts`).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct BombExplosion {
     pub feet: [f32; 3],
+    pub variant: u8,
 }
 
 /// Client → server: the player's throw animation reached the point where the

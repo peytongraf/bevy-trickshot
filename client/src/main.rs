@@ -244,6 +244,7 @@ fn main() {
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<Jumping>()
+        .init_resource::<WallJump>()
         .init_resource::<Slide>()
         .init_resource::<SlideSettings>()
         .init_resource::<Mantle>()
@@ -297,6 +298,7 @@ fn main() {
                 grab_cursor,
                 start_ambient.after(lobby_ui::sync_current_map),
                 reset_slide,
+                reset_wall_jump,
                 reset_trick,
                 reset_weapon,
                 spawn_debug_readout,

@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: new Kangabrew perk — jump higher and off walls.",
         "Zombies: new Bomb Shot perk — 360 no-scope kills explode.",
         "New main menu music.",
         "Zombies: round number on screen, with a sound and animation each new round.",

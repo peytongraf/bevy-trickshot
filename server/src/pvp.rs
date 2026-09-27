@@ -304,10 +304,11 @@ fn apply_player_hits(
 }
 
 /// Set off each [`BombBlast`]: show every real player in the lobby the
-/// explosion, then hurt every living zombie in range by how close it is
+/// explosion and have them hear it (all members, not just the shooter), then hurt every living zombie in range by how close it is
 /// ([`shared::perks::bomb_shot_damage`]) — through [`PlayerHit`], so kills
 /// score, count and give hit / kill markers like any other (next tick).
 fn apply_bomb_blasts(
+    time: Res<Time>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut blasts: EventReader<BombBlast>,
@@ -320,8 +321,12 @@ fn apply_bomb_blasts(
         let Ok(lobby) = lobbies.get(blast.lobby) else {
             continue;
         };
+        let variant = ((time.elapsed().as_nanos() as u64) ^ blast.by.to_bits())
+            .wrapping_mul(0x2545_F491_4F6C_DD1D)
+            >> 56;
         let msg = shared::BombExplosion {
             feet: blast.feet.to_array(),
+            variant: variant as u8,
         };
         if let Err(e) =
             sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))

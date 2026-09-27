@@ -31,6 +31,7 @@ struct LifeState<'w> {
     ads: ResMut<'w, Ads>,
     sprinting: ResMut<'w, Sprinting>,
     jumping: ResMut<'w, Jumping>,
+    wall_jump: ResMut<'w, crate::WallJump>,
     slide: ResMut<'w, Slide>,
     mantle: ResMut<'w, Mantle>,
     trick: ResMut<'w, TrickState>,
@@ -47,6 +48,7 @@ fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: 
     life.ads.t = 0.0;
     *life.sprinting = Sprinting::default();
     *life.jumping = Jumping::default();
+    *life.wall_jump = crate::WallJump::default();
     *life.slide = Slide::default();
     *life.mantle = Mantle::default();
     *life.trick = TrickState::default();
