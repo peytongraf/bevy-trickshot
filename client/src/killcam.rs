@@ -478,6 +478,8 @@ fn start_killcam(
             With<crate::ImpactParticle>,
             With<Tracer>,
             With<crate::KnifeTrail>,
+            With<crate::ExplosionParticle>,
+            With<crate::ExplosionLight>,
         )>,>,
     // Every currently-playing one-shot (shot, reload, rechamber, footsteps,
     // aim in/out, ...) except the looping ambience bed — a reload or the like

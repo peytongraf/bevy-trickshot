@@ -386,6 +386,7 @@ mod tests {
                 enemies_left: 0,
                 paused: false,
                 bots_passive: false,
+                bomb_test: false,
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: me,

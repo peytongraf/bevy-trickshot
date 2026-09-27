@@ -1,10 +1,11 @@
 //! Shot/weapon visual effects: muzzle flash, barrel smoke, fire tracers, and
 //! bullet-impact particles (ground rock/dust, bot blood), bullet holes, and
 //! the shroom screen distortion (and its see-enemies-through-walls ghosts),
-//! and Liquid Courage's drunk screen effect.
+//! Liquid Courage's drunk screen effect, and the big fireball explosion.
 
 mod bullet_holes;
 mod drunk;
+mod explosion;
 mod impacts;
 mod muzzle_flash;
 mod perk_kick;
@@ -15,6 +16,7 @@ mod tracers;
 
 pub(crate) use bullet_holes::*;
 pub(crate) use drunk::*;
+pub(crate) use explosion::*;
 pub(crate) use impacts::*;
 pub(crate) use muzzle_flash::*;
 pub(crate) use shroom::*;

@@ -846,6 +846,10 @@ pub struct Lobby {
     /// for testing without dying. Kept for the lobby's lifetime, like its
     /// other settings; a new lobby starts with it off.
     pub bots_passive: bool,
+    /// Debug (the leader's egui panel, [`SetBombTest`]): every zombie kill
+    /// in this lobby explodes like a Bomb Shot trickshot, without the perk
+    /// or the trickshot. Kept for the lobby's lifetime, like `bots_passive`.
+    pub bomb_test: bool,
     /// [`GameMode::Zombies`]: someone threw the power switch
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
@@ -1022,6 +1026,14 @@ pub struct KnifeAttackSound {
     pub variant: u8,
 }
 
+/// Server → everyone in a `Zombies` lobby: a Bomb Shot went off with its
+/// base at `feet` (the dead zombie's feet) — play the explosion there. The
+/// blast damage is the server's (`server::zombies::apply_bomb_blasts`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BombExplosion {
+    pub feet: [f32; 3],
+}
+
 /// Client → server: the player's throw animation reached the point where the
 /// knife leaves their hand. `origin` is their eye position and `dir` the
 /// aim direction at that moment; the server checks them against the player's
@@ -1113,6 +1125,13 @@ pub struct SetBotsPassive {
     pub passive: bool,
 }
 
+/// Client → server (debug): the party leader turns [`Lobby::bomb_test`] on
+/// or off. Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetBombTest {
+    pub on: bool,
+}
+
 /// Client → server: the party leader pauses / resumes the running game for
 /// the whole party ([`Lobby::paused`]). Ignored from anyone else.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -1158,6 +1177,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BombExplosion>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<FallDeath>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ThrowingKnifeHit>()
@@ -1184,6 +1205,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPaused>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetBotsPassive>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetBombTest>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);

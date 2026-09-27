@@ -245,6 +245,8 @@ fn resolve_shots(
                         victim: *victim,
                         killer: shooter.0,
                         damage: shared::melee::KNIFE_DAMAGE,
+                        bomb_shot: false,
+                        blast: false,
                     });
                     info!("tick {tick}: {:?} knifed player {:?}", shooter.0, victim);
                 }
@@ -401,10 +403,20 @@ fn resolve_shots(
                             } else {
                                 hit.damage
                             };
+                            // Bomb Shot: a zombie killed by an owner's 360
+                            // no-scope blows up (`pvp::apply_player_hits`).
+                            let bomb_shot = zombies
+                                && shared::perks::is_trickshot(i.spin_deg, i.noscope)
+                                && lobby.members.iter().any(|m| {
+                                    m.peer == shooter.0
+                                        && m.perks.contains(&shared::perks::Perk::BombShot)
+                                });
                             player_hits.write(PlayerHit {
                                 victim: *p,
                                 killer: shooter.0,
                                 damage,
+                                bomb_shot,
+                                blast: false,
                             });
                         }
                         ShotOutcome::Hit {

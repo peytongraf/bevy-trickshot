@@ -17,7 +17,7 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetMap, SetPaused, SetTimeLimit,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetMap, SetPaused, SetTimeLimit,
     StartGame,
 };
 
@@ -57,6 +57,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_end_game)
             .add_observer(on_set_paused)
             .add_observer(on_set_bots_passive)
+            .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
             .add_observer(on_set_map)
@@ -166,6 +167,7 @@ fn on_create(
                 enemies_left: 0,
                 paused: false,
                 bots_passive: false,
+                bomb_test: false,
                 power_on: false,
                 members: vec![LobbyMember {
                     peer,
@@ -466,6 +468,19 @@ fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobb
     }
 }
 
+/// Debug: the leader makes every zombie kill in their lobby explode (Bomb
+/// Shot without the perk or the trickshot), any time.
+fn on_set_bomb_test(trigger: Trigger<RemoteTrigger<SetBombTest>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let on = trigger.trigger.on;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
+        if lobby.bomb_test != on {
+            lobby.bomb_test = on;
+            info!("lobby bomb test {} by {peer:?} (debug)", if on { "on" } else { "off" });
+        }
+    }
+}
+
 /// The leader picks the match length while the lobby is still waiting.
 fn on_set_time_limit(
     trigger: Trigger<RemoteTrigger<SetTimeLimit>>,
@@ -723,6 +738,7 @@ mod tests {
             enemies_left: 0,
             paused: false,
             bots_passive: false,
+            bomb_test: false,
             power_on: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),

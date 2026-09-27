@@ -58,6 +58,7 @@ pub(crate) struct GameSounds {
     jingle_shroom_tea: Handle<AudioSource>,
     jingle_nitro_brew: Handle<AudioSource>,
     jingle_liquid_courage: Handle<AudioSource>,
+    jingle_bomb_shot: Handle<AudioSource>,
     /// `audio/zombies/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
@@ -79,6 +80,7 @@ impl GameSounds {
             shared::perks::Perk::ShroomTea => self.jingle_shroom_tea.clone(),
             shared::perks::Perk::NitroBrew => self.jingle_nitro_brew.clone(),
             shared::perks::Perk::LiquidCourage => self.jingle_liquid_courage.clone(),
+            shared::perks::Perk::BombShot => self.jingle_bomb_shot.clone(),
         }
     }
 }
@@ -411,6 +413,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         jingle_shroom_tea: asset_server.load("audio/zombies/jingles/shroom_tea.wav"),
         jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
         jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
+        jingle_bomb_shot: asset_server.load("audio/zombies/jingles/bomb_shot.wav"),
         round_start: asset_server.load("audio/zombies/round_start.wav"),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))

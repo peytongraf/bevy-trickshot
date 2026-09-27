@@ -256,6 +256,8 @@ fn step_knives(
                         victim: *victim,
                         killer: owner,
                         damage: shared::melee::KNIFE_DAMAGE,
+                        bomb_shot: false,
+                        blast: false,
                     });
                     info!("{owner:?} killed {victim:?} with a throwing knife");
                 }

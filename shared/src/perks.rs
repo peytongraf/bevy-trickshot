@@ -18,11 +18,49 @@ pub enum Perk {
     /// Liquid Courage — takes less damage from everything
     /// ([`LIQUID_COURAGE_DAMAGE_MULT`]), with a drunk screen effect.
     LiquidCourage,
+    /// Bomb Shot — a trickshot kill (a 360 no-scope, [`is_trickshot`])
+    /// explodes, killing zombies close by and hurting ones a little further
+    /// out ([`bomb_shot_damage`]).
+    BombShot,
 }
 
 /// Damage a Liquid Courage owner takes, as a fraction of the normal amount
 /// (0.6 ≈ two thirds more health).
 pub const LIQUID_COURAGE_DAMAGE_MULT: f32 = 0.6;
+
+/// Bomb Shot's blast: everything within this many metres of the dead
+/// zombie's feet dies — about the size of the explosion's fireball and dust
+/// ring (the client's `ExplosionSettings` defaults)...
+pub const BOMB_SHOT_KILL_RADIUS: f32 = 4.0;
+/// ...and zombies out to this far still get hurt, less the further out.
+pub const BOMB_SHOT_DAMAGE_RADIUS: f32 = 8.0;
+/// Damage just outside the kill radius, fading linearly to...
+pub const BOMB_SHOT_EDGE_DAMAGE_MAX: f32 = 65.0;
+/// ...this at the damage radius (nothing beyond it).
+pub const BOMB_SHOT_EDGE_DAMAGE_MIN: f32 = 15.0;
+/// Enough to kill anything inside the kill radius outright.
+pub const BOMB_SHOT_LETHAL_DAMAGE: f32 = 10_000.0;
+
+/// Whether a shot fired with this trick metadata sets off Bomb Shot: a
+/// 360 no-scope (a full turn, any amount airborne or not).
+pub fn is_trickshot(spin_deg: f32, noscope: bool) -> bool {
+    noscope && spin_deg >= 360.0
+}
+
+/// Bomb Shot damage to a zombie standing `distance` metres from the blast
+/// (feet to feet): lethal inside [`BOMB_SHOT_KILL_RADIUS`], then fading from
+/// [`BOMB_SHOT_EDGE_DAMAGE_MAX`] to [`BOMB_SHOT_EDGE_DAMAGE_MIN`] out to
+/// [`BOMB_SHOT_DAMAGE_RADIUS`], and nothing past that.
+pub fn bomb_shot_damage(distance: f32) -> f32 {
+    if distance <= BOMB_SHOT_KILL_RADIUS {
+        BOMB_SHOT_LETHAL_DAMAGE
+    } else if distance <= BOMB_SHOT_DAMAGE_RADIUS {
+        let t = (distance - BOMB_SHOT_KILL_RADIUS) / (BOMB_SHOT_DAMAGE_RADIUS - BOMB_SHOT_KILL_RADIUS);
+        BOMB_SHOT_EDGE_DAMAGE_MAX + (BOMB_SHOT_EDGE_DAMAGE_MIN - BOMB_SHOT_EDGE_DAMAGE_MAX) * t
+    } else {
+        0.0
+    }
+}
 
 /// `damage` scaled by what `perks` protect against.
 pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
@@ -35,13 +73,14 @@ pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
 
 impl Perk {
     /// Every perk, in the order their icons sit in the HUD.
-    pub const ALL: [Perk; 3] = [Perk::ShroomTea, Perk::NitroBrew, Perk::LiquidCourage];
+    pub const ALL: [Perk; 4] = [Perk::ShroomTea, Perk::NitroBrew, Perk::LiquidCourage, Perk::BombShot];
 
     pub fn label(self) -> &'static str {
         match self {
             Perk::ShroomTea => "Shroom Tea",
             Perk::NitroBrew => "Nitro Brew",
             Perk::LiquidCourage => "Liquid Courage",
+            Perk::BombShot => "Bomb Shot",
         }
     }
 
@@ -51,6 +90,7 @@ impl Perk {
             Perk::ShroomTea => "See enemies through walls and gain aim assist.",
             Perk::NitroBrew => "Move, aim, reload, rechamber and swap weapons faster.",
             Perk::LiquidCourage => "Take less damage from everything.",
+            Perk::BombShot => "360 no-scope kills explode, blowing up nearby zombies.",
         }
     }
 
@@ -91,6 +131,16 @@ impl Perk {
                 "Maraschino cherry juice",
                 "Pickle brine for the morning after",
             ],
+            Perk::BombShot => &[
+                "A fistful of black powder",
+                "Orange soda, violently shaken",
+                "Ghost pepper extract",
+                "Shaved fireworks, the illegal kind",
+                "Leftover nitroglycerin from Nitro Brew",
+                "A lit fuse, still burning",
+                "Dizziness, bottled mid-spin",
+                "Tears of a camping sniper",
+            ],
         }
     }
 
@@ -100,6 +150,7 @@ impl Perk {
             Perk::ShroomTea => 100,
             Perk::NitroBrew => 100,
             Perk::LiquidCourage => 100,
+            Perk::BombShot => 100,
         }
     }
 
@@ -117,6 +168,9 @@ impl Perk {
             (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
             (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(28.92, 6.0, 59.62),
             (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
+            // Ground floor, under the upper walkway.
+            (Perk::BombShot, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-30.6, 0.0, 0.12),
+            (Perk::BombShot, _) => Vec3::new(0.0, 0.0, 6.0),
         }
     }
 
@@ -179,6 +233,24 @@ mod tests {
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m + Vec3::X * 3.0, 0.0));
         // A floor below doesn't count.
         assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m - Vec3::Y * 4.0, 0.0));
+    }
+
+    #[test]
+    fn bomb_shot_kills_close_hurts_further_out_and_spares_the_rest() {
+        assert!(bomb_shot_damage(0.0) >= crate::health::FULL_HEALTH);
+        assert!(bomb_shot_damage(BOMB_SHOT_KILL_RADIUS) >= crate::health::FULL_HEALTH);
+        let just_out = bomb_shot_damage(BOMB_SHOT_KILL_RADIUS + 0.1);
+        let further = bomb_shot_damage(BOMB_SHOT_DAMAGE_RADIUS - 0.1);
+        assert!(just_out < crate::health::FULL_HEALTH && just_out > further && further > 0.0);
+        assert_eq!(bomb_shot_damage(BOMB_SHOT_DAMAGE_RADIUS + 0.1), 0.0);
+    }
+
+    #[test]
+    fn only_a_360_no_scope_is_a_trickshot() {
+        assert!(is_trickshot(360.0, true));
+        assert!(is_trickshot(720.0, true));
+        assert!(!is_trickshot(359.0, true));
+        assert!(!is_trickshot(720.0, false));
     }
 
     #[test]

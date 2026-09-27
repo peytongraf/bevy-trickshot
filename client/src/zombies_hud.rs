@@ -52,6 +52,7 @@ pub(crate) fn perk_color(perk: Perk) -> Color {
         Perk::ShroomTea => Color::srgb_u8(0x6a, 0x1f, 0xbf),
         Perk::NitroBrew => Color::srgb_u8(0xff, 0xd4, 0x00),
         Perk::LiquidCourage => Color::srgb_u8(0xc8, 0x14, 0x2d),
+        Perk::BombShot => Color::srgb_u8(0xff, 0x6a, 0x00),
     }
 }
 
@@ -353,6 +354,7 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) shroom: MachineNudge,
     pub(crate) nitro: MachineNudge,
     pub(crate) courage: MachineNudge,
+    pub(crate) bomb: MachineNudge,
 }
 
 impl Default for PerkMachineSettings {
@@ -363,6 +365,7 @@ impl Default for PerkMachineSettings {
             shroom: default(),
             nitro: default(),
             courage: default(),
+            bomb: default(),
         }
     }
 }
@@ -373,6 +376,7 @@ impl PerkMachineSettings {
             Perk::ShroomTea => &mut self.shroom,
             Perk::NitroBrew => &mut self.nitro,
             Perk::LiquidCourage => &mut self.courage,
+            Perk::BombShot => &mut self.bomb,
         }
     }
 
@@ -381,6 +385,7 @@ impl PerkMachineSettings {
             Perk::ShroomTea => &self.shroom,
             Perk::NitroBrew => &self.nitro,
             Perk::LiquidCourage => &self.courage,
+            Perk::BombShot => &self.bomb,
         }
     }
 
@@ -408,12 +413,14 @@ impl PerkMachineSettings {
     }
 }
 
-/// Each perk's machine model.
-fn machine_model_path(perk: Perk) -> &'static str {
+/// Each perk's machine model — `None` for a perk that doesn't have one yet
+/// and stands in as a plain box in its colour ([`spawn_perk_machine`]).
+fn machine_model_path(perk: Perk) -> Option<&'static str> {
     match perk {
-        Perk::ShroomTea => "models/shroom_tea_perk_machine.glb",
-        Perk::NitroBrew => "models/nitro_brew_perk_machine.glb",
-        Perk::LiquidCourage => "models/liquid_courage_perk_machine.glb",
+        Perk::ShroomTea => Some("models/shroom_tea_perk_machine.glb"),
+        Perk::NitroBrew => Some("models/nitro_brew_perk_machine.glb"),
+        Perk::LiquidCourage => Some("models/liquid_courage_perk_machine.glb"),
+        Perk::BombShot => None,
     }
 }
 
@@ -501,6 +508,7 @@ fn sync_perk_machines(
     mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
     mut colliders: Query<&mut bevy_rapier3d::prelude::Collider, With<MachinePart>>,
     mut lights: Query<&mut PointLight, With<MachinePart>>,
+    (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
     mut commands: Commands,
 ) {
     let Some(lobby) = zombies_game(&local, &lobbies) else {
@@ -511,7 +519,15 @@ fn sync_perk_machines(
     };
     for perk in Perk::ALL {
         if !machines.iter().any(|(_, m, _)| m.0 == perk) {
-            spawn_perk_machine(perk, lobby.map, &settings, &asset_server, &mut commands);
+            spawn_perk_machine(
+                perk,
+                lobby.map,
+                &settings,
+                &asset_server,
+                &mut meshes,
+                &mut materials,
+                &mut commands,
+            );
         }
     }
     for (_, m, mut t) in &mut machines {
@@ -542,6 +558,8 @@ fn spawn_perk_machine(
     map: shared::MapId,
     settings: &PerkMachineSettings,
     asset_server: &AssetServer,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
     commands: &mut Commands,
 ) {
     let half = settings.half_extents();
@@ -553,11 +571,31 @@ fn spawn_perk_machine(
             Visibility::default(),
         ))
         .with_children(|m| {
-            m.spawn((
-                MachinePart::Model,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model_path(perk)))),
-                settings.part_transform(MachinePart::Model),
-            ));
+            match machine_model_path(perk) {
+                Some(path) => {
+                    m.spawn((
+                        MachinePart::Model,
+                        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+                        settings.part_transform(MachinePart::Model),
+                    ));
+                }
+                // Temporary stand-in: a box the size of the models, in the
+                // perk's colour with a faint glow so it reads at night.
+                None => {
+                    let color = perk_color(perk);
+                    m.spawn((
+                        MachinePart::Model,
+                        Mesh3d(meshes.add(Cuboid::from_size(MODEL_HALF_EXTENTS * 2.0))),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: color,
+                            emissive: LinearRgba::from(color) * 0.4,
+                            perceptual_roughness: 0.45,
+                            ..default()
+                        })),
+                        settings.part_transform(MachinePart::Model),
+                    ));
+                }
+            }
             m.spawn((
                 MachinePart::Collider,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
@@ -972,6 +1010,7 @@ fn perk_icon_path(perk: Perk) -> &'static str {
         Perk::ShroomTea => "textures/icons/perks/shroom_tea.png",
         Perk::NitroBrew => "textures/icons/perks/nitro_brew.png",
         Perk::LiquidCourage => "textures/icons/perks/liquid_courage.png",
+        Perk::BombShot => "textures/icons/perks/bomb_shot.png",
     }
 }
 

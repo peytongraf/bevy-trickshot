@@ -194,6 +194,7 @@ fn main() {
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
+        .add_plugins(ExplosionPlugin)
         .insert_resource(AmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,

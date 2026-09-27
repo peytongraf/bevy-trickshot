@@ -240,7 +240,7 @@ pub struct MachineBox {
     shape: Cuboid,
 }
 
-fn machine_boxes(map: MapId) -> [MachineBox; 3] {
+fn machine_boxes(map: MapId) -> [MachineBox; Perk::ALL.len()] {
     Perk::ALL.map(|perk| {
         let (center, rot, half) = perk.machine_box(map);
         MachineBox {
@@ -259,7 +259,7 @@ fn machine_boxes(map: MapId) -> [MachineBox; 3] {
 /// [`MapColliders::for_lobby`].
 pub struct LobbyWorld<'a> {
     map: &'a MapMesh,
-    machines: Option<[MachineBox; 3]>,
+    machines: Option<[MachineBox; Perk::ALL.len()]>,
 }
 
 impl LobbyWorld<'_> {

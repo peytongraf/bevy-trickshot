@@ -77,6 +77,22 @@ pub struct PlayerHit {
     pub victim: PeerId,
     pub killer: PeerId,
     pub damage: f32,
+    /// A Bomb Shot trickshot ([`shared::perks::is_trickshot`] by a perk
+    /// owner): if it kills a zombie, the zombie explodes ([`BombBlast`]).
+    pub bomb_shot: bool,
+    /// Damage from a [`BombBlast`] itself — never sets off another one, even
+    /// with the lobby's debug `bomb_test` on.
+    pub blast: bool,
+}
+
+/// A Bomb Shot went off in `lobby` with its base at `feet`, set off by `by`
+/// — written by [`apply_player_hits`] when a zombie dies to one, consumed by
+/// [`apply_bomb_blasts`].
+#[derive(Event)]
+pub struct BombBlast {
+    pub lobby: Entity,
+    pub feet: Vec3,
+    pub by: PeerId,
 }
 
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
@@ -93,6 +109,7 @@ pub struct PvpPlugin;
 impl Plugin for PvpPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<PlayerHit>()
+            .add_event::<BombBlast>()
             .add_event::<PlayerKilled>()
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
@@ -101,6 +118,7 @@ impl Plugin for PvpPlugin {
                 FixedUpdate,
                 (
                     apply_player_hits,
+                    apply_bomb_blasts,
                     tick_respawns,
                     sync_health,
                     check_kill_limit,
@@ -120,6 +138,7 @@ fn apply_player_hits(
     mut sender: ServerMultiMessageSender,
     mut hits: EventReader<PlayerHit>,
     mut killed: EventWriter<PlayerKilled>,
+    mut blasts: EventWriter<BombBlast>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
@@ -189,6 +208,21 @@ fn apply_player_hits(
         // everyone. No kill cams either way.
         if lobby.mode == GameMode::Zombies {
             combat.respawn_at = f32::INFINITY;
+            // Bomb Shot (or the debug `bomb_test`, for any player's kill):
+            // the zombie explodes. A blast's own kills never chain.
+            if is_bot_peer(ev.victim)
+                && !is_bot_peer(ev.killer)
+                && !ev.blast
+                && (ev.bomb_shot || lobby.bomb_test)
+            {
+                if let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == ev.victim) {
+                    blasts.write(BombBlast {
+                        lobby: lobby_e,
+                        feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
+                        by: ev.killer,
+                    });
+                }
+            }
             if is_bot_peer(ev.victim) {
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
                     m.score += ZOMBIE_KILL_POINTS;
@@ -266,6 +300,54 @@ fn apply_player_hits(
             victim: ev.victim,
             killer: ev.killer,
         });
+    }
+}
+
+/// Set off each [`BombBlast`]: show every real player in the lobby the
+/// explosion, then hurt every living zombie in range by how close it is
+/// ([`shared::perks::bomb_shot_damage`]) — through [`PlayerHit`], so kills
+/// score, count and give hit / kill markers like any other (next tick).
+fn apply_bomb_blasts(
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut blasts: EventReader<BombBlast>,
+    mut hits: EventWriter<PlayerHit>,
+    lobbies: Query<&Lobby>,
+    zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &crate::lobby::LobbyPlayer)>,
+) {
+    let server = server.into_inner();
+    for blast in blasts.read() {
+        let Ok(lobby) = lobbies.get(blast.lobby) else {
+            continue;
+        };
+        let msg = shared::BombExplosion {
+            feet: blast.feet.to_array(),
+        };
+        if let Err(e) =
+            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))
+        {
+            error!("failed to send bomb explosion: {e:?}");
+        }
+        let mut n = 0;
+        for (id, pose, combat, lp) in &zombies {
+            if !is_bot_peer(id.0) || !combat.alive || lp.lobby != blast.lobby {
+                continue;
+            }
+            let feet = pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT;
+            let damage = shared::perks::bomb_shot_damage(feet.distance(blast.feet));
+            if damage <= 0.0 {
+                continue;
+            }
+            n += 1;
+            hits.write(PlayerHit {
+                victim: id.0,
+                killer: blast.by,
+                damage,
+                bomb_shot: false,
+                blast: true,
+            });
+        }
+        info!("{:?}'s bomb shot went off, catching {n} zombies", blast.by);
     }
 }
 

@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -56,6 +56,11 @@ pub(crate) fn ads_tuning_ui(
             Res<crate::CurrentMap>,
             ResMut<crate::power::MapLightSettings>,
             ResMut<crate::round_counter::RoundAnimSettings>,
+            ResMut<ExplosionSettings>,
+            Query<
+                &mut lightyear::prelude::TriggerSender<shared::SetBombTest>,
+                With<crate::net::GameClient>,
+            >,
         ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
@@ -1595,6 +1600,43 @@ pub(crate) fn ads_tuning_ui(
                             ..default()
                         };
                     }
+                });
+
+                ui.separator();
+                ui.collapsing("Bomb Shot", |ui| {
+                    ui.label(format!(
+                        "Zombies perk (orange) — a 360 no-scope zombie kill explodes: zombies within \
+                         {:.0} m die, out to {:.0} m take {:.0}–{:.0} damage (server-side constants in \
+                         shared/src/perks.rs).",
+                        shared::perks::BOMB_SHOT_KILL_RADIUS,
+                        shared::perks::BOMB_SHOT_DAMAGE_RADIUS,
+                        shared::perks::BOMB_SHOT_EDGE_DAMAGE_MAX,
+                        shared::perks::BOMB_SHOT_EDGE_DAMAGE_MIN,
+                    ));
+                    // Lives on the server's lobby (`Lobby::bomb_test`), like
+                    // "Bots don't attack".
+                    let me = local_id.iter().next().map(|l| l.0);
+                    if let Some((lobby, is_leader)) =
+                        me.and_then(|me| lobbies.iter().find(|l| l.has(me)).map(|l| (l, l.leader == me)))
+                    {
+                        let mut on = lobby.bomb_test;
+                        if ui
+                            .add_enabled(
+                                is_leader,
+                                egui::Checkbox::new(&mut on, "Every zombie kill explodes (test, with damage)"),
+                            )
+                            .changed()
+                        {
+                            if let Ok(mut tx) = bomb_test_tx.single_mut() {
+                                tx.trigger::<shared::LobbyChannel>(shared::SetBombTest { on });
+                            }
+                        }
+                        if !is_leader {
+                            ui.label("Only the party leader can change this.");
+                        }
+                    }
+                    ui.separator();
+                    explosion_section(ui, &mut explosion);
                 });
 
             ui.separator();
