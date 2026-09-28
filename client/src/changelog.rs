@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: a zombie goes quiet when killed, only its death cry plays.",
         "Fixed screen flickering after Shroom Tea wears off.",
         "Zombies: up to 150 zombies can be up at once.",
         "Zombies: new active enemies counter under enemies left.",

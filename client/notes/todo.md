@@ -6,11 +6,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Zombie voice stops on death
 - Zombies stuck in walls
 
 # New
 
-- Zombie moan sound including last zombie sound if its last should stop when they are killed and only the death sound should play
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
 - Add ground effect when zombies spawn. Maybe add some smoke and a green glow so that it seems supernatural

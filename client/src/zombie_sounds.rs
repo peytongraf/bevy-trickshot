@@ -4,7 +4,8 @@
 //! * moans now and then while it's up — low / medium / high intensity by how
 //!   fast it's been moving, on a random min..max timer each, never too many
 //!   at once or too close together,
-//! * a death cry where it drops,
+//! * a death cry where it drops — cutting off whatever it was still saying
+//!   (groan, moan, final call), so the cry is all you hear,
 //! * the swipe landing on someone (the server's [`shared::ZombieSwipeLanded`]
 //!   — only it knows a swing connected), heard from where that player is,
 //! * and once a round is down to its last zombie, its "final zombie" call on
@@ -91,6 +92,11 @@ struct ZombieVoice {
 struct ZombieSound {
     loudness: f32,
 }
+
+/// A playing sound in a zombie's own voice (its spawn groan, a moan, the
+/// final-zombie call): cut off the moment that zombie dies.
+#[derive(Component)]
+struct VoiceOf(Entity);
 
 /// Marks a playing moan (to cap how many at once).
 #[derive(Component)]
@@ -179,7 +185,8 @@ fn zombie_rise_and_fall(
     vols: Res<crate::SoundVolumes>,
     poses: Query<&PlayerPose>,
     new: Query<(Entity, &RemoteAvatar), (With<ZombieVisual>, Without<ZombieVoice>)>,
-    mut voices: Query<(&RemoteAvatar, &mut ZombieVoice)>,
+    mut voices: Query<(Entity, &RemoteAvatar, &mut ZombieVoice)>,
+    speaking: Query<(Entity, &VoiceOf)>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -194,7 +201,8 @@ fn zombie_rise_and_fall(
         let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
         if pose.alive {
             if let Some(clip) = pick(&sounds.spawns, roll()) {
-                spawn_sound(&mut commands, clip, vols.zombie_spawn, feet + Vec3::Y * 0.5);
+                let id = spawn_sound(&mut commands, clip, vols.zombie_spawn, feet + Vec3::Y * 0.5);
+                commands.entity(id).insert(VoiceOf(entity));
             }
         }
         commands.entity(entity).insert(ZombieVoice {
@@ -204,9 +212,14 @@ fn zombie_rise_and_fall(
             was_alive: pose.alive,
         });
     }
-    for (avatar, mut voice) in &mut voices {
+    for (zombie, avatar, mut voice) in &mut voices {
         let Ok(pose) = poses.get(avatar.src) else { continue };
         if voice.was_alive && !pose.alive {
+            for (sound, owner) in &speaking {
+                if owner.0 == zombie {
+                    commands.entity(sound).try_despawn();
+                }
+            }
             let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
             if let Some(clip) = pick(&sounds.deaths, roll()) {
                 spawn_sound(&mut commands, clip, vols.zombie_death, feet + Vec3::Y * MOUTH_HEIGHT);
@@ -270,7 +283,7 @@ fn zombie_moans(
             let due = *last.next_at.get_or_insert_with(|| after(now, 1.0, 2.5, roll()));
             if now >= due {
                 let id = spawn_sound(&mut commands, sounds.final_zombie.clone(), vols.final_zombie, mouth);
-                commands.entity(id).insert(ChildOf(entity));
+                commands.entity(id).insert((VoiceOf(entity), ChildOf(entity)));
                 last.next_at = Some(after(now, settings.final_min_secs, settings.final_max_secs, roll()));
             }
             continue;
@@ -292,7 +305,7 @@ fn zombie_moans(
         };
         if let Some(clip) = pick(&sounds.moans[tier], roll()) {
             let id = spawn_sound(&mut commands, clip, vols.zombie_moan, mouth);
-            commands.entity(id).insert((ZombieMoan, ChildOf(entity)));
+            commands.entity(id).insert((ZombieMoan, VoiceOf(entity), ChildOf(entity)));
             playing += 1;
             last.last_moan_at = now;
         }
