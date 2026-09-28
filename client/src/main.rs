@@ -469,6 +469,7 @@ fn main() {
                 (
                     spawn_ground_impact,
                     spawn_blood_impact,
+                    zombie_rise_debris,
                     update_impact_particles,
                 )
                     .after(look_around),

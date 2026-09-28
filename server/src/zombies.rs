@@ -35,7 +35,7 @@ const SPAWN_MAX_DIST: f32 = 30.0;
 /// ...and it never comes up closer than this to *any* living player.
 const SPAWN_CLEAR_OF_PLAYERS: f32 = 8.0;
 /// Seconds a zombie takes to climb out of the ground.
-const RISE_SECS: f32 = 1.6;
+const RISE_SECS: f32 = shared::zombies::ZOMBIE_RISE_SECS;
 /// Seconds before round 1's first zombie, once everyone has loaded in.
 const FIRST_ROUND_DELAY_SECS: f32 = 4.0;
 /// Seconds between the last zombie of a round dying and the next round.
@@ -239,7 +239,7 @@ fn run_rounds(
             PlayerPose {
                 translation: feet + Vec3::Y * EYE_HEIGHT,
                 yaw,
-                zombie: shared::ZombieAnim::Idle,
+                zombie: shared::ZombieAnim::Rising,
                 ..default()
             },
             ActionState::<PlayerInput>::default(),

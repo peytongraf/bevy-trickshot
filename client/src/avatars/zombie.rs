@@ -308,7 +308,7 @@ fn animate_zombie_avatars(
                 ZombieAnim::WalkArmsUp => ZombieAnimState::WalkArmsUp,
                 ZombieAnim::Run => ZombieAnimState::Run,
                 ZombieAnim::Attack => ZombieAnimState::Attack,
-                ZombieAnim::Idle | ZombieAnim::None => ZombieAnimState::Idle,
+                ZombieAnim::Idle | ZombieAnim::Rising | ZombieAnim::None => ZombieAnimState::Idle,
             };
             // Only tread along while actually getting somewhere (a little
             // hysteresis so it doesn't flicker at the threshold).

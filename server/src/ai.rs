@@ -136,7 +136,7 @@ const MANTLE_SECS_PER_M: f32 = 0.15;
 const MANTLE_START_DIST: f32 = 0.6;
 
 /// How far under the ground (m) a rising bot starts — a whole body.
-const RISE_DEPTH: f32 = 1.9;
+const RISE_DEPTH: f32 = shared::zombies::ZOMBIE_RISE_DEPTH;
 
 /// Zombies never get closer than this (m, feet to feet, horizontally) to
 /// each other — about a body's width, so the models don't sink into one
@@ -593,7 +593,7 @@ pub(crate) fn drive_bots(
         // Still climbing out of the ground: just rise, nothing else.
         if let Some(rise) = brain.rise {
             if let Some(z) = brain.zombie.as_mut() {
-                z.anim = ZombieAnim::Idle;
+                z.anim = ZombieAnim::Rising;
             }
             let t = ((now - rise.start) / rise.secs.max(1e-3)).clamp(0.0, 1.0);
             brain.feet = rise.ground - Vec3::Y * RISE_DEPTH * (1.0 - t);

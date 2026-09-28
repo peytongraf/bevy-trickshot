@@ -13,8 +13,9 @@ use crate::player::{Player, PlayerHead};
 use crate::util::{rand01, rand_roll, srgb_parts};
 use crate::AppState;
 
-/// Hard cap on live bullet-impact particles (rocks + dust together).
-pub(crate) const IMPACT_MAX: usize = 400;
+/// Hard cap on live impact particles (rocks + dust + blood together, bullet
+/// hits and zombies breaking out of the ground alike).
+pub(crate) const IMPACT_MAX: usize = 600;
 
 /// `vfx/rocks.png` is a loose grid of rocks; each rock sprite shows one cell of this
 /// many columns × rows so it's a single rock, not the whole sheet.
@@ -230,90 +231,125 @@ pub(crate) fn spawn_ground_impact(
     let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
 
     for ev in events.read() {
-        // Nudge just above the surface so the sprites don't z-fight the ground.
-        let at = ev.0 + Vec3::Y * 0.02;
         *seq = seq.wrapping_add(1);
+        let burst = DebrisBurst {
+            rocks: rocks.count,
+            dust: dust.count,
+            power: 1.0,
+        };
+        spawn_debris(&mut commands, &mut materials, &assets, &rocks, &dust, ev.0, burst, *seq, &mut budget);
+    }
+}
 
-        for i in 0..rocks.count {
-            if budget == 0 {
-                break;
-            }
-            budget -= 1;
-            let s = seq
-                .wrapping_mul(2_654_435_761)
-                .wrapping_add(i.wrapping_mul(40_503))
-                .wrapping_add(0x11);
-            let dir = cone_dir(Vec3::Y, rocks.spread_deg.to_radians(), s);
-            let speed = rocks.speed * (0.55 + 0.45 * rand01(s ^ 0x9e37));
-            // `vfx/rocks.png` is a sheet of ~25 rocks; show one 1/ROCK_COLS × 1/ROCK_ROWS
-            // cell of it per particle so each sprite is a single rock, not the pile.
-            let col = (rand01(s ^ 0x3) * ROCK_COLS as f32) as u32 % ROCK_COLS;
-            let row = (rand01(s ^ 0x5) * ROCK_ROWS as f32) as u32 % ROCK_ROWS;
-            let mut material = impact_material(assets.rocks.clone());
-            material.uv_transform = Affine2::from_scale_angle_translation(
-                Vec2::new(1.0 / ROCK_COLS as f32, 1.0 / ROCK_ROWS as f32),
-                0.0,
-                Vec2::new(col as f32 / ROCK_COLS as f32, row as f32 / ROCK_ROWS as f32),
-            );
-            commands.spawn((
-                StateScoped(AppState::InGame),
-                ImpactParticle {
-                    velocity: dir * speed,
-                    gravity: rocks.gravity,
-                    drag: 0.0,
-                    age: 0.0,
-                    lifetime: rocks.lifetime.max(0.1) * (0.7 + 0.6 * rand01(s ^ 0x1234)),
-                    fade_in: 0.0,
-                    roll: rand_roll(s ^ 0x77),
-                    spin: (rand01(s ^ 0xab) * 2.0 - 1.0) * rocks.spin,
-                    scale0: rocks.scale,
-                    scale1: rocks.scale,
-                    peak_alpha: 1.0,
-                    tint: [1.0, 1.0, 1.0],
-                },
-                Mesh3d(assets.quad.clone()),
-                MeshMaterial3d(materials.add(material)),
-                Transform::from_translation(at).with_scale(Vec3::splat(rocks.scale.max(1.0e-4))),
-                NoFrustumCulling,
-                NotShadowCaster,
-            ));
-        }
+/// How much of a ground burst to kick up: rock and dust counts, and `power`
+/// scaling how hard it's thrown and how big it is (1 = a bullet hit).
+#[derive(Clone, Copy)]
+pub(crate) struct DebrisBurst {
+    pub(crate) rocks: u32,
+    pub(crate) dust: u32,
+    pub(crate) power: f32,
+}
 
-        for i in 0..dust.count {
-            if budget == 0 {
-                break;
-            }
-            budget -= 1;
-            let s = seq
-                .wrapping_mul(40_503)
-                .wrapping_add(i.wrapping_mul(2_654_435_761))
-                .wrapping_add(0xd057);
-            let dir = cone_dir(Vec3::Y, dust.spread_deg.to_radians(), s);
-            let speed = dust.speed * (0.5 + 0.5 * rand01(s ^ 0x55));
-            commands.spawn((
-                StateScoped(AppState::InGame),
-                ImpactParticle {
-                    velocity: dir * speed + Vec3::Y * dust.rise,
-                    gravity: 0.0,
-                    drag: dust.drag,
-                    age: 0.0,
-                    lifetime: dust.lifetime.max(0.1) * (0.75 + 0.5 * rand01(s ^ 0x9f)),
-                    fade_in: dust.fade_in.max(0.0),
-                    roll: rand_roll(s ^ 0x21),
-                    spin: 0.0,
-                    scale0: dust.start_scale,
-                    scale1: dust.end_scale,
-                    peak_alpha: dust.opacity,
-                    tint: [1.0, 1.0, 1.0],
-                },
-                Mesh3d(assets.quad.clone()),
-                MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
-                Transform::from_translation(at)
-                    .with_scale(Vec3::splat(dust.start_scale.max(1.0e-4))),
-                NoFrustumCulling,
-                NotShadowCaster,
-            ));
+/// One rock + dust burst out of the ground at `ground` — a bullet hit's
+/// ([`spawn_ground_impact`]), or a scaled one (a zombie breaking out of the
+/// ground, `zombie_rise`). `seq` varies it; `budget` is how many more
+/// particles may be spawned (taken from as they are).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_debris(
+    commands: &mut Commands,
+    materials: &mut Assets<StandardMaterial>,
+    assets: &ImpactAssets,
+    rocks: &RockSettings,
+    dust: &DustSettings,
+    ground: Vec3,
+    burst: DebrisBurst,
+    seq: u32,
+    budget: &mut usize,
+) {
+    // Nudge just above the surface so the sprites don't z-fight the ground.
+    let at = ground + Vec3::Y * 0.02;
+    let power = burst.power.max(0.0);
+    let rock_scale = rocks.scale * (0.6 + 0.4 * power);
+    for i in 0..burst.rocks {
+        if *budget == 0 {
+            break;
         }
+        *budget -= 1;
+        let s = seq
+            .wrapping_mul(2_654_435_761)
+            .wrapping_add(i.wrapping_mul(40_503))
+            .wrapping_add(0x11);
+        let dir = cone_dir(Vec3::Y, rocks.spread_deg.to_radians(), s);
+        let speed = rocks.speed * power * (0.55 + 0.45 * rand01(s ^ 0x9e37));
+        // `vfx/rocks.png` is a sheet of ~25 rocks; show one 1/ROCK_COLS × 1/ROCK_ROWS
+        // cell of it per particle so each sprite is a single rock, not the pile.
+        let col = (rand01(s ^ 0x3) * ROCK_COLS as f32) as u32 % ROCK_COLS;
+        let row = (rand01(s ^ 0x5) * ROCK_ROWS as f32) as u32 % ROCK_ROWS;
+        let mut material = impact_material(assets.rocks.clone());
+        material.uv_transform = Affine2::from_scale_angle_translation(
+            Vec2::new(1.0 / ROCK_COLS as f32, 1.0 / ROCK_ROWS as f32),
+            0.0,
+            Vec2::new(col as f32 / ROCK_COLS as f32, row as f32 / ROCK_ROWS as f32),
+        );
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            ImpactParticle {
+                velocity: dir * speed,
+                gravity: rocks.gravity,
+                drag: 0.0,
+                age: 0.0,
+                lifetime: rocks.lifetime.max(0.1) * (0.7 + 0.6 * rand01(s ^ 0x1234)),
+                fade_in: 0.0,
+                roll: rand_roll(s ^ 0x77),
+                spin: (rand01(s ^ 0xab) * 2.0 - 1.0) * rocks.spin,
+                scale0: rock_scale,
+                scale1: rock_scale,
+                peak_alpha: 1.0,
+                tint: [1.0, 1.0, 1.0],
+            },
+            Mesh3d(assets.quad.clone()),
+            MeshMaterial3d(materials.add(material)),
+            Transform::from_translation(at).with_scale(Vec3::splat(rock_scale.max(1.0e-4))),
+            NoFrustumCulling,
+            NotShadowCaster,
+        ));
+    }
+
+    let size = 0.5 + 0.5 * power;
+    for i in 0..burst.dust {
+        if *budget == 0 {
+            break;
+        }
+        *budget -= 1;
+        let s = seq
+            .wrapping_mul(40_503)
+            .wrapping_add(i.wrapping_mul(2_654_435_761))
+            .wrapping_add(0xd057);
+        let dir = cone_dir(Vec3::Y, dust.spread_deg.to_radians(), s);
+        let speed = dust.speed * power * (0.5 + 0.5 * rand01(s ^ 0x55));
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            ImpactParticle {
+                velocity: dir * speed + Vec3::Y * dust.rise,
+                gravity: 0.0,
+                drag: dust.drag,
+                age: 0.0,
+                lifetime: dust.lifetime.max(0.1) * (0.75 + 0.5 * rand01(s ^ 0x9f)),
+                fade_in: dust.fade_in.max(0.0),
+                roll: rand_roll(s ^ 0x21),
+                spin: 0.0,
+                scale0: dust.start_scale * size,
+                scale1: dust.end_scale * size,
+                peak_alpha: dust.opacity,
+                tint: [1.0, 1.0, 1.0],
+            },
+            Mesh3d(assets.quad.clone()),
+            MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
+            Transform::from_translation(at)
+                .with_scale(Vec3::splat((dust.start_scale * size).max(1.0e-4))),
+            NoFrustumCulling,
+            NotShadowCaster,
+        ));
     }
 }
 

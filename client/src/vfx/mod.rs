@@ -1,7 +1,8 @@
 //! Shot/weapon visual effects: muzzle flash, barrel smoke, fire tracers, and
 //! bullet-impact particles (ground rock/dust, bot blood), bullet holes, and
 //! the shroom screen distortion (and its see-enemies-through-walls ghosts),
-//! Liquid Courage's drunk screen effect, and the big fireball explosion.
+//! Liquid Courage's drunk screen effect, the big fireball explosion, and the
+//! ground breaking open under a rising zombie.
 
 mod bullet_holes;
 mod drunk;
@@ -13,6 +14,7 @@ mod shroom;
 mod shroom_xray;
 mod smoke;
 mod tracers;
+mod zombie_rise;
 
 pub(crate) use bullet_holes::*;
 pub(crate) use drunk::*;
@@ -23,3 +25,4 @@ pub(crate) use shroom::*;
 pub(crate) use shroom_xray::*;
 pub(crate) use smoke::*;
 pub(crate) use tracers::*;
+pub(crate) use zombie_rise::*;

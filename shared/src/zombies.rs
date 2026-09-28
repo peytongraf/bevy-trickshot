@@ -2,6 +2,12 @@
 //! swipe — shared so the client's animation and the server's AI agree.
 //! (Rounds, spawning and the AI itself are `server::zombies` / `server::ai`.)
 
+/// Seconds a new zombie takes to climb out of the ground...
+pub const ZOMBIE_RISE_SECS: f32 = 1.6;
+/// ...from this far (m) under it — a whole body. (The client's ground-breaking
+/// effect reads both to tell how far along the climb is.)
+pub const ZOMBIE_RISE_DEPTH: f32 = 1.9;
+
 /// Slowest a zombie ever moves (m/s) — round 1's shamblers...
 pub const ZOMBIE_MIN_SPEED: f32 = 1.0;
 /// ...and fastest: a sprinting player with Nitro Brew (the client's

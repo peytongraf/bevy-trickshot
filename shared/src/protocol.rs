@@ -193,8 +193,11 @@ pub enum ZombieAnim {
     /// Not a zombie.
     #[default]
     None,
-    /// Standing (or climbing out of the ground): looking around.
+    /// Standing: looking around.
     Idle,
+    /// Climbing up out of the ground (a fresh spawn) — animates as `Idle`,
+    /// and the client breaks the ground open around it.
+    Rising,
     /// Shambling along, arms down.
     Walk,
     /// Shambling along, arms up — a walker close to who it's after.
