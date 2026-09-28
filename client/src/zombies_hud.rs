@@ -33,6 +33,7 @@ impl Plugin for ZombiesHudPlugin {
                     sync_perk_machines,
                     (play_perk_jingles, update_perk_jingles).chain(),
                     update_perk_card,
+                    update_no_power_prompt,
                     update_perk_icons,
                     update_party_panels,
                     buy_perk.run_if(menu::game_active.and(killcam::no_killcam)),
@@ -628,13 +629,32 @@ fn sync_perk_machines(
     mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
     mut colliders: Query<&mut bevy_rapier3d::prelude::Collider, With<MachinePart>>,
     mut lights: Query<&mut PointLight, With<MachinePart>>,
+    time: Res<Time>,
+    map_lights: Res<crate::power::MapLightSettings>,
+    // How far the machines' lights are faded in (0..=1) — with the power, at
+    // the map lights' pace. Back to 0 whenever there's no game.
+    mut power: Local<f32>,
     mut commands: Commands,
 ) {
     let Some(lobby) = zombies_game(&local, &lobbies) else {
         for (e, ..) in &machines {
             commands.entity(e).despawn();
         }
+        *power = 0.0;
         return;
+    };
+    let before = *power;
+    let target = if shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on {
+        1.0
+    } else {
+        0.0
+    };
+    *power = if shared::power::switch_pos(lobby.map).is_none() || map_lights.fade_secs <= 0.0 {
+        // (No switch on this map: just on.)
+        target
+    } else {
+        let step = time.delta_secs() / map_lights.fade_secs;
+        *power + (target - *power).clamp(-step, step)
     };
     for perk in Perk::ALL {
         if !machines.iter().any(|(_, m, _)| m.0 == perk) {
@@ -652,8 +672,17 @@ fn sync_perk_machines(
         for mut c in &mut colliders {
             *c = bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z);
         }
-        for mut l in &mut lights {
-            *l = settings.light.point_light(l.color);
+    }
+    // (Every light when the look or the fade moves; otherwise just any that
+    // were only now spawned, dark.)
+    let all = settings.is_changed() || *power != before;
+    let fade = *power * *power * (3.0 - 2.0 * *power);
+    for mut l in &mut lights {
+        if all || l.is_added() {
+            let mut lit = settings.light.point_light(l.color);
+            lit.intensity *= fade;
+            lit.shadows_enabled &= fade > 0.0;
+            *l = lit;
         }
     }
 }
@@ -676,6 +705,8 @@ fn spawn_perk_machine(
         .spawn((
             StateScoped(AppState::InGame),
             PerkMachine(perk),
+            // (From about its middle — the root's on the ground.)
+            crate::power::PoweredHum(Vec3::Y * 1.2),
             machine_transform(settings, perk, map),
             Visibility::default(),
         ))
@@ -692,7 +723,12 @@ fn spawn_perk_machine(
             ));
             m.spawn((
                 MachinePart::Light,
-                settings.light.point_light(perk_color(perk)),
+                // (Dark until `sync_perk_machines` fades it in with the power.)
+                PointLight {
+                    intensity: 0.0,
+                    shadows_enabled: false,
+                    ..settings.light.point_light(perk_color(perk))
+                },
                 settings.part_transform(MachinePart::Light),
             ));
         });
@@ -711,6 +747,10 @@ struct PerkCardIcon;
 /// The strip along the card's bottom saying what the interact key does.
 #[derive(Component)]
 struct PerkCardAction;
+
+/// Shown instead of the perk card while the power's off.
+#[derive(Component)]
+struct NoPowerPrompt;
 
 /// Which of the card's texts a `Text` node is.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -762,6 +802,20 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
             },
         ))
         .with_children(|row| {
+            // (Only one of the two shows at a time.)
+            row.spawn((
+                NoPowerPrompt,
+                Node {
+                    padding: UiRect::axes(Val::Px(22.0), Val::Px(12.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
+                BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.25)),
+                BorderRadius::all(Val::Px(6.0)),
+                Visibility::Hidden,
+            ))
+            .with_child((Text::new("THE POWER MUST BE ACTIVATED FIRST"), heading(26.0), TextColor(Color::WHITE)));
             row.spawn((
                 PerkCard,
                 Node {
@@ -1152,6 +1206,8 @@ fn update_perk_icons(
 /// Where we stand with the perk at the machine we're at.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PerkStatus {
+    /// The power's off — nothing sells yet (`shared::power::has_power`).
+    NoPower,
     Buyable,
     TooPoor,
     Owned,
@@ -1169,7 +1225,9 @@ fn perk_here(
     let perk = Perk::ALL
         .into_iter()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))?;
-    let status = if member.perks.contains(&perk) {
+    let status = if !shared::power::has_power(lobby.map, lobby.power_on) {
+        PerkStatus::NoPower
+    } else if member.perks.contains(&perk) {
         PerkStatus::Owned
     } else if member.score >= perk.cost() {
         PerkStatus::Buyable
@@ -1209,7 +1267,8 @@ fn update_perk_card(
             perk_here(lobby, local.iter().next()?.0, feet, &machines)
         })
         .flatten();
-    let Some((perk, status, points)) = here else {
+    // (With the power off it's `update_no_power_prompt`'s line instead.)
+    let Some((perk, status, points)) = here.filter(|(_, s, _)| *s != PerkStatus::NoPower) else {
         vis.set_if_neq(Visibility::Hidden);
         *shown = None;
         return;
@@ -1245,6 +1304,7 @@ fn update_perk_card(
             "ALREADY OWNED".to_string(),
             CARD_GREEN,
         ),
+        PerkStatus::NoPower => unreachable!("filtered out above"),
     };
     if border.0 != edge {
         border.0 = edge;
@@ -1285,6 +1345,27 @@ fn update_perk_card(
             color.0 = wanted_color;
         }
     }
+}
+
+/// At a perk machine with the power still off: Call of Duty's line in place
+/// of the perk card (hidden behind menus and the kill cam, like the card).
+fn update_no_power_prompt(
+    menu: Res<menu::Menu>,
+    active_killcam: Res<killcam::ActiveKillCam>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    player: Single<&Transform, With<Player>>,
+    machines: Res<PerkMachineSettings>,
+    mut prompt: Single<&mut Visibility, With<NoPowerPrompt>>,
+) {
+    let feet = player.translation - Vec3::Y * EYE_HEIGHT;
+    let no_power = !menu.is_open()
+        && active_killcam.0.is_none()
+        && zombies_game(&local, &lobbies)
+            .zip(local.iter().next())
+            .and_then(|(lobby, me)| perk_here(lobby, me.0, feet, &machines))
+            .is_some_and(|(_, status, _)| status == PerkStatus::NoPower);
+    prompt.set_if_neq(if no_power { Visibility::Inherited } else { Visibility::Hidden });
 }
 
 /// The interact key at a machine we can afford: ask the server to sell it to

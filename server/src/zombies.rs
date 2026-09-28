@@ -295,8 +295,9 @@ fn publish_zombie_anims(mut zombies: Query<(&BotBrain, &mut PlayerPose), With<Zo
     }
 }
 
-/// A member wants to buy a perk: they must be in a running `Zombies` game,
-/// alive, standing at its machine (a little slack — their pose is a moment
+/// A member wants to buy a perk: they must be in a running `Zombies` game
+/// with the power on (`shared::power::has_power`), alive, standing at its
+/// machine (a little slack — their pose is a moment
 /// old), not already own it, and have the points. Anything else is ignored.
 fn on_buy_perk(
     trigger: Trigger<RemoteTrigger<BuyPerk>>,
@@ -312,7 +313,8 @@ fn on_buy_perk(
     else {
         return;
     };
-    if endings.is_ending(lobby_e) || lobby.paused {
+    // (No selling until the power's on — `shared::power::has_power`.)
+    if endings.is_ending(lobby_e) || lobby.paused || !shared::power::has_power(lobby.map, lobby.power_on) {
         return;
     }
     let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
@@ -572,6 +574,42 @@ mod tests {
     }
 
     #[test]
+    fn no_perk_sells_until_the_power_is_on() {
+        let (mut app, lobby) = game();
+        app.add_observer(on_buy_perk);
+        let me = PeerId::Netcode(1);
+        let perk = shared::perks::Perk::ShroomTea;
+        let map = shared::MapId::BreakPointNight;
+        {
+            let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+            l.map = map;
+            l.members[0].score = 3000;
+        }
+        let player = app
+            .world_mut()
+            .query_filtered::<Entity, (With<PlayerCombat>, Without<Zombie>)>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation =
+            perk.machine_pos(map) + Vec3::Y * EYE_HEIGHT;
+        let buy = |app: &mut App| {
+            app.world_mut().trigger(RemoteTrigger {
+                trigger: BuyPerk { perk },
+                from: me,
+            });
+            app.world_mut().flush();
+        };
+        buy(&mut app);
+        let member = app.world().get::<Lobby>(lobby).unwrap().members[0].clone();
+        assert!(member.perks.is_empty(), "sold with the power off");
+        assert_eq!(member.score, 3000);
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().power_on = true;
+        buy(&mut app);
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].perks, vec![perk]);
+    }
+
+    #[test]
     fn a_perk_cant_be_bought_from_across_the_map_or_without_the_points() {
         let (mut app, lobby) = game();
         app.add_observer(on_buy_perk);
@@ -607,7 +645,8 @@ mod tests {
             // Break Point (day) has no switch.
             l.map = shared::MapId::BreakPoint;
         }
-        let at_switch = Vec3::ZERO + Vec3::Y * EYE_HEIGHT;
+        let switch = shared::power::switch_pos(shared::MapId::BreakPointNight).unwrap();
+        let at_switch = switch + Vec3::Y * EYE_HEIGHT;
         app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_switch;
         flip(&mut app);
         assert!(!app.world().get::<Lobby>(lobby).unwrap().power_on, "no switch on this map");

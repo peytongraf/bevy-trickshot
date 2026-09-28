@@ -60,6 +60,13 @@ pub(crate) struct GameSounds {
     jingle_liquid_courage: Handle<AudioSource>,
     jingle_bomb_shot: Handle<AudioSource>,
     jingle_kangabrew: Handle<AudioSource>,
+    /// `audio/zombies/power_on.mp3` — someone threw the `Zombies` power
+    /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
+    pub(crate) power_on: Handle<AudioSource>,
+    /// `audio/zombies/pap_buzzing.mp3` — the electric hum looped from every
+    /// perk machine and the Pack-a-Punch once the power's on
+    /// (`power::sync_machine_hums`).
+    pub(crate) machine_hum: Handle<AudioSource>,
     /// `audio/zombies/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
@@ -213,6 +220,8 @@ pub(crate) struct SoundVolumes {
     pub(crate) perk_buy: f32,
     /// Every perk machine's jingle (on top of its distance fade).
     pub(crate) perk_jingle: f32,
+    /// The power lever being thrown (on top of its distance fade).
+    pub(crate) power_on: f32,
     pub(crate) round_start: f32,
     /// A Bomb Shot explosion (on top of its distance fade).
     pub(crate) bomb_shot_explosion: f32,
@@ -249,6 +258,7 @@ impl Default for SoundVolumes {
             hit_marker: 1.0,
             perk_buy: 1.0,
             perk_jingle: 1.0,
+            power_on: 1.0,
             round_start: 4.0,
             bomb_shot_explosion: 1.0,
             zombie_moan: 1.0,
@@ -435,6 +445,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
         jingle_bomb_shot: asset_server.load("audio/zombies/jingles/bomb_shot.wav"),
         jingle_kangabrew: asset_server.load("audio/zombies/jingles/kangabrew.wav"),
+        power_on: asset_server.load("audio/zombies/power_on.mp3"),
+        machine_hum: asset_server.load("audio/zombies/pap_buzzing.mp3"),
         round_start: asset_server.load("audio/zombies/round_start.wav"),
         bomb_shot_explosions: (1..=3)
             .map(|i| asset_server.load(format!("audio/zombies/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))

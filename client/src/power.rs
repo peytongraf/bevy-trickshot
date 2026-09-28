@@ -2,14 +2,17 @@
 //!
 //! Break Point Night has [`MapLightSettings`]' lights (tuned from the debug
 //! panel, "Map lights"). In `Zombies` they start off: a player pays at the
-//! switch (a red placeholder cube for now — `shared::power`) and the server
-//! sets `Lobby::power_on`, which fades them in for everyone. In the other
-//! modes there's no switch, so they're simply on.
+//! switch — the power lever model, where `shared::power` puts it — and the
+//! server sets `Lobby::power_on`, which fades them in for everyone. Every
+//! client sees that flip, so for everyone the lever throws (its one
+//! animation, once) and the power-on sound plays from it. In the other modes
+//! there's no switch, so they're simply on.
 //!
-//! The lights and the switch are `StateScoped(InGame)`, and the fade level
-//! drops back to 0 whenever there are no lights — nothing carries into the
-//! next game.
+//! The lights, the lever and its sound are `StateScoped(InGame)` (the lever
+//! remembers whether it's thrown on itself), and the fade level drops back
+//! to 0 whenever there are no lights — nothing carries into the next game.
 
+use bevy::audio::SpatialAudioSink;
 use bevy::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::{GameMode, Lobby, MapId};
@@ -25,11 +28,15 @@ impl Plugin for PowerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MapLightSettings>()
             .init_resource::<PowerLevel>()
+            .init_resource::<PowerLeverSettings>()
+            .init_resource::<MachineHumSettings>()
             .add_systems(OnEnter(AppState::InGame), spawn_power_card)
             .add_systems(
                 Update,
                 (
-                    sync_power_switch,
+                    sync_power_lever,
+                    fade_power_sound,
+                    (sync_machine_hums, fade_machine_hums).chain(),
                     update_power_card,
                     turn_on_power.run_if(menu::game_active.and(killcam::no_killcam)),
                 )
@@ -172,46 +179,306 @@ fn sync_map_lights(
 
 // --- the switch ------------------------------------------------------------
 
-/// The power switch's placeholder: a red cube.
+/// The power lever model: one clip, the lever going from up to down.
+const LEVER_MODEL: &str = "models/power_lever.glb";
+/// That clip's length (s) at normal speed.
+const LEVER_CLIP_SECS: f32 = 0.833;
+
+/// Panel-tunable power lever ("Power lever (Zombies)"): where it stands
+/// relative to the switch spot `shared::power` gives, its turn, size, and
+/// how fast it throws.
+#[derive(Resource, Clone)]
+pub(crate) struct PowerLeverSettings {
+    /// Metres from `shared::power::switch_pos` (the ground under it) to the
+    /// model's middle.
+    pub(crate) offset: Vec3,
+    /// Degrees about x (pitch), y (turn) and z (roll).
+    pub(crate) rotation_deg: Vec3,
+    /// The model comes in hundreds of units tall: this makes it a
+    /// ~0.6 m panel.
+    pub(crate) scale: f32,
+    /// Throw animation speed (1 = as authored, 0.83 s).
+    pub(crate) anim_speed: f32,
+    /// Debug: throw it again (it plays the sound too) — cleared once done.
+    pub(crate) replay: bool,
+}
+
+impl Default for PowerLeverSettings {
+    fn default() -> Self {
+        Self {
+            // On the wall, at chest height.
+            offset: Vec3::new(0.0, 1.8, 0.0),
+            rotation_deg: Vec3::ZERO,
+            scale: 0.002,
+            anim_speed: 1.0,
+            replay: false,
+        }
+    }
+}
+
+impl PowerLeverSettings {
+    fn transform(&self, switch: Vec3) -> Transform {
+        let r = self.rotation_deg;
+        Transform::from_translation(switch + self.offset)
+            .with_rotation(Quat::from_euler(
+                EulerRot::YXZ,
+                r.y.to_radians(),
+                r.x.to_radians(),
+                r.z.to_radians(),
+            ))
+            .with_scale(Vec3::splat(self.scale.max(1e-5)))
+    }
+}
+
+/// The power lever: its throw clip, its `AnimationPlayer` once the scene has
+/// spawned one, and whether it's thrown (so the power coming on — seen as
+/// `Lobby::power_on` flipping — throws it just the once).
 #[derive(Component)]
-struct PowerSwitch;
+struct PowerLever {
+    graph: Handle<AnimationGraph>,
+    clip: AnimationNodeIndex,
+    player: Option<Entity>,
+    thrown: bool,
+}
 
-/// Placeholder cube's size (m).
-const SWITCH_SIZE: f32 = 0.6;
+/// The power-on sound, playing from the lever.
+#[derive(Component)]
+struct PowerOnSound;
 
-/// Put the switch on the map while we're in a `Zombies` game on a map that
-/// has one (and take it away otherwise).
-fn sync_power_switch(
+/// Put the lever on the map while we're in a `Zombies` game on a map that
+/// has a switch (and take it away otherwise), keep it where the panel says,
+/// and throw it — with its sound — when the power comes on.
+#[allow(clippy::too_many_arguments)]
+fn sync_power_lever(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    switches: Query<Entity, With<PowerSwitch>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut settings: ResMut<PowerLeverSettings>,
+    asset_server: Res<AssetServer>,
+    sounds: Option<Res<crate::GameSounds>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut levers: Query<(Entity, &mut PowerLever, &mut Transform)>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    let pos = zombies_game(&local, &lobbies).and_then(|l| shared::power::switch_pos(l.map));
-    let Some(pos) = pos else {
-        for e in &switches {
+    let lobby = zombies_game(&local, &lobbies);
+    let switch = lobby.and_then(|l| shared::power::switch_pos(l.map));
+    let (Some(lobby), Some(switch)) = (lobby, switch) else {
+        for (e, ..) in &levers {
             commands.entity(e).despawn();
         }
         return;
     };
-    if !switches.is_empty() {
+    if levers.is_empty() {
+        let (graph, clip) =
+            AnimationGraph::from_clip(asset_server.load(GltfAssetLabel::Animation(0).from_asset(LEVER_MODEL)));
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            PowerLever {
+                graph: graphs.add(graph),
+                clip,
+                player: None,
+                // (Already on — joined late: it's just down, no throw.)
+                thrown: lobby.power_on,
+            },
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(LEVER_MODEL))),
+            settings.transform(switch),
+        ));
         return;
     }
-    let red = Color::srgb(0.85, 0.08, 0.08);
-    commands.spawn((
-        StateScoped(AppState::InGame),
-        PowerSwitch,
-        Mesh3d(meshes.add(Cuboid::from_length(SWITCH_SIZE))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: red,
-            // A faint glow so it can be found in the dark.
-            emissive: red.to_linear() * 1.5,
-            ..default()
-        })),
-        Transform::from_translation(pos + Vec3::Y * SWITCH_SIZE * 0.5),
-    ));
+
+    let replay = std::mem::take(&mut settings.bypass_change_detection().replay);
+    for (entity, mut lever, mut t) in &mut levers {
+        t.set_if_neq(settings.transform(switch));
+
+        // The scene's `AnimationPlayer`, once it's there: hold it up (the
+        // clip's first frame), or down if the power's already on.
+        if lever.player.is_none() {
+            let Some(found) = children.iter_descendants(entity).find(|&e| players.contains(e)) else {
+                continue;
+            };
+            let mut player = players.get_mut(found).unwrap();
+            let clip = player.start(lever.clip);
+            if lever.thrown {
+                clip.seek_to(LEVER_CLIP_SECS);
+            } else {
+                clip.pause();
+            }
+            commands.entity(found).insert(AnimationGraphHandle(lever.graph.clone()));
+            lever.player = Some(found);
+        }
+        let Some(mut player) = lever.player.and_then(|p| players.get_mut(p).ok()) else {
+            continue;
+        };
+
+        // The power just came on (or the panel's replay): throw it, once,
+        // and the sound from it.
+        if (lobby.power_on && !lever.thrown) || replay {
+            lever.thrown = true;
+            // (`start` rewinds but keeps it paused from holding it up.)
+            player
+                .start(lever.clip)
+                .resume()
+                .set_speed(settings.anim_speed.max(0.01));
+            if let Some(sounds) = sounds.as_ref() {
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    PowerOnSound,
+                    // Volume is ours to set (`fade_power_sound`), not the
+                    // one-shot volume pass's.
+                    crate::RemoteSoundEmitter,
+                    AudioPlayer::new(sounds.power_on.clone()),
+                    // From the lever itself.
+                    Transform::from_translation(t.translation),
+                    // Starts silent; the real volume is set from the next frame.
+                    crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                ));
+            }
+        }
+        if settings.is_changed() {
+            if let Some(clip) = player.animation_mut(lever.clip) {
+                if !clip.is_paused() {
+                    clip.set_speed(settings.anim_speed.max(0.01));
+                }
+            }
+        }
+    }
+}
+
+/// Keep the power-on sound's loudness matched to how far the listener is from
+/// the lever — the same fade as other players' sounds ("Remote sounds"
+/// range) — times the "power on" volume.
+fn fade_power_sound(
+    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    sound_vol: Res<crate::SoundVolumes>,
+    remote: Res<crate::RemoteSoundSettings>,
+    global_volume: Res<GlobalVolume>,
+    mut sounds: Query<(&GlobalTransform, &mut SpatialAudioSink), With<PowerOnSound>>,
+) {
+    let Ok(ear) = listener.single() else {
+        return;
+    };
+    let ear = ear.translation();
+    for (gt, mut sink) in &mut sounds {
+        let loudness = sound_vol.power_on * crate::distance_falloff(ear.distance(gt.translation()), &remote);
+        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+    }
+}
+
+// --- the machines' hum ----------------------------------------------------
+
+/// On a machine (every perk machine, the Pack-a-Punch): once the power's on,
+/// it hums — `GameSounds::machine_hum` looped from this offset in its own
+/// space. The hum is a child, so it goes when the machine does.
+#[derive(Component)]
+pub(crate) struct PoweredHum(pub(crate) Vec3);
+
+/// On a [`PoweredHum`] machine once its hum is going.
+#[derive(Component)]
+struct Humming;
+
+/// A machine's looping hum, and when it started (it swells in).
+#[derive(Component)]
+struct MachineHum {
+    started: f32,
+}
+
+/// Panel-tunable machine hum ("Machine hum (Zombies)"): its own short range,
+/// so it's only heard near a machine — not the "Remote sounds" range meant
+/// for gunfire across the map.
+#[derive(Resource, Clone)]
+pub(crate) struct MachineHumSettings {
+    pub(crate) volume: f32,
+    /// Full volume within this far (m) of a machine...
+    pub(crate) full_distance: f32,
+    /// ...fading to silence here.
+    pub(crate) max_distance: f32,
+    /// The fade's curve between them (1 = linear; higher drops off sooner).
+    pub(crate) falloff: f32,
+    /// Seconds a hum takes to swell to full once the power comes on.
+    pub(crate) fade_in_secs: f32,
+}
+
+impl Default for MachineHumSettings {
+    fn default() -> Self {
+        Self {
+            volume: 1.0,
+            full_distance: 2.0,
+            max_distance: 10.0,
+            falloff: 2.0,
+            fade_in_secs: 1.5,
+        }
+    }
+}
+
+impl MachineHumSettings {
+    /// Loudness (before the swell and global volume) `distance` m away.
+    fn loudness(&self, distance: f32) -> f32 {
+        let span = (self.max_distance - self.full_distance).max(1e-3);
+        let t = ((distance - self.full_distance) / span).clamp(0.0, 1.0);
+        self.volume * (1.0 - t).powf(self.falloff.max(0.01))
+    }
+}
+
+/// Start every machine's hum once the power's on (or the panel forces it).
+fn sync_machine_hums(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    light_settings: Res<MapLightSettings>,
+    sounds: Option<Res<crate::GameSounds>>,
+    time: Res<Time>,
+    machines: Query<(Entity, &PoweredHum), Without<Humming>>,
+    mut commands: Commands,
+) {
+    let Some(sounds) = sounds else { return };
+    let powered = zombies_game(&local, &lobbies)
+        .is_some_and(|l| shared::power::has_power(l.map, l.power_on) || light_settings.force_on);
+    if !powered {
+        return;
+    }
+    for (machine, hum) in &machines {
+        commands.entity(machine).insert(Humming);
+        commands.spawn((
+            MachineHum {
+                started: time.elapsed_secs(),
+            },
+            // Volume is ours to set (`fade_machine_hums`), not the one-shot
+            // volume pass's.
+            crate::RemoteSoundEmitter,
+            AudioPlayer::new(sounds.machine_hum.clone()),
+            Transform::from_translation(hum.0),
+            // Looped; starts silent, the real volume set from the next frame.
+            PlaybackSettings::LOOP
+                .with_spatial(true)
+                .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
+                .with_volume(bevy::audio::Volume::Linear(0.0)),
+            ChildOf(machine),
+        ));
+    }
+}
+
+/// Keep each hum's loudness matched to how far the listener is from its
+/// machine ([`MachineHumSettings`]), swelling in as it starts.
+fn fade_machine_hums(
+    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    settings: Res<MachineHumSettings>,
+    global_volume: Res<GlobalVolume>,
+    time: Res<Time>,
+    mut hums: Query<(&GlobalTransform, &MachineHum, &mut SpatialAudioSink)>,
+) {
+    let Ok(ear) = listener.single() else {
+        return;
+    };
+    let ear = ear.translation();
+    for (gt, hum, mut sink) in &mut hums {
+        let swell = if settings.fade_in_secs > 0.0 {
+            ((time.elapsed_secs() - hum.started) / settings.fade_in_secs).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let loudness = swell * settings.loudness(ear.distance(gt.translation()));
+        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+    }
 }
 
 /// Whether we're at the switch with the power still off, and our points.

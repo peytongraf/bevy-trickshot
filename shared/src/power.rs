@@ -12,13 +12,22 @@ use crate::MapId;
 /// `perks::Perk::cost` for the points pace).
 pub const POWER_COST: u32 = 750;
 
-/// Where the power switch stands on `map` (the ground under its middle), if
-/// that map has one. Only Break Point Night does for now.
+/// Where the power switch is on `map` (the ground under its middle — the
+/// lever itself is mounted on the wall above, see the client's
+/// `power::PowerLeverSettings`), if that map has one. Only Break Point Night
+/// does for now.
 pub fn switch_pos(map: MapId) -> Option<Vec3> {
     match map {
-        MapId::BreakPointNight => Some(Vec3::ZERO),
+        MapId::BreakPointNight => Some(Vec3::new(-7.0, 0.0, -56.35)),
         _ => None,
     }
+}
+
+/// Whether the power's on in a game on `map` (`Lobby::power_on`) — always,
+/// on a map with no switch to throw. Perk machines only sell (and light up)
+/// with it on.
+pub fn has_power(map: MapId, power_on: bool) -> bool {
+    power_on || switch_pos(map).is_none()
 }
 
 /// Whether feet position `feet` is close enough to `map`'s power switch to
@@ -34,6 +43,13 @@ pub fn in_range(map: MapId, feet: Vec3, slack: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_map_without_a_switch_always_has_power() {
+        assert!(has_power(MapId::BreakPoint, false));
+        assert!(!has_power(MapId::BreakPointNight, false));
+        assert!(has_power(MapId::BreakPointNight, true));
+    }
 
     #[test]
     fn only_break_point_night_has_a_switch_and_its_reach_is_a_couple_of_metres() {

@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -65,6 +65,9 @@ pub(crate) fn ads_tuning_ui(
             ResMut<ZombieAvatarSettings>,
             Res<ZombieAnimReadout>,
             ResMut<crate::zombie_sounds::ZombieSoundSettings>,
+            ResMut<crate::power::PowerLeverSettings>,
+            ResMut<crate::pap::PapSettings>,
+            ResMut<crate::power::MachineHumSettings>,
         ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
@@ -1295,6 +1298,7 @@ pub(crate) fn ads_tuning_ui(
                         ("hit marker", &mut v.hit_marker),
                         ("zombies: buy perk", &mut v.perk_buy),
                         ("zombies: perk jingle", &mut v.perk_jingle),
+                        ("zombies: power on", &mut v.power_on),
                         ("zombies: round start", &mut v.round_start),
                         ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
                         ("zombies: zombie moans", &mut v.zombie_moan),
@@ -1528,6 +1532,76 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Machine hum (Zombies)", |ui| {
+                let h = &mut *hum;
+                ui.label(
+                    "The buzz from every perk machine and the Pack-a-Punch once the power's on: \
+                     full volume within the inner radius, fading to silence at the max distance.",
+                );
+                ui.add(egui::Slider::new(&mut h.volume, 0.0f32..=4.0).text("volume"));
+                ui.add(egui::Slider::new(&mut h.full_distance, 0.0f32..=20.0).text("full volume within (m)"));
+                ui.add(egui::Slider::new(&mut h.max_distance, 1.0f32..=60.0).text("silent past (m)"));
+                ui.add(
+                    egui::Slider::new(&mut h.falloff, 0.5f32..=4.0)
+                        .text("falloff curve (1 = linear, higher = drops off sooner)"),
+                );
+                ui.add(egui::Slider::new(&mut h.fade_in_secs, 0.0f32..=10.0).text("swell in when powered (s)"));
+                if ui.button("Copy machine hum settings to console").clicked() {
+                    info!(
+                        "machine hum: volume: {:.2}, full_distance: {:.2}, max_distance: {:.2}, falloff: {:.2}, \
+                         fade_in_secs: {:.2}",
+                        h.volume, h.full_distance, h.max_distance, h.falloff, h.fade_in_secs,
+                    );
+                }
+                if ui.button("Reset machine hum").clicked() {
+                    *h = default();
+                }
+            });
+
+            ui.separator();
+            ui.collapsing("Power lever (Zombies)", |ui| {
+                let pl = &mut *power_lever;
+                ui.label(
+                    "The lever at the power switch (Break Point Night), on this client only — \
+                     the server's switch spot (where you press to buy it) is shared/src/power.rs.",
+                );
+                ui.label("Position (m, from the switch spot)");
+                ui.add(egui::Slider::new(&mut pl.offset.x, -80.0f32..=80.0).text("x (m)"));
+                ui.add(egui::Slider::new(&mut pl.offset.y, -10.0f32..=60.0).text("y (m)"));
+                ui.add(egui::Slider::new(&mut pl.offset.z, -80.0f32..=80.0).text("z (m)"));
+                ui.label("Rotation (deg)");
+                ui.add(egui::Slider::new(&mut pl.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
+                ui.add(egui::Slider::new(&mut pl.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
+                ui.add(egui::Slider::new(&mut pl.rotation_deg.z, -180.0f32..=180.0).text("roll (z)"));
+                ui.add(
+                    egui::Slider::new(&mut pl.scale, 0.0005f32..=0.05)
+                        .logarithmic(true)
+                        .text("scale"),
+                );
+                ui.add(egui::Slider::new(&mut pl.anim_speed, 0.1f32..=4.0).text("animation speed"));
+                if ui.button("Throw the lever again (and its sound)").clicked() {
+                    pl.replay = true;
+                }
+                if ui.button("Copy power lever settings to console").clicked() {
+                    info!(
+                        "power lever: offset: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), \
+                         scale: {:.5}, anim_speed: {:.2}",
+                        pl.offset.x,
+                        pl.offset.y,
+                        pl.offset.z,
+                        pl.rotation_deg.x,
+                        pl.rotation_deg.y,
+                        pl.rotation_deg.z,
+                        pl.scale,
+                        pl.anim_speed,
+                    );
+                }
+                if ui.button("Reset power lever").clicked() {
+                    *pl = default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Zombies perks", |ui| {
                 ui.collapsing("Perk machines", |ui| {
                     let m = &mut *machines;
@@ -1582,6 +1656,41 @@ pub(crate) fn ads_tuning_ui(
                     }
                     if ui.button("Reset perk machines").clicked() {
                         *m = default();
+                    }
+                });
+                ui.collapsing("Pack-a-Punch machine", |ui| {
+                    let p = &mut *pap;
+                    ui.label(
+                        "Just the model for now (Break Point Night), on this client only — no \
+                         collision, nothing on the server.",
+                    );
+                    ui.label("Position (m, world — the ground under its middle)");
+                    ui.add(egui::Slider::new(&mut p.pos.x, -80.0f32..=80.0).text("x (m)"));
+                    ui.add(egui::Slider::new(&mut p.pos.y, -10.0f32..=60.0).text("y (m)"));
+                    ui.add(egui::Slider::new(&mut p.pos.z, -80.0f32..=80.0).text("z (m)"));
+                    ui.label("Rotation (deg)");
+                    ui.add(egui::Slider::new(&mut p.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
+                    ui.add(egui::Slider::new(&mut p.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
+                    ui.add(egui::Slider::new(&mut p.rotation_deg.z, -180.0f32..=180.0).text("roll (z)"));
+                    ui.add(
+                        egui::Slider::new(&mut p.scale, 0.05f32..=3.0)
+                            .logarithmic(true)
+                            .text("scale (1 = 4 m tall)"),
+                    );
+                    if ui.button("Copy Pack-a-Punch settings to console").clicked() {
+                        info!(
+                            "pap machine: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.3}",
+                            p.pos.x,
+                            p.pos.y,
+                            p.pos.z,
+                            p.rotation_deg.x,
+                            p.rotation_deg.y,
+                            p.rotation_deg.z,
+                            p.scale,
+                        );
+                    }
+                    if ui.button("Reset Pack-a-Punch machine").clicked() {
+                        *p = default();
                     }
                 });
                 ui.collapsing("Nitro Brew", |ui| {

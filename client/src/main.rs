@@ -45,6 +45,7 @@ mod menu;
 mod net;
 mod pause;
 mod player;
+mod pap;
 mod power;
 mod respawn;
 mod round_counter;
@@ -191,6 +192,7 @@ fn main() {
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
+        .add_plugins(pap::PapPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)

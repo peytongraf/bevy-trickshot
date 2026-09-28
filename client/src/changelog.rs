@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: machines buzz with electricity once the power's on.",
+        "Zombies: perk machines stay dark and won't sell until the power's on.",
+        "Zombies: a real power lever that everyone sees and hears thrown.",
         "New main menu background art.",
         "Main menu: Loadout and Settings no longer show the menu through them.",
         "Zombies: the ground breaks apart as zombies climb out.",

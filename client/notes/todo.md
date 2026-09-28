@@ -12,8 +12,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
+- Add power ups
+- The player can jump through something above them instead of it stopping their jump
+- On main menu when a button is pressed the background flickers
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
+- Add pap
+- Add dogs or dog style rounds with a different enemy
+- Add boss
 
 # Today
 
