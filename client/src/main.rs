@@ -45,6 +45,7 @@ mod menu;
 mod net;
 mod pause;
 mod player;
+mod menu_backdrop;
 mod pap;
 mod power;
 mod respawn;

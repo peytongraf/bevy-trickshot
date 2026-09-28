@@ -15,10 +15,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Menu button sounds are quieter.",
+        "Main menu: background no longer flickers when clicking buttons.",
         "Zombies: machines buzz with electricity once the power's on.",
         "Zombies: perk machines stay dark and won't sell until the power's on.",
         "Zombies: a real power lever that everyone sees and hears thrown.",
-        "New main menu background art.",
+        "New main menu background art, with drifting fog, embers and flicker.",
         "Main menu: Loadout and Settings no longer show the menu through them.",
         "Zombies: the ground breaks apart as zombies climb out.",
         "Zombies: a zombie goes quiet when killed, only its death cry plays.",

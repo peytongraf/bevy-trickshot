@@ -6,15 +6,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Zombie voice stops on death
-- Zombies stuck in walls
-- Add ground effect when zombies spawn. Maybe add some smoke and a green glow so that it seems supernatural
-
 # New
 
+- Improve end game screen and add ending music
+- Add music volume setting under audio
 - Add power ups
 - The player can jump through something above them instead of it stopping their jump
-- On main menu when a button is pressed the background flickers
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
 - Add pap

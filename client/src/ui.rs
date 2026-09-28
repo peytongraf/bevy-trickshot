@@ -35,78 +35,7 @@ pub const VICTORY: Color = Color::srgb(0.16, 0.85, 0.62);
 /// "DEFEAT" headline — matches the kill-cam banner's red.
 pub const DEFEAT: Color = Color::srgb(0.85, 0.06, 0.06);
 
-/// The out-of-game screens' backdrop art (`assets/textures/menu/`) — its
-/// size in pixels too, so [`fit_menu_backgrounds`] can cover the screen with
-/// it without stretching.
-const MENU_BG_IMAGE: &str = "textures/menu/main_menu_bg.png";
-const MENU_BG_SIZE: Vec2 = Vec2::new(1672.0, 940.0);
-/// Darkening laid over it so the menu on top stays easy to read.
-const MENU_BG_SHADE: Color = Color::srgba(0.0, 0.0, 0.0, 0.55);
-
-/// The backdrop image under an out-of-game screen (see
-/// [`menu_background`]); sized by [`fit_menu_backgrounds`].
-#[derive(Component)]
-pub struct MenuBackground;
-
-/// Fill an out-of-game page root with the menu backdrop art, darkened: the
-/// page's first children (so everything spawned after draws on top), pinned
-/// to its edges — padding included — whatever its layout.
-pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
-    parent
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            right: Val::Px(0.0),
-            top: Val::Px(0.0),
-            bottom: Val::Px(0.0),
-            overflow: Overflow::clip(),
-            ..default()
-        })
-        .with_children(|frame| {
-            frame.spawn((
-                MenuBackground,
-                ImageNode::new(asset_server.load(MENU_BG_IMAGE)),
-                Node {
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-            ));
-            frame.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    ..default()
-                },
-                BackgroundColor(MENU_BG_SHADE),
-            ));
-        });
-}
-
-/// Size every [`MenuBackground`] to cover the window ("cover", as CSS would
-/// say — `ImageNode` has no such mode): scaled to fill both ways, keeping its
-/// shape, centred, the overflow cropped by its frame.
-fn fit_menu_backgrounds(
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    ui_scale: Res<UiScale>,
-    mut backgrounds: Query<&mut Node, With<MenuBackground>>,
-) {
-    let Ok(window) = window.single() else { return };
-    // (`Val::Px` is in UI units — logical pixels over `UiScale`.)
-    let screen = Vec2::new(window.width(), window.height()) / ui_scale.0.max(1e-3);
-    let scale = (screen.x / MENU_BG_SIZE.x).max(screen.y / MENU_BG_SIZE.y);
-    let size = MENU_BG_SIZE * scale;
-    let offset = (screen - size) * 0.5;
-    for mut node in &mut backgrounds {
-        let (w, h, l, t) = (Val::Px(size.x), Val::Px(size.y), Val::Px(offset.x), Val::Px(offset.y));
-        if node.width != w || node.height != h || node.left != l || node.top != t {
-            node.width = w;
-            node.height = h;
-            node.left = l;
-            node.top = t;
-        }
-    }
-}
+pub use crate::menu_backdrop::menu_background;
 
 /// Installs the shared hover-tint and button-sound systems. Added once from
 /// `main`.
@@ -121,7 +50,8 @@ impl Plugin for UiKitPlugin {
             // `main`'s `Startup` set (even a no-op) perturbs its fragile
             // ordering and blacks out the in-game 3D view.
             .add_systems(PostStartup, setup_ui_sfx)
-            .add_systems(Update, (hover_tint, play_ui_sfx, fit_menu_backgrounds));
+            .add_systems(Update, (hover_tint, play_ui_sfx))
+            .add_plugins(crate::menu_backdrop::MenuBackdropPlugin);
     }
 }
 
@@ -195,6 +125,10 @@ pub fn ui_sound(sfx: UiSound) -> impl Bundle {
     (sfx, SfxState::default())
 }
 
+/// Loudness of every button hover / click sound (the clips themselves are
+/// a bit hot).
+const UI_SFX_VOLUME: f32 = 0.6;
+
 /// Tracks each button's `Interaction` from the previous frame so
 /// [`play_ui_sfx`] can tell "just entered Hovered" / "just entered Pressed"
 /// apart from every other transition (e.g. Pressed -> Hovered on release,
@@ -219,7 +153,10 @@ fn play_ui_sfx(
             _ => None,
         };
         if let Some(clip) = clip {
-            commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+            commands.spawn((
+                AudioPlayer::new(clip),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(UI_SFX_VOLUME)),
+            ));
         }
         state.0 = *interaction;
     }
