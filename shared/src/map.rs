@@ -270,6 +270,14 @@ pub trait CollisionWorld: Send + Sync {
     /// Sweep a sphere of `radius` from `from` to `to` and report the first
     /// solid surface it touches, if any.
     fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit>;
+
+    /// If a sphere of `radius` at `center` is sunk into solid geometry, the
+    /// shortest move that gets it back out (just touching); `None` when it's
+    /// clear. (A sweep started inside geometry is blocked every way, so a
+    /// mover that ends up a hair inside a wall needs this to get free.)
+    fn sphere_overlap_push(&self, _center: Vec3, _radius: f32) -> Option<Vec3> {
+        None
+    }
 }
 
 /// Stand-in until a map is loaded: nothing blocks anything.

@@ -18,7 +18,7 @@ use bevy::math::{Mat4, Quat, Vec3};
 use bevy::prelude::Resource;
 use gltf::mesh::Mode;
 use parry3d::math::{Isometry, Point, Vector};
-use parry3d::query::{cast_shapes, Ray, RayCast, ShapeCastOptions};
+use parry3d::query::{cast_shapes, contact, Ray, RayCast, ShapeCastOptions};
 use parry3d::shape::{Ball, Cuboid, TriMesh, TriMeshFlags};
 use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
 use shared::perks::Perk;
@@ -171,6 +171,27 @@ fn point(v: Vec3) -> Point<f32> {
     Point::new(v.x, v.y, v.z)
 }
 
+/// The push out of `shape` (at `iso`) for a ball of `radius` at `center`, if
+/// the two overlap — see [`CollisionWorld::sphere_overlap_push`].
+fn ball_overlap_push(
+    center: Vec3,
+    radius: f32,
+    iso: &Isometry<f32>,
+    shape: &dyn parry3d::shape::Shape,
+) -> Option<Vec3> {
+    let c = contact(
+        &Isometry::translation(center.x, center.y, center.z),
+        &Ball::new(radius),
+        iso,
+        shape,
+        0.0,
+    )
+    .ok()??;
+    // `normal1` points from the ball into what it's touching; `dist` is
+    // negative while they overlap.
+    (c.dist < 0.0).then(|| Vec3::new(c.normal1.x, c.normal1.y, c.normal1.z) * c.dist)
+}
+
 impl CollisionWorld for MapMesh {
     fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool {
         let d = b - a;
@@ -231,6 +252,10 @@ impl CollisionWorld for MapMesh {
             fraction: hit.time_of_impact.clamp(0.0, 1.0),
             normal: n.normalize_or_zero(),
         })
+    }
+
+    fn sphere_overlap_push(&self, center: Vec3, radius: f32) -> Option<Vec3> {
+        ball_overlap_push(center, radius, &Isometry::identity(), &self.mesh)
     }
 }
 
@@ -332,6 +357,17 @@ impl CollisionWorld for LobbyWorld<'_> {
             });
         }
         best
+    }
+
+    fn sphere_overlap_push(&self, center: Vec3, radius: f32) -> Option<Vec3> {
+        // Map first, then out of each machine from wherever that leaves it.
+        let mut total = self.map.sphere_overlap_push(center, radius).unwrap_or(Vec3::ZERO);
+        for m in self.machines() {
+            if let Some(push) = ball_overlap_push(center + total, radius, &m.iso, &m.shape) {
+                total += push;
+            }
+        }
+        (total != Vec3::ZERO).then_some(total)
     }
 }
 

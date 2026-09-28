@@ -6,6 +6,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Zombies stuck in walls
+
+# New
+
+- Zombie moan sound including last zombie sound if its last should stop when they are killed and only the death sound should play
+- Zombie max speed should be faster and there should be more total zombies on higher rounds
+- Zombies base speed should be faster
+- Add ground effect when zombies spawn. Maybe add some smoke and a green glow so that it seems supernatural
+
 # Today
 
 - Add starting money option for party leader.
@@ -55,3 +64,6 @@ Everything below is ordered easiest → hardest, within each section.
 
 - See if it is possible for the OS key to not cause keybind behavior like cod does.
 - Could add breath hold to reduce aiming idle sway then the breath sound effect with the sudden increase in sway
+- Possibly make the perks take a couple minutes to fully kick in
+- Instead of turning power on, have a night vision perk that makes it look like the map is lit up
+- Make mantle like cod where the player has to press the jump button to mantle.

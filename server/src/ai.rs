@@ -65,6 +65,10 @@ const SPRINT_MIN_DISTANCE: f32 = 30.0;
 // — is defined in `nav`, shared with the pathfinding graph so the two agree
 // on what can be walked.
 use crate::nav::{BODY_RADIUS, CHEST_HEIGHT, STEP_HEIGHT};
+/// How far (m) a bot's body stops short of a wall it walks into.
+const WALL_SKIN: f32 = 0.01;
+/// The most (m) a bot is pushed back out of a wall it's sunk into, per push.
+const DEPENETRATE_MAX: f32 = 0.2;
 /// Downward acceleration while airborne (m/s²).
 const GRAVITY: f32 = 20.0;
 /// A bot that ends up this far below the map is put back at a spawn point.
@@ -76,6 +80,11 @@ const AIM_TOLERANCE_DEG: f32 = 2.0;
 const RETARGET_SECS: f32 = 1.0;
 /// Blocked this long (s) while trying to move → pick a detour.
 const STUCK_SECS: f32 = 0.6;
+/// Trying to move for this long (s) without getting [`UNSTICK_PROGRESS`] m
+/// from where it started → it's wedged somewhere, so it's put back on the
+/// nearest walkable spot (`nav`) — a last resort if detours don't free it.
+const UNSTICK_SECS: f32 = 3.0;
+const UNSTICK_PROGRESS: f32 = 0.75;
 /// How long (s) a detour lasts.
 const DETOUR_SECS: f32 = 1.2;
 /// A route is re-planned about this often (s), plus a little jitter so 20 bots
@@ -207,6 +216,10 @@ pub struct BotBrain {
     /// Was alive last tick — a `false` → `true` flip is a respawn.
     was_alive: bool,
     blocked_for: f32,
+    /// Where it was when it last made real progress, and how long (s) it's
+    /// been trying to move since without getting far from there.
+    stall_from: Vec3,
+    stall_secs: f32,
     detour_until: f32,
     detour_dir: Vec3,
     /// The current route (feet waypoints), how far along it the bot is, where
@@ -251,6 +264,8 @@ impl BotBrain {
             next_fire_at: 1.0,
             was_alive: true,
             blocked_for: 0.0,
+            stall_from: feet,
+            stall_secs: 0.0,
             detour_until: 0.0,
             detour_dir: Vec3::ZERO,
             path: Vec::new(),
@@ -373,8 +388,25 @@ pub(crate) fn move_bot(
     speed: f32,
     dt: f32,
 ) -> Moved {
-    let before = *feet;
     let mut blocked = false;
+
+    // Sunk into a wall (a hair, from rounding or the ground snap, or shoved
+    // there)? Every sweep from inside one is blocked whichever way it goes,
+    // which would pin the bot there for good — so step back out first.
+    // (Sideways only: the ground snap below owns the height.)
+    for _ in 0..3 {
+        let center = *feet + Vec3::Y * CHEST_HEIGHT;
+        let Some(push) = world.sphere_overlap_push(center, BODY_RADIUS) else {
+            break;
+        };
+        let flat = push.with_y(0.0);
+        let len = flat.length();
+        if len < 1e-5 {
+            break;
+        }
+        *feet += flat / len * (len + WALL_SKIN).min(DEPENETRATE_MAX);
+    }
+    let before = *feet;
 
     let delta = wish * speed * dt;
     if delta.length_squared() > 1e-10 {
@@ -383,7 +415,10 @@ pub(crate) fn move_bot(
             None => *feet += delta,
             Some(hit) => {
                 blocked = true;
-                let travelled = delta * hit.fraction;
+                // Stop just short of the surface, not touching it, so the
+                // slide below (and next tick's move) doesn't start inside it.
+                let back_off = WALL_SKIN / delta.length();
+                let travelled = delta * (hit.fraction - back_off).max(0.0);
                 let rest = delta - travelled;
                 let slide = rest - hit.normal * rest.dot(hit.normal);
                 let c2 = center + travelled;
@@ -813,6 +848,25 @@ pub(crate) fn drive_bots(
             brain.detour_until = now + DETOUR_SECS;
             // Whatever it was following didn't work — plan again afterwards.
             brain.repath_at = now + DETOUR_SECS;
+        }
+        // Trying to get somewhere but going nowhere for seconds on end →
+        // wedged in something: back onto the nearest walkable spot.
+        if wish == Vec3::ZERO || brain.feet.distance(brain.stall_from) > UNSTICK_PROGRESS {
+            brain.stall_from = brain.feet;
+            brain.stall_secs = 0.0;
+        } else if moved.blocked {
+            // (Only the map counts — not queueing up behind other zombies.)
+            brain.stall_secs += dt;
+            if brain.stall_secs > UNSTICK_SECS {
+                if let Some(spot) = nav.nearest_spot(brain.feet) {
+                    brain.feet = spot;
+                    brain.vertical_velocity = 0.0;
+                    brain.path.clear();
+                    brain.repath_at = now;
+                }
+                brain.stall_from = brain.feet;
+                brain.stall_secs = 0.0;
+            }
         }
         if let Some(z) = brain.zombie.as_mut() {
             z.anim = if z.swing.is_some() {

@@ -384,6 +384,12 @@ impl NavGraph {
         best.map(|(_, n)| n)
     }
 
+    /// The nearest place a body can stand to feet position `p` (see
+    /// [`Self::nearest_node`]) — somewhere guaranteed clear of walls.
+    pub fn nearest_spot(&self, p: Vec3) -> Option<Vec3> {
+        self.nearest_node(p).map(|n| self.nodes[n as usize])
+    }
+
     /// A random place a body can stand, `min..=max` metres (horizontally) from
     /// feet position `center` and walkably connected to it — always a graph
     /// node, so never inside a wall / crate / container or on a sliver nothing
