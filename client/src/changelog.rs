@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "New main menu background art.",
+        "Main menu: Loadout and Settings no longer show the menu through them.",
         "Zombies: the ground breaks apart as zombies climb out.",
         "Zombies: a zombie goes quiet when killed, only its death cry plays.",
         "Fixed screen flickering after Shroom Tea wears off.",

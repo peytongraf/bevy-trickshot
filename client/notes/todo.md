@@ -8,16 +8,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Zombie voice stops on death
 - Zombies stuck in walls
+- Add ground effect when zombies spawn. Maybe add some smoke and a green glow so that it seems supernatural
 
 # New
 
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
-- Add ground effect when zombies spawn. Maybe add some smoke and a green glow so that it seems supernatural
 
 # Today
 
-- Add starting money option for party leader.
 - Add bg or even remote player models animated on main menus
 - Knife won't stab when enemies are totally point blank
 - Could make shroom tea brighten map slightly like a sort of night vision

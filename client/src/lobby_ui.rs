@@ -21,7 +21,7 @@ use crate::menu::{Menu, Screen};
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
-    divider, label, label_hud, page_title, panel_node, section_heading, spawn_button_hud,
+    divider, label, label_hud, menu_background, page_title, panel_node, section_heading, spawn_button_hud,
     ui_sound, Hoverable, UiSound, ACCENT, ACCENT_DIM, EDGE, PANEL, PANEL_SOLID, ROW, ROW_HOVER,
     TEXT, TEXT_DIM, TRACK, VICTORY,
 };
@@ -531,7 +531,8 @@ fn rebuild(
 }
 
 /// A full-screen, black out-of-game page (`LobbyUiRoot`): a column with the
-/// standard page margins.
+/// standard page margins. Its builder puts the menu backdrop art in first
+/// (`ui::menu_background`).
 fn page_root() -> impl Bundle {
     (
         LobbyUiRoot,
@@ -692,6 +693,7 @@ fn build_browser(
     let open: Vec<(Entity, &shared::Lobby)> = lobbies.iter().filter(|(_, l)| !l.started).collect();
 
     commands.spawn(page_root()).with_children(|page| {
+        menu_background(page, asset_server);
         // header: title left, connection status right
         page.spawn(Node {
             width: Val::Percent(100.0),
@@ -934,6 +936,7 @@ fn build_room(
     let is_zombies = lobby.mode == shared::GameMode::Zombies;
 
     commands.spawn(page_root()).with_children(|page| {
+        menu_background(page, asset_server);
         // header: lobby name left, mode / map right
         page.spawn(Node {
             width: Val::Percent(100.0),

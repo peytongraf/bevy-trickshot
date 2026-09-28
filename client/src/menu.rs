@@ -29,7 +29,7 @@ use crate::settings::{
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    divider, field_box, label_body, label_hud, page_title, section_heading, spawn_button_hud,
+    divider, field_box, label_body, label_hud, menu_background, page_title, section_heading, spawn_button_hud,
     ui_sound, Hoverable, UiSound, ACCENT, ACCENT_DIM, BACKDROP, DEFEAT, EDGE, PANEL, PANEL_SOLID,
     ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK, VICTORY,
 };
@@ -684,17 +684,19 @@ fn rebuild_menu(
     for entity in &existing {
         commands.entity(entity).despawn();
     }
+    // Out of a game there's no world to see through to — only the main menu.
+    let solid = *app_state.get() != AppState::InGame;
     match menu.screen {
         Screen::None => {}
         Screen::Username => build_username(&mut commands, &asset_server),
         Screen::Settings => {
             let leave = leave_ctx(&app_state, &local, &lobbies, &paused);
-            build_settings(&mut commands, &asset_server, &menu, &settings, &binds, &leave);
+            build_settings(&mut commands, &asset_server, &menu, &settings, &binds, &leave, solid);
         }
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
         Screen::LoadingGame => {}
-        Screen::Loadout => build_loadout(&mut commands, &settings, &asset_server),
+        Screen::Loadout => build_loadout(&mut commands, &settings, &asset_server, solid),
     }
 }
 
@@ -715,8 +717,10 @@ fn overlay_root(solid: bool) -> impl Bundle {
 }
 
 /// A full-screen page (settings / loadout): the standard margins, black —
-/// see-through in game, so the world stays visible behind.
-fn page_root() -> impl Bundle {
+/// see-through in game, so the world stays visible behind; `solid` (the main
+/// menu) so the lobby browser underneath doesn't show through — its builder
+/// then lays the menu backdrop art in first (`ui::menu_background`).
+fn page_root(solid: bool) -> impl Bundle {
     (
         MenuRoot,
         GlobalZIndex(50),
@@ -729,7 +733,7 @@ fn page_root() -> impl Bundle {
             row_gap: Val::Px(16.0),
             ..default()
         },
-        BackgroundColor(BACKDROP),
+        BackgroundColor(if solid { PANEL_SOLID } else { BACKDROP }),
     )
 }
 
@@ -1117,8 +1121,12 @@ fn build_settings(
     settings: &Settings,
     binds: &KeyBindings,
     leave: &LeaveCtx,
+    solid: bool,
 ) {
-    commands.spawn(page_root()).with_children(|page| {
+    commands.spawn(page_root(solid)).with_children(|page| {
+        if solid {
+            menu_background(page, asset_server);
+        }
         page_title(
             page,
             asset_server,
@@ -1308,8 +1316,11 @@ fn loadout_tile(
 /// from `Settings`, with no `Tab`/state/lobby involvement, so it looks and
 /// behaves identically whether opened from the main menu or the in-game
 /// pause menu — see `Screen::Loadout`'s doc comment.
-fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer) {
-    commands.spawn(page_root()).with_children(|page| {
+fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer, solid: bool) {
+    commands.spawn(page_root(solid)).with_children(|page| {
+        if solid {
+            menu_background(page, asset_server);
+        }
         page_title(page, asset_server, "MULTIPLAYER", "LOADOUT");
         page.spawn(divider());
 
