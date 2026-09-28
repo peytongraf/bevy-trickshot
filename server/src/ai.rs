@@ -41,7 +41,7 @@ use shared::{Lobby, PlayerId, PlayerInput, PlayerPose, ZombieAnim};
 
 use crate::collision::MapColliders;
 use crate::lobby::LobbyPlayer;
-use crate::nav::{NavGraph, NavGraphs};
+use crate::nav::{NavGraph, NavGraphs, Waypoint};
 use crate::pvp::PlayerCombat;
 use crate::sim::EYE_HEIGHT;
 
@@ -116,6 +116,24 @@ struct Rise {
     secs: f32,
     ground: Vec3,
 }
+
+/// Mantling up onto a ledge (a [`Waypoint::mantle`] on its route): the feet
+/// ease from `from` up onto `to`, rising first and moving over at the end the
+/// way a player's mantle does (`client::player::mantle`), the bot doing
+/// nothing else meanwhile.
+#[derive(Clone, Copy)]
+struct MantleRun {
+    start: f32,
+    secs: f32,
+    from: Vec3,
+    to: Vec3,
+}
+
+/// Seconds a mantle takes: a player's 0.45 s, plus a little per metre climbed.
+const MANTLE_BASE_SECS: f32 = 0.45;
+const MANTLE_SECS_PER_M: f32 = 0.15;
+/// A mantle starts once the feet are this close (m, horizontally) to its foot.
+const MANTLE_START_DIST: f32 = 0.6;
 
 /// How far under the ground (m) a rising bot starts — a whole body.
 const RISE_DEPTH: f32 = 1.9;
@@ -200,6 +218,8 @@ pub struct BotBrain {
     /// Replaces `difficulty.skill()` when set (`Zombies` scales it by round).
     skill_override: Option<BotSkill>,
     rise: Option<Rise>,
+    /// Mid-climb up a ledge.
+    mantle: Option<MantleRun>,
     /// Set on a `Zombies` zombie: melee instead of the sniper.
     zombie: Option<ZombieBody>,
     /// Feet position — the bot's authoritative place in the world (the pose
@@ -224,7 +244,7 @@ pub struct BotBrain {
     detour_dir: Vec3,
     /// The current route (feet waypoints), how far along it the bot is, where
     /// the target was when it was planned, and when to plan again.
-    path: Vec<Vec3>,
+    path: Vec<Waypoint>,
     path_index: usize,
     path_goal: Vec3,
     repath_at: f32,
@@ -252,6 +272,7 @@ impl BotBrain {
             difficulty,
             skill_override: None,
             rise: None,
+            mantle: None,
             zombie: None,
             feet,
             vertical_velocity: 0.0,
@@ -462,6 +483,17 @@ pub(crate) fn move_bot(
     Moved { blocked, grounded }
 }
 
+/// Smoothstep — the client's `util::ease`, for the mantle's rise / advance.
+fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// A zombie mid-swing finishes the swing before it climbs anything.
+fn hold_mantle_ok(zombie: Option<&ZombieBody>) -> bool {
+    zombie.is_none_or(|z| z.swing.is_none())
+}
+
 /// Wrap `to - from` into `(-π, π]`.
 pub(crate) fn shortest_angle(from: f32, to: f32) -> f32 {
     let tau = core::f32::consts::TAU;
@@ -547,6 +579,7 @@ pub(crate) fn drive_bots(
         // respawn at a fresh spot.
         if !combat.alive {
             brain.was_alive = false;
+            brain.mantle = None;
             brain.target = None;
             brain.seen_for = 0.0;
             action.0 = PlayerInput {
@@ -571,6 +604,38 @@ pub(crate) fn drive_bots(
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
                 yaw: brain.yaw,
                 pitch: 0.0,
+                ..default()
+            };
+            continue;
+        }
+        // Climbing up a ledge: just climb, nothing else.
+        if let Some(run) = brain.mantle {
+            let t = ((now - run.start) / run.secs.max(1e-3)).clamp(0.0, 1.0);
+            let rise = ease((t / 0.6).clamp(0.0, 1.0));
+            let advance = ease(((t - 0.4) / 0.6).clamp(0.0, 1.0));
+            brain.feet = Vec3::new(
+                run.from.x.lerp(run.to.x, advance),
+                run.from.y.lerp(run.to.y, rise),
+                run.from.z.lerp(run.to.z, advance),
+            );
+            if t >= 1.0 {
+                brain.mantle = None;
+                brain.vertical_velocity = 0.0;
+                brain.stall_from = brain.feet;
+                brain.stall_secs = 0.0;
+            }
+            if let Some(z) = brain.zombie.as_mut() {
+                z.anim = if z.runner { ZombieAnim::Run } else { ZombieAnim::WalkArmsUp };
+            }
+            let eye = brain.feet + Vec3::Y * EYE_HEIGHT;
+            action.0 = PlayerInput {
+                translation: eye.to_array(),
+                yaw: brain.yaw,
+                pitch: brain.pitch,
+                fire_origin: eye.to_array(),
+                fire_dir: forward(brain.yaw, brain.pitch).to_array(),
+                ads_t: brain.ads,
+                jumping: true,
                 ..default()
             };
             continue;
@@ -692,7 +757,8 @@ pub(crate) fn drive_bots(
                 z.swing = Some((now, false));
                 hold = true;
             }
-            if flat_dist <= ZOMBIE_STOP_DIST {
+            // (Not under someone up on a ledge, out of reach — it climbs.)
+            if flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT {
                 hold = true;
             }
         }
@@ -709,13 +775,42 @@ pub(crate) fn drive_bots(
                     let jitter = brain.roll() * 0.6;
                     brain.repath_at = now + REPATH_SECS + jitter;
                     brain.path_goal = goal;
-                    brain.path = nav.find_path(world, brain.feet, goal).unwrap_or_default();
+                    brain.path = nav.find_path(world, brain.feet, goal, true).unwrap_or_default();
                     brain.path_index = 0;
                 }
                 let feet = brain.feet;
                 let mut index = brain.path_index;
                 if let Some(wp) = NavGraph::next_waypoint(world, &brain.path, &mut index, feet) {
-                    path_wish = Some(Vec3::new(wp.x - feet.x, 0.0, wp.z - feet.z).normalize_or_zero())
+                    // At the foot of a ledge on the route: climb it (from
+                    // the foot itself if there's no room to rise right here).
+                    let foot = index.checked_sub(1).and_then(|i| brain.path.get(i)).map(|w| w.at);
+                    if let Some(foot) = foot.filter(|f| {
+                        wp.mantle
+                            && hold_mantle_ok(brain.zombie.as_ref())
+                            && Vec3::new(f.x - feet.x, 0.0, f.z - feet.z).length() < MANTLE_START_DIST
+                            && (f.y - feet.y).abs() < STEP_HEIGHT
+                    }) {
+                        let low = feet + Vec3::Y * CHEST_HEIGHT;
+                        let high = Vec3::new(feet.x, wp.at.y + CHEST_HEIGHT, feet.z);
+                        let from = if world.sweep_sphere(low, high, BODY_RADIUS).is_none() {
+                            feet
+                        } else {
+                            foot
+                        };
+                        let climb = (wp.at.y - from.y).max(0.0);
+                        brain.mantle = Some(MantleRun {
+                            start: now,
+                            secs: MANTLE_BASE_SECS + MANTLE_SECS_PER_M * climb,
+                            from,
+                            to: wp.at,
+                        });
+                        brain.yaw = look_angles(Vec3::new(wp.at.x - feet.x, 0.0, wp.at.z - feet.z).normalize_or(Vec3::NEG_Z)).0;
+                        index += 1;
+                        // (It stays put for the rest of this tick; the climb
+                        // takes over from the next.)
+                        hold = true;
+                    }
+                    path_wish = Some(Vec3::new(wp.at.x - feet.x, 0.0, wp.at.z - feet.z).normalize_or_zero())
                         .filter(|d| *d != Vec3::ZERO);
                 }
                 brain.path_index = index;
@@ -1190,6 +1285,50 @@ mod tests {
             .insert(BotBrain::new(BotDifficulty::Veteran, feet, 7).zombie(false, 1.2));
         app.update(); // (the first update has no time delta)
         (app, bot)
+    }
+
+    /// A zombie whose target is up on a ledge it can't walk to climbs it —
+    /// every climb on Break Point that's over head height and has no
+    /// shorter walk round, the zombie starting a few steps back from the wall.
+    #[test]
+    fn a_zombie_mantles_up_onto_a_ledge_its_target_is_on() {
+        let (c, n) = crate::nav::tests::built();
+        let map = c.world(MapId::BreakPoint);
+        let nav = n.graph(MapId::BreakPoint);
+        let mut tried = 0;
+        for (foot, top) in nav.mantle_edges() {
+            if top.y - foot.y < 1.5 || nav.find_path(map, foot, top, false).is_some() {
+                continue;
+            }
+            // A step back from the wall, on the floor it's standing on.
+            let away = Vec3::new(foot.x - top.x, 0.0, foot.z - top.z).normalize();
+            let start = foot + away * 2.0;
+            if !NavGraph::walk_clear(map, start, foot) {
+                continue;
+            }
+            let (mut app, bot) = world(BotDifficulty::Veteran, start, top);
+            app.world_mut()
+                .entity_mut(bot)
+                .insert(BotBrain::new(BotDifficulty::Veteran, start, 7).zombie(false, 1.4));
+            app.update();
+            let mut feet = start;
+            for _ in 0..(8 * 64) {
+                app.update();
+                feet = Vec3::from_array(input(&app, bot).translation) - Vec3::Y * EYE_HEIGHT;
+                if (feet.y - top.y).abs() < 0.3 && Vec3::new(feet.x - top.x, 0.0, feet.z - top.z).length() < 1.5 {
+                    break;
+                }
+            }
+            assert!(
+                (feet.y - top.y).abs() < 0.3,
+                "a zombie at {start:?} never climbed onto {top:?} (ended at {feet:?})"
+            );
+            tried += 1;
+            if tried >= 6 {
+                break;
+            }
+        }
+        assert!(tried > 0, "no climbable ledge to test on");
     }
 
     #[test]

@@ -15,6 +15,15 @@
 //! ramp — gets paths within it. Asking for a path between two regions with no
 //! walkable connection between them returns `None`.
 //!
+//! **Mantles**: on top of those walking edges, a node gets a one-way climb
+//! edge up onto a ledge one or two cells away ([`MANTLE_MIN_RISE`] ..
+//! [`MANTLE_MAX_RISE`] higher — the player's own mantle reach) when there's
+//! room to rise straight up beside the wall and then move over onto it, and
+//! the top gets the reverse, a drop back off the ledge. Only routes asked for
+//! with `climb` use them (`ai`'s bots; the wandering
+//! trickshot targets just walk), and the waypoint at the top of one is marked
+//! [`Waypoint::mantle`] so the mover knows to climb it rather than walk.
+//!
 //! **Queries** ([`NavGraph::find_path`]): A* over that graph, then the route is
 //! straightened by dropping every waypoint a bot can walk past in a line.
 //!
@@ -75,6 +84,20 @@ const WAYPOINT_REACHED_HEIGHT: f32 = 0.6;
 const LEDGE_MAX: f32 = STEP_HEIGHT - 0.2;
 /// Within this (m) of a waypoint it always counts as passed, corner cut or not.
 const WAYPOINT_ON_DIST: f32 = 0.15;
+/// A ledge at least this much (m) above a floor, and at most this much, can
+/// be mantled onto — what a player reaches: `MANTLE_MIN_HEIGHT`, and a jump's
+/// apex (8² / (2 · 22) ≈ 1.45 m) plus `MANTLE_MAX_HEIGHT` (2.1 m) on top, since
+/// a player mantles mid-jump (`client::player::{mantle, movement}`).
+pub(crate) const MANTLE_MIN_RISE: f32 = 0.35;
+pub(crate) const MANTLE_MAX_RISE: f32 = 3.5;
+/// How far (m) past / beside a mantle's landing spot there has to be floor.
+const MANTLE_FOOTING: f32 = 0.35;
+/// A* cost of a mantle on top of the distance covered (≈ metres of walking
+/// it's worth) — it takes a moment, so a flat walk of about the same length
+/// wins.
+const MANTLE_COST: f32 = 1.5;
+/// ...and of dropping off a ledge (a short fall).
+const DROP_COST: f32 = 0.5;
 /// A* gives up after expanding this many nodes.
 const MAX_EXPANSIONS: usize = 200_000;
 const NO_NODE: u32 = u32::MAX;
@@ -92,6 +115,14 @@ const DIRS: [(i32, i32); 8] = [
     (-1, -1),
 ];
 
+/// One stop on a route: a feet position, and whether it's reached by
+/// mantling up onto it from the stop before (rather than walking).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Waypoint {
+    pub at: Vec3,
+    pub mantle: bool,
+}
+
 /// One map's walkable graph.
 pub struct NavGraph {
     min_x: f32,
@@ -104,6 +135,11 @@ pub struct NavGraph {
     cells: Vec<Vec<u32>>,
     /// Each node's neighbour in each of [`DIRS`], or [`NO_NODE`].
     edges: Vec<[u32; 8]>,
+    /// Each node's one-way mantle edges, up onto a ledge (see the module docs)...
+    mantles: Vec<Vec<u32>>,
+    /// ...and the way back: dropping off that ledge (walking off the edge and
+    /// falling — the same clear column the climb went up).
+    drops: Vec<Vec<u32>>,
     /// Which connected region each node is in (`NO_NODE` for a region too small
     /// to matter) — paths only exist between nodes of the same region.
     region: Vec<u32>,
@@ -152,6 +188,8 @@ impl NavGraph {
             nodes: Vec::new(),
             cells: vec![Vec::new(); (width * depth) as usize],
             edges: Vec::new(),
+            mantles: Vec::new(),
+            drops: Vec::new(),
             region: Vec::new(),
         };
 
@@ -204,6 +242,25 @@ impl NavGraph {
                         g.edges[id][k] = to;
                     }
                 }
+            }
+        }
+
+        // 2b. Mantles up onto ledges within reach, the four straight ways.
+        g.mantles = (0..g.nodes.len() as u32)
+            .map(|id| {
+                let mut tops = Vec::new();
+                for &(dx, dz) in &DIRS[..4] {
+                    if let Some(top) = g.mantle_from(world, id, dx, dz) {
+                        tops.push(top);
+                    }
+                }
+                tops
+            })
+            .collect();
+        g.drops = vec![Vec::new(); g.nodes.len()];
+        for (foot, tops) in g.mantles.iter().enumerate() {
+            for &top in tops {
+                g.drops[top as usize].push(foot as u32);
             }
         }
 
@@ -262,6 +319,109 @@ impl NavGraph {
             return None;
         }
         Some(to)
+    }
+
+    /// A ledge `from` can mantle up onto, one or two cells over `(dx, dz)`
+    /// (two for a thick wall or a lip overhanging the nearer cell): a floor
+    /// [`MANTLE_MIN_RISE`]..[`MANTLE_MAX_RISE`] above it, nothing it could
+    /// walk to instead, room to rise straight up beside the wall and then
+    /// move across onto the ledge, and solid ground all the way (no gap to
+    /// leap).
+    fn mantle_from(&self, world: &dyn CollisionWorld, from: u32, dx: i32, dz: i32) -> Option<u32> {
+        let a = self.nodes[from as usize];
+        let (ix, iz) = self.cell_of(a);
+        let k = DIRS.iter().position(|&d| d == (dx, dz))?;
+        let walk_to = self.edges[from as usize][k];
+        for dist in 1..=2 {
+            // Two over only past a cell that isn't itself floor to stand
+            // on at either height (that cell's own mantle covers it then).
+            if dist == 2 {
+                let near = self.cell_index(ix + dx, iz + dz)?;
+                let floor_between = self.cells[near].iter().any(|&n| {
+                    let y = self.nodes[n as usize].y;
+                    (a.y - 0.5..=a.y + MANTLE_MAX_RISE + 0.1).contains(&y)
+                });
+                if walk_to != NO_NODE || floor_between {
+                    return None;
+                }
+            }
+            let idx = self.cell_index(ix + dx * dist, iz + dz * dist)?;
+            // (Lowest first.)
+            let mut tops: Vec<u32> = self.cells[idx]
+                .iter()
+                .copied()
+                .filter(|&n| (MANTLE_MIN_RISE..=MANTLE_MAX_RISE).contains(&(self.nodes[n as usize].y - a.y)))
+                .collect();
+            tops.sort_by(|&p, &q| self.nodes[p as usize].y.total_cmp(&self.nodes[q as usize].y));
+            for to in tops {
+                // Already a walk away (a ramp) — no need to climb.
+                if dist == 1 && walk_to == to {
+                    return None;
+                }
+                if Self::mantle_clear(world, a, self.nodes[to as usize]) {
+                    return Some(to);
+                }
+            }
+        }
+        None
+    }
+
+    /// Whether a body at feet position `a` can rise straight up to `b`'s
+    /// height and then move across onto `b`, over solid ground (see
+    /// [`Self::mantle_from`]).
+    fn mantle_clear(world: &dyn CollisionWorld, a: Vec3, b: Vec3) -> bool {
+        let rise = b.y - a.y;
+        // Headroom for the whole climb, straight up where it stands...
+        if world.raycast(a + Vec3::Y * 0.05, Vec3::Y, rise + BODY_HEIGHT).is_some() {
+            return false;
+        }
+        let low = a + Vec3::Y * CHEST_HEIGHT;
+        let high = Vec3::new(a.x, b.y, a.z) + Vec3::Y * CHEST_HEIGHT;
+        if world.sweep_sphere(low, high, BODY_RADIUS).is_some() {
+            return false;
+        }
+        // ...then across at the ledge's height: chest, shins, head.
+        if world.sweep_sphere(high, b + Vec3::Y * CHEST_HEIGHT, BODY_RADIUS).is_some() {
+            return false;
+        }
+        let top = Vec3::new(a.x, b.y, a.z);
+        for h in [STEP_HEIGHT + 0.05, BODY_HEIGHT - 0.05] {
+            if world.segment_blocked(top + Vec3::Y * h, b + Vec3::Y * h) {
+                return false;
+            }
+        }
+        // Something to stand on up there, not the top of a thin wall or a
+        // rail: floor a little way on past the landing spot and to each side
+        // of it (a player's ledge probe looks past the wall face, too).
+        let dir = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or_zero();
+        let side = Vec3::new(-dir.z, 0.0, dir.x);
+        for off in [dir, side, -side] {
+            let p = b + off * MANTLE_FOOTING + Vec3::Y * 0.5;
+            match world.raycast(p, Vec3::NEG_Y, 1.0) {
+                Some(hit) if (p.y - hit.distance - b.y).abs() <= 0.3 => {}
+                _ => return false,
+            }
+        }
+        // Ground the whole way: the floor it's on, then (past the wall) the
+        // ledge — never a drop in between, which would be a leap, not a climb.
+        let len = Vec3::new(b.x - a.x, 0.0, b.z - a.z).length();
+        let steps = (len / 0.1).ceil().max(1.0) as usize;
+        let mut up = false;
+        for s in 1..=steps {
+            let t = s as f32 / steps as f32;
+            let p = a.lerp(b, t);
+            let from_y = b.y + 0.5;
+            let Some(hit) = world.raycast(Vec3::new(p.x, from_y, p.z), Vec3::NEG_Y, rise + 1.5) else {
+                return false;
+            };
+            let surface = from_y - hit.distance;
+            if (surface - b.y).abs() <= 0.25 {
+                up = true;
+            } else if up || (surface - a.y).abs() > LEDGE_MAX {
+                return false;
+            }
+        }
+        up
     }
 
     /// Whether a body can walk the straight line from feet position `a` to `b`:
@@ -327,7 +487,9 @@ impl NavGraph {
             x
         }
         for (i, e) in self.edges.iter().enumerate() {
-            for &to in e.iter().filter(|&&t| t != NO_NODE) {
+            let walks = e.iter().copied().filter(|&t| t != NO_NODE);
+            for to in walks.chain(self.mantles[i].iter().copied()) {
+                // (Each mantle's drop is the same pair, so it's covered.)
                 let (ra, rb) = (find(&mut parent, i as u32), find(&mut parent, to));
                 if ra != rb {
                     parent[ra as usize] = rb;
@@ -428,22 +590,52 @@ impl NavGraph {
     }
 
     /// A route for a body standing at feet position `from` to reach `to`: feet
-    /// waypoints, straightened, ending at `to`. `None` if either end can't be
-    /// placed on the map or nothing connects them.
-    pub fn find_path(&self, world: &dyn CollisionWorld, from: Vec3, to: Vec3) -> Option<Vec<Vec3>> {
+    /// waypoints, straightened, ending at `to`. `climb` lets it mantle up
+    /// ledges on the way. `None` if either end can't be placed on the map or
+    /// nothing connects them.
+    pub fn find_path(
+        &self,
+        world: &dyn CollisionWorld,
+        from: Vec3,
+        to: Vec3,
+        climb: bool,
+    ) -> Option<Vec<Waypoint>> {
         let start = self.nearest_node(from)?;
         let goal = self.nearest_node(to)?;
         if self.region[start as usize] != self.region[goal as usize] {
             return None; // no walkable connection between them
         }
-        let mut nodes = self.astar(start, goal)?;
+        let mut nodes = self.astar(start, goal, climb)?;
         // Start from where the body really is, end where it really needs to be.
-        nodes.insert(0, from);
-        nodes.push(to);
-        Some(Self::smooth(world, nodes))
+        nodes.insert(0, Waypoint { at: from, mantle: false });
+        nodes.push(Waypoint { at: to, mantle: false });
+        // Straighten each walked stretch; a mantle's foot and top stay put.
+        let mut out = Vec::new();
+        let mut run = vec![nodes[0].at];
+        for wp in nodes.into_iter().skip(1) {
+            if wp.mantle {
+                out.extend(Self::smooth_run(world, &run));
+                out.push(wp);
+                run = vec![wp.at];
+            } else {
+                run.push(wp.at);
+            }
+        }
+        out.extend(Self::smooth_run(world, &run));
+        Some(out)
     }
 
-    fn astar(&self, start: u32, goal: u32) -> Option<Vec<Vec3>> {
+    /// [`Self::smooth`] one walked stretch, leaving off its first point (the
+    /// body is already there).
+    fn smooth_run(world: &dyn CollisionWorld, run: &[Vec3]) -> Vec<Waypoint> {
+        let mut pts = Self::smooth(world, run.to_vec());
+        if pts.first() == run.first() {
+            pts.remove(0);
+        }
+        pts.into_iter().map(|at| Waypoint { at, mantle: false }).collect()
+    }
+
+    fn astar(&self, start: u32, goal: u32, climb: bool) -> Option<Vec<Waypoint>> {
         #[derive(Copy, Clone)]
         struct Open(f32, u32);
         impl PartialEq for Open {
@@ -494,8 +686,14 @@ impl NavGraph {
                     let mut path = Vec::new();
                     let mut at = goal;
                     while at != NO_NODE {
-                        path.push(self.nodes[at as usize]);
-                        at = parent[at as usize];
+                        let prev = parent[at as usize];
+                        // Climbed up from the one before, if it wasn't a walk
+                        // (a drop is just walked off).
+                        let mantle = prev != NO_NODE
+                            && !self.edges[prev as usize].contains(&at)
+                            && self.mantles[prev as usize].contains(&at);
+                        path.push(Waypoint { at: self.nodes[at as usize], mantle });
+                        at = prev;
                     }
                     path.reverse();
                     return Some(path);
@@ -505,11 +703,17 @@ impl NavGraph {
                     return None;
                 }
                 let gc = g[cur as usize];
-                for &next in &self.edges[cur as usize] {
+                let walks = self.edges[cur as usize].iter().map(|&n| (n, 0.0));
+                let climbs = self.mantles[cur as usize]
+                    .iter()
+                    .map(|&n| (n, MANTLE_COST))
+                    .chain(self.drops[cur as usize].iter().map(|&n| (n, DROP_COST)))
+                    .filter(|_| climb);
+                for (next, extra) in walks.chain(climbs) {
                     if next == NO_NODE || self.region[next as usize] == NO_NODE {
                         continue;
                     }
-                    let cost = gc + self.nodes[cur as usize].distance(self.nodes[next as usize]);
+                    let cost = gc + extra + self.nodes[cur as usize].distance(self.nodes[next as usize]);
                     if stamp[next as usize] != generation || cost < g[next as usize] {
                         stamp[next as usize] = generation;
                         g[next as usize] = cost;
@@ -546,21 +750,26 @@ impl NavGraph {
     /// only passed early if cutting the corner toward the next one is walkable
     /// from where the body actually is — otherwise it keeps going to the
     /// waypoint itself, so it doesn't clip a ledge on the inside of a turn.
+    /// (The foot of a mantle counts as reached from anywhere near, so the
+    /// mantle itself — the next waypoint — can start.)
     pub fn next_waypoint(
         world: &dyn CollisionWorld,
-        path: &[Vec3],
+        path: &[Waypoint],
         index: &mut usize,
         feet: Vec3,
-    ) -> Option<Vec3> {
-        while let Some(&wp) = path.get(*index) {
+    ) -> Option<Waypoint> {
+        while let Some(&waypoint) = path.get(*index) {
+            let wp = waypoint.at;
             let flat = Vec3::new(wp.x - feet.x, 0.0, wp.z - feet.z).length();
             let near = flat < WAYPOINT_REACHED_DIST && (wp.y - feet.y).abs() < WAYPOINT_REACHED_HEIGHT;
             let cut_ok = flat < WAYPOINT_ON_DIST
-                || path.get(*index + 1).is_none_or(|&next| Self::walk_clear(world, feet, next));
+                || path
+                    .get(*index + 1)
+                    .is_none_or(|next| next.mantle || Self::walk_clear(world, feet, next.at));
             if near && cut_ok {
                 *index += 1;
             } else {
-                return Some(wp);
+                return Some(waypoint);
             }
         }
         None
@@ -570,6 +779,18 @@ impl NavGraph {
     #[cfg(test)]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Every mantle edge as (foot, top) feet positions, in real regions only
+    /// (for tests).
+    #[cfg(test)]
+    pub fn mantle_edges(&self) -> Vec<(Vec3, Vec3)> {
+        self.mantles
+            .iter()
+            .enumerate()
+            .filter(|&(a, _)| self.region[a] != NO_NODE)
+            .flat_map(|(a, tops)| tops.iter().map(move |&b| (self.nodes[a], self.nodes[b as usize])))
+            .collect()
     }
 
     /// How many nodes are in a real region (not a dropped sliver).
@@ -647,7 +868,12 @@ pub(crate) mod tests {
         let (_, n) = built();
         for m in [MapId::BasicMap, MapId::Shipment, MapId::BreakPoint] {
             let g = n.graph(m);
-            println!("{m:?}: {} nodes, {} usable", g.node_count(), g.usable_count());
+            println!(
+                "{m:?}: {} nodes, {} usable, {} mantles",
+                g.node_count(),
+                g.usable_count(),
+                g.mantle_edges().len()
+            );
         }
     }
 

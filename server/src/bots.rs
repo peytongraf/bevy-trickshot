@@ -66,7 +66,7 @@ pub struct BotWander {
     vertical_velocity: f32,
     /// The current route (feet waypoints) and how far along it the bot is;
     /// empty while standing around.
-    path: Vec<Vec3>,
+    path: Vec<crate::nav::Waypoint>,
     path_index: usize,
     /// Standing still until this time (`Time::elapsed_secs`).
     idle_until: f32,
@@ -307,7 +307,7 @@ fn wander_bots(
         if w.path.is_empty() && now >= w.idle_until {
             let seed = (w.roll().to_bits() as u64) << 32 | w.roll().to_bits() as u64;
             let goal = respawn_pose(seed, lobby.map).0;
-            match nav.find_path(world, bot.pos, goal) {
+            match nav.find_path(world, bot.pos, goal, false) {
                 Some(path) if path.len() > 1 => {
                     w.path = path;
                     w.path_index = 0;
@@ -328,7 +328,7 @@ fn wander_bots(
                 w.path_index = index;
                 match next {
                     Some(wp) => {
-                        wish = Vec3::new(wp.x - bot.pos.x, 0.0, wp.z - bot.pos.z).normalize_or_zero();
+                        wish = Vec3::new(wp.at.x - bot.pos.x, 0.0, wp.at.z - bot.pos.z).normalize_or_zero();
                     }
                     None => w.rest(now),
                 }
