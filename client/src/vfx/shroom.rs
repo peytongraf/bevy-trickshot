@@ -284,16 +284,22 @@ pub(super) struct ShroomLabel;
 struct ShroomNode;
 
 impl ViewNode for ShroomNode {
+    // (The uniform itself, not just its index: Bevy removes a no-longer-
+    // extracted `ShroomUniform` from the render world but leaves its
+    // `DynamicUniformIndex` behind, so the pass would keep running — on
+    // stale data, flipping the post-process textures every frame — long
+    // after the effect is off.)
     type ViewQuery = (
         &'static ViewTarget,
         &'static DynamicUniformIndex<ShroomUniform>,
+        &'static ShroomUniform,
     );
 
     fn run(
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, uniform_index): QueryItem<Self::ViewQuery>,
+        (view_target, uniform_index, _): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let shroom_pipeline = world.resource::<ShroomPipeline>();

@@ -878,6 +878,9 @@ pub struct Lobby {
     /// [`GameMode::Zombies`]: enemies still to kill this round (not yet
     /// spawned + alive).
     pub enemies_left: u32,
+    /// [`GameMode::Zombies`]: of those, how many are spawned in right now
+    /// (rising or up and about).
+    pub enemies_active: u32,
     /// The party leader paused the running game ([`SetPaused`]): the server
     /// freezes the clock, bots, zombies, knives and shots, and every member's
     /// client stops taking gameplay input. Cleared whenever a game starts or

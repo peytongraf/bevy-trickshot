@@ -1168,6 +1168,7 @@ mod tests {
             end_cam: shared::EndCam::default(),
             round: 0,
             enemies_left: 0,
+            enemies_active: 0,
             paused: false,
             bots_passive: false,
             bomb_test: false,

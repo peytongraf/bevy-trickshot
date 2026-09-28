@@ -51,10 +51,10 @@ pub fn zombies_in_round(round: u32, players: usize) -> u32 {
     (4 + 2 * (round - 1) + 2 * (players.max(1) as u32 - 1)).min(60)
 }
 
-/// Most zombies up at once (the rest of the round waits its turn).
-fn max_alive(players: usize) -> usize {
-    (6 + 2 * players).min(16)
-}
+/// Most zombies up at once: they keep coming (one per [`spawn_interval`])
+/// until this many are standing, and the rest of the round waits its turn,
+/// each one rising as another dies.
+const MAX_ALIVE: usize = 150;
 
 /// Seconds between spawns in `round` — quicker as the rounds go on.
 fn spawn_interval(round: u32) -> f32 {
@@ -181,6 +181,10 @@ fn run_rounds(
         if lobby.enemies_left != left {
             lobby.enemies_left = left;
         }
+        // ...and the HUD's "active enemies": just the ones standing.
+        if lobby.enemies_active != alive as u32 {
+            lobby.enemies_active = alive as u32;
+        }
 
         // Round cleared: a breather, then the next one.
         if rounds.to_spawn == 0 && alive == 0 {
@@ -194,7 +198,7 @@ fn run_rounds(
             continue;
         }
 
-        if rounds.to_spawn == 0 || alive >= max_alive(members) || now < rounds.next_spawn_at {
+        if rounds.to_spawn == 0 || alive >= MAX_ALIVE || now < rounds.next_spawn_at {
             continue;
         }
 
@@ -438,6 +442,7 @@ mod tests {
                 end_cam: shared::EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                enemies_active: 0,
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,

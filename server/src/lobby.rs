@@ -166,6 +166,7 @@ fn on_create(
                 end_cam: shared::EndCam::default(),
                 round: 0,
                 enemies_left: 0,
+                enemies_active: 0,
                 paused: false,
                 bots_passive: false,
                 bomb_test: false,
@@ -268,6 +269,7 @@ fn on_start(
     // (`crate::zombies` starts round 1.)
     lobby.round = 0;
     lobby.enemies_left = 0;
+    lobby.enemies_active = 0;
     // `Zombies` points are money: everyone starts with what the leader set.
     let start_points = if lobby.mode == GameMode::Zombies { lobby.start_points } else { 0 };
     for m in &mut lobby.members {
@@ -754,6 +756,7 @@ mod tests {
             end_cam: shared::EndCam::default(),
             round: 0,
             enemies_left: 0,
+            enemies_active: 0,
             paused: false,
             bots_passive: false,
             bomb_test: false,

@@ -1,5 +1,5 @@
-//! `Zombies`-only client pieces: the "enemies left" counter (left edge,
-//! vertically centred), every member's points / health / name panel (bottom
+//! `Zombies`-only client pieces: the "enemies left" counter with the
+//! "active enemies" one right under it (left edge, vertically centred), every member's points / health / name panel (bottom
 //! left, ours at the bottom of the stack), the perk machines (solid, with a light) with
 //! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
@@ -29,6 +29,7 @@ impl Plugin for ZombiesHudPlugin {
                 Update,
                 (
                     update_enemies_left,
+                    update_active_enemies,
                     sync_perk_machines,
                     (play_perk_jingles, update_perk_jingles).chain(),
                     update_perk_card,
@@ -205,13 +206,64 @@ struct EnemiesLeftRoot;
 #[derive(Component)]
 struct EnemiesLeftCount;
 
+/// The "active enemies" panel under it: how many are spawned in right now.
+#[derive(Component)]
+struct ActiveEnemiesRoot;
+
+#[derive(Component)]
+struct ActiveEnemiesCount;
+
+/// One left-edge counter panel: a small `label` over a big number (filled in
+/// by the `count` entity's `Text`), hidden until a round is on.
+fn spawn_counter_panel(
+    col: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    label: &str,
+    root: impl Component,
+    count: impl Component,
+) {
+    col.spawn((
+        root,
+        Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+        BorderRadius::all(Val::Px(6.0)),
+        Visibility::Hidden,
+    ))
+    .with_children(|panel| {
+        panel.spawn((
+            Text::new(label),
+            TextFont {
+                font: font.clone(),
+                font_size: 15.0,
+                ..default()
+            },
+            TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+        ));
+        panel.spawn((
+            count,
+            Text::new(""),
+            TextFont {
+                font: font.clone(),
+                font_size: 40.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ));
+    });
+}
+
 /// The "enemies left" counter, party panels, owned-perk icons and the
 /// (hidden until needed) perk card.
 fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
-    // Left edge, centred vertically: a full-height (row) container that
-    // centres its one child on the cross axis — `align_items: Center` rather
-    // than the default stretch, so the panel's background only wraps its text.
+    // Left edge, centred vertically: a full-height column that centres the
+    // stacked panels in it, "enemies left" over "active enemies" (stretched
+    // to one width; each panel's background only wraps the pair).
     commands
         .spawn((
             StateScoped(AppState::InGame),
@@ -221,44 +273,16 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 left: Val::Px(20.0),
                 top: Val::Px(0.0),
                 bottom: Val::Px(0.0),
-                align_items: AlignItems::Center,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Stretch,
+                row_gap: Val::Px(8.0),
                 ..default()
             },
         ))
         .with_children(|col| {
-            col.spawn((
-                EnemiesLeftRoot,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-                BorderRadius::all(Val::Px(6.0)),
-                Visibility::Hidden,
-            ))
-            .with_children(|panel| {
-                panel.spawn((
-                    Text::new("ENEMIES LEFT"),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 15.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
-                ));
-                panel.spawn((
-                    EnemiesLeftCount,
-                    Text::new(""),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 40.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
-            });
+            spawn_counter_panel(col, &font, "ENEMIES LEFT", EnemiesLeftRoot, EnemiesLeftCount);
+            spawn_counter_panel(col, &font, "ACTIVE ENEMIES", ActiveEnemiesRoot, ActiveEnemiesCount);
         });
 
     // The party's panels: bottom left, stacked upward.
@@ -328,6 +352,26 @@ fn update_enemies_left(
         Visibility::Hidden
     });
     let wanted = left.map(|n| n.to_string()).unwrap_or_default();
+    if count.0 != wanted {
+        count.0 = wanted;
+    }
+}
+
+fn update_active_enemies(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    mut root: Single<&mut Visibility, With<ActiveEnemiesRoot>>,
+    mut count: Single<&mut Text, With<ActiveEnemiesCount>>,
+) {
+    let active = zombies_game(&local, &lobbies)
+        .filter(|l| l.round > 0)
+        .map(|l| l.enemies_active);
+    root.set_if_neq(if active.is_some() {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    let wanted = active.map(|n| n.to_string()).unwrap_or_default();
     if count.0 != wanted {
         count.0 = wanted;
     }
