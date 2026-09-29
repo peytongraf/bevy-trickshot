@@ -997,7 +997,8 @@ pub struct ThrownKnife {
     pub owner: PeerId,
     pub pos: Vec3,
     pub rot: Quat,
-    /// `true` once it has stopped moving (it's removed a moment later).
+    /// `true` once it has stopped moving — it then lies there, outlined, for
+    /// anyone to pick up ([`PickUpKnife`]) until it's removed.
     pub resting: bool,
 }
 
@@ -1109,6 +1110,18 @@ pub struct ThrowKnife {
     pub origin: [f32; 3],
     pub dir: [f32; 3],
 }
+
+/// Client → server: pick up the stopped throwing knife nearest this player
+/// (pressed the interact key while its prompt was showing). The server finds
+/// it, checks the range (`shared::throwing_knife::in_pickup_range`), removes
+/// it and answers with [`KnifePickedUp`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PickUpKnife;
+
+/// Server → the picker only: their [`PickUpKnife`] worked — one more
+/// throwing knife.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KnifePickedUp;
 
 /// Client → server: create a new lobby and join it as leader.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -1255,6 +1268,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KnifeAttackSound>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<KnifePickedUp>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -1295,6 +1310,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<FellToDeath>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<ThrowKnife>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PickUpKnife>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<FallLanded>()
             .add_direction(NetworkDirection::ClientToServer);

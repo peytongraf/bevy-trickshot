@@ -365,8 +365,12 @@ fn record_frames(
         // Each keeps the slot it was first given for as long as it exists —
         // re-packing them would shift a still-flying knife into a removed
         // one's slot, and the replay would blend between the two.
-        let mut mine: Vec<(Entity, &ThrownKnife)> =
-            knives.iter().filter(|(_, k)| k.owner == id.0).collect();
+        // (Flying ones only: a stopped knife lies around for a minute and
+        // would otherwise hog the few slots a frame has.)
+        let mut mine: Vec<(Entity, &ThrownKnife)> = knives
+            .iter()
+            .filter(|(_, k)| k.owner == id.0 && !k.resting)
+            .collect();
         mine.sort_by_key(|(e, _)| *e);
         for slot in buf.knife_slots.iter_mut() {
             if slot.is_some_and(|e| !mine.iter().any(|(m, _)| *m == e)) {

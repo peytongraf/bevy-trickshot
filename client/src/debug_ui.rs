@@ -1293,6 +1293,7 @@ pub(crate) fn ads_tuning_ui(
                         ("throwing knife: hit enemy", &mut v.knife_hit),
                         ("throwing knife: in air", &mut v.knife_in_air),
                         ("knife: equip", &mut v.knife_equip),
+                        ("throwing knife: pick up", &mut v.pick_up_equipment),
                         ("sniper: equip", &mut v.sniper_equip),
                         ("heartbeat (at zero health)", &mut v.heartbeat),
                         ("hit marker", &mut v.hit_marker),

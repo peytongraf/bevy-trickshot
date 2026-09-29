@@ -51,6 +51,7 @@ mod power;
 mod respawn;
 mod round_counter;
 mod settings;
+mod knife_pickup;
 mod thrown_knife;
 mod ui;
 mod updater;
@@ -191,6 +192,7 @@ fn main() {
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
+        .add_plugins(knife_pickup::KnifePickupPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
         .add_plugins(pap::PapPlugin)

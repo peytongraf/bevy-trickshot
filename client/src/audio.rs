@@ -44,6 +44,9 @@ pub(crate) struct GameSounds {
     pub(crate) knife_in_air: Handle<AudioSource>,
     /// `audio/weapons/knife/equip.mp3` — switching to the regular knife.
     pub(crate) knife_equip: Handle<AudioSource>,
+    /// `audio/weapons/pick_up_equipment.mp3` — picking up a thrown knife
+    /// (only the picker hears it).
+    pub(crate) pick_up_equipment: Handle<AudioSource>,
     /// `audio/weapons/sniper/equip.mp3` — switching to the sniper.
     pub(crate) sniper_equip: Handle<AudioSource>,
     /// `audio/combat/hit_marker.mp3` — one of your shots damaged
@@ -212,6 +215,7 @@ pub(crate) struct SoundVolumes {
     pub(crate) knife_hit: f32,
     pub(crate) knife_in_air: f32,
     pub(crate) knife_equip: f32,
+    pub(crate) pick_up_equipment: f32,
     pub(crate) sniper_equip: f32,
     /// Loudness of the heartbeat at zero health (it fades toward silence as
     /// health recovers) — see `health::update_heartbeat`.
@@ -253,6 +257,7 @@ impl Default for SoundVolumes {
             knife_hit: 1.5,
             knife_in_air: 1.0,
             knife_equip: 1.0,
+            pick_up_equipment: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
             hit_marker: 1.0,
@@ -295,6 +300,7 @@ impl SoundVolumes {
             (sounds.knife_hit.id(), self.knife_hit),
             (sounds.knife_in_air.id(), self.knife_in_air),
             (sounds.knife_equip.id(), self.knife_equip),
+            (sounds.pick_up_equipment.id(), self.pick_up_equipment),
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
             (sounds.perk_buy.id(), self.perk_buy),
@@ -436,6 +442,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         knife_hit: asset_server.load("audio/weapons/throwing_knife/hit_enemy.mp3"),
         knife_in_air: asset_server.load("audio/weapons/throwing_knife/in_air.mp3"),
         knife_equip: asset_server.load("audio/weapons/knife/equip.mp3"),
+        pick_up_equipment: asset_server.load("audio/weapons/pick_up_equipment.mp3"),
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),
         hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),

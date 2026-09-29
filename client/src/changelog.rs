@@ -15,6 +15,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Picking up a throwing knife plays a sound.",
+        "Zombies: you start with 2 throwing knives.",
+        "A throwing knife that kills now drops beside the body.",
+        "Thrown knives stay outlined in blue for a minute. Walk up and press F to pick one up.",
         "Menu button sounds are quieter.",
         "Main menu: background no longer flickers when clicking buttons.",
         "Zombies: machines buzz with electricity once the power's on.",

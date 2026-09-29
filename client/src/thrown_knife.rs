@@ -56,9 +56,10 @@ impl Plugin for ThrownKnifePlugin {
 }
 
 /// Stands in for one server-owned [`ThrownKnife`], as `models/throwing_knife.glb`.
+/// Once the knife stops it's outlined (`knife_pickup`).
 #[derive(Component)]
-struct KnifeAvatar {
-    src: Entity,
+pub(crate) struct KnifeAvatar {
+    pub(crate) src: Entity,
 }
 
 /// The whoosh following one thrown knife: a child of its avatar (so it moves

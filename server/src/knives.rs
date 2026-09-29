@@ -15,6 +15,11 @@
 //!
 //! The thrower is never hit by their own knife, and a dead player can neither
 //! throw nor be hit.
+//!
+//! A knife that kills drops to the ground beside its victim
+//! ([`KnifeBody::drop_beside`]), clear of the body. A stopped knife lies where it landed for
+//! [`shared::throwing_knife::REST_LINGER_SECS`]; any living player in its
+//! lobby close enough can pick it up ([`PickUpKnife`]) for one more knife.
 
 use std::collections::HashMap;
 
@@ -25,10 +30,10 @@ use lightyear::prelude::*;
 use shared::ballistics::Target;
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
-use shared::throwing_knife::{KnifeBody, MAX_KNIVES_PER_PLAYER};
+use shared::throwing_knife::{in_pickup_range, KnifeBody, MAX_KNIVES_PER_PLAYER};
 use shared::{
-    Bot, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, ThrowKnife, ThrowingKnifeHit,
-    ThrowingKnifeImpact, ThrownKnife, TrickScore,
+    Bot, GameChannel, GameMode, KnifePickedUp, Lobby, PickUpKnife, PlayerId, PlayerPose,
+    ThrowKnife, ThrowingKnifeHit, ThrowingKnifeImpact, ThrownKnife, TrickScore,
 };
 
 use crate::bots::{BotHit, LobbyBot};
@@ -70,6 +75,14 @@ enum Victim {
     Bot(Entity),
 }
 
+/// A [`Victim`], with where they stand and how wide they are — where a knife
+/// that kills them drops.
+struct VictimAt {
+    who: Victim,
+    feet: Vec3,
+    radius: f32,
+}
+
 pub struct KnivesPlugin;
 
 impl Plugin for KnivesPlugin {
@@ -77,6 +90,7 @@ impl Plugin for KnivesPlugin {
         app.insert_resource(MapColliders::load())
             .init_resource::<LastThrow>()
             .add_observer(on_throw_knife)
+            .add_observer(on_pick_up_knife)
             .add_systems(FixedUpdate, (step_knives, cull_orphan_knives).chain());
     }
 }
@@ -116,7 +130,13 @@ fn on_throw_knife(
     {
         return;
     }
-    if knives.iter().filter(|k| k.owner == peer).count() >= MAX_KNIVES_PER_PLAYER {
+    // (Only knives still flying count — stopped ones lie around for a minute.)
+    if knives
+        .iter()
+        .filter(|k| k.owner == peer && !k.body.resting)
+        .count()
+        >= MAX_KNIVES_PER_PLAYER
+    {
         return;
     }
 
@@ -152,6 +172,50 @@ fn on_throw_knife(
     info!("{peer:?} threw a knife");
 }
 
+/// A client asked to pick up the stopped knife nearest them: if one's in
+/// range, remove it and tell them they've got it.
+fn on_pick_up_knife(
+    trigger: Trigger<RemoteTrigger<PickUpKnife>>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    lobbies: Query<(Entity, &Lobby)>,
+    poses: Query<(&PlayerId, &PlayerPose)>,
+    combats: Query<(&PlayerId, &PlayerCombat)>,
+    knives: Query<(Entity, &KnifeSim)>,
+    mut commands: Commands,
+) {
+    let peer = trigger.from;
+    let Some((lobby_e, _)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
+        return;
+    };
+    if combats.iter().any(|(id, c)| id.0 == peer && !c.alive) {
+        return;
+    }
+    let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == peer) else {
+        return;
+    };
+    let eye = pose.translation;
+    let feet = eye - Vec3::Y * EYE_HEIGHT;
+    let nearest = knives
+        .iter()
+        .filter(|(_, k)| {
+            k.lobby == lobby_e && k.body.resting && in_pickup_range(feet, eye, k.body.pos)
+        })
+        .min_by(|a, b| {
+            a.1.body.pos.distance_squared(eye).total_cmp(&b.1.body.pos.distance_squared(eye))
+        });
+    let Some((knife, _)) = nearest else {
+        return;
+    };
+    commands.entity(knife).try_despawn();
+    if let Err(e) =
+        sender.send::<_, GameChannel>(&KnifePickedUp, server.into_inner(), &NetworkTarget::Single(peer))
+    {
+        error!("failed to send knife pickup: {e:?}");
+    }
+    info!("{peer:?} picked up a throwing knife");
+}
+
 /// Step every knife one tick: fly / bounce / rest, and apply a kill if it hit
 /// someone it's allowed to.
 #[allow(clippy::too_many_arguments)]
@@ -181,10 +245,12 @@ fn step_knives(
             continue;
         }
 
-        // Who this knife may kill, per the lobby's mode.
-        let mut victims: HashMap<u64, Victim> = HashMap::new();
+        // Who this knife may kill, per the lobby's mode (no one, once it's
+        // lying still).
+        let mut victims: HashMap<u64, VictimAt> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
         match lobby.mode {
+            _ if sim.body.resting => {}
             GameMode::FreeForAll | GameMode::Zombies => {
                 for (id, pose, lp) in &poses {
                     if id.0 == sim.owner || lp.lobby != sim.lobby {
@@ -202,7 +268,14 @@ fn step_knives(
                     }
                     let key = id.0.to_bits();
                     let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-                    victims.insert(key, Victim::Player(id.0));
+                    victims.insert(
+                        key,
+                        VictimAt {
+                            who: Victim::Player(id.0),
+                            feet,
+                            radius: PLAYER_RADIUS,
+                        },
+                    );
                     targets.push(Target {
                         id: key,
                         body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
@@ -216,7 +289,14 @@ fn step_knives(
                         continue;
                     }
                     let key = bot_e.to_bits();
-                    victims.insert(key, Victim::Bot(bot_e));
+                    victims.insert(
+                        key,
+                        VictimAt {
+                            who: Victim::Bot(bot_e),
+                            feet: bot.pos,
+                            radius: BOT_RADIUS,
+                        },
+                    );
                     targets.push(Target {
                         id: key,
                         body: Capsule::standing(bot.pos, BOT_HEIGHT, BOT_RADIUS),
@@ -231,7 +311,7 @@ fn step_knives(
 
         if let Some(hit) = hit {
             let owner = sim.owner;
-            match victims.get(&hit.target) {
+            match victims.get(&hit.target).map(|v| &v.who) {
                 Some(Victim::Bot(bot)) => {
                     let (points, lines) = shared::scoring::score_throwing_knife_kill();
                     bot_hits.write(BotHit {
@@ -264,7 +344,7 @@ fn step_knives(
                 None => {}
             }
             // Everyone in the lobby hears the hit from where it landed.
-            if victims.contains_key(&hit.target) {
+            if let Some(victim) = victims.get(&hit.target) {
                 let members: Vec<PeerId> = lobby.real_peers();
                 let msg = ThrowingKnifeHit {
                     point: hit.point.to_array(),
@@ -274,9 +354,12 @@ fn step_knives(
                 {
                     error!("failed to send throwing knife hit: {e:?}");
                 }
+                // Then it drops beside the body, to be picked up.
+                sim.body.drop_beside(victim.feet, victim.radius, world);
+            } else {
+                commands.entity(entity).try_despawn();
+                continue;
             }
-            commands.entity(entity).try_despawn();
-            continue;
         }
 
         // A surface strike: every lobby member hears an impact sound from the

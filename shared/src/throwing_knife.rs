@@ -15,12 +15,12 @@ use crate::map::CollisionWorld;
 use crate::GameMode;
 
 /// Throwing knives a player starts each life with in `mode` — a near-endless
-/// supply for practising in `Freestyle`, just two in `FreeForAll`.
+/// supply for practising in `Freestyle`, just two otherwise (thrown ones can
+/// be picked back up).
 pub fn starting_knives(mode: GameMode) -> u32 {
     match mode {
-        // (`Zombies` has no respawns or pickups, so it isn't rationed either.)
-        GameMode::Freestyle | GameMode::Zombies => 1000,
-        GameMode::FreeForAll => 2,
+        GameMode::Freestyle => 1000,
+        GameMode::FreeForAll | GameMode::Zombies => 2,
     }
 }
 
@@ -51,8 +51,15 @@ pub const MAX_BOUNCES: u32 = 10;
 /// The knife only kills while moving at least this fast (m/s) — a slow
 /// tumble off a wall is harmless.
 pub const LETHAL_SPEED: f32 = 4.0;
-/// How long (s) a stopped knife lies there before it's removed.
-pub const REST_LINGER_SECS: f32 = 1.0;
+/// How long (s) a stopped knife lies there (outlined, for anyone to pick
+/// up) before it's removed.
+pub const REST_LINGER_SECS: f32 = 60.0;
+/// How close (m) a player's body must be to a stopped knife to pick it up.
+pub const PICKUP_RANGE: f32 = 1.5;
+/// A knife that kills someone drops this far (m) beyond the edge of their
+/// body — clear of the model still standing / falling there, so it can be
+/// seen and picked up.
+pub const KILL_DROP_GAP: f32 = 0.7;
 /// A knife still moving this long (s) after being thrown is removed anyway.
 pub const MAX_FLIGHT_SECS: f32 = 10.0;
 /// A knife that falls below this height has left the map — removed.
@@ -132,9 +139,42 @@ impl KnifeBody {
 
     /// Nothing more to simulate — the caller should remove the knife.
     pub fn finished(&self) -> bool {
-        self.rest_secs >= REST_LINGER_SECS
-            || self.age >= MAX_FLIGHT_SECS
-            || self.pos.y < KILL_FLOOR_Y
+        if self.resting {
+            self.rest_secs >= REST_LINGER_SECS
+        } else {
+            self.age >= MAX_FLIGHT_SECS || self.pos.y < KILL_FLOOR_Y
+        }
+    }
+
+    /// The knife just killed someone standing at `feet` with body radius
+    /// `radius`: lay it to rest on the ground beside them, [`KILL_DROP_GAP`]
+    /// clear of their body. Prefers the side it came from (toward the
+    /// thrower), then either side, then beyond; a spot behind a wall or over
+    /// a drop is skipped, and if none will do it lies at their feet.
+    pub fn drop_beside(&mut self, feet: Vec3, radius: f32, world: &dyn CollisionWorld) {
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z).try_normalize();
+        let back = flat(-self.vel)
+            .or_else(|| flat(self.rot * Vec3::Z))
+            .unwrap_or(Vec3::X);
+        let side = Vec3::Y.cross(back);
+        let chest = feet + Vec3::Y;
+        let gap = radius + KILL_DROP_GAP;
+        let spot = [back, side, -side, -back].into_iter().find_map(|d| {
+            let above = feet + d * gap + Vec3::Y;
+            if world.segment_blocked(chest, above) {
+                return None;
+            }
+            let ground = world.raycast(above, Vec3::NEG_Y, 3.0)?;
+            Some(above - Vec3::Y * (ground.distance - KNIFE_RADIUS))
+        });
+        self.pos = spot.unwrap_or(feet + Vec3::Y * KNIFE_RADIUS);
+        self.vel = Vec3::ZERO;
+        self.spin = Vec3::ZERO;
+        self.rot = flat_rotation(self.rot);
+        self.resting = true;
+        self.rest_secs = 0.0;
+        self.rest_target = None;
+        self.impact = None;
     }
 
     /// Advance the knife `dt` seconds through `world`, testing `targets`'
@@ -242,6 +282,20 @@ impl KnifeBody {
     }
 }
 
+/// Whether a stopped knife at `knife` is close enough to pick up for a player
+/// whose body runs from `feet` up to `eye` — measured to the nearest point of
+/// that segment, so a knife on the floor and one on a crate at chest height
+/// both count. The client (for the prompt) and server (to allow it) agree.
+pub fn in_pickup_range(feet: Vec3, eye: Vec3, knife: Vec3) -> bool {
+    let seg = eye - feet;
+    let t = if seg.length_squared() > 1e-6 {
+        ((knife - feet).dot(seg) / seg.length_squared()).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (feet + seg * t).distance(knife) <= PICKUP_RANGE
+}
+
 /// The orientation with the blade tip along `dir` and the flat face
 /// upward-ish — see [`crate::ThrownKnife`]'s rotation frame.
 fn look_rotation(dir: Vec3) -> Quat {
@@ -307,8 +361,16 @@ mod tests {
             false
         }
 
-        fn raycast(&self, _origin: Vec3, _dir: Vec3, _max_dist: f32) -> Option<crate::map::RayHit> {
-            None
+        fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<crate::map::RayHit> {
+            // Floor only.
+            if dir.y >= 0.0 || origin.y < 0.0 {
+                return None;
+            }
+            let distance = origin.y / -dir.y;
+            (distance <= max_dist).then_some(crate::map::RayHit {
+                distance,
+                normal: Vec3::Y,
+            })
         }
 
         fn sweep_sphere(&self, from: Vec3, to: Vec3, radius: f32) -> Option<WorldHit> {
@@ -412,9 +474,55 @@ mod tests {
         while !k.finished() {
             k.step(DT, &world, &[]);
             steps += 1;
-            assert!(steps < (MAX_FLIGHT_SECS / DT) as usize + 10, "never finished");
+            assert!(
+                steps < ((MAX_FLIGHT_SECS + REST_LINGER_SECS) / DT) as usize + 10,
+                "never finished"
+            );
         }
         assert!(k.resting || k.age >= MAX_FLIGHT_SECS);
+    }
+
+    #[test]
+    fn a_resting_knife_lingers_past_the_flight_limit() {
+        let world = TestWorld { wall_x: None };
+        let mut k = KnifeBody::thrown(Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, -1.0, 0.0));
+        run(&mut k, &world, MAX_FLIGHT_SECS + 1.0);
+        assert!(k.resting);
+        assert!(!k.finished(), "removed after {} s", k.age);
+    }
+
+    #[test]
+    fn a_killing_knife_drops_beside_the_victim_toward_the_thrower() {
+        let world = TestWorld { wall_x: None };
+        let mut k = KnifeBody::thrown(Vec3::new(0.0, 1.0, 0.0), Vec3::X);
+        let feet = Vec3::new(10.0, 0.0, 0.0);
+        k.drop_beside(feet, 0.4, &world);
+        assert!(k.resting && k.vel == Vec3::ZERO);
+        assert!((k.pos.x - (10.0 - 0.4 - KILL_DROP_GAP)).abs() < 1e-3, "at {}", k.pos);
+        assert!((k.pos.y - KNIFE_RADIUS).abs() < 1e-3, "at {}", k.pos);
+        assert!((k.rot * Vec3::Y).y > 0.99, "not lying flat");
+        // Lying there, it lingers like any stopped knife.
+        run(&mut k, &world, 1.0);
+        assert!(!k.finished());
+    }
+
+    #[test]
+    fn a_killing_knife_with_no_ground_nearby_lies_at_the_feet() {
+        let mut k = KnifeBody::thrown(Vec3::new(0.0, 1.0, 0.0), Vec3::X);
+        let feet = Vec3::new(10.0, 5.0, 0.0);
+        k.drop_beside(feet, 0.4, &EmptyWorld);
+        assert!(k.resting);
+        assert!(k.pos.distance(feet + Vec3::Y * KNIFE_RADIUS) < 1e-3);
+    }
+
+    #[test]
+    fn pickup_range_follows_the_body() {
+        let feet = Vec3::ZERO;
+        let eye = Vec3::new(0.0, 1.7, 0.0);
+        assert!(in_pickup_range(feet, eye, Vec3::new(1.0, 0.0, 0.0)));
+        assert!(in_pickup_range(feet, eye, Vec3::new(1.2, 1.0, 0.0)));
+        assert!(!in_pickup_range(feet, eye, Vec3::new(2.0, 0.0, 0.0)));
+        assert!(!in_pickup_range(feet, eye, Vec3::new(0.0, 3.5, 0.0)));
     }
 
     #[test]

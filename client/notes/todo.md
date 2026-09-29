@@ -17,6 +17,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add pap
 - Add dogs or dog style rounds with a different enemy
 - Add boss
+- Add exfil
+- Add revive other players
 
 # Today
 
