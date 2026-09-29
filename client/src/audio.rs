@@ -86,6 +86,12 @@ pub(crate) struct GameSounds {
     /// `audio/music/main_menu.wav` — looped on the main menu and in lobbies
     /// (`sync_menu_music`).
     menu_music: Handle<AudioSource>,
+    /// `audio/ambient/zombies.mp3` — the eerie bed looped under a running
+    /// `Zombies` game (`zombies_audio`).
+    pub(crate) zombies_ambient: Handle<AudioSource>,
+    /// `audio/music/zombies_game_over.mp3` — played once when a `Zombies`
+    /// game ends (`zombies_audio`).
+    pub(crate) zombies_game_over: Handle<AudioSource>,
 }
 
 impl GameSounds {
@@ -235,6 +241,9 @@ pub(crate) struct SoundVolumes {
     pub(crate) zombie_death: f32,
     pub(crate) zombie_attack: f32,
     pub(crate) final_zombie: f32,
+    /// The `Zombies` ambience loop and game-over music (`zombies_audio`).
+    pub(crate) zombies_ambient: f32,
+    pub(crate) zombies_game_over: f32,
 }
 
 impl Default for SoundVolumes {
@@ -271,6 +280,8 @@ impl Default for SoundVolumes {
             zombie_death: 1.0,
             zombie_attack: 1.0,
             final_zombie: 1.0,
+            zombies_ambient: 1.0,
+            zombies_game_over: 1.0,
         }
     }
 }
@@ -462,6 +473,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),
         menu_music: asset_server.load("audio/music/main_menu.wav"),
+        zombies_ambient: asset_server.load("audio/ambient/zombies.mp3"),
+        zombies_game_over: asset_server.load("audio/music/zombies_game_over.mp3"),
     });
 }
 

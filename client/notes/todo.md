@@ -19,6 +19,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add boss
 - Add exfil
 - Add revive other players
+- Add killchains
+- Add field upgrade like aether shroud
 
 # Today
 

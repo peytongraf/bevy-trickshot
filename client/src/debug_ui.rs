@@ -1307,6 +1307,8 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: zombie death", &mut v.zombie_death),
                         ("zombies: zombie swipe hit", &mut v.zombie_attack),
                         ("zombies: final zombie", &mut v.final_zombie),
+                        ("zombies: ambience", &mut v.zombies_ambient),
+                        ("zombies: game over music", &mut v.zombies_game_over),
                     ] {
                         ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
                     }

@@ -52,6 +52,7 @@ mod respawn;
 mod round_counter;
 mod settings;
 mod knife_pickup;
+mod zombies_audio;
 mod thrown_knife;
 mod ui;
 mod updater;
@@ -193,6 +194,7 @@ fn main() {
         .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)
+        .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
         .add_plugins(pap::PapPlugin)
