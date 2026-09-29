@@ -1,7 +1,8 @@
 //! Stopped throwing knives: a blue outline so they're easy to spot where they
 //! landed, and — standing close enough to one — a card saying it's a
 //! throwing knife with the interact key to pick it up (one more knife, and
-//! the pickup sound for the picker alone).
+//! the pickup sound for the picker alone). Dropped molotovs (`molotov.rs`)
+//! share the outline ([`OutlineWhenLoaded`]), the card and the key.
 //!
 //! The server keeps a stopped knife around for
 //! `shared::throwing_knife::REST_LINGER_SECS` and owns the pickup
@@ -26,7 +27,7 @@ use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
 };
 use lightyear::prelude::*;
-use shared::ThrownKnife;
+use shared::{MolotovDrop, ThrownKnife};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
@@ -100,6 +101,11 @@ struct OutlineAssets {
 #[derive(Component)]
 struct KnifeOutlined;
 
+/// Outlined like a stopped knife as soon as its model has loaded — a
+/// dropped molotov's avatar (`molotov.rs`).
+#[derive(Component)]
+pub(crate) struct OutlineWhenLoaded;
+
 /// A twin mesh drawing the outline.
 #[derive(Component)]
 struct KnifeOutlineTwin;
@@ -111,6 +117,17 @@ struct PickupCard;
 /// The card's action text (it names the interact key, which can be rebound).
 #[derive(Component)]
 struct PickupCardAction;
+
+/// The card's heading — what's in reach.
+#[derive(Component)]
+struct PickupCardTitle;
+
+/// What the card / interact key is offering.
+#[derive(Clone, Copy, PartialEq)]
+enum Pickup {
+    Knife,
+    Molotov,
+}
 
 pub(crate) struct KnifePickupPlugin;
 
@@ -170,11 +187,15 @@ fn outline_mesh(mesh: &Mesh) -> Option<Mesh> {
 }
 
 /// Give every knife avatar whose knife has stopped (and whose model has
-/// loaded) its outline.
-#[allow(clippy::too_many_arguments)]
+/// loaded) its outline — and every [`OutlineWhenLoaded`] avatar, once its
+/// model has.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn outline_resting_knives(
     knives: Query<&ThrownKnife>,
-    avatars: Query<(Entity, &KnifeAvatar), Without<KnifeOutlined>>,
+    avatars: Query<
+        (Entity, Option<&KnifeAvatar>),
+        (Without<KnifeOutlined>, Or<(With<KnifeAvatar>, With<OutlineWhenLoaded>)>),
+    >,
     children: Query<&Children>,
     mesh_entities: Query<&Mesh3d, Without<KnifeOutlineTwin>>,
     mut outline: ResMut<OutlineAssets>,
@@ -183,7 +204,7 @@ fn outline_resting_knives(
     mut commands: Commands,
 ) {
     for (root, avatar) in &avatars {
-        if !knives.get(avatar.src).is_ok_and(|k| k.resting) {
+        if avatar.is_some_and(|a| !knives.get(a.src).is_ok_and(|k| k.resting)) {
             continue;
         }
         let material = outline
@@ -234,16 +255,27 @@ fn outline_resting_knives(
     }
 }
 
-/// The nearest stopped knife in pickup range of the local player, if any.
-fn knife_in_reach<'a>(
+/// The nearest stopped knife or dropped molotov in pickup range of the local
+/// player, if any.
+fn pickup_in_reach<'a>(
     player: &Transform,
     knives: impl Iterator<Item = &'a ThrownKnife>,
-) -> Option<&'a ThrownKnife> {
+    drops: impl Iterator<Item = &'a MolotovDrop>,
+) -> Option<Pickup> {
     let eye = player.translation;
     let feet = eye - Vec3::Y * EYE_HEIGHT;
+    let in_range = |p: Vec3| shared::throwing_knife::in_pickup_range(feet, eye, p);
     knives
-        .filter(|k| k.resting && shared::throwing_knife::in_pickup_range(feet, eye, k.pos))
-        .min_by(|a, b| a.pos.distance_squared(eye).total_cmp(&b.pos.distance_squared(eye)))
+        .filter(|k| k.resting && in_range(k.pos))
+        .map(|k| (Pickup::Knife, k.pos))
+        .chain(drops.filter(|d| in_range(d.pos)).map(|d| (Pickup::Molotov, d.pos)))
+        .min_by(|a, b| a.1.distance_squared(eye).total_cmp(&b.1.distance_squared(eye)))
+        .map(|(what, _)| what)
+}
+
+/// Whether the local player can't carry another molotov.
+fn molotovs_full(weapon: &Weapon) -> bool {
+    weapon.molotovs >= shared::molotov::MAX_MOLOTOVS
 }
 
 fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -283,7 +315,12 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 Visibility::Hidden,
             ))
             .with_children(|card| {
-                card.spawn((Text::new("THROWING KNIFE"), heading(32.0), TextColor(OUTLINE_BLUE)));
+                card.spawn((
+                    PickupCardTitle,
+                    Text::new("THROWING KNIFE"),
+                    heading(32.0),
+                    TextColor(OUTLINE_BLUE),
+                ));
                 card.spawn((
                     Node {
                         justify_content: JustifyContent::Center,
@@ -298,50 +335,79 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-/// Show the card while a stopped knife is in reach (hidden behind menus,
-/// during a kill cam and while dead, like the rest of the HUD).
-#[allow(clippy::too_many_arguments)]
+/// Show the card while a stopped knife or dropped molotov is in reach
+/// (hidden behind menus, during a kill cam and while dead, like the rest of
+/// the HUD).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_pickup_card(
     menu: Res<menu::Menu>,
     active_killcam: Res<killcam::ActiveKillCam>,
     death: Res<crate::death_effect::DeathEffect>,
     binds: Res<KeyBindings>,
+    weapon: Res<Weapon>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
+    drops: Query<&MolotovDrop>,
     mut card: Single<&mut Visibility, With<PickupCard>>,
-    mut action: Single<&mut Text, With<PickupCardAction>>,
+    mut action: Single<&mut Text, (With<PickupCardAction>, Without<PickupCardTitle>)>,
+    mut title: Single<&mut Text, (With<PickupCardTitle>, Without<PickupCardAction>)>,
 ) {
-    let show = !menu.is_open()
-        && active_killcam.0.is_none()
-        && !death.is_active()
-        && knife_in_reach(&player, knives.iter()).is_some();
-    card.set_if_neq(if show { Visibility::Inherited } else { Visibility::Hidden });
-    if show {
-        let wanted = format!("PRESS {} TO EQUIP", binds.interact.label().to_uppercase());
-        if action.0 != wanted {
-            action.0 = wanted;
-        }
+    let what = (!menu.is_open() && active_killcam.0.is_none() && !death.is_active())
+        .then(|| pickup_in_reach(&player, knives.iter(), drops.iter()))
+        .flatten();
+    card.set_if_neq(if what.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    let Some(what) = what else {
+        return;
+    };
+    let (heading, wanted) = match what {
+        Pickup::Molotov if molotovs_full(&weapon) => ("MOLOTOV", "CARRYING THE MOST".to_string()),
+        Pickup::Molotov => (
+            "MOLOTOV",
+            format!("PRESS {} TO EQUIP", binds.interact.label().to_uppercase()),
+        ),
+        Pickup::Knife => (
+            "THROWING KNIFE",
+            format!("PRESS {} TO EQUIP", binds.interact.label().to_uppercase()),
+        ),
+    };
+    if title.0 != heading {
+        title.0 = heading.to_string();
+    }
+    if action.0 != wanted {
+        action.0 = wanted;
     }
 }
 
-/// The interact key with a stopped knife in reach: ask the server for it (it
-/// checks the range again and picks the nearest itself).
+/// The interact key with a stopped knife or dropped molotov in reach: ask
+/// the server for it (it checks the range again and picks the nearest
+/// itself). A molotov is left where it is while already carrying the most.
+#[allow(clippy::too_many_arguments)]
 fn pick_up_knife(
     binds: Res<KeyBindings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    weapon: Res<Weapon>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
+    drops: Query<&MolotovDrop>,
     mut sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
+    mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
     }
-    if knife_in_reach(&player, knives.iter()).is_none() {
-        return;
-    }
-    if let Ok(mut s) = sender.single_mut() {
-        s.trigger::<shared::LobbyChannel>(shared::PickUpKnife);
+    match pickup_in_reach(&player, knives.iter(), drops.iter()) {
+        Some(Pickup::Knife) => {
+            if let Ok(mut s) = sender.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpKnife);
+            }
+        }
+        Some(Pickup::Molotov) if !molotovs_full(&weapon) => {
+            if let Ok(mut s) = molotov_sender.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpMolotov);
+            }
+        }
+        _ => {}
     }
 }
 

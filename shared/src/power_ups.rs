@@ -3,7 +3,7 @@
 //! (blinking for the last [`BLINK_SECS`]), and the first player to walk into
 //! it ([`in_pickup_range`]) sets it off for the whole team:
 //!
-//! * **Max Ammo** — everyone's ammo (sniper and throwing knives) full.
+//! * **Max Ammo** — everyone's ammo (sniper, throwing knives and any molotovs) full.
 //! * **Insta-Kill** — any hit kills a zombie, for [`TIMED_SECS`].
 //! * **Double Points** — zombie kills score double, for [`TIMED_SECS`].
 //! * **Nuke** — every zombie up dies, everyone gets [`NUKE_POINTS`], and no

@@ -6,11 +6,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Power-ups
-- Ceilings block jumps
-
 # New
 
+- Add molotov sounds
+- Improve molotov fire look
+- Add quotes
+- Add health bars to zombies
+- Separate todo into regular multiplayer and zombies todos
+- Add molotov to multiplayer loadout
 - Change kanga brew position.
 - Only one light is coming on when turning on the power
 - Improve end game screen

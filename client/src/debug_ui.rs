@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -75,6 +75,7 @@ pub(crate) fn ads_tuning_ui(
                     &mut lightyear::prelude::TriggerSender<shared::SetPowerUpTest>,
                     With<crate::net::GameClient>,
                 >,
+                crate::molotov::MolotovDebug,
             ),
             Query<
                 &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
@@ -610,7 +611,7 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.checkbox(
                         &mut arms_view.debug_hold_key,
-                        "Hold throwing knife key (as if held — untick to throw)",
+                        "Hold lethal key (as if held — untick to throw)",
                     );
                     ui.add(egui::Slider::new(&mut k.translation.x, -100.0f32..=100.0).text("x"));
                     ui.add(egui::Slider::new(&mut k.translation.y, -100.0f32..=100.0).text("y"));
@@ -1321,6 +1322,8 @@ pub(crate) fn ads_tuning_ui(
                         ("throwing knife: hit enemy", &mut v.knife_hit),
                         ("throwing knife: in air", &mut v.knife_in_air),
                         ("knife: equip", &mut v.knife_equip),
+                        ("molotov: light (held)", &mut v.molotov_light),
+                        ("molotov: burst", &mut v.molotov_burst),
                         ("throwing knife: pick up", &mut v.pick_up_equipment),
                         ("sniper: equip", &mut v.sniper_equip),
                         ("heartbeat (at zero health)", &mut v.heartbeat),
@@ -1715,6 +1718,11 @@ pub(crate) fn ads_tuning_ui(
                 if ui.button("Reset power-ups").clicked() {
                     *p = default();
                 }
+            });
+
+            ui.separator();
+            ui.collapsing("Molotov (Zombies)", |ui| {
+                crate::molotov::molotov_section(ui, &mut molotov_dbg, &mut arms_view.debug_hold_key);
             });
 
             ui.separator();

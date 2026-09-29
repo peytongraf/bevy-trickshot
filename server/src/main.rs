@@ -23,6 +23,7 @@ mod health;
 mod killcam;
 mod knives;
 mod lobby;
+mod molotovs;
 mod nav;
 mod net;
 mod power_ups;
@@ -63,6 +64,7 @@ fn main() {
         .add_plugins(pvp::PvpPlugin)
         .add_plugins(killcam::KillCamPlugin)
         .add_plugins(knives::KnivesPlugin)
+        .add_plugins(molotovs::MolotovsPlugin)
         .add_plugins(ai::BotAiPlugin)
         .add_plugins(zombies::ZombiesPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)

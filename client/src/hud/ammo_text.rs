@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::keybinds::KeyBindings;
-use crate::{menu, Weapon, WeaponSlot, HUD_FONT};
+use crate::{menu, Lethal, Weapon, WeaponSlot, HUD_FONT};
 
 /// Window height (logical px) at which the HUD is drawn at its authored
 /// sizes. Measured off a Call of Duty screenshot: there the weapon icon is
@@ -53,7 +53,12 @@ pub(crate) struct AmmoGroup;
 #[derive(Component, Clone)]
 pub(crate) struct WeaponIcon;
 
-/// Throwing knives left, above the knife icon.
+/// The lethal's icon (and its drop-shadow copy) — [`update_lethal_icon`]
+/// swaps both between the throwing knife and the molotov.
+#[derive(Component, Clone)]
+pub(crate) struct LethalIcon;
+
+/// Throwing knives (or molotovs) left, above the lethal icon.
 #[derive(Component)]
 pub(crate) struct KnifeCountText;
 
@@ -90,6 +95,15 @@ fn weapon_icon_path(slot: WeaponSlot) -> &'static str {
     match slot {
         WeaponSlot::Primary => "textures/icons/weapons/sniper.png",
         WeaponSlot::Secondary => "textures/icons/weapons/knife.png",
+    }
+}
+
+/// `Weapon::lethal` → its HUD icon path. Both are drawn to the same 3:2
+/// canvas, so swapping never resizes the group.
+fn lethal_icon_path(lethal: Lethal) -> &'static str {
+    match lethal {
+        Lethal::ThrowingKnife => "textures/icons/weapons/throwing_knife.png",
+        Lethal::Molotov => "textures/icons/weapons/molotov.png",
     }
 }
 
@@ -241,9 +255,9 @@ pub(crate) fn setup_ammo_ui(
                 knife.spawn((KnifeCountText, Text::new(""), text(18.0)));
                 spawn_shadowed_icon(
                     knife,
-                    asset_server.load("textures/icons/weapons/throwing_knife.png"),
+                    asset_server.load(lethal_icon_path(Lethal::ThrowingKnife)),
                     KNIFE_ICON_SIZE,
-                    PlainIcon,
+                    LethalIcon,
                 );
                 knife
                     .spawn((
@@ -266,7 +280,7 @@ pub(crate) fn setup_ammo_ui(
                     ))
                     .with_child((
                         KnifeKeyText,
-                        Text::new(binds.throwing_knife.label().to_uppercase()),
+                        Text::new(binds.lethal.label().to_uppercase()),
                         TextFont {
                             font: font.clone(),
                             font_size: 14.0,
@@ -301,7 +315,7 @@ pub(crate) fn update_ammo_ui(
     }
     set_text(&mut texts.p0(), weapon.mag.to_string());
     set_text(&mut texts.p1(), weapon.reserve.to_string());
-    set_text(&mut texts.p2(), weapon.throwing_knives.to_string());
+    set_text(&mut texts.p2(), weapon.lethal_count().to_string());
 }
 
 fn set_text(text: &mut Text, wanted: String) {
@@ -329,9 +343,9 @@ pub(crate) fn update_knife_hud(
     mut last_empty: Local<Option<bool>>,
 ) {
     if binds.is_changed() {
-        set_text(&mut key, binds.throwing_knife.label().to_uppercase());
+        set_text(&mut key, binds.lethal.label().to_uppercase());
     }
-    let empty = weapon.throwing_knives == 0;
+    let empty = weapon.lethal_count() == 0;
     if *last_empty == Some(empty) {
         return;
     }
@@ -352,6 +366,24 @@ pub(crate) fn update_knife_hud(
         if let Ok(mut b) = colors.p2().get_mut(e) {
             b.0.set_alpha(alpha);
         }
+    }
+}
+
+/// Swap [`LethalIcon`]'s texture (both it and its shadow) to match
+/// `Weapon::lethal` whenever it changes.
+pub(crate) fn update_lethal_icon(
+    weapon: Res<Weapon>,
+    asset_server: Res<AssetServer>,
+    mut icons: Query<&mut ImageNode, With<LethalIcon>>,
+    mut applied: Local<Option<Lethal>>,
+) {
+    if applied.is_some_and(|l| l == weapon.lethal) {
+        return;
+    }
+    *applied = Some(weapon.lethal);
+    let image = asset_server.load(lethal_icon_path(weapon.lethal));
+    for mut icon in &mut icons {
+        icon.image = image.clone();
     }
 }
 

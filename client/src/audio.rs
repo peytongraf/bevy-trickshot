@@ -44,6 +44,12 @@ pub(crate) struct GameSounds {
     pub(crate) knife_in_air: Handle<AudioSource>,
     /// `audio/weapons/knife/equip.mp3` — switching to the regular knife.
     pub(crate) knife_equip: Handle<AudioSource>,
+    /// `audio/weapons/molotov/molotov_light.mp3` — the rag catching and
+    /// burning while the molotov's held (only the holder hears it, looped).
+    pub(crate) molotov_light: Handle<AudioSource>,
+    /// `audio/weapons/molotov/molotov_burst.mp3` — a thrown molotov breaking,
+    /// from where it broke, for the whole lobby.
+    pub(crate) molotov_burst: Handle<AudioSource>,
     /// `audio/weapons/pick_up_equipment.mp3` — picking up a thrown knife
     /// (only the picker hears it).
     pub(crate) pick_up_equipment: Handle<AudioSource>,
@@ -237,6 +243,8 @@ pub(crate) struct SoundVolumes {
     pub(crate) knife_hit: f32,
     pub(crate) knife_in_air: f32,
     pub(crate) knife_equip: f32,
+    pub(crate) molotov_light: f32,
+    pub(crate) molotov_burst: f32,
     pub(crate) pick_up_equipment: f32,
     pub(crate) sniper_equip: f32,
     /// Loudness of the heartbeat at zero health (it fades toward silence as
@@ -288,6 +296,8 @@ impl Default for SoundVolumes {
             knife_hit: 1.5,
             knife_in_air: 1.0,
             knife_equip: 1.0,
+            molotov_light: 1.0,
+            molotov_burst: 1.5,
             pick_up_equipment: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
@@ -337,6 +347,7 @@ impl SoundVolumes {
             (sounds.knife_hit.id(), self.knife_hit),
             (sounds.knife_in_air.id(), self.knife_in_air),
             (sounds.knife_equip.id(), self.knife_equip),
+            (sounds.molotov_light.id(), self.molotov_light),
             (sounds.pick_up_equipment.id(), self.pick_up_equipment),
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
@@ -486,6 +497,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         knife_hit: asset_server.load("audio/weapons/throwing_knife/hit_enemy.mp3"),
         knife_in_air: asset_server.load("audio/weapons/throwing_knife/in_air.mp3"),
         knife_equip: asset_server.load("audio/weapons/knife/equip.mp3"),
+        molotov_light: asset_server.load("audio/weapons/molotov/molotov_light.mp3"),
+        molotov_burst: asset_server.load("audio/weapons/molotov/molotov_burst.mp3"),
         pick_up_equipment: asset_server.load("audio/weapons/pick_up_equipment.mp3"),
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),

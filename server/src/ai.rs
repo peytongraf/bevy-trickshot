@@ -1192,6 +1192,7 @@ mod tests {
             bots_passive: false,
             bots_frozen: false,
             power_up_test: false,
+            molotov_test: false,
             active_power_ups: Vec::new(),
             bomb_test: false,
             start_round: 1,

@@ -553,6 +553,10 @@ fn receive_grabs(
                 weapon.throwing_knives = weapon
                     .throwing_knives
                     .max(shared::throwing_knife::starting_knives(GameMode::Zombies));
+                // Carrying molotovs: those fill up too.
+                if weapon.lethal == crate::Lethal::Molotov {
+                    weapon.molotovs = shared::molotov::MAX_MOLOTOVS;
+                }
             }
         }
     }

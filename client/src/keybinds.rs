@@ -80,9 +80,11 @@ pub struct KeyBindings {
     pub reload: Binding,
     /// Toggle between the primary (sniper) and secondary (knife) slot.
     pub swap_weapon: Binding,
-    /// Hold to instantly snap the current weapon away and show the throwing-knife
-    /// crosshair; release to draw the weapon back out.
-    pub throwing_knife: Binding,
+    /// The lethal equipment (throwing knife or molotov): hold to snap the
+    /// current weapon away and bring up the throwing arms; release to throw.
+    /// (Saved as `throwing_knife` before molotovs existed.)
+    #[serde(alias = "throwing_knife")]
+    pub lethal: Binding,
     /// Quick melee: with the sniper out, snap it away, draw the knife fast,
     /// stab, and bring the sniper back; with the knife out, a normal stab.
     pub melee: Binding,
@@ -118,7 +120,7 @@ impl Default for KeyBindings {
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
             swap_weapon: Key(KeyCode::KeyQ),
-            throwing_knife: Key(KeyCode::KeyV),
+            lethal: Key(KeyCode::KeyV),
             melee: Key(KeyCode::KeyE),
             teleport_home: Key(KeyCode::KeyT),
             save_teleport_point: Key(KeyCode::KeyG),
@@ -146,7 +148,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Aim Down Sight", |b| &mut b.aim),
     ("Reload", |b| &mut b.reload),
     ("Swap Weapon", |b| &mut b.swap_weapon),
-    ("Throwing Knife", |b| &mut b.throwing_knife),
+    ("Lethal", |b| &mut b.lethal),
     ("Melee", |b| &mut b.melee),
     ("Teleport to Point", |b| &mut b.teleport_home),
     ("Save Teleport Point", |b| &mut b.save_teleport_point),

@@ -7,6 +7,7 @@
 //! * [`map`] — where each map's model sits, plus the collision trait the
 //!   server's map meshes implement.
 //! * [`throwing_knife`] — the throwing knife's flight / bounce physics.
+//! * [`molotov`] — the molotov's flight and where its fire spreads.
 //!
 //! Keeping all of this in one crate is the whole point of pinning the server to
 //! the same Bevy version as the client: there is exactly one definition of the
@@ -20,6 +21,7 @@ pub mod health;
 pub mod hitbox;
 pub mod map;
 pub mod melee;
+pub mod molotov;
 pub mod perks;
 pub mod power_ups;
 pub mod power;
@@ -40,6 +42,8 @@ pub use protocol::{
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, SetPowerUpTest, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieSwipeLanded,
+    MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
+    ThrownMolotov,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
@@ -51,7 +55,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001a;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001c;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

@@ -913,6 +913,10 @@ pub struct Lobby {
     /// kill drops a power-up. Kept for the lobby's lifetime, like
     /// `bots_passive`.
     pub power_up_test: bool,
+    /// Debug (the leader's egui panel, [`SetMolotovTest`]): every zombie
+    /// kill drops a molotov. Kept for the lobby's lifetime, like
+    /// `bots_passive`.
+    pub molotov_test: bool,
     /// [`GameMode::Zombies`]: the timed power-ups running
     /// ([`crate::power_ups::PowerUp::timed`]) and their whole seconds left,
     /// in the order they started — grabbing one again restarts its timer
@@ -1039,6 +1043,48 @@ impl Ease for ThrownKnife {
     }
 }
 
+/// A molotov in flight, replicated (interpolated) to every member of its
+/// `Zombies` lobby. The server owns the flight (`server::molotovs`,
+/// [`crate::molotov`]); clients draw the bottle and its burning rag. It's
+/// removed the moment it breaks, and a [`MolotovFire`] takes its place.
+///
+/// The rotation frame: `Y` runs from the bottle's base to its neck.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrownMolotov {
+    pub owner: PeerId,
+    pub pos: Vec3,
+    pub rot: Quat,
+}
+
+impl Ease for ThrownMolotov {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| ThrownMolotov {
+            owner: end.owner,
+            pos: Vec3::lerp(start.pos, end.pos, t),
+            rot: Quat::slerp(start.rot, end.rot, t),
+        })
+    }
+}
+
+/// A patch of fire where a molotov broke, replicated to its lobby for as long
+/// as it burns (`crate::molotov::FIRE_SECS`). `spots` are the points on the
+/// surfaces it spread to ([`crate::molotov::fire_spots`]) — the flames are
+/// drawn there, and the server burns whoever stands in them.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MolotovFire {
+    pub owner: PeerId,
+    pub center: Vec3,
+    pub spots: Vec<Vec3>,
+}
+
+/// A molotov a zombie dropped, lying on its side at `pos` (turned `yaw`
+/// radians about the vertical) for any player to pick up ([`PickUpMolotov`]).
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MolotovDrop {
+    pub pos: Vec3,
+    pub yaw: f32,
+}
+
 /// Client → server: the local player just landed after falling `distance`
 /// metres (apex to landing) at `speed` m/s. Movement is client-authoritative,
 /// so the client is the one who knows it landed — but the *server* turns the
@@ -1148,6 +1194,38 @@ pub struct PickUpKnife;
 /// throwing knife.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct KnifePickedUp;
+
+/// Client → server: the player's throw animation reached the point where the
+/// molotov leaves their hand (`Zombies` only) — see [`ThrowKnife`].
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ThrowMolotov {
+    pub origin: [f32; 3],
+    pub dir: [f32; 3],
+}
+
+/// Client → server: pick up the dropped molotov nearest this player. The
+/// server checks the range and answers with [`MolotovPickedUp`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PickUpMolotov;
+
+/// Server → everyone in a `Zombies` lobby: a thrown molotov broke at
+/// `point` — every client plays the burst sound from there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MolotovBurst {
+    pub point: [f32; 3],
+}
+
+/// Server → the picker only: their [`PickUpMolotov`] worked — one more
+/// molotov, and it's now their lethal.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MolotovPickedUp;
+
+/// Client → server (debug): the party leader turns [`Lobby::molotov_test`]
+/// on or off. Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetMolotovTest {
+    pub on: bool,
+}
 
 /// Client → server: buy a sniper ammo refill at the `Zombies` ammo crate
 /// (`crate::ammo`). The client checks it's at the crate and not already
@@ -1343,6 +1421,10 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KnifePickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<MolotovPickedUp>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<MolotovBurst>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<AmmoBought>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PowerUpGrabbed>()
@@ -1394,6 +1476,12 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpKnife>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ThrowMolotov>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PickUpMolotov>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetMolotovTest>()
+            .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<FallLanded>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<RespawnReady>()
@@ -1438,6 +1526,14 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ThrownKnife>()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
+
+        app.register_component::<ThrownMolotov>()
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
+
+        // Static once spawned, so no interpolation.
+        app.register_component::<MolotovFire>();
+        app.register_component::<MolotovDrop>();
 
         app.register_component::<Lobby>();
 

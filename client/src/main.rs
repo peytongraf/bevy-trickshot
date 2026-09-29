@@ -54,6 +54,7 @@ mod round_counter;
 mod settings;
 mod ammo_crate;
 mod knife_pickup;
+mod molotov;
 mod zombies_audio;
 mod thrown_knife;
 mod ui;
@@ -196,6 +197,7 @@ fn main() {
         .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)
+        .add_plugins(molotov::MolotovPlugin)
         .add_plugins(ammo_crate::AmmoCratePlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
@@ -485,7 +487,7 @@ fn main() {
                 )
                     .after(look_around),
                 (spawn_tracers, update_tracers),
-                (apply_loadout, update_ammo_ui, update_knife_hud, update_weapon_icon, scale_ammo_hud).chain(),
+                (apply_loadout, update_ammo_ui, update_knife_hud, update_weapon_icon, update_lethal_icon, scale_ammo_hud).chain(),
                 (update_fps_ui, update_debug_readout),
                 (apply_scene_tuning, sync_scope_fog).chain(),
                 (apply_shadow_quality, apply_crosshair_texture),

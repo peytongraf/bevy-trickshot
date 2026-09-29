@@ -198,8 +198,9 @@ pub(crate) fn apply_player_hits(
         combat.last_damage = time.elapsed_secs();
         if combat.health > 0.0 {
             // Hurt but alive: the shooter gets a hit marker (a bot shooter has
-            // no client to show it to).
-            if !is_bot_peer(ev.killer) {
+            // no client to show it to, and a player burnt by their own
+            // molotov gets none).
+            if !is_bot_peer(ev.killer) && ev.killer != ev.victim {
                 if let Err(e) = sender.send::<_, GameChannel>(
                     &HitMarker { kill: false },
                     server,

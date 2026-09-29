@@ -180,6 +180,11 @@ pub(crate) struct Weapon {
     /// leaves the hand (a cancelled throw costs nothing); at 0 the
     /// throwing-knife key does nothing.
     pub(crate) throwing_knives: u32,
+    /// Molotovs carried (`Zombies` only — picked up from dropped ones).
+    pub(crate) molotovs: u32,
+    /// Which lethal the lethal key throws. Picking up a molotov makes it the
+    /// molotov; running out of molotovs puts it back to the throwing knife.
+    pub(crate) lethal: Lethal,
     /// Set by a fresh loadout (`Default` / [`Weapon::refill_ammo`]):
     /// [`apply_loadout`] fills `reserve` and `throwing_knives` for the
     /// lobby's `GameMode` as soon as that's known, then clears it.
@@ -297,6 +302,8 @@ impl Default for Weapon {
             // Both filled per game mode by `apply_loadout`.
             reserve: 0,
             throwing_knives: 0,
+            molotovs: 0,
+            lethal: Lethal::ThrowingKnife,
             loadout_pending: true,
             busy: None,
             slot: WeaponSlot::Primary,
@@ -322,6 +329,35 @@ impl Weapon {
     /// left alone, so a reload loads it like any other.
     pub(crate) fn fill_ammo(&mut self, mode: shared::GameMode) {
         self.reserve = (MAG_SIZE + starting_reserve(mode)).saturating_sub(self.mag);
+    }
+
+    /// How many of the current lethal are left.
+    pub(crate) fn lethal_count(&self) -> u32 {
+        match self.lethal {
+            Lethal::ThrowingKnife => self.throwing_knives,
+            Lethal::Molotov => self.molotovs,
+        }
+    }
+
+    /// One `kind` just left the hand. Out of molotovs, the lethal goes back
+    /// to the throwing knife.
+    fn use_lethal(&mut self, kind: Lethal) {
+        match kind {
+            Lethal::ThrowingKnife => self.throwing_knives = self.throwing_knives.saturating_sub(1),
+            Lethal::Molotov => {
+                self.molotovs = self.molotovs.saturating_sub(1);
+                if self.molotovs == 0 {
+                    self.lethal = Lethal::ThrowingKnife;
+                }
+            }
+        }
+    }
+
+    /// A molotov was picked up: one more (up to the most that can be
+    /// carried), and it's now the lethal.
+    pub(crate) fn add_molotov(&mut self) {
+        self.molotovs = (self.molotovs + 1).min(shared::molotov::MAX_MOLOTOVS);
+        self.lethal = Lethal::Molotov;
     }
 
     pub(crate) fn refill_ammo(&mut self) {
@@ -353,7 +389,17 @@ pub(crate) fn apply_loadout(
     };
     weapon.reserve = starting_reserve(lobby.mode);
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
+    weapon.molotovs = 0;
+    weapon.lethal = Lethal::ThrowingKnife;
     weapon.loadout_pending = false;
+}
+
+/// The lethal equipment the lethal key throws — see [`Weapon::lethal`].
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub(crate) enum Lethal {
+    #[default]
+    ThrowingKnife,
+    Molotov,
 }
 
 /// Where the throwing-knife key's sequence is up to. Independent of
@@ -385,6 +431,9 @@ pub(crate) struct ThrowingKnife {
     /// the key press until the arms start sliding away.
     pub(crate) active: bool,
     phase: ThrowPhase,
+    /// What this sequence is throwing — [`Weapon::lethal`] at the press, so
+    /// picking something up mid-throw can't swap it.
+    pub(crate) kind: Lethal,
     /// The throw clip has started this round, so the knife model in the
     /// arms' hand (`throw_arms::ThrowKnifeModel`) is gone. Cleared on the
     /// next press.
@@ -418,9 +467,16 @@ impl ThrowingKnife {
         self.pending_throw.take()
     }
 
-    /// Whether a throw request is waiting to be sent.
+    /// Whether a molotov throw request is waiting to be sent (the throwing
+    /// knife's are sent by `thrown_knife::send_throw_requests`, a molotov's
+    /// by `molotov::send_throw_requests`).
+    pub(crate) fn has_molotov_request(&self) -> bool {
+        self.pending_throw.is_some() && self.kind == Lethal::Molotov
+    }
+
+    /// Whether a throwing-knife throw request is waiting to be sent.
     pub(crate) fn has_throw_request(&self) -> bool {
-        self.pending_throw.is_some()
+        self.pending_throw.is_some() && self.kind == Lethal::ThrowingKnife
     }
 
     /// Whether the throwing-knife reticle should be up instead of the sniper's
@@ -435,7 +491,18 @@ impl ThrowingKnife {
     /// press until the throw animation starts (a cancelled throw keeps it as
     /// the arms slide away).
     pub(crate) fn knife_in_hand(&self) -> bool {
-        self.phase != ThrowPhase::Idle && !self.thrown
+        self.kind == Lethal::ThrowingKnife && self.phase != ThrowPhase::Idle && !self.thrown
+    }
+
+    /// Whether a molotov's rag is lit in the hand: from the press until it's
+    /// thrown or the throw's cancelled (the light sound plays meanwhile).
+    pub(crate) fn molotov_lit(&self) -> bool {
+        self.kind == Lethal::Molotov && self.active && !self.thrown
+    }
+
+    /// [`Self::knife_in_hand`] for the molotov.
+    pub(crate) fn molotov_in_hand(&self) -> bool {
+        self.kind == Lethal::Molotov && self.phase != ThrowPhase::Idle && !self.thrown
     }
 }
 
@@ -824,7 +891,7 @@ pub(crate) fn weapon_system(
     if knife.debug_hold_prev != debug_hold {
         knife.debug_hold_prev = debug_hold;
     }
-    let key_held = debug_hold || binds.throwing_knife.pressed(&keys, &mouse);
+    let key_held = debug_hold || binds.lethal.pressed(&keys, &mouse);
     let melee_pressed = locked && binds.melee.just_pressed(&keys, &mouse);
     let melee_idle = melee.phase == MeleePhase::Idle;
 
@@ -907,13 +974,14 @@ pub(crate) fn weapon_system(
         }
     }
 
-    if (debug_press || (locked && binds.throwing_knife.just_pressed(&keys, &mouse)))
+    if (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse)))
         && knife.phase == ThrowPhase::Idle
         && drink.requested.is_none()
         && melee_idle
-        && weapon.throwing_knives > 0
+        && weapon.lethal_count() > 0
     {
         knife.active = true;
+        knife.kind = weapon.lethal;
         knife.thrown = false;
         knife.throw_sent = false;
         knife.pending_throw = None;
@@ -973,12 +1041,15 @@ pub(crate) fn weapon_system(
                 knife.thrown = true;
                 // The throw sound the moment it's released: heard locally
                 // here, and (via the recorded sound bits) positionally by the
-                // rest of the lobby and in kill-cam replays.
-                commands.spawn((
-                    AudioPlayer::new(sounds.knife_throw.clone()),
-                    PlaybackSettings::DESPAWN,
-                ));
-                snd.note(killcam::SND_THROW);
+                // rest of the lobby and in kill-cam replays. (The molotov
+                // has no sound of its own yet.)
+                if knife.kind == Lethal::ThrowingKnife {
+                    commands.spawn((
+                        AudioPlayer::new(sounds.knife_throw.clone()),
+                        PlaybackSettings::DESPAWN,
+                    ));
+                    snd.note(killcam::SND_THROW);
+                }
                 if let Some(arms) = arms_player.as_mut() {
                     play_throw(arms, arms_node);
                 }
@@ -998,7 +1069,8 @@ pub(crate) fn weapon_system(
                 && (done || clip.is_some_and(|a| a.seek_time() >= arms_settings.throw_release_secs))
             {
                 knife.throw_sent = true;
-                weapon.throwing_knives = weapon.throwing_knives.saturating_sub(1);
+                let kind = knife.kind;
+                weapon.use_lethal(kind);
                 if let Ok(cam) = cam.single() {
                     knife.pending_throw = Some((cam.translation(), cam.forward().as_vec3()));
                 }
