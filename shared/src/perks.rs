@@ -193,6 +193,19 @@ impl Perk {
     /// without a spot yet use somewhere near the origin.
     pub fn machine_pos(self, map: MapId) -> Vec3 {
         match (self, map) {
+            // Ashes of the Damned: placeholders in a row across the
+            // ground-level platform until they're placed properly.
+            (_, MapId::AshesOfTheDamned) => Vec3::new(
+                match self {
+                    Perk::ShroomTea => -12.0,
+                    Perk::NitroBrew => -6.0,
+                    Perk::LiquidCourage => 0.0,
+                    Perk::BombShot => 6.0,
+                    Perk::Kangabrew => 12.0,
+                },
+                0.0,
+                -22.0,
+            ),
             // Tuned in the client's debug panel ("Machine placement").
             (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-2.76, 4.8, -57.43),
             (Perk::ShroomTea, _) => Vec3::ZERO,

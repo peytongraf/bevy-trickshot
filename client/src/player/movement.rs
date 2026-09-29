@@ -269,6 +269,20 @@ pub(crate) const GRAVITY: f32 = 22.0;
 pub(crate) const JUMP_SPEED: f32 = 8.0;
 /// Feet within this distance above a surface still count as standing on it.
 pub(crate) const GROUND_SNAP: f32 = 0.5;
+/// While walking on the ground (not jumping), the floor dropping away by up
+/// to this much (m) in one frame keeps the feet stuck to it — so walking or
+/// sliding down a ramp follows it smoothly instead of stepping off, falling
+/// and landing (thump) over and over. A bigger drop is a ledge: fall.
+const STEP_DOWN: f32 = 0.6;
+/// ...but only onto a surface at most this steep (degrees); anything steeper
+/// is a wall-like face to fall down, not walk down.
+const STEP_DOWN_MAX_SLOPE_DEG: f32 = 55.0;
+/// The top of the head is this far (m) above the eye — what bumps a ceiling
+/// on the way up.
+const HEAD_ABOVE_EYE: f32 = 0.15;
+/// The head's ceiling probes start this far (m) below the top of the head, so
+/// a ceiling it's already brushing is still found.
+const HEAD_PROBE_BACK: f32 = 0.3;
 
 /// Movement is this much faster in every stance while the (model-less) secondary
 /// is equipped — the knife is lighter than the sniper.
@@ -622,27 +636,59 @@ pub(crate) fn apply_gravity(
     physics.vertical_velocity -= settings.gravity * dt;
 
     let feet_now = transform.translation.y - EYE_HEIGHT;
-    let feet_next = feet_now + physics.vertical_velocity * dt;
+    let mut feet_next = feet_now + physics.vertical_velocity * dt;
+
+    // Rising into a ceiling: stop at it — head bumped, upward speed gone —
+    // rather than passing through (a Kangabrew jump easily clears a whole
+    // floor otherwise). Felt for above the middle of the head and around its
+    // edge, so clipping a ceiling's edge counts too.
+    if physics.vertical_velocity > 0.0 {
+        if let Ok(rapier) = rapier.single() {
+            let rise = physics.vertical_velocity * dt;
+            let head = transform.translation.y + slide.drop.min(0.0) + HEAD_ABOVE_EYE;
+            let from_y = head - HEAD_PROBE_BACK;
+            let r = BODY_CAPSULE_RADIUS * 0.8;
+            let ceiling = [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)]
+                .into_iter()
+                .filter_map(|(ox, oz)| {
+                    let origin = Vec3::new(
+                        transform.translation.x + ox,
+                        from_y,
+                        transform.translation.z + oz,
+                    );
+                    rapier
+                        .cast_ray(origin, Vec3::Y, HEAD_PROBE_BACK + rise, true, QueryFilter::default())
+                        .map(|(_, toi)| from_y + toi)
+                })
+                .reduce(f32::min);
+            if let Some(ceiling) = ceiling {
+                feet_next = feet_now + (ceiling - head).clamp(0.0, rise);
+                physics.vertical_velocity = 0.0;
+            }
+        }
+    }
 
     // Only land on the map's surface from above/at its level — not when
     // walking through its base at ground height. Cast down from a
     // `GROUND_SNAP` margin above the current feet, so a surface further below
     // only counts once the fall actually reaches it.
     let mut surface = f32::NEG_INFINITY;
+    let mut surface_normal_y = 0.0;
     if let Ok(rapier) = rapier.single() {
         let origin = Vec3::new(
             transform.translation.x,
             feet_now + GROUND_SNAP,
             transform.translation.z,
         );
-        if let Some((_, toi)) = rapier.cast_ray(
+        if let Some((_, hit)) = rapier.cast_ray_and_get_normal(
             origin,
             Vec3::NEG_Y,
             GROUND_RAY_MAX_DIST,
             true,
             QueryFilter::default(),
         ) {
-            surface = origin.y - toi;
+            surface = origin.y - hit.time_of_impact;
+            surface_normal_y = hit.normal.y;
         }
     }
 
@@ -653,7 +699,16 @@ pub(crate) fn apply_gravity(
         && transform.translation.y + slide.drop + physics.vertical_velocity * dt
             <= surface + DIVE_CLEARANCE;
 
-    if feet_next <= surface || dive_landed {
+    // Walking down a slope: the floor fell away a little since last frame, so
+    // stay on it. (A jump or dive already cleared `grounded` before this
+    // runs, so it never pins a real take-off.)
+    let step_down = was_grounded
+        && physics.vertical_velocity <= 0.0
+        && slide.stance != Stance::Diving
+        && feet_now - surface <= STEP_DOWN
+        && surface_normal_y >= STEP_DOWN_MAX_SLOPE_DEG.to_radians().cos();
+
+    if feet_next <= surface || dive_landed || step_down {
         transform.translation.y = surface + EYE_HEIGHT;
         physics.vertical_velocity = 0.0;
         physics.grounded = true;

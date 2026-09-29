@@ -12,6 +12,7 @@
 //! the same Bevy version as the client: there is exactly one definition of the
 //! protocol and one definition of "did this shot hit".
 
+pub mod ammo;
 pub mod ballistics;
 pub mod bot_players;
 pub mod bots;
@@ -20,6 +21,7 @@ pub mod hitbox;
 pub mod map;
 pub mod melee;
 pub mod perks;
+pub mod power_ups;
 pub mod power;
 pub mod protocol;
 pub mod scoring;
@@ -31,11 +33,11 @@ pub mod zombies;
 use bevy::prelude::*;
 
 pub use protocol::{
-    AddBots, AssetsReady, Bot, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
+    AddBots, AmmoBought, AssetsReady, BuyAmmo, Bot, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
-    PickUpKnife, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
+    PickUpKnife, PowerUpDrop, PowerUpGrabbed, SetPowerUpTest, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieSwipeLanded,
 };

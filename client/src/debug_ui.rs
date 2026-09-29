@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -68,6 +68,18 @@ pub(crate) fn ads_tuning_ui(
             ResMut<crate::power::PowerLeverSettings>,
             ResMut<crate::pap::PapSettings>,
             ResMut<crate::power::MachineHumSettings>,
+            (
+                ResMut<crate::ammo_crate::AmmoCrateSettings>,
+                ResMut<crate::power_ups::PowerUpSettings>,
+                Query<
+                    &mut lightyear::prelude::TriggerSender<shared::SetPowerUpTest>,
+                    With<crate::net::GameClient>,
+                >,
+            ),
+            Query<
+                &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
+                With<crate::net::GameClient>,
+            >,
         ),
     ),
     mut sway: ResMut<WeaponSwaySettings>,
@@ -167,6 +179,22 @@ pub(crate) fn ads_tuning_ui(
                 ui.label(if is_leader {
                     "Zombies and Free For All bots still move and chase you, but never fire. \
                      Stays set for this lobby until turned off."
+                } else {
+                    "Only the party leader can change this."
+                });
+                // Likewise `Lobby::bots_frozen`.
+                let mut frozen = lobby.bots_frozen;
+                if ui
+                    .add_enabled(is_leader, egui::Checkbox::new(&mut frozen, "Bots stay in place"))
+                    .changed()
+                {
+                    if let Ok(mut tx) = bots_frozen_tx.single_mut() {
+                        tx.trigger::<shared::LobbyChannel>(shared::SetBotsFrozen { frozen });
+                    }
+                }
+                ui.label(if is_leader {
+                    "Zombies and bots stand where they are and do nothing — no chasing, firing \
+                     or swiping. Stays set for this lobby until turned off."
                 } else {
                     "Only the party leader can change this."
                 });
@@ -1298,6 +1326,10 @@ pub(crate) fn ads_tuning_ui(
                         ("heartbeat (at zero health)", &mut v.heartbeat),
                         ("hit marker", &mut v.hit_marker),
                         ("zombies: buy perk", &mut v.perk_buy),
+                        ("zombies: buy ammo", &mut v.buy_ammo),
+                        ("zombies: power-up grab", &mut v.power_up_grab),
+                        ("zombies: power-up loop", &mut v.power_up_loop),
+                        ("zombies: power-up announcer", &mut v.power_up_announcer),
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: power on", &mut v.power_on),
                         ("zombies: round start", &mut v.round_start),
@@ -1605,6 +1637,87 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
+            ui.collapsing("Power-ups (Zombies)", |ui| {
+                // The test toggle lives on the server's lobby, like "Bots
+                // don't attack".
+                let me = local_id.iter().next().map(|l| l.0);
+                match me.and_then(|me| lobbies.iter().find(|l| l.has(me)).map(|l| (l, l.leader == me))) {
+                    Some((lobby, is_leader)) => {
+                        let mut on = lobby.power_up_test;
+                        if ui
+                            .add_enabled(is_leader, egui::Checkbox::new(&mut on, "Every zombie kill drops a power-up (test)"))
+                            .changed()
+                        {
+                            if let Ok(mut tx) = power_up_test_tx.single_mut() {
+                                tx.trigger::<shared::LobbyChannel>(shared::SetPowerUpTest { on });
+                            }
+                        }
+                        if !is_leader {
+                            ui.label("Only the party leader can change this.");
+                        }
+                    }
+                    None => {
+                        ui.label("Not in a lobby.");
+                    }
+                }
+                ui.separator();
+                let p = &mut *power_ups;
+                ui.label("Motion");
+                ui.add(egui::Slider::new(&mut p.height, 0.0f32..=3.0).text("float height (m)"));
+                ui.add(egui::Slider::new(&mut p.bob_height, 0.0f32..=0.6).text("bob height (m)"));
+                ui.add(egui::Slider::new(&mut p.bob_speed, 0.0f32..=3.0).text("bob speed (cycles/s)"));
+                ui.add(egui::Slider::new(&mut p.spin_deg, -360.0f32..=360.0).text("spin (deg/s)"));
+                ui.add(egui::Slider::new(&mut p.blink_hz, 0.5f32..=12.0).text("blink when expiring (per s)"));
+                ui.label("Model scale");
+                for kind in shared::power_ups::PowerUp::ALL {
+                    ui.add(
+                        egui::Slider::new(p.scale_mut(kind), 0.001f32..=10.0)
+                            .logarithmic(true)
+                            .text(kind.label()),
+                    );
+                }
+                ui.label("Gold");
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(&mut p.gold_color);
+                    ui.label("colour");
+                });
+                ui.add(egui::Slider::new(&mut p.gold_metallic, 0.0f32..=1.0).text("metallic"));
+                ui.add(egui::Slider::new(&mut p.gold_roughness, 0.0f32..=1.0).text("roughness"));
+                ui.add(egui::Slider::new(&mut p.gold_emissive, 0.0f32..=3.0).text("self-glow"));
+                ui.label("Green glow");
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(&mut p.glow_color);
+                    ui.label("colour (also the light)");
+                });
+                ui.add(egui::Slider::new(&mut p.glow_brightness, 0.0f32..=20.0).text("brightness"));
+                ui.add(egui::Slider::new(&mut p.glow_size, 0.2f32..=6.0).text("size (m)"));
+                ui.add(egui::Slider::new(&mut p.glow_core, 0.05f32..=1.0).text("core size"));
+                ui.add(egui::Slider::new(&mut p.glow_pulse_speed, 0.0f32..=12.0).text("pulse speed"));
+                ui.add(egui::Slider::new(&mut p.glow_pulse_amount, 0.0f32..=1.0).text("pulse amount"));
+                ui.add(egui::Slider::new(&mut p.glow_swirl, 0.0f32..=1.0).text("wisps"));
+                ui.add(egui::Slider::new(&mut p.glow_swirl_speed, 0.0f32..=4.0).text("wisp speed"));
+                ui.add(egui::Slider::new(&mut p.glow_sparks, 0.0f32..=6.0).text("sparks"));
+                ui.add(egui::Slider::new(&mut p.glow_pull, 0.0f32..=2.0).text("pulled toward camera (m)"));
+                ui.add(egui::Slider::new(&mut p.light_lumens, 0.0f32..=200_000.0).logarithmic(true).text("light (lm)"));
+                ui.add(egui::Slider::new(&mut p.light_range, 0.5f32..=20.0).text("light range (m)"));
+                if ui.button("Copy power-up settings to console").clicked() {
+                    info!(
+                        "power-ups: height {:.2}, bob {:.2} @ {:.2}, spin {:.0}, blink {:.1}, scale {:?}, \
+                         gold {:?} metallic {:.2} roughness {:.2} emissive {:.2}, glow {:?} x{:.2} size {:.2} \
+                         core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2}, light {:.0} lm {:.1} m",
+                        p.height, p.bob_height, p.bob_speed, p.spin_deg, p.blink_hz, p.scale,
+                        p.gold_color, p.gold_metallic, p.gold_roughness, p.gold_emissive,
+                        p.glow_color, p.glow_brightness, p.glow_size, p.glow_core,
+                        p.glow_pulse_speed, p.glow_pulse_amount, p.glow_swirl, p.glow_swirl_speed,
+                        p.glow_sparks, p.glow_pull, p.light_lumens, p.light_range,
+                    );
+                }
+                if ui.button("Reset power-ups").clicked() {
+                    *p = default();
+                }
+            });
+
+            ui.separator();
             ui.collapsing("Zombies perks", |ui| {
                 ui.collapsing("Perk machines", |ui| {
                     let m = &mut *machines;
@@ -1659,6 +1772,48 @@ pub(crate) fn ads_tuning_ui(
                     }
                     if ui.button("Reset perk machines").clicked() {
                         *m = default();
+                    }
+                });
+                ui.collapsing("Ammo crate", |ui| {
+                    let a = &mut *ammo_crate;
+                    ui.label(
+                        "Shown in Zombies games on Break Point, on this client only — no collision. Stand \
+                         within 2 m of its position (the model's origin) with the sniper out and \
+                         not full to buy ammo.",
+                    );
+                    if ui.button("Move crate to where I'm standing").clicked() {
+                        a.snap_to_player = true;
+                    }
+                    ui.label("Position (m, world — drag the numbers to go past the sliders)");
+                    for (label, v) in [("x", &mut a.pos.x), ("y", &mut a.pos.y), ("z", &mut a.pos.z)] {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Slider::new(v, -150.0f32..=150.0).text(format!("{label} (m)")));
+                            ui.add(egui::DragValue::new(v).speed(0.05));
+                        });
+                    }
+                    ui.label("Rotation (deg)");
+                    ui.add(egui::Slider::new(&mut a.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
+                    ui.add(egui::Slider::new(&mut a.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
+                    ui.add(egui::Slider::new(&mut a.rotation_deg.z, -180.0f32..=180.0).text("roll (z)"));
+                    ui.add(
+                        egui::Slider::new(&mut a.scale, 0.001f32..=100.0)
+                            .logarithmic(true)
+                            .text("scale (1 = as modelled)"),
+                    );
+                    if ui.button("Copy ammo crate settings to console").clicked() {
+                        info!(
+                            "ammo crate: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.4}",
+                            a.pos.x,
+                            a.pos.y,
+                            a.pos.z,
+                            a.rotation_deg.x,
+                            a.rotation_deg.y,
+                            a.rotation_deg.z,
+                            a.scale,
+                        );
+                    }
+                    if ui.button("Reset ammo crate").clicked() {
+                        *a = default();
                     }
                 });
                 ui.collapsing("Pack-a-Punch machine", |ui| {

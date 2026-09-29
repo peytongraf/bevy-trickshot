@@ -1132,8 +1132,8 @@ fn update_party_panels(
 }
 
 /// Owned-perk icon size and its gap from the bottom of the screen (px).
-const PERK_ICON_SIZE: f32 = 100.0;
-const PERK_ICON_BOTTOM: f32 = 36.0;
+pub(crate) const PERK_ICON_SIZE: f32 = 100.0;
+pub(crate) const PERK_ICON_BOTTOM: f32 = 36.0;
 
 /// One perk's icon in the bottom-centre row, shown while we own it.
 /// The `index`th slot in the bottom-centre icon row: the icon of the

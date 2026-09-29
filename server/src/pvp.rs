@@ -46,7 +46,7 @@ pub struct PlayerCombat {
     pub alive: bool,
     /// `Time::elapsed_secs()` this player becomes targetable / can fire again.
     /// Meaningless while `alive`.
-    respawn_at: f32,
+    pub(crate) respawn_at: f32,
 }
 
 impl PlayerCombat {
@@ -95,6 +95,15 @@ pub struct BombBlast {
     pub by: PeerId,
 }
 
+/// A player killed a `Zombies` zombie standing at `feet` in `lobby` —
+/// written by [`apply_player_hits`], consumed by `crate::power_ups` to roll
+/// for a drop. (A Nuke's kills don't go through here, so they never drop.)
+#[derive(Event)]
+pub struct ZombieKilled {
+    pub lobby: Entity,
+    pub feet: Vec3,
+}
+
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
 /// Written by [`apply_player_hits`], consumed by
 /// [`crate::killcam::queue_killcams`] to queue the victim-only replay.
@@ -111,6 +120,7 @@ impl Plugin for PvpPlugin {
         app.add_event::<PlayerHit>()
             .add_event::<BombBlast>()
             .add_event::<PlayerKilled>()
+            .add_event::<ZombieKilled>()
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
             .add_observer(on_respawn_ready)
@@ -132,12 +142,13 @@ impl Plugin for PvpPlugin {
 /// respawn timer, credits the killer's kill count, and tells the victim
 /// where they'll reappear.
 #[allow(clippy::too_many_arguments)]
-fn apply_player_hits(
+pub(crate) fn apply_player_hits(
     time: Res<Time>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut hits: EventReader<PlayerHit>,
     mut killed: EventWriter<PlayerKilled>,
+    mut zombie_kills: EventWriter<ZombieKilled>,
     mut blasts: EventWriter<BombBlast>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
@@ -170,7 +181,20 @@ fn apply_player_hits(
             .iter()
             .find_map(|(_, l)| l.members.iter().find(|m| m.peer == ev.victim))
             .map_or(&[], |m| m.perks.as_slice());
-        combat.health -= shared::perks::damage_taken(perks, ev.damage);
+        // Insta-Kill (a `Zombies` power-up): a player's hit on a zombie
+        // always kills.
+        let insta = is_bot_peer(ev.victim)
+            && !is_bot_peer(ev.killer)
+            && lobbies.iter().any(|(_, l)| {
+                in_lobby(l)
+                    && l.mode == GameMode::Zombies
+                    && l.power_up_active(shared::power_ups::PowerUp::InstaKill)
+            });
+        combat.health -= if insta {
+            combat.health.max(0.0) + 1.0
+        } else {
+            shared::perks::damage_taken(perks, ev.damage)
+        };
         combat.last_damage = time.elapsed_secs();
         if combat.health > 0.0 {
             // Hurt but alive: the shooter gets a hit marker (a bot shooter has
@@ -224,15 +248,29 @@ fn apply_player_hits(
                 }
             }
             if is_bot_peer(ev.victim) {
+                // Double Points (a `Zombies` power-up) doubles the kill.
+                let points = if lobby.power_up_active(shared::power_ups::PowerUp::DoublePoints) {
+                    ZOMBIE_KILL_POINTS * 2
+                } else {
+                    ZOMBIE_KILL_POINTS
+                };
+                if !is_bot_peer(ev.killer) {
+                    if let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == ev.victim) {
+                        zombie_kills.write(ZombieKilled {
+                            lobby: lobby_e,
+                            feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
+                        });
+                    }
+                }
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
-                    m.score += ZOMBIE_KILL_POINTS;
+                    m.score += points;
                     m.kills += 1;
                     let trick = TrickScore {
                         shooter: ev.killer,
-                        total: ZOMBIE_KILL_POINTS,
+                        total: points,
                         lines: vec![ScoreLine {
                             label: "KILL".into(),
-                            points: ZOMBIE_KILL_POINTS,
+                            points,
                         }],
                     };
                     if let Err(e) = sender.send::<_, GameChannel>(

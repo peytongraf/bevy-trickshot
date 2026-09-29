@@ -27,21 +27,47 @@ const RETRIES: u32 = 8;
 /// spawn never lands flush against a container, only never inside one.
 const WALL_CLEARANCE: f32 = 1.0;
 
-/// One hand-placed spawn point: where on the ground (`x`, `z` — the eye is
-/// `EYE_HEIGHT` above it, the `y = 1.7` in `client/notes/shipment-spawn-points.md`)
-/// and which way to face. `yaw_deg` follows the game's convention: `0` faces
+/// One hand-placed spawn point: where on the ground (`x`, `y`, `z` — the
+/// feet; the eye is `EYE_HEIGHT` above, the `y = 1.7` in
+/// `client/notes/shipment-spawn-points.md`) and which way to face. `yaw_deg` follows the game's convention: `0` faces
 /// -Z, positive turns **left**, negative turns **right** (the notes' "130 left"
 /// is `+130`, "140 right" is `-140`). Pitch is always `0`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnPoint {
     pub x: f32,
+    pub y: f32,
     pub z: f32,
     pub yaw_deg: f32,
 }
 
 const fn sp(x: f32, z: f32, yaw_deg: f32) -> SpawnPoint {
-    SpawnPoint { x, z, yaw_deg }
+    SpawnPoint { x, y: 0.0, z, yaw_deg }
 }
+
+/// A spawn point up on (or down on) a platform `y` metres off the ground.
+const fn sp_at(x: f32, y: f32, z: f32, yaw_deg: f32) -> SpawnPoint {
+    SpawnPoint { x, y, z, yaw_deg }
+}
+
+/// `AshesOfTheDamned`'s spawn points, spread over every platform, each
+/// facing the middle of the map.
+const ASHES_OF_THE_DAMNED_SPAWNS: [SpawnPoint; 12] = [
+    // Ground-level platform.
+    sp(-15.0, -15.0, -135.0),
+    sp(15.0, -15.0, 135.0),
+    sp(0.0, -8.0, 180.0),
+    sp(-18.0, -4.0, -102.5),
+    sp(18.0, -4.0, 102.5),
+    // The raised deck behind it (up the ramp).
+    sp_at(-15.0, 5.0, 30.0, -26.6),
+    sp_at(15.0, 5.0, 30.0, 26.6),
+    sp_at(0.0, 5.0, 24.0, 0.0),
+    // The high platforms either end, and the sunken one.
+    sp_at(-50.0, 10.0, -25.0, -116.6),
+    sp_at(-50.0, 10.0, 25.0, -63.4),
+    sp_at(0.0, 10.0, -70.0, 180.0),
+    sp_at(45.0, -10.0, 0.0, 90.0),
+];
 
 /// `Shipment` / `ShipmentDay`'s spawn points, from
 /// `client/notes/shipment-spawn-points.md`.
@@ -66,6 +92,7 @@ const SHIPMENT_SPAWNS: [SpawnPoint; 11] = [
 pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
     match map {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),
+        MapId::AshesOfTheDamned => Some(&ASHES_OF_THE_DAMNED_SPAWNS),
         _ => None,
     }
 }
@@ -99,7 +126,7 @@ pub fn spawn_point(seed: u64, others: &[Vec3], map: MapId) -> (Vec3, f32) {
             }
         }
         let p = best.map(|(p, _)| p).unwrap_or(points[start]);
-        return (Vec3::new(p.x, 0.0, p.z), p.yaw_deg.to_radians());
+        return (Vec3::new(p.x, p.y, p.z), p.yaw_deg.to_radians());
     }
     let mut best: Option<(Vec3, f32, f32)> = None; // (pos, yaw, min_dist)
     for i in 0..RETRIES {

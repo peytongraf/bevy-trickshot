@@ -17,7 +17,7 @@ use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
     LeaveLobby, Lobby, LobbyError, LobbyMember, MapId, MatchOver, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBombTest, SetZombiesStart, SetMap, SetPaused, SetTimeLimit,
+    PlayerName, PlayerPose, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetPowerUpTest, SetZombiesStart, SetMap, SetPaused, SetTimeLimit,
     StartGame,
 };
 
@@ -57,6 +57,8 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_end_game)
             .add_observer(on_set_paused)
             .add_observer(on_set_bots_passive)
+            .add_observer(on_set_bots_frozen)
+            .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
             .add_observer(on_set_game_mode)
@@ -169,6 +171,9 @@ fn on_create(
                 enemies_active: 0,
                 paused: false,
                 bots_passive: false,
+                bots_frozen: false,
+                power_up_test: false,
+                active_power_ups: Vec::new(),
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,
@@ -265,6 +270,7 @@ fn on_start(
     lobby.started = true;
     lobby.paused = false;
     lobby.power_on = false;
+    lobby.active_power_ups.clear();
     lobby.time_left_secs = lobby.time_limit_secs;
     // (`crate::zombies` starts round 1.)
     lobby.round = 0;
@@ -471,6 +477,31 @@ fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobb
         if lobby.bots_passive != passive {
             lobby.bots_passive = passive;
             info!("lobby bots {} by {peer:?} (debug)", if passive { "made passive" } else { "allowed to attack" });
+        }
+    }
+}
+
+/// Debug: the leader freezes (or frees) their lobby's bots in place, any time.
+fn on_set_bots_frozen(trigger: Trigger<RemoteTrigger<SetBotsFrozen>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let frozen = trigger.trigger.frozen;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
+        if lobby.bots_frozen != frozen {
+            lobby.bots_frozen = frozen;
+            info!("lobby bots {} by {peer:?} (debug)", if frozen { "frozen" } else { "unfrozen" });
+        }
+    }
+}
+
+/// Debug: the leader makes every zombie kill drop a power-up (or not), any
+/// time.
+fn on_set_power_up_test(trigger: Trigger<RemoteTrigger<SetPowerUpTest>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let on = trigger.trigger.on;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
+        if lobby.power_up_test != on {
+            lobby.power_up_test = on;
+            info!("lobby power-up drops {} by {peer:?} (debug)", if on { "always on" } else { "back to normal" });
         }
     }
 }
@@ -694,6 +725,7 @@ pub(crate) fn end_match(
     lobby.started = false;
     lobby.paused = false;
     lobby.power_on = false;
+    lobby.active_power_ups.clear();
     info!("match over — {winner_name} wins with {winner_score}");
 }
 
@@ -759,6 +791,9 @@ mod tests {
             enemies_active: 0,
             paused: false,
             bots_passive: false,
+            bots_frozen: false,
+            power_up_test: false,
+            active_power_ups: Vec::new(),
             bomb_test: false,
             start_round: 1,
             start_points: 0,

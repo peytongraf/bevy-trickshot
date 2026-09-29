@@ -25,6 +25,7 @@ mod knives;
 mod lobby;
 mod nav;
 mod net;
+mod power_ups;
 mod pvp;
 mod sim;
 mod zombies;
@@ -64,5 +65,6 @@ fn main() {
         .add_plugins(knives::KnivesPlugin)
         .add_plugins(ai::BotAiPlugin)
         .add_plugins(zombies::ZombiesPlugin)
+        .add_plugins(power_ups::PowerUpsPlugin)
         .run();
 }

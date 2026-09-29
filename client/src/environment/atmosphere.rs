@@ -238,7 +238,10 @@ pub(crate) fn apply_scene_tuning(
         shared::MapId::Shipment => &shipment_scene.0,
         shared::MapId::ShipmentDay => &shipment_day_scene.0,
         shared::MapId::BreakPoint => &break_point_scene.0,
-        shared::MapId::BreakPointNight => &break_point_night_scene.0,
+        // (Ashes of the Damned borrows Break Point Night's look outright.)
+        shared::MapId::BreakPointNight | shared::MapId::AshesOfTheDamned => {
+            &break_point_night_scene.0
+        }
     };
 
     ambient.color = color_from_parts(active.ambient_color);

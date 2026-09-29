@@ -640,6 +640,25 @@ pub(crate) fn drive_bots(
             };
             continue;
         }
+        // The leader's debug "bots stay in place": once up out of the ground
+        // and off any ledge, stand still — no chasing, firing or swiping.
+        if lobby.bots_frozen && brain.was_alive {
+            brain.target = None;
+            brain.seen_for = 0.0;
+            brain.path.clear();
+            brain.vertical_velocity = 0.0;
+            if let Some(z) = brain.zombie.as_mut() {
+                z.swing = None;
+                z.anim = ZombieAnim::Idle;
+            }
+            action.0 = PlayerInput {
+                translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
+                yaw: brain.yaw,
+                pitch: brain.pitch,
+                ..default()
+            };
+            continue;
+        }
         if !brain.was_alive {
             let enemies: Vec<Vec3> = others
                 .iter()
@@ -1171,6 +1190,9 @@ mod tests {
             enemies_active: 0,
             paused: false,
             bots_passive: false,
+            bots_frozen: false,
+            power_up_test: false,
+            active_power_ups: Vec::new(),
             bomb_test: false,
             start_round: 1,
             start_points: 0,

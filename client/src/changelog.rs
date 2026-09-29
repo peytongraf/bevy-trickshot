@@ -15,6 +15,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: power-ups! Max Ammo, Insta-Kill, Double Points, Nuke and Bonus Points drop from zombies.",
+        "Fixed jumping up through ceilings: you bump your head now.",
+        "Fixed walking down ramps: smooth now, no repeated landing sound.",
+        "New map: Ashes of the Damned.",
+        "Zombies: buy sniper ammo at the ammo crate.",
+        "Zombies: sniper ammo is now limited (40 rounds).",
         "Zombies: game over music.",
         "Zombies: new eerie ambience throughout the game.",
         "Picking up a throwing knife plays a sound.",

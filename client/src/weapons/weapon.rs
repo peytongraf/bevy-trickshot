@@ -36,12 +36,17 @@ pub(crate) const TOTAL_MAGS: u32 = 6;
 /// Reserve rounds in `Freestyle` — effectively unlimited for practice.
 const FREESTYLE_RESERVE: u32 = 1000;
 
-/// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`.
+/// Magazines' worth of sniper rounds (loaded mag included) a `Zombies` player
+/// carries at most — topped back up at the ammo crate (`ammo_crate`).
+const ZOMBIES_TOTAL_MAGS: u32 = 8;
+
+/// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`
+/// — also the most it holds.
 fn starting_reserve(mode: shared::GameMode) -> u32 {
     match mode {
-        // (`Zombies` has no respawns or ammo pickups, so it isn't rationed.)
-        shared::GameMode::Freestyle | shared::GameMode::Zombies => FREESTYLE_RESERVE,
+        shared::GameMode::Freestyle => FREESTYLE_RESERVE,
         shared::GameMode::FreeForAll => MAG_SIZE * (TOTAL_MAGS - 1),
+        shared::GameMode::Zombies => MAG_SIZE * (ZOMBIES_TOTAL_MAGS - 1),
     }
 }
 
@@ -307,6 +312,18 @@ impl Weapon {
     /// weapon/slot from the moment of death, so only the ammo counts (not the
     /// rest of `Weapon`) should reset here; otherwise the empty mag from the
     /// old life carried straight into the new one.
+    /// Whether the sniper holds every round it can in `mode` (mag + reserve).
+    pub(crate) fn ammo_full(&self, mode: shared::GameMode) -> bool {
+        self.mag + self.reserve >= MAG_SIZE + starting_reserve(mode)
+    }
+
+    /// Top the sniper up to every round it can hold in `mode` (the ammo
+    /// crate). The extra goes into the reserve — the mag and chamber are
+    /// left alone, so a reload loads it like any other.
+    pub(crate) fn fill_ammo(&mut self, mode: shared::GameMode) {
+        self.reserve = (MAG_SIZE + starting_reserve(mode)).saturating_sub(self.mag);
+    }
+
     pub(crate) fn refill_ammo(&mut self) {
         let fresh = Self::default();
         self.mag = fresh.mag;

@@ -27,6 +27,8 @@ use shared::{GameMode, Lobby, MapId};
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.glb");
 const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/break_point_map.glb");
+const ASHES_OF_THE_DAMNED_GLB: &[u8] =
+    include_bytes!("../../client/assets/models/ashes_of_the_damned_map.glb");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
@@ -39,6 +41,7 @@ pub struct MapColliders {
     basic: MapMesh,
     shipment: MapMesh,
     break_point: MapMesh,
+    ashes_of_the_damned: MapMesh,
 }
 
 impl MapColliders {
@@ -52,6 +55,11 @@ impl MapColliders {
                 .expect("shipment.glb collision model"),
             break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
                 .expect("break_point_map.glb collision model"),
+            ashes_of_the_damned: MapMesh::from_glb(
+                ASHES_OF_THE_DAMNED_GLB,
+                map::placement(MapId::AshesOfTheDamned),
+            )
+            .expect("ashes_of_the_damned_map.glb collision model"),
         }
     }
 
@@ -85,6 +93,7 @@ impl MapColliders {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
+            MapId::AshesOfTheDamned => &self.ashes_of_the_damned,
         }
     }
 }
@@ -474,7 +483,9 @@ mod tests {
             let dir = Vec3::new(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
             let mut k = KnifeBody::thrown(Vec3::new(0.0, 1.6, 0.0), dir);
             let (mut steps, mut was_inside, mut prev_y) = (0, true, k.pos.y);
-            while !k.finished() && steps < 2000 {
+            // (Until it stops or is removed — a stopped knife then lies there
+            // a whole minute, which this doesn't need to wait out.)
+            while !k.finished() && !k.resting && steps < 2000 {
                 assert!(k.step(dt, w, &[]).is_none());
                 // Crossing the yard's edge while low means it went *through* the
                 // outer wall (a high throw can legitimately sail over it).
@@ -494,7 +505,7 @@ mod tests {
                 assert!(!inside || k.pos.y > -1.0, "throw {i}: fell through the floor at {}", k.pos);
                 steps += 1;
             }
-            assert!(k.finished(), "throw {i}: still going after {steps} steps");
+            assert!(k.finished() || k.resting, "throw {i}: still going after {steps} steps");
             // Every knife either came to rest in the yard or (a high throw)
             // left it over the wall — none is still bouncing when its time
             // runs out.

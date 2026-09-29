@@ -6,12 +6,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Power-ups
+- Ceilings block jumps
+
 # New
 
-- Improve end game screen and add ending music
+- Change kanga brew position.
+- Only one light is coming on when turning on the power
+- Improve end game screen
 - Add music volume setting under audio
-- Add power ups
-- The player can jump through something above them instead of it stopping their jump
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
 - Add pap
@@ -24,9 +27,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Today
 
-- Add bg or even remote player models animated on main menus
 - Knife won't stab when enemies are totally point blank
-- Could make shroom tea brighten map slightly like a sort of night vision
 - On zombies could add a boss that can only take damage from trick shots
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm
@@ -61,15 +62,4 @@ Everything below is ordered easiest → hardest, within each section.
 
 ## UI / HUD
 
-- Add heart beat sound and red around screen when health low
 - Add tab to show leaderboard
-- Add end game screen with play again button
-- Add dot over other players head when playing trickshot mode that goes to the correct side of the screen when looking away from them
-
-## Ideas
-
-- See if it is possible for the OS key to not cause keybind behavior like cod does.
-- Could add breath hold to reduce aiming idle sway then the breath sound effect with the sudden increase in sway
-- Possibly make the perks take a couple minutes to fully kick in
-- Instead of turning power on, have a night vision perk that makes it look like the map is lit up
-- Make mantle like cod where the player has to press the jump button to mantle.

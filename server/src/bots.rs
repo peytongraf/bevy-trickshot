@@ -295,7 +295,8 @@ fn wander_bots(
         let Some(lobby) = lobbies.get(lb.lobby).ok().filter(|l| l.started) else {
             continue;
         };
-        if !bot.alive || endings.is_frozen(lb.lobby) || lobby.paused {
+        // (Also the leader's debug "bots stay in place".)
+        if !bot.alive || endings.is_frozen(lb.lobby) || lobby.paused || lobby.bots_frozen {
             continue;
         }
         let world = &colliders.for_lobby(lobby);
@@ -453,6 +454,9 @@ mod tests {
                 enemies_active: 0,
                 paused: false,
                 bots_passive: false,
+                bots_frozen: false,
+                power_up_test: false,
+                active_power_ups: Vec::new(),
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,
@@ -527,6 +531,9 @@ mod tests {
                 enemies_active: 0,
                 paused: false,
                 bots_passive: false,
+                bots_frozen: false,
+                power_up_test: false,
+                active_power_ups: Vec::new(),
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,

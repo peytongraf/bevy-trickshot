@@ -47,10 +47,12 @@ mod pause;
 mod player;
 mod menu_backdrop;
 mod pap;
+mod power_ups;
 mod power;
 mod respawn;
 mod round_counter;
 mod settings;
+mod ammo_crate;
 mod knife_pickup;
 mod zombies_audio;
 mod thrown_knife;
@@ -194,6 +196,8 @@ fn main() {
         .add_plugins(DrunkPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)
+        .add_plugins(ammo_crate::AmmoCratePlugin)
+        .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)

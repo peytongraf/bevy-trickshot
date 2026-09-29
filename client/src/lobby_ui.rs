@@ -1037,6 +1037,7 @@ fn build_room(
                             shared::MapId::ShipmentDay,
                             shared::MapId::BreakPoint,
                             shared::MapId::BreakPointNight,
+                            shared::MapId::AshesOfTheDamned,
                         ] {
                             option_button(row, asset_server, map.label(), MenuBtn::SetMap(map), map == lobby.map);
                         }

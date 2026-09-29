@@ -119,6 +119,10 @@ pub(crate) fn apply_map_transform(
             let p = shared::map::BREAK_POINT_PLACEMENT;
             (p.position, p.yaw_deg, p.scale)
         }
+        shared::MapId::AshesOfTheDamned => {
+            let p = shared::map::ASHES_OF_THE_DAMNED_PLACEMENT;
+            (p.position, p.yaw_deg, p.scale)
+        }
         _ => return,
     };
     for mut transform in &mut models {
@@ -205,7 +209,8 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 /// entry here once a map gets a `MapVisualModel` of its own.
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight => None,
+        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
+        | shared::MapId::AshesOfTheDamned => None,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/shipment_visual.glb"),
     }
 }

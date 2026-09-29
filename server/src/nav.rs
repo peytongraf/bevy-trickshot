@@ -151,6 +151,7 @@ pub struct NavGraphs {
     basic: NavGraph,
     shipment: NavGraph,
     break_point: NavGraph,
+    ashes_of_the_damned: NavGraph,
 }
 
 impl NavGraphs {
@@ -163,6 +164,7 @@ impl NavGraphs {
             basic: build(MapId::BasicMap),
             shipment: build(MapId::Shipment),
             break_point: build(MapId::BreakPoint),
+            ashes_of_the_damned: build(MapId::AshesOfTheDamned),
         }
     }
 
@@ -171,6 +173,7 @@ impl NavGraphs {
             MapId::BasicMap => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
+            MapId::AshesOfTheDamned => &self.ashes_of_the_damned,
         }
     }
 }
@@ -843,22 +846,22 @@ pub(crate) mod tests {
     #[test]
     fn every_designated_spawn_point_is_on_walkable_ground() {
         let (c, n) = built();
-        for map in [MapId::Shipment, MapId::ShipmentDay] {
+        for map in [MapId::Shipment, MapId::ShipmentDay, MapId::AshesOfTheDamned] {
             let (w, g) = (c.world(map), n.graph(map));
             for (i, p) in shared::spawns::designated_spawns(map).unwrap().iter().enumerate() {
-                let at = Vec3::new(p.x, 0.0, p.z);
+                let at = Vec3::new(p.x, p.y, p.z);
                 let node = g.nearest_node(at).unwrap_or_else(|| {
                     panic!("{map:?} spawn #{} at ({}, {}) has no walkable ground near it", i + 1, p.x, p.z)
                 });
                 let q = g.nodes[node as usize];
                 assert!(
-                    Vec3::new(q.x - at.x, 0.0, q.z - at.z).length() <= 1.0 && q.y.abs() < 0.5,
+                    Vec3::new(q.x - at.x, 0.0, q.z - at.z).length() <= 1.0 && (q.y - at.y).abs() < 0.5,
                     "{map:?} spawn #{} at ({}, {}): nearest floor is {q:?}",
                     i + 1,
                     p.x,
                     p.z
                 );
-                assert!(NavGraph::standable(w, p.x, 0.0, p.z), "{map:?} spawn #{}: no room to stand", i + 1);
+                assert!(NavGraph::standable(w, p.x, p.y, p.z), "{map:?} spawn #{}: no room to stand", i + 1);
             }
         }
     }

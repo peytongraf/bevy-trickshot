@@ -44,6 +44,17 @@ pub const BREAK_POINT_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.6,
 };
 
+/// `ashes_of_the_damned_map.glb`'s placement: as modelled — it's built in
+/// metres (its `player_ref` marker is a 1.8 m person). The main platform's
+/// top is the ground at `y = 0` (x ±25, z -40..0); a ramp (z 0..20) climbs
+/// to a 5 m deck (z 20..40), and there are 10 m platforms either side and a
+/// sunken one at -10, all ringed by chasms.
+pub const ASHES_OF_THE_DAMNED_PLACEMENT: MapPlacement = MapPlacement {
+    position: Vec3::ZERO,
+    yaw_deg: 0.0,
+    scale: 1.0,
+};
+
 /// The collision model file for `map`, relative to the client's assets
 /// directory — `shipment.glb` for both Shipment variants. The server embeds
 /// these same files at build time (`server::collision`).
@@ -52,6 +63,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
         MapId::BasicMap => "models/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
         MapId::BreakPoint | MapId::BreakPointNight => "models/break_point_map.glb",
+        MapId::AshesOfTheDamned => "models/ashes_of_the_damned_map.glb",
     }
 }
 
@@ -61,6 +73,7 @@ pub fn placement(map: MapId) -> MapPlacement {
     match map {
         MapId::BasicMap => BASIC_MAP_PLACEMENT,
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT,
+        MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
             yaw_deg: 0.0,
@@ -151,8 +164,22 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
         MapId::BasicMap => BASIC_MAP_WALLS,
         MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_WALLS,
+        MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_WALLS,
     }
 }
+
+/// `ashes_of_the_damned_map.glb`'s walls and blocks standing on its main
+/// ground-level platform (from the model's node transforms) — the only part
+/// of the map at `y = 0`, which is all [`bounds`] lets bots be placed on.
+const ASHES_OF_THE_DAMNED_WALLS: &[WallBox] = &[
+    // Back wall and the side walls by it.
+    WallBox { x: (-25.0, 25.0), z: (-40.0, -39.0) },
+    WallBox { x: (24.0, 25.0), z: (-39.0, -24.0) },
+    WallBox { x: (-25.0, -24.0), z: (-39.0, -24.0) },
+    // The blocks in front of it.
+    WallBox { x: (-3.0, 15.0), z: (-39.0, -33.0) },
+    WallBox { x: (9.0, 15.0), z: (-33.0, -27.0) },
+];
 
 /// `break_point_map.glb`'s solid blocks and walls that reach the ground, in
 /// native units (generated from the model's node transforms: every box whose
@@ -192,6 +219,8 @@ const BREAK_POINT_WALLS: &[WallBox] = &[
 pub fn area_scale(map: MapId) -> f32 {
     match map {
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT.scale,
+        // Its ground-level platform is only 50 × 40 m.
+        MapId::AshesOfTheDamned => 0.3,
         _ => 1.0,
     }
 }
@@ -216,6 +245,8 @@ fn bounds(map: MapId) -> Option<WallBox> {
         MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
         // The ground plane's x ±60, z ±100, with a margin off the boundary walls.
         MapId::BreakPoint | MapId::BreakPointNight => Some(WallBox { x: (-58.0, 58.0), z: (-98.0, 98.0) }),
+        // The ground-level platform, short of the raised deck at z 0.
+        MapId::AshesOfTheDamned => Some(WallBox { x: (-24.0, 24.0), z: (-38.0, -1.0) }),
     }
 }
 

@@ -89,6 +89,22 @@ pub(crate) struct GameSounds {
     /// `audio/ambient/zombies.mp3` — the eerie bed looped under a running
     /// `Zombies` game (`zombies_audio`).
     pub(crate) zombies_ambient: Handle<AudioSource>,
+    /// `audio/zombies/buy_ammo.mp3` — buying ammo at the ammo crate (only
+    /// the buyer hears it).
+    pub(crate) buy_ammo: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/grab.mp3` — walking into a power-up (only
+    /// the one who grabbed it hears it).
+    pub(crate) power_up_grab: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/drop_loop.mp3` — looped from every power-up
+    /// lying on the ground (positional).
+    pub(crate) power_up_loop: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/<name>.mp3` — the announcer for each
+    /// power-up, for everyone when it's grabbed (`power_ups::announcer`).
+    pub(crate) power_up_max_ammo: Handle<AudioSource>,
+    pub(crate) power_up_insta_kill: Handle<AudioSource>,
+    pub(crate) power_up_double_points: Handle<AudioSource>,
+    pub(crate) power_up_nuke: Handle<AudioSource>,
+    pub(crate) power_up_bonus_points: Handle<AudioSource>,
     /// `audio/music/zombies_game_over.mp3` — played once when a `Zombies`
     /// game ends (`zombies_audio`).
     pub(crate) zombies_game_over: Handle<AudioSource>,
@@ -243,6 +259,12 @@ pub(crate) struct SoundVolumes {
     pub(crate) final_zombie: f32,
     /// The `Zombies` ambience loop and game-over music (`zombies_audio`).
     pub(crate) zombies_ambient: f32,
+    pub(crate) buy_ammo: f32,
+    pub(crate) power_up_grab: f32,
+    /// A dropped power-up's loop (on top of its distance fade).
+    pub(crate) power_up_loop: f32,
+    /// Every power-up's announcer line.
+    pub(crate) power_up_announcer: f32,
     pub(crate) zombies_game_over: f32,
 }
 
@@ -281,6 +303,10 @@ impl Default for SoundVolumes {
             zombie_attack: 1.0,
             final_zombie: 1.0,
             zombies_ambient: 1.0,
+            buy_ammo: 1.0,
+            power_up_grab: 1.0,
+            power_up_loop: 1.0,
+            power_up_announcer: 1.0,
             zombies_game_over: 1.0,
         }
     }
@@ -315,6 +341,13 @@ impl SoundVolumes {
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
             (sounds.perk_buy.id(), self.perk_buy),
+            (sounds.buy_ammo.id(), self.buy_ammo),
+            (sounds.power_up_grab.id(), self.power_up_grab),
+            (sounds.power_up_max_ammo.id(), self.power_up_announcer),
+            (sounds.power_up_insta_kill.id(), self.power_up_announcer),
+            (sounds.power_up_double_points.id(), self.power_up_announcer),
+            (sounds.power_up_nuke.id(), self.power_up_announcer),
+            (sounds.power_up_bonus_points.id(), self.power_up_announcer),
             (sounds.round_start.id(), self.round_start),
         ]
         .into_iter()
@@ -474,6 +507,14 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .collect(),
         menu_music: asset_server.load("audio/music/main_menu.wav"),
         zombies_ambient: asset_server.load("audio/ambient/zombies.mp3"),
+        buy_ammo: asset_server.load("audio/zombies/buy_ammo.mp3"),
+        power_up_grab: asset_server.load("audio/zombies/power_ups/grab.mp3"),
+        power_up_loop: asset_server.load("audio/zombies/power_ups/drop_loop.mp3"),
+        power_up_max_ammo: asset_server.load("audio/zombies/power_ups/max_ammo.mp3"),
+        power_up_insta_kill: asset_server.load("audio/zombies/power_ups/insta_kill.mp3"),
+        power_up_double_points: asset_server.load("audio/zombies/power_ups/double_points.mp3"),
+        power_up_nuke: asset_server.load("audio/zombies/power_ups/nuke.mp3"),
+        power_up_bonus_points: asset_server.load("audio/zombies/power_ups/bonus_points.mp3"),
         zombies_game_over: asset_server.load("audio/music/zombies_game_over.mp3"),
     });
 }
@@ -492,7 +533,8 @@ pub(crate) fn start_ambient(
     current: Res<CurrentMap>,
 ) {
     let (clip, volume_mult) = match current.0 {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight => {
+        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
+        | shared::MapId::AshesOfTheDamned => {
             (sounds.ambient.clone(), vols.ambient)
         }
         shared::MapId::Shipment | shared::MapId::ShipmentDay => {
@@ -554,7 +596,8 @@ pub(crate) fn apply_master_volume(
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
     let ambient_mult = match current.0 {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight => vols.ambient,
+        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
+        | shared::MapId::AshesOfTheDamned => vols.ambient,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => vols.shipment_ambient,
     };
     for mut sink in &mut ambient {

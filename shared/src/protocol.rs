@@ -90,6 +90,11 @@ pub enum MapId {
     /// fog/sky/lighting differ; collision, spawns, bounds and perk machines
     /// are identical (see [`MapId::is_break_point`]).
     BreakPointNight,
+    /// `models/ashes_of_the_damned_map.glb` — raised platforms and blocks
+    /// over deep chasms, at night. Like [`MapId::BreakPoint`] the collision
+    /// mesh is what's rendered, and it borrows [`MapId::BreakPointNight`]'s
+    /// fog, sky and flashlights.
+    AshesOfTheDamned,
 }
 
 impl MapId {
@@ -100,6 +105,7 @@ impl MapId {
             MapId::ShipmentDay => "SHIPMENT DAY",
             MapId::BreakPoint => "BREAK POINT",
             MapId::BreakPointNight => "BREAK POINT NIGHT",
+            MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
         }
     }
 
@@ -894,10 +900,25 @@ pub struct Lobby {
     /// for testing without dying. Kept for the lobby's lifetime, like its
     /// other settings; a new lobby starts with it off.
     pub bots_passive: bool,
+    /// Debug (the leader's egui panel, [`SetBotsFrozen`]): bots — `Zombies`
+    /// zombies, `FreeForAll` bots and `Freestyle` targets — stand where they
+    /// are and do nothing: no moving, chasing, firing or swiping. Kept for
+    /// the lobby's lifetime, like `bots_passive`.
+    pub bots_frozen: bool,
     /// Debug (the leader's egui panel, [`SetBombTest`]): every zombie kill
     /// in this lobby explodes like a Bomb Shot trickshot, without the perk
     /// or the trickshot. Kept for the lobby's lifetime, like `bots_passive`.
     pub bomb_test: bool,
+    /// Debug (the leader's egui panel, [`SetPowerUpTest`]): every zombie
+    /// kill drops a power-up. Kept for the lobby's lifetime, like
+    /// `bots_passive`.
+    pub power_up_test: bool,
+    /// [`GameMode::Zombies`]: the timed power-ups running
+    /// ([`crate::power_ups::PowerUp::timed`]) and their whole seconds left,
+    /// in the order they started — grabbing one again restarts its timer
+    /// but keeps its place. Server-owned (`server::power_ups`); cleared
+    /// whenever a game starts or ends.
+    pub active_power_ups: Vec<(crate::power_ups::PowerUp, u16)>,
     /// [`GameMode::Zombies`]: the round a game starts on (1 = the normal
     /// start), set by the leader before starting ([`SetZombiesStart`]).
     pub start_round: u32,
@@ -913,6 +934,11 @@ pub struct Lobby {
 impl Lobby {
     pub fn has(&self, peer: PeerId) -> bool {
         self.members.iter().any(|m| m.peer == peer)
+    }
+
+    /// Whether the timed power-up `p` is running in this lobby's game.
+    pub fn power_up_active(&self, p: crate::power_ups::PowerUp) -> bool {
+        self.active_power_ups.iter().any(|(q, _)| *q == p)
     }
 
     /// The members with a real client behind them — the only ones a message can
@@ -1123,6 +1149,46 @@ pub struct PickUpKnife;
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct KnifePickedUp;
 
+/// Client → server: buy a sniper ammo refill at the `Zombies` ammo crate
+/// (`crate::ammo`). The client checks it's at the crate and not already
+/// full; the server checks the game, that they're alive, and the points,
+/// then takes them and answers with [`AmmoBought`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyAmmo;
+
+/// Server → the buyer only: their [`BuyAmmo`] went through — fill the sniper.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct AmmoBought;
+
+/// A `Zombies` power-up lying where a zombie dropped it, replicated to the
+/// lobby's members. `pos` is its spot on the ground (the client floats and
+/// spins the model above it); `blinking` is set for the last
+/// `crate::power_ups::BLINK_SECS` before it's gone. Server-owned
+/// (`server::power_ups`), removed when grabbed, when it runs out, or when
+/// the game ends.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PowerUpDrop {
+    pub kind: crate::power_ups::PowerUp,
+    pub pos: Vec3,
+    pub blinking: bool,
+}
+
+/// Server → everyone in a `Zombies` lobby: `by` walked into a `kind` drop
+/// at `pos` and set it off — every client plays its announcer sound (and
+/// Max Ammo fills everyone's ammo); `by` also plays the grab sound.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PowerUpGrabbed {
+    pub kind: crate::power_ups::PowerUp,
+    pub by: PeerId,
+}
+
+/// Client → server (debug): the party leader turns [`Lobby::power_up_test`]
+/// on or off. Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetPowerUpTest {
+    pub on: bool,
+}
+
 /// Client → server: create a new lobby and join it as leader.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CreateLobby {
@@ -1204,6 +1270,13 @@ pub struct SetBotsPassive {
     pub passive: bool,
 }
 
+/// Client → server (debug): the party leader turns [`Lobby::bots_frozen`] on
+/// or off. Ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetBotsFrozen {
+    pub frozen: bool,
+}
+
 /// Client → server (debug): the party leader turns [`Lobby::bomb_test`] on
 /// or off. Ignored from anyone else.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
@@ -1270,6 +1343,10 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KnifePickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<AmmoBought>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<PowerUpGrabbed>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -1288,6 +1365,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPaused>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetBotsPassive>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetBotsFrozen>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetPowerUpTest>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetBombTest>()
             .add_direction(NetworkDirection::ClientToServer);
@@ -1321,6 +1402,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyAmmo>()
+            .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
@@ -1348,6 +1431,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Bot>()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
+
+        // Static once dropped (only `blinking` flips), so no interpolation.
+        app.register_component::<PowerUpDrop>();
 
         app.register_component::<ThrownKnife>()
             .add_interpolation(InterpolationMode::Full)

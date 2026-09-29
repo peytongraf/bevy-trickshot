@@ -21,7 +21,10 @@ use lightyear::prelude::*;
 
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
-use shared::{BuyPerk, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput, PlayerName, PlayerPose};
+use shared::{
+    AmmoBought, BuyAmmo, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
+    PlayerName, PlayerPose,
+};
 
 use crate::ai::{BotBrain, NextBotId};
 use crate::lobby::LobbyPlayer;
@@ -91,11 +94,12 @@ struct ZombieDeath(f32);
 /// A running `Zombies` game's round state, on its lobby entity (server-only;
 /// the round number itself is replicated as `Lobby::round`).
 #[derive(Component)]
-struct ZombieRounds {
+pub(crate) struct ZombieRounds {
     round: u32,
     /// Zombies this round still has to send.
     to_spawn: u32,
-    next_spawn_at: f32,
+    /// (A Nuke pushes this back — `crate::power_ups`.)
+    pub(crate) next_spawn_at: f32,
     /// No spawning until then (the start delay / the break between rounds).
     break_until: f32,
 }
@@ -106,6 +110,7 @@ impl Plugin for ZombiesPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_buy_perk)
             .add_observer(on_turn_on_power)
+            .add_observer(on_buy_ammo)
             .add_systems(
                 FixedUpdate,
                 (run_rounds, clear_dead_zombies, cull_zombies).before(crate::ai::drive_bots),
@@ -373,6 +378,47 @@ fn on_turn_on_power(
     info!("{peer:?} turned the power on");
 }
 
+/// A member wants a sniper ammo refill at the ammo crate: they must be in a
+/// running `Zombies` game, alive, with the points. (Where the crate stands
+/// and whether they're already full are the client's to check — see
+/// `shared::ammo`.) Takes the points and tells them to fill up.
+fn on_buy_ammo(
+    trigger: Trigger<RemoteTrigger<BuyAmmo>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    let Some((lobby_e, mut lobby)) = lobbies
+        .iter_mut()
+        .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused {
+        return;
+    }
+    if !players.iter().any(|(id, c)| id.0 == peer && c.alive) {
+        return;
+    }
+    let cost = shared::ammo::AMMO_COST;
+    let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
+        return;
+    };
+    if member.score < cost {
+        return;
+    }
+    member.score -= cost;
+    if let Err(e) =
+        sender.send::<_, GameChannel>(&AmmoBought, server.into_inner(), &NetworkTarget::Single(peer))
+    {
+        error!("failed to send ammo purchase: {e:?}");
+    }
+    info!("{peer:?} bought ammo");
+}
+
 /// Let a dead zombie lie for [`CORPSE_SECS`] (its death animation), then
 /// remove it.
 fn clear_dead_zombies(
@@ -447,6 +493,9 @@ mod tests {
                 enemies_active: 0,
                 paused: false,
                 bots_passive: false,
+                bots_frozen: false,
+                power_up_test: false,
+                active_power_ups: Vec::new(),
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,
