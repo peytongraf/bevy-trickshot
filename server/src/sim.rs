@@ -250,7 +250,13 @@ fn resolve_shots(
                     player_hits.write(PlayerHit {
                         victim: *victim,
                         killer: shooter.0,
-                        damage: shared::melee::KNIFE_DAMAGE * knife_mult,
+                        // Zombies have their own knife curve (it gives out
+                        // after `ZOMBIE_KNIFE_ONE_HIT_ROUND`); players always die.
+                        damage: if zombies {
+                            shared::zombies::ZOMBIE_KNIFE_DAMAGE * knife_mult
+                        } else {
+                            shared::melee::KNIFE_DAMAGE
+                        },
                         bomb_shot: false,
                         blast: false,
                     });

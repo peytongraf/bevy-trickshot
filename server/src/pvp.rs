@@ -467,12 +467,12 @@ fn on_fall_landed(
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
-    // Liquid Courage (a `Zombies` perk) softens falls too.
+    // Liquid Courage and Kangabrew (`Zombies` perks) soften falls.
     let perks: &[shared::perks::Perk] = lobbies
         .iter()
         .find_map(|(_, l)| l.members.iter().find(|m| m.peer == peer))
         .map_or(&[], |m| m.perks.as_slice());
-    let damage = shared::perks::damage_taken(perks, fall_damage(landed.distance));
+    let damage = shared::perks::fall_damage_taken(perks, fall_damage(landed.distance));
     if damage <= 0.0 {
         return;
     }

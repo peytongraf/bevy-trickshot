@@ -269,8 +269,8 @@ pub(crate) fn my_pap_levels(local: &Query<&LocalId, With<GameClient>>, lobbies: 
 }
 
 /// Keep the sniper's ammo limit in step with its level; a new level is our
-/// purchase going through, so it's filled up to the new most, Cold War
-/// style.
+/// purchase going through, so the mag and reserve are both filled to the
+/// new most, Cold War style.
 fn sync_pap_levels(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -283,7 +283,7 @@ fn sync_pap_levels(
     let raised = level > weapon.pap_level;
     weapon.pap_level = level;
     if raised {
-        weapon.fill_ammo(GameMode::Zombies);
+        weapon.fill_mag_and_reserve(GameMode::Zombies);
     }
 }
 

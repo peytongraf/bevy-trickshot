@@ -15,6 +15,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: Pack-a-Punching your sniper fills its mag and ammo.",
+        "Zombies: sniper one-shots zombies for longer, with or without Pack-a-Punch.",
+        "Zombies: one lethal at a time. Walk over your kind to grab it, swap with interact (up to 4).",
+        "Zombies: molotovs burn zombies twice as hard.",
+        "Zombies: Kangabrew halves fall damage.",
+        "Knife reaches a little further.",
         "Zombies: zombies get tougher every round.",
         "Zombies: Pack-a-Punch! Upgrade your sniper or knife at the machine.",
         "Zombies: Kangabrew machine moved.",

@@ -969,17 +969,19 @@ fn sync_drop_avatars(
     }
 }
 
-/// The server handed us a molotov we picked up: it's now the lethal, and the
+/// The server handed us a molotov we picked up: it's now the only lethal, and the
 /// pickup sound plays — just for us.
 fn receive_pickups(
     mut receivers: Query<&mut MessageReceiver<shared::MolotovPickedUp>>,
     mut weapon: ResMut<Weapon>,
+    mut pending: ResMut<crate::knife_pickup::PendingPickup>,
     sounds: Res<GameSounds>,
     mut commands: Commands,
 ) {
     for mut rx in &mut receivers {
         for _ in rx.receive() {
             weapon.add_molotov();
+            pending.0 = None;
             commands.spawn((
                 AudioPlayer::new(sounds.pick_up_equipment.clone()),
                 PlaybackSettings::DESPAWN,

@@ -14,8 +14,9 @@ use crate::ballistics::Target;
 use crate::hitbox::{ray_capsule, Capsule};
 use crate::map::CollisionWorld;
 
-/// Most molotovs a player can carry.
-pub const MAX_MOLOTOVS: u32 = 3;
+/// Most molotovs a player can carry (the same cap as
+/// [`crate::throwing_knife::MAX_CARRIED`]).
+pub const MAX_MOLOTOVS: u32 = 4;
 /// Launch speed (m/s) along the aim.
 pub const THROW_SPEED: f32 = 19.0;
 /// Extra upward launch speed (m/s), so a throw at the horizon still lobs.
@@ -38,7 +39,7 @@ pub const FIRE_SECS: f32 = 8.0;
 /// Seconds between damage ticks.
 pub const FIRE_TICK_SECS: f32 = 0.2;
 /// Damage each tick does to a zombie standing in the fire.
-pub const ZOMBIE_TICK_DAMAGE: f32 = 7.0;
+pub const ZOMBIE_TICK_DAMAGE: f32 = 14.0;
 /// Damage each tick does to the thrower standing in their own fire.
 pub const SELF_TICK_DAMAGE: f32 = 4.0;
 /// How close (m, across the ground) to a fire spot a body has to be to burn.

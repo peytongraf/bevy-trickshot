@@ -550,12 +550,14 @@ fn receive_grabs(
             }
             if msg.kind == PowerUp::MaxAmmo {
                 weapon.fill_ammo(GameMode::Zombies);
-                weapon.throwing_knives = weapon
-                    .throwing_knives
-                    .max(shared::throwing_knife::starting_knives(GameMode::Zombies));
-                // Carrying molotovs: those fill up too.
-                if weapon.lethal == crate::Lethal::Molotov {
-                    weapon.molotovs = shared::molotov::MAX_MOLOTOVS;
+                // Only the lethal actually carried fills up.
+                match weapon.lethal {
+                    crate::Lethal::ThrowingKnife => {
+                        weapon.throwing_knives = weapon
+                            .throwing_knives
+                            .max(shared::throwing_knife::starting_knives(GameMode::Zombies));
+                    }
+                    crate::Lethal::Molotov => weapon.molotovs = shared::molotov::MAX_MOLOTOVS,
                 }
             }
         }

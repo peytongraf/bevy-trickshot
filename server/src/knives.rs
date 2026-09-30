@@ -20,6 +20,9 @@
 //! ([`KnifeBody::drop_beside`]), clear of the body. A stopped knife lies where it landed for
 //! [`shared::throwing_knife::REST_LINGER_SECS`]; any living player in its
 //! lobby close enough can pick it up ([`PickUpKnife`]) for one more knife.
+//! A player carries one kind of lethal: picking a knife up while carrying
+//! molotovs drops them ([`crate::molotovs::drop_around`]), and picking up a
+//! molotov drops their knives here ([`drop_knives_around`]).
 
 use std::collections::HashMap;
 
@@ -30,7 +33,7 @@ use lightyear::prelude::*;
 use shared::ballistics::Target;
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
-use shared::throwing_knife::{in_pickup_range, KnifeBody, MAX_KNIVES_PER_PLAYER};
+use shared::throwing_knife::{in_pickup_range, KnifeBody, MAX_CARRIED, MAX_KNIVES_PER_PLAYER};
 use shared::{
     Bot, GameChannel, GameMode, KnifePickedUp, Lobby, PickUpKnife, PlayerId, PlayerPose,
     ThrowKnife, ThrowingKnifeHit, ThrowingKnifeImpact, ThrownKnife, TrickScore,
@@ -173,9 +176,12 @@ fn on_throw_knife(
 }
 
 /// A client asked to pick up the stopped knife nearest them: if one's in
-/// range, remove it and tell them they've got it.
+/// range, remove it and tell them they've got it — and drop any molotovs
+/// they were carrying instead.
+#[allow(clippy::too_many_arguments)]
 fn on_pick_up_knife(
     trigger: Trigger<RemoteTrigger<PickUpKnife>>,
+    colliders: Res<MapColliders>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
@@ -185,7 +191,7 @@ fn on_pick_up_knife(
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let Some((lobby_e, _)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
+    let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
         return;
     };
     if combats.iter().any(|(id, c)| id.0 == peer && !c.alive) {
@@ -208,12 +214,55 @@ fn on_pick_up_knife(
         return;
     };
     commands.entity(knife).try_despawn();
+    let drop = trigger.trigger.drop_molotovs.min(shared::molotov::MAX_MOLOTOVS);
+    if drop > 0 && lobby.mode == GameMode::Zombies {
+        crate::molotovs::drop_around(&mut commands, lobby_e, lobby, feet, drop, &colliders.for_lobby(lobby));
+    }
     if let Err(e) =
         sender.send::<_, GameChannel>(&KnifePickedUp, server.into_inner(), &NetworkTarget::Single(peer))
     {
         error!("failed to send knife pickup: {e:?}");
     }
     info!("{peer:?} picked up a throwing knife");
+}
+
+/// Leave `count` (capped at [`MAX_CARRIED`]) knives lying on the ground
+/// around `feet`, owned by `owner` — the knives a player carried when they
+/// picked up a molotov. Anyone in the lobby can pick them up again.
+pub(crate) fn drop_knives_around(
+    commands: &mut Commands,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    owner: PeerId,
+    feet: Vec3,
+    count: u32,
+    world: &dyn shared::map::CollisionWorld,
+) {
+    let count = count.min(MAX_CARRIED);
+    let members: Vec<PeerId> = lobby.real_peers();
+    for i in 0..count {
+        let seed = (i as f32 + 0.5) / count as f32;
+        let ground = shared::molotov::drop_spot(feet, seed, world);
+        let body = KnifeBody::lying_at(ground, seed * std::f32::consts::TAU + 1.3);
+        commands.spawn((
+            Name::from("ThrownKnife"),
+            ThrownKnife {
+                owner,
+                pos: body.pos,
+                rot: body.rot,
+                resting: true,
+            },
+            KnifeSim {
+                body,
+                owner,
+                lobby: lobby_e,
+                last_impact_sound: f32::NEG_INFINITY,
+            },
+            Replicate::to_clients(NetworkTarget::Only(members.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::Only(members.clone())),
+        ));
+    }
+    info!("{owner:?} dropped {count} throwing knife(s)");
 }
 
 /// Step every knife one tick: fly / bounce / rest, and apply a kill if it hit
@@ -332,10 +381,15 @@ fn step_knives(
                     info!("{owner:?} killed a bot with a throwing knife for {points} pts");
                 }
                 Some(Victim::Player(victim)) => {
+                    let damage = if lobby.mode == GameMode::Zombies {
+                        shared::zombies::ZOMBIE_KNIFE_DAMAGE
+                    } else {
+                        shared::melee::KNIFE_DAMAGE
+                    };
                     player_hits.write(PlayerHit {
                         victim: *victim,
                         killer: owner,
-                        damage: shared::melee::KNIFE_DAMAGE,
+                        damage,
                         bomb_shot: false,
                         blast: false,
                     });

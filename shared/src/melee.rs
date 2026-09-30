@@ -10,8 +10,8 @@ use crate::ballistics::Target;
 
 /// How far ahead of the eye (metres) the stab reaches along the aim
 /// direction. Together with [`KNIFE_AIM_SLACK_M`] and the target's own body
-/// radius this is roughly a 2.2 m lunge to the surface of a body.
-pub const KNIFE_REACH_M: f32 = 1.8;
+/// radius this is roughly a 2.6 m lunge to the surface of a body.
+pub const KNIFE_REACH_M: f32 = 2.2;
 
 /// Extra sideways/vertical forgiveness (metres) on top of the target's body
 /// radius — the "roughly aiming at them" tolerance.

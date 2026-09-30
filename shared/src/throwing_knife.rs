@@ -24,6 +24,11 @@ pub fn starting_knives(mode: GameMode) -> u32 {
     }
 }
 
+/// Most throwing knives a player can carry (picking one up past this does
+/// nothing) — the same cap as [`crate::molotov::MAX_MOLOTOVS`]; a player
+/// only ever carries one kind of lethal.
+pub const MAX_CARRIED: u32 = 4;
+
 /// Most knives one player can have in the world at once (also how many a
 /// kill-cam frame carries — see [`crate::KillCamSample::thrown_knives`]).
 pub const MAX_KNIVES_PER_PLAYER: usize = 3;
@@ -135,6 +140,19 @@ impl KnifeBody {
             rest_target: None,
             impact: None,
         }
+    }
+
+    /// A knife lying still on the ground at `ground`, tip heading along
+    /// `yaw` (radians about the vertical) — one a player dropped when they
+    /// swapped to another lethal.
+    pub fn lying_at(ground: Vec3, yaw: f32) -> Self {
+        let mut body = Self::thrown(ground, Vec3::new(yaw.cos(), 0.0, yaw.sin()));
+        body.pos = ground + Vec3::Y * KNIFE_RADIUS;
+        body.vel = Vec3::ZERO;
+        body.spin = Vec3::ZERO;
+        body.rot = flat_rotation(body.rot);
+        body.resting = true;
+        body
     }
 
     /// Nothing more to simulate — the caller should remove the knife.

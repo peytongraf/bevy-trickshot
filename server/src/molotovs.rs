@@ -367,9 +367,40 @@ fn age_drops(
     }
 }
 
-/// A client asked to pick up the dropped molotov nearest them.
+/// Leave `count` dropped molotovs spread around `feet` — the ones a player
+/// carried when they picked up a throwing knife. They linger like a
+/// zombie's drop.
+pub(crate) fn drop_around(
+    commands: &mut Commands,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    feet: Vec3,
+    count: u32,
+    world: &dyn shared::map::CollisionWorld,
+) {
+    for i in 0..count {
+        let seed = (i as f32 + 0.5) / count as f32;
+        commands.spawn((
+            Name::from("MolotovDrop"),
+            MolotovDrop {
+                pos: drop_spot(feet, seed, world),
+                yaw: seed * std::f32::consts::TAU,
+            },
+            DropSim {
+                lobby: lobby_e,
+                age: 0.0,
+            },
+            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+        ));
+    }
+}
+
+/// A client asked to pick up the dropped molotov nearest them — dropping any
+/// throwing knives they were carrying instead.
+#[allow(clippy::too_many_arguments)]
 fn on_pick_up_molotov(
     trigger: Trigger<RemoteTrigger<PickUpMolotov>>,
+    colliders: Res<MapColliders>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
@@ -379,7 +410,7 @@ fn on_pick_up_molotov(
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let Some((lobby_e, _)) = zombies_lobby(&lobbies, peer) else {
+    let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
         return;
     };
     if combats.iter().any(|(id, c)| id.0 == peer && !c.alive) {
@@ -398,6 +429,18 @@ fn on_pick_up_molotov(
         return;
     };
     commands.entity(entity).try_despawn();
+    let drop = trigger.trigger.drop_knives;
+    if drop > 0 {
+        crate::knives::drop_knives_around(
+            &mut commands,
+            lobby_e,
+            lobby,
+            peer,
+            feet,
+            drop,
+            &colliders.for_lobby(lobby),
+        );
+    }
     if let Err(e) = sender.send::<_, GameChannel>(
         &MolotovPickedUp,
         server.into_inner(),

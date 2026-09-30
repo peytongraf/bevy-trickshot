@@ -186,8 +186,9 @@ pub(crate) struct Weapon {
     pub(crate) throwing_knives: u32,
     /// Molotovs carried (`Zombies` only — picked up from dropped ones).
     pub(crate) molotovs: u32,
-    /// Which lethal the lethal key throws. Picking up a molotov makes it the
-    /// molotov; running out of molotovs puts it back to the throwing knife.
+    /// Which lethal the lethal key throws — the only kind carried: picking up
+    /// the other kind swaps to it (the old ones are dropped, see
+    /// `knife_pickup`). Stays put when it runs out.
     pub(crate) lethal: Lethal,
     /// Set by a fresh loadout (`Default` / [`Weapon::refill_ammo`]):
     /// [`apply_loadout`] fills `reserve` and `throwing_knives` for the
@@ -351,6 +352,13 @@ impl Weapon {
         self.reserve = (MAG_SIZE + self.max_reserve(mode)).saturating_sub(self.mag);
     }
 
+    /// Top the sniper right up — a full mag *and* a full reserve for its
+    /// capacity in `mode` (a Pack-a-Punch, Cold War style).
+    pub(crate) fn fill_mag_and_reserve(&mut self, mode: shared::GameMode) {
+        self.mag = MAG_SIZE;
+        self.reserve = self.max_reserve(mode);
+    }
+
     /// How many of the current lethal are left.
     pub(crate) fn lethal_count(&self) -> u32 {
         match self.lethal {
@@ -359,25 +367,49 @@ impl Weapon {
         }
     }
 
-    /// One `kind` just left the hand. Out of molotovs, the lethal goes back
-    /// to the throwing knife.
+    /// One `kind` just left the hand.
     fn use_lethal(&mut self, kind: Lethal) {
         match kind {
             Lethal::ThrowingKnife => self.throwing_knives = self.throwing_knives.saturating_sub(1),
-            Lethal::Molotov => {
-                self.molotovs = self.molotovs.saturating_sub(1);
-                if self.molotovs == 0 {
-                    self.lethal = Lethal::ThrowingKnife;
-                }
-            }
+            Lethal::Molotov => self.molotovs = self.molotovs.saturating_sub(1),
+        }
+    }
+
+    /// The kind of lethal actually carried — `None` once the current one has
+    /// run out (so either kind is picked up without swapping).
+    pub(crate) fn carried_lethal(&self) -> Option<Lethal> {
+        (self.lethal_count() > 0).then_some(self.lethal)
+    }
+
+    /// Whether as many of `kind` are carried as can be (Freestyle's
+    /// bottomless knives count as full).
+    pub(crate) fn lethal_full(&self, kind: Lethal) -> bool {
+        match kind {
+            Lethal::ThrowingKnife => self.throwing_knives >= shared::throwing_knife::MAX_CARRIED,
+            Lethal::Molotov => self.molotovs >= shared::molotov::MAX_MOLOTOVS,
         }
     }
 
     /// A molotov was picked up: one more (up to the most that can be
-    /// carried), and it's now the lethal.
+    /// carried), and it's now the only lethal — any knives were dropped.
     pub(crate) fn add_molotov(&mut self) {
+        if self.lethal != Lethal::Molotov {
+            self.throwing_knives = 0;
+        }
         self.molotovs = (self.molotovs + 1).min(shared::molotov::MAX_MOLOTOVS);
         self.lethal = Lethal::Molotov;
+    }
+
+    /// A throwing knife was picked up: one more (up to the most that can be
+    /// carried), and it's now the only lethal — any molotovs were dropped.
+    pub(crate) fn add_throwing_knife(&mut self) {
+        if self.lethal != Lethal::ThrowingKnife {
+            self.molotovs = 0;
+        }
+        if self.throwing_knives < shared::throwing_knife::MAX_CARRIED {
+            self.throwing_knives += 1;
+        }
+        self.lethal = Lethal::ThrowingKnife;
     }
 
     pub(crate) fn refill_ammo(&mut self) {

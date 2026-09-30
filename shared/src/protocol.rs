@@ -1190,11 +1190,17 @@ pub struct ThrowKnife {
 /// (pressed the interact key while its prompt was showing). The server finds
 /// it, checks the range (`shared::throwing_knife::in_pickup_range`), removes
 /// it and answers with [`KnifePickedUp`].
+///
+/// A player carries one kind of lethal at a time: swapping from molotovs,
+/// the client says how many it's carrying and the server drops that many
+/// [`MolotovDrop`]s around them (only if the pickup worked).
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
-pub struct PickUpKnife;
+pub struct PickUpKnife {
+    pub drop_molotovs: u32,
+}
 
 /// Server → the picker only: their [`PickUpKnife`] worked — one more
-/// throwing knife.
+/// throwing knife, and it's now their only lethal (any molotovs were dropped).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct KnifePickedUp;
 
@@ -1207,9 +1213,13 @@ pub struct ThrowMolotov {
 }
 
 /// Client → server: pick up the dropped molotov nearest this player. The
-/// server checks the range and answers with [`MolotovPickedUp`].
+/// server checks the range and answers with [`MolotovPickedUp`]. Swapping
+/// from throwing knives, `drop_knives` of them are left lying around the
+/// player (see [`PickUpKnife`]).
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
-pub struct PickUpMolotov;
+pub struct PickUpMolotov {
+    pub drop_knives: u32,
+}
 
 /// Server → everyone in a `Zombies` lobby: a thrown molotov broke at
 /// `point` — every client plays the burst sound from there.
@@ -1219,7 +1229,7 @@ pub struct MolotovBurst {
 }
 
 /// Server → the picker only: their [`PickUpMolotov`] worked — one more
-/// molotov, and it's now their lethal.
+/// molotov, and it's now their only lethal (any knives were dropped).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct MolotovPickedUp;
 

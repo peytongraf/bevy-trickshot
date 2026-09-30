@@ -66,6 +66,20 @@ pub fn bomb_shot_damage(distance: f32) -> f32 {
     }
 }
 
+/// Kangabrew halves fall damage (on top of any other protection).
+pub const KANGABREW_FALL_DAMAGE_MULT: f32 = 0.5;
+
+/// Fall `damage` scaled by what `perks` protect against — everything
+/// [`damage_taken`] covers, plus Kangabrew's softer landings.
+pub fn fall_damage_taken(perks: &[Perk], damage: f32) -> f32 {
+    let damage = damage_taken(perks, damage);
+    if perks.contains(&Perk::Kangabrew) {
+        damage * KANGABREW_FALL_DAMAGE_MULT
+    } else {
+        damage
+    }
+}
+
 /// `damage` scaled by what `perks` protect against.
 pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
     if perks.contains(&Perk::LiquidCourage) {
@@ -102,7 +116,7 @@ impl Perk {
             Perk::NitroBrew => "Move, aim, reload, rechamber and swap weapons faster.",
             Perk::LiquidCourage => "Take less damage from everything.",
             Perk::BombShot => "360 no-scope kills explode, blowing up nearby zombies.",
-            Perk::Kangabrew => "Jump three times as high, and jump again off walls.",
+            Perk::Kangabrew => "Jump three times as high, jump again off walls, and take half fall damage.",
         }
     }
 

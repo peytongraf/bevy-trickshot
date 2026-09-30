@@ -1,8 +1,13 @@
 //! Stopped throwing knives: a blue outline so they're easy to spot where they
-//! landed, and — standing close enough to one — a card saying it's a
-//! throwing knife with the interact key to pick it up (one more knife, and
-//! the pickup sound for the picker alone). Dropped molotovs (`molotov.rs`)
-//! share the outline ([`OutlineWhenLoaded`]), the card and the key.
+//! landed, and picking them up (one more knife, and the pickup sound for the
+//! picker alone). Dropped molotovs (`molotov.rs`) share the outline
+//! ([`OutlineWhenLoaded`]) and the pickup rules.
+//!
+//! A player carries one kind of lethal at a time, like Call of Duty. Walking
+//! into the kind already carried (or anything, carrying none) picks it up
+//! automatically, up to the most that can be carried. The other kind shows a
+//! card with the interact key, which swaps to it — the server drops what was
+//! carried around the player.
 //!
 //! The server keeps a stopped knife around for
 //! `shared::throwing_knife::REST_LINGER_SECS` and owns the pickup
@@ -32,7 +37,7 @@ use shared::{MolotovDrop, ThrownKnife};
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
 use crate::thrown_knife::KnifeAvatar;
-use crate::{killcam, menu, AppState, GameSounds, Player, Weapon, EYE_HEIGHT, HUD_FONT};
+use crate::{killcam, menu, AppState, GameSounds, Lethal, Player, Weapon, EYE_HEIGHT, HUD_FONT};
 
 const SHADER_ASSET_PATH: &str = "shaders/knife_outline.wgsl";
 
@@ -122,11 +127,25 @@ struct PickupCardAction;
 #[derive(Component)]
 struct PickupCardTitle;
 
-/// What the card / interact key is offering.
-#[derive(Clone, Copy, PartialEq)]
-enum Pickup {
-    Knife,
-    Molotov,
+/// When (`Time::elapsed_secs`) a pickup request last went out that the
+/// server hasn't answered yet — none is sent while one's in flight, so
+/// walking over a pile doesn't grab more than can be carried. Cleared by the
+/// answer (here and in `molotov.rs`), or given up on after
+/// [`PICKUP_TIMEOUT_SECS`].
+#[derive(Resource, Default)]
+pub(crate) struct PendingPickup(pub(crate) Option<f32>);
+
+/// A pickup request unanswered this long (s) is given up on.
+const PICKUP_TIMEOUT_SECS: f32 = 1.0;
+
+impl PendingPickup {
+    fn waiting(&self, now: f32) -> bool {
+        self.0.is_some_and(|t| now - t < PICKUP_TIMEOUT_SECS)
+    }
+}
+
+fn reset_pending_pickup(mut pending: ResMut<PendingPickup>) {
+    pending.0 = None;
 }
 
 pub(crate) struct KnifePickupPlugin;
@@ -139,13 +158,15 @@ impl Plugin for KnifePickupPlugin {
             ..default()
         })
         .init_resource::<OutlineAssets>()
-        .add_systems(OnEnter(AppState::InGame), spawn_pickup_card)
+        .init_resource::<PendingPickup>()
+        .add_systems(OnEnter(AppState::InGame), (spawn_pickup_card, reset_pending_pickup))
+        .add_systems(OnExit(AppState::InGame), reset_pending_pickup)
         .add_systems(
             Update,
             (
                 outline_resting_knives,
                 update_pickup_card,
-                pick_up_knife.run_if(menu::game_active.and(killcam::no_killcam)),
+                (auto_pick_up, swap_lethal).run_if(menu::game_active.and(killcam::no_killcam)),
                 receive_pickups,
             )
                 .run_if(in_state(AppState::InGame)),
@@ -255,27 +276,52 @@ fn outline_resting_knives(
     }
 }
 
-/// The nearest stopped knife or dropped molotov in pickup range of the local
-/// player, if any.
+/// The kind of the nearest stopped knife or dropped molotov in pickup range
+/// of the local player that `wanted` accepts, if any.
 fn pickup_in_reach<'a>(
     player: &Transform,
     knives: impl Iterator<Item = &'a ThrownKnife>,
     drops: impl Iterator<Item = &'a MolotovDrop>,
-) -> Option<Pickup> {
+    wanted: impl Fn(Lethal) -> bool,
+) -> Option<Lethal> {
     let eye = player.translation;
     let feet = eye - Vec3::Y * EYE_HEIGHT;
     let in_range = |p: Vec3| shared::throwing_knife::in_pickup_range(feet, eye, p);
     knives
         .filter(|k| k.resting && in_range(k.pos))
-        .map(|k| (Pickup::Knife, k.pos))
-        .chain(drops.filter(|d| in_range(d.pos)).map(|d| (Pickup::Molotov, d.pos)))
+        .map(|k| (Lethal::ThrowingKnife, k.pos))
+        .chain(drops.filter(|d| in_range(d.pos)).map(|d| (Lethal::Molotov, d.pos)))
+        .filter(|(what, _)| wanted(*what))
         .min_by(|a, b| a.1.distance_squared(eye).total_cmp(&b.1.distance_squared(eye)))
         .map(|(what, _)| what)
 }
 
-/// Whether the local player can't carry another molotov.
-fn molotovs_full(weapon: &Weapon) -> bool {
-    weapon.molotovs >= shared::molotov::MAX_MOLOTOVS
+/// Whether walking into a `kind` picks it up without the interact key: it's
+/// the kind carried, or none is.
+fn auto_kind(weapon: &Weapon, kind: Lethal) -> bool {
+    weapon.carried_lethal().is_none_or(|c| c == kind)
+}
+
+/// Ask the server for the nearest `kind` in reach, dropping `drop` of the
+/// other kind.
+fn request_pickup(
+    kind: Lethal,
+    drop: u32,
+    knife_sender: &mut Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
+    molotov_sender: &mut Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+) {
+    match kind {
+        Lethal::ThrowingKnife => {
+            if let Ok(mut s) = knife_sender.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpKnife { drop_molotovs: drop });
+            }
+        }
+        Lethal::Molotov => {
+            if let Ok(mut s) = molotov_sender.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpMolotov { drop_knives: drop });
+            }
+        }
+    }
 }
 
 fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -335,9 +381,10 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-/// Show the card while a stopped knife or dropped molotov is in reach
-/// (hidden behind menus, during a kill cam and while dead, like the rest of
-/// the HUD).
+/// Show the card while a stopped knife or dropped molotov is in reach that
+/// isn't picked up automatically — the other kind of lethal (to swap to), or
+/// the carried kind while full (hidden behind menus, during a kill cam and
+/// while dead, like the rest of the HUD).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_pickup_card(
     menu: Res<menu::Menu>,
@@ -353,22 +400,24 @@ fn update_pickup_card(
     mut title: Single<&mut Text, (With<PickupCardTitle>, Without<PickupCardAction>)>,
 ) {
     let what = (!menu.is_open() && active_killcam.0.is_none() && !death.is_active())
-        .then(|| pickup_in_reach(&player, knives.iter(), drops.iter()))
+        .then(|| {
+            pickup_in_reach(&player, knives.iter(), drops.iter(), |k| {
+                !auto_kind(&weapon, k) || weapon.lethal_full(k)
+            })
+        })
         .flatten();
     card.set_if_neq(if what.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     let Some(what) = what else {
         return;
     };
-    let (heading, wanted) = match what {
-        Pickup::Molotov if molotovs_full(&weapon) => ("MOLOTOV", "CARRYING THE MOST".to_string()),
-        Pickup::Molotov => (
-            "MOLOTOV",
-            format!("PRESS {} TO EQUIP", binds.interact.label().to_uppercase()),
-        ),
-        Pickup::Knife => (
-            "THROWING KNIFE",
-            format!("PRESS {} TO EQUIP", binds.interact.label().to_uppercase()),
-        ),
+    let heading = match what {
+        Lethal::ThrowingKnife => "THROWING KNIFE",
+        Lethal::Molotov => "MOLOTOV",
+    };
+    let wanted = if auto_kind(&weapon, what) {
+        "CARRYING THE MOST".to_string()
+    } else {
+        format!("PRESS {} TO SWAP", binds.interact.label().to_uppercase())
     };
     if title.0 != heading {
         title.0 = heading.to_string();
@@ -378,50 +427,76 @@ fn update_pickup_card(
     }
 }
 
-/// The interact key with a stopped knife or dropped molotov in reach: ask
-/// the server for it (it checks the range again and picks the nearest
-/// itself). A molotov is left where it is while already carrying the most.
+/// Walking into the kind of lethal carried (or anything, carrying none):
+/// ask the server for it, unless already full or a pickup's in flight. The
+/// server checks the range again and picks the nearest of that kind itself.
 #[allow(clippy::too_many_arguments)]
-fn pick_up_knife(
+fn auto_pick_up(
+    time: Res<Time>,
+    weapon: Res<Weapon>,
+    mut pending: ResMut<PendingPickup>,
+    death: Res<crate::death_effect::DeathEffect>,
+    player: Single<&Transform, With<Player>>,
+    knives: Query<&ThrownKnife, With<Interpolated>>,
+    drops: Query<&MolotovDrop>,
+    mut knife_sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
+    mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+) {
+    let now = time.elapsed_secs();
+    if pending.waiting(now) || death.is_active() {
+        return;
+    }
+    let Some(kind) = pickup_in_reach(&player, knives.iter(), drops.iter(), |k| {
+        auto_kind(&weapon, k) && !weapon.lethal_full(k)
+    }) else {
+        return;
+    };
+    request_pickup(kind, 0, &mut knife_sender, &mut molotov_sender);
+    pending.0 = Some(now);
+}
+
+/// The interact key with the other kind of lethal in reach: swap to it —
+/// the server drops every one of the current kind around the player.
+#[allow(clippy::too_many_arguments)]
+fn swap_lethal(
+    time: Res<Time>,
     binds: Res<KeyBindings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     weapon: Res<Weapon>,
+    mut pending: ResMut<PendingPickup>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
     drops: Query<&MolotovDrop>,
-    mut sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
+    mut knife_sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
     mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
 ) {
-    if !binds.interact.just_pressed(&keys, &mouse) {
+    let now = time.elapsed_secs();
+    if !binds.interact.just_pressed(&keys, &mouse) || pending.waiting(now) {
         return;
     }
-    match pickup_in_reach(&player, knives.iter(), drops.iter()) {
-        Some(Pickup::Knife) => {
-            if let Ok(mut s) = sender.single_mut() {
-                s.trigger::<shared::LobbyChannel>(shared::PickUpKnife);
-            }
-        }
-        Some(Pickup::Molotov) if !molotovs_full(&weapon) => {
-            if let Ok(mut s) = molotov_sender.single_mut() {
-                s.trigger::<shared::LobbyChannel>(shared::PickUpMolotov);
-            }
-        }
-        _ => {}
-    }
+    let Some(kind) =
+        pickup_in_reach(&player, knives.iter(), drops.iter(), |k| !auto_kind(&weapon, k))
+    else {
+        return;
+    };
+    request_pickup(kind, weapon.lethal_count(), &mut knife_sender, &mut molotov_sender);
+    pending.0 = Some(now);
 }
 
-/// The server handed us a knife we picked up: count it, and play the pickup
-/// sound — just for us, not positional.
+/// The server handed us a knife we picked up: count it (it's now the only
+/// lethal), and play the pickup sound — just for us, not positional.
 fn receive_pickups(
     mut receivers: Query<&mut MessageReceiver<shared::KnifePickedUp>>,
     mut weapon: ResMut<Weapon>,
+    mut pending: ResMut<PendingPickup>,
     sounds: Res<GameSounds>,
     mut commands: Commands,
 ) {
     for mut rx in &mut receivers {
         for _ in rx.receive() {
-            weapon.throwing_knives += 1;
+            weapon.add_throwing_knife();
+            pending.0 = None;
             commands.spawn((
                 AudioPlayer::new(sounds.pick_up_equipment.clone()),
                 PlaybackSettings::DESPAWN,
