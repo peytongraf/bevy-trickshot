@@ -12,7 +12,7 @@ edition.workspace = true
 # scene down with it (see `bevy_gltf::loader`'s "invalid image mime type:
 # image/jpeg" warning). `serialize` gives serde impls for `KeyCode` /
 # `MouseButton`, used by the persisted keybinds.
-bevy = { version = "0.16", features = ["wav", "mp3", "jpeg", "serialize"] }
+bevy = { version = "0.16", features = ["wav", "mp3", "jpeg", "webp", "serialize"] }
 bevy_egui = "0.36"
 # Collision only: static colliders auto-generated from each map's `.glb` mesh
 # data (`AsyncSceneCollider`, wired up in `sync_map_model`) plus the raycasts/

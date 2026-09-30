@@ -217,8 +217,7 @@ impl Perk {
             // Ground floor, under the upper walkway.
             (Perk::BombShot, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-30.7, 0.0, -2.03),
             (Perk::BombShot, _) => Vec3::new(0.0, 0.0, 6.0),
-            // Up on the level Nitro Brew is on.
-            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-33.8, 6.0, 19.5),
+            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.6, 15.6, -20.0),
             (Perk::Kangabrew, _) => Vec3::new(0.0, 0.0, -6.0),
         }
     }
@@ -230,6 +229,7 @@ impl Perk {
             (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => -90.0,
             (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => 90.0,
             (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => 180.0,
+            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => 90.0,
             _ => 0.0,
         }
     }

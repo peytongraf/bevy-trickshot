@@ -51,6 +51,36 @@ pub const ZOMBIE_ARMS_UP_DIST: f32 = 8.0;
 pub const MAX_START_ROUND: u32 = 100;
 pub const MAX_START_POINTS: u32 = 1_000_000;
 
+/// The last round a plain (un-Pack-a-Punched) knife stab kills a zombie in
+/// one — Cold War's knife gives out around round 13 too. Zombie health
+/// ([`zombie_health`]) reaches [`crate::melee::KNIFE_DAMAGE`] here.
+pub const ZOMBIE_KNIFE_ONE_HIT_ROUND: u32 = 13;
+/// Most health a zombie ever has, reached with its top speed at
+/// [`ZOMBIE_MAX_SPEED_ROUND`]. A fully packed knife (×8) still kills in one;
+/// a plain sniper takes several shots even to the head.
+pub const ZOMBIE_MAX_HEALTH: f32 = 5_000.0;
+
+/// How much health round `round`'s zombies spawn with: a player's
+/// `health::FULL_HEALTH` in round 1, growing by the same factor every round
+/// up to [`crate::melee::KNIFE_DAMAGE`] at [`ZOMBIE_KNIFE_ONE_HIT_ROUND`]
+/// (about 180 in round 4, 380 in round 8 — so a plain sniper's body shot
+/// stops killing in one after round 4, its headshot after round 8), then
+/// climbing steadily to [`ZOMBIE_MAX_HEALTH`] at [`ZOMBIE_MAX_SPEED_ROUND`].
+pub fn zombie_health(round: u32) -> f32 {
+    let round = round.max(1);
+    let base = crate::health::FULL_HEALTH;
+    let knife = crate::melee::KNIFE_DAMAGE;
+    let knife_round = ZOMBIE_KNIFE_ONE_HIT_ROUND;
+    if round <= knife_round {
+        let t = (round - 1) as f32 / (knife_round - 1) as f32;
+        // (Exactly the knife's damage at `knife_round`, so it still kills.)
+        (base * (knife / base).powf(t)).min(knife)
+    } else {
+        let t = (round - knife_round) as f32 / (ZOMBIE_MAX_SPEED_ROUND - knife_round) as f32;
+        knife + (ZOMBIE_MAX_HEALTH - knife) * t.min(1.0)
+    }
+}
+
 /// Round `round`'s typical zombie speed (m/s), before each one's variance.
 pub fn round_speed(round: u32) -> f32 {
     let t = (round.max(1) - 1) as f32 / (ZOMBIE_MAX_SPEED_ROUND - 1) as f32;
@@ -96,6 +126,24 @@ mod tests {
             assert!(!zombie_speed(5, roll).0);
             assert!(zombie_speed(20, roll).0);
         }
+    }
+
+    #[test]
+    fn health_climbs_to_the_max_with_the_speed_and_the_knife_gives_out_after_round_13() {
+        use crate::melee::KNIFE_DAMAGE;
+        assert_eq!(zombie_health(1), crate::health::FULL_HEALTH);
+        for r in 1..ZOMBIE_MAX_SPEED_ROUND {
+            assert!(zombie_health(r + 1) > zombie_health(r), "round {r}");
+        }
+        assert_eq!(zombie_health(ZOMBIE_MAX_SPEED_ROUND), ZOMBIE_MAX_HEALTH);
+        assert_eq!(zombie_health(500), ZOMBIE_MAX_HEALTH);
+        // A stab kills when it takes health to 0.
+        assert!(KNIFE_DAMAGE >= zombie_health(ZOMBIE_KNIFE_ONE_HIT_ROUND));
+        assert!(KNIFE_DAMAGE < zombie_health(ZOMBIE_KNIFE_ONE_HIT_ROUND + 1));
+        // A fully packed knife still one-shots at the top; a plain sniper
+        // headshot never does there.
+        assert!(KNIFE_DAMAGE * crate::pap::damage_mult(crate::pap::MAX_LEVEL) >= ZOMBIE_MAX_HEALTH);
+        assert!(200.0 * 2.0 * 2.0 < ZOMBIE_MAX_HEALTH);
     }
 
     #[test]

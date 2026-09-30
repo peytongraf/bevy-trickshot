@@ -47,6 +47,7 @@ mod pause;
 mod player;
 mod menu_backdrop;
 mod pap;
+mod pap_menu;
 mod power_ups;
 mod power;
 mod respawn;
@@ -204,6 +205,7 @@ fn main() {
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
         .add_plugins(pap::PapPlugin)
+        .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)

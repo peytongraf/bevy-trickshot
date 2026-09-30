@@ -217,6 +217,12 @@ fn resolve_shots(
             // stab sound. Anything else (a whiff, or a player in `Freestyle`,
             // where they aren't a target) is a swing.
             let mut stabbed_at: Option<Vec3> = None;
+            // `Zombies` Pack-a-Punch: every knife level doubles it.
+            let knife_mult = if zombies {
+                pap_mult(lobby, shooter.0, shared::pap::PapWeapon::Knife)
+            } else {
+                1.0
+            };
             let hit = shared::melee::resolve_melee(origin, dir, &targets);
             match hit.and_then(|h| kind.get(&h.target).map(|k| (h, k))) {
                 Some((hit, HitKind::Bot(bot))) => {
@@ -244,7 +250,7 @@ fn resolve_shots(
                     player_hits.write(PlayerHit {
                         victim: *victim,
                         killer: shooter.0,
-                        damage: shared::melee::KNIFE_DAMAGE,
+                        damage: shared::melee::KNIFE_DAMAGE * knife_mult,
                         bomb_shot: false,
                         blast: false,
                     });
@@ -398,8 +404,12 @@ fn resolve_shots(
                         );
                         if lobby.mode != GameMode::Freestyle {
                             // A zombie's hit is capped — see `ZOMBIE_HIT_DAMAGE`.
+                            // A packed sniper's doubles every level
+                            // (`shared::pap`).
                             let damage = if zombies && shared::bot_players::is_bot_peer(shooter.0) {
                                 hit.damage.min(shared::ZOMBIE_HIT_DAMAGE)
+                            } else if zombies {
+                                hit.damage * pap_mult(lobby, shooter.0, shared::pap::PapWeapon::Sniper)
                             } else {
                                 hit.damage
                             };
@@ -468,4 +478,14 @@ fn resolve_shots(
             error!("failed to broadcast shot result: {e:?}");
         }
     }
+}
+
+/// `peer`'s Pack-a-Punch damage multiplier for `weapon` in `lobby` (1 for a
+/// zombie or anyone not packed).
+fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap::PapWeapon) -> f32 {
+    lobby
+        .members
+        .iter()
+        .find(|m| m.peer == peer)
+        .map_or(1.0, |m| shared::pap::damage_mult(m.pap.get(weapon)))
 }

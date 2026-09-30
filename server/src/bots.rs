@@ -548,6 +548,7 @@ mod tests {
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
+                    pap: Default::default(),
                 }],
             })
             .id();

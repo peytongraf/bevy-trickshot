@@ -274,10 +274,13 @@ pub struct MachineBox {
     shape: Cuboid,
 }
 
-fn machine_boxes(map: MapId) -> [MachineBox; Perk::ALL.len()] {
-    Perk::ALL.map(|perk| {
-        let (center, rot, half) = perk.machine_box(map);
-        MachineBox {
+/// Every perk machine's box on `map`, and the Pack-a-Punch's if it has one.
+fn machine_boxes(map: MapId) -> Vec<MachineBox> {
+    Perk::ALL
+        .map(|perk| perk.machine_box(map))
+        .into_iter()
+        .chain(shared::pap::machine_box(map))
+        .map(|(center, rot, half)| MachineBox {
             iso: Isometry::from_parts(
                 parry3d::math::Translation::new(center.x, center.y, center.z),
                 parry3d::na::UnitQuaternion::from_quaternion(parry3d::na::Quaternion::new(
@@ -285,20 +288,20 @@ fn machine_boxes(map: MapId) -> [MachineBox; Perk::ALL.len()] {
                 )),
             ),
             shape: Cuboid::new(Vector::new(half.x, half.y, half.z)),
-        }
-    })
+        })
+        .collect()
 }
 
 /// A lobby's map mesh plus (in `Zombies`) its perk machines — see
 /// [`MapColliders::for_lobby`].
 pub struct LobbyWorld<'a> {
     map: &'a MapMesh,
-    machines: Option<[MachineBox; Perk::ALL.len()]>,
+    machines: Option<Vec<MachineBox>>,
 }
 
 impl LobbyWorld<'_> {
     fn machines(&self) -> &[MachineBox] {
-        self.machines.as_ref().map_or(&[], |m| &m[..])
+        self.machines.as_deref().unwrap_or(&[])
     }
 }
 

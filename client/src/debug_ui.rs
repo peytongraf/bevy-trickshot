@@ -1756,11 +1756,24 @@ pub(crate) fn ads_tuning_ui(
                         );
                     }
                     for perk in shared::perks::Perk::ALL {
-                        ui.label(format!("{} (from its spot)", perk.label()));
+                        ui.label(format!(
+                            "{} (from its spot — drag the numbers to go past the sliders)",
+                            perk.label()
+                        ));
+                        if ui.button(format!("Move {} to where I'm standing", perk.label())).clicked() {
+                            m.snap_to_player = Some(perk);
+                        }
                         let n = m.nudge_mut(perk);
-                        ui.add(egui::Slider::new(&mut n.offset.x, -10.0f32..=10.0).text("x (m)"));
-                        ui.add(egui::Slider::new(&mut n.offset.y, -5.0f32..=5.0).text("y (m)"));
-                        ui.add(egui::Slider::new(&mut n.offset.z, -10.0f32..=10.0).text("z (m)"));
+                        for (label, v, range) in [
+                            ("x", &mut n.offset.x, -150.0f32..=150.0),
+                            ("y", &mut n.offset.y, -20.0f32..=60.0),
+                            ("z", &mut n.offset.z, -150.0f32..=150.0),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
+                                ui.add(egui::DragValue::new(v).speed(0.05));
+                            });
+                        }
                         ui.add(egui::Slider::new(&mut n.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
                     }
                     if ui.button("Copy perk machine placements to console").clicked() {
@@ -1827,13 +1840,26 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Pack-a-Punch machine", |ui| {
                     let p = &mut *pap;
                     ui.label(
-                        "Just the model for now (Break Point Night), on this client only — no \
-                         collision, nothing on the server.",
+                        "Moves it on this client only (Break Point Night). The server's range \
+                         check uses shared/src/pap.rs until the spot's copied there.",
                     );
-                    ui.label("Position (m, world — the ground under its middle)");
-                    ui.add(egui::Slider::new(&mut p.pos.x, -80.0f32..=80.0).text("x (m)"));
-                    ui.add(egui::Slider::new(&mut p.pos.y, -10.0f32..=60.0).text("y (m)"));
-                    ui.add(egui::Slider::new(&mut p.pos.z, -80.0f32..=80.0).text("z (m)"));
+                    if ui.button("Move Pack-a-Punch to where I'm standing").clicked() {
+                        p.snap_to_player = true;
+                    }
+                    ui.label(
+                        "Position (m, world — the ground under its middle; drag the numbers to go \
+                         past the sliders)",
+                    );
+                    for (label, v, range) in [
+                        ("x", &mut p.pos.x, -150.0f32..=150.0),
+                        ("y", &mut p.pos.y, -20.0f32..=60.0),
+                        ("z", &mut p.pos.z, -150.0f32..=150.0),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
+                            ui.add(egui::DragValue::new(v).speed(0.05));
+                        });
+                    }
                     ui.label("Rotation (deg)");
                     ui.add(egui::Slider::new(&mut p.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
                     ui.add(egui::Slider::new(&mut p.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
@@ -1843,9 +1869,20 @@ pub(crate) fn ads_tuning_ui(
                             .logarithmic(true)
                             .text("scale (1 = 4 m tall)"),
                     );
+                    ui.label("Light (m from the ground under its middle, in its own frame)");
+                    ui.add(egui::Slider::new(&mut p.light_offset.x, -3.0f32..=3.0).text("x — across (m)"));
+                    ui.add(egui::Slider::new(&mut p.light_offset.y, -1.0f32..=6.0).text("y — up (m)"));
+                    ui.add(egui::Slider::new(&mut p.light_offset.z, -3.0f32..=3.0).text("z — out the front (m)"));
+                    ui.label("Camo (packed weapons)");
+                    ui.add(egui::Slider::new(&mut p.camo_scroll.x, -1.0f32..=1.0).text("scroll u (/s)"));
+                    ui.add(egui::Slider::new(&mut p.camo_scroll.y, -1.0f32..=1.0).text("scroll v (/s)"));
+                    ui.add(egui::Slider::new(&mut p.camo_tiling, 0.1f32..=10.0).logarithmic(true).text("tiling"));
+                    ui.add(egui::Slider::new(&mut p.camo_glow, 0.0f32..=10.0).text("glow"));
                     if ui.button("Copy Pack-a-Punch settings to console").clicked() {
                         info!(
-                            "pap machine: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.3}",
+                            "pap machine: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.3}, \
+                             light_offset: ({:.2}, {:.2}, {:.2}), camo_scroll: ({:.3}, {:.3}), camo_tiling: {:.2}, \
+                             camo_glow: {:.2}",
                             p.pos.x,
                             p.pos.y,
                             p.pos.z,
@@ -1853,6 +1890,13 @@ pub(crate) fn ads_tuning_ui(
                             p.rotation_deg.y,
                             p.rotation_deg.z,
                             p.scale,
+                            p.light_offset.x,
+                            p.light_offset.y,
+                            p.light_offset.z,
+                            p.camo_scroll.x,
+                            p.camo_scroll.y,
+                            p.camo_tiling,
+                            p.camo_glow,
                         );
                     }
                     if ui.button("Reset Pack-a-Punch machine").clicked() {

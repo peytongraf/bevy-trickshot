@@ -187,6 +187,7 @@ fn on_create(
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
+                    pap: Default::default(),
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -235,6 +236,7 @@ fn on_join(
             bot: None,
             kills: 0,
             perks: Vec::new(),
+            pap: Default::default(),
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -283,6 +285,7 @@ fn on_start(
         m.score = start_points;
         m.kills = 0;
         m.perks.clear();
+        m.pap = Default::default();
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
     }
@@ -587,6 +590,7 @@ fn add_bots(
             bot: Some(difficulty),
             kills: 0,
             perks: Vec::new(),
+            pap: Default::default(),
         });
         *next_id += 1;
     }
@@ -808,6 +812,7 @@ mod tests {
                 bot: None,
                 kills: 0,
                 perks: Vec::new(),
+                pap: Default::default(),
             }],
         }
     }

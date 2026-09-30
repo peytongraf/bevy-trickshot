@@ -22,6 +22,7 @@ pub mod hitbox;
 pub mod map;
 pub mod melee;
 pub mod molotov;
+pub mod pap;
 pub mod perks;
 pub mod power_ups;
 pub mod power;
@@ -35,7 +36,7 @@ pub mod zombies;
 use bevy::prelude::*;
 
 pub use protocol::{
-    AddBots, AmmoBought, AssetsReady, BuyAmmo, Bot, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
+    AddBots, AmmoBought, AssetsReady, BuyAmmo, Bot, BuyPap, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
@@ -55,7 +56,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001c;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001d;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

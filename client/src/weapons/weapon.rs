@@ -40,6 +40,10 @@ const FREESTYLE_RESERVE: u32 = 1000;
 /// carries at most — topped back up at the ammo crate (`ammo_crate`).
 const ZOMBIES_TOTAL_MAGS: u32 = 8;
 
+/// Extra magazines' worth of sniper rounds a `Zombies` player can carry for
+/// every Pack-a-Punch level on the sniper (`shared::pap`).
+pub(crate) const PAP_EXTRA_MAGS_PER_LEVEL: u32 = 2;
+
 /// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`
 /// — also the most it holds.
 fn starting_reserve(mode: shared::GameMode) -> u32 {
@@ -196,6 +200,10 @@ pub(crate) struct Weapon {
     /// A reload / rechamber cut short by a weapon switch. Replayed from the top —
     /// animation and sound — once the sniper is next drawn.
     interrupted: Option<WeaponBusy>,
+    /// Our sniper's Pack-a-Punch level — kept in step with the lobby by
+    /// `pap::sync_pap_levels` (0 outside a `Zombies` game). Each level lets
+    /// the sniper carry more ([`Weapon::max_reserve`]).
+    pub(crate) pap_level: u8,
 }
 
 pub(crate) struct WeaponBusy {
@@ -308,6 +316,7 @@ impl Default for Weapon {
             busy: None,
             slot: WeaponSlot::Primary,
             interrupted: None,
+            pap_level: 0,
         }
     }
 }
@@ -321,14 +330,25 @@ impl Weapon {
     /// old life carried straight into the new one.
     /// Whether the sniper holds every round it can in `mode` (mag + reserve).
     pub(crate) fn ammo_full(&self, mode: shared::GameMode) -> bool {
-        self.mag + self.reserve >= MAG_SIZE + starting_reserve(mode)
+        self.mag + self.reserve >= MAG_SIZE + self.max_reserve(mode)
+    }
+
+    /// The most reserve rounds the sniper holds in `mode` — more for every
+    /// Pack-a-Punch level in `Zombies`.
+    fn max_reserve(&self, mode: shared::GameMode) -> u32 {
+        let packed = if mode == shared::GameMode::Zombies {
+            MAG_SIZE * PAP_EXTRA_MAGS_PER_LEVEL * self.pap_level as u32
+        } else {
+            0
+        };
+        starting_reserve(mode) + packed
     }
 
     /// Top the sniper up to every round it can hold in `mode` (the ammo
     /// crate). The extra goes into the reserve — the mag and chamber are
     /// left alone, so a reload loads it like any other.
     pub(crate) fn fill_ammo(&mut self, mode: shared::GameMode) {
-        self.reserve = (MAG_SIZE + starting_reserve(mode)).saturating_sub(self.mag);
+        self.reserve = (MAG_SIZE + self.max_reserve(mode)).saturating_sub(self.mag);
     }
 
     /// How many of the current lethal are left.

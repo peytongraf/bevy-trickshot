@@ -40,6 +40,12 @@ const FALL_RESPAWN_DELAY_SECS: f32 = 3.2;
 #[derive(Component)]
 pub struct PlayerCombat {
     pub health: f32,
+    /// What `health` starts at: a player's [`FULL_HEALTH`], or a `Zombies`
+    /// zombie's for its round.
+    max_health: f32,
+    /// Whether `health` climbs back after a hit — players' does, a zombie's
+    /// doesn't (every shot counts toward bringing it down).
+    regenerates: bool,
     /// `Time::elapsed_secs()` of the last damage taken — health holds for
     /// [`REGEN_DELAY_SECS`] after it, then recovers (see [`tick_respawns`]).
     last_damage: f32,
@@ -56,12 +62,25 @@ impl PlayerCombat {
     fn respawn(&mut self) {
         *self = Self::default();
     }
+
+    /// A `Zombies` zombie with `health` (for its round), which never
+    /// regenerates.
+    pub fn zombie(health: f32) -> Self {
+        Self {
+            health,
+            max_health: health,
+            regenerates: false,
+            ..default()
+        }
+    }
 }
 
 impl Default for PlayerCombat {
     fn default() -> Self {
         Self {
             health: FULL_HEALTH,
+            max_health: FULL_HEALTH,
+            regenerates: true,
             last_damage: f32::NEG_INFINITY,
             alive: true,
             respawn_at: 0.0,
@@ -609,11 +628,12 @@ fn tick_respawns(
         if !combat.alive && now >= combat.respawn_at {
             combat.respawn();
         } else if combat.alive
-            && combat.health < FULL_HEALTH
+            && combat.regenerates
+            && combat.health < combat.max_health
             && now - combat.last_damage >= REGEN_DELAY_SECS
         {
             // Hurt but not dead: hold, then climb back linearly.
-            combat.health = (combat.health + REGEN_PER_SEC * dt).min(FULL_HEALTH);
+            combat.health = (combat.health + REGEN_PER_SEC * dt).min(combat.max_health);
         }
     }
 }
@@ -643,6 +663,8 @@ mod tests {
     fn respawning_restores_everything_a_death_or_damage_changed() {
         let mut c = PlayerCombat {
             health: -12.0,
+            max_health: FULL_HEALTH,
+            regenerates: true,
             last_damage: 40.0,
             alive: false,
             respawn_at: 99.0,

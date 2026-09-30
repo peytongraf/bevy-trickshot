@@ -22,7 +22,7 @@ use lightyear::prelude::*;
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::{
-    AmmoBought, BuyAmmo, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
+    AmmoBought, BuyAmmo, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
     PlayerName, PlayerPose,
 };
 
@@ -109,6 +109,7 @@ pub struct ZombiesPlugin;
 impl Plugin for ZombiesPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_buy_perk)
+            .add_observer(on_buy_pap)
             .add_observer(on_turn_on_power)
             .add_observer(on_buy_ammo)
             .add_systems(
@@ -253,8 +254,9 @@ fn run_rounds(
                 .with_skill(zombie_skill(rounds.round))
                 .rising(now, RISE_SECS)
                 .zombie(runner, speed),
-            PlayerCombat::default(),
-            shared::PlayerHealth(shared::health::FULL_HEALTH),
+            // Tougher every round (`shared::zombies::zombie_health`).
+            PlayerCombat::zombie(shared::zombies::zombie_health(rounds.round)),
+            shared::PlayerHealth(shared::zombies::zombie_health(rounds.round)),
             Replicate::to_clients(NetworkTarget::Only(real.clone())),
             InterpolationTarget::to_clients(NetworkTarget::Only(real)),
         ));
@@ -338,6 +340,48 @@ fn on_buy_perk(
     member.score -= perk.cost();
     member.perks.push(perk);
     info!("{peer:?} bought {}", perk.label());
+}
+
+/// A member wants to Pack-a-Punch the weapon in their hands: they must be in
+/// a running `Zombies` game with the power on, alive, standing at the
+/// machine (a little slack), asking for a level above the one it's at (up to
+/// `shared::pap::MAX_LEVEL` — skipping levels is fine, they pay for each),
+/// and have the points. Anything else is ignored.
+fn on_buy_pap(
+    trigger: Trigger<RemoteTrigger<BuyPap>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    let BuyPap { weapon, level } = trigger.trigger;
+    let Some((lobby_e, mut lobby)) = lobbies
+        .iter_mut()
+        .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused || !shared::power::has_power(lobby.map, lobby.power_on) {
+        return;
+    }
+    let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
+        return;
+    };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if !combat.alive || !shared::pap::in_range(lobby.map, feet, 0.75) {
+        return;
+    }
+    let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
+        return;
+    };
+    let current = member.pap.get(weapon);
+    let cost = shared::pap::cost_to(current, level);
+    if level > shared::pap::MAX_LEVEL || level <= current || member.score < cost {
+        return;
+    }
+    member.score -= cost;
+    member.pap.set(weapon, level);
+    info!("{peer:?} packed their {} to level {level}", weapon.label());
 }
 
 /// A member wants to turn the power on: they must be in a running `Zombies`
@@ -509,6 +553,7 @@ mod tests {
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
+                    pap: Default::default(),
                 }],
             })
             .id();

@@ -61,6 +61,9 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/buy_perk.mp3` — we just bought a perk in
     /// `Zombies` (`zombies_hud::sync_owned_perks`).
     pub(crate) perk_buy: Handle<AudioSource>,
+    /// `audio/zombies/buy_pap.mp3` — we just Pack-a-Punched a weapon
+    /// (`pap_menu`).
+    pub(crate) pap_buy: Handle<AudioSource>,
     /// `audio/zombies/jingles/<perk>.wav` — a perk machine's jingle, played
     /// from the machine for the whole lobby when anyone buys that perk
     /// (`zombies_hud::play_perk_jingles`). Pick one with [`Self::jingle`].
@@ -504,6 +507,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),
         hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),
         perk_buy: asset_server.load("audio/zombies/buy_perk.mp3"),
+        pap_buy: asset_server.load("audio/zombies/buy_pap.mp3"),
         jingle_shroom_tea: asset_server.load("audio/zombies/jingles/shroom_tea.wav"),
         jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
         jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),

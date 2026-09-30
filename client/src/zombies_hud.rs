@@ -441,7 +441,7 @@ impl Default for MachineLight {
 }
 
 impl MachineLight {
-    fn point_light(&self, color: Color) -> PointLight {
+    pub(crate) fn point_light(&self, color: Color) -> PointLight {
         PointLight {
             color,
             intensity: self.intensity,
@@ -470,6 +470,9 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) courage: MachineNudge,
     pub(crate) bomb: MachineNudge,
     pub(crate) kanga: MachineNudge,
+    /// Set by the panel's "move to me" buttons: `sync_perk_machines` moves
+    /// that perk's machine to our feet (by its nudge), then clears it.
+    pub(crate) snap_to_player: Option<Perk>,
 }
 
 impl Default for PerkMachineSettings {
@@ -482,6 +485,7 @@ impl Default for PerkMachineSettings {
             courage: default(),
             bomb: default(),
             kanga: default(),
+            snap_to_player: None,
         }
     }
 }
@@ -623,7 +627,8 @@ fn update_perk_jingles(
 fn sync_perk_machines(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    settings: Res<PerkMachineSettings>,
+    mut settings: ResMut<PerkMachineSettings>,
+    player: Option<Single<&Transform, (With<Player>, Without<PerkMachine>, Without<MachinePart>)>>,
     asset_server: Res<AssetServer>,
     mut machines: Query<(Entity, &PerkMachine, &mut Transform)>,
     mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
@@ -643,6 +648,13 @@ fn sync_perk_machines(
         *power = 0.0;
         return;
     };
+    if let Some(perk) = settings.snap_to_player {
+        settings.snap_to_player = None;
+        if let Some(player) = &player {
+            let feet = player.translation - Vec3::Y * EYE_HEIGHT;
+            settings.nudge_mut(perk).offset = feet - perk.machine_pos(lobby.map);
+        }
+    }
     let before = *power;
     let target = if shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on {
         1.0

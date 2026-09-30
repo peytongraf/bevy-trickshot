@@ -60,6 +60,11 @@ pub enum Screen {
     /// backing out from the in-game pause menu lands back on the pause menu
     /// instead of dropping straight into gameplay.
     Loadout,
+    /// The `Zombies` Pack-a-Punch menu, opened with the interact key at the
+    /// machine. Owned and built by `pap_menu`, not this module (it needs live
+    /// lobby data); being a `Screen` is what frees the cursor and freezes
+    /// gameplay input while it's up. `Esc` closes it.
+    PackAPunch,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -221,6 +226,10 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         Screen::LoadingGame => {}
         Screen::Loadout => {
             menu.screen = menu.loadout_return;
+            menu.dirty = true;
+        }
+        Screen::PackAPunch => {
+            menu.screen = Screen::None;
             menu.dirty = true;
         }
     }
@@ -697,6 +706,8 @@ fn rebuild_menu(
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
         Screen::LoadingGame => {}
         Screen::Loadout => build_loadout(&mut commands, &settings, &asset_server, solid),
+        // Built by `pap_menu`, not here — see `Screen::PackAPunch`'s doc comment.
+        Screen::PackAPunch => {}
     }
 }
 

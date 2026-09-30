@@ -855,6 +855,9 @@ pub struct LobbyMember {
     pub kills: u32,
     /// [`GameMode::Zombies`] perks this member has bought this game.
     pub perks: Vec<crate::perks::Perk>,
+    /// [`GameMode::Zombies`] Pack-a-Punch level of each of this member's
+    /// weapons this game ([`BuyPap`]).
+    pub pap: crate::pap::PapLevels,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1312,6 +1315,16 @@ pub struct BuyPerk {
     pub perk: crate::perks::Perk,
 }
 
+/// Client → server: pack `weapon` (the one in the sender's hands) up to
+/// `level` at the Pack-a-Punch machine ([`GameMode::Zombies`]). The server
+/// checks the power's on, the sender is at the machine, `level` is the one
+/// after theirs, and they can afford it.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyPap {
+    pub weapon: crate::pap::PapWeapon,
+    pub level: u8,
+}
+
 /// Client → server: pay to turn the power on ([`GameMode::Zombies`]). The
 /// server checks the sender is at the switch (`crate::power`), can afford it
 /// and that it isn't already on.
@@ -1487,6 +1500,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<RespawnReady>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyPerk>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyPap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);

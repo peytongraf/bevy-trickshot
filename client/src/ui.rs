@@ -65,10 +65,8 @@ pub struct UiSfx {
     pub menu_select: Handle<AudioSource>,
     pub button_hover: Handle<AudioSource>,
     pub button_click: Handle<AudioSource>,
-    /// Loaded and ready, but not wired to anything yet — nothing in the UI
-    /// currently has an unselectable option to play it for. Hook it up (spawn
-    /// `AudioPlayer::new(sfx.denied.clone())`) once one exists.
-    #[allow(dead_code)]
+    /// Clicking something that can't be had (a Pack-a-Punch level we can't
+    /// buy — `pap_menu`).
     pub denied: Handle<AudioSource>,
     pub menu_back: Handle<AudioSource>,
 }

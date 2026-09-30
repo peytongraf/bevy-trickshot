@@ -8,19 +8,17 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
-- Add molotov sounds
+- Use melee animation for remote player when using knife
 - Improve molotov fire look
 - Add quotes
 - Add health bars to zombies
 - Separate todo into regular multiplayer and zombies todos
 - Add molotov to multiplayer loadout
-- Change kanga brew position.
 - Only one light is coming on when turning on the power
 - Improve end game screen
 - Add music volume setting under audio
 - Zombie max speed should be faster and there should be more total zombies on higher rounds
 - Zombies base speed should be faster
-- Add pap
 - Add dogs or dog style rounds with a different enemy
 - Add boss
 - Add exfil
