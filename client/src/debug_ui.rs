@@ -325,7 +325,8 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
                 ui.collapsing("AK-74 (Zombies loadout)", |ui| {
                     ui.label("Poses, firing and animations for the AK-74 — pick it in a Zombies lobby's loadout.");
-                    crate::weapons::ak_section(ui, &mut ak_cfg, &mut tuning.force_full);
+                    let live = molotov_dbg.weapon.ak_loco();
+                    crate::weapons::ak_section(ui, &mut ak_cfg, &mut tuning.force_full, live);
                 });
 
             ui.separator();

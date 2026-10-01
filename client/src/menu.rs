@@ -25,7 +25,7 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    AutoMantle, CrosshairId, ScopeZoom, Settings, ShadowQuality, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
+    AutoMantle, CrosshairId, ScopeZoom, Settings, ShadowQuality, ADS_COEFF_MAX, ADS_COEFF_MIN, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
@@ -378,6 +378,7 @@ fn leave_ctx(
 enum SliderField {
     Sensitivity,
     AdsSensitivity,
+    AdsCoefficient,
     Fov,
     MasterVolume,
     FrameLimit,
@@ -518,8 +519,12 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
             settings.sensitivity = (settings.sensitivity + delta).clamp(SENS_MIN, SENS_MAX);
         }
         SliderField::AdsSensitivity => {
-            settings.ads_sensitivity =
-                (settings.ads_sensitivity + delta).clamp(ADS_SENS_MIN, ADS_SENS_MAX);
+            settings.ads_sens_multiplier =
+                (settings.ads_sens_multiplier + delta).clamp(ADS_SENS_MIN, ADS_SENS_MAX);
+        }
+        SliderField::AdsCoefficient => {
+            settings.ads_sens_coefficient =
+                (settings.ads_sens_coefficient + delta).clamp(ADS_COEFF_MIN, ADS_COEFF_MAX);
         }
         SliderField::Fov => {
             settings.fov = (settings.fov + delta).clamp(FOV_MIN, FOV_MAX).round();
@@ -551,8 +556,15 @@ fn slider_drag(
                     (SENS_MIN + t * (SENS_MAX - SENS_MIN)).clamp(SENS_MIN, SENS_MAX);
             }
             SliderField::AdsSensitivity => {
-                settings.ads_sensitivity = (ADS_SENS_MIN + t * (ADS_SENS_MAX - ADS_SENS_MIN))
+                settings.ads_sens_multiplier = (ADS_SENS_MIN + t * (ADS_SENS_MAX - ADS_SENS_MIN))
                     .clamp(ADS_SENS_MIN, ADS_SENS_MAX);
+            }
+            SliderField::AdsCoefficient => {
+                // Snapped to hundredths, so 1.33 can be hit exactly.
+                settings.ads_sens_coefficient = ((ADS_COEFF_MIN + t * (ADS_COEFF_MAX - ADS_COEFF_MIN)) * 100.0)
+                    .round()
+                    .clamp(ADS_COEFF_MIN * 100.0, ADS_COEFF_MAX * 100.0)
+                    / 100.0;
             }
             SliderField::Fov => {
                 settings.fov = (FOV_MIN + t * (FOV_MAX - FOV_MIN))
@@ -576,7 +588,10 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
     match field {
         SliderField::Sensitivity => (settings.sensitivity - SENS_MIN) / (SENS_MAX - SENS_MIN),
         SliderField::AdsSensitivity => {
-            (settings.ads_sensitivity - ADS_SENS_MIN) / (ADS_SENS_MAX - ADS_SENS_MIN)
+            (settings.ads_sens_multiplier - ADS_SENS_MIN) / (ADS_SENS_MAX - ADS_SENS_MIN)
+        }
+        SliderField::AdsCoefficient => {
+            (settings.ads_sens_coefficient - ADS_COEFF_MIN) / (ADS_COEFF_MAX - ADS_COEFF_MIN)
         }
         SliderField::Fov => (settings.fov - FOV_MIN) / (FOV_MAX - FOV_MIN),
         SliderField::MasterVolume => {
@@ -592,7 +607,8 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
 fn field_value_text(settings: &Settings, field: SliderField) -> String {
     match field {
         SliderField::Sensitivity => format!("{:.2}", settings.sensitivity),
-        SliderField::AdsSensitivity => format!("{:.2}", settings.ads_sensitivity),
+        SliderField::AdsSensitivity => format!("{:.2}", settings.ads_sens_multiplier),
+        SliderField::AdsCoefficient => format!("{:.2}", settings.ads_sens_coefficient),
         SliderField::Fov => format!("{:.0}", settings.fov),
         SliderField::MasterVolume => format!("{:.0}%", settings.master_volume * 100.0),
         SliderField::FrameLimit => format!("{:.0}", settings.frame_limit),
@@ -1441,10 +1457,26 @@ fn build_controls(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
     spawn_slider_row(
         content,
         asset_server,
-        "ADS SENSITIVITY",
+        "ADS SENS MULTIPLIER",
         SliderField::AdsSensitivity,
         settings,
         0.05,
+    );
+    spawn_slider_row(
+        content,
+        asset_server,
+        "MONITOR DISTANCE COEFFICIENT",
+        SliderField::AdsCoefficient,
+        settings,
+        0.01,
+    );
+    desc(
+        content,
+        asset_server,
+        "Aiming slows your look by however much the weapon zooms, so a high-zoom scope \
+         turns slowly and iron sights barely change. The multiplier scales that further \
+         (1.00 = matched to the zoom). The coefficient picks which point on screen feels \
+         the same at the hip and aimed: 0 the centre, 1.33 the Call of Duty default.",
     );
     spawn_slider_row(content, asset_server, "FIELD OF VIEW", SliderField::Fov, settings, 1.0);
 

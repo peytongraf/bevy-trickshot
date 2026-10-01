@@ -1,5 +1,6 @@
-//! Mouse look: yaw on the player body, pitch on the head, ADS-scaled
-//! sensitivity — plus the render-camera markers hanging off the head.
+//! Mouse look: yaw on the player body, pitch on the head, sensitivity scaled
+//! by the ADS zoom ([`zoom_sens_scale`]) — plus the render-camera markers
+//! hanging off the head.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -41,11 +42,33 @@ pub(crate) struct LookDelta {
     pub(crate) applied: Vec2,
 }
 
+/// Call of Duty style "relative" ADS sensitivity: how much slower the look
+/// should turn at vertical FOV `fov` than at the hip's `hip` (both radians),
+/// so the same mouse movement sweeps the same distance on screen at a chosen
+/// point — `coefficient` vertical half-screens out from the middle (`0` the
+/// centre itself: the ratio of the zooms; `1.33` CoD's default). A barely
+/// zoomed iron sight stays near 1, a big scope drops far below it.
+pub(crate) fn zoom_sens_scale(fov: f32, hip: f32, coefficient: f32) -> f32 {
+    let half_tan = |f: f32| (f * 0.5).tan();
+    let scale = if coefficient <= 1e-3 {
+        half_tan(fov) / half_tan(hip)
+    } else {
+        (coefficient * half_tan(fov)).atan() / (coefficient * half_tan(hip)).atan()
+    };
+    if scale.is_finite() {
+        scale.clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn look_around(
     mouse_motion: Res<AccumulatedMouseMotion>,
     window: Single<&Window, With<PrimaryWindow>>,
     ads: Res<Ads>,
     settings: Res<Settings>,
+    world_projection: Single<&Projection, With<WorldModelCamera>>,
     mut look_delta: ResMut<LookDelta>,
     mut player: Single<&mut Transform, (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
@@ -60,11 +83,19 @@ pub(crate) fn look_around(
         return;
     }
 
-    // Base sensitivity × the player's multiplier, eased toward the player's ADS
-    // sensitivity multiplier as they zoom in.
+    // Base sensitivity × the player's multiplier, slowed by however much the
+    // view's zoomed right now (it follows the ADS blend, and each weapon's own
+    // zoom — the sniper's scope, the AK's iron sights), with the player's ADS
+    // multiplier eased in on top as they aim.
+    let fov = match *world_projection {
+        Projection::Perspective(ref p) => p.fov,
+        _ => settings.fov.to_radians(),
+    };
+    let zoom = zoom_sens_scale(fov, settings.fov.to_radians(), settings.ads_sens_coefficient);
     let sens = MOUSE_SENSITIVITY
         * settings.sensitivity
-        * 1.0f32.lerp(settings.ads_sensitivity, ease(ads.t));
+        * zoom
+        * 1.0f32.lerp(settings.ads_sens_multiplier, ease(ads.t));
 
     // Yaw on the body...
     let yaw = -delta.x * sens.x;

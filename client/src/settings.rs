@@ -23,11 +23,21 @@ pub const SENS_MIN: f32 = 0.10;
 pub const SENS_MAX: f32 = 3.0;
 pub const SENS_DEFAULT: f32 = 1.0;
 
-/// ADS sensitivity is a multiplier on the look speed at full aim-down-sight,
-/// relative to the hip. `1.0` = no slow-down; the default eases the zoomed view.
+/// ADS sensitivity, Call of Duty's "relative" way: aiming slows the look by
+/// however much the view zooms (see `player::camera::zoom_sens_scale`), so a
+/// big sniper scope slows it a lot and iron sights barely at all. The
+/// multiplier goes on top of that (`1.0` = just the zoom matching).
 pub const ADS_SENS_MIN: f32 = 0.10;
 pub const ADS_SENS_MAX: f32 = 2.0;
-pub const ADS_SENS_DEFAULT: f32 = 0.4;
+pub const ADS_SENS_DEFAULT: f32 = 1.0;
+
+/// Monitor distance coefficient: which point on screen keeps the same feel
+/// between hip and ADS, in vertical half-screens from the middle — `0` the
+/// centre, `1` the top edge, `1.33` (Call of Duty's default) three-quarters
+/// of the way across a 16:9 screen.
+pub const ADS_COEFF_MIN: f32 = 0.0;
+pub const ADS_COEFF_MAX: f32 = 3.0;
+pub const ADS_COEFF_DEFAULT: f32 = 1.33;
 
 pub const VOLUME_MIN: f32 = 0.0;
 pub const VOLUME_MAX: f32 = 1.0;
@@ -172,8 +182,12 @@ pub struct Settings {
     pub username: Option<String>,
     /// Multiplier applied to the base mouse sensitivity.
     pub sensitivity: f32,
-    /// Multiplier on look sensitivity at full ADS, relative to the hip.
-    pub ads_sensitivity: f32,
+    /// Multiplier on look sensitivity at full ADS, on top of the zoom
+    /// matching ([`ADS_SENS_DEFAULT`]). (Replaces the old flat
+    /// `ads_sensitivity`, which a saved file's value no longer feeds.)
+    pub ads_sens_multiplier: f32,
+    /// How the zoom matching measures the zoom ([`ADS_COEFF_DEFAULT`]).
+    pub ads_sens_coefficient: f32,
     /// Hip (non-ADS) vertical FOV, degrees.
     pub fov: f32,
     /// Show the dev tuning panels in the top-right.
@@ -211,7 +225,8 @@ impl Default for Settings {
         Self {
             username: None,
             sensitivity: SENS_DEFAULT,
-            ads_sensitivity: ADS_SENS_DEFAULT,
+            ads_sens_multiplier: ADS_SENS_DEFAULT,
+            ads_sens_coefficient: ADS_COEFF_DEFAULT,
             fov: FOV_DEFAULT,
             debug_mode: false,
             dev_auto_create_lobby: false,

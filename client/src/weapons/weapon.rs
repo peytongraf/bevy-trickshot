@@ -357,6 +357,11 @@ impl Weapon {
         self.mag + self.reserve >= self.mag_size() + self.max_reserve(mode)
     }
 
+    /// The AK's walk / jump animation state (the debug panel shows it).
+    pub(crate) fn ak_loco(&self) -> AkLoco {
+        self.ak_loco
+    }
+
     /// The primary's magazine capacity.
     pub(crate) fn mag_size(&self) -> u32 {
         mag_size(self.primary)
@@ -1003,9 +1008,8 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, sprinting, ak_cfg): (
+    (physics, ak_cfg): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
-        Res<crate::player::Sprinting>,
         Res<AkSettings>,
     ),
     mut commands: Commands,
@@ -1558,26 +1562,16 @@ pub(crate) fn weapon_system(
         return;
     }
 
-    // The AK, out and free: its idle / walk / jump clips — unless a shot's
+    // The AK, out and free: its idle / jump clips — unless a shot's
     // still playing out.
     if weapon.slot == WeaponSlot::Primary && rig.weapon == WeaponId::Ak74 {
         let shot = rig.seg(SegAct::Shoot);
         let shooting = rig.is_main(shot) && !rig.reached(shot, shot.end_secs());
         if !shooting {
-            let (moving, grounded, rising) = physics.single().map_or((false, true, false), |p| {
-                (
-                    p.horizontal_velocity.length() > ak_cfg.move_threshold,
-                    p.grounded,
-                    p.vertical_velocity > 0.0,
-                )
-            });
-            let motion = AkMotion {
-                moving,
-                grounded,
-                rising,
-                sprinting: sprinting.0,
-                nitro: nitro.movement(),
-            };
+            let (grounded, rising) = physics
+                .single()
+                .map_or((true, false), |p| (p.grounded, p.vertical_velocity > 0.0));
+            let motion = AkMotion { grounded, rising };
             ak_locomotion(&mut rig, &mut weapon.ak_loco, motion, &ak_cfg);
         }
     }
@@ -1625,9 +1619,16 @@ pub(crate) fn weapon_system(
     if rig.weapon == WeaponId::Ak74 {
         let now = time.elapsed_secs();
         if binds.fire.pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
-            // Held: keep the cadence even across uneven frames; a fresh pull
-            // after a pause starts from now.
-            weapon.next_shot_at = weapon.next_shot_at.max(now - ak_cfg.fire_interval) + ak_cfg.fire_interval.max(0.02);
+            // Held: keep the cadence even across uneven frames (the next
+            // round's due one interval after this one was); a fresh pull
+            // after a pause counts from now — one round, not a catch-up.
+            let interval = ak_cfg.fire_interval.max(0.02);
+            let due = if now - weapon.next_shot_at < interval {
+                weapon.next_shot_at
+            } else {
+                now
+            };
+            weapon.next_shot_at = due + interval;
             weapon.mag -= 1;
             shake.trauma = (shake.trauma + ak_cfg.trauma_per_shot).min(1.0);
             shake.recoil = ak_cfg.recoil_kick;

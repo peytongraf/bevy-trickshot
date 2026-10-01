@@ -248,7 +248,7 @@ pub(crate) fn scope_picture_amount(ads_t: f32, tuning: &AdsTuning) -> f32 {
 pub(crate) fn apply_ads(
     ads: Res<Ads>,
     poses: Res<ViewModelPoses>,
-    (weapon, ak): (Res<super::Weapon>, Res<super::AkSettings>),
+    (weapon, ak, bob): (Res<super::Weapon>, Res<super::AkSettings>, Res<super::AkWalkBob>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
@@ -261,10 +261,11 @@ pub(crate) fn apply_ads(
         perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak), &tuning, ads.t);
     }
 
-    let (hip, aimed) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        (&ak.hip, &ak.ads)
+    if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        let mut pose = lerp_pose(&ak.hip, &ak.ads, e);
+        pose.translation += bob.offset(&ak, ads.t);
+        **view_model = pose;
     } else {
-        (&poses.hip, &poses.ads)
-    };
-    **view_model = lerp_pose(hip, aimed, e);
+        **view_model = lerp_pose(&poses.hip, &poses.ads, e);
+    }
 }

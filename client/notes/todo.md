@@ -13,11 +13,19 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # AK-74
 
-- Shot tracer looks like it doesn't come from barrel position and is from higher
-- Ads mouse sens is the same as sniper which uses a scope. The ads mouse sens should vary depending on the zoom level
+- After reloading or before shooting, weapon looks normal but after firing a single or many shots, the shell flies out then comes back up and stays there.
+- Shot tracer looks like it doesn't come from barrel position and is from higher. It isn't noticed when standing still but is when moving backward. It appears from the center of the screen. It should be slightly lower than that when ads and maybe start a little ahead of the gun or at least fade in from the end the gun is on. It should start from the hip position when firing from hip fire.
+- AK74 and all other weapons should have a hip fire inacuraccy amount.
+- Ensure the recoil is added for it and all other weapons. There should be a setting for it.
 
 # New
 
+- Add original zombies perks. Have a setting to use original perks or custom perks.
+- Shroom tea still shows glow on zombies bodies when they aren't behind a wall
+- If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
+- Molotov damage shoudld be doubled.
+- Make all maps have a day and night setting with just different fog / sky settings
+- Ensure that walk and sprint bob for sniper, knife, and throwing knife are the same as the ak74. ALl should be the same as it. They should all have the same general settings instead of individual so that setting should be removed for ak74 and made general.
 - Ammo box should be collidable
 - Make normal zombie points added text white unless it is a critical in which case it should be yellow
 - Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.

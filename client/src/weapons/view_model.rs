@@ -387,6 +387,7 @@ pub(crate) fn start_view_model_animation(
     mut players: Query<&mut AnimationPlayer>,
     names: Query<&Name>,
     meshes: Query<(), With<Mesh3d>>,
+    transforms: Query<&Transform>,
     scope_rt: Res<ScopeRenderTarget>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -447,6 +448,14 @@ pub(crate) fn start_view_model_animation(
                 Visibility::Hidden,
             ));
             lens_count += 1;
+        }
+
+        // The AK's spent shell (`ak::pin_ak_shell` holds it at rest between
+        // shots).
+        if anim.weapon == WeaponId::Ak74 && name_has(super::ak::AK_SHELL_NODE) {
+            if let Ok(tf) = transforms.get(entity) {
+                commands.entity(entity).insert(super::ak::AkShell { rest: *tf });
+            }
         }
 
         if let Ok(mut player) = players.get_mut(entity) {

@@ -221,6 +221,19 @@ fn main() {
         })
         .init_resource::<ViewModelPoses>()
         .init_resource::<weapons::AkSettings>()
+        .init_resource::<weapons::AkWalkBob>()
+        .add_systems(
+            PostUpdate,
+            weapons::pin_ak_shell
+                .after(bevy::app::Animation)
+                .before(bevy::transform::TransformSystem::TransformPropagate),
+        )
+        .add_systems(
+            Update,
+            weapons::update_ak_walk_bob
+                .before(apply_ads)
+                .run_if(in_state(AppState::InGame)),
+        )
         // Not gated on `InGame`: it puts the sniper back once we're out of a
         // `Zombies` lobby that had us on the AK.
         .add_systems(Update, weapons::sync_primary_model.before(weapon_system))
