@@ -193,6 +193,7 @@ fn main() {
             respawn::RespawnResetPlugin,
             BulletHolePlugin,
         ))
+        .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)

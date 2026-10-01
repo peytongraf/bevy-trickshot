@@ -61,6 +61,7 @@ mod params {
         pub(crate) sparks: f32,
         pub(crate) pull: f32,
         pub(crate) core: f32,
+        pub(crate) depth_pull: f32,
     }
 }
 
@@ -84,7 +85,8 @@ impl Material for PowerUpGlowMaterial {
     }
 
     /// A billboard: both faces, and it never writes depth (it's a glow, not
-    /// a surface) — walls in front still hide it.
+    /// a surface) — anything in front of the drop still hides it (the
+    /// shader depth-tests it at the drop, not where `pull` puts it).
     fn specialize(
         _pipeline: &MaterialPipeline<Self>,
         descriptor: &mut RenderPipelineDescriptor,
@@ -152,6 +154,11 @@ pub(crate) struct PowerUpSettings {
     pub(crate) glow_sparks: f32,
     pub(crate) glow_pull: f32,
     pub(crate) glow_core: f32,
+    /// Where the glow is depth-tested, on top of the automatic spot just
+    /// behind the whole model (m toward the camera; 0 = that spot, so all of
+    /// the model covers the glow — positive starts letting it over the
+    /// model's back).
+    pub(crate) glow_depth_pull: f32,
     /// The green light under it: lumens and range (m).
     pub(crate) light_lumens: f32,
     pub(crate) light_range: f32,
@@ -168,21 +175,22 @@ impl Default for PowerUpSettings {
             spin_deg: 60.0,
             // Max Ammo, Insta-Kill, Double Points, Nuke, Bonus Points
             // (`PowerUp::ALL`'s order).
-            scale: [1.15, 0.35, 4.0, 0.018, 1.1],
-            gold_color: [1.0, 0.801921, 0.40572798],
+            scale: [1.15, 0.35, 4.0, 0.024, 1.1],
+            gold_color: [0.3633843, 0.273065, 0.09241041],
             gold_metallic: 0.87,
             gold_roughness: 0.0,
             gold_emissive: 0.0,
-            glow_color: [0.25, 1.0, 0.3000003],
+            glow_color: [0.011099039, 0.26902723, 0.028294351],
             glow_brightness: 1.0,
-            glow_size: 3.6,
+            glow_size: 2.2,
             glow_pulse_speed: 4.3,
             glow_pulse_amount: 0.65,
-            glow_swirl: 0.6,
+            glow_swirl: 0.8,
             glow_swirl_speed: 2.15,
             glow_sparks: 0.0,
-            glow_pull: -3.0,
+            glow_pull: 0.0,
             glow_core: 0.26,
+            glow_depth_pull: -0.3,
             light_lumens: 10_000.0,
             light_range: 4.7,
             blink_hz: 4.0,
@@ -214,6 +222,7 @@ impl PowerUpSettings {
             sparks: self.glow_sparks,
             pull: self.glow_pull,
             core: self.glow_core,
+            depth_pull: self.glow_depth_pull,
         }
     }
 
@@ -260,6 +269,17 @@ struct DropModel(PowerUp);
 #[derive(Component)]
 struct DropLight;
 
+/// A drop's glow quad. Its transform's scale carries the model's bounding
+/// radius (m, measured by [`measure_drop_models`]) to the shader, which
+/// depth-tests the glow that far behind the model's middle — so every part
+/// of the model, however it's turned, draws over the glow. (The shader sizes
+/// the quad itself from `glow_size`, never from this scale.)
+#[derive(Component)]
+struct DropGlow;
+
+/// [`DropGlow`]'s radius until the model's loaded and measured.
+const FALLBACK_MODEL_RADIUS: f32 = 0.5;
+
 /// The loop playing from a drop.
 #[derive(Component)]
 struct DropLoop;
@@ -295,6 +315,7 @@ impl Plugin for PowerUpsPlugin {
             (
                 sync_drop_avatars,
                 animate_drop_avatars,
+                measure_drop_models,
                 fade_drop_loops,
                 apply_power_up_settings,
                 receive_grabs,
@@ -387,9 +408,10 @@ fn sync_drop_avatars(
                             ))
                             .observe(gild_model);
                         spinner.spawn((
+                            DropGlow,
                             Mesh3d(quad),
                             MeshMaterial3d(glow),
-                            Transform::default(),
+                            Transform::from_scale(Vec3::splat(FALLBACK_MODEL_RADIUS)),
                             NoFrustumCulling,
                             NotShadowCaster,
                         ));
@@ -418,6 +440,46 @@ fn sync_drop_avatars(
                     Transform::from_xyz(0.0, 1.0, 0.0),
                 ));
             });
+    }
+}
+
+/// Keep each glow's [`DropGlow`] radius at its model's bounding radius about
+/// the spin centre — measured off the model's meshes as they are (so a scale
+/// change in the panel follows; the spin doesn't change it).
+fn measure_drop_models(
+    spinners: Query<(&GlobalTransform, &Children), With<DropSpinner>>,
+    models: Query<(), With<DropModel>>,
+    children: Query<&Children>,
+    meshes: Query<(&bevy::render::primitives::Aabb, &GlobalTransform)>,
+    mut glows: Query<&mut Transform, With<DropGlow>>,
+) {
+    for (spinner_gt, kids) in &spinners {
+        let centre = spinner_gt.translation();
+        let mut radius: Option<f32> = None;
+        for model in kids.iter().filter(|&k| models.contains(k)) {
+            for e in children.iter_descendants(model) {
+                let Ok((aabb, gt)) = meshes.get(e) else { continue };
+                let (c, h) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
+                for i in 0..8 {
+                    let corner = c + h * Vec3::new(
+                        if i & 1 == 0 { -1.0 } else { 1.0 },
+                        if i & 2 == 0 { -1.0 } else { 1.0 },
+                        if i & 4 == 0 { -1.0 } else { 1.0 },
+                    );
+                    let d = gt.transform_point(corner).distance(centre);
+                    radius = Some(radius.map_or(d, |r: f32| r.max(d)));
+                }
+            }
+        }
+        let Some(radius) = radius else { continue };
+        for glow in kids.iter() {
+            if let Ok(mut tf) = glows.get_mut(glow) {
+                let want = Vec3::splat(radius.max(0.01));
+                if tf.scale != want {
+                    tf.scale = want;
+                }
+            }
+        }
     }
 }
 

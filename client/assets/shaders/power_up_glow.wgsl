@@ -1,8 +1,12 @@
 // The green glow around a `Zombies` power-up drop: a camera-facing quad
 // centred on the drop, drawn additively — a soft pulsing core, a wider halo
 // broken up by slowly swirling wisps, and a few sparks drifting up through
-// it. Pulled toward the camera a little so it doesn't slice into the ground
-// under the drop. Driven by `PowerUpGlowMaterial` in
+// it. Drawn wherever `pull` puts it, but depth-tested as one flat sheet
+// just behind the gold model (its bounding radius behind the middle, carried
+// in the quad's transform scale; `depth_pull` nudges it): a wall or floor
+// behind the drop never slices into it, the whole model always draws over
+// it, and anything really in front of the drop — a wall in the way — still
+// covers it. Driven by `PowerUpGlowMaterial` in
 // `client/src/power_ups.rs`.
 
 #import bevy_pbr::{
@@ -28,6 +32,9 @@ struct GlowParams {
     pull: f32,
     // Core size relative to the halo (bigger = a wider bright middle).
     core: f32,
+    // Nudges (m toward the camera) where the whole quad is depth-tested: 0 =
+    // just behind the whole model.
+    depth_pull: f32,
 }
 @group(2) @binding(0) var<uniform> g: GlowParams;
 
@@ -78,6 +85,14 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // The quad's own -1..1 coordinates, for the fragment shader.
     out.world_normal = vec3<f32>(vertex.position.xy * 2.0, 0.0);
     out.position = position_world_to_clip(world);
+    // One depth for the whole quad: just behind the model — its bounding
+    // radius (the quad's world scale) behind the middle, nudged by
+    // `depth_pull`, never past the camera — so all of the model, and only
+    // what's in front of the drop, hides it.
+    let model_radius = length(world_from_local[0].xyz);
+    let depth_at = center + to_cam / dist * min(g.depth_pull - model_radius, dist * 0.5);
+    let depth_clip = position_world_to_clip(depth_at);
+    out.position.z = depth_clip.z / depth_clip.w * out.position.w;
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = vertex.instance_index;
 #endif

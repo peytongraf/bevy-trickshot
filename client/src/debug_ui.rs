@@ -125,7 +125,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<LensSettings>,
             ResMut<SniperGlintSettings>,
             ResMut<ShroomSettings>,
-            ResMut<crate::hud::NameTagSettings>,
+            (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>),
             ResMut<BotLookSettings>,
         ),
     ),
@@ -146,7 +146,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, mut name_tags, mut bot_look),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, (mut name_tags, mut health_bars), mut bot_look),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1242,6 +1242,28 @@ pub(crate) fn ads_tuning_ui(
                 });
 
             ui.separator();
+                ui.collapsing("Zombie health bars", |ui| {
+                    let hb = &mut *health_bars;
+                    ui.label("Red bar over a zombie you've hurt (only your own hits).");
+                    ui.add(egui::Slider::new(&mut hb.height, 0.0f32..=2.0).text("height above eye (m)"));
+                    ui.add(egui::Slider::new(&mut hb.width, 10.0f32..=300.0).text("width (px)"));
+                    ui.add(egui::Slider::new(&mut hb.thickness, 1.0f32..=30.0).text("thickness (px)"));
+                    ui.add(egui::Slider::new(&mut hb.show_secs, 0.0f32..=10.0).text("shown after last hit (s)"));
+                    ui.add(egui::Slider::new(&mut hb.fade_secs, 0.0f32..=5.0).text("then fades over (s)"));
+                    ui.add(egui::Slider::new(&mut hb.back_alpha, 0.0f32..=1.0).text("black back opacity"));
+                    if ui.button("Copy health bars to console").clicked() {
+                        info!(
+                            "health bars: height: {:.2}, width: {:.1}, thickness: {:.1}, show_secs: {:.2}, \
+                             fade_secs: {:.2}, back_alpha: {:.2}",
+                            hb.height, hb.width, hb.thickness, hb.show_secs, hb.fade_secs, hb.back_alpha,
+                        );
+                    }
+                    if ui.button("Reset health bars").clicked() {
+                        *hb = crate::hud::HealthBarSettings::default();
+                    }
+                });
+
+            ui.separator();
                 ui.collapsing("Health", |ui| {
                     ui.label(
                         "Health is server-side: shots and falls both take it off, it holds for 3 s \
@@ -1720,18 +1742,22 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut p.glow_swirl_speed, 0.0f32..=4.0).text("wisp speed"));
                 ui.add(egui::Slider::new(&mut p.glow_sparks, 0.0f32..=6.0).text("sparks"));
                 ui.add(egui::Slider::new(&mut p.glow_pull, -3.0f32..=3.0).text("pulled toward camera (m, − pushes away)"));
+                ui.add(
+                    egui::Slider::new(&mut p.glow_depth_pull, -1.0f32..=1.0)
+                        .text("depth-tested at (m toward camera from drop)"),
+                );
                 ui.add(egui::Slider::new(&mut p.light_lumens, 0.0f32..=200_000.0).logarithmic(true).text("light (lm)"));
                 ui.add(egui::Slider::new(&mut p.light_range, 0.5f32..=20.0).text("light range (m)"));
                 if ui.button("Copy power-up settings to console").clicked() {
                     info!(
                         "power-ups: height {:.2}, bob {:.2} @ {:.2}, spin {:.0}, blink {:.1}, scale {:?}, \
                          gold {:?} metallic {:.2} roughness {:.2} emissive {:.2}, glow {:?} x{:.2} size {:.2} \
-                         core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2}, light {:.0} lm {:.1} m",
+                         core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2} depth {:.2}, light {:.0} lm {:.1} m",
                         p.height, p.bob_height, p.bob_speed, p.spin_deg, p.blink_hz, p.scale,
                         p.gold_color, p.gold_metallic, p.gold_roughness, p.gold_emissive,
                         p.glow_color, p.glow_brightness, p.glow_size, p.glow_core,
                         p.glow_pulse_speed, p.glow_pulse_amount, p.glow_swirl, p.glow_swirl_speed,
-                        p.glow_sparks, p.glow_pull, p.light_lumens, p.light_range,
+                        p.glow_sparks, p.glow_pull, p.glow_depth_pull, p.light_lumens, p.light_range,
                     );
                 }
                 if ui.button("Reset power-ups").clicked() {

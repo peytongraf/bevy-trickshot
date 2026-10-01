@@ -139,6 +139,7 @@ fn receive_hit_markers(
     killcam: Res<ActiveKillCam>,
     sounds: Res<GameSounds>,
     mut flash: ResMut<HitMarkerFlash>,
+    mut damaged: EventWriter<crate::hud::DamagedByMe>,
     mut commands: Commands,
 ) {
     let mut got: Option<bool> = None;
@@ -146,6 +147,10 @@ fn receive_hit_markers(
         for marker in rx.receive() {
             if killcam.0.is_none() {
                 got = Some(got.unwrap_or(false) || marker.kill);
+                // Brings up that zombie's health bar (`hud::health_bars`).
+                if let Some(victim) = marker.victim {
+                    damaged.write(crate::hud::DamagedByMe(victim));
+                }
             }
         }
     }

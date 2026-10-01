@@ -224,7 +224,10 @@ pub(crate) fn apply_player_hits(
             // molotov gets none).
             if !is_bot_peer(ev.killer) && ev.killer != ev.victim {
                 if let Err(e) = sender.send::<_, GameChannel>(
-                    &HitMarker { kill: false },
+                    &HitMarker {
+                        kill: false,
+                        victim: Some(ev.victim),
+                    },
                     server,
                     &NetworkTarget::Single(ev.killer),
                 ) {
@@ -238,7 +241,10 @@ pub(crate) fn apply_player_hits(
         // The killer's red kill marker (a bot killer has no client).
         if !is_bot_peer(ev.killer) && ev.killer != ev.victim {
             if let Err(e) = sender.send::<_, GameChannel>(
-                &HitMarker { kill: true },
+                &HitMarker {
+                    kill: true,
+                    victim: Some(ev.victim),
+                },
                 server,
                 &NetworkTarget::Single(ev.killer),
             ) {

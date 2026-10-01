@@ -352,7 +352,7 @@ fn resolve_shots(
                 }
                 if survivor && !shared::bot_players::is_bot_peer(shooter.0) {
                     if let Err(e) = sender.send::<_, GameChannel>(
-                        &HitMarker { kill: false },
+                        &HitMarker { kill: false, victim: None },
                         server,
                         &NetworkTarget::Single(shooter.0),
                     ) {

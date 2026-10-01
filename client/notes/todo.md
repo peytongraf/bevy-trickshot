@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Zombie health bars
 - Prone at perk machine bonus
 - Critical kill bonus points
 - Nuke gives 500 points, burns zombies over 5s
@@ -18,7 +19,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Use melee animation for remote player when using knife
 - Improve molotov fire look
 - Add quotes
-- Add health bars to zombies
 - Separate todo into regular multiplayer and zombies todos
 - Add molotov to multiplayer loadout
 - Only one light is coming on when turning on the power

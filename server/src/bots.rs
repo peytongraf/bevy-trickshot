@@ -224,7 +224,7 @@ fn apply_bot_hits(
         }
         if !shared::bot_players::is_bot_peer(ev.by) {
             if let Err(e) = sender.send::<_, shared::GameChannel>(
-                &shared::HitMarker { kill: true },
+                &shared::HitMarker { kill: true, victim: None },
                 *server,
                 &NetworkTarget::Single(ev.by),
             ) {

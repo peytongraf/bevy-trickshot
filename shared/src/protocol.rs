@@ -1124,6 +1124,10 @@ pub struct FallDeath {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct HitMarker {
     pub kill: bool,
+    /// Who was hurt, when it's a player-entity hit (a `FreeForAll` player or
+    /// a `Zombies` zombie) — the attacker shows that zombie's health bar.
+    /// `None` for a `Freestyle` target bot.
+    pub victim: Option<PeerId>,
 }
 
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
