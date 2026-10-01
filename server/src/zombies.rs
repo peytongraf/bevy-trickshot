@@ -605,6 +605,7 @@ mod tests {
                     kills: 0,
                     perks: Vec::new(),
                     pap: Default::default(),
+                    loadout: Default::default(),
                 }],
             })
             .id();

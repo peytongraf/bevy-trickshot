@@ -40,7 +40,7 @@ pub use protocol::{
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
-    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ProneAtPerk, ProneBonus, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
+    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ProneAtPerk, ProneBonus, SetLoadout, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,

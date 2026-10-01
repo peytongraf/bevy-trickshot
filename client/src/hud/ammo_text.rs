@@ -90,11 +90,21 @@ const SHADOW_OFFSET: f32 = 2.0;
 /// Opacity of the knife group once it's out of knives.
 const EMPTY_ALPHA: f32 = 0.35;
 
-/// `Weapon::slot` → its HUD icon path under `assets/textures/icons/weapons/`.
-fn weapon_icon_path(slot: WeaponSlot) -> &'static str {
+/// `Weapon::slot` (and which primary) → its HUD icon path under
+/// `assets/textures/icons/weapons/`.
+fn weapon_icon_path(slot: WeaponSlot, primary: shared::weapon::WeaponId) -> &'static str {
     match slot {
-        WeaponSlot::Primary => "textures/icons/weapons/sniper.png",
+        WeaponSlot::Primary => primary_icon_path(primary),
         WeaponSlot::Secondary => "textures/icons/weapons/knife.png",
+    }
+}
+
+/// A primary's icon (the HUD's, and its loadout tile in the lobby) — both
+/// drawn to the same 2:1 canvas, muzzle left.
+pub(crate) fn primary_icon_path(primary: shared::weapon::WeaponId) -> &'static str {
+    match primary {
+        shared::weapon::WeaponId::Ak74 => "textures/icons/weapons/ak_74.png",
+        _ => "textures/icons/weapons/sniper.png",
     }
 }
 
@@ -190,7 +200,7 @@ pub(crate) fn setup_ammo_ui(
         .with_children(|row| {
             spawn_shadowed_icon(
                 row,
-                asset_server.load(weapon_icon_path(WeaponSlot::Primary)),
+                asset_server.load(weapon_icon_path(WeaponSlot::Primary, shared::weapon::WeaponId::Sniper)),
                 WEAPON_ICON_SIZE,
                 WeaponIcon,
             );
@@ -393,13 +403,14 @@ pub(crate) fn update_weapon_icon(
     weapon: Res<Weapon>,
     asset_server: Res<AssetServer>,
     mut icons: Query<&mut ImageNode, With<WeaponIcon>>,
-    mut applied: Local<Option<WeaponSlot>>,
+    mut applied: Local<Option<(WeaponSlot, shared::weapon::WeaponId)>>,
 ) {
-    if applied.is_some_and(|s| s == weapon.slot) {
+    let want = (weapon.slot, weapon.primary);
+    if *applied == Some(want) {
         return;
     }
-    *applied = Some(weapon.slot);
-    let image = asset_server.load(weapon_icon_path(weapon.slot));
+    *applied = Some(want);
+    let image = asset_server.load(weapon_icon_path(weapon.slot, weapon.primary));
     for mut icon in &mut icons {
         icon.image = image.clone();
     }

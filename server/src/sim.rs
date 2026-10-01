@@ -288,9 +288,20 @@ fn resolve_shots(
             continue;
         }
 
-        let Some(weapon) = WeaponId::from_u8(i.weapon) else {
+        let Some(mut weapon) = WeaponId::from_u8(i.weapon) else {
             continue;
         };
+        // The AK-74 is a `Zombies` loadout weapon only — anywhere else (or
+        // from a member who didn't pick it) a shot is the sniper's.
+        if weapon == WeaponId::Ak74 {
+            let picked = lobby
+                .members
+                .iter()
+                .any(|m| m.peer == shooter.0 && m.loadout == WeaponId::Ak74);
+            if lobby.mode != GameMode::Zombies || !picked {
+                weapon = WeaponId::Sniper;
+            }
+        }
 
         // The nearest solid surface along the shot (wall, container, crate,
         // ground mesh). A bullet stops there: nothing beyond it can be hit —

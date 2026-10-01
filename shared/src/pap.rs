@@ -17,6 +17,8 @@ pub const MAX_LEVEL: u8 = 3;
 /// Which weapon is being packed — whichever the player is holding.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PapWeapon {
+    /// The primary — the sniper, or the AK-74 if that's the member's
+    /// loadout ([`crate::LobbyMember::loadout`]).
     Sniper,
     Knife,
 }

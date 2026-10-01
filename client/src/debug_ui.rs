@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -80,6 +80,7 @@ pub(crate) fn ads_tuning_ui(
                     &mut lightyear::prelude::TriggerSender<shared::DropPowerUp>,
                     With<crate::net::GameClient>,
                 >,
+                ResMut<crate::AkSettings>,
             ),
             Query<
                 &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
@@ -319,6 +320,12 @@ pub(crate) fn ads_tuning_ui(
                     if ui.button("Reset hip pose to default").clicked() {
                         *h = ViewModelPoses::default().hip;
                     }
+                });
+
+            ui.separator();
+                ui.collapsing("AK-74 (Zombies loadout)", |ui| {
+                    ui.label("Poses, firing and animations for the AK-74 — pick it in a Zombies lobby's loadout.");
+                    crate::weapons::ak_section(ui, &mut ak_cfg, &mut tuning.force_full);
                 });
 
             ui.separator();
@@ -1334,6 +1341,9 @@ pub(crate) fn ads_tuning_ui(
                         ("shot", &mut v.shot),
                         ("rechamber", &mut v.rechamber),
                         ("reload", &mut v.reload),
+                        ("AK-74: shot", &mut v.ak_shot),
+                        ("AK-74: reload", &mut v.ak_reload),
+                        ("AK-74: fast reload", &mut v.ak_reload_fast),
                         ("ambient", &mut v.ambient),
                         ("shipment ambient", &mut v.shipment_ambient),
                         ("aim in", &mut v.aim_in),

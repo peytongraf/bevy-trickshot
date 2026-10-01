@@ -220,6 +220,10 @@ fn main() {
             ..default()
         })
         .init_resource::<ViewModelPoses>()
+        .init_resource::<weapons::AkSettings>()
+        // Not gated on `InGame`: it puts the sniper back once we're out of a
+        // `Zombies` lobby that had us on the AK.
+        .add_systems(Update, weapons::sync_primary_model.before(weapon_system))
         .init_resource::<KnifeViewModelSettings>()
         .init_resource::<ThrowArmsSettings>()
         .init_resource::<ThrowKnifeModelSettings>()
@@ -898,6 +902,16 @@ fn setup_player(
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/sniper.glb"));
     let (graph, index) = AnimationGraph::from_clip(clip);
     let graph = graphs.add(graph);
+    let sniper_scene: Handle<Scene> = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/sniper.glb"));
+    // Both primaries' scenes and graphs, kept loaded so the view model can
+    // switch to the AK-74 (a `Zombies` loadout pick) without a hitch.
+    commands.insert_resource(weapons::PrimaryModels::load(
+        &asset_server,
+        &mut graphs,
+        sniper_scene.clone(),
+        graph.clone(),
+        index,
+    ));
 
     // Same, for the knife's own baked clip.
     let knife_clip: Handle<AnimationClip> =
@@ -1128,10 +1142,13 @@ fn setup_player(
                             // The sniper view model itself.
                             rig.spawn((
                                 ViewModel,
-                                ViewModelAnimation { graph, index },
-                                SceneRoot(asset_server.load(
-                                    GltfAssetLabel::Scene(0).from_asset("models/sniper.glb"),
-                                )),
+                                ViewModelAnimation {
+                                    graph,
+                                    index,
+                                    nodes: vec![index],
+                                    weapon: shared::weapon::WeaponId::Sniper,
+                                },
+                                SceneRoot(sniper_scene),
                                 poses.hip.transform(),
                                 RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
                             ))

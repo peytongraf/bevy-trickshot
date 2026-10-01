@@ -187,13 +187,24 @@ impl Optic {
     }
 
     /// What to render with right now: the kill cam's shooter while one plays,
-    /// otherwise the live player.
-    pub(crate) fn current(settings: &Settings, killcam: &ActiveKillCam) -> Self {
-        killcam
-            .0
-            .as_ref()
-            .and_then(|run| run.optic)
-            .unwrap_or_else(|| Self::live(settings))
+    /// otherwise the live player (whose AK-74 has iron sights, zooming only
+    /// `AkSettings::ads_zoom`).
+    pub(crate) fn current(
+        settings: &Settings,
+        killcam: &ActiveKillCam,
+        weapon: &super::Weapon,
+        ak: &super::AkSettings,
+    ) -> Self {
+        killcam.0.as_ref().and_then(|run| run.optic).unwrap_or_else(|| {
+            if weapon.primary == shared::weapon::WeaponId::Ak74 {
+                Self {
+                    hip_fov_deg: settings.fov,
+                    zoom: ak.ads_zoom,
+                }
+            } else {
+                Self::live(settings)
+            }
+        })
     }
 }
 
@@ -231,9 +242,13 @@ pub(crate) fn scope_picture_amount(ads_t: f32, tuning: &AdsTuning) -> f32 {
     ease(((ads_t - tuning.scope_picture_at) / span).clamp(0.0, 1.0))
 }
 
+/// Zoom the world camera and raise the view model for `Ads::t` — with the
+/// primary's own poses (the sniper's, or `AkSettings`').
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_ads(
     ads: Res<Ads>,
     poses: Res<ViewModelPoses>,
+    (weapon, ak): (Res<super::Weapon>, Res<super::AkSettings>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
@@ -243,8 +258,13 @@ pub(crate) fn apply_ads(
     let e = ads_ease(ads.t, tuning.ads_ease);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam), &tuning, ads.t);
+        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak), &tuning, ads.t);
     }
 
-    **view_model = lerp_pose(&poses.hip, &poses.ads, e);
+    let (hip, aimed) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        (&ak.hip, &ak.ads)
+    } else {
+        (&poses.hip, &poses.ads)
+    };
+    **view_model = lerp_pose(hip, aimed, e);
 }

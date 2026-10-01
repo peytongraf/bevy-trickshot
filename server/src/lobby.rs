@@ -58,6 +58,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_paused)
             .add_observer(on_set_bots_passive)
             .add_observer(on_set_bots_frozen)
+            .add_observer(on_set_loadout)
             .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
@@ -188,6 +189,7 @@ fn on_create(
                     kills: 0,
                     perks: Vec::new(),
                     pap: Default::default(),
+                    loadout: Default::default(),
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -237,6 +239,7 @@ fn on_join(
             kills: 0,
             perks: Vec::new(),
             pap: Default::default(),
+            loadout: Default::default(),
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -485,6 +488,25 @@ fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobb
     }
 }
 
+/// A member picks their `Zombies` primary — only between games, and only one
+/// of the loadout's weapons.
+fn on_set_loadout(trigger: Trigger<RemoteTrigger<shared::SetLoadout>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let weapon = trigger.trigger.weapon;
+    if !shared::weapon::LOADOUT_WEAPONS.contains(&weapon) {
+        return;
+    }
+    let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer) && !l.started) else {
+        return;
+    };
+    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        if m.loadout != weapon {
+            m.loadout = weapon;
+            info!("{peer:?} picked the {} for zombies", weapon.label());
+        }
+    }
+}
+
 /// Debug: the leader freezes (or frees) their lobby's bots in place, any time.
 fn on_set_bots_frozen(trigger: Trigger<RemoteTrigger<SetBotsFrozen>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
@@ -591,6 +613,7 @@ fn add_bots(
             kills: 0,
             perks: Vec::new(),
             pap: Default::default(),
+            loadout: Default::default(),
         });
         *next_id += 1;
     }
@@ -813,6 +836,7 @@ mod tests {
                 kills: 0,
                 perks: Vec::new(),
                 pap: Default::default(),
+                loadout: Default::default(),
             }],
         }
     }

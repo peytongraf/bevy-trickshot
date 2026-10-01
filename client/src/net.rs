@@ -315,7 +315,9 @@ fn write_input(
     action.translation = pt.translation.to_array();
     action.yaw = pt.rotation.to_euler(EulerRot::YXZ).0;
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
-    action.weapon = shared::weapon::WeaponId::Sniper.as_u8();
+    // Which primary fires (the server picks its damage — the AK-74's only in
+    // `Zombies`, if that's our loadout).
+    action.weapon = weapon.primary.as_u8();
     action.fire = false;
     // A knife stab this frame (`weapon_system` filed it) rides the same
     // origin/dir fields a shot uses — the two are never both pending, since

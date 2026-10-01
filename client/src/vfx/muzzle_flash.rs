@@ -42,6 +42,8 @@ pub(crate) struct MuzzleFlashState {
 pub(crate) fn update_muzzle_flash(
     time: Res<Time>,
     settings: Res<MuzzleFlashSettings>,
+    // The AK-74's sits at its own muzzle (`AkSettings`).
+    (weapon, ak): (Res<crate::Weapon>, Res<crate::AkSettings>),
     mut state: ResMut<MuzzleFlashState>,
     flash: Single<
         (
@@ -63,14 +65,15 @@ pub(crate) fn update_muzzle_flash(
         Visibility::Hidden
     };
 
+    let (translation, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        (ak.muzzle_translation, ak.muzzle_size)
+    } else {
+        (settings.translation, settings.size)
+    };
     *transform = Transform {
-        translation: settings.translation,
+        translation,
         rotation: Quat::from_rotation_z(state.roll),
-        scale: Vec3::new(
-            settings.size.x.max(1.0e-4),
-            settings.size.y.max(1.0e-4),
-            1.0,
-        ),
+        scale: Vec3::new(size.x.max(1.0e-4), size.y.max(1.0e-4), 1.0),
     };
 
     if let Some(material) = materials.get_mut(&material.0) {

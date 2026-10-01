@@ -11,10 +11,17 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Critical kill bonus points
 - Nuke gives 500 points, burns zombies over 5s
 
+# AK-74
+
+- Shot tracer looks like it doesn't come from barrel position and is from higher
+- Ads mouse sens is the same as sniper which uses a scope. The ads mouse sens should vary depending on the zoom level
+
 # New
 
-- Ammo box isn't working
-
+- Ammo box should be collidable
+- Make normal zombie points added text white unless it is a critical in which case it should be yellow
+- Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.
+- Add pap shot sounds
 - On break point night zombies, regular bird ambient sound should be removed and only zombies ambient sound should play
 - Use melee animation for remote player when using knife
 - Improve molotov fire look

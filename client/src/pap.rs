@@ -33,6 +33,8 @@ pub(crate) const PAP_BLUE: Color = Color::srgb(0.25, 0.55, 1.0);
 /// The parts of `models/sniper.glb` that are the gun (not the arms) and
 /// wear the camo — matched against glTF node / mesh names.
 const SNIPER_CAMO_PARTS: [&str; 3] = ["scope_sniper_0", "base_sniper_0", "mag_sniper_0"];
+/// ...of `models/ak_74.glb` (the AK-74 itself, not the arms)...
+const AK_CAMO_PARTS: [&str; 1] = ["Object_71"];
 /// ...of `models/knife.glb`...
 const KNIFE_CAMO_PARTS: [&str; 1] = ["knife_knife_0"];
 /// ...and of a remote player's `models/soldier.glb` (just the gun).
@@ -349,7 +351,7 @@ struct PapCamoPart {
 #[allow(clippy::too_many_arguments)]
 fn tag_camo_parts(
     trigger: Trigger<SceneInstanceReady>,
-    sniper: Query<(), With<ViewModel>>,
+    primary: Query<&crate::weapons::ViewModelAnimation, With<ViewModel>>,
     knife: Query<(), With<KnifeViewModel>>,
     avatars: Query<(), (With<crate::net::RemoteAvatar>, With<crate::SoldierVisual>)>,
     children: Query<&Children>,
@@ -359,8 +361,15 @@ fn tag_camo_parts(
     mut commands: Commands,
 ) {
     let root = trigger.target();
-    let (owner, parts): (_, &[&str]) = if sniper.contains(root) {
-        (CamoOwner::Mine(PapWeapon::Sniper), &SNIPER_CAMO_PARTS)
+    // (The primary's camo follows `PapWeapon::Sniper` — the AK-74 when that's
+    // our loadout.)
+    let (owner, parts): (_, &[&str]) = if let Ok(anim) = primary.get(root) {
+        let parts: &[&str] = if anim.weapon == shared::weapon::WeaponId::Ak74 {
+            &AK_CAMO_PARTS
+        } else {
+            &SNIPER_CAMO_PARTS
+        };
+        (CamoOwner::Mine(PapWeapon::Sniper), parts)
     } else if knife.contains(root) {
         (CamoOwner::Mine(PapWeapon::Knife), &KNIFE_CAMO_PARTS)
     } else if avatars.contains(root) {

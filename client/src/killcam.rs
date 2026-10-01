@@ -68,8 +68,13 @@ pub(crate) const SND_JUMP_LAND: u16 = 1 << 8;
 /// The throwing knife leaving the hand (`GameSounds::knife_throw`) — played
 /// the moment the throw is released.
 pub(crate) const SND_THROW: u16 = 1 << 9;
+/// The AK-74's shot, full (empty-mag) reload and fast reload — its own bits
+/// so other players (and replays) hear the AK's sounds, not the sniper's.
+pub(crate) const SND_AK_SHOT: u16 = 1 << 10;
+pub(crate) const SND_AK_RELOAD: u16 = 1 << 11;
+pub(crate) const SND_AK_RELOAD_FAST: u16 = 1 << 12;
 /// All bits currently in use, for iterating a `sound_bits` mask.
-pub(crate) const ALL_SND_BITS: [u16; 10] = [
+pub(crate) const ALL_SND_BITS: [u16; 13] = [
     SND_SHOT,
     SND_RELOAD,
     SND_RECHAMBER,
@@ -80,6 +85,9 @@ pub(crate) const ALL_SND_BITS: [u16; 10] = [
     SND_FOOTSTEP,
     SND_JUMP_LAND,
     SND_THROW,
+    SND_AK_SHOT,
+    SND_AK_RELOAD,
+    SND_AK_RELOAD_FAST,
 ];
 
 /// Fallback kill time (seconds into the replay) if a message's `kill_index`
@@ -339,6 +347,9 @@ pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSo
         SND_SHOT => &sounds.shot,
         SND_RELOAD => &sounds.reload,
         SND_RECHAMBER => &sounds.rechamber,
+        SND_AK_SHOT => &sounds.ak_shot,
+        SND_AK_RELOAD => &sounds.ak_reload,
+        SND_AK_RELOAD_FAST => &sounds.ak_reload_fast,
         SND_SLIDE => &sounds.slide,
         SND_DIVE => &sounds.dive,
         SND_AIM_IN => &sounds.aim_in,
@@ -971,6 +982,9 @@ fn drive_killcam(
             SND_AIM_OUT,
             SND_JUMP_LAND,
             SND_THROW,
+            SND_AK_SHOT,
+            SND_AK_RELOAD,
+            SND_AK_RELOAD_FAST,
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {
@@ -1006,7 +1020,7 @@ fn drive_killcam(
         // The shot frame also drives the muzzle flash + barrel smoke, the same
         // pokes `weapon_system` does live (their update systems keep running
         // through the replay and position off the flown rig).
-        if bits & SND_SHOT != 0 {
+        if bits & (SND_SHOT | SND_AK_SHOT) != 0 {
             muzzle.shots = muzzle.shots.wrapping_add(1);
             muzzle.roll = rand_roll(muzzle.shots);
             muzzle.intensity = 1.0;

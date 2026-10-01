@@ -5,11 +5,19 @@ use serde::{Deserialize, Serialize};
 
 /// The weapons a trickshot can be taken with. Add variants here and give them a
 /// [`WeaponSpec`] in [`WeaponId::spec`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum WeaponId {
+    #[default]
     Sniper,
     Marksman,
+    /// The AK-74 assault rifle — full-auto, `Zombies` only (picked in the
+    /// lobby's loadout, [`crate::LobbyMember::loadout`]).
+    Ak74,
 }
+
+/// The primary weapons a player can pick for `Zombies` in the lobby's
+/// loadout section (every other mode is always the sniper).
+pub const LOADOUT_WEAPONS: [WeaponId; 2] = [WeaponId::Sniper, WeaponId::Ak74];
 
 /// Ballistic + damage parameters for one weapon.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,6 +133,21 @@ impl WeaponId {
                 min_damage_fraction: 0.1,
                 lower_body_multiplier: 0.6,
             },
+            WeaponId::Ak74 => WeaponSpec {
+                // A full-auto rifle: many lighter hits rather than one big
+                // one. Against round 1's 100-health zombies a body shot does
+                // 40 up close (three to kill), a headshot 60 (two); each
+                // Pack-a-Punch level doubles it. Full damage out to 30 m, then
+                // down to 60% at its 200 m reach.
+                max_range: 200.0,
+                muzzle_velocity: f32::INFINITY,
+                gravity: 0.0,
+                base_damage: 40.0,
+                falloff_start: 30.0,
+                headshot_multiplier: 1.5,
+                min_damage_fraction: 0.6,
+                lower_body_multiplier: 0.85,
+            },
             WeaponId::Marksman => WeaponSpec {
                 max_range: 350.0,
                 muzzle_velocity: 900.0,
@@ -143,6 +166,7 @@ impl WeaponId {
         match self {
             WeaponId::Sniper => 0,
             WeaponId::Marksman => 1,
+            WeaponId::Ak74 => 2,
         }
     }
 
@@ -150,8 +174,23 @@ impl WeaponId {
         match v {
             0 => Some(WeaponId::Sniper),
             1 => Some(WeaponId::Marksman),
+            2 => Some(WeaponId::Ak74),
             _ => None,
         }
+    }
+
+    /// Its name in the loadout and the HUD.
+    pub const fn label(self) -> &'static str {
+        match self {
+            WeaponId::Sniper => "SNIPER",
+            WeaponId::Marksman => "MARKSMAN",
+            WeaponId::Ak74 => "AK-74",
+        }
+    }
+
+    /// Whether it keeps firing while the trigger's held.
+    pub const fn full_auto(self) -> bool {
+        matches!(self, WeaponId::Ak74)
     }
 
     /// True when the weapon has no travel time and no drop, so the server can

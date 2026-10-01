@@ -861,6 +861,11 @@ pub struct LobbyMember {
     /// [`GameMode::Zombies`] Pack-a-Punch level of each of this member's
     /// weapons this game ([`BuyPap`]).
     pub pap: crate::pap::PapLevels,
+    /// The primary this member picked for [`GameMode::Zombies`] in the
+    /// lobby's loadout ([`SetLoadout`]) — one of
+    /// [`crate::weapon::LOADOUT_WEAPONS`]. Kept between games; every other
+    /// mode always plays the sniper.
+    pub loadout: WeaponId,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1295,6 +1300,15 @@ pub struct SetPowerUpTest {
     pub on: bool,
 }
 
+/// Client → server: the sender picks `weapon` (one of
+/// [`crate::weapon::LOADOUT_WEAPONS`]) as their `Zombies` primary
+/// ([`LobbyMember::loadout`]). Only between games — ignored once their lobby's
+/// started.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetLoadout {
+    pub weapon: WeaponId,
+}
+
 /// Client → server: the sender just went prone at `perk`'s machine. The
 /// first in the lobby to do so at each machine gets
 /// [`crate::perks::PRONE_BONUS_POINTS`] ([`ProneBonus`]); anything else is
@@ -1562,6 +1576,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyAmmo>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<ProneAtPerk>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetLoadout>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()

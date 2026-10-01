@@ -1,6 +1,9 @@
-//! Weapon state machine: ammo, the sniper's fire/reload/rechamber queue, weapon
-//! swap, the throwing-knife throw/melee mechanic, and the quick-melee key.
+//! Weapon state machine: ammo, the primary's (sniper's or AK-74's)
+//! fire/reload/rechamber queue, weapon swap, the throwing-knife throw/melee
+//! mechanic, and the quick-melee key.
 
+use bevy::animation::prelude::AnimationTransitions;
+use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
@@ -15,6 +18,7 @@ use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::WeaponId;
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
+use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZE, AK_ZOMBIES_TOTAL_MAGS};
 use super::drink_arms::{DrinkPhase, PerkDrink};
 use super::knife_view_model::{
     KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, KNIFE_SEGMENTS, KNIFE_SEG_ADJUST_GRIP,
@@ -25,12 +29,13 @@ use super::throw_arms::{
     park_throw_arms, play_throw, ThrowArmsAnimation, ThrowArmsAnimationPlayer, ThrowArmsSettings,
 };
 use super::view_model::{
-    play_segment, play_segment_at, AnimationSegment, AnimationSettings, SniperAnimationPlayer, ViewModel,
-    ViewModelAnimation, SEGMENTS, SEG_HIDE, SEG_RECHAMBER, SEG_RELOAD, SEG_SHOOT, SEG_SHOW,
+    play_segment, play_segment_at, AnimationSegment, AnimationSettings, PrimaryRig, SegAct,
+    SniperAnimationPlayer, ViewModel, ViewModelAnimation,
 };
 
-/// Magazine capacity and the total number of magazines the player carries
-/// in `FreeForAll` (current mag + reserve = `MAG_SIZE * TOTAL_MAGS`).
+/// The sniper's magazine capacity, and the total number of magazines the
+/// player carries in `FreeForAll` (current mag + reserve = `MAG_SIZE *
+/// TOTAL_MAGS`). (The AK-74's are `ak::AK_MAG_SIZE` / `AK_ZOMBIES_TOTAL_MAGS`.)
 pub(crate) const MAG_SIZE: u32 = 5;
 pub(crate) const TOTAL_MAGS: u32 = 6;
 /// Reserve rounds in `Freestyle` — effectively unlimited for practice.
@@ -44,19 +49,30 @@ const ZOMBIES_TOTAL_MAGS: u32 = 8;
 /// every Pack-a-Punch level on the sniper (`shared::pap`).
 pub(crate) const PAP_EXTRA_MAGS_PER_LEVEL: u32 = 2;
 
+/// `primary`'s magazine capacity.
+pub(crate) fn mag_size(primary: WeaponId) -> u32 {
+    match primary {
+        WeaponId::Ak74 => AK_MAG_SIZE,
+        _ => MAG_SIZE,
+    }
+}
+
 /// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`
-/// — also the most it holds.
-fn starting_reserve(mode: shared::GameMode) -> u32 {
+/// with `primary` — also the most it holds.
+fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
+    let mag = mag_size(primary);
     match mode {
         shared::GameMode::Freestyle => FREESTYLE_RESERVE,
-        shared::GameMode::FreeForAll => MAG_SIZE * (TOTAL_MAGS - 1),
-        shared::GameMode::Zombies => MAG_SIZE * (ZOMBIES_TOTAL_MAGS - 1),
+        shared::GameMode::FreeForAll => mag * (TOTAL_MAGS - 1),
+        shared::GameMode::Zombies if primary == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1),
+        shared::GameMode::Zombies => mag * (ZOMBIES_TOTAL_MAGS - 1),
     }
 }
 
 /// A weapon action (fire / swap-to-secondary) cut a busy queue short — stash
-/// whatever bolt-cycle work is still outstanding as `weapon.interrupted` so it
-/// forces its way back in (from the top) once the sniper is drawn again.
+/// whatever bolt-cycle / reload work is still outstanding as
+/// `weapon.interrupted` so it forces its way back in (from the top) once the
+/// primary is drawn again.
 ///
 /// The already-fired `Shoot` segment itself never needs replaying, only
 /// whatever comes after it, so that's dropped off the front first — otherwise
@@ -69,15 +85,11 @@ fn starting_reserve(mode: shared::GameMode) -> u32 {
 /// `Rechamber`) is preserved; anything else (nothing left, or a mid-play
 /// Hide/Show) is simply abandoned, same as before.
 pub(crate) fn stash_interrupted(weapon: &mut Weapon, mut busy: WeaponBusy) {
-    while busy
-        .remaining
-        .first()
-        .is_some_and(|seg| seg.name == SEGMENTS[SEG_SHOOT].name)
-    {
+    while busy.remaining.first().is_some_and(|seg| seg.act == SegAct::Shoot) {
         busy.remaining.remove(0);
     }
     if let Some(seg) = busy.remaining.first().copied() {
-        if seg.name == SEGMENTS[SEG_RECHAMBER].name || seg.name == SEGMENTS[SEG_RELOAD].name {
+        if matches!(seg.act, SegAct::Rechamber | SegAct::Reload | SegAct::ReloadEmpty) {
             busy.seg_end = seg.end_secs();
             weapon.interrupted = Some(busy);
         }
@@ -201,10 +213,18 @@ pub(crate) struct Weapon {
     /// A reload / rechamber cut short by a weapon switch. Replayed from the top —
     /// animation and sound — once the sniper is next drawn.
     interrupted: Option<WeaponBusy>,
-    /// Our sniper's Pack-a-Punch level — kept in step with the lobby by
+    /// Our primary's Pack-a-Punch level — kept in step with the lobby by
     /// `pap::sync_pap_levels` (0 outside a `Zombies` game). Each level lets
-    /// the sniper carry more ([`Weapon::max_reserve`]).
+    /// it carry more ([`Weapon::max_reserve`]).
     pub(crate) pap_level: u8,
+    /// Which primary we carry — the sniper, or the AK-74 in a `Zombies` game
+    /// we picked it for (`ak::sync_primary_model`, which also swaps the
+    /// view model to match). The ammo counts are this weapon's.
+    pub(crate) primary: WeaponId,
+    /// Full-auto: when (`Time::elapsed_secs`) the next round may go.
+    next_shot_at: f32,
+    /// The AK's walk / jump animation state (`ak::ak_locomotion`).
+    ak_loco: AkLoco,
 }
 
 pub(crate) struct WeaponBusy {
@@ -318,6 +338,9 @@ impl Default for Weapon {
             slot: WeaponSlot::Primary,
             interrupted: None,
             pap_level: 0,
+            primary: WeaponId::Sniper,
+            next_shot_at: 0.0,
+            ak_loco: AkLoco::Idle,
         }
     }
 }
@@ -331,31 +354,49 @@ impl Weapon {
     /// old life carried straight into the new one.
     /// Whether the sniper holds every round it can in `mode` (mag + reserve).
     pub(crate) fn ammo_full(&self, mode: shared::GameMode) -> bool {
-        self.mag + self.reserve >= MAG_SIZE + self.max_reserve(mode)
+        self.mag + self.reserve >= self.mag_size() + self.max_reserve(mode)
     }
 
-    /// The most reserve rounds the sniper holds in `mode` — more for every
+    /// The primary's magazine capacity.
+    pub(crate) fn mag_size(&self) -> u32 {
+        mag_size(self.primary)
+    }
+
+    /// Carry `primary` from now on: a full mag of it, and its reserve filled
+    /// for the game mode as soon as that's known (`apply_loadout`). Anything
+    /// the old one was doing is dropped.
+    pub(crate) fn set_primary(&mut self, primary: WeaponId) {
+        self.primary = primary;
+        self.mag = self.mag_size();
+        self.busy = None;
+        self.interrupted = None;
+        self.next_shot_at = 0.0;
+        self.ak_loco = AkLoco::Idle;
+        self.loadout_pending = true;
+    }
+
+    /// The most reserve rounds the primary holds in `mode` — more for every
     /// Pack-a-Punch level in `Zombies`.
     fn max_reserve(&self, mode: shared::GameMode) -> u32 {
         let packed = if mode == shared::GameMode::Zombies {
-            MAG_SIZE * PAP_EXTRA_MAGS_PER_LEVEL * self.pap_level as u32
+            self.mag_size() * PAP_EXTRA_MAGS_PER_LEVEL * self.pap_level as u32
         } else {
             0
         };
-        starting_reserve(mode) + packed
+        starting_reserve(mode, self.primary) + packed
     }
 
     /// Top the sniper up to every round it can hold in `mode` (the ammo
     /// crate). The extra goes into the reserve — the mag and chamber are
     /// left alone, so a reload loads it like any other.
     pub(crate) fn fill_ammo(&mut self, mode: shared::GameMode) {
-        self.reserve = (MAG_SIZE + self.max_reserve(mode)).saturating_sub(self.mag);
+        self.reserve = (self.mag_size() + self.max_reserve(mode)).saturating_sub(self.mag);
     }
 
     /// Top the sniper right up — a full mag *and* a full reserve for its
     /// capacity in `mode` (a Pack-a-Punch, Cold War style).
     pub(crate) fn fill_mag_and_reserve(&mut self, mode: shared::GameMode) {
-        self.mag = MAG_SIZE;
+        self.mag = self.mag_size();
         self.reserve = self.max_reserve(mode);
     }
 
@@ -413,9 +454,8 @@ impl Weapon {
     }
 
     pub(crate) fn refill_ammo(&mut self) {
-        let fresh = Self::default();
-        self.mag = fresh.mag;
-        self.reserve = fresh.reserve;
+        self.mag = self.mag_size();
+        self.reserve = 0;
         self.loadout_pending = true;
     }
 }
@@ -439,7 +479,7 @@ pub(crate) fn apply_loadout(
     let Some(lobby) = lobbies.iter().find(|l| l.started && l.has(me)) else {
         return;
     };
-    weapon.reserve = starting_reserve(lobby.mode);
+    weapon.reserve = starting_reserve(lobby.mode, weapon.primary);
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
     weapon.molotovs = 0;
     weapon.lethal = Lethal::ThrowingKnife;
@@ -667,19 +707,18 @@ fn request_stab(cam: &Query<&GlobalTransform, With<WorldModelCamera>>, pending: 
 }
 
 /// Start the quick stow shared by the throwing knife and perk drinking: play
-/// the equipped weapon's Hide at `hide_speed`, cutting a sniper reload /
+/// the equipped weapon's Hide at `hide_speed`, cutting a primary reload /
 /// rechamber short (it resumes when the weapon's drawn again). First settles a
 /// half-finished swap so "the weapon that was out" is unambiguous, and so
-/// there's nothing visible to play a Hide on: a sniper Hide in progress (slot
+/// there's nothing visible to play a Hide on: a primary Hide in progress (slot
 /// already `Secondary`) just finishes instantly, and a knife Hide in progress
-/// hands the slot straight back to the sniper with both models already away.
+/// hands the slot straight back to the primary with both models already away.
 /// Returns `true` if that left nothing on screen (no Hide to wait for).
 #[allow(clippy::too_many_arguments)]
 fn stow_equipped(
     weapon: &mut Weapon,
     knife_state: &mut KnifeAnimState,
-    player: &mut AnimationPlayer,
-    node: AnimationNodeIndex,
+    rig: &mut PrimaryRig,
     knife_player: &mut AnimationPlayer,
     knife_node: AnimationNodeIndex,
     view_model_vis: &mut Visibility,
@@ -699,10 +738,7 @@ fn stow_equipped(
         for e in action_sounds {
             commands.entity(e).try_despawn();
         }
-        if let Some(active_anim) = player.animation_mut(node) {
-            active_anim.seek_to(0.0);
-            active_anim.pause();
-        }
+        rig.park();
         *view_model_vis = Visibility::Hidden;
         nothing_shown = true;
     }
@@ -728,10 +764,8 @@ fn stow_equipped(
                 }
                 stash_interrupted(weapon, busy);
             }
-            play_segment(player, node, SEGMENTS[SEG_HIDE]);
-            if let Some(active_anim) = player.animation_mut(node) {
-                active_anim.set_speed(hide_speed);
-            }
+            let hide = rig.seg(SegAct::Hide);
+            rig.play_at(hide, hide_speed);
         }
         WeaponSlot::Secondary => {
             play_segment(knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_HIDE]);
@@ -750,8 +784,7 @@ fn stow_equipped(
 #[allow(clippy::too_many_arguments)]
 fn stow_finished(
     weapon: &Weapon,
-    player: &mut AnimationPlayer,
-    node: AnimationNodeIndex,
+    rig: &mut PrimaryRig,
     knife_player: &mut AnimationPlayer,
     knife_node: AnimationNodeIndex,
     view_model_vis: &mut Visibility,
@@ -760,12 +793,10 @@ fn stow_finished(
     hide_speed: f32,
 ) -> bool {
     let (seg, done) = match weapon.slot {
-        WeaponSlot::Primary => (
-            SEGMENTS[SEG_HIDE],
-            player
-                .animation(node)
-                .is_none_or(|a| a.is_finished() || a.seek_time() >= SEGMENTS[SEG_HIDE].end_secs()),
-        ),
+        WeaponSlot::Primary => {
+            let hide = rig.seg(SegAct::Hide);
+            (hide, rig.reached(hide, hide.end_secs()))
+        }
         WeaponSlot::Secondary => (
             KNIFE_SEGMENTS[KNIFE_SEG_HIDE],
             knife_player.animation(knife_node).is_none_or(|a| {
@@ -779,10 +810,7 @@ fn stow_finished(
     }
     match weapon.slot {
         WeaponSlot::Primary => {
-            if let Some(active_anim) = player.animation_mut(node) {
-                active_anim.seek_to(0.0);
-                active_anim.pause();
-            }
+            rig.park();
             *view_model_vis = Visibility::Hidden;
         }
         WeaponSlot::Secondary => {
@@ -797,27 +825,28 @@ fn stow_finished(
 }
 
 /// Draw whichever weapon was out before the throwing / drinking arms came up — the
-/// sniper (its normal Show, resuming any interrupted reload once that
+/// primary (its normal Show, resuming any interrupted reload once that
 /// finishes) or the knife (its own Show, then idle-out).
 #[allow(clippy::too_many_arguments)]
 fn redraw_active_weapon(
     weapon: &mut Weapon,
     knife_state: &mut KnifeAnimState,
-    player: &mut AnimationPlayer,
-    node: AnimationNodeIndex,
+    rig: &mut PrimaryRig,
     knife_player: &mut AnimationPlayer,
     knife_node: AnimationNodeIndex,
     view_model_vis: &mut Visibility,
     knife_vis: &mut Visibility,
     swap_speed: f32,
+    primary_swap: f32,
 ) {
     match weapon.slot {
         WeaponSlot::Primary => {
             *view_model_vis = Visibility::Inherited;
-            play_segment_at(player, node, SEGMENTS[SEG_SHOW], swap_speed);
+            let show = rig.seg(SegAct::Show);
+            rig.play_at(show, primary_swap);
             weapon.busy = Some(WeaponBusy {
-                remaining: vec![SEGMENTS[SEG_SHOW]],
-                seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                remaining: vec![show],
+                seg_end: show.end_secs(),
                 on_finish: WeaponFinish::Draw,
             });
         }
@@ -834,6 +863,63 @@ fn redraw_active_weapon(
             knife_state.next_adjust_in = roll_knife_adjust_delay(knife_state.adjust_rolls);
         }
     }
+}
+
+/// The speeds and sounds a primary segment starts with.
+struct SegCtx<'a> {
+    sounds: &'a GameSounds,
+    /// The panel's sniper rechamber speed (`AnimationSettings`).
+    rechamber_anim: f32,
+    /// Nitro Brew's (1 without it).
+    reload_speed: f32,
+    rechamber_speed: f32,
+    ak: &'a AkSettings,
+}
+
+/// Start `seg` on the primary, with its sound (heard by us, and — via the
+/// recorded sound bits — by the lobby and in replays) and speed: a sniper
+/// rechamber or reload, or the AK's fast or full reload. Anything else just
+/// plays.
+fn begin_segment(
+    rig: &mut PrimaryRig,
+    seg: AnimationSegment,
+    ctx: &SegCtx,
+    commands: &mut Commands,
+    snd: &mut killcam::ReplaySoundBits,
+) {
+    let ak = rig.weapon == WeaponId::Ak74;
+    let (sound, bit, sound_speed, anim_speed) = match seg.act {
+        SegAct::Rechamber => (
+            &ctx.sounds.rechamber,
+            killcam::SND_RECHAMBER,
+            ctx.rechamber_speed,
+            ctx.rechamber_anim * ctx.rechamber_speed,
+        ),
+        SegAct::Reload if ak => (
+            &ctx.sounds.ak_reload_fast,
+            killcam::SND_AK_RELOAD_FAST,
+            ctx.reload_speed * ctx.ak.reload_speed,
+            ctx.reload_speed * ctx.ak.reload_speed,
+        ),
+        SegAct::Reload => (&ctx.sounds.reload, killcam::SND_RELOAD, ctx.reload_speed, ctx.reload_speed),
+        SegAct::ReloadEmpty => (
+            &ctx.sounds.ak_reload,
+            killcam::SND_AK_RELOAD,
+            ctx.reload_speed * ctx.ak.reload_speed,
+            ctx.reload_speed * ctx.ak.reload_speed,
+        ),
+        _ => {
+            rig.play(seg);
+            return;
+        }
+    };
+    commands.spawn((
+        AudioPlayer::new(sound.clone()),
+        PlaybackSettings::DESPAWN.with_speed(sound_speed),
+        WeaponActionSound,
+    ));
+    snd.note(bit);
+    rig.play_at(seg, anim_speed);
 }
 
 /// Fire, reload and weapon-swap (bindings). Firing spends a round and plays
@@ -866,7 +952,7 @@ pub(crate) fn weapon_system(
         Query<&GlobalTransform, With<WorldModelCamera>>,
         Query<Entity, With<WeaponActionSound>>,
         Query<
-            &mut AnimationPlayer,
+            (&mut AnimationPlayer, Option<&mut AnimationTransitions>),
             (
                 With<SniperAnimationPlayer>,
                 Without<KnifeAnimationPlayer>,
@@ -898,10 +984,12 @@ pub(crate) fn weapon_system(
         ResMut<PerkDrink>,
         ResMut<QuickMelee>,
     ),
-    mut pending_shot: ResMut<PendingShot>,
-    mut shake: ResMut<Shake>,
-    mut muzzle: ResMut<MuzzleFlashState>,
-    mut smoke: ResMut<SmokeEmission>,
+    (mut pending_shot, mut shake, mut muzzle, mut smoke): (
+        ResMut<PendingShot>,
+        ResMut<Shake>,
+        ResMut<MuzzleFlashState>,
+        ResMut<SmokeEmission>,
+    ),
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
     (shake_cfg, sounds, anim, ads, spread_cfg, settings, time, arms_settings, nitro): (
@@ -915,15 +1003,38 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
+    (physics, sprinting, ak_cfg): (
+        Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
+        Res<crate::player::Sprinting>,
+        Res<AkSettings>,
+    ),
     mut commands: Commands,
 ) {
-    let node = view_model.index;
+    // The view model's still switching over to our primary
+    // (`ak::sync_primary_model`).
+    if view_model.weapon != weapon.primary {
+        return;
+    }
     // Nitro Brew's speed-ups (all `1.0` without it). The sped-up Hide for the
     // throwing / drinking arms gets the swap speed-up on top.
     let (reload_speed, rechamber_speed, swap_speed) = (nitro.reload(), nitro.rechamber(), nitro.swap());
+    // The primary's own draw / hide (the AK's panel speed on top).
+    let primary_swap = if weapon.primary == WeaponId::Ak74 {
+        swap_speed * ak_cfg.draw_speed
+    } else {
+        swap_speed
+    };
     let stow_speed = arms_settings.weapon_hide_speed * swap_speed;
-    let Some(mut player) = players.iter_mut().next() else {
+    let Some((player, transitions)) = players.iter_mut().next() else {
         return;
+    };
+    let mut rig = PrimaryRig::new(player, transitions, &view_model, ak_cfg.blend_secs);
+    let seg_ctx = SegCtx {
+        sounds: &sounds,
+        rechamber_anim: anim.rechamber_speed,
+        reload_speed,
+        rechamber_speed,
+        ak: &ak_cfg,
     };
     let knife_node = knife_anim.index;
     let Some(mut knife_player) = knife_players.iter_mut().next() else {
@@ -971,8 +1082,7 @@ pub(crate) fn weapon_system(
         let nothing_shown = stow_equipped(
             &mut weapon,
             &mut knife_state,
-            &mut player,
-            node,
+            &mut rig,
             &mut knife_player,
             knife_node,
             &mut view_model_vis,
@@ -994,8 +1104,7 @@ pub(crate) fn weapon_system(
             drink.stow_elapsed += time.delta_secs();
             if stow_finished(
                 &weapon,
-                &mut player,
-                node,
+                &mut rig,
                 &mut knife_player,
                 knife_node,
                 &mut view_model_vis,
@@ -1014,13 +1123,13 @@ pub(crate) fn weapon_system(
             redraw_active_weapon(
                 &mut weapon,
                 &mut knife_state,
-                &mut player,
-                node,
+                &mut rig,
                 &mut knife_player,
                 knife_node,
                 &mut view_model_vis,
                 &mut knife_vis,
                 swap_speed,
+                primary_swap,
             );
             return;
         }
@@ -1044,8 +1153,7 @@ pub(crate) fn weapon_system(
         let nothing_shown = stow_equipped(
             &mut weapon,
             &mut knife_state,
-            &mut player,
-            node,
+            &mut rig,
             &mut knife_player,
             knife_node,
             &mut view_model_vis,
@@ -1069,8 +1177,7 @@ pub(crate) fn weapon_system(
             knife.stow_elapsed += time.delta_secs();
             if stow_finished(
                 &weapon,
-                &mut player,
-                node,
+                &mut rig,
                 &mut knife_player,
                 knife_node,
                 &mut view_model_vis,
@@ -1143,13 +1250,13 @@ pub(crate) fn weapon_system(
                 redraw_active_weapon(
                     &mut weapon,
                     &mut knife_state,
-                    &mut player,
-                    node,
+                    &mut rig,
                     &mut knife_player,
                     knife_node,
                     &mut view_model_vis,
                     &mut knife_vis,
                     swap_speed,
+                    primary_swap,
                 );
             }
             return;
@@ -1168,8 +1275,7 @@ pub(crate) fn weapon_system(
         stow_equipped(
             &mut weapon,
             &mut knife_state,
-            &mut player,
-            node,
+            &mut rig,
             &mut knife_player,
             knife_node,
             &mut view_model_vis,
@@ -1188,8 +1294,7 @@ pub(crate) fn weapon_system(
             melee.elapsed += dt;
             if stow_finished(
                 &weapon,
-                &mut player,
-                node,
+                &mut rig,
                 &mut knife_player,
                 knife_node,
                 &mut view_model_vis,
@@ -1245,13 +1350,13 @@ pub(crate) fn weapon_system(
                 redraw_active_weapon(
                     &mut weapon,
                     &mut knife_state,
-                    &mut player,
-                    node,
+                    &mut rig,
                     &mut knife_player,
                     knife_node,
                     &mut view_model_vis,
                     &mut knife_vis,
                     swap_speed,
+                    primary_swap,
                 );
             }
             return;
@@ -1273,10 +1378,11 @@ pub(crate) fn weapon_system(
                     stash_interrupted(&mut weapon, busy);
                 }
                 weapon.slot = WeaponSlot::Secondary;
-                play_segment_at(&mut player, node, SEGMENTS[SEG_HIDE], swap_speed);
+                let hide = rig.seg(SegAct::Hide);
+                rig.play_at(hide, primary_swap);
                 weapon.busy = Some(WeaponBusy {
-                    remaining: vec![SEGMENTS[SEG_HIDE]],
-                    seg_end: SEGMENTS[SEG_HIDE].end_secs(),
+                    remaining: vec![hide],
+                    seg_end: hide.end_secs(),
                     on_finish: WeaponFinish::Holster,
                 });
             }
@@ -1308,9 +1414,10 @@ pub(crate) fn weapon_system(
     if weapon.busy.is_some() {
         let next_or_finish = {
             let busy = weapon.busy.as_mut().unwrap();
-            let done = player
-                .animation(node)
-                .is_none_or(|a| a.is_finished() || a.seek_time() >= busy.seg_end);
+            let done = busy
+                .remaining
+                .first()
+                .is_none_or(|&seg| rig.reached(seg, busy.seg_end));
             if !done {
                 return;
             }
@@ -1325,42 +1432,17 @@ pub(crate) fn weapon_system(
         };
 
         match next_or_finish {
-            Ok(next) => {
-                play_segment(&mut player, node, next);
-                if next.name == SEGMENTS[SEG_RECHAMBER].name {
-                    commands.spawn((
-                        AudioPlayer::new(sounds.rechamber.clone()),
-                        PlaybackSettings::DESPAWN.with_speed(rechamber_speed),
-                        WeaponActionSound,
-                    ));
-                    snd.note(killcam::SND_RECHAMBER);
-                    if let Some(active) = player.animation_mut(node) {
-                        active.set_speed(anim.rechamber_speed * rechamber_speed);
-                    }
-                } else if next.name == SEGMENTS[SEG_RELOAD].name {
-                    // Auto-reload rolling straight out of the Shoot segment.
-                    commands.spawn((
-                        AudioPlayer::new(sounds.reload.clone()),
-                        PlaybackSettings::DESPAWN.with_speed(reload_speed),
-                        WeaponActionSound,
-                    ));
-                    snd.note(killcam::SND_RELOAD);
-                    if let Some(active) = player.animation_mut(node) {
-                        active.set_speed(reload_speed);
-                    }
-                }
-            }
+            // A rechamber, or an auto-reload rolling straight out of a shot.
+            Ok(next) => begin_segment(&mut rig, next, &seg_ctx, &mut commands, &mut snd),
             Err(on_finish) => {
-                // Whole queue played out: park at the rest pose, apply effect.
-                if let Some(active) = player.animation_mut(node) {
-                    active.seek_to(0.0);
-                    active.pause();
-                }
+                // Whole queue played out: park at the rest pose (the AK's
+                // walk / idle picks up from here), apply effect.
+                rig.park();
                 weapon.busy = None;
                 match on_finish {
                     WeaponFinish::Nothing => {}
                     WeaponFinish::Reload => {
-                        let moved = (MAG_SIZE - weapon.mag).min(weapon.reserve);
+                        let moved = weapon.mag_size().saturating_sub(weapon.mag).min(weapon.reserve);
                         weapon.mag += moved;
                         weapon.reserve -= moved;
                     }
@@ -1398,29 +1480,7 @@ pub(crate) fn weapon_system(
                         // Sniper back out: restart whatever the swap interrupted,
                         // animation and sound from the top.
                         if let Some(resumed) = weapon.interrupted.take() {
-                            let seg = resumed.remaining[0];
-                            play_segment(&mut player, node, seg);
-                            if seg.name == SEGMENTS[SEG_RECHAMBER].name {
-                                commands.spawn((
-                                    AudioPlayer::new(sounds.rechamber.clone()),
-                                    PlaybackSettings::DESPAWN.with_speed(rechamber_speed),
-                                    WeaponActionSound,
-                                ));
-                                snd.note(killcam::SND_RECHAMBER);
-                                if let Some(active) = player.animation_mut(node) {
-                                    active.set_speed(anim.rechamber_speed * rechamber_speed);
-                                }
-                            } else if seg.name == SEGMENTS[SEG_RELOAD].name {
-                                commands.spawn((
-                                    AudioPlayer::new(sounds.reload.clone()),
-                                    PlaybackSettings::DESPAWN.with_speed(reload_speed),
-                                    WeaponActionSound,
-                                ));
-                                snd.note(killcam::SND_RELOAD);
-                                if let Some(active) = player.animation_mut(node) {
-                                    active.set_speed(reload_speed);
-                                }
-                            }
+                            begin_segment(&mut rig, resumed.remaining[0], &seg_ctx, &mut commands, &mut snd);
                             weapon.busy = Some(resumed);
                         }
                     }
@@ -1485,16 +1545,41 @@ pub(crate) fn weapon_system(
                         AudioPlayer::new(sounds.sniper_equip.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
-                    play_segment_at(&mut player, node, SEGMENTS[SEG_SHOW], swap_speed);
+                    let show = rig.seg(SegAct::Show);
+                    rig.play_at(show, primary_swap);
                     weapon.busy = Some(WeaponBusy {
-                        remaining: vec![SEGMENTS[SEG_SHOW]],
-                        seg_end: SEGMENTS[SEG_SHOW].end_secs(),
+                        remaining: vec![show],
+                        seg_end: show.end_secs(),
                         on_finish: WeaponFinish::Draw,
                     });
                 }
             }
         }
         return;
+    }
+
+    // The AK, out and free: its idle / walk / jump clips — unless a shot's
+    // still playing out.
+    if weapon.slot == WeaponSlot::Primary && rig.weapon == WeaponId::Ak74 {
+        let shot = rig.seg(SegAct::Shoot);
+        let shooting = rig.is_main(shot) && !rig.reached(shot, shot.end_secs());
+        if !shooting {
+            let (moving, grounded, rising) = physics.single().map_or((false, true, false), |p| {
+                (
+                    p.horizontal_velocity.length() > ak_cfg.move_threshold,
+                    p.grounded,
+                    p.vertical_velocity > 0.0,
+                )
+            });
+            let motion = AkMotion {
+                moving,
+                grounded,
+                rising,
+                sprinting: sprinting.0,
+                nitro: nitro.movement(),
+            };
+            ak_locomotion(&mut rig, &mut weapon.ak_loco, motion, &ak_cfg);
+        }
     }
 
     // Idle: only take input while the cursor is captured (i.e. in-game).
@@ -1532,7 +1617,79 @@ pub(crate) fn weapon_system(
         }
         return;
     }
-    // Only `WeaponSlot::Primary` (the sniper) is left.
+    // Only `WeaponSlot::Primary` is left.
+
+    // The AK-74: full-auto — a round every `fire_interval` while the trigger's
+    // held, each restarting its Shot clip. No bolt to work: the last round
+    // out goes straight into the full reload (auto-reload on).
+    if rig.weapon == WeaponId::Ak74 {
+        let now = time.elapsed_secs();
+        if binds.fire.pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
+            // Held: keep the cadence even across uneven frames; a fresh pull
+            // after a pause starts from now.
+            weapon.next_shot_at = weapon.next_shot_at.max(now - ak_cfg.fire_interval) + ak_cfg.fire_interval.max(0.02);
+            weapon.mag -= 1;
+            shake.trauma = (shake.trauma + ak_cfg.trauma_per_shot).min(1.0);
+            shake.recoil = ak_cfg.recoil_kick;
+            muzzle.shots = muzzle.shots.wrapping_add(1);
+            muzzle.roll = rand_roll(muzzle.shots);
+            muzzle.intensity = 1.0;
+            commands.spawn((
+                AudioPlayer::new(sounds.ak_shot.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+            snd.note(killcam::SND_AK_SHOT);
+            let cam_gt = cam.single().ok();
+            let dir = cam_gt
+                .map(|cam| {
+                    let max = ak_cfg.spread_rad(ads.t);
+                    let yaw = (rand01(muzzle.shots.wrapping_mul(0x9E37_79B9)) * 2.0 - 1.0) * max;
+                    let pitch = (rand01(muzzle.shots.wrapping_mul(0x85EB_CA6B) ^ 0xDEAD_BEEF) * 2.0 - 1.0) * max;
+                    cam.rotation() * Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0) * Vec3::NEG_Z
+                })
+                .unwrap_or(Vec3::NEG_Z);
+            pending_shot.0 = Some(dir);
+            if let Some(cam) = cam_gt {
+                shots.write(LocalShot {
+                    origin: cam.translation(),
+                    dir,
+                });
+            }
+            let shot = rig.seg(SegAct::Shoot);
+            rig.play_with(
+                shot,
+                ak_cfg.shot_speed,
+                RepeatAnimation::Never,
+                std::time::Duration::from_secs_f32(ak_cfg.shot_blend_secs.max(0.0)),
+            );
+            if weapon.mag == 0 && settings.auto_reload && weapon.reserve > 0 {
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![shot, rig.seg(SegAct::ReloadEmpty)],
+                    seg_end: shot.end_secs(),
+                    on_finish: WeaponFinish::Reload,
+                });
+            }
+        } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
+            commands.spawn((
+                AudioPlayer::new(sounds.out_of_ammo.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+        } else if binds.reload.just_pressed(&keys, &mouse)
+            && weapon.reserve > 0
+            && weapon.mag < weapon.mag_size()
+        {
+            // From empty: a fresh mag and a round chambered; otherwise just
+            // the mag swap.
+            let seg = rig.seg(if weapon.mag == 0 { SegAct::ReloadEmpty } else { SegAct::Reload });
+            begin_segment(&mut rig, seg, &seg_ctx, &mut commands, &mut snd);
+            weapon.busy = Some(WeaponBusy {
+                remaining: vec![seg],
+                seg_end: seg.end_secs(),
+                on_finish: WeaponFinish::Reload,
+            });
+        }
+        return;
+    }
 
     if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 {
         weapon.mag -= 1;
@@ -1576,7 +1733,8 @@ pub(crate) fn weapon_system(
                 dir,
             });
         }
-        play_segment(&mut player, node, SEGMENTS[SEG_SHOOT]);
+        let shoot = rig.seg(SegAct::Shoot);
+        rig.play(shoot);
 
         // Bolt-action cycle. After a shot that leaves rounds in the mag, work
         // the bolt (Rechamber) to eject the spent case and feed the next round.
@@ -1587,26 +1745,17 @@ pub(crate) fn weapon_system(
         // both ejects the old case and feeds the first round of the new mag).
         // With auto-reload off the sniper just holds on the fired pose until a
         // manual reload.
+        let (rechamber, reload) = (rig.seg(SegAct::Rechamber), rig.seg(SegAct::Reload));
         let (remaining, on_finish) = if weapon.mag > 0 {
-            (
-                vec![SEGMENTS[SEG_SHOOT], SEGMENTS[SEG_RECHAMBER]],
-                WeaponFinish::Nothing,
-            )
+            (vec![shoot, rechamber], WeaponFinish::Nothing)
         } else if settings.auto_reload && weapon.reserve > 0 {
-            (
-                vec![
-                    SEGMENTS[SEG_SHOOT],
-                    SEGMENTS[SEG_RELOAD],
-                    SEGMENTS[SEG_RECHAMBER],
-                ],
-                WeaponFinish::Reload,
-            )
+            (vec![shoot, reload, rechamber], WeaponFinish::Reload)
         } else {
-            (vec![SEGMENTS[SEG_SHOOT]], WeaponFinish::Nothing)
+            (vec![shoot], WeaponFinish::Nothing)
         };
         weapon.busy = Some(WeaponBusy {
             remaining,
-            seg_end: SEGMENTS[SEG_SHOOT].end_secs(),
+            seg_end: shoot.end_secs(),
             on_finish,
         });
     } else if binds.fire.just_pressed(&keys, &mouse) {
@@ -1617,26 +1766,21 @@ pub(crate) fn weapon_system(
         ));
     } else if binds.reload.just_pressed(&keys, &mouse) && weapon.reserve > 0 {
         // TEMP: reload allowed even with a full mag, for reload-sound testing
-        commands.spawn((
-            AudioPlayer::new(sounds.reload.clone()),
-            PlaybackSettings::DESPAWN.with_speed(reload_speed),
-            WeaponActionSound,
-        ));
-        snd.note(killcam::SND_RELOAD);
-        play_segment_at(&mut player, node, SEGMENTS[SEG_RELOAD], reload_speed);
+        let reload = rig.seg(SegAct::Reload);
+        begin_segment(&mut rig, reload, &seg_ctx, &mut commands, &mut snd);
         // `mag == 0` only when the last round was fired and never rechambered
         // (there's no separate "round chambered" flag — an empty mag is the
         // one moment the chamber is guaranteed empty too), so the bolt still
         // needs working after the fresh mag goes in. Reloading with a round
         // already chambered (mag > 0, the TEMP full-mag case above) is a
         // tactical swap — the chamber's already loaded, so no bolt work.
-        let mut remaining = vec![SEGMENTS[SEG_RELOAD]];
+        let mut remaining = vec![reload];
         if weapon.mag == 0 {
-            remaining.push(SEGMENTS[SEG_RECHAMBER]);
+            remaining.push(rig.seg(SegAct::Rechamber));
         }
         weapon.busy = Some(WeaponBusy {
             remaining,
-            seg_end: SEGMENTS[SEG_RELOAD].end_secs(),
+            seg_end: reload.end_secs(),
             on_finish: WeaponFinish::Reload,
         });
     }

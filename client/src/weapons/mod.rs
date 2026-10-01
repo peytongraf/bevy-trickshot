@@ -1,8 +1,9 @@
-//! Weapons: ammo/fire/reload state, ADS, weapon sway, the render-to-texture
+//! Weapons: ammo/fire/reload state, the AK-74 (a `Zombies` loadout primary), ADS, weapon sway, the render-to-texture
 //! scope, the knife's, throwing arms' and drinking arms' view models, camera recoil, and the
 //! view-model animation rig shared by all of them.
 
 mod ads;
+mod ak;
 mod drink_arms;
 mod knife_view_model;
 mod recoil;
@@ -13,6 +14,7 @@ mod view_model;
 mod weapon;
 
 pub(crate) use ads::*;
+pub(crate) use ak::*;
 pub(crate) use drink_arms::*;
 pub(crate) use knife_view_model::*;
 pub(crate) use recoil::*;

@@ -54,6 +54,10 @@ impl Plugin for PapMenuPlugin {
 struct PapMenu {
     /// The weapon being packed — whichever was in our hands when it opened.
     weapon: PapWeapon,
+    /// Its name ("Sniper", "AK-74", "Knife") and, for the primary, its
+    /// magazine size (for the extra ammo each level adds).
+    label: &'static str,
+    mag: u32,
     /// The level the header shows and PURCHASE buys: the one hovered last,
     /// starting on the next one to buy.
     selected: u8,
@@ -66,6 +70,8 @@ impl Default for PapMenu {
     fn default() -> Self {
         Self {
             weapon: PapWeapon::Sniper,
+            label: PapWeapon::Sniper.label(),
+            mag: MAG_SIZE,
             selected: 1,
             close_pending: false,
         }
@@ -98,13 +104,22 @@ fn held_weapon(weapon: &Weapon) -> PapWeapon {
     }
 }
 
-/// What packing `weapon` to `level` does, for the menu's description line.
-fn level_description(weapon: PapWeapon, level: u8) -> String {
+/// The held weapon's name — the primary's is whichever we carry.
+fn held_label(weapon: &Weapon) -> &'static str {
+    match held_weapon(weapon) {
+        PapWeapon::Sniper if weapon.primary == shared::weapon::WeaponId::Ak74 => "AK-74",
+        held => held.label(),
+    }
+}
+
+/// What packing `weapon` (its magazine `mag` rounds) to `level` does, for the
+/// menu's description line.
+fn level_description(weapon: PapWeapon, mag: u32, level: u8) -> String {
     let damage = format!("{:.0}x Damage", shared::pap::damage_mult(level));
     match weapon {
         PapWeapon::Sniper => format!(
             "{damage}  |  +{} Max Ammo",
-            MAG_SIZE * PAP_EXTRA_MAGS_PER_LEVEL * level as u32
+            mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32
         ),
         PapWeapon::Knife => damage,
     }
@@ -223,12 +238,12 @@ fn update_pap_prompt(
     let line = if !shared::power::has_power(lobby.map, lobby.power_on) {
         "The power must be activated first".to_string()
     } else if my_pap_levels(&local, &lobbies).get(held) >= MAX_LEVEL {
-        format!("Your {} is fully packed", held.label())
+        format!("Your {} is fully packed", held_label(&weapon))
     } else {
         format!(
             "Press {} to pack your {}",
             binds.interact.label().to_uppercase(),
-            held.label()
+            held_label(&weapon)
         )
     };
     if text.0 != line {
@@ -267,6 +282,8 @@ fn open_pap_menu(
     let current = my_pap_levels(&local, &lobbies).get(held);
     *state = PapMenu {
         weapon: held,
+        label: held_label(&weapon),
+        mag: weapon.mag_size(),
         selected: (current + 1).min(MAX_LEVEL),
         close_pending: false,
     };
@@ -536,7 +553,7 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
         });
 }
 
-fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, weapon: PapWeapon) {
+fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &str) {
     let heading = asset_server.load(HUD_FONT);
     let body = asset_server.load(BODY_FONT);
     let hfont = |size: f32| TextFont {
@@ -589,7 +606,7 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, weapon: P
                             BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child((
-                            Text::new(format!("PACK {}", weapon.label().to_uppercase())),
+                            Text::new(format!("PACK {}", label.to_uppercase())),
                             hfont(38.0),
                             TextColor(DARK_TEXT),
                         ));
@@ -711,7 +728,7 @@ fn pap_menu_lifecycle(
     }
     let show = menu.screen == Screen::PackAPunch && !state.close_pending;
     match (show, roots.is_empty()) {
-        (true, true) => spawn_pap_menu(&mut commands, &asset_server, state.weapon),
+        (true, true) => spawn_pap_menu(&mut commands, &asset_server, state.label),
         (false, false) => {
             for e in &roots {
                 commands.entity(e).despawn();
@@ -895,7 +912,7 @@ fn refresh_pap_menu(
                     LevelStatus::Buyable => (cost, DARK_TEXT),
                 }
             }
-            PapText::Description => (level_description(state.weapon, state.selected), LIGHT_TEXT),
+            PapText::Description => (level_description(state.weapon, state.mag, state.selected), LIGHT_TEXT),
             PapText::Points => (format!("${points}"), MONEY_YELLOW),
         };
         if text.0 != line {
