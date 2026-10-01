@@ -2,3 +2,6 @@
 - Z says capslock won't work to set as crouch / slide keybind
 - When backing out of free for all then going to the basic map free style, players don't see each others remote model moving
 - Remote player model transitions to new position when they dead and respawning instead of having their body stay there then disappear and a new model appear
+- Ammo box is very inconsistant. Sometimes ui won't pop up and sometimes even after purchasing ammo isn't actually increased. See if this has anything to do with pap level. Even after max ammo was activated, no ammo was added and the sniper was still empty.
+- When throwing knives or molotov is the active lethal type and running over that dropped equipment, it doesn't automatically pick it up
+- Check if pausing the game has anything to do with these issues

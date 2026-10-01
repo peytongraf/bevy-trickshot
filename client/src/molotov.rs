@@ -12,6 +12,10 @@
 //!   `models/molotov/molotov_1k.glb`, rag alight ([`MolotovAvatar`]).
 //! * **Burning** — where one broke, a patch of flames over the server's
 //!   fire spots ([`FirePatch`]), with a flickering light, fading in and out.
+//! * **Nuked zombies** — a zombie a Nuke kills ([`shared::ZombieNuked`])
+//!   burns where it falls for a few seconds ([`CorpseFire`]): flames laid
+//!   along its body, which lies ahead of its feet when it falls face-first
+//!   and behind them when it falls back. Only a look — it hurts no one.
 //! * **Dropped** — a zombie's dropped molotov lies on its side, outlined in
 //!   blue like a dropped throwing knife ([`DropAvatar`]); the pickup card and
 //!   key are `knife_pickup`'s. Picking one up ([`receive_pickups`]) makes the
@@ -23,7 +27,8 @@
 //!
 //! Reset between games: every entity here is `StateScoped(InGame)` or a child
 //! of one (the held molotov rides the arms rig), and each avatar goes as soon
-//! as its server entity does; the molotov count and lethal live on `Weapon`,
+//! as its server entity does; nuked bodies still waiting to fall
+//! ([`PendingCorpseFires`]) are forgotten on leaving the game; the molotov count and lethal live on `Weapon`,
 //! which resets with the game.
 
 use std::f32::consts::FRAC_PI_2;
@@ -39,11 +44,11 @@ use bevy::render::view::{NoFrustumCulling, RenderLayers};
 use bevy_egui::egui;
 use lightyear::prelude::*;
 
-use shared::{MolotovDrop, MolotovFire, ThrownMolotov};
+use shared::{MolotovDrop, MolotovFire, PlayerId, PlayerPose, ThrownMolotov, ZombieNuked};
 
 use crate::killcam::ActiveKillCam;
 use crate::knife_pickup::OutlineWhenLoaded;
-use crate::net::GameClient;
+use crate::net::{GameClient, RemoteAvatar};
 use crate::pause::GamePaused;
 use crate::{
     start_throw_knife_model, AppState, GameSounds, ThrowArmsSettings, ThrowArmsViewModel,
@@ -204,6 +209,28 @@ pub(crate) struct MolotovSettings {
     pub(crate) smoke_color: [f32; 3],
     pub(crate) smoke_opacity: f32,
 
+    // --- fire on a nuked zombie's body ---
+    /// How far (m) from its feet the middle of a body lies once it's fallen
+    /// face-first (ahead of them) / onto its back (behind them).
+    pub(crate) corpse_forward_offset: f32,
+    pub(crate) corpse_back_offset: f32,
+    /// Along the body (m) and across it, that the flames are spread over.
+    pub(crate) corpse_length: f32,
+    pub(crate) corpse_width: f32,
+    pub(crate) corpse_flames: u32,
+    /// Each flame's size (m).
+    pub(crate) corpse_flame_width: f32,
+    pub(crate) corpse_flame_height: f32,
+    /// How long (s) the body burns, the last `corpse_fade_secs` of it dying
+    /// down (and the first `corpse_grow_secs` flaring up, as it falls).
+    pub(crate) corpse_fire_secs: f32,
+    pub(crate) corpse_grow_secs: f32,
+    pub(crate) corpse_fade_secs: f32,
+    pub(crate) corpse_brightness: f32,
+    /// Its light (lumens; range m).
+    pub(crate) corpse_light: f32,
+    pub(crate) corpse_light_range: f32,
+
     // --- the flames' look (all of them) ---
     /// Linear rgb of the hottest part, the body and the tips.
     pub(crate) core_color: [f32; 3],
@@ -258,6 +285,20 @@ impl Default for MolotovSettings {
             smoke_height: 7.0,
             smoke_color: [0.05, 0.047, 0.045],
             smoke_opacity: 0.55,
+
+            corpse_forward_offset: 0.85,
+            corpse_back_offset: 0.85,
+            corpse_length: 1.5,
+            corpse_width: 0.45,
+            corpse_flames: 9,
+            corpse_flame_width: 0.7,
+            corpse_flame_height: 0.9,
+            corpse_fire_secs: 3.0,
+            corpse_grow_secs: 0.6,
+            corpse_fade_secs: 1.4,
+            corpse_brightness: 0.8,
+            corpse_light: 150_000.0,
+            corpse_light_range: 7.0,
 
             core_color: [1.0, 0.78, 0.42],
             mid_color: [1.0, 0.33, 0.04],
@@ -448,6 +489,36 @@ struct PatchLight {
     seed: f32,
 }
 
+/// Nuked zombies (by peer) whose bodies haven't been set alight yet — each
+/// waits for its avatar to start falling (so we know which way), with how
+/// long (s) it's waited; given up on after [`CORPSE_FIRE_WAIT_SECS`].
+#[derive(Resource, Default)]
+struct PendingCorpseFires(Vec<(PeerId, f32)>);
+
+/// The longest (s) a nuked zombie's fire waits for its body to fall.
+const CORPSE_FIRE_WAIT_SECS: f32 = 3.0;
+
+/// The flames and light over one nuked zombie's body.
+#[derive(Component)]
+struct CorpseFire {
+    material: Handle<FireMaterial>,
+    /// Seconds it's been burning (not counting pauses).
+    age: f32,
+}
+
+/// One flame of a [`CorpseFire`], at its full size.
+#[derive(Component)]
+struct CorpseFlame {
+    size: Vec2,
+    seed: f32,
+}
+
+/// A [`CorpseFire`]'s light.
+#[derive(Component)]
+struct CorpseLight {
+    seed: f32,
+}
+
 /// Stands in for one [`MolotovDrop`].
 #[derive(Component)]
 struct DropAvatar {
@@ -465,7 +536,11 @@ impl Plugin for MolotovPlugin {
         })
         .init_resource::<MolotovSettings>()
         .init_resource::<HeldMotion>()
+        .init_resource::<PendingCorpseFires>()
         .add_systems(Startup, setup_assets)
+        .add_systems(OnExit(AppState::InGame), |mut pending: ResMut<PendingCorpseFires>| {
+            pending.0.clear();
+        })
         .add_systems(
             Update,
             (
@@ -480,6 +555,9 @@ impl Plugin for MolotovPlugin {
                 receive_pickups,
                 play_light_sound,
                 receive_bursts,
+                receive_nuked,
+                spawn_corpse_fires,
+                update_corpse_fires,
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
@@ -1073,6 +1151,156 @@ pub(crate) struct MolotovDebug<'w, 's> {
     test_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMolotovTest>, With<GameClient>>,
 }
 
+/// Remember each zombie a Nuke kills, to set its body alight once it falls.
+fn receive_nuked(mut receivers: Query<&mut MessageReceiver<ZombieNuked>>, mut pending: ResMut<PendingCorpseFires>) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            pending.0.push((msg.peer, 0.0));
+        }
+    }
+}
+
+/// Set each nuked zombie's body alight as soon as its avatar starts to fall:
+/// flames scattered over where the body will lie — ahead of the feet for a
+/// face-first fall, behind them for one onto its back — and a light.
+#[allow(clippy::too_many_arguments)]
+fn spawn_corpse_fires(
+    time: Res<Time>,
+    paused: Res<GamePaused>,
+    settings: Res<MolotovSettings>,
+    assets: Res<MolotovAssets>,
+    mut pending: ResMut<PendingCorpseFires>,
+    avatars: Query<(&RemoteAvatar, &crate::ZombieMotion)>,
+    poses: Query<(&PlayerPose, &PlayerId)>,
+    mut materials: ResMut<Assets<FireMaterial>>,
+    mut commands: Commands,
+) {
+    if pending.0.is_empty() {
+        return;
+    }
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
+    pending.0.retain_mut(|(peer, waited)| {
+        *waited += dt;
+        let found = avatars.iter().find_map(|(avatar, motion)| {
+            let (pose, id) = poses.get(avatar.src).ok()?;
+            (id.0 == *peer).then_some((pose, motion.fell_forward()))
+        });
+        let Some((pose, fell_forward)) = found else {
+            // No avatar (yet, or any more).
+            return *waited < CORPSE_FIRE_WAIT_SECS;
+        };
+        let Some(fell_forward) = fell_forward else {
+            // Still standing — the death hasn't reached us yet.
+            return *waited < CORPSE_FIRE_WAIT_SECS;
+        };
+        let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
+        // `pose.yaw` faces -Z; the body lies along the way it faced (ahead
+        // of the feet face-first, behind them on its back).
+        let facing = Quat::from_rotation_y(pose.yaw) * Vec3::NEG_Z;
+        let (along, offset) = if fell_forward {
+            (facing, settings.corpse_forward_offset)
+        } else {
+            (-facing, settings.corpse_back_offset)
+        };
+        let across = Vec3::Y.cross(along).normalize_or_zero();
+        let mid = feet + along * offset;
+        let material = materials.add(FireMaterial {
+            params: settings.params(settings.corpse_brightness, settings.pull, 0.0, Vec3::ZERO),
+        });
+        let key = peer.to_bits() as u32 ^ (peer.to_bits() >> 32) as u32;
+        let hash = |i: u32, k: u32| crate::util::rand01(key.wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9));
+        let tiny = Vec3::new(0.001, 0.001, 0.0015);
+        let flames = settings.corpse_flames.max(1);
+        commands
+            .spawn((
+                StateScoped(AppState::InGame),
+                CorpseFire {
+                    material: material.clone(),
+                    age: 0.0,
+                },
+                Transform::from_translation(mid),
+                Visibility::default(),
+            ))
+            .with_children(|fire| {
+                for i in 0..flames {
+                    // Evenly down the body, jittered, and scattered across it.
+                    let u = ((i as f32 + 0.25 + 0.5 * hash(i, 1)) / flames as f32 - 0.5) * settings.corpse_length;
+                    let v = (hash(i, 2) - 0.5) * settings.corpse_width;
+                    let k = 0.7 + 0.3 * hash(i, 3);
+                    let size = Vec2::new(
+                        settings.corpse_flame_width * k,
+                        settings.corpse_flame_height * (0.65 + 0.35 * hash(i, 4)) * k,
+                    );
+                    fire.spawn((
+                        CorpseFlame { size, seed: hash(i, 5) },
+                        Mesh3d(assets.quad.clone()),
+                        MeshMaterial3d(material.clone()),
+                        Transform::from_translation(along * u + across * v).with_scale(tiny),
+                        NotShadowCaster,
+                        NoFrustumCulling,
+                    ));
+                }
+                fire.spawn((
+                    CorpseLight { seed: hash(0, 6) * 10.0 },
+                    PointLight {
+                        color: settings.light_color(),
+                        intensity: 0.0,
+                        range: settings.corpse_light_range,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.6, 0.0),
+                ));
+            });
+        false
+    });
+}
+
+/// Burn each nuked body's fire: flare up as it falls, flicker, die down and
+/// go. Holds still while the game's paused.
+#[allow(clippy::type_complexity)]
+fn update_corpse_fires(
+    time: Res<Time>,
+    paused: Res<GamePaused>,
+    settings: Res<MolotovSettings>,
+    killcam: Res<ActiveKillCam>,
+    mut materials: ResMut<Assets<FireMaterial>>,
+    mut fires: Query<(Entity, &mut CorpseFire, &Children, &mut Visibility)>,
+    mut flames: Query<(&CorpseFlame, &mut Transform), Without<CorpseLight>>,
+    mut lights: Query<(&CorpseLight, &mut PointLight), Without<CorpseFlame>>,
+    mut commands: Commands,
+) {
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
+    let t = time.elapsed_secs();
+    let hidden = killcam.0.is_some();
+    for (entity, mut fire, children, mut vis) in &mut fires {
+        fire.age += dt;
+        let left = settings.corpse_fire_secs - fire.age;
+        if left <= 0.0 {
+            materials.remove(&fire.material);
+            commands.entity(entity).try_despawn();
+            continue;
+        }
+        let fade_in = (fire.age / settings.corpse_grow_secs.max(0.01)).clamp(0.0, 1.0);
+        let fade_out = (left / settings.corpse_fade_secs.max(0.01)).clamp(0.0, 1.0);
+        let fade = fade_in * fade_in * (3.0 - 2.0 * fade_in) * fade_out;
+        vis.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+        if let Some(m) = materials.get_mut(&fire.material) {
+            m.params = settings.params(settings.corpse_brightness, settings.pull, fade, Vec3::ZERO);
+        }
+        let grow = 0.35 + 0.65 * fade;
+        for child in children.iter() {
+            if let Ok((flame, mut tf)) = flames.get_mut(child) {
+                tf.scale = seeded_scale(flame.size * grow, flame.seed);
+            } else if let Ok((cl, mut light)) = lights.get_mut(child) {
+                light.intensity = settings.corpse_light * fade * flicker(t, cl.seed, settings.flicker);
+                light.range = settings.corpse_light_range;
+                light.color = settings.light_color();
+            }
+        }
+    }
+}
+
 /// The debug panel's "Molotov (Zombies)" section. `hold_key` is
 /// `ThrowArmsSettings::debug_hold_key` (the panel already holds that
 /// resource).
@@ -1157,6 +1385,22 @@ pub(crate) fn molotov_section(ui: &mut egui::Ui, d: &mut MolotovDebug, hold_key:
             ui.label("smoke colour");
             ui.color_edit_button_rgb(&mut s.smoke_color);
         });
+    });
+    ui.collapsing("Fire on nuked zombies", |ui| {
+        ui.label("Where the body lies from the feet, and the flames over it — applies to the next nuked zombie.");
+        ui.add(egui::Slider::new(&mut s.corpse_forward_offset, -2.0f32..=3.0).text("fell forward: ahead of feet (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_back_offset, -2.0f32..=3.0).text("fell back: behind feet (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_length, 0.1f32..=3.0).text("body length (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_width, 0.0f32..=1.5).text("body width (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_flames, 1u32..=24).text("flames"));
+        ui.add(egui::Slider::new(&mut s.corpse_flame_width, 0.1f32..=3.0).text("flame width (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_flame_height, 0.1f32..=3.0).text("flame height (m)"));
+        ui.add(egui::Slider::new(&mut s.corpse_fire_secs, 0.5f32..=10.0).text("burns for (s)"));
+        ui.add(egui::Slider::new(&mut s.corpse_grow_secs, 0.0f32..=3.0).text("flares up over (s)"));
+        ui.add(egui::Slider::new(&mut s.corpse_fade_secs, 0.1f32..=5.0).text("dies down over (s)"));
+        ui.add(egui::Slider::new(&mut s.corpse_brightness, 0.0f32..=10.0).text("brightness"));
+        ui.add(egui::Slider::new(&mut s.corpse_light, 0.0f32..=5_000_000.0).text("light (lm)").logarithmic(true));
+        ui.add(egui::Slider::new(&mut s.corpse_light_range, 0.5f32..=30.0).text("light range (m)"));
     });
     ui.collapsing("Flame look (all flames)", |ui| {
         ui.horizontal(|ui| {

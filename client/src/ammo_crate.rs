@@ -1,8 +1,9 @@
 //! The `Zombies` ammo crate (`models/ammo_crate.glb`): stand at it with the
 //! sniper out and not full, and a card (the perk card's style, pared down)
 //! shows the price and our points; the interact key buys a refill
-//! ([`shared::BuyAmmo`] → [`shared::AmmoBought`]), which fills the sniper to
-//! its most (`Weapon::fill_ammo`) and plays the buy sound for us alone.
+//! ([`shared::BuyAmmo`] → [`shared::AmmoBought`]), which fills the sniper's
+//! mag and reserve (`Weapon::fill_mag_and_reserve`) and plays the buy sound
+//! for us alone.
 //!
 //! Its placement is panel-tunable for now ("Zombies perks" → "Ammo crate"),
 //! on this client only — no collision, and the server takes the client's word
@@ -365,7 +366,8 @@ fn buy_ammo(
     }
 }
 
-/// The server took our points: fill the sniper, and play the buy sound —
+/// The server took our points: fill the sniper — a full mag too, so an
+/// empty one doesn't need a manual reload — and play the buy sound —
 /// just for us, not positional.
 fn receive_ammo(
     mut receivers: Query<&mut MessageReceiver<shared::AmmoBought>>,
@@ -375,7 +377,7 @@ fn receive_ammo(
 ) {
     for mut rx in &mut receivers {
         for _ in rx.receive() {
-            weapon.fill_ammo(GameMode::Zombies);
+            weapon.fill_mag_and_reserve(GameMode::Zombies);
             commands.spawn((AudioPlayer::new(sounds.buy_ammo.clone()), PlaybackSettings::DESPAWN));
         }
     }

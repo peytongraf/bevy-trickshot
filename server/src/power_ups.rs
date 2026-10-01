@@ -9,9 +9,15 @@
 //! the lobby, and Max Ammo's refill, which each client does itself on
 //! [`PowerUpGrabbed`] (ammo is client-side).
 //!
+//! A Nuke doesn't kill at once: each zombie up gets a [`NukeDeath`] — a
+//! random moment within [`NUKE_KILL_SECS`] — and [`run_nuke_deaths`] drops
+//! them one by one, telling every client ([`ZombieNuked`]) to set the body
+//! alight.
+//!
 //! Everything resets with the game: drops are removed once their lobby's
 //! game isn't running, and the timers with it (`Lobby::active_power_ups` is
-//! also cleared when a game starts or ends).
+//! also cleared when a game starts or ends); a [`NukeDeath`] lives on its
+//! zombie, which `zombies::cull_zombies` removes with the game.
 
 use std::collections::HashMap;
 
@@ -21,12 +27,12 @@ use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
 use shared::power_ups::{
-    in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, DROP_LIFETIME_SECS, NUKE_POINTS,
-    NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
+    in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, DROP_LIFETIME_SECS, NUKE_KILL_SECS,
+    NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
 };
 use shared::{
-    GameChannel, GameMode, Lobby, PlayerId, PlayerPose, PowerUpDrop, PowerUpGrabbed, ScoreLine,
-    TrickScore,
+    DropPowerUp, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, PowerUpDrop, PowerUpGrabbed, ScoreLine,
+    TrickScore, ZombieNuked,
 };
 
 use crate::lobby::LobbyPlayer;
@@ -42,6 +48,13 @@ struct DropSim {
     age: f32,
 }
 
+/// A zombie a Nuke has doomed: it stands frozen (`ai::drive_bots`) and dies
+/// once `left` (seconds, not counting pauses) runs out.
+#[derive(Component)]
+pub(crate) struct NukeDeath {
+    left: f32,
+}
+
 /// Each lobby's running timed power-ups: when (`Time::elapsed_secs`) each
 /// runs out, in the order they started.
 #[derive(Resource, Default)]
@@ -51,9 +64,11 @@ pub struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PowerUpClocks>().add_systems(
+        app.init_resource::<PowerUpClocks>()
+            .add_observer(on_drop_power_up)
+            .add_systems(
             FixedUpdate,
-            (roll_drops, run_power_ups)
+            (roll_drops, run_power_ups, run_nuke_deaths)
                 .chain()
                 .after(crate::pvp::apply_player_hits),
         );
@@ -98,6 +113,41 @@ fn roll_drops(
     }
 }
 
+/// Debug: the leader drops a power-up at their own feet (picked up at once,
+/// so it goes off for real) — only in a running, unpaused `Zombies` game.
+fn on_drop_power_up(
+    trigger: Trigger<RemoteTrigger<DropPowerUp>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    lobbies: Query<(Entity, &Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose)>,
+    mut commands: Commands,
+) {
+    let peer = trigger.from;
+    let kind = trigger.trigger.kind;
+    let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| {
+        l.leader == peer && l.started && l.mode == GameMode::Zombies && !l.paused
+    }) else {
+        return;
+    };
+    if endings.is_ending(lobby_e) {
+        return;
+    }
+    let Some((_, pose)) = players.iter().find(|(id, _)| id.0 == peer) else {
+        return;
+    };
+    commands.spawn((
+        Name::from("PowerUpDrop"),
+        PowerUpDrop {
+            kind,
+            pos: pose.translation - Vec3::Y * EYE_HEIGHT,
+            blinking: false,
+        },
+        DropSim { lobby: lobby_e, age: 0.0 },
+        Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+    ));
+    info!("lobby {lobby_e:?}: {peer:?} dropped a {} (debug)", kind.label());
+}
+
 /// Tick the timers and the drops; set off any drop a player walked into.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn run_power_ups(
@@ -108,7 +158,7 @@ fn run_power_ups(
     mut clocks: ResMut<PowerUpClocks>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
-    mut zombies: Query<(&LobbyPlayer, &mut PlayerCombat), With<Zombie>>,
+    zombies: Query<(Entity, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>), With<Zombie>>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
 ) {
@@ -209,17 +259,20 @@ fn run_power_ups(
             // Ammo is client-side: every client fills its own on the message.
             PowerUp::MaxAmmo => {}
             PowerUp::Nuke => {
-                let mut killed = 0;
-                for (lp, mut combat) in &mut zombies {
-                    if lp.lobby == lobby_e && combat.alive {
-                        combat.alive = false;
-                        combat.health = 0.0;
-                        combat.respawn_at = f32::INFINITY;
-                        killed += 1;
+                // Every zombie up is doomed, each dying at its own random
+                // moment over the next few seconds (`run_nuke_deaths`). One
+                // already doomed by an earlier Nuke keeps its moment.
+                let mut doomed = 0;
+                for (zombie_e, lp, combat, already) in &zombies {
+                    if lp.lobby == lobby_e && combat.alive && !already {
+                        let seed = (now.to_bits() as u64) << 32 ^ zombie_e.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                        let left = shared::bots::rand01(seed) * NUKE_KILL_SECS;
+                        commands.entity(zombie_e).insert(NukeDeath { left });
+                        doomed += 1;
                     }
                 }
-                // No more rise for a moment (if the round goes on at all —
-                // clearing it starts the usual break instead).
+                // No more rise while they drop (if the round goes on at all
+                // — clearing it starts the usual break instead).
                 if let Some(mut rounds) = rounds {
                     rounds.next_spawn_at = rounds.next_spawn_at.max(now + NUKE_SPAWN_PAUSE_SECS);
                 }
@@ -228,7 +281,7 @@ fn run_power_ups(
                 for peer in everyone {
                     award(&mut lobby, peer, "NUKE", points);
                 }
-                info!("lobby {lobby_e:?}: nuke killed {killed} zombies");
+                info!("lobby {lobby_e:?}: nuke dooms {doomed} zombies");
             }
             PowerUp::BonusPoints => award(&mut lobby, by, "BONUS POINTS", BONUS_POINTS),
         }
@@ -237,6 +290,48 @@ fn run_power_ups(
             error!("failed to send power-up grab: {e:?}");
         }
         info!("{by:?} grabbed {}", kind.label());
+    }
+}
+
+/// Count down each Nuke-doomed zombie (holding still while its game is
+/// paused or ending) and kill it when its moment comes — no points, no drop,
+/// like any Nuke kill — telling the lobby so every client sets it alight.
+#[allow(clippy::type_complexity)]
+fn run_nuke_deaths(
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    lobbies: Query<&Lobby>,
+    mut zombies: Query<(Entity, &mut NukeDeath, &LobbyPlayer, &PlayerId, &mut PlayerCombat), With<Zombie>>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    let server = server.into_inner();
+    for (zombie_e, mut death, lp, id, mut combat) in &mut zombies {
+        // (A game that's over takes its zombies with it — `cull_zombies`.)
+        let Ok(lobby) = lobbies.get(lp.lobby) else {
+            continue;
+        };
+        if lobby.paused || endings.is_ending(lp.lobby) {
+            continue;
+        }
+        death.left -= dt;
+        if death.left > 0.0 {
+            continue;
+        }
+        commands.entity(zombie_e).remove::<NukeDeath>();
+        // Someone may have shot it first.
+        if !combat.alive {
+            continue;
+        }
+        combat.alive = false;
+        combat.health = 0.0;
+        combat.respawn_at = f32::INFINITY;
+        let msg = ZombieNuked { peer: id.0 };
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+            error!("failed to send zombie nuked: {e:?}");
+        }
     }
 }
 

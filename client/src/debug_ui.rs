@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -76,6 +76,10 @@ pub(crate) fn ads_tuning_ui(
                     With<crate::net::GameClient>,
                 >,
                 crate::molotov::MolotovDebug,
+                Query<
+                    &mut lightyear::prelude::TriggerSender<shared::DropPowerUp>,
+                    With<crate::net::GameClient>,
+                >,
             ),
             Query<
                 &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
@@ -1655,6 +1659,20 @@ pub(crate) fn ads_tuning_ui(
                                 tx.trigger::<shared::LobbyChannel>(shared::SetPowerUpTest { on });
                             }
                         }
+                        // Set one off now: dropped at the leader's feet, so
+                        // they pick it up at once (in a running Zombies game).
+                        ui.label("Set one off now (drops at your feet):");
+                        ui.add_enabled_ui(is_leader, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                for kind in shared::power_ups::PowerUp::ALL {
+                                    if ui.button(kind.label()).clicked() {
+                                        if let Ok(mut tx) = drop_power_up_tx.single_mut() {
+                                            tx.trigger::<shared::LobbyChannel>(shared::DropPowerUp { kind });
+                                        }
+                                    }
+                                }
+                            });
+                        });
                         if !is_leader {
                             ui.label("Only the party leader can change this.");
                         }
@@ -1700,7 +1718,7 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut p.glow_swirl, 0.0f32..=1.0).text("wisps"));
                 ui.add(egui::Slider::new(&mut p.glow_swirl_speed, 0.0f32..=4.0).text("wisp speed"));
                 ui.add(egui::Slider::new(&mut p.glow_sparks, 0.0f32..=6.0).text("sparks"));
-                ui.add(egui::Slider::new(&mut p.glow_pull, 0.0f32..=2.0).text("pulled toward camera (m)"));
+                ui.add(egui::Slider::new(&mut p.glow_pull, -3.0f32..=3.0).text("pulled toward camera (m, − pushes away)"));
                 ui.add(egui::Slider::new(&mut p.light_lumens, 0.0f32..=200_000.0).logarithmic(true).text("light (lm)"));
                 ui.add(egui::Slider::new(&mut p.light_range, 0.5f32..=20.0).text("light range (m)"));
                 if ui.button("Copy power-up settings to console").clicked() {

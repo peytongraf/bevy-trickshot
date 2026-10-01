@@ -6,12 +6,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Nuke gives 500 points, burns zombies over 5s
+
 # New
 
-- Nuke should add 500 bonues points
-- Ammo box is very inconsistant. Sometimes ui won't pop up and sometimes even after purchasing ammo isn't actually increased. See if this has anything to do with pap level. Even after max ammo was activated, no ammo was added and the sniper was still empty.
-- Check if pausing the game has anything to do with these issues
-- When throwing knives or molotov is the active lethal type and running over that dropped equipment, it doesn't automatically pick it up
 - Add extra points for critical kill
 - Add go prone in front of a perk machine to get 100 free points
 - Ammo box isn't working

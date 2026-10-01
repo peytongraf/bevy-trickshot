@@ -165,6 +165,16 @@ impl ZombieMotion {
     pub(crate) fn speed(&self) -> f32 {
         self.speed
     }
+
+    /// Dead and falling (or fallen): `Some(true)` face-first, `Some(false)`
+    /// onto its back. `None` while it's still up.
+    pub(crate) fn fell_forward(&self) -> Option<bool> {
+        match self.state {
+            ZombieAnimState::FallForward => Some(true),
+            ZombieAnimState::FallBack => Some(false),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct ZombieAvatarPlugin;

@@ -15,6 +15,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: new power-up look.",
+        "Zombies: Nuke freezes zombies, burns them down over 5 seconds, gives 500 points.",
+        "Zombies: buying ammo fills your mag too.",
         "Zombies: Pack-a-Punching your sniper fills its mag and ammo.",
         "Zombies: sniper one-shots zombies for longer, with or without Pack-a-Punch.",
         "Zombies: one lethal at a time. Walk over your kind to grab it, swap with interact (up to 4).",

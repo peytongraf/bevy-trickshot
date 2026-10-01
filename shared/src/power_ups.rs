@@ -6,8 +6,9 @@
 //! * **Max Ammo** — everyone's ammo (sniper, throwing knives and any molotovs) full.
 //! * **Insta-Kill** — any hit kills a zombie, for [`TIMED_SECS`].
 //! * **Double Points** — zombie kills score double, for [`TIMED_SECS`].
-//! * **Nuke** — every zombie up dies, everyone gets [`NUKE_POINTS`], and no
-//!   more rise for [`NUKE_SPAWN_PAUSE_SECS`].
+//! * **Nuke** — every zombie up dies, each at a random moment within
+//!   [`NUKE_KILL_SECS`] (bursting into flames), everyone gets [`NUKE_POINTS`],
+//!   and no more rise for [`NUKE_SPAWN_PAUSE_SECS`].
 //! * **Bonus Points** — [`BONUS_POINTS`] for whoever grabbed it.
 //!
 //! The server owns all of it (`server::power_ups`); clients draw the drops
@@ -34,12 +35,16 @@ pub const DROP_LIFETIME_SECS: f32 = 30.0;
 /// It blinks for this long (s) before it goes.
 pub const BLINK_SECS: f32 = 8.0;
 /// Points every player gets from a Nuke (doubled by Double Points).
-pub const NUKE_POINTS: u32 = 400;
+pub const NUKE_POINTS: u32 = 500;
 /// Points Bonus Points gives whoever grabbed it.
 pub const BONUS_POINTS: u32 = 500;
-/// After a Nuke, no zombie rises for this long (s) — unless it ended the
-/// round, whose own break then follows.
-pub const NUKE_SPAWN_PAUSE_SECS: f32 = 5.0;
+/// A Nuke's zombies die one by one, each at a random moment within this
+/// long (s) of it going off.
+pub const NUKE_KILL_SECS: f32 = 5.0;
+/// After a Nuke, no zombie rises for this long (s) — the whole time its
+/// zombies are still dropping — unless it ended the round, whose own break
+/// then follows.
+pub const NUKE_SPAWN_PAUSE_SECS: f32 = NUKE_KILL_SECS;
 /// How close (m, across the ground) a player's feet must get to a drop.
 pub const PICKUP_RADIUS: f32 = 1.4;
 /// ...and how far (m) above or below it.

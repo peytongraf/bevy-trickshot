@@ -531,6 +531,7 @@ pub(crate) fn drive_bots(
         &PlayerCombat,
         &mut BotBrain,
         &mut ActionState<PlayerInput>,
+        Has<crate::power_ups::NukeDeath>,
     )>,
     mut hits: EventWriter<crate::pvp::PlayerHit>,
     mut swipes: EventWriter<ZombieSwipeLanded>,
@@ -549,7 +550,7 @@ pub(crate) fn drive_bots(
         .map(|(pid, pose, lp, _)| (pid.0, lp.lobby, pose.translation - Vec3::Y * EYE_HEIGHT))
         .collect();
 
-    for (id, lp, combat, mut brain_ref, mut action) in &mut bots {
+    for (id, lp, combat, mut brain_ref, mut action, doomed) in &mut bots {
         // Plain `&mut` so its fields can be borrowed separately below.
         let brain = &mut *brain_ref;
         let Some(lobby) = lobbies.get(lp.lobby).ok().filter(|l| l.started) else {
@@ -640,9 +641,11 @@ pub(crate) fn drive_bots(
             };
             continue;
         }
-        // The leader's debug "bots stay in place": once up out of the ground
-        // and off any ledge, stand still — no chasing, firing or swiping.
-        if lobby.bots_frozen && brain.was_alive {
+        // The leader's debug "bots stay in place", or a zombie a Nuke has
+        // doomed (`power_ups::NukeDeath`) waiting to drop: once up out of
+        // the ground and off any ledge, stand still — no chasing, firing or
+        // swiping.
+        if (lobby.bots_frozen || doomed) && brain.was_alive {
             brain.target = None;
             brain.seen_for = 0.0;
             brain.path.clear();

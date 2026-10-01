@@ -1273,11 +1273,27 @@ pub struct PowerUpGrabbed {
     pub by: PeerId,
 }
 
+/// Server → everyone in a `Zombies` lobby: a Nuke just killed the zombie
+/// `peer` (one at a time, over [`crate::power_ups::NUKE_KILL_SECS`]) — every
+/// client sets its body alight. Just a look: the fire hurts no one.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieNuked {
+    pub peer: PeerId,
+}
+
 /// Client → server (debug): the party leader turns [`Lobby::power_up_test`]
 /// on or off. Ignored from anyone else.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct SetPowerUpTest {
     pub on: bool,
+}
+
+/// Client → server (debug): the party leader drops a `kind` power-up at
+/// their own feet — picked up at once, so it goes off for real. Only in a
+/// running `Zombies` game; ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct DropPowerUp {
+    pub kind: crate::power_ups::PowerUp,
 }
 
 /// Client → server: create a new lobby and join it as leader.
@@ -1452,6 +1468,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PowerUpGrabbed>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombieNuked>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -1474,6 +1492,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetBotsFrozen>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetPowerUpTest>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<DropPowerUp>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetBombTest>()
             .add_direction(NetworkDirection::ClientToServer);
