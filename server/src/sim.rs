@@ -259,6 +259,8 @@ fn resolve_shots(
                         },
                         bomb_shot: false,
                         blast: false,
+                        // A knife kill is a critical one (`Zombies`).
+                        critical: true,
                     });
                     info!("tick {tick}: {:?} knifed player {:?}", shooter.0, victim);
                 }
@@ -433,6 +435,7 @@ fn resolve_shots(
                                 damage,
                                 bomb_shot,
                                 blast: false,
+                                critical: hit.headshot,
                             });
                         }
                         ShotOutcome::Hit {

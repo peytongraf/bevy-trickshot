@@ -49,6 +49,9 @@ pub enum GameMode {
 
 /// Points a lobby member scores for each zombie they kill ([`GameMode::Zombies`]).
 pub const ZOMBIE_KILL_POINTS: u32 = 100;
+/// Extra points on top of [`ZOMBIE_KILL_POINTS`] for a critical kill — a
+/// headshot or a knife stab.
+pub const ZOMBIE_CRITICAL_POINTS: u32 = 50;
 
 /// Most damage one zombie hit does to a player — the sniper one-shots at 200,
 /// which with "anyone dies, the game's over" would end a game on a single hit.

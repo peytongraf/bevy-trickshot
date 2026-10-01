@@ -302,6 +302,7 @@ fn burn(
                 damage,
                 bomb_shot: false,
                 blast: false,
+                critical: false,
             });
         }
     }

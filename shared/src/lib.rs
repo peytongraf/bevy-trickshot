@@ -46,7 +46,7 @@ pub use protocol::{
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov,
 };
-pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
+pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
 pub const TICK_HZ: f64 = 64.0;

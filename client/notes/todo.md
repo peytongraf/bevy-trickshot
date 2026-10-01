@@ -6,11 +6,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Critical kill bonus points
 - Nuke gives 500 points, burns zombies over 5s
 
 # New
 
-- Add extra points for critical kill
 - Add go prone in front of a perk machine to get 100 free points
 - Ammo box isn't working
 

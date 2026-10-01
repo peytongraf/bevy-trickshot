@@ -756,6 +756,7 @@ pub(crate) fn drive_bots(
                             damage: ZOMBIE_SWIPE_DAMAGE,
                             bomb_shot: false,
                             blast: false,
+                            critical: false,
                         });
                         if let Some(t_eye) = target_pose {
                             swipes.write(ZombieSwipeLanded {

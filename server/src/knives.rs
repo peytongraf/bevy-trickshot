@@ -392,6 +392,7 @@ fn step_knives(
                         damage,
                         bomb_shot: false,
                         blast: false,
+                        critical: false,
                     });
                     info!("{owner:?} killed {victim:?} with a throwing knife");
                 }

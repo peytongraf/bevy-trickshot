@@ -15,7 +15,7 @@ use lightyear::prelude::*;
 use shared::{
     FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
     PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady, ScoreLine, TrickScore,
-    ZOMBIE_KILL_POINTS,
+    ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS,
 };
 
 use shared::bot_players::is_bot_peer;
@@ -102,6 +102,9 @@ pub struct PlayerHit {
     /// Damage from a [`BombBlast`] itself — never sets off another one, even
     /// with the lobby's debug `bomb_test` on.
     pub blast: bool,
+    /// A headshot or a knife stab: a `Zombies` zombie killed by one scores
+    /// its killer [`ZOMBIE_CRITICAL_POINTS`] on top of the kill.
+    pub critical: bool,
 }
 
 /// A Bomb Shot went off in `lobby` with its base at `feet`, set off by `by`
@@ -268,12 +271,24 @@ pub(crate) fn apply_player_hits(
                 }
             }
             if is_bot_peer(ev.victim) {
-                // Double Points (a `Zombies` power-up) doubles the kill.
-                let points = if lobby.power_up_active(shared::power_ups::PowerUp::DoublePoints) {
-                    ZOMBIE_KILL_POINTS * 2
+                // Double Points (a `Zombies` power-up) doubles the kill —
+                // and the critical bonus (a headshot or knife kill).
+                let mult = if lobby.power_up_active(shared::power_ups::PowerUp::DoublePoints) {
+                    2
                 } else {
-                    ZOMBIE_KILL_POINTS
+                    1
                 };
+                let mut lines = vec![ScoreLine {
+                    label: "KILL".into(),
+                    points: ZOMBIE_KILL_POINTS * mult,
+                }];
+                if ev.critical {
+                    lines.push(ScoreLine {
+                        label: "CRITICAL".into(),
+                        points: ZOMBIE_CRITICAL_POINTS * mult,
+                    });
+                }
+                let points: u32 = lines.iter().map(|l| l.points).sum();
                 if !is_bot_peer(ev.killer) {
                     if let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == ev.victim) {
                         zombie_kills.write(ZombieKilled {
@@ -288,10 +303,7 @@ pub(crate) fn apply_player_hits(
                     let trick = TrickScore {
                         shooter: ev.killer,
                         total: points,
-                        lines: vec![ScoreLine {
-                            label: "KILL".into(),
-                            points,
-                        }],
+                        lines,
                     };
                     if let Err(e) = sender.send::<_, GameChannel>(
                         &trick,
@@ -408,6 +420,7 @@ fn apply_bomb_blasts(
                 damage,
                 bomb_shot: false,
                 blast: true,
+                critical: false,
             });
         }
         info!("{:?}'s bomb shot went off, catching {n} zombies", blast.by);
