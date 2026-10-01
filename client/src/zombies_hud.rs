@@ -4,7 +4,8 @@
 //! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
 //! speed multipliers; Liquid Courage: the drunk screen effect — its damage
-//! cut is server-side).
+//! cut is server-side). Going prone at a machine claims its one-off
+//! [`shared::perks::PRONE_BONUS_POINTS`] ([`prone_at_perk`]).
 //!
 //! Everything reads the replicated `Lobby` — the server owns the round, the
 //! count, points and purchases (`server::zombies`) — so nothing here needs
@@ -37,6 +38,8 @@ impl Plugin for ZombiesHudPlugin {
                     update_perk_icons,
                     update_party_panels,
                     buy_perk.run_if(menu::game_active.and(killcam::no_killcam)),
+                    prone_at_perk,
+                    receive_prone_bonus,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
@@ -1410,6 +1413,57 @@ fn buy_perk(
         // (The server logs "bought ..." when it goes through; the card
         // switches to owned once that's replicated back.)
         info!("asked the server to buy {}", perk.label());
+    }
+}
+
+/// The moment we go prone at a perk machine (not Pack-a-Punch — it's no
+/// perk), ask the server for its bonus. It pays only the first in the game
+/// at each machine, so we just ask every time and let it decide.
+fn prone_at_perk(
+    slide: Res<crate::player::Slide>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    player: Single<&Transform, With<Player>>,
+    machines: Res<PerkMachineSettings>,
+    mut was_prone: Local<bool>,
+    mut sender: Query<&mut TriggerSender<shared::ProneAtPerk>, With<GameClient>>,
+) {
+    let prone = slide.stance == crate::player::Stance::Prone;
+    let went_prone = prone && !*was_prone;
+    *was_prone = prone;
+    if !went_prone {
+        return;
+    }
+    let Some(lobby) = zombies_game(&local, &lobbies) else {
+        return;
+    };
+    let feet = player.translation - Vec3::Y * EYE_HEIGHT;
+    let Some(perk) = Perk::ALL
+        .into_iter()
+        .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))
+    else {
+        return;
+    };
+    if let Ok(mut s) = sender.single_mut() {
+        s.trigger::<shared::LobbyChannel>(shared::ProneAtPerk { perk });
+    }
+}
+
+/// The server paid out our prone bonus: a bare `+100` and a ching, just
+/// for us.
+fn receive_prone_bonus(
+    mut receivers: Query<&mut lightyear::prelude::MessageReceiver<shared::ProneBonus>>,
+    sounds: Res<GameSounds>,
+    mut scored: EventWriter<crate::TrickScoredEvent>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            scored.write(crate::TrickScoredEvent {
+                total: msg.points,
+                lines: Vec::new(),
+                sound: Some(sounds.money_ching.clone()),
+            });
+        }
     }
 }
 

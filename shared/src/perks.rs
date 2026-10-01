@@ -264,6 +264,11 @@ impl Perk {
 /// are this box at the client's machine scale.
 pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.75, 1.2, 0.36);
 
+/// Points a `Zombies` player gets for going prone at a perk machine — once
+/// per machine per game, to whoever does it first (Call of Duty's hidden
+/// freebie).
+pub const PRONE_BONUS_POINTS: u32 = 100;
+
 /// How close (m, horizontally) a player's feet must be to a machine to buy
 /// from it...
 pub const PERK_USE_RADIUS: f32 = 2.0;

@@ -101,6 +101,9 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/buy_ammo.mp3` — buying ammo at the ammo crate (only
     /// the buyer hears it).
     pub(crate) buy_ammo: Handle<AudioSource>,
+    /// `audio/zombies/money_ching.mp3` — the prone-at-a-perk-machine bonus
+    /// paying out (only the one who got it hears it).
+    pub(crate) money_ching: Handle<AudioSource>,
     /// `audio/zombies/power_ups/grab.mp3` — walking into a power-up (only
     /// the one who grabbed it hears it).
     pub(crate) power_up_grab: Handle<AudioSource>,
@@ -271,6 +274,7 @@ pub(crate) struct SoundVolumes {
     /// The `Zombies` ambience loop and game-over music (`zombies_audio`).
     pub(crate) zombies_ambient: f32,
     pub(crate) buy_ammo: f32,
+    pub(crate) money_ching: f32,
     pub(crate) power_up_grab: f32,
     /// A dropped power-up's loop (on top of its distance fade).
     pub(crate) power_up_loop: f32,
@@ -317,6 +321,7 @@ impl Default for SoundVolumes {
             final_zombie: 1.0,
             zombies_ambient: 1.0,
             buy_ammo: 1.0,
+            money_ching: 1.0,
             power_up_grab: 1.0,
             power_up_loop: 1.0,
             power_up_announcer: 1.0,
@@ -356,6 +361,7 @@ impl SoundVolumes {
             (sounds.hit_marker.id(), self.hit_marker),
             (sounds.perk_buy.id(), self.perk_buy),
             (sounds.buy_ammo.id(), self.buy_ammo),
+            (sounds.money_ching.id(), self.money_ching),
             (sounds.power_up_grab.id(), self.power_up_grab),
             (sounds.power_up_max_ammo.id(), self.power_up_announcer),
             (sounds.power_up_insta_kill.id(), self.power_up_announcer),
@@ -525,6 +531,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         menu_music: asset_server.load("audio/music/main_menu.wav"),
         zombies_ambient: asset_server.load("audio/ambient/zombies.mp3"),
         buy_ammo: asset_server.load("audio/zombies/buy_ammo.mp3"),
+        money_ching: asset_server.load("audio/zombies/money_ching.mp3"),
         power_up_grab: asset_server.load("audio/zombies/power_ups/grab.mp3"),
         power_up_loop: asset_server.load("audio/zombies/power_ups/drop_loop.mp3"),
         power_up_max_ammo: asset_server.load("audio/zombies/power_ups/max_ammo.mp3"),

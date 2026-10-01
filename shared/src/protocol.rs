@@ -1291,6 +1291,21 @@ pub struct SetPowerUpTest {
     pub on: bool,
 }
 
+/// Client → server: the sender just went prone at `perk`'s machine. The
+/// first in the lobby to do so at each machine gets
+/// [`crate::perks::PRONE_BONUS_POINTS`] ([`ProneBonus`]); anything else is
+/// ignored.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct ProneAtPerk {
+    pub perk: crate::perks::Perk,
+}
+
+/// Server → the one player only: their [`ProneAtPerk`] paid out `points`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ProneBonus {
+    pub points: u32,
+}
+
 /// Client → server (debug): the party leader drops a `kind` power-up at
 /// their own feet — picked up at once, so it goes off for real. Only in a
 /// running `Zombies` game; ignored from anyone else.
@@ -1473,6 +1488,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieNuked>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ProneBonus>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()
@@ -1539,6 +1556,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyAmmo>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ProneAtPerk>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()

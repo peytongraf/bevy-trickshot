@@ -8,11 +8,14 @@ use crate::{AppState, GameSounds, HUD_FONT};
 /// Server told us a shot scored — the shooter's client pops a CoD-style yellow
 /// stack. `total` is the shot's combined points (shown as its own line at the
 /// top); `lines` are the itemised `(label, points)` that added up to it, top
-/// to bottom below that.
+/// to bottom below that — with none, just a bare `+N` (Call of Duty
+/// zombies' look for a freebie like the prone bonus).
 #[derive(Event)]
 pub(crate) struct TrickScoredEvent {
     pub(crate) total: u32,
     pub(crate) lines: Vec<(String, u32)>,
+    /// Played instead of the usual kill sound.
+    pub(crate) sound: Option<Handle<AudioSource>>,
 }
 
 /// The score-popup stack (one per scored shot; a fresh one replaces the last).
@@ -44,10 +47,8 @@ pub(crate) fn spawn_score_popup(
     // `TrickScoredEvent` only ever fires for a kill *this* client just scored
     // (`net::receive_trick_scores` already filters the server's broadcast
     // down to our own shooter id).
-    commands.spawn((
-        AudioPlayer::new(sounds.kill_enemy.clone()),
-        PlaybackSettings::DESPAWN,
-    ));
+    let sound = ev.sound.clone().unwrap_or_else(|| sounds.kill_enemy.clone());
+    commands.spawn((AudioPlayer::new(sound), PlaybackSettings::DESPAWN));
 
     commands
         .spawn((
@@ -70,7 +71,11 @@ pub(crate) fn spawn_score_popup(
             // below it, so it reads as the headline with the itemised lines
             // explaining where it came from.
             col.spawn((
-                Text::new(format!("+{}  TOTAL", ev.total)),
+                Text::new(if ev.lines.is_empty() {
+                    format!("+{}", ev.total)
+                } else {
+                    format!("+{}  TOTAL", ev.total)
+                }),
                 TextFont {
                     font: asset_server.load(HUD_FONT),
                     font_size: 32.0,

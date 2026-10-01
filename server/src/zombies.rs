@@ -23,7 +23,7 @@ use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::{
     AmmoBought, BuyAmmo, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
-    PlayerName, PlayerPose,
+    PlayerName, PlayerPose, ProneAtPerk, ProneBonus,
 };
 
 use crate::ai::{BotBrain, NextBotId};
@@ -102,6 +102,9 @@ pub(crate) struct ZombieRounds {
     pub(crate) next_spawn_at: f32,
     /// No spawning until then (the start delay / the break between rounds).
     break_until: f32,
+    /// Perk machines whose prone bonus has been claimed this game
+    /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
+    prone_claimed: Vec<shared::perks::Perk>,
 }
 
 pub struct ZombiesPlugin;
@@ -112,6 +115,7 @@ impl Plugin for ZombiesPlugin {
             .add_observer(on_buy_pap)
             .add_observer(on_turn_on_power)
             .add_observer(on_buy_ammo)
+            .add_observer(on_prone_at_perk)
             .add_systems(
                 FixedUpdate,
                 (run_rounds, clear_dead_zombies, cull_zombies).before(crate::ai::drive_bots),
@@ -170,6 +174,7 @@ fn run_rounds(
                 to_spawn: zombies_in_round(first, members),
                 next_spawn_at: now,
                 break_until: now + FIRST_ROUND_DELAY_SECS,
+                prone_claimed: Vec::new(),
             });
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
@@ -340,6 +345,52 @@ fn on_buy_perk(
     member.score -= perk.cost();
     member.perks.push(perk);
     info!("{peer:?} bought {}", perk.label());
+}
+
+/// A member went prone at a perk machine: the first in the game to do so at
+/// each machine gets [`shared::perks::PRONE_BONUS_POINTS`] (power or not),
+/// and only they hear about it ([`ProneBonus`]). They must be in a running,
+/// unpaused `Zombies` game, alive and at the machine (a little slack).
+fn on_prone_at_perk(
+    trigger: Trigger<RemoteTrigger<ProneAtPerk>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&lightyear::prelude::server::Server>,
+    mut sender: lightyear::prelude::ServerMultiMessageSender,
+    mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    let perk = trigger.trigger.perk;
+    let Some((lobby_e, mut lobby, mut rounds)) = lobbies
+        .iter_mut()
+        .find(|(_, l, _)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused || rounds.prone_claimed.contains(&perk) {
+        return;
+    }
+    let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
+        return;
+    };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if !combat.alive || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
+        return;
+    }
+    let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
+        return;
+    };
+    let points = shared::perks::PRONE_BONUS_POINTS;
+    member.score += points;
+    rounds.prone_claimed.push(perk);
+    if let Err(e) = sender.send::<_, GameChannel>(
+        &ProneBonus { points },
+        server.into_inner(),
+        &NetworkTarget::Single(peer),
+    ) {
+        error!("failed to send prone bonus: {e:?}");
+    }
+    info!("{peer:?} went prone at {} for {points} points", perk.label());
 }
 
 /// A member wants to Pack-a-Punch the weapon in their hands: they must be in

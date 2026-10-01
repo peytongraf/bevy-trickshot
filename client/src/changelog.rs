@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: go prone at a perk machine for a little something.",
         "Zombies: +50 points for headshot and knife kills.",
         "Zombies: new power-up look.",
         "Zombies: Nuke freezes zombies, burns them down over 5 seconds, gives 500 points.",

@@ -6,12 +6,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Prone at perk machine bonus
 - Critical kill bonus points
 - Nuke gives 500 points, burns zombies over 5s
 
 # New
 
-- Add go prone in front of a perk machine to get 100 free points
 - Ammo box isn't working
 
 - On break point night zombies, regular bird ambient sound should be removed and only zombies ambient sound should play

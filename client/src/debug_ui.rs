@@ -1334,6 +1334,7 @@ pub(crate) fn ads_tuning_ui(
                         ("hit marker", &mut v.hit_marker),
                         ("zombies: buy perk", &mut v.perk_buy),
                         ("zombies: buy ammo", &mut v.buy_ammo),
+                        ("zombies: prone bonus ching", &mut v.money_ching),
                         ("zombies: power-up grab", &mut v.power_up_grab),
                         ("zombies: power-up loop", &mut v.power_up_loop),
                         ("zombies: power-up announcer", &mut v.power_up_announcer),
