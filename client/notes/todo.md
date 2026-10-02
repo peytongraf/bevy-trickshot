@@ -6,11 +6,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Aim recoil for all weapons
 - Tracers start from the barrel
 
 # AK-74
-
-- Ensure the recoil is added for it and all other weapons. There should be a setting for it.
 
 # New
 

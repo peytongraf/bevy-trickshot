@@ -365,6 +365,22 @@ fn main() {
         .add_systems(OnEnter(AppState::InLobby), release_cursor)
         .add_systems(Update, (hud_visibility, crosshair_root_visibility))
         .add_systems(Update, spawn_name_tags.run_if(in_state(AppState::InGame)))
+        .init_resource::<AimRecoilSettings>()
+        .init_resource::<AimRecoil>()
+        .add_systems(OnEnter(AppState::InGame), reset_aim_recoil)
+        .add_systems(
+            Update,
+            // Each shot's kick, eased into the aim — after mouse look and the
+            // shot itself, under mouse look's conditions.
+            aim_recoil.after(look_around).after(weapon_system).run_if(
+                in_state(AppState::InGame)
+                    .and(menu::game_active)
+                    .and(killcam::no_killcam)
+                    .and(fall_death::no_fall_death)
+                    .and(not(death_effect::death_effect_active))
+                    .and(not(fall_death::effect_active)),
+            ),
+        )
         .add_systems(
             Update,
             // Right after mouse look, under the same conditions (no menu, kill

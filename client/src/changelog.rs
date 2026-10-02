@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Guns now have real recoil: each shot kicks your aim up and sideways.",
         "Free For All: AK-74 damage lowered.",
         "Shot tracers now come out of the gun barrel.",
         "Free For All: AK-74! Pick it in your loadout.",

@@ -38,6 +38,7 @@ struct LifeState<'w> {
     shot: ResMut<'w, PendingShot>,
     melee: ResMut<'w, PendingMelee>,
     drink: ResMut<'w, crate::PerkDrink>,
+    aim_recoil: ResMut<'w, crate::AimRecoil>,
 }
 
 fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: LifeState) {
@@ -55,4 +56,5 @@ fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: 
     *life.shot = PendingShot::default();
     *life.melee = PendingMelee::default();
     *life.drink = crate::PerkDrink::default();
+    *life.aim_recoil = crate::AimRecoil::default();
 }

@@ -117,6 +117,8 @@ pub(crate) struct PendingMelee(pub Option<(Vec3, Vec3)>);
 pub(crate) struct LocalShot {
     pub(crate) origin: Vec3,
     pub(crate) dir: Vec3,
+    /// The primary that fired it (its aim recoil — `aim_recoil`).
+    pub(crate) weapon: WeaponId,
 }
 
 /// Where the local player's tracer starts: the end of the barrel as it shows
@@ -1702,6 +1704,7 @@ pub(crate) fn weapon_system(
                 shots.write(LocalShot {
                     origin: cam.translation(),
                     dir,
+                    weapon: WeaponId::Ak74,
                 });
             }
             let shot = rig.seg(SegAct::Shoot);
@@ -1780,6 +1783,7 @@ pub(crate) fn weapon_system(
             shots.write(LocalShot {
                 origin: cam.translation(),
                 dir,
+                weapon: weapon.primary,
             });
         }
         let shoot = rig.seg(SegAct::Shoot);

@@ -124,7 +124,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
-            (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>),
+            (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>, ResMut<crate::AimRecoilSettings>),
             ResMut<ShroomSettings>,
             (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>),
             ResMut<BotLookSettings>,
@@ -147,7 +147,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle), mut shroom, (mut name_tags, mut health_bars), mut bot_look),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars), mut bot_look),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1112,6 +1112,40 @@ pub(crate) fn ads_tuning_ui(
                     }
                     if ui.button("Reset camera shake").clicked() {
                         *c = ShakeSettings::default();
+                    }
+                });
+                ui.collapsing("Aim recoil", |ui| {
+                    let r = &mut *aim_recoil;
+                    ui.label(
+                        "Each shot really throws the aim off — up, and a random way left / right — \
+                         and it stays off (unlike the camera shake). Per weapon.",
+                    );
+                    ui.checkbox(&mut r.enabled, "Enabled");
+                    ui.add(egui::Slider::new(&mut r.kick_speed, 1.0f32..=100.0).text("kick speed (1/s)"));
+                    for (name, w) in [("Sniper", &mut r.sniper), ("AK-74", &mut r.ak)] {
+                        ui.separator();
+                        ui.label(name);
+                        ui.add(egui::Slider::new(&mut w.vertical_deg, 0.0f32..=8.0).text("vertical per shot (°)"));
+                        ui.add(egui::Slider::new(&mut w.horizontal_deg, 0.0f32..=4.0).text("horizontal per shot, max (°)"));
+                        ui.add(egui::Slider::new(&mut w.horizontal_bias, -1.0f32..=1.0).text("horizontal bias (left − / right +)"));
+                        ui.add(egui::Slider::new(&mut w.ads_mult, 0.0f32..=1.5).text("left fully aimed (×)"));
+                    }
+                    if ui.button("Copy aim recoil to console").clicked() {
+                        let f = |w: &crate::WeaponRecoil| {
+                            format!(
+                                "vertical_deg: {:.2}, horizontal_deg: {:.2}, horizontal_bias: {:.2}, ads_mult: {:.2}",
+                                w.vertical_deg, w.horizontal_deg, w.horizontal_bias, w.ads_mult
+                            )
+                        };
+                        info!(
+                            "aim recoil: kick_speed: {:.1}, sniper {{ {} }}, ak {{ {} }}",
+                            r.kick_speed,
+                            f(&r.sniper),
+                            f(&r.ak)
+                        );
+                    }
+                    if ui.button("Reset aim recoil").clicked() {
+                        *r = crate::AimRecoilSettings::default();
                     }
                 });
 
