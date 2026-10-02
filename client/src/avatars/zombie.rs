@@ -1,4 +1,4 @@
-//! `Zombies` zombie avatars (`models/zombie.glb`): which clip each one plays
+//! `Zombies` zombie avatars (`models/characters/zombie.glb`): which clip each one plays
 //! — from the state the server publishes on its pose
 //! ([`shared::PlayerPose::zombie`]) and how fast it's really moving — and
 //! how fast, so the feet stay planted whatever its speed. Spawned in place of
@@ -18,7 +18,7 @@ use crate::net::RemoteAvatar;
 use crate::player::Player;
 use crate::AppState;
 
-pub(crate) const ZOMBIE_MODEL: &str = "models/zombie.glb";
+pub(crate) const ZOMBIE_MODEL: &str = "models/characters/zombie.glb";
 
 /// Tags a zombie avatar's `SceneRoot` (see [`start_zombie_animation`]).
 #[derive(Component)]
@@ -28,7 +28,7 @@ pub(crate) struct ZombieVisual;
 #[derive(Component)]
 pub(crate) struct ZombieAnimationPlayer(pub(crate) Entity);
 
-/// Which of `models/zombie.glb`'s clips a zombie avatar is playing
+/// Which of `models/characters/zombie.glb`'s clips a zombie avatar is playing
 /// (`client/notes/zombie.md` — the last three, `Walk` / `Run` / `Walk1`, move
 /// the model off its spot, so only the in-place ones are used).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -196,7 +196,7 @@ fn setup_zombie_assets(
     asset_server: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    // `models/zombie.glb`'s clips: 0 Idle, 1 Walk1_InPlace, 2 Walk_InPlace,
+    // `models/characters/zombie.glb`'s clips: 0 Idle, 1 Walk1_InPlace, 2 Walk_InPlace,
     // 3 Run_InPlace, 4 Attack, 5 FallingBack, 6 FallingForward (7–9 unused).
     let clip = |i: usize| -> Handle<AnimationClip> {
         asset_server.load(GltfAssetLabel::Animation(i).from_asset(ZOMBIE_MODEL))

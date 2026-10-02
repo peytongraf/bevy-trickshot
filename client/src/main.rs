@@ -939,10 +939,10 @@ fn setup_player(
 ) {
     // Build a one-clip animation graph for the sniper's baked animation.
     let clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/sniper.glb"));
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/weapons/sniper.glb"));
     let (graph, index) = AnimationGraph::from_clip(clip);
     let graph = graphs.add(graph);
-    let sniper_scene: Handle<Scene> = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/sniper.glb"));
+    let sniper_scene: Handle<Scene> = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/weapons/sniper.glb"));
     // Both primaries' scenes and graphs, kept loaded so the view model can
     // switch to the AK-74 (a `Zombies` loadout pick) without a hitch.
     commands.insert_resource(weapons::PrimaryModels::load(
@@ -955,19 +955,19 @@ fn setup_player(
 
     // Same, for the knife's own baked clip.
     let knife_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/knife.glb"));
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/weapons/knife.glb"));
     let (knife_graph, knife_index) = AnimationGraph::from_clip(knife_clip);
 
     // And the throwing arms' single `throw` clip.
     let arms_clip: Handle<AnimationClip> = asset_server
-        .load(GltfAssetLabel::Animation(0).from_asset("models/arms_throwing.glb"));
+        .load(GltfAssetLabel::Animation(0).from_asset("models/characters/arms_throwing.glb"));
     let (arms_graph, arms_index) = AnimationGraph::from_clip(arms_clip);
     let arms_graph = graphs.add(arms_graph);
 
     // And the drinking arms' single clip (trimmed at playback — see
     // `weapons::drink_arms`).
     let drink_clip: Handle<AnimationClip> = asset_server
-        .load(GltfAssetLabel::Animation(0).from_asset("models/arms_drinking.glb"));
+        .load(GltfAssetLabel::Animation(0).from_asset("models/characters/arms_drinking.glb"));
     let (drink_graph, drink_index) = AnimationGraph::from_clip(drink_clip);
     let drink_graph = graphs.add(drink_graph);
     let knife_graph = graphs.add(knife_graph);
@@ -1205,7 +1205,7 @@ fn setup_player(
                                     index: knife_index,
                                 },
                                 SceneRoot(asset_server.load(
-                                    GltfAssetLabel::Scene(0).from_asset("models/knife.glb"),
+                                    GltfAssetLabel::Scene(0).from_asset("models/weapons/knife.glb"),
                                 )),
                                 Transform {
                                     translation: knife_settings.translation,
@@ -1227,7 +1227,7 @@ fn setup_player(
                                     index: arms_index,
                                 },
                                 SceneRoot(asset_server.load(
-                                    GltfAssetLabel::Scene(0).from_asset("models/arms_throwing.glb"),
+                                    GltfAssetLabel::Scene(0).from_asset("models/characters/arms_throwing.glb"),
                                 )),
                                 // Spawned fully slid out of view.
                                 arms_settings.transform(0.0),
@@ -1243,7 +1243,7 @@ fn setup_player(
                                     ThrowKnifeModel,
                                     SceneRoot(asset_server.load(
                                         GltfAssetLabel::Scene(0)
-                                            .from_asset("models/throwing_knife.glb"),
+                                            .from_asset("models/weapons/throwing_knife.glb"),
                                     )),
                                     throw_knife_settings.transform(),
                                     RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
@@ -1261,7 +1261,7 @@ fn setup_player(
                                     index: drink_index,
                                 },
                                 SceneRoot(asset_server.load(
-                                    GltfAssetLabel::Scene(0).from_asset("models/arms_drinking.glb"),
+                                    GltfAssetLabel::Scene(0).from_asset("models/characters/arms_drinking.glb"),
                                 )),
                                 drink_settings.transform(),
                                 RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),

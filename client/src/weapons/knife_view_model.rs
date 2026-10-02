@@ -39,7 +39,7 @@ pub(crate) const KNIFE_SLICE_SEGMENTS: [usize; 4] = [
     KNIFE_SEG_SLICE_4,
 ];
 
-/// `models/knife.glb`'s own single baked clip, sliced the same way as
+/// `models/weapons/knife.glb`'s own single baked clip, sliced the same way as
 /// `SEGMENTS` — frame ranges lifted from a known-good cut of this same
 /// animation (a separate three.js project's `AnimationUtils.subclip(fullClip,
 /// name, startFrame, endFrame)` calls, which default to 30 fps — matching
@@ -71,7 +71,7 @@ pub(crate) const KNIFE_SEGMENTS: [AnimationSegment; 7] = [
     AnimationSegment::new("Show", 128.0, 135.0, KNIFE_ANIM_FPS),
 ];
 
-/// The loaded `models/knife.glb` scene root — the melee weapon in
+/// The loaded `models/weapons/knife.glb` scene root — the melee weapon in
 /// `WeaponSlot::Secondary` (separate from `ThrowingKnife`, the lethal).
 /// Mirrors [`ViewModel`], kept as its own component (not reused) so systems
 /// that expect exactly one sniper view model — `apply_ads`, `weapon_sway`,

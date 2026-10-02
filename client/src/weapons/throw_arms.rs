@@ -1,11 +1,11 @@
-//! The throwing-knife's arms view model (`models/arms_throwing.glb`) — just a
+//! The throwing-knife's arms view model (`models/characters/arms_throwing.glb`) — just a
 //! pair of arms with one baked throwing animation, shown while the
 //! throwing-knife key is held and played once when it's released. The
 //! hold / release / cancel state machine lives in `weapon.rs`
 //! (`weapon_system`, [`super::ThrowingKnife`]); this module owns the rig, its
 //! placement, and its visibility.
 //!
-//! The throwing knife itself (`models/throwing_knife.glb`) is a child of the
+//! The throwing knife itself (`models/weapons/throwing_knife.glb`) is a child of the
 //! arms' root, so it follows the arms wherever they go (slide, and any sway
 //! added later) and only needs positioning once, in the arms' local space. It
 //! shows from the press until the throw clip starts.
@@ -29,7 +29,7 @@ use crate::VIEW_MODEL_RENDER_LAYER;
 
 use super::weapon::ThrowingKnife;
 
-/// The loaded `models/arms_throwing.glb` scene root.
+/// The loaded `models/characters/arms_throwing.glb` scene root.
 #[derive(Component)]
 pub(crate) struct ThrowArmsViewModel;
 
@@ -244,7 +244,7 @@ pub(crate) fn slide_throw_arms(
 }
 
 /// The throwing knife model held in the arms' hand
-/// (`models/throwing_knife.glb`) — a child of [`ThrowArmsViewModel`].
+/// (`models/weapons/throwing_knife.glb`) — a child of [`ThrowArmsViewModel`].
 #[derive(Component)]
 pub(crate) struct ThrowKnifeModel;
 

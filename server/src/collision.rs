@@ -24,11 +24,11 @@ use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
 use shared::perks::Perk;
 use shared::{GameMode, Lobby, MapId};
 
-const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/basic_map.glb");
-const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/shipment.glb");
-const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/break_point_map.glb");
+const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/basic_map.glb");
+const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/shipment.glb");
+const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/break_point_map.glb");
 const ASHES_OF_THE_DAMNED_GLB: &[u8] =
-    include_bytes!("../../client/assets/models/ashes_of_the_damned_map.glb");
+    include_bytes!("../../client/assets/models/maps/ashes_of_the_damned_map.glb");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {

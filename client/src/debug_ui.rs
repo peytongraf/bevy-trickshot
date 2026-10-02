@@ -494,7 +494,7 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
                 ui.collapsing("Knife", |ui| {
                     let k = &mut *knife_view;
-                    ui.label("models/knife.glb — position and scale only (see WeaponSlot::Secondary)");
+                    ui.label("models/weapons/knife.glb — position and scale only (see WeaponSlot::Secondary)");
                     ui.label(
                         "Position range is wide on purpose — push it out past the normal hip-pose \
                          range to stand it next to a bot in world space and check the scale reads \
@@ -528,7 +528,7 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Throwing arms", |ui| {
                     let a = &mut *arms_view;
                     ui.label(
-                        "models/arms_throwing.glb — where the arms sit while the throwing-knife key \
+                        "models/characters/arms_throwing.glb — where the arms sit while the throwing-knife key \
                          is held. Angles are on top of the fixed half-turn that points the \
                          model down the view.",
                     );
@@ -570,7 +570,7 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Drinking arms", |ui| {
                     let d = &mut *drink;
                     ui.label(
-                        "models/arms_drinking.glb — the perk-drinking arms (played once on buying \
+                        "models/characters/arms_drinking.glb — the perk-drinking arms (played once on buying \
                          a perk), looping the trimmed drink clip while shown here. Angles are on top of the fixed half-turn that \
                          points the model down the view.",
                     );
@@ -615,7 +615,7 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Throwing knife model", |ui| {
                     let k = &mut *knife_model;
                     ui.label(
-                        "models/throwing_knife.glb — the knife held in the throwing arms' hand, \
+                        "models/weapons/throwing_knife.glb — the knife held in the throwing arms' hand, \
                          positioned in the ARMS' local space (a child of the arms), so it stays in \
                          the hand however the arms move. One unit = the arms' scale in metres \
                          (0.01 by default, so units are ~cm). Visible from the key press until the \
@@ -1205,7 +1205,7 @@ pub(crate) fn ads_tuning_ui(
             ui.collapsing("Players & HUD", |ui| {
                 ui.collapsing("Remote players", |ui| {
                     let ra = &mut *remote_avatar;
-                    ui.label("models/soldier.glb");
+                    ui.label("models/characters/soldier.glb");
                     ui.add(
                         egui::Slider::new(&mut ra.scale, 0.01f32..=100.0)
                             .text("scale")
@@ -2295,7 +2295,7 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
                 ui.collapsing("Shipment map", |ui| {
                     let sh = &mut *shipment;
-                    ui.label("models/shipment.glb — spawned at the origin, scale only");
+                    ui.label("models/maps/shipment.glb — spawned at the origin, scale only");
                     ui.add(
                         egui::Slider::new(&mut sh.scale, 0.05f32..=2.0)
                             .text("scale")

@@ -55,7 +55,7 @@ impl Plugin for ThrownKnifePlugin {
     }
 }
 
-/// Stands in for one server-owned [`ThrownKnife`], as `models/throwing_knife.glb`.
+/// Stands in for one server-owned [`ThrownKnife`], as `models/weapons/throwing_knife.glb`.
 /// Once the knife stops it's outlined (`knife_pickup`).
 #[derive(Component)]
 pub(crate) struct KnifeAvatar {
@@ -120,7 +120,7 @@ fn spawn_knife_avatars(
             .with_child((
                 SceneRoot(
                     asset_server
-                        .load(GltfAssetLabel::Scene(0).from_asset("models/throwing_knife.glb")),
+                        .load(GltfAssetLabel::Scene(0).from_asset("models/weapons/throwing_knife.glb")),
                 ),
                 Transform {
                     rotation: model_correction(),

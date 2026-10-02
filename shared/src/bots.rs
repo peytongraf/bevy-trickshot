@@ -8,7 +8,7 @@ use crate::protocol::MapId;
 
 /// Bot hitbox dimensions (fed to [`crate::hitbox::Capsule`]) — the same as a
 /// player's (`server::sim::PLAYER_*`), since bots are drawn with the same
-/// `models/soldier.glb` avatar.
+/// `models/characters/soldier.glb` avatar.
 pub const BOT_HEIGHT: f32 = 1.8;
 pub const BOT_RADIUS: f32 = 0.35;
 pub const BOT_HEAD_RADIUS: f32 = 0.12;

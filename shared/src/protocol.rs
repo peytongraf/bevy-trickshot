@@ -79,27 +79,27 @@ impl GameMode {
 /// `client::CurrentMap`).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MapId {
-    /// `models/basic_map.glb` — cubes, ramps and a bridge.
+    /// `models/maps/basic_map.glb` — cubes, ramps and a bridge.
     #[default]
     BasicMap,
-    /// `models/shipment.glb` — a Call-of-Duty-style Shipment recreation:
+    /// `models/maps/shipment.glb` — a Call-of-Duty-style Shipment recreation:
     /// ground plane plus shipping-container walls.
     Shipment,
-    /// The same `models/shipment.glb` geometry as [`MapId::Shipment`], set in
+    /// The same `models/maps/shipment.glb` geometry as [`MapId::Shipment`], set in
     /// bright, clear daytime instead of dark, foggy, rainy dusk — only the
     /// client's fog/sky/lighting/weather differ; collision, spawns and bounds
     /// are identical (see [`MapId::is_shipment`]).
     ShipmentDay,
-    /// `models/break_point_map.glb` — a walled compound of low buildings and
+    /// `models/maps/break_point_map.glb` — a walled compound of low buildings and
     /// blocks, under a clear mid-day sky. Like [`MapId::BasicMap`] it has no separate
     /// visual model: the collision mesh is what's rendered.
     BreakPoint,
-    /// The same `models/break_point_map.glb` as [`MapId::BreakPoint`] at full
+    /// The same `models/maps/break_point_map.glb` as [`MapId::BreakPoint`] at full
     /// night, with every player's gun flashlight on — only the client's
     /// fog/sky/lighting differ; collision, spawns, bounds and perk machines
     /// are identical (see [`MapId::is_break_point`]).
     BreakPointNight,
-    /// `models/ashes_of_the_damned_map.glb` — raised platforms and blocks
+    /// `models/maps/ashes_of_the_damned_map.glb` — raised platforms and blocks
     /// over deep chasms, at night. Like [`MapId::BreakPoint`] the collision
     /// mesh is what's rendered, and it borrows [`MapId::BreakPointNight`]'s
     /// fog, sky and flashlights.
@@ -678,7 +678,7 @@ impl ActorSample {
     }
 }
 
-/// One bot or other player (all shown as `models/soldier.glb`) across a kill-cam
+/// One bot or other player (all shown as `models/characters/soldier.glb`) across a kill-cam
 /// window, oldest sample first. Never the killer themselves: the replay is a
 /// first-person fly-through of their own recorded view, so they'd have no
 /// body to show. It includes whoever was shot, whose death shows up as their

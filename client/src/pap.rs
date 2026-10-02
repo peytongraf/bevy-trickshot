@@ -1,4 +1,4 @@
-//! The `Zombies` Pack-a-Punch machine (`models/pap_machine.glb`) on the map
+//! The `Zombies` Pack-a-Punch machine (`models/props/pap_machine.glb`) on the map
 //! that has one (`shared::pap::machine_pos` — Break Point Night), glowing
 //! blue once the power's on (and solid, like the perk machines), and what
 //! being packed looks like: each packed weapon's body — ours, and the gun in
@@ -24,20 +24,20 @@ use crate::weapons::{KnifeViewModel, ViewModel, Weapon};
 use crate::zombies_hud::{zombies_game, PerkMachineSettings};
 use crate::{AppState, Player, EYE_HEIGHT};
 
-const PAP_MODEL: &str = "models/pap_machine.glb";
+const PAP_MODEL: &str = "models/props/pap_machine.glb";
 /// Half the model's height (m) at scale 1 — its origin is at its middle.
 const PAP_HALF_HEIGHT: f32 = 2.0;
 /// The machine's glow.
 pub(crate) const PAP_BLUE: Color = Color::srgb(0.25, 0.55, 1.0);
 
-/// The parts of `models/sniper.glb` that are the gun (not the arms) and
+/// The parts of `models/weapons/sniper.glb` that are the gun (not the arms) and
 /// wear the camo — matched against glTF node / mesh names.
 const SNIPER_CAMO_PARTS: [&str; 3] = ["scope_sniper_0", "base_sniper_0", "mag_sniper_0"];
-/// ...of `models/ak_74.glb` (the AK-74 itself, not the arms)...
+/// ...of `models/weapons/ak_74.glb` (the AK-74 itself, not the arms)...
 const AK_CAMO_PARTS: [&str; 1] = ["Object_71"];
-/// ...of `models/knife.glb`...
+/// ...of `models/weapons/knife.glb`...
 const KNIFE_CAMO_PARTS: [&str; 1] = ["knife_knife_0"];
-/// ...and of a remote player's `models/soldier.glb` (just the gun).
+/// ...and of a remote player's `models/characters/soldier.glb` (just the gun).
 const AVATAR_CAMO_PARTS: [&str; 1] = ["Object_10"];
 
 pub(crate) struct PapPlugin;

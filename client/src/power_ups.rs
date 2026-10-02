@@ -105,11 +105,11 @@ impl Material for PowerUpGlowMaterial {
 /// spins about it.
 fn model(kind: PowerUp) -> (&'static str, Vec3) {
     match kind {
-        PowerUp::MaxAmmo => ("models/power_ups/max_ammo.glb", Vec3::new(0.001, 0.302, 0.0)),
-        PowerUp::InstaKill => ("models/power_ups/insta_kill.glb", Vec3::new(0.0, 0.037, 0.0)),
-        PowerUp::DoublePoints => ("models/power_ups/double_points.glb", Vec3::new(0.009, 0.056, 0.01)),
-        PowerUp::Nuke => ("models/power_ups/nuke.glb", Vec3::new(1.0, 0.0, 0.0)),
-        PowerUp::BonusPoints => ("models/power_ups/bonus_points.glb", Vec3::new(-0.005, 0.0, 0.0)),
+        PowerUp::MaxAmmo => ("models/props/power_ups/max_ammo.glb", Vec3::new(0.001, 0.302, 0.0)),
+        PowerUp::InstaKill => ("models/props/power_ups/insta_kill.glb", Vec3::new(0.0, 0.037, 0.0)),
+        PowerUp::DoublePoints => ("models/props/power_ups/double_points.glb", Vec3::new(0.009, 0.056, 0.01)),
+        PowerUp::Nuke => ("models/props/power_ups/nuke.glb", Vec3::new(1.0, 0.0, 0.0)),
+        PowerUp::BonusPoints => ("models/props/power_ups/bonus_points.glb", Vec3::new(-0.005, 0.0, 0.0)),
     }
 }
 

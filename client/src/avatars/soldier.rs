@@ -9,12 +9,12 @@ use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
-/// Tags a remote player's `SceneRoot` entity (`models/soldier.glb`) so
+/// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
 /// `start_soldier_animation` can tell it apart from any other spawned scene.
 #[derive(Component)]
 pub(crate) struct SoldierVisual;
 
-/// Which of `models/soldier.glb`'s movement/aim clips a remote avatar should
+/// Which of `models/characters/soldier.glb`'s movement/aim clips a remote avatar should
 /// be playing, picked from its interpolated pose's frame-to-frame speed and
 /// `ads_t` by `net::animate_remote_avatars`. `AimWalk`/`AimSprint` both play
 /// `runAndShooting` — there's no separate walking-while-aiming clip — split
@@ -56,7 +56,7 @@ pub(crate) enum SoldierAnimState {
     Dead,
 }
 
-/// Graph + node indices for `models/soldier.glb`'s `idleWgun` / `walk` /
+/// Graph + node indices for `models/characters/soldier.glb`'s `idleWgun` / `walk` /
 /// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
 /// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` / `death` clips —
 /// 13 of its 18 animations wired up so far. Built once at startup.
@@ -161,7 +161,7 @@ impl Default for SoldierAnimSettings {
 #[derive(Component)]
 pub(crate) struct SoldierAnimationPlayer(pub(crate) Entity);
 
-/// Panel-adjustable uniform scale for the `models/soldier.glb` remote-player
+/// Panel-adjustable uniform scale for the `models/characters/soldier.glb` remote-player
 /// avatar ("Remote players" debug-panel section), applied by
 /// `net::follow_remote_avatars`. Live-tweakable rather than a baked constant
 /// — the model's authored size relative to a real
@@ -191,7 +191,7 @@ pub(crate) struct BotLookApplied;
 /// Panel-adjustable bot body tint ("Remote players" debug-panel section).
 #[derive(Resource)]
 pub(crate) struct BotLookSettings {
-    /// sRGB multiplier on the body texture — `models/soldier.glb`'s armour is
+    /// sRGB multiplier on the body texture — `models/characters/soldier.glb`'s armour is
     /// mostly white, so this comes out as the armour's colour, with the
     /// texture's detail and shading intact.
     pub(crate) tint: [f32; 3],
@@ -205,7 +205,7 @@ impl Default for BotLookSettings {
     }
 }
 
-/// `models/soldier.glb`'s body material (index 0, "soldier"); index 1, the
+/// `models/characters/soldier.glb`'s body material (index 0, "soldier"); index 1, the
 /// rifle, is left as-is.
 const SOLDIER_BODY_MATERIAL: usize = 0;
 
@@ -248,7 +248,7 @@ pub(crate) fn tint_bot_avatars(
             index: SOLDIER_BODY_MATERIAL,
             is_scale_inverted: false,
         }
-        .from_asset("models/soldier.glb"),
+        .from_asset("models/characters/soldier.glb"),
     );
     if tinted.is_none() {
         // (The scene is spawned, so its materials are loaded.)
@@ -292,7 +292,7 @@ pub(crate) struct SniperGlint {
 }
 
 /// glTF node name of the joint that actually drives the gun mesh's on-screen
-/// position in `models/soldier.glb`: **not** the gun mesh's own node
+/// position in `models/characters/soldier.glb`: **not** the gun mesh's own node
 /// (Blender's `Object_10` / glTF node `gun_LOD0_055_056` — both dead weight,
 /// with no animation channel anywhere in either one's ancestry, since the
 /// mesh is *skinned* rather than rigidly parented — a skinned mesh's own
@@ -345,7 +345,7 @@ pub(crate) struct SniperGlintSettings {
     /// Offset (world metres) from [`SniperGlintBone`]'s current animated
     /// position, in *its own* local orientation: `x` right(+)/left(-), `y`
     /// up(+)/down(-), `z` forward(+)/back(-) — whichever way those map onto
-    /// the right-hand bone's own rest-pose axes in `models/soldier.glb` (the
+    /// the right-hand bone's own rest-pose axes in `models/characters/soldier.glb` (the
     /// gun mesh is rigidly skinned to it — see [`SNIPER_GLINT_BONE_NAME`]).
     /// Falls back to the replicated pose (its `yaw` for `x`/`z`, world up for
     /// `y`) for the one frame or so before the scene's found the bone. Dial
@@ -435,35 +435,35 @@ pub(crate) fn setup_soldier_assets(
     asset_server: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    // Indices into `models/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
+    // Indices into `models/characters/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
     // 3 run, 4 shooting, 6 runAndShooting, 7 strafeRight, 8 strafeLeft,
     // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 15 death.
     let idle_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/characters/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(1).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(1).from_asset("models/characters/soldier.glb"));
     let sprint_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(3).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(3).from_asset("models/characters/soldier.glb"));
     let aim_idle_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(4).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(4).from_asset("models/characters/soldier.glb"));
     let aim_move_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(6).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(6).from_asset("models/characters/soldier.glb"));
     let crouch_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(11).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(11).from_asset("models/characters/soldier.glb"));
     let crouch_walk_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(12).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(12).from_asset("models/characters/soldier.glb"));
     let reload_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(13).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(13).from_asset("models/characters/soldier.glb"));
     let jump_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(10).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(10).from_asset("models/characters/soldier.glb"));
     let strafe_right_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(7).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(7).from_asset("models/characters/soldier.glb"));
     let strafe_left_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(8).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(8).from_asset("models/characters/soldier.glb"));
     let backward_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(9).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(9).from_asset("models/characters/soldier.glb"));
     let death_clip: Handle<AnimationClip> =
-        asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/soldier.glb"));
+        asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/characters/soldier.glb"));
     let (graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,

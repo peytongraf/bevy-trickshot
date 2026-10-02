@@ -541,11 +541,11 @@ impl PerkMachineSettings {
 /// Each perk's machine model.
 fn machine_model_path(perk: Perk) -> &'static str {
     match perk {
-        Perk::ShroomTea => "models/shroom_tea_perk_machine.glb",
-        Perk::NitroBrew => "models/nitro_brew_perk_machine.glb",
-        Perk::LiquidCourage => "models/liquid_courage_perk_machine.glb",
-        Perk::BombShot => "models/bomb_shot_perk_machine.glb",
-        Perk::Kangabrew => "models/kangabrew_perk_machine.glb",
+        Perk::ShroomTea => "models/props/perk_machines/custom/shroom_tea_perk_machine.glb",
+        Perk::NitroBrew => "models/props/perk_machines/custom/nitro_brew_perk_machine.glb",
+        Perk::LiquidCourage => "models/props/perk_machines/custom/liquid_courage_perk_machine.glb",
+        Perk::BombShot => "models/props/perk_machines/custom/bomb_shot_perk_machine.glb",
+        Perk::Kangabrew => "models/props/perk_machines/custom/kangabrew_perk_machine.glb",
     }
 }
 

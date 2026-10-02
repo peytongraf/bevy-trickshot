@@ -4,12 +4,12 @@
 //!
 //! * **Held** — with the molotov as the lethal (`Weapon::lethal`), holding
 //!   the lethal key brings up the throwing arms holding
-//!   `models/molotov/molotov_2k.glb` ([`HeldMolotov`], a child of the arms),
+//!   `models/weapons/molotov_2k.glb` ([`HeldMolotov`], a child of the arms),
 //!   its rag burning ([`RagFlame`]) and lighting the scene around the player.
 //!   The throw itself is the throwing knife's sequence (`weapon.rs`); only
 //!   the request sent at the release point differs ([`send_throw_requests`]).
 //! * **Thrown** — every player sees each [`ThrownMolotov`] fly as
-//!   `models/molotov/molotov_1k.glb`, rag alight ([`MolotovAvatar`]).
+//!   `models/weapons/molotov_1k.glb`, rag alight ([`MolotovAvatar`]).
 //! * **Burning** — where one broke, a patch of flames over the server's
 //!   fire spots ([`FirePatch`]), with a flickering light, fading in and out.
 //! * **Nuked zombies** — a zombie a Nuke kills ([`shared::ZombieNuked`])
@@ -56,8 +56,8 @@ use crate::{
 };
 
 const SHADER_ASSET_PATH: &str = "shaders/fire.wgsl";
-const HELD_MODEL: &str = "models/molotov/molotov_2k.glb";
-const WORLD_MODEL: &str = "models/molotov/molotov_1k.glb";
+const HELD_MODEL: &str = "models/weapons/molotov_2k.glb";
+const WORLD_MODEL: &str = "models/weapons/molotov_1k.glb";
 /// The bottle's radius in model units (`molotov_*.glb` is ~13 units tall,
 /// base at the origin, neck up `+Y`).
 const BOTTLE_RADIUS_UNITS: f32 = 1.727;

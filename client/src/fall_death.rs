@@ -20,7 +20,7 @@
 //! `killcam::no_killcam`, so the camera holds the exact position/orientation
 //! it had at the moment of death. Unlike `death_effect`'s one-shot pan onto a
 //! stationary killer, this one tracks a moving target — a one-off
-//! `models/soldier.glb` body (the local player normally has no third-person
+//! `models/characters/soldier.glb` body (the local player normally has no third-person
 //! model at all; see `net::spawn_remote_avatars`, which only ever spawns one
 //! for *other* players) that keeps falling and slowly tumbling below. Ends
 //! the same way `death_effect` does: on `net::LocalPlayerRespawned`.
@@ -270,7 +270,7 @@ fn begin_fall_death(
                 scale: Vec3::splat(remote_avatar_settings.scale),
             },
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb"))),
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
         ))
         .observe(crate::start_soldier_animation)
         .id();

@@ -1,4 +1,4 @@
-//! The AK-74 (`models/ak_74.glb`) — a loadout primary for `Zombies` and
+//! The AK-74 (`models/weapons/ak_74.glb`) — a loadout primary for `Zombies` and
 //! `FreeForAll` (`shared::LobbyMember::loadout`), full-auto, in place of the
 //! sniper.
 //!
@@ -36,7 +36,7 @@ use super::view_model::{AnimationSegment, PrimaryRig, SegAct, ViewModel, ViewMod
 use super::weapon::Weapon;
 use crate::net::GameClient;
 
-pub(crate) const AK_MODEL: &str = "models/ak_74.glb";
+pub(crate) const AK_MODEL: &str = "models/weapons/ak_74.glb";
 
 /// `ak_74.glb`'s clips, in file order (`GltfAssetLabel::Animation(i)`).
 const AK_CLIP_COUNT: usize = 13;

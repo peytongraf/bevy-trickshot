@@ -60,10 +60,10 @@ pub const ASHES_OF_THE_DAMNED_PLACEMENT: MapPlacement = MapPlacement {
 /// these same files at build time (`server::collision`).
 pub fn collision_model_path(map: MapId) -> &'static str {
     match map {
-        MapId::BasicMap => "models/basic_map.glb",
-        MapId::Shipment | MapId::ShipmentDay => "models/shipment.glb",
-        MapId::BreakPoint | MapId::BreakPointNight => "models/break_point_map.glb",
-        MapId::AshesOfTheDamned => "models/ashes_of_the_damned_map.glb",
+        MapId::BasicMap => "models/maps/basic_map.glb",
+        MapId::Shipment | MapId::ShipmentDay => "models/maps/shipment.glb",
+        MapId::BreakPoint | MapId::BreakPointNight => "models/maps/break_point_map.glb",
+        MapId::AshesOfTheDamned => "models/maps/ashes_of_the_damned_map.glb",
     }
 }
 

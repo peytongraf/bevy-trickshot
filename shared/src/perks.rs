@@ -260,7 +260,7 @@ impl Perk {
 }
 
 /// Every perk machine is the same box (m): half its width, height and depth
-/// before it's turned. The models (`client/assets/models/*_perk_machine.glb`)
+/// before it's turned. The models (`client/assets/models/props/perk_machines/custom/*_perk_machine.glb`)
 /// are this box at the client's machine scale.
 pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.75, 1.2, 0.36);
 

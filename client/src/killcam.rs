@@ -231,7 +231,7 @@ struct SavedRig {
 #[derive(Component)]
 struct KillCamBanner;
 
-/// Marks a `models/soldier.glb` stand-in for another player or bot (either
+/// Marks a `models/characters/soldier.glb` stand-in for another player or bot (either
 /// mode's) in the replay. It's a normal remote avatar
 /// (`net::RemoteAvatar`) whose "pose" is a [`KillCamPose`] entity the replay
 /// keeps up to date — so it walks, aims, crouches, jumps and dies through the
@@ -629,7 +629,7 @@ fn start_killcam(
                 Visibility::default(),
                 SceneRoot(
                     asset_server
-                        .load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb")),
+                        .load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb")),
                 ),
             ))
             .observe(crate::start_soldier_animation)
@@ -1181,7 +1181,7 @@ fn drive_killcam_throw(
                 .with_child((
                     SceneRoot(
                         asset_server
-                            .load(GltfAssetLabel::Scene(0).from_asset("models/throwing_knife.glb")),
+                            .load(GltfAssetLabel::Scene(0).from_asset("models/weapons/throwing_knife.glb")),
                     ),
                     Transform {
                         rotation: crate::thrown_knife::model_correction(),

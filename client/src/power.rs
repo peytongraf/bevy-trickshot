@@ -180,7 +180,7 @@ fn sync_map_lights(
 // --- the switch ------------------------------------------------------------
 
 /// The power lever model: one clip, the lever going from up to down.
-const LEVER_MODEL: &str = "models/power_lever.glb";
+const LEVER_MODEL: &str = "models/props/power_lever.glb";
 /// That clip's length (s) at normal speed.
 const LEVER_CLIP_SECS: f32 = 0.833;
 

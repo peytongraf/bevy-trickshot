@@ -7,7 +7,7 @@
 //!
 //! Responsibilities: connect + hold the [`ReplicationReceiver`]; once
 //! `AppState::InGame`, ship the local player's pose in the input packet
-//! (`write_input`) and render every other player as a `models/soldier.glb`
+//! (`write_input`) and render every other player as a `models/characters/soldier.glb`
 //! avatar (`spawn_remote_avatars` / `follow_remote_avatars`).
 
 use core::net::{Ipv4Addr, Ipv6Addr};
@@ -766,9 +766,9 @@ fn receive_remote_sounds(
     }
 }
 
-// --- remote players (models/soldier.glb, idleWgun looping) ------------
+// --- remote players (models/characters/soldier.glb, idleWgun looping) ------------
 
-/// A `models/soldier.glb` avatar standing in for another player; follows their
+/// A `models/characters/soldier.glb` avatar standing in for another player; follows their
 /// interpolated pose.
 #[derive(Component)]
 pub(crate) struct RemoteAvatar {
@@ -812,7 +812,7 @@ fn spawn_remote_avatars(
     }
 }
 
-/// A live `models/soldier.glb` [`RemoteAvatar`] following the `PlayerPose` on
+/// A live `models/characters/soldier.glb` [`RemoteAvatar`] following the `PlayerPose` on
 /// `src` — another player's, or a `Freestyle` bot's [`BotPose`] stand-in.
 fn spawn_soldier_avatar(
     commands: &mut Commands,
@@ -828,7 +828,7 @@ fn spawn_soldier_avatar(
             crate::SoldierVisual,
             Transform::from_scale(Vec3::splat(scale)),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/soldier.glb"))),
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
         ))
         .observe(crate::start_soldier_animation);
 }
@@ -1035,7 +1035,7 @@ fn draw_remote_muzzle_markers(
 
 /// Hides every live remote-player avatar for the duration of a kill cam, and
 /// restores them once it ends. A kill cam replays the past (`start_killcam`
-/// stands in `models/soldier.glb` ghosts that follow each other player's
+/// stands in `models/characters/soldier.glb` ghosts that follow each other player's
 /// *recorded* movement — see `killcam::drive_killcam_actors`) — without this,
 /// these *live*, continuously updated avatars would wander through it and
 /// could end up right on top of the replay camera, blocking the view entirely.

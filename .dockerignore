@@ -10,9 +10,12 @@
 client/assets/*
 !client/assets/models
 client/assets/models/*
-!client/assets/models/basic_map.glb
-!client/assets/models/shipment.glb
-!client/assets/models/break_point_map.glb
+!client/assets/models/maps
+client/assets/models/maps/*
+!client/assets/models/maps/basic_map.glb
+!client/assets/models/maps/shipment.glb
+!client/assets/models/maps/break_point_map.glb
+!client/assets/models/maps/ashes_of_the_damned_map.glb
 client/sniper.glb
 client/notes
 client/README.md

@@ -1,4 +1,4 @@
-//! The `Zombies` ammo crate (`models/ammo_crate.glb`): stand at it with the
+//! The `Zombies` ammo crate (`models/props/ammo_crate.glb`): stand at it with the
 //! sniper out and not full, and a card (the perk card's style, pared down)
 //! shows the price and our points; the interact key buys a refill
 //! ([`shared::BuyAmmo`] → [`shared::AmmoBought`]), which fills the sniper's
@@ -24,7 +24,7 @@ use crate::{
     killcam, menu, AppState, GameSounds, Player, Weapon, WeaponSlot, EYE_HEIGHT, HUD_FONT,
 };
 
-const AMMO_CRATE_MODEL: &str = "models/ammo_crate.glb";
+const AMMO_CRATE_MODEL: &str = "models/props/ammo_crate.glb";
 /// How close (m, across the ground) our feet must be to the crate's spot.
 const USE_RADIUS: f32 = 2.0;
 /// How far (m) above / below the crate's spot our feet may be.

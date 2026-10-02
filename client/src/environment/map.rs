@@ -211,7 +211,7 @@ pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
         shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
         | shared::MapId::AshesOfTheDamned => None,
-        shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/shipment_visual.glb"),
+        shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/maps/shipment_visual.glb"),
     }
 }
 

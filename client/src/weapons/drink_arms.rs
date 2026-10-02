@@ -1,4 +1,4 @@
-//! The perk-drinking arms view model (`models/arms_drinking.glb`) — a pair of
+//! The perk-drinking arms view model (`models/characters/arms_drinking.glb`) — a pair of
 //! arms raising a bottle and drinking from it, played once when the player
 //! buys a perk. Buying one (`zombies_hud::sync_owned_perks`) sets
 //! [`PerkDrink::requested`]; `weapon::weapon_system` stows the equipped weapon
@@ -80,7 +80,7 @@ pub(crate) struct PerkDrink {
     started: bool,
 }
 
-/// The loaded `models/arms_drinking.glb` scene root.
+/// The loaded `models/characters/arms_drinking.glb` scene root.
 #[derive(Component)]
 pub(crate) struct DrinkArmsViewModel;
 
