@@ -80,6 +80,14 @@ pub(crate) struct PerkDrink {
     started: bool,
 }
 
+impl PerkDrink {
+    /// Play the drink clip again from its start (another perk bought
+    /// mid-drink).
+    pub(crate) fn restart(&mut self) {
+        self.started = false;
+    }
+}
+
 /// The loaded `models/characters/arms_drinking.glb` scene root.
 #[derive(Component)]
 pub(crate) struct DrinkArmsViewModel;

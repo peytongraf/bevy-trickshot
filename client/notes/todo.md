@@ -6,20 +6,28 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Zombies pre-game countdown
+- Classic perks first and default
+- PhD slide stops on first hit
+- PhD blast stuns survivors
 - Classic CoD perks + perk set setting
 - Aim recoil for all weapons
 - Tracers start from the barrel
 
 # New
 
+- Add health bar to free for all.
+- Dial in phd slider effect look ( trail and explosion )
+- Molotov damage shoudld be doubled.
+- Ammo box should be collidable
+- On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
+- Ensure that throwing knife is always a one shot kill regardless of where it hits an enemy
 - Organize audio/zombies dir
 - When first launching the game it takes a second for the ui to fully load and fill out
 - Shroom tea still shows glow on zombies bodies when they aren't behind a wall
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
-- Molotov damage shoudld be doubled.
 - Make all maps have a day and night setting with just different fog / sky settings
 - Ensure that walk and sprint bob for sniper, knife, and throwing knife are the same as the ak74. ALl should be the same as it. They should all have the same general settings instead of individual so that setting should be removed for ak74 and made general.
-- Ammo box should be collidable
 - Make normal zombie points added text white unless it is a critical in which case it should be yellow
 - Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.
 - Add pap shot sounds

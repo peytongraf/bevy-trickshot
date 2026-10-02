@@ -181,6 +181,8 @@ fn on_create(
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                countdown_secs: 0,
+                countdown_left: 0,
                 power_on: false,
                 members: vec![LobbyMember {
                     peer,
@@ -282,8 +284,9 @@ fn on_start(
     lobby.power_on = false;
     lobby.active_power_ups.clear();
     lobby.time_left_secs = lobby.time_limit_secs;
-    // (`crate::zombies` starts round 1.)
+    // (`crate::zombies` runs the countdown, then starts round 1.)
     lobby.round = 0;
+    lobby.countdown_left = 0;
     lobby.enemies_left = 0;
     lobby.enemies_active = 0;
     // `Zombies` points are money: everyone starts with what the leader set.
@@ -709,10 +712,12 @@ fn on_set_zombies_start(trigger: Trigger<RemoteTrigger<SetZombiesStart>>, mut lo
     let peer = trigger.from;
     let round = trigger.trigger.round.clamp(1, shared::zombies::MAX_START_ROUND);
     let points = trigger.trigger.points.min(shared::zombies::MAX_START_POINTS);
+    let countdown = trigger.trigger.countdown.min(shared::zombies::MAX_COUNTDOWN_SECS);
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.start_round = round;
         lobby.start_points = points;
-        info!("lobby zombies start set to round {round}, {points} points by {peer:?}");
+        lobby.countdown_secs = countdown;
+        info!("lobby zombies start set to round {round}, {points} points, {countdown} s countdown by {peer:?}");
     }
 }
 
@@ -868,6 +873,8 @@ mod tests {
             start_round: 1,
             start_points: 0,
             perk_set: Default::default(),
+            countdown_secs: 0,
+            countdown_left: 0,
             power_on: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),

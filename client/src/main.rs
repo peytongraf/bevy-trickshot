@@ -64,6 +64,7 @@ mod updater;
 mod util;
 mod vfx;
 mod weapons;
+mod wunderfizz;
 mod zombie_sounds;
 mod zombies_hud;
 
@@ -195,6 +196,7 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(loadout::LoadoutPlugin)
+        .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
@@ -214,6 +216,7 @@ fn main() {
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
         .add_plugins(ExplosionPlugin)
+        .add_plugins(PhdTrailPlugin)
         .add_plugins(ZombieAvatarPlugin)
         .add_plugins(zombie_sounds::ZombieSoundsPlugin)
         .insert_resource(AmbientLight {
@@ -496,7 +499,7 @@ fn main() {
                             .and(fall_death::no_fall_death),
                     ),
                 weapon_system.run_if(
-                    menu::game_active
+                    menu::weapon_active
                         .and(killcam::no_killcam)
                         .and(fall_death::no_fall_death)
                         .and(not_mantling),

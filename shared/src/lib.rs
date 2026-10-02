@@ -31,6 +31,7 @@ pub mod scoring;
 pub mod spawns;
 pub mod throwing_knife;
 pub mod weapon;
+pub mod wunderfizz;
 pub mod zombies;
 
 use bevy::prelude::*;

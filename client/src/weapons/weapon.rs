@@ -1058,10 +1058,11 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, ak_cfg, classic): (
+    (physics, ak_cfg, classic, menu): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
         Res<AkSettings>,
         Res<crate::zombies_hud::ClassicPerks>,
+        Res<crate::menu::Menu>,
     ),
     mut commands: Commands,
 ) {
@@ -1133,6 +1134,16 @@ pub(crate) fn weapon_system(
     // (`drink_arms::play_perk_drink`) and hand back with `DrinkPhase::Done`,
     // when the weapon that was out is drawn again. Waits for a throwing-knife
     // sequence already under way to finish first.
+    // Another perk bought mid-drink (Der Wunderfizz's menu stays open):
+    // drop the one being drunk and drink the new one from the top — the
+    // weapon's already away.
+    if drink.requested.is_some() && drink.phase != DrinkPhase::Idle {
+        drink.perk = drink.requested.take();
+        drink.restart();
+        if drink.phase == DrinkPhase::Done {
+            drink.phase = DrinkPhase::Drinking;
+        }
+    }
     if drink.requested.is_some()
         && drink.phase == DrinkPhase::Idle
         && knife.phase == ThrowPhase::Idle
@@ -1194,6 +1205,11 @@ pub(crate) fn weapon_system(
             );
             return;
         }
+    }
+    // Under Der Wunderfizz's menu only the drink runs (`menu::weapon_active`)
+    // — its clicks must never fire, throw or reload.
+    if menu.is_open() {
+        return;
     }
 
     if (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse)))

@@ -446,6 +446,9 @@ enum MenuBtn {
     StartRoundUp,
     StartPointsDown,
     StartPointsUp,
+    /// `Zombies`' pre-game countdown (leader only).
+    CountdownDown,
+    CountdownUp,
     /// Equip this primary (the room's LOADOUT section) — `Settings::primary`,
     /// which `loadout::push_loadout` sends on.
     SetLoadout(shared::weapon::WeaponId),
@@ -461,6 +464,18 @@ fn start_round_step(round: u32, up: bool) -> u32 {
 
 /// The − / + step for `Zombies`' starting points: bigger the more there is,
 /// so a huge testing bank is a few clicks away.
+/// The − / + step (s) for `Zombies`' pre-game countdown.
+const COUNTDOWN_STEP_SECS: u32 = 15;
+
+/// A countdown length as the lobby shows it: OFF, or m:ss.
+fn countdown_label(secs: u32) -> String {
+    if secs == 0 {
+        "OFF".to_string()
+    } else {
+        format!("{}:{:02}", secs / 60, secs % 60)
+    }
+}
+
 fn start_points_step(points: u32, up: bool) -> u32 {
     let p = if up { points } else { points.saturating_sub(1) };
     match p {
@@ -1131,20 +1146,40 @@ fn build_room(
 
                 setting_row(col, asset_server, "MAP", |row| {
                     if can_edit {
-                        for map in [
-                            shared::MapId::BasicMap,
-                            shared::MapId::Shipment,
-                            shared::MapId::ShipmentDay,
-                            shared::MapId::BreakPoint,
-                            shared::MapId::BreakPointNight,
-                            shared::MapId::AshesOfTheDamned,
-                        ] {
-                            option_button(row, asset_server, map.label(), MenuBtn::SetMap(map), map == lobby.map);
+                        for place in shared::MapId::PLACES {
+                            // A place with a day and a night keeps whichever
+                            // time of day is picked now (night if none is).
+                            let night = if lobby.map.has_time_of_day() {
+                                lobby.map.is_night()
+                            } else {
+                                place.is_night()
+                            };
+                            option_button(
+                                row,
+                                asset_server,
+                                place.place_label(),
+                                MenuBtn::SetMap(place.with_night(night)),
+                                place.place_label() == lobby.map.place_label(),
+                            );
                         }
                     } else {
                         setting_value(row, asset_server, lobby.map.label().to_string());
                     }
                 });
+                // Shipment and Break Point come by day or by night.
+                if can_edit && lobby.map.has_time_of_day() {
+                    setting_row(col, asset_server, "TIME OF DAY", |row| {
+                        for (text, night) in [("DAY", false), ("NIGHT", true)] {
+                            option_button(
+                                row,
+                                asset_server,
+                                text,
+                                MenuBtn::SetMap(lobby.map.with_night(night)),
+                                lobby.map.is_night() == night,
+                            );
+                        }
+                    });
+                }
 
                 // (`Zombies` has no clock — it lasts until someone dies.)
                 if !is_zombies {
@@ -1174,7 +1209,16 @@ fn build_room(
                             setting_value(row, asset_server, value);
                         }
                     });
-                    // The game's own perks, or Call of Duty's.
+                    // Free roaming before the first round.
+                    setting_row(col, asset_server, "PRE-GAME COUNTDOWN", |row| {
+                        let value = countdown_label(lobby.countdown_secs);
+                        if can_edit {
+                            stepper(row, asset_server, value, MenuBtn::CountdownDown, MenuBtn::CountdownUp);
+                        } else {
+                            setting_value(row, asset_server, value);
+                        }
+                    });
+                    // Call of Duty's perks, or the game's own.
                     setting_row(col, asset_server, "PERKS", |row| {
                         if can_edit {
                             for set in shared::perks::PerkSet::ALL {
@@ -1498,12 +1542,14 @@ fn handle_clicks(
         }
     };
 
-    // `Zombies`' starting round / points: new values, sent together.
-    let mut set_start = |round: fn(u32) -> u32, points: fn(u32) -> u32| {
+    // `Zombies`' starting round / points / countdown: new values, sent
+    // together.
+    let mut set_start = |round: fn(u32) -> u32, points: fn(u32) -> u32, countdown: fn(u32) -> u32| {
         if let (Some(l), Ok(mut s)) = (my_lobby(), set_zombies_start.single_mut()) {
             s.trigger::<shared::LobbyChannel>(shared::SetZombiesStart {
                 round: round(l.start_round.max(1)).clamp(1, shared::zombies::MAX_START_ROUND),
                 points: points(l.start_points).min(shared::zombies::MAX_START_POINTS),
+                countdown: countdown(l.countdown_secs).min(shared::zombies::MAX_COUNTDOWN_SECS),
             });
         }
     };
@@ -1513,10 +1559,12 @@ fn handle_clicks(
             continue;
         }
         match btn {
-            MenuBtn::StartRoundDown => set_start(|r| r.saturating_sub(start_round_step(r, false)), |p| p),
-            MenuBtn::StartRoundUp => set_start(|r| r + start_round_step(r, true), |p| p),
-            MenuBtn::StartPointsDown => set_start(|r| r, |p| p.saturating_sub(start_points_step(p, false))),
-            MenuBtn::StartPointsUp => set_start(|r| r, |p| p + start_points_step(p, true)),
+            MenuBtn::StartRoundDown => set_start(|r| r.saturating_sub(start_round_step(r, false)), |p| p, |c| c),
+            MenuBtn::StartRoundUp => set_start(|r| r + start_round_step(r, true), |p| p, |c| c),
+            MenuBtn::StartPointsDown => set_start(|r| r, |p| p.saturating_sub(start_points_step(p, false)), |c| c),
+            MenuBtn::StartPointsUp => set_start(|r| r, |p| p + start_points_step(p, true), |c| c),
+            MenuBtn::CountdownDown => set_start(|r| r, |p| p, |c| c.saturating_sub(COUNTDOWN_STEP_SECS)),
+            MenuBtn::CountdownUp => set_start(|r| r, |p| p, |c| c + COUNTDOWN_STEP_SECS),
             MenuBtn::OpenLoadout => menu.open_loadout(None),
             MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),

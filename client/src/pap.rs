@@ -1,5 +1,5 @@
 //! The `Zombies` Pack-a-Punch machine (`models/props/pap_machine.glb`) on the map
-//! that has one (`shared::pap::machine_pos` — Break Point Night), glowing
+//! that has one (`shared::pap::machine_pos` — Break Point, day or night), glowing
 //! blue once the power's on (and solid, like the perk machines), and what
 //! being packed looks like: each packed weapon's body — ours, and the gun in
 //! other players' hands — wears that level's camo

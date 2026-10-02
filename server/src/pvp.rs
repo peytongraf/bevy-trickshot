@@ -435,9 +435,16 @@ fn apply_bomb_blasts(
     mut blasts: EventReader<BombBlast>,
     mut hits: EventWriter<PlayerHit>,
     lobbies: Query<&Lobby>,
-    zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &crate::lobby::LobbyPlayer)>,
+    mut zombies: Query<(
+        &PlayerId,
+        &PlayerPose,
+        &PlayerCombat,
+        &crate::lobby::LobbyPlayer,
+        Option<&mut crate::ai::BotBrain>,
+    )>,
 ) {
     let server = server.into_inner();
+    let now = time.elapsed_secs();
     for blast in blasts.read() {
         let Ok(lobby) = lobbies.get(blast.lobby) else {
             continue;
@@ -456,7 +463,7 @@ fn apply_bomb_blasts(
             error!("failed to send bomb explosion: {e:?}");
         }
         let mut n = 0;
-        for (id, pose, combat, lp) in &zombies {
+        for (id, pose, combat, lp, brain) in &mut zombies {
             if !is_bot_peer(id.0) || !combat.alive || lp.lobby != blast.lobby {
                 continue;
             }
@@ -464,6 +471,13 @@ fn apply_bomb_blasts(
             let damage = shared::perks::bomb_shot_damage(feet.distance(blast.feet));
             if damage <= 0.0 {
                 continue;
+            }
+            // PhD Flopper's blast stuns whatever it doesn't kill (a kill
+            // makes the stun moot).
+            if blast.phd {
+                if let Some(mut brain) = brain {
+                    brain.stun(now + shared::perks::PHD_STUN_SECS);
+                }
             }
             n += 1;
             hits.write(PlayerHit {

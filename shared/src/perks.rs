@@ -48,11 +48,11 @@ pub enum Perk {
     /// Deadshot Daiquiri — aiming down sights pulls onto enemies (the
     /// client's aim assist, `player::shroom_aim_assist`).
     DeadshotDaiquiri,
-    /// PhD Flopper — no fall damage, longer slides, and an explosion when
+    /// PhD Flopper (Der Wunderfizz only) — no fall damage, longer slides, and an explosion when
     /// sliding into an enemy ([`crate::PhdSlam`]) or landing a big fall
     /// ([`PHD_DROP_MIN_DISTANCE`]).
     PhdFlopper,
-    /// Death Perception — enemies behind walls show as an outline
+    /// Death Perception (Der Wunderfizz only) — enemies behind walls show as an outline
     /// (client-side: `vfx::shroom_xray`).
     DeathPerception,
 }
@@ -61,15 +61,16 @@ pub enum Perk {
 /// `Zombies` game ([`crate::SetPerkSet`]).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, Hash)]
 pub enum PerkSet {
-    /// The game's own perks ([`Perk::CUSTOM`]).
+    /// Call of Duty's ([`Perk::CLASSIC`]), as in Cold War — the default.
     #[default]
-    Custom,
-    /// Call of Duty's ([`Perk::CLASSIC`]), as in Cold War.
     Classic,
+    /// The game's own perks ([`Perk::CUSTOM`]).
+    Custom,
 }
 
 impl PerkSet {
-    pub const ALL: [PerkSet; 2] = [PerkSet::Custom, PerkSet::Classic];
+    /// In the order the lobby offers them, the default first.
+    pub const ALL: [PerkSet; 2] = [PerkSet::Classic, PerkSet::Custom];
 
     /// Its perks, in the order their machines' spots are numbered.
     pub fn perks(self) -> &'static [Perk] {
@@ -77,6 +78,12 @@ impl PerkSet {
             PerkSet::Custom => &Perk::CUSTOM,
             PerkSet::Classic => &Perk::CLASSIC,
         }
+    }
+
+    /// The perks with a machine of their own on the map
+    /// ([`Perk::has_machine`]).
+    pub fn machine_perks(self) -> impl Iterator<Item = Perk> {
+        self.perks().iter().copied().filter(|p| p.has_machine())
     }
 
     pub fn label(self) -> &'static str {
@@ -107,6 +114,11 @@ pub const PHD_SLAM_RADIUS: f32 = 1.3;
 pub const PHD_SLAM_SERVER_RADIUS: f32 = 3.0;
 /// PhD Flopper: seconds before one player's next explosion can go off.
 pub const PHD_COOLDOWN_SECS: f32 = 1.5;
+/// PhD Flopper: a zombie its blast hurts but doesn't kill is stunned this
+/// many seconds — it can't attack, and it moves at only this fraction of its
+/// speed.
+pub const PHD_STUN_SECS: f32 = 3.0;
+pub const PHD_STUN_SPEED_MULT: f32 = 0.3;
 
 /// `perks`' maximum health.
 pub fn max_health(perks: &[Perk]) -> f32 {
@@ -242,6 +254,12 @@ impl Perk {
 
     /// The most perks one set has — what one player can own at once.
     pub const MAX_PER_SET: usize = 8;
+
+    /// Whether it has a machine of its own — Death Perception and PhD
+    /// Flopper are only sold by Der Wunderfizz ([`crate::wunderfizz`]).
+    pub fn has_machine(self) -> bool {
+        !matches!(self, Perk::DeathPerception | Perk::PhdFlopper)
+    }
 
     /// Which set it's from.
     pub fn set(self) -> PerkSet {
@@ -554,8 +572,8 @@ mod tests {
             MapId::AshesOfTheDamned,
         ] {
             for set in PerkSet::ALL {
-                for &a in set.perks() {
-                    for &b in set.perks() {
+                for a in set.machine_perks() {
+                    for b in set.machine_perks() {
                         if a != b {
                             assert!(!in_range(b, map, a.machine_pos(map), 0.75), "{a:?}/{b:?} on {map:?}");
                         }

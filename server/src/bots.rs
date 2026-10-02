@@ -462,6 +462,8 @@ mod tests {
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                countdown_secs: 0,
+                countdown_left: 0,
                 power_on: false,
                 members: Vec::new(),
             })
@@ -541,6 +543,8 @@ mod tests {
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                countdown_secs: 0,
+                countdown_left: 0,
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),

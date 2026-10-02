@@ -51,6 +51,11 @@ pub const ZOMBIE_ARMS_UP_DIST: f32 = 8.0;
 pub const MAX_START_ROUND: u32 = 100;
 pub const MAX_START_POINTS: u32 = 1_000_000;
 
+/// Longest pre-game countdown (s) the leader can pick
+/// (`Lobby::countdown_secs`): the party roams, buys and turns the power on
+/// while no zombies come, until it runs out and the first round begins.
+pub const MAX_COUNTDOWN_SECS: u32 = 120;
+
 /// The last round a plain (un-Pack-a-Punched) knife — stabbed or thrown —
 /// kills a zombie in one; Cold War's knife gives out around round 13 too.
 /// See [`ZOMBIE_KNIFE_DAMAGE`].

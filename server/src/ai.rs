@@ -182,6 +182,9 @@ struct ZombieBody {
     /// ...and a lurching speed (± fraction of `speed`, Hz).
     surge: f32,
     surge_hz: f32,
+    /// `Time::elapsed_secs()` a PhD Flopper stun wears off
+    /// ([`BotBrain::stun`]): until then it can't attack and barely moves.
+    stunned_until: f32,
 }
 
 impl ZombieBody {
@@ -345,8 +348,17 @@ impl BotBrain {
             flank: side * (5.0 + 30.0 * self.roll()).to_radians(),
             surge: 0.04 + 0.1 * self.roll(),
             surge_hz: 0.3 + 0.5 * self.roll(),
+            stunned_until: f32::NEG_INFINITY,
         });
         self
+    }
+
+    /// Stun a zombie until `until` (`Time::elapsed_secs()`) — PhD Flopper's
+    /// blast. No effect on a bot that isn't a zombie.
+    pub(crate) fn stun(&mut self, until: f32) {
+        if let Some(z) = self.zombie.as_mut() {
+            z.stunned_until = z.stunned_until.max(until);
+        }
     }
 
     /// A zombie's current animation state ([`ZombieAnim::None`] for any
@@ -743,6 +755,11 @@ pub(crate) fn drive_bots(
         };
         let mut hold = false;
         if let Some(z) = brain.zombie.as_mut() {
+            // Stunned (PhD Flopper): any swing is dropped, and none starts.
+            let stunned = z.stunned_until > now;
+            if stunned {
+                z.swing = None;
+            }
             if let Some((start, landed)) = z.swing {
                 hold = true;
                 if !landed && now - start >= ZOMBIE_ATTACK_HIT_SECS {
@@ -772,6 +789,7 @@ pub(crate) fn drive_bots(
             }
             // (The leader's debug "bots don't attack" stops the swipes too.)
             if z.swing.is_none()
+                && !stunned
                 && !lobby.bots_passive
                 && visible
                 && flat_dist <= ZOMBIE_ATTACK_RANGE
@@ -897,7 +915,14 @@ pub(crate) fn drive_bots(
 
         // Movement: stand and aim while engaged; otherwise close in.
         let mut wish = Vec3::ZERO;
-        let mut speed = brain.zombie.map_or(WALK_SPEED, |z| z.speed_now(now));
+        let mut speed = brain.zombie.map_or(WALK_SPEED, |z| {
+            // A stunned zombie (PhD Flopper) barely moves.
+            if z.stunned_until > now {
+                z.speed_now(now) * shared::perks::PHD_STUN_SPEED_MULT
+            } else {
+                z.speed_now(now)
+            }
+        });
         if !engaged && !hold {
             if brain.detour_until > now {
                 wish = brain.detour_dir;
@@ -1202,6 +1227,8 @@ mod tests {
             start_round: 1,
             start_points: 0,
             perk_set: Default::default(),
+            countdown_secs: 0,
+            countdown_left: 0,
             power_on: false,
             members: Vec::new(),
         }
@@ -1358,6 +1385,16 @@ mod tests {
             }
         }
         assert!(tried > 0, "no climbable ledge to test on");
+    }
+
+    #[test]
+    fn a_stunned_zombie_never_swipes_until_the_stun_wears_off() {
+        let (mut app, bot) = zombie_world(Vec3::new(-28.8, 0.0, -40.0));
+        let until = app.world().resource::<Time>().elapsed_secs() + 1.0;
+        app.world_mut().get_mut::<BotBrain>(bot).unwrap().stun(until);
+        let landed = zombie_swipes(&mut app, bot, 3.0, |_| {});
+        assert!(!landed.is_empty(), "it swipes again once the stun's over");
+        assert!(landed[0] >= 1.0, "a swipe landed mid-stun at {}", landed[0]);
     }
 
     #[test]

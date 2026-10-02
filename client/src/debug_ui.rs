@@ -1894,6 +1894,25 @@ pub(crate) fn ads_tuning_ui(
                             );
                         }
                     }
+                    ui.label("Der Wunderfizz (classic perks; from its spot)");
+                    if ui.button("Move Der Wunderfizz to where I'm standing").clicked() {
+                        m.snap_wunderfizz = true;
+                    }
+                    for (label, v, range) in [
+                        ("x", &mut m.wunderfizz.offset.x, -150.0f32..=150.0),
+                        ("y", &mut m.wunderfizz.offset.y, -20.0f32..=60.0),
+                        ("z", &mut m.wunderfizz.offset.z, -150.0f32..=150.0),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
+                            ui.add(egui::DragValue::new(v).speed(0.05));
+                        });
+                    }
+                    ui.add(egui::Slider::new(&mut m.wunderfizz.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
+                    ui.add(
+                        egui::Slider::new(&mut m.wunderfizz_model_yaw_deg, -180.0f32..=180.0)
+                            .text("model turn inside its box (deg)"),
+                    );
                     if ui.button("Copy perk machine placements to console").clicked() {
                         let map = current_map.0;
                         for perk in shared::perks::Perk::ALL {
@@ -1907,6 +1926,11 @@ pub(crate) fn ads_tuning_ui(
                                 yaw,
                             );
                         }
+                        let (pos, yaw) = m.wunderfizz_placement(map);
+                        info!(
+                            "Der Wunderfizz ({map:?}): pos: ({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}, model turn: {:.1}",
+                            pos.x, pos.y, pos.z, yaw, m.wunderfizz_model_yaw_deg,
+                        );
                         info!("perk machine scale: {:.3}", m.scale);
                         for (perk, yaw) in &m.model_yaw_deg {
                             if *yaw != 0.0 {
@@ -2068,6 +2092,7 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut c.speed_cola_reload, 0.5f32..=4.0).text("Speed Cola reload speed"));
                     ui.add(egui::Slider::new(&mut c.stamin_up_move, 0.5f32..=2.0).text("Stamin-Up movement speed"));
                     ui.add(egui::Slider::new(&mut c.double_tap_fire_rate, 0.5f32..=3.0).text("Double Tap rate of fire"));
+                    ui.add(egui::Slider::new(&mut c.phd_slide_speed, 0.5f32..=3.0).text("PhD Flopper slide speed"));
                     ui.add(egui::Slider::new(&mut c.phd_slide, 0.5f32..=3.0).text("PhD Flopper slide length"));
                     ui.label("Death Perception outline (enemies behind walls)");
                     let [r, g, b] = &mut c.death_perception_color;

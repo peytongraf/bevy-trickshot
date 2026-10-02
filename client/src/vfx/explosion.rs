@@ -171,9 +171,10 @@ impl Default for ExplosionSettings {
 /// impact textures.
 #[derive(Resource)]
 pub(crate) struct ExplosionAssets {
-    quad: Handle<Mesh>,
+    /// (Shared with PhD Flopper's slide trail, `phd_trail`.)
+    pub(crate) quad: Handle<Mesh>,
     glow: Handle<Image>,
-    fire: [Handle<Image>; 2],
+    pub(crate) fire: [Handle<Image>; 2],
     smoke: Handle<Image>,
     dust: Handle<Image>,
     rocks: Handle<Image>,

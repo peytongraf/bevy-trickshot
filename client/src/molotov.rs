@@ -143,10 +143,38 @@ impl Material for FireMaterial {
     }
 }
 
+/// PhD Flopper's purple flames (its slide trail, `vfx::phd_trail`): linear
+/// rgb of the hottest part, the body and the cooling tips — the molotov's
+/// fire, recoloured.
+const PHD_CORE: [f32; 3] = [1.0, 0.78, 1.0];
+const PHD_MID: [f32; 3] = [0.55, 0.08, 1.0];
+const PHD_TIP: [f32; 3] = [0.18, 0.0, 0.42];
+
+impl FireMaterial {
+    /// A flame like the molotov's (`settings`' look) in PhD Flopper's
+    /// purple, `brightness` bright and faded in to `fade` (0..1).
+    pub(crate) fn phd_flame(settings: &MolotovSettings, brightness: f32, fade: f32) -> Self {
+        let c = |v: [f32; 3]| Vec4::new(v[0], v[1], v[2], 1.0);
+        Self {
+            params: FireParams {
+                core: c(PHD_CORE),
+                mid: c(PHD_MID),
+                tip: c(PHD_TIP),
+                ..settings.params(brightness, settings.pull, fade, Vec3::ZERO)
+            },
+        }
+    }
+
+    /// Set how far it's faded in (0..1).
+    pub(crate) fn set_fade(&mut self, fade: f32) {
+        self.params.fade = fade;
+    }
+}
+
 /// A flame / smoke quad's scale: `size` (m) across and up, and the seed the
 /// shader reads back as z ÷ x − 1 — so each quad keeps its own look however
 /// it moves or its parent is scaled.
-fn seeded_scale(size: Vec2, seed: f32) -> Vec3 {
+pub(crate) fn seeded_scale(size: Vec2, seed: f32) -> Vec3 {
     let seed = 0.05 + seed.fract() * 0.9;
     Vec3::new(size.x, size.y, size.x * (1.0 + seed))
 }
@@ -397,8 +425,9 @@ fn flicker(t: f32, seed: f32, amount: f32) -> f32 {
 /// material (each thrown molotov and ground fire gets its own, for its own
 /// lean / fade).
 #[derive(Resource)]
-struct MolotovAssets {
-    quad: Handle<Mesh>,
+pub(crate) struct MolotovAssets {
+    /// (Shared with PhD Flopper's slide trail, `vfx::phd_trail`.)
+    pub(crate) quad: Handle<Mesh>,
     /// Both models, loaded up front (and kept) so the first molotov picked
     /// up or thrown doesn't hitch.
     held_model: Handle<Scene>,

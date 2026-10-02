@@ -267,9 +267,11 @@ pub(crate) fn crouch_slide(
         Stance::Standing => {
             if grounded && crouch_pressed {
                 if moving {
+                    // (PhD Flopper launches it faster.)
                     let launch = (cfg.slide_speed
                         + if sprinting.0 { cfg.sprint_bonus } else { 0.0 })
-                        * weapon_mult;
+                        * weapon_mult
+                        * classic.slide_speed();
                     // A slide never slows you down — momentum carries.
                     slide.velocity = travel_dir * launch.max(speed_now);
                     slide.timer = 0.0;

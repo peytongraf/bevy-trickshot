@@ -32,6 +32,7 @@ impl Plugin for ZombiesHudPlugin {
                 (
                     update_enemies_left,
                     update_active_enemies,
+                    update_pregame_countdown,
                     sync_perk_machines,
                     (play_perk_jingles, update_perk_jingles).chain(),
                     update_perk_card,
@@ -91,7 +92,9 @@ pub(crate) struct ClassicPerks {
     pub(crate) stamin_up_move: f32,
     /// Double Tap: rate of fire (×) — the AK's rounds, the sniper's bolt.
     pub(crate) double_tap_fire_rate: f32,
-    /// PhD Flopper: how much further a slide carries (× its length).
+    /// PhD Flopper: how much faster a slide launches (×), and how much
+    /// longer it carries on for (× its length, on top of the speed).
+    pub(crate) phd_slide_speed: f32,
     pub(crate) phd_slide: f32,
     /// Death Perception's outline (`vfx::shroom_xray`): sRGB colour, glow,
     /// how tight to the silhouette it hugs (higher = thinner), and how far
@@ -110,7 +113,8 @@ impl Default for ClassicPerks {
             speed_cola_reload: 1.5,
             stamin_up_move: 1.1,
             double_tap_fire_rate: 1.25,
-            phd_slide: 1.4,
+            phd_slide_speed: 1.3,
+            phd_slide: 1.2,
             death_perception_color: [1.0, 0.45, 0.05],
             death_perception_brightness: 4.0,
             death_perception_sharpness: 2.5,
@@ -147,9 +151,14 @@ impl ClassicPerks {
         self.pick(Perk::DoubleTap, self.double_tap_fire_rate)
     }
 
-    /// Slide launch speed / length multiplier (PhD Flopper).
+    /// Slide length multiplier (PhD Flopper).
     pub(crate) fn slide(&self) -> f32 {
         self.pick(Perk::PhdFlopper, self.phd_slide)
+    }
+
+    /// Slide launch speed multiplier (PhD Flopper).
+    pub(crate) fn slide_speed(&self) -> f32 {
+        self.pick(Perk::PhdFlopper, self.phd_slide_speed)
     }
 }
 
@@ -428,7 +437,84 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             }
         });
 
+    // The pre-game countdown: top centre, while it runs.
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            PregameCountdown,
+            GlobalZIndex(5),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(18.0),
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            Visibility::Hidden,
+        ))
+        .with_children(|col| {
+            let shadow = TextShadow {
+                offset: Vec2::splat(2.0),
+                color: Color::srgba(0.0, 0.0, 0.0, 0.8),
+            };
+            col.spawn((
+                Text::new("GAME STARTS IN"),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 24.0,
+                    ..default()
+                },
+                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
+                shadow,
+            ));
+            col.spawn((
+                PregameCountdownText,
+                Text::new(""),
+                TextFont {
+                    font: font.clone(),
+                    font_size: 64.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                shadow,
+            ));
+        });
+
     spawn_perk_card(&mut commands, &asset_server, font);
+}
+
+/// The pre-game countdown's panel (top centre) and its m:ss.
+#[derive(Component)]
+struct PregameCountdown;
+
+#[derive(Component)]
+struct PregameCountdownText;
+
+/// Show the pre-game countdown while it runs (`Lobby::countdown_left`) —
+/// hidden behind menus and the kill cam like the rest of the HUD. The last
+/// ten seconds go red.
+fn update_pregame_countdown(
+    menu: Res<menu::Menu>,
+    active_killcam: Res<killcam::ActiveKillCam>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    mut root: Single<&mut Visibility, With<PregameCountdown>>,
+    text: Single<(&mut Text, &mut TextColor), With<PregameCountdownText>>,
+) {
+    let left = zombies_game(&local, &lobbies)
+        .map(|l| l.countdown_left)
+        .filter(|&s| s > 0 && !menu.is_open() && active_killcam.0.is_none());
+    root.set_if_neq(if left.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    let Some(secs) = left else { return };
+    let (mut text, mut color) = text.into_inner();
+    let wanted = format!("{}:{:02}", secs / 60, secs % 60);
+    if text.0 != wanted {
+        text.0 = wanted;
+    }
+    let c = if secs <= 10 { CARD_RED } else { Color::WHITE };
+    color.set_if_neq(TextColor(c));
 }
 
 fn update_enemies_left(
@@ -518,14 +604,27 @@ impl ModelFit {
     }
 }
 
+/// Der Wunderfizz's model (`crate::wunderfizz`) and its fit.
+pub(crate) const WUNDERFIZZ_MODEL: &str = "models/props/perk_machines/classic/der_wunderfizz.glb";
+const WUNDERFIZZ_FIT: ModelFit = ModelFit::new(1.779, -0.002, 0.078, -0.114);
+
+/// A model fitted by `fit` to a box `height` tall: base on the ground,
+/// footprint centred under the box, turned `yaw_deg` about its own middle.
+fn fit_transform(fit: &ModelFit, height: f32, yaw_deg: f32) -> Transform {
+    let s = height / fit.height.max(1e-6);
+    let turn = Quat::from_rotation_y(yaw_deg.to_radians());
+    Transform {
+        translation: turn * Vec3::new(-fit.center.x * s, -fit.bottom * s, -fit.center.y * s),
+        rotation: turn,
+        scale: Vec3::splat(s),
+    }
+}
+
 /// Each perk's machine model, and for a classic one how to fit it (measured
-/// from the `.glb`s' bounds). PhD Flopper and Death Perception have no
-/// machine of their own yet, so they use Der Wunderfizz.
+/// from the `.glb`s' bounds). Death Perception and PhD Flopper have none
+/// (only Der Wunderfizz sells them); they'd get its model.
 fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
-    const WUNDERFIZZ: (&str, Option<ModelFit>) = (
-        "models/props/perk_machines/classic/der_wunderfizz.glb",
-        Some(ModelFit::new(1.779, -0.002, 0.078, -0.114)),
-    );
+    const WUNDERFIZZ: (&str, Option<ModelFit>) = (WUNDERFIZZ_MODEL, Some(WUNDERFIZZ_FIT));
     match perk {
         Perk::ShroomTea => ("models/props/perk_machines/custom/shroom_tea_perk_machine.glb", None),
         Perk::NitroBrew => ("models/props/perk_machines/custom/nitro_brew_perk_machine.glb", None),
@@ -627,6 +726,13 @@ pub(crate) struct PerkMachineSettings {
     /// Each classic machine model's turn (degrees) inside its box — the
     /// imported models don't all face the same way.
     pub(crate) model_yaw_deg: std::collections::HashMap<Perk, f32>,
+    /// Der Wunderfizz's nudge from its spot (`shared::wunderfizz`), and its
+    /// model's turn inside its box (`crate::wunderfizz`).
+    pub(crate) wunderfizz: MachineNudge,
+    pub(crate) wunderfizz_model_yaw_deg: f32,
+    /// Set by the panel's "move Der Wunderfizz to me" button
+    /// (`wunderfizz::sync_wunderfizz_machine` clears it).
+    pub(crate) snap_wunderfizz: bool,
     /// Set by the panel's "move to me" buttons: `sync_perk_machines` moves
     /// that perk's machine to our feet (by its nudge), then clears it.
     pub(crate) snap_to_player: Option<Perk>,
@@ -639,6 +745,9 @@ impl Default for PerkMachineSettings {
             light: default(),
             nudges: default(),
             model_yaw_deg: default(),
+            wunderfizz: default(),
+            wunderfizz_model_yaw_deg: 0.0,
+            snap_wunderfizz: false,
             snap_to_player: None,
         }
     }
@@ -660,8 +769,23 @@ impl PerkMachineSettings {
         (perk.machine_pos(map) + n.offset, perk.machine_yaw_deg(map) + n.yaw_deg)
     }
 
+    /// Where Der Wunderfizz stands on `map` and which way it faces
+    /// (degrees), nudge included.
+    pub(crate) fn wunderfizz_placement(&self, map: shared::MapId) -> (Vec3, f32) {
+        (
+            shared::wunderfizz::machine_pos(map) + self.wunderfizz.offset,
+            shared::wunderfizz::machine_yaw_deg(map) + self.wunderfizz.yaw_deg,
+        )
+    }
+
+    /// Der Wunderfizz's model, fitted to the machine box like the classic
+    /// perk machines' ([`ModelFit`]).
+    pub(crate) fn wunderfizz_model_transform(&self) -> Transform {
+        fit_transform(&WUNDERFIZZ_FIT, self.half_extents().y * 2.0, self.wunderfizz_model_yaw_deg)
+    }
+
     /// Half the machine's width, height and depth (m).
-    fn half_extents(&self) -> Vec3 {
+    pub(crate) fn half_extents(&self) -> Vec3 {
         MODEL_HALF_EXTENTS * self.scale.max(0.001)
     }
 
@@ -670,20 +794,11 @@ impl PerkMachineSettings {
         match part {
             MachinePart::Model(perk) => match machine_model(perk).1 {
                 None => Transform::from_xyz(0.0, half.y, 0.0).with_scale(Vec3::splat(self.scale.max(0.001))),
-                Some(fit) => {
-                    // As tall as the machine's box, base on the ground,
-                    // footprint centred under the box — turned as the panel
-                    // says about its own middle.
-                    let s = half.y * 2.0 / fit.height.max(1e-6);
-                    let turn = Quat::from_rotation_y(
-                        self.model_yaw_deg.get(&perk).copied().unwrap_or(0.0).to_radians(),
-                    );
-                    Transform {
-                        translation: turn * Vec3::new(-fit.center.x * s, -fit.bottom * s, -fit.center.y * s),
-                        rotation: turn,
-                        scale: Vec3::splat(s),
-                    }
-                }
+                Some(fit) => fit_transform(
+                    &fit,
+                    half.y * 2.0,
+                    self.model_yaw_deg.get(&perk).copied().unwrap_or(0.0),
+                ),
             },
             MachinePart::Collider => Transform::from_xyz(0.0, half.y, 0.0),
             MachinePart::Light => Transform::from_translation(self.light.offset),
@@ -813,9 +928,10 @@ fn sync_perk_machines(
         let step = time.delta_secs() / map_lights.fade_secs;
         *power + (target - *power).clamp(-step, step)
     };
-    // The lobby's set's machines — and not the other set's.
-    let set = lobby.perk_set.perks();
-    for &perk in set {
+    // The lobby's set's machines — and not the other set's, nor the perks
+    // only Der Wunderfizz sells (`crate::wunderfizz`).
+    let set: Vec<Perk> = lobby.perk_set.machine_perks().collect();
+    for &perk in &set {
         if !machines.iter().any(|(_, m, _)| m.0 == perk) {
             spawn_perk_machine(perk, lobby.map, &settings, &asset_server, &mut commands);
         }
@@ -1326,7 +1442,7 @@ struct PerkIconSlot {
 /// A perk's icon — on the machine's card (`update_perk_card`) and in the
 /// owned-perk row along the bottom (`update_perk_icons`). The classic ones
 /// are Call of Duty's own.
-fn perk_icon_path(perk: Perk) -> &'static str {
+pub(crate) fn perk_icon_path(perk: Perk) -> &'static str {
     match perk {
         Perk::ShroomTea => "textures/icons/perks/custom/shroom_tea.png",
         Perk::NitroBrew => "textures/icons/perks/custom/nitro_brew.png",
@@ -1410,9 +1526,7 @@ fn perk_here(
     let member = lobby.members.iter().find(|m| m.peer == me)?;
     let perk = lobby
         .perk_set
-        .perks()
-        .iter()
-        .copied()
+        .machine_perks()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))?;
     let status = if !shared::power::has_power(lobby.map, lobby.power_on) {
         PerkStatus::NoPower
@@ -1592,18 +1706,18 @@ fn buy_perk(
         return;
     };
     if let Ok(mut s) = sender.single_mut() {
-        s.trigger::<shared::LobbyChannel>(shared::BuyPerk { perk });
+        s.trigger::<shared::LobbyChannel>(shared::BuyPerk { perk, wunderfizz: false });
         // (The server logs "bought ..." when it goes through; the card
         // switches to owned once that's replicated back.)
         info!("asked the server to buy {}", perk.label());
     }
 }
 
-/// PhD Flopper: sliding into a zombie asks the server to set off the
-/// explosion — once a slide (the server checks the perk, its cooldown and
-/// that a zombie really is that close).
+/// PhD Flopper: sliding into a zombie stops the slide dead and asks the
+/// server to set off the explosion — once a slide (the server checks the
+/// perk, its cooldown and that a zombie really is that close).
 fn phd_slam(
-    slide: Res<crate::player::Slide>,
+    mut slide: ResMut<crate::player::Slide>,
     classic: Res<ClassicPerks>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -1628,9 +1742,12 @@ fn phd_slam(
     if !hit {
         return;
     }
+    // The first zombie hit ends the slide on the spot.
+    slide.stance = crate::player::Stance::Standing;
+    slide.velocity = Vec3::ZERO;
+    *sent = true;
     if let Ok(mut s) = sender.single_mut() {
         s.trigger::<shared::LobbyChannel>(shared::PhdSlam);
-        *sent = true;
     }
 }
 
@@ -1658,9 +1775,7 @@ fn prone_at_perk(
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     let Some(perk) = lobby
         .perk_set
-        .perks()
-        .iter()
-        .copied()
+        .machine_perks()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))
     else {
         return;

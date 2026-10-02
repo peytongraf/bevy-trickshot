@@ -1,6 +1,6 @@
 //! The map's lights and the `Zombies` power switch that turns them on.
 //!
-//! Break Point Night has [`MapLightSettings`]' lights (tuned from the debug
+//! Break Point (day or night) has [`MapLightSettings`]' lights (tuned from the debug
 //! panel, "Map lights"). In `Zombies` they start off: a player pays at the
 //! switch — the power lever model, where `shared::power` puts it — and the
 //! server sets `Lobby::power_on`, which fades them in for everyone. Every
@@ -15,7 +15,7 @@
 use bevy::audio::SpatialAudioSink;
 use bevy::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
-use shared::{GameMode, Lobby, MapId};
+use shared::{GameMode, Lobby};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
@@ -66,7 +66,7 @@ pub(crate) struct MapLight {
     pub(crate) shadows: bool,
 }
 
-/// Panel-tunable map lights ("Map lights (Break Point Night)").
+/// Panel-tunable map lights ("Map lights (Break Point)").
 #[derive(Resource, Clone)]
 pub(crate) struct MapLightSettings {
     pub(crate) lights: [MapLight; 2],
@@ -122,7 +122,7 @@ fn sync_map_lights(
     fresh: Query<(), Added<MapLightIndex>>,
     mut commands: Commands,
 ) {
-    let wanted = *state.get() == AppState::InGame && current.0 == MapId::BreakPointNight;
+    let wanted = *state.get() == AppState::InGame && current.0.is_break_point();
     if !wanted {
         for (e, ..) in &lights {
             commands.entity(e).despawn();

@@ -96,8 +96,9 @@ pub enum MapId {
     BreakPoint,
     /// The same `models/maps/break_point_map.glb` as [`MapId::BreakPoint`] at full
     /// night, with every player's gun flashlight on — only the client's
-    /// fog/sky/lighting differ; collision, spawns, bounds and perk machines
-    /// are identical (see [`MapId::is_break_point`]).
+    /// fog/sky/lighting (and the flashlights) differ; collision, spawns,
+    /// bounds and everything `Zombies` (perk machines, Pack-a-Punch, power
+    /// switch) are identical (see [`MapId::is_break_point`]).
     BreakPointNight,
     /// `models/maps/ashes_of_the_damned_map.glb` — raised platforms and blocks
     /// over deep chasms, at night. Like [`MapId::BreakPoint`] the collision
@@ -107,14 +108,52 @@ pub enum MapId {
 }
 
 impl MapId {
+    /// Its full name, time of day included where it has one.
     pub fn label(self) -> &'static str {
         match self {
             MapId::BasicMap => "BASIC MAP",
-            MapId::Shipment => "SHIPMENT",
+            MapId::Shipment => "SHIPMENT NIGHT",
             MapId::ShipmentDay => "SHIPMENT DAY",
-            MapId::BreakPoint => "BREAK POINT",
+            MapId::BreakPoint => "BREAK POINT DAY",
             MapId::BreakPointNight => "BREAK POINT NIGHT",
             MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
+        }
+    }
+
+    /// Just the place, without the time of day — what the lobby's map
+    /// buttons say.
+    pub fn place_label(self) -> &'static str {
+        match self {
+            MapId::BasicMap => "BASIC MAP",
+            MapId::Shipment | MapId::ShipmentDay => "SHIPMENT",
+            MapId::BreakPoint | MapId::BreakPointNight => "BREAK POINT",
+            MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
+        }
+    }
+
+    /// Every place a lobby can pick (one variant each — see
+    /// [`Self::with_night`] for the time of day).
+    pub const PLACES: [MapId; 4] = [MapId::BasicMap, MapId::Shipment, MapId::BreakPoint, MapId::AshesOfTheDamned];
+
+    /// Whether the place comes in a day and a night version.
+    pub fn has_time_of_day(self) -> bool {
+        self.is_shipment() || self.is_break_point()
+    }
+
+    /// Whether this is the night version of a place with both.
+    pub fn is_night(self) -> bool {
+        matches!(self, MapId::Shipment | MapId::BreakPointNight)
+    }
+
+    /// The same place at night (`true`) or by day (`false`) — itself for a
+    /// place with only the one.
+    pub fn with_night(self, night: bool) -> MapId {
+        match (self, night) {
+            (MapId::Shipment | MapId::ShipmentDay, true) => MapId::Shipment,
+            (MapId::Shipment | MapId::ShipmentDay, false) => MapId::ShipmentDay,
+            (MapId::BreakPoint | MapId::BreakPointNight, true) => MapId::BreakPointNight,
+            (MapId::BreakPoint | MapId::BreakPointNight, false) => MapId::BreakPoint,
+            (other, _) => other,
         }
     }
 
@@ -769,14 +808,16 @@ pub struct SetEndCam {
     pub cam: EndCam,
 }
 
-/// Client (party leader) → server: set [`GameMode::Zombies`]'s starting round
-/// and starting points ([`Lobby::start_round`] / [`Lobby::start_points`])
-/// before starting — clamped to `crate::zombies::{MAX_START_ROUND,
-/// MAX_START_POINTS}`.
+/// Client (party leader) → server: set [`GameMode::Zombies`]'s starting round,
+/// starting points and pre-game countdown ([`Lobby::start_round`] /
+/// [`Lobby::start_points`] / [`Lobby::countdown_secs`]) before starting —
+/// clamped to `crate::zombies::{MAX_START_ROUND, MAX_START_POINTS,
+/// MAX_COUNTDOWN_SECS}`.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct SetZombiesStart {
     pub round: u32,
     pub points: u32,
+    pub countdown: u32,
 }
 
 /// Client (party leader) → server: set [`GameMode::FreeForAll`]'s kill limit
@@ -957,6 +998,12 @@ pub struct Lobby {
     /// [`GameMode::Zombies`]: which perks the machines sell — the custom
     /// ones or Call of Duty's ([`SetPerkSet`]).
     pub perk_set: crate::perks::PerkSet,
+    /// [`GameMode::Zombies`]: seconds of free roaming before the first round
+    /// (`0` = none), set by the leader ([`SetZombiesStart`]).
+    pub countdown_secs: u32,
+    /// [`GameMode::Zombies`]: whole seconds of that countdown still to go in
+    /// the running game (server-owned; `0` once the rounds have begun).
+    pub countdown_left: u32,
     /// [`GameMode::Zombies`]: someone threw the power switch
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
@@ -1404,12 +1451,14 @@ impl MapEntities for PingBot {
     }
 }
 
-/// Client → server: buy `perk` from its machine ([`GameMode::Zombies`]). The
-/// server checks the sender is next to it, can afford it and doesn't already
-/// have it.
+/// Client → server: buy `perk` from its machine ([`GameMode::Zombies`]) — or,
+/// with `wunderfizz`, from Der Wunderfizz ([`crate::wunderfizz`]). The server
+/// checks the sender is next to it (and that it's selling), can afford it
+/// and doesn't already have it.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct BuyPerk {
     pub perk: crate::perks::Perk,
+    pub wunderfizz: bool,
 }
 
 /// Client → server: pack `weapon` (the one in the sender's hands) up to

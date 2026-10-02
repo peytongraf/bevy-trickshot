@@ -70,6 +70,11 @@ pub enum Screen {
     /// lobby data); being a `Screen` is what frees the cursor and freezes
     /// gameplay input while it's up. `Esc` closes it.
     PackAPunch,
+    /// The `Zombies` Der Wunderfizz menu (classic perks), opened with the
+    /// interact key at the machine. Owned and built by `wunderfizz`, like
+    /// [`Screen::PackAPunch`]; unlike it, buying keeps it open — the drink
+    /// plays behind it (see [`weapon_active`]). `Esc` closes it.
+    Wunderfizz,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -166,6 +171,18 @@ pub fn game_active(
     !menu.is_open() && !freeze.active && !death.is_active() && !paused.0
 }
 
+/// Run condition for the weapon: like [`game_active`], but it also keeps
+/// running under Der Wunderfizz's menu, so a perk bought there is drunk
+/// while it stays open (`weapon_system` itself takes no other input then).
+pub fn weapon_active(
+    menu: Res<Menu>,
+    freeze: Res<crate::match_end::MatchEndFreeze>,
+    death: Res<crate::death_effect::DeathEffect>,
+    paused: Res<crate::pause::GamePaused>,
+) -> bool {
+    (!menu.is_open() || menu.screen == Screen::Wunderfizz) && !freeze.active && !death.is_active() && !paused.0
+}
+
 /// Run condition for the egui dev panels.
 pub fn debug_enabled(settings: Res<Settings>) -> bool {
     settings.debug_mode
@@ -259,7 +276,7 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
         Screen::Loadout => menu.back_from_loadout(),
-        Screen::PackAPunch => {
+        Screen::PackAPunch | Screen::Wunderfizz => {
             menu.screen = Screen::None;
             menu.dirty = true;
         }
@@ -801,6 +818,8 @@ fn rebuild_menu(
         }
         // Built by `pap_menu`, not here — see `Screen::PackAPunch`'s doc comment.
         Screen::PackAPunch => {}
+        // Built by `wunderfizz`, likewise.
+        Screen::Wunderfizz => {}
     }
 }
 

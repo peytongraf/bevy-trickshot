@@ -15,6 +15,14 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: optional pre-game countdown (up to 2 minutes) to get set up before round 1.",
+        "Zombies: classic perks are now the default.",
+        "PhD Flopper: faster slides that leave a trail of purple fire.",
+        "PhD Flopper: sliding into a zombie stops your slide.",
+        "PhD Flopper: zombies that survive the blast are stunned.",
+        "Lobby: pick Shipment or Break Point, then day or night.",
+        "Zombies: Break Point by day now has Pack-a-Punch and the power switch too.",
+        "Zombies (classic perks): Der Wunderfizz wakes up on round 17.",
         "Fixed see-through-walls perks lighting up zombies' own limbs.",
         "Zombies: classic Call of Duty perks! Pick PERKS: CLASSIC in the lobby.",
         "Guns now have real recoil: each shot kicks your aim up and sideways.",

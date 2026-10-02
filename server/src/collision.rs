@@ -21,7 +21,7 @@ use parry3d::math::{Isometry, Point, Vector};
 use parry3d::query::{cast_shapes, contact, Ray, RayCast, ShapeCastOptions};
 use parry3d::shape::{Ball, Cuboid, TriMesh, TriMeshFlags};
 use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
-use shared::perks::{Perk, PerkSet};
+use shared::perks::PerkSet;
 use shared::{GameMode, Lobby, MapId};
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/basic_map.glb");
@@ -73,7 +73,7 @@ impl MapColliders {
     pub fn for_game(&self, map: MapId, mode: GameMode, set: PerkSet) -> LobbyWorld<'_> {
         LobbyWorld {
             map: self.world(map),
-            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map, set.perks())),
+            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map, set)),
         }
     }
 
@@ -83,8 +83,9 @@ impl MapColliders {
     pub fn with_machines(&self, map: MapId) -> LobbyWorld<'_> {
         LobbyWorld {
             map: self.world(map),
-            // (Every spot either set uses — the classic set's.)
-            machines: Some(machine_boxes(map, &Perk::CLASSIC)),
+            // (Every spot either set uses — the classic set's, with its
+            // Wunderfizz.)
+            machines: Some(machine_boxes(map, PerkSet::Classic)),
         }
     }
 
@@ -275,11 +276,12 @@ pub struct MachineBox {
     shape: Cuboid,
 }
 
-/// `perks`' machine boxes on `map`, and the Pack-a-Punch's if it has one.
-fn machine_boxes(map: MapId, perks: &[Perk]) -> Vec<MachineBox> {
-    perks
-        .iter()
+/// `set`'s machine boxes on `map` (Der Wunderfizz's too for the classic
+/// set), and the Pack-a-Punch's if it has one.
+fn machine_boxes(map: MapId, set: PerkSet) -> Vec<MachineBox> {
+    set.machine_perks()
         .map(|perk| perk.machine_box(map))
+        .chain((set == PerkSet::Classic).then(|| shared::wunderfizz::machine_box(map)))
         .chain(shared::pap::machine_box(map))
         .map(|(center, rot, half)| MachineBox {
             iso: Isometry::from_parts(
@@ -387,6 +389,7 @@ impl CollisionWorld for LobbyWorld<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::perks::Perk;
 
     fn colliders() -> MapColliders {
         MapColliders::load()

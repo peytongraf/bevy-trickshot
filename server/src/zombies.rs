@@ -95,7 +95,13 @@ struct ZombieDeath(f32);
 /// the round number itself is replicated as `Lobby::round`).
 #[derive(Component)]
 pub(crate) struct ZombieRounds {
+    /// `0` during the pre-game countdown (`countdown_left`), then the round
+    /// being played.
     round: u32,
+    /// Seconds of the pre-game countdown still to go (`Lobby::countdown_secs`
+    /// at the start): the party roams, buys and turns the power on, and no
+    /// zombie comes until it's out.
+    countdown_left: f32,
     /// Zombies this round still has to send.
     to_spawn: u32,
     /// (A Nuke pushes this back — `crate::power_ups`.)
@@ -148,6 +154,9 @@ fn run_rounds(
             if rounds.is_some() {
                 commands.entity(lobby_e).remove::<ZombieRounds>();
             }
+            if lobby.countdown_left != 0 {
+                lobby.countdown_left = 0;
+            }
             continue;
         }
         // Game over (`pvp` started the ending), or still loading in.
@@ -165,20 +174,43 @@ fn run_rounds(
             continue;
         }
         let Some(mut rounds) = rounds else {
-            // The leader can start on a later round (`Lobby::start_round`).
-            let first = lobby.start_round.max(1);
-            lobby.round = first;
-            lobby.enemies_left = zombies_in_round(first, members);
+            // Everyone's in: the pre-game countdown (if the leader set one)
+            // starts now; the first round follows it.
+            let countdown = lobby.countdown_secs.min(shared::zombies::MAX_COUNTDOWN_SECS);
+            lobby.countdown_left = countdown;
             commands.entity(lobby_e).insert(ZombieRounds {
-                round: first,
-                to_spawn: zombies_in_round(first, members),
+                round: 0,
+                countdown_left: countdown as f32,
+                to_spawn: 0,
                 next_spawn_at: now,
-                break_until: now + FIRST_ROUND_DELAY_SECS,
+                break_until: now,
                 prone_claimed: Vec::new(),
             });
-            info!("lobby {lobby_e:?}: zombies round {first}");
+            if countdown > 0 {
+                info!("lobby {lobby_e:?}: zombies starts in {countdown} s");
+            }
             continue;
         };
+        if rounds.round == 0 {
+            rounds.countdown_left -= time.delta_secs();
+            let shown = rounds.countdown_left.max(0.0).ceil() as u32;
+            if lobby.countdown_left != shown {
+                lobby.countdown_left = shown;
+            }
+            if rounds.countdown_left > 0.0 {
+                continue;
+            }
+            // The leader can start on a later round (`Lobby::start_round`).
+            // (After a countdown the party's ready: no extra delay.)
+            let first = lobby.start_round.max(1);
+            rounds.round = first;
+            rounds.to_spawn = zombies_in_round(first, members);
+            rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
+            lobby.round = first;
+            lobby.enemies_left = zombies_in_round(first, members);
+            info!("lobby {lobby_e:?}: zombies round {first}");
+            continue;
+        }
         if now < rounds.break_until {
             continue;
         }
@@ -307,10 +339,12 @@ fn publish_zombie_anims(mut zombies: Query<(&BotBrain, &mut PlayerPose), With<Zo
     }
 }
 
-/// A member wants to buy a perk: they must be in a running `Zombies` game
-/// with the power on (`shared::power::has_power`), alive, standing at its
-/// machine (a little slack — their pose is a moment
-/// old), not already own it, and have the points. Anything else is ignored.
+/// A member wants to buy a perk: they must be in a running `Zombies` game,
+/// alive, standing at its machine with the power on
+/// (`shared::power::has_power`) — or at an active Der Wunderfizz
+/// (`shared::wunderfizz`, any of the classic perks) — with a little slack
+/// (their pose is a moment old), not already own it, and have the points.
+/// Anything else is ignored.
 fn on_buy_perk(
     trigger: Trigger<RemoteTrigger<BuyPerk>>,
     endings: Res<crate::killcam::EndingLobbies>,
@@ -318,15 +352,14 @@ fn on_buy_perk(
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
 ) {
     let peer = trigger.from;
-    let perk = trigger.trigger.perk;
+    let BuyPerk { perk, wunderfizz } = trigger.trigger;
     let Some((lobby_e, mut lobby)) = lobbies
         .iter_mut()
         .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
     else {
         return;
     };
-    // (No selling until the power's on — `shared::power::has_power`.)
-    if endings.is_ending(lobby_e) || lobby.paused || !shared::power::has_power(lobby.map, lobby.power_on) {
+    if endings.is_ending(lobby_e) || lobby.paused {
         return;
     }
     let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
@@ -334,7 +367,18 @@ fn on_buy_perk(
     };
     let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
     // (Only the lobby's own set is on sale.)
-    if !combat.alive || perk.set() != lobby.perk_set || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
+    if !combat.alive || perk.set() != lobby.perk_set {
+        return;
+    }
+    let at_seller = if wunderfizz {
+        shared::wunderfizz::active(&lobby) && shared::wunderfizz::in_range(lobby.map, feet, 0.75)
+    } else {
+        // (A machine sells nothing until the power's on.)
+        perk.has_machine()
+            && shared::power::has_power(lobby.map, lobby.power_on)
+            && shared::perks::in_range(perk, lobby.map, feet, 0.75)
+    };
+    if !at_seller {
         return;
     }
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
@@ -375,7 +419,11 @@ fn on_prone_at_perk(
         return;
     };
     let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-    if !combat.alive || perk.set() != lobby.perk_set || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
+    if !combat.alive
+        || perk.set() != lobby.perk_set
+        || !perk.has_machine()
+        || !shared::perks::in_range(perk, lobby.map, feet, 0.75)
+    {
         return;
     }
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
@@ -597,6 +645,8 @@ mod tests {
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                countdown_secs: 0,
+                countdown_left: 0,
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: me,
@@ -622,6 +672,9 @@ mod tests {
             },
         ));
         app.update(); // (the first update has no time delta)
+        // (...and sets up the rounds; with no countdown, the next begins
+        // round 1.)
+        app.update();
         (app, lobby)
     }
 
@@ -636,6 +689,33 @@ mod tests {
         for _ in 0..(secs * 64.0) as usize {
             app.update();
         }
+    }
+
+    #[test]
+    fn the_pre_game_countdown_holds_the_first_round_and_its_zombies_back() {
+        let (mut app, lobby) = game();
+        // Start again, this time with a 5 s countdown.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        {
+            let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+            l.countdown_secs = 5;
+            l.round = 0;
+        }
+        app.update();
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().countdown_left, 5);
+        run(&mut app, 4.5);
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert_eq!(l.round, 0, "no round during the countdown");
+        assert_eq!(l.countdown_left, 1);
+        assert!(zombies_of(&mut app).is_empty(), "no zombies during the countdown");
+        run(&mut app, 1.0);
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert_eq!(l.round, 1);
+        assert_eq!(l.countdown_left, 0);
+        // ...and straight into it: zombies come without the usual opening
+        // delay.
+        run(&mut app, 3.0);
+        assert!(!zombies_of(&mut app).is_empty());
     }
 
     #[test]
@@ -694,7 +774,7 @@ mod tests {
         let (mut app, lobby) = game();
         app.add_observer(on_buy_perk);
         let me = PeerId::Netcode(1);
-        let perk = shared::perks::Perk::ShroomTea;
+        let perk = shared::perks::Perk::Juggernog;
         let map = app.world().get::<Lobby>(lobby).unwrap().map;
         // Stand at the machine with 3000 points.
         let at_machine = perk.machine_pos(map) + Vec3::Y * EYE_HEIGHT;
@@ -706,9 +786,11 @@ mod tests {
             .unwrap();
         app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = at_machine;
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 3000;
+        // (Break Point has a power switch: machines only sell with it on.)
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().power_on = true;
         let buy = |app: &mut App| {
             app.world_mut().trigger(RemoteTrigger {
-                trigger: BuyPerk { perk },
+                trigger: BuyPerk { perk, wunderfizz: false },
                 from: me,
             });
             app.world_mut().flush();
@@ -728,7 +810,7 @@ mod tests {
         let (mut app, lobby) = game();
         app.add_observer(on_buy_perk);
         let me = PeerId::Netcode(1);
-        let perk = shared::perks::Perk::ShroomTea;
+        let perk = shared::perks::Perk::Juggernog;
         let map = shared::MapId::BreakPointNight;
         {
             let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
@@ -745,7 +827,7 @@ mod tests {
             perk.machine_pos(map) + Vec3::Y * EYE_HEIGHT;
         let buy = |app: &mut App| {
             app.world_mut().trigger(RemoteTrigger {
-                trigger: BuyPerk { perk },
+                trigger: BuyPerk { perk, wunderfizz: false },
                 from: me,
             });
             app.world_mut().flush();
@@ -763,11 +845,11 @@ mod tests {
     fn a_perk_cant_be_bought_from_across_the_map_or_without_the_points() {
         let (mut app, lobby) = game();
         app.add_observer(on_buy_perk);
-        let perk = shared::perks::Perk::ShroomTea;
+        let perk = shared::perks::Perk::Juggernog;
         // Standing at the map centre, far from Break Point's machine.
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 10_000;
         app.world_mut().trigger(RemoteTrigger {
-            trigger: BuyPerk { perk },
+            trigger: BuyPerk { perk, wunderfizz: false },
             from: PeerId::Netcode(1),
         });
         app.world_mut().flush();
@@ -792,8 +874,8 @@ mod tests {
         {
             let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
             l.members[0].score = 3000;
-            // Break Point (day) has no switch.
-            l.map = shared::MapId::BreakPoint;
+            // The basic map has no switch.
+            l.map = shared::MapId::BasicMap;
         }
         let switch = shared::power::switch_pos(shared::MapId::BreakPointNight).unwrap();
         let at_switch = switch + Vec3::Y * EYE_HEIGHT;

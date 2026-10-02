@@ -88,14 +88,11 @@ pub fn numeral(level: u8) -> &'static str {
 }
 
 /// Where the Pack-a-Punch machine stands on `map` (the ground under its
-/// middle), if the map has one. Only Break Point Night (the map with the
-/// power switch) so far.
+/// middle), if the map has one. Only Break Point (day or night — the map
+/// with the power switch) so far.
 pub fn machine_pos(map: MapId) -> Option<Vec3> {
-    match map {
-        // Tuned in the client's debug panel ("Pack-a-Punch machine").
-        MapId::BreakPointNight => Some(Vec3::new(25.0, 0.0, -59.6)),
-        _ => None,
-    }
+    // Tuned in the client's debug panel ("Pack-a-Punch machine").
+    map.is_break_point().then_some(Vec3::new(25.0, 0.0, -59.6))
 }
 
 /// Which way the machine faces on `map` (degrees about y).
@@ -170,6 +167,7 @@ mod tests {
         let m = machine_pos(MapId::BreakPointNight).unwrap();
         assert!(in_range(MapId::BreakPointNight, m, 0.0));
         assert!(!in_range(MapId::BreakPointNight, m + Vec3::X * 10.0, 0.0));
-        assert!(!in_range(MapId::BreakPoint, m, 0.0));
+        assert!(in_range(MapId::BreakPoint, m, 0.0), "day has it too");
+        assert!(!in_range(MapId::BasicMap, m, 0.0));
     }
 }
