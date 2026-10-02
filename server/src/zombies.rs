@@ -333,7 +333,8 @@ fn on_buy_perk(
         return;
     };
     let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-    if !combat.alive || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
+    // (Only the lobby's own set is on sale.)
+    if !combat.alive || perk.set() != lobby.perk_set || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
         return;
     }
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
@@ -374,7 +375,7 @@ fn on_prone_at_perk(
         return;
     };
     let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-    if !combat.alive || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
+    if !combat.alive || perk.set() != lobby.perk_set || !shared::perks::in_range(perk, lobby.map, feet, 0.75) {
         return;
     }
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
@@ -595,6 +596,7 @@ mod tests {
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,
+                perk_set: Default::default(),
                 power_on: false,
                 members: vec![shared::LobbyMember {
                     peer: me,

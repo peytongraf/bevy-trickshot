@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, mut machines, current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -52,7 +52,7 @@ pub(crate) fn ads_tuning_ui(
         ResMut<BreakPointNightSceneTuning>,
         (
             ResMut<FlashlightSettings>,
-            ResMut<crate::zombies_hud::PerkMachineSettings>,
+            (ResMut<crate::zombies_hud::PerkMachineSettings>, ResMut<crate::zombies_hud::ClassicPerks>),
             Res<crate::CurrentMap>,
             ResMut<crate::power::MapLightSettings>,
             ResMut<crate::round_counter::RoundAnimSettings>,
@@ -1886,6 +1886,13 @@ pub(crate) fn ads_tuning_ui(
                             });
                         }
                         ui.add(egui::Slider::new(&mut n.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
+                        if perk.set() == shared::perks::PerkSet::Classic {
+                            let yaw = m.model_yaw_deg.entry(perk).or_insert(0.0);
+                            ui.add(
+                                egui::Slider::new(yaw, -180.0f32..=180.0)
+                                    .text("model turn inside its box (deg)"),
+                            );
+                        }
                     }
                     if ui.button("Copy perk machine placements to console").clicked() {
                         let map = current_map.0;
@@ -1901,6 +1908,11 @@ pub(crate) fn ads_tuning_ui(
                             );
                         }
                         info!("perk machine scale: {:.3}", m.scale);
+                        for (perk, yaw) in &m.model_yaw_deg {
+                            if *yaw != 0.0 {
+                                info!("{} model turn: {yaw:.1} deg", perk.label());
+                            }
+                        }
                     }
                     if ui.button("Reset perk machines").clicked() {
                         *m = default();
@@ -2038,6 +2050,37 @@ pub(crate) fn ads_tuning_ui(
                         *n = crate::zombies_hud::NitroBrew {
                             owned: n.owned,
                             debug_force: n.debug_force,
+                            ..default()
+                        };
+                    }
+                });
+
+                ui.collapsing("Classic perks", |ui| {
+                    let c = &mut *classic;
+                    ui.label(
+                        "Call of Duty's perks (a Zombies lobby's PERKS: CLASSIC), as in Cold War. \
+                         Juggernog, Quick Revive and PhD Flopper's explosions are server-side; these \
+                         are the client-side ones (1 = normal).",
+                    );
+                    let owned: Vec<&str> = c.owned.iter().map(|p| p.label()).collect();
+                    ui.label(format!("owned: {}", if owned.is_empty() { "none".to_string() } else { owned.join(", ") }));
+                    ui.checkbox(&mut c.debug_force, "Force all on (act as if owned)");
+                    ui.add(egui::Slider::new(&mut c.speed_cola_reload, 0.5f32..=4.0).text("Speed Cola reload speed"));
+                    ui.add(egui::Slider::new(&mut c.stamin_up_move, 0.5f32..=2.0).text("Stamin-Up movement speed"));
+                    ui.add(egui::Slider::new(&mut c.double_tap_fire_rate, 0.5f32..=3.0).text("Double Tap rate of fire"));
+                    ui.add(egui::Slider::new(&mut c.phd_slide, 0.5f32..=3.0).text("PhD Flopper slide length"));
+                    ui.label("Death Perception outline (enemies behind walls)");
+                    let [r, g, b] = &mut c.death_perception_color;
+                    ui.add(egui::Slider::new(r, 0.0f32..=1.0).text("red"));
+                    ui.add(egui::Slider::new(g, 0.0f32..=1.0).text("green"));
+                    ui.add(egui::Slider::new(b, 0.0f32..=1.0).text("blue"));
+                    ui.add(egui::Slider::new(&mut c.death_perception_brightness, 0.1f32..=20.0).text("glow"));
+                    ui.add(egui::Slider::new(&mut c.death_perception_sharpness, 0.2f32..=8.0).text("thinness"));
+                    ui.add(egui::Slider::new(&mut c.death_perception_inflate, 0.0f32..=0.2).text("puff out (m)"));
+                    if ui.button("Reset classic perks").clicked() {
+                        *c = crate::zombies_hud::ClassicPerks {
+                            owned: std::mem::take(&mut c.owned),
+                            debug_force: c.debug_force,
                             ..default()
                         };
                     }

@@ -954,6 +954,9 @@ pub struct Lobby {
     pub start_round: u32,
     /// [`GameMode::Zombies`]: the points every member starts a game with.
     pub start_points: u32,
+    /// [`GameMode::Zombies`]: which perks the machines sell — the custom
+    /// ones or Call of Duty's ([`SetPerkSet`]).
+    pub perk_set: crate::perks::PerkSet,
     /// [`GameMode::Zombies`]: someone threw the power switch
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
@@ -1186,12 +1189,27 @@ pub struct KnifeAttackSound {
 /// its base at `feet` (the dead zombie's feet) — show the explosion and play
 /// its sound from there. `variant` is the server's random pick of sound
 /// (`variant % clips`), so the whole lobby hears the same one. The blast
-/// damage is the server's (`server::pvp::apply_bomb_blasts`).
+/// damage is the server's (`server::pvp::apply_bomb_blasts`). `phd` marks
+/// PhD Flopper's purple one instead (a slide into an enemy, or a big drop).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct BombExplosion {
     pub feet: [f32; 3],
     pub variant: u8,
+    pub phd: bool,
 }
+
+/// Client (party leader) → server: which perks the `Zombies` machines sell
+/// ([`Lobby::perk_set`]) — before starting only.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetPerkSet {
+    pub set: crate::perks::PerkSet,
+}
+
+/// Client → server: the sender, sliding with PhD Flopper, just slid into an
+/// enemy — the server checks the perk, its cooldown and that an enemy really
+/// is close, then sets off the explosion at their feet.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PhdSlam;
 
 /// Server → every member of a `Zombies` lobby: a zombie's swipe just landed
 /// on the player standing at `at` — everyone plays the hit sound from there
@@ -1593,6 +1611,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyAmmo>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<ProneAtPerk>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetPerkSet>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetLoadout>()
             .add_direction(NetworkDirection::ClientToServer);

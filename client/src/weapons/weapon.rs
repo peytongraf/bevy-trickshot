@@ -1058,9 +1058,10 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, ak_cfg): (
+    (physics, ak_cfg, classic): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
         Res<AkSettings>,
+        Res<crate::zombies_hud::ClassicPerks>,
     ),
     mut commands: Commands,
 ) {
@@ -1071,7 +1072,13 @@ pub(crate) fn weapon_system(
     }
     // Nitro Brew's speed-ups (all `1.0` without it). The sped-up Hide for the
     // throwing / drinking arms gets the swap speed-up on top.
-    let (reload_speed, rechamber_speed, swap_speed) = (nitro.reload(), nitro.rechamber(), nitro.swap());
+    // Speed Cola reloads faster; Double Tap works the sniper's bolt (its
+    // rate of fire) faster, and the AK's below.
+    let (reload_speed, rechamber_speed, swap_speed) = (
+        nitro.reload() * classic.reload(),
+        nitro.rechamber() * classic.fire_rate(),
+        nitro.swap(),
+    );
     // The primary's own draw / hide (the AK's panel speed on top).
     let primary_swap = if weapon.primary == WeaponId::Ak74 {
         swap_speed * ak_cfg.draw_speed
@@ -1672,7 +1679,7 @@ pub(crate) fn weapon_system(
             // Held: keep the cadence even across uneven frames (the next
             // round's due one interval after this one was); a fresh pull
             // after a pause counts from now — one round, not a catch-up.
-            let interval = ak_cfg.fire_interval.max(0.02);
+            let interval = (ak_cfg.fire_interval / classic.fire_rate()).max(0.02);
             let due = if now - weapon.next_shot_at < interval {
                 weapon.next_shot_at
             } else {

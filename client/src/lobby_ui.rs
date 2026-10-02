@@ -430,6 +430,8 @@ enum MenuBtn {
     SetMap(shared::MapId),
     /// `FreeForAll`'s end-of-match replay (leader only).
     SetEndCam(shared::EndCam),
+    /// `Zombies`' perk machines: custom or classic (leader only).
+    SetPerkSet(shared::perks::PerkSet),
     /// The leader's bot counter (1..=`MAX_BOTS`).
     BotCountDown,
     BotCountUp,
@@ -1172,6 +1174,22 @@ fn build_room(
                             setting_value(row, asset_server, value);
                         }
                     });
+                    // The game's own perks, or Call of Duty's.
+                    setting_row(col, asset_server, "PERKS", |row| {
+                        if can_edit {
+                            for set in shared::perks::PerkSet::ALL {
+                                option_button(
+                                    row,
+                                    asset_server,
+                                    set.label(),
+                                    MenuBtn::SetPerkSet(set),
+                                    set == lobby.perk_set,
+                                );
+                            }
+                        } else {
+                            setting_value(row, asset_server, lobby.perk_set.label().to_string());
+                        }
+                    });
                 }
 
                 if is_ffa {
@@ -1454,11 +1472,12 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetPerkSet>, With<GameClient>>,
     ),
 ) {
     let name = player_name(&settings);
@@ -1538,6 +1557,11 @@ fn handle_clicks(
                 ui.dirty = true;
             }
             MenuBtn::OpenGunsmith(weapon) => menu.open_loadout(Some(*weapon)),
+            MenuBtn::SetPerkSet(set) => {
+                if let Ok(mut s) = set_perk_set.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetPerkSet { set: *set });
+                }
+            }
             MenuBtn::SetEndCam(cam) => {
                 if let Ok(mut s) = set_end_cam.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetEndCam { cam: *cam });

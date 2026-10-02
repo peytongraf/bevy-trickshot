@@ -1201,6 +1201,7 @@ mod tests {
             bomb_test: false,
             start_round: 1,
             start_points: 0,
+            perk_set: Default::default(),
             power_on: false,
             members: Vec::new(),
         }

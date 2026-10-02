@@ -204,6 +204,7 @@ pub(crate) fn crouch_slide(
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
+    classic: Res<crate::zombies_hud::ClassicPerks>,
     sounds: Res<GameSounds>,
     weapon: Res<Weapon>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -276,15 +277,15 @@ pub(crate) fn crouch_slide(
                     if let Some(e) = slide.sound.take() {
                         commands.entity(e).try_despawn();
                     }
+                    // PhD Flopper has its own slide sound.
+                    let phd = classic.has(shared::perks::Perk::PhdFlopper);
+                    let clip = if phd { &sounds.phd_slide } else { &sounds.slide };
                     slide.sound = Some(
                         commands
-                            .spawn((
-                                AudioPlayer::new(sounds.slide.clone()),
-                                PlaybackSettings::DESPAWN,
-                            ))
+                            .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN))
                             .id(),
                     );
-                    snd.note(killcam::SND_SLIDE);
+                    snd.note(if phd { killcam::SND_PHD_SLIDE } else { killcam::SND_SLIDE });
                 } else {
                     slide.stance = Stance::Crouching;
                 }
@@ -318,11 +319,13 @@ pub(crate) fn crouch_slide(
         }
         Stance::Sliding => {
             slide.timer += dt;
-            let spd = (slide.velocity.length() - cfg.friction * dt).max(0.0);
+            // PhD Flopper carries a slide further: less friction, for longer.
+            let further = classic.slide();
+            let spd = (slide.velocity.length() - cfg.friction / further * dt).max(0.0);
             slide.velocity = slide.velocity.normalize_or_zero() * spd;
 
             let cancelled = jump_pressed;
-            if cancelled || spd < cfg.min_speed || slide.timer >= cfg.max_time || !grounded {
+            if cancelled || spd < cfg.min_speed || slide.timer >= cfg.max_time * further || !grounded {
                 slide.stance = Stance::Standing;
                 slide.velocity = Vec3::ZERO;
                 if cancelled {

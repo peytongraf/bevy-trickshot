@@ -418,7 +418,7 @@ pub(crate) fn move_player(
     sprinting: Res<Sprinting>,
     slide: Res<Slide>,
     weapon: Res<Weapon>,
-    nitro: Res<crate::zombies_hud::NitroBrew>,
+    (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let (mut transform, mut physics) = player.into_inner();
@@ -476,7 +476,7 @@ pub(crate) fn move_player(
             1.0
         };
         physics.horizontal_velocity =
-            direction.normalize_or_zero() * speed * weapon_mult * dir_mult * nitro.movement();
+            direction.normalize_or_zero() * speed * weapon_mult * dir_mult * nitro.movement() * classic.movement();
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();

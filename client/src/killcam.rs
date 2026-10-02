@@ -73,8 +73,10 @@ pub(crate) const SND_THROW: u16 = 1 << 9;
 pub(crate) const SND_AK_SHOT: u16 = 1 << 10;
 pub(crate) const SND_AK_RELOAD: u16 = 1 << 11;
 pub(crate) const SND_AK_RELOAD_FAST: u16 = 1 << 12;
+/// A slide with PhD Flopper — its own sound in place of [`SND_SLIDE`].
+pub(crate) const SND_PHD_SLIDE: u16 = 1 << 13;
 /// All bits currently in use, for iterating a `sound_bits` mask.
-pub(crate) const ALL_SND_BITS: [u16; 13] = [
+pub(crate) const ALL_SND_BITS: [u16; 14] = [
     SND_SHOT,
     SND_RELOAD,
     SND_RECHAMBER,
@@ -88,6 +90,7 @@ pub(crate) const ALL_SND_BITS: [u16; 13] = [
     SND_AK_SHOT,
     SND_AK_RELOAD,
     SND_AK_RELOAD_FAST,
+    SND_PHD_SLIDE,
 ];
 
 /// Fallback kill time (seconds into the replay) if a message's `kill_index`
@@ -362,6 +365,7 @@ pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSo
         SND_AK_RELOAD => &sounds.ak_reload,
         SND_AK_RELOAD_FAST => &sounds.ak_reload_fast,
         SND_SLIDE => &sounds.slide,
+        SND_PHD_SLIDE => &sounds.phd_slide,
         SND_DIVE => &sounds.dive,
         SND_AIM_IN => &sounds.aim_in,
         SND_AIM_OUT => &sounds.aim_out,
@@ -1002,6 +1006,7 @@ fn drive_killcam(
             SND_AK_SHOT,
             SND_AK_RELOAD,
             SND_AK_RELOAD_FAST,
+            SND_PHD_SLIDE,
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {

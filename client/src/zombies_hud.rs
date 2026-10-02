@@ -4,7 +4,8 @@
 //! the card shown while standing at one, and switching on what an owned perk does
 //! (Shroom Tea: the shroom screen effect; Nitro Brew: the [`NitroBrew`]
 //! speed multipliers; Liquid Courage: the drunk screen effect — its damage
-//! cut is server-side). Going prone at a machine claims its one-off
+//! cut is server-side; the classic Call of Duty perks: [`ClassicPerks`]).
+//! The machines are the lobby's perk set's (`Lobby::perk_set`). Going prone at a machine claims its one-off
 //! [`shared::perks::PRONE_BONUS_POINTS`] ([`prone_at_perk`]).
 //!
 //! Everything reads the replicated `Lobby` — the server owns the round, the
@@ -38,12 +39,14 @@ impl Plugin for ZombiesHudPlugin {
                     update_perk_icons,
                     update_party_panels,
                     buy_perk.run_if(menu::game_active.and(killcam::no_killcam)),
+                    phd_slam.run_if(menu::game_active.and(killcam::no_killcam)),
                     prone_at_perk,
                     receive_prone_bonus,
                 )
                     .run_if(in_state(AppState::InGame)),
             )
             .init_resource::<NitroBrew>()
+            .init_resource::<ClassicPerks>()
             .init_resource::<Kangabrew>()
             .init_resource::<PerkMachineSettings>()
             // Not gated on `InGame`: it's what switches the effects back *off*
@@ -52,7 +55,8 @@ impl Plugin for ZombiesHudPlugin {
     }
 }
 
-/// Each perk's colour — its machine and its bottle in the drinking arms.
+/// Each perk's colour — its machine's glow, its name on the card and its
+/// bottle in the drinking arms. The classic ones are Call of Duty's own.
 pub(crate) fn perk_color(perk: Perk) -> Color {
     match perk {
         Perk::ShroomTea => Color::srgb_u8(0x6a, 0x1f, 0xbf),
@@ -60,6 +64,92 @@ pub(crate) fn perk_color(perk: Perk) -> Color {
         Perk::LiquidCourage => Color::srgb_u8(0xc8, 0x14, 0x2d),
         Perk::BombShot => Color::srgb_u8(0xff, 0x6a, 0x00),
         Perk::Kangabrew => Color::srgb_u8(0x2e, 0xd1, 0x4a),
+        Perk::Juggernog => Color::srgb_u8(0xe0, 0x20, 0x2a),
+        Perk::QuickRevive => Color::srgb_u8(0x5f, 0xd6, 0xff),
+        Perk::SpeedCola => Color::srgb_u8(0x3c, 0xff, 0x3c),
+        Perk::StaminUp => Color::srgb_u8(0xff, 0xb2, 0x3a),
+        Perk::DoubleTap => Color::srgb_u8(0xff, 0x6a, 0x1e),
+        Perk::DeadshotDaiquiri => Color::srgb_u8(0x8d, 0xb0, 0x6a),
+        Perk::PhdFlopper => Color::srgb_u8(0xa8, 0x3c, 0xff),
+        Perk::DeathPerception => Color::srgb_u8(0xff, 0x5a, 0x14),
+    }
+}
+
+/// The classic (Call of Duty) perks we own right now, and what the
+/// client-side ones do (the debug panel's "Classic perks" section). Kept in
+/// step with our perks by `sync_owned_perks`, so it's all off again the
+/// moment a game ends or is left. Juggernog and Quick Revive are the
+/// server's (health), as is PhD Flopper's explosion damage.
+#[derive(Resource)]
+pub(crate) struct ClassicPerks {
+    pub(crate) owned: Vec<Perk>,
+    /// Debug: act as if every classic perk is owned. Never saved.
+    pub(crate) debug_force: bool,
+    /// Speed Cola: reload speed (×).
+    pub(crate) speed_cola_reload: f32,
+    /// Stamin-Up: movement speed (×).
+    pub(crate) stamin_up_move: f32,
+    /// Double Tap: rate of fire (×) — the AK's rounds, the sniper's bolt.
+    pub(crate) double_tap_fire_rate: f32,
+    /// PhD Flopper: how much further a slide carries (× its length).
+    pub(crate) phd_slide: f32,
+    /// Death Perception's outline (`vfx::shroom_xray`): sRGB colour, glow,
+    /// how tight to the silhouette it hugs (higher = thinner), and how far
+    /// (m) it's puffed out past the body.
+    pub(crate) death_perception_color: [f32; 3],
+    pub(crate) death_perception_brightness: f32,
+    pub(crate) death_perception_sharpness: f32,
+    pub(crate) death_perception_inflate: f32,
+}
+
+impl Default for ClassicPerks {
+    fn default() -> Self {
+        Self {
+            owned: Vec::new(),
+            debug_force: false,
+            speed_cola_reload: 1.5,
+            stamin_up_move: 1.1,
+            double_tap_fire_rate: 1.25,
+            phd_slide: 1.4,
+            death_perception_color: [1.0, 0.45, 0.05],
+            death_perception_brightness: 4.0,
+            death_perception_sharpness: 2.5,
+            death_perception_inflate: 0.02,
+        }
+    }
+}
+
+impl ClassicPerks {
+    pub(crate) fn has(&self, perk: Perk) -> bool {
+        self.debug_force && perk.set() == shared::perks::PerkSet::Classic || self.owned.contains(&perk)
+    }
+
+    fn pick(&self, perk: Perk, mult: f32) -> f32 {
+        if self.has(perk) {
+            mult.max(0.01)
+        } else {
+            1.0
+        }
+    }
+
+    /// Movement speed multiplier (Stamin-Up).
+    pub(crate) fn movement(&self) -> f32 {
+        self.pick(Perk::StaminUp, self.stamin_up_move)
+    }
+
+    /// Reload speed multiplier (Speed Cola).
+    pub(crate) fn reload(&self) -> f32 {
+        self.pick(Perk::SpeedCola, self.speed_cola_reload)
+    }
+
+    /// Rate of fire multiplier (Double Tap).
+    pub(crate) fn fire_rate(&self) -> f32 {
+        self.pick(Perk::DoubleTap, self.double_tap_fire_rate)
+    }
+
+    /// Slide launch speed / length multiplier (PhD Flopper).
+    pub(crate) fn slide(&self) -> f32 {
+        self.pick(Perk::PhdFlopper, self.phd_slide)
     }
 }
 
@@ -324,7 +414,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             // One slot per perk there is, filled in purchase order by
             // `update_perk_icons`; unused slots take no room, so the row
             // stays centred however many are owned.
-            for index in 0..Perk::ALL.len() {
+            for index in 0..Perk::MAX_PER_SET {
                 row.spawn((
                     PerkIconSlot { index, shown: None },
                     ImageNode::default(),
@@ -392,8 +482,8 @@ struct PerkMachine(Perk);
 /// [`sync_perk_machines`].
 #[derive(Component, Clone, Copy)]
 enum MachinePart {
-    /// The imported `.glb`.
-    Model,
+    /// The imported `.glb` of this perk's machine.
+    Model(Perk),
     /// Its solid box — players walk into it and shots / effects stop on it
     /// (the server has the same box, `server::collision::LobbyWorld`).
     Collider,
@@ -401,10 +491,74 @@ enum MachinePart {
     Light,
 }
 
-/// The machine models' box in their own (Blender) units: half of each
-/// `*_perk_machine.glb`'s width, height and depth. Every machine is this box,
-/// just with its own material.
+/// The custom machine models' box in their own (Blender) units: half of each
+/// `custom/*_perk_machine.glb`'s width, height and depth. Every custom
+/// machine is this box, centred on its origin, just with its own material.
 const MODEL_HALF_EXTENTS: Vec3 = Vec3::new(1.25, 2.0, 0.6);
+
+/// A classic machine model's size and placement in its own units — they're
+/// from all over, each at its own scale and some with their origin at the
+/// base, some in the middle — so each is fitted to the machine's box:
+/// scaled to its height, stood on the ground and centred.
+struct ModelFit {
+    /// Its height, its lowest point, and the middle of its footprint
+    /// (x, z).
+    height: f32,
+    bottom: f32,
+    center: Vec2,
+}
+
+impl ModelFit {
+    const fn new(height: f32, bottom: f32, x: f32, z: f32) -> Self {
+        Self {
+            height,
+            bottom,
+            center: Vec2::new(x, z),
+        }
+    }
+}
+
+/// Each perk's machine model, and for a classic one how to fit it (measured
+/// from the `.glb`s' bounds). PhD Flopper and Death Perception have no
+/// machine of their own yet, so they use Der Wunderfizz.
+fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
+    const WUNDERFIZZ: (&str, Option<ModelFit>) = (
+        "models/props/perk_machines/classic/der_wunderfizz.glb",
+        Some(ModelFit::new(1.779, -0.002, 0.078, -0.114)),
+    );
+    match perk {
+        Perk::ShroomTea => ("models/props/perk_machines/custom/shroom_tea_perk_machine.glb", None),
+        Perk::NitroBrew => ("models/props/perk_machines/custom/nitro_brew_perk_machine.glb", None),
+        Perk::LiquidCourage => ("models/props/perk_machines/custom/liquid_courage_perk_machine.glb", None),
+        Perk::BombShot => ("models/props/perk_machines/custom/bomb_shot_perk_machine.glb", None),
+        Perk::Kangabrew => ("models/props/perk_machines/custom/kangabrew_perk_machine.glb", None),
+        Perk::Juggernog => (
+            "models/props/perk_machines/classic/juggernog_perk_machine.glb",
+            Some(ModelFit::new(0.089, 0.002, -0.0005, -0.013)),
+        ),
+        Perk::QuickRevive => (
+            "models/props/perk_machines/classic/quick_revive_perk_machine.glb",
+            Some(ModelFit::new(75.5, -0.016, 0.0, 1.4)),
+        ),
+        Perk::SpeedCola => (
+            "models/props/perk_machines/classic/speed_cola_perk_machine.glb",
+            Some(ModelFit::new(95.834, 0.0, -3.51, 1.0)),
+        ),
+        Perk::StaminUp => (
+            "models/props/perk_machines/classic/stamin_up_perk_machine.glb",
+            Some(ModelFit::new(42.0, 0.0, -0.5, 0.0)),
+        ),
+        Perk::DoubleTap => (
+            "models/props/perk_machines/classic/double_tap_perk_machine.glb",
+            Some(ModelFit::new(1.968, 0.007, -0.002, 0.036)),
+        ),
+        Perk::DeadshotDaiquiri => (
+            "models/props/perk_machines/classic/deadshot_daiquiri_perk_machine.glb",
+            Some(ModelFit::new(2.0, -1.0, 0.0, 0.0)),
+        ),
+        Perk::PhdFlopper | Perk::DeathPerception => WUNDERFIZZ,
+    }
+}
 
 /// A machine's nudge away from where `shared` puts it, from the debug panel.
 #[derive(Clone, Copy, Default)]
@@ -468,11 +622,11 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) scale: f32,
     /// Every machine's light (only its colour is the perk's own).
     pub(crate) light: MachineLight,
-    pub(crate) shroom: MachineNudge,
-    pub(crate) nitro: MachineNudge,
-    pub(crate) courage: MachineNudge,
-    pub(crate) bomb: MachineNudge,
-    pub(crate) kanga: MachineNudge,
+    /// Each machine's nudge from its spot.
+    pub(crate) nudges: std::collections::HashMap<Perk, MachineNudge>,
+    /// Each classic machine model's turn (degrees) inside its box — the
+    /// imported models don't all face the same way.
+    pub(crate) model_yaw_deg: std::collections::HashMap<Perk, f32>,
     /// Set by the panel's "move to me" buttons: `sync_perk_machines` moves
     /// that perk's machine to our feet (by its nudge), then clears it.
     pub(crate) snap_to_player: Option<Perk>,
@@ -483,11 +637,8 @@ impl Default for PerkMachineSettings {
         Self {
             scale: shared::perks::MACHINE_HALF_EXTENTS.y / MODEL_HALF_EXTENTS.y,
             light: default(),
-            shroom: default(),
-            nitro: default(),
-            courage: default(),
-            bomb: default(),
-            kanga: default(),
+            nudges: default(),
+            model_yaw_deg: default(),
             snap_to_player: None,
         }
     }
@@ -495,23 +646,11 @@ impl Default for PerkMachineSettings {
 
 impl PerkMachineSettings {
     pub(crate) fn nudge_mut(&mut self, perk: Perk) -> &mut MachineNudge {
-        match perk {
-            Perk::ShroomTea => &mut self.shroom,
-            Perk::NitroBrew => &mut self.nitro,
-            Perk::LiquidCourage => &mut self.courage,
-            Perk::BombShot => &mut self.bomb,
-            Perk::Kangabrew => &mut self.kanga,
-        }
+        self.nudges.entry(perk).or_default()
     }
 
-    fn nudge(&self, perk: Perk) -> &MachineNudge {
-        match perk {
-            Perk::ShroomTea => &self.shroom,
-            Perk::NitroBrew => &self.nitro,
-            Perk::LiquidCourage => &self.courage,
-            Perk::BombShot => &self.bomb,
-            Perk::Kangabrew => &self.kanga,
-        }
+    fn nudge(&self, perk: Perk) -> MachineNudge {
+        self.nudges.get(&perk).copied().unwrap_or_default()
     }
 
     /// Where `perk`'s machine stands on `map` (the ground under its middle)
@@ -529,23 +668,26 @@ impl PerkMachineSettings {
     fn part_transform(&self, part: MachinePart) -> Transform {
         let half = self.half_extents();
         match part {
-            MachinePart::Model => {
-                Transform::from_xyz(0.0, half.y, 0.0).with_scale(Vec3::splat(self.scale.max(0.001)))
-            }
+            MachinePart::Model(perk) => match machine_model(perk).1 {
+                None => Transform::from_xyz(0.0, half.y, 0.0).with_scale(Vec3::splat(self.scale.max(0.001))),
+                Some(fit) => {
+                    // As tall as the machine's box, base on the ground,
+                    // footprint centred under the box — turned as the panel
+                    // says about its own middle.
+                    let s = half.y * 2.0 / fit.height.max(1e-6);
+                    let turn = Quat::from_rotation_y(
+                        self.model_yaw_deg.get(&perk).copied().unwrap_or(0.0).to_radians(),
+                    );
+                    Transform {
+                        translation: turn * Vec3::new(-fit.center.x * s, -fit.bottom * s, -fit.center.y * s),
+                        rotation: turn,
+                        scale: Vec3::splat(s),
+                    }
+                }
+            },
             MachinePart::Collider => Transform::from_xyz(0.0, half.y, 0.0),
             MachinePart::Light => Transform::from_translation(self.light.offset),
         }
-    }
-}
-
-/// Each perk's machine model.
-fn machine_model_path(perk: Perk) -> &'static str {
-    match perk {
-        Perk::ShroomTea => "models/props/perk_machines/custom/shroom_tea_perk_machine.glb",
-        Perk::NitroBrew => "models/props/perk_machines/custom/nitro_brew_perk_machine.glb",
-        Perk::LiquidCourage => "models/props/perk_machines/custom/liquid_courage_perk_machine.glb",
-        Perk::BombShot => "models/props/perk_machines/custom/bomb_shot_perk_machine.glb",
-        Perk::Kangabrew => "models/props/perk_machines/custom/kangabrew_perk_machine.glb",
     }
 }
 
@@ -671,13 +813,19 @@ fn sync_perk_machines(
         let step = time.delta_secs() / map_lights.fade_secs;
         *power + (target - *power).clamp(-step, step)
     };
-    for perk in Perk::ALL {
+    // The lobby's set's machines — and not the other set's.
+    let set = lobby.perk_set.perks();
+    for &perk in set {
         if !machines.iter().any(|(_, m, _)| m.0 == perk) {
             spawn_perk_machine(perk, lobby.map, &settings, &asset_server, &mut commands);
         }
     }
-    for (_, m, mut t) in &mut machines {
-        t.set_if_neq(machine_transform(&settings, m.0, lobby.map));
+    for (e, m, mut t) in &mut machines {
+        if set.contains(&m.0) {
+            t.set_if_neq(machine_transform(&settings, m.0, lobby.map));
+        } else {
+            commands.entity(e).despawn();
+        }
     }
     if settings.is_changed() {
         for (part, mut t) in &mut parts {
@@ -727,9 +875,9 @@ fn spawn_perk_machine(
         ))
         .with_children(|m| {
             m.spawn((
-                MachinePart::Model,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model_path(perk)))),
-                settings.part_transform(MachinePart::Model),
+                MachinePart::Model(perk),
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model(perk).0))),
+                settings.part_transform(MachinePart::Model(perk)),
             ));
             m.spawn((
                 MachinePart::Collider,
@@ -762,6 +910,11 @@ struct PerkCardIcon;
 /// The strip along the card's bottom saying what the interact key does.
 #[derive(Component)]
 struct PerkCardAction;
+
+/// The card's INGREDIENTS block (its divider, heading and list) — hidden for
+/// a perk without any (the classic ones).
+#[derive(Component)]
+struct PerkCardIngredients;
 
 /// Shown instead of the perk card while the power's off.
 #[derive(Component)]
@@ -887,9 +1040,10 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                             ));
                         });
                 });
-                card.spawn(divider.clone());
-                card.spawn((Text::new("INGREDIENTS"), heading(17.0), faint));
+                card.spawn((PerkCardIngredients, divider.clone()));
+                card.spawn((PerkCardIngredients, Text::new("INGREDIENTS"), heading(17.0), faint));
                 card.spawn((
+                    PerkCardIngredients,
                     PerkCardText::Ingredients,
                     Text::new(""),
                     plain(13.0),
@@ -1125,15 +1279,23 @@ fn update_party_panels(
             text.0 = s;
         }
     }
+    // (Juggernog raises a member's bar.)
+    let max_hp = |peer| {
+        lobby
+            .members
+            .iter()
+            .find(|m| m.peer == peer)
+            .map_or(shared::health::FULL_HEALTH, |m| shared::perks::max_health(&m.perks))
+    };
     let hp = |peer| {
         health
             .iter()
             .find(|(id, _)| id.0 == peer)
-            .map_or(shared::health::FULL_HEALTH, |(_, h)| h.0)
-            .clamp(0.0, shared::health::FULL_HEALTH)
+            .map_or(max_hp(peer), |(_, h)| h.0)
+            .clamp(0.0, max_hp(peer))
     };
     for (f, mut node) in &mut fills {
-        let pct = Val::Percent(hp(f.0) / shared::health::FULL_HEALTH * 100.0);
+        let pct = Val::Percent(hp(f.0) / max_hp(f.0) * 100.0);
         if node.width != pct {
             node.width = pct;
         }
@@ -1162,14 +1324,23 @@ struct PerkIconSlot {
 }
 
 /// A perk's icon — on the machine's card (`update_perk_card`) and in the
-/// owned-perk row along the bottom (`update_perk_icons`).
+/// owned-perk row along the bottom (`update_perk_icons`). The classic ones
+/// are Call of Duty's own.
 fn perk_icon_path(perk: Perk) -> &'static str {
     match perk {
-        Perk::ShroomTea => "textures/icons/perks/shroom_tea.png",
-        Perk::NitroBrew => "textures/icons/perks/nitro_brew.png",
-        Perk::LiquidCourage => "textures/icons/perks/liquid_courage.png",
-        Perk::BombShot => "textures/icons/perks/bomb_shot.png",
-        Perk::Kangabrew => "textures/icons/perks/kangabrew.png",
+        Perk::ShroomTea => "textures/icons/perks/custom/shroom_tea.png",
+        Perk::NitroBrew => "textures/icons/perks/custom/nitro_brew.png",
+        Perk::LiquidCourage => "textures/icons/perks/custom/liquid_courage.png",
+        Perk::BombShot => "textures/icons/perks/custom/bomb_shot.png",
+        Perk::Kangabrew => "textures/icons/perks/custom/kangabrew.png",
+        Perk::Juggernog => "textures/icons/perks/classic/juggernog.png",
+        Perk::QuickRevive => "textures/icons/perks/classic/quick_revive.png",
+        Perk::SpeedCola => "textures/icons/perks/classic/speed_cola.png",
+        Perk::StaminUp => "textures/icons/perks/classic/stamin_up.png",
+        Perk::DoubleTap => "textures/icons/perks/classic/double_tap.png",
+        Perk::DeadshotDaiquiri => "textures/icons/perks/classic/deadshot_daiquiri.png",
+        Perk::PhdFlopper => "textures/icons/perks/classic/phd_flopper.png",
+        Perk::DeathPerception => "textures/icons/perks/classic/death_perception.png",
     }
 }
 
@@ -1237,8 +1408,11 @@ fn perk_here(
     machines: &PerkMachineSettings,
 ) -> Option<(Perk, PerkStatus, u32)> {
     let member = lobby.members.iter().find(|m| m.peer == me)?;
-    let perk = Perk::ALL
-        .into_iter()
+    let perk = lobby
+        .perk_set
+        .perks()
+        .iter()
+        .copied()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))?;
     let status = if !shared::power::has_power(lobby.map, lobby.power_on) {
         PerkStatus::NoPower
@@ -1269,6 +1443,7 @@ fn update_perk_card(
     mut icon: Single<&mut ImageNode, With<PerkCardIcon>>,
     mut action_bar: Single<&mut BackgroundColor, With<PerkCardAction>>,
     mut texts: Query<(&PerkCardText, &mut Text, &mut TextColor)>,
+    mut ingredients: Query<&mut Node, With<PerkCardIngredients>>,
     // The perk the card was last filled in for (the icon / ingredients only
     // change with it). The card's respawned each game, so this is reset
     // whenever it's hidden.
@@ -1292,6 +1467,14 @@ fn update_perk_card(
     if *shown != Some(perk) {
         *shown = Some(perk);
         icon.image = asset_server.load(perk_icon_path(perk));
+        let display = if perk.ingredients().is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        };
+        for mut node in &mut ingredients {
+            node.display = display;
+        }
     }
 
     let (edge, bar, cost_color, points_color, action, action_color) = match status {
@@ -1416,6 +1599,41 @@ fn buy_perk(
     }
 }
 
+/// PhD Flopper: sliding into a zombie asks the server to set off the
+/// explosion — once a slide (the server checks the perk, its cooldown and
+/// that a zombie really is that close).
+fn phd_slam(
+    slide: Res<crate::player::Slide>,
+    classic: Res<ClassicPerks>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    player: Single<&Transform, With<Player>>,
+    poses: Query<&shared::PlayerPose>,
+    mut sent: Local<bool>,
+    mut sender: Query<&mut TriggerSender<shared::PhdSlam>, With<GameClient>>,
+) {
+    if slide.stance != crate::player::Stance::Sliding {
+        *sent = false;
+        return;
+    }
+    if *sent || !classic.owned.contains(&Perk::PhdFlopper) || zombies_game(&local, &lobbies).is_none() {
+        return;
+    }
+    let feet = player.translation - Vec3::Y * EYE_HEIGHT;
+    let hit = poses.iter().any(|p| {
+        p.zombie.is_zombie()
+            && p.alive
+            && (p.translation - Vec3::Y * EYE_HEIGHT).distance(feet) <= shared::perks::PHD_SLAM_RADIUS
+    });
+    if !hit {
+        return;
+    }
+    if let Ok(mut s) = sender.single_mut() {
+        s.trigger::<shared::LobbyChannel>(shared::PhdSlam);
+        *sent = true;
+    }
+}
+
 /// The moment we go prone at a perk machine (not Pack-a-Punch — it's no
 /// perk), ask the server for its bonus. It pays only the first in the game
 /// at each machine, so we just ask every time and let it decide.
@@ -1438,8 +1656,11 @@ fn prone_at_perk(
         return;
     };
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    let Some(perk) = Perk::ALL
-        .into_iter()
+    let Some(perk) = lobby
+        .perk_set
+        .perks()
+        .iter()
+        .copied()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))
     else {
         return;
@@ -1469,7 +1690,7 @@ fn receive_prone_bonus(
 
 /// Switch on what each perk does for as long as we own it in a running
 /// `Zombies` game — Shroom Tea's shroom effect, Nitro Brew's multipliers,
-/// Liquid Courage's drunk effect —
+/// Liquid Courage's drunk effect, the classic perks' [`ClassicPerks`] —
 /// and off again the moment we don't (game over, left, or not in a game at
 /// all). A perk newly in our list is our purchase going through, so that's
 /// when the buy sound plays and the drinking arms drink it — for us only,
@@ -1481,7 +1702,7 @@ fn sync_owned_perks(
     lobbies: Query<&Lobby>,
     sounds: Option<Res<GameSounds>>,
     mut shroom: ResMut<ShroomPerk>,
-    (mut nitro, mut kanga): (ResMut<NitroBrew>, ResMut<Kangabrew>),
+    (mut nitro, mut kanga, mut classic): (ResMut<NitroBrew>, ResMut<Kangabrew>, ResMut<ClassicPerks>),
     mut courage: ResMut<crate::LiquidCouragePerk>,
     mut drink: ResMut<crate::PerkDrink>,
     // What we owned last frame (empty out of a game, so a new game starts
@@ -1527,6 +1748,14 @@ fn sync_owned_perks(
     let has_courage = owned.contains(&Perk::LiquidCourage);
     if courage.0 != has_courage {
         courage.0 = has_courage;
+    }
+    let classic_owned: Vec<Perk> = owned
+        .iter()
+        .copied()
+        .filter(|p| p.set() == shared::perks::PerkSet::Classic)
+        .collect();
+    if classic.owned != classic_owned {
+        classic.owned = classic_owned;
     }
     *prev = owned;
 }

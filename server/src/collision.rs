@@ -21,7 +21,7 @@ use parry3d::math::{Isometry, Point, Vector};
 use parry3d::query::{cast_shapes, contact, Ray, RayCast, ShapeCastOptions};
 use parry3d::shape::{Ball, Cuboid, TriMesh, TriMeshFlags};
 use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
-use shared::perks::Perk;
+use shared::perks::{Perk, PerkSet};
 use shared::{GameMode, Lobby, MapId};
 
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/basic_map.glb");
@@ -66,14 +66,14 @@ impl MapColliders {
     /// What's solid in `lobby`'s game: its map, plus the perk machines in
     /// `Zombies` (they're only on the map there).
     pub fn for_lobby(&self, lobby: &Lobby) -> LobbyWorld<'_> {
-        self.for_game(lobby.map, lobby.mode)
+        self.for_game(lobby.map, lobby.mode, lobby.perk_set)
     }
 
-    /// [`Self::for_lobby`] from just the map and mode.
-    pub fn for_game(&self, map: MapId, mode: GameMode) -> LobbyWorld<'_> {
+    /// [`Self::for_lobby`] from just the map, mode and perk set.
+    pub fn for_game(&self, map: MapId, mode: GameMode, set: PerkSet) -> LobbyWorld<'_> {
         LobbyWorld {
             map: self.world(map),
-            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map)),
+            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map, set.perks())),
         }
     }
 
@@ -83,7 +83,8 @@ impl MapColliders {
     pub fn with_machines(&self, map: MapId) -> LobbyWorld<'_> {
         LobbyWorld {
             map: self.world(map),
-            machines: Some(machine_boxes(map)),
+            // (Every spot either set uses — the classic set's.)
+            machines: Some(machine_boxes(map, &Perk::CLASSIC)),
         }
     }
 
@@ -274,11 +275,11 @@ pub struct MachineBox {
     shape: Cuboid,
 }
 
-/// Every perk machine's box on `map`, and the Pack-a-Punch's if it has one.
-fn machine_boxes(map: MapId) -> Vec<MachineBox> {
-    Perk::ALL
+/// `perks`' machine boxes on `map`, and the Pack-a-Punch's if it has one.
+fn machine_boxes(map: MapId, perks: &[Perk]) -> Vec<MachineBox> {
+    perks
+        .iter()
         .map(|perk| perk.machine_box(map))
-        .into_iter()
         .chain(shared::pap::machine_box(map))
         .map(|(center, rot, half)| MachineBox {
             iso: Isometry::from_parts(
@@ -544,9 +545,9 @@ mod tests {
         let hit = with.raycast(from, Vec3::NEG_X, 3.0).expect("hits the machine");
         // (Nitro Brew is turned 90°, so its depth faces along x.)
         assert!((hit.distance - (1.5 - half.z)).abs() < 0.01, "hit at {}", hit.distance);
-        let ffa = c.for_game(map, GameMode::FreeForAll);
+        let ffa = c.for_game(map, GameMode::FreeForAll, PerkSet::Custom);
         assert!(ffa.raycast(from, Vec3::NEG_X, 1.4).is_none(), "no machine outside Zombies");
-        let zombies = c.for_game(map, GameMode::Zombies);
+        let zombies = c.for_game(map, GameMode::Zombies, PerkSet::Custom);
         assert!(zombies.raycast(from, Vec3::NEG_X, 1.4).is_some());
         assert!(zombies.sweep_sphere(from, center, 0.3).is_some(), "a body bumps into it");
     }

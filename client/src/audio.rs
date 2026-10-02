@@ -37,6 +37,9 @@ pub(crate) struct GameSounds {
     pub(crate) aim_out: Handle<AudioSource>,
     pub(crate) out_of_ammo: Handle<AudioSource>,
     pub(crate) slide: Handle<AudioSource>,
+    /// `audio/movement/phd_slider_slide.mp3` — a slide with PhD Flopper, in
+    /// place of `slide`.
+    pub(crate) phd_slide: Handle<AudioSource>,
     pub(crate) dive: Handle<AudioSource>,
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
@@ -69,14 +72,11 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/buy_pap.mp3` — we just Pack-a-Punched a weapon
     /// (`pap_menu`).
     pub(crate) pap_buy: Handle<AudioSource>,
-    /// `audio/zombies/jingles/<perk>.wav` — a perk machine's jingle, played
-    /// from the machine for the whole lobby when anyone buys that perk
-    /// (`zombies_hud::play_perk_jingles`). Pick one with [`Self::jingle`].
-    jingle_shroom_tea: Handle<AudioSource>,
-    jingle_nitro_brew: Handle<AudioSource>,
-    jingle_liquid_courage: Handle<AudioSource>,
-    jingle_bomb_shot: Handle<AudioSource>,
-    jingle_kangabrew: Handle<AudioSource>,
+    /// `audio/zombies/jingles/{custom,classic}/<perk>` — a perk machine's
+    /// jingle, played from the machine for the whole lobby when anyone buys
+    /// that perk (`zombies_hud::play_perk_jingles`). Pick one with
+    /// [`Self::jingle`].
+    jingles: std::collections::HashMap<shared::perks::Perk, Handle<AudioSource>>,
     /// `audio/zombies/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
@@ -130,13 +130,7 @@ pub(crate) struct GameSounds {
 impl GameSounds {
     /// `perk`'s machine jingle — `None` for a perk that doesn't have one yet.
     pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Option<Handle<AudioSource>> {
-        match perk {
-            shared::perks::Perk::ShroomTea => Some(self.jingle_shroom_tea.clone()),
-            shared::perks::Perk::NitroBrew => Some(self.jingle_nitro_brew.clone()),
-            shared::perks::Perk::LiquidCourage => Some(self.jingle_liquid_courage.clone()),
-            shared::perks::Perk::BombShot => Some(self.jingle_bomb_shot.clone()),
-            shared::perks::Perk::Kangabrew => Some(self.jingle_kangabrew.clone()),
-        }
+        self.jingles.get(&perk).cloned()
     }
 }
 
@@ -361,6 +355,7 @@ impl SoundVolumes {
             (sounds.aim_out.id(), self.aim_out),
             (sounds.out_of_ammo.id(), self.out_of_ammo),
             (sounds.slide.id(), self.slide),
+            (sounds.phd_slide.id(), self.slide),
             (sounds.dive.id(), self.dive),
             (sounds.kill_enemy.id(), self.kill_enemy),
             (sounds.jump_land.id(), self.jump_land),
@@ -481,6 +476,12 @@ impl RemoteSoundSettings {
 
     /// The per-sound gain for a `killcam::SND_*` bit (`1.0` for an unknown one).
     pub(crate) fn for_bit(&self, bit: u16) -> f32 {
+        // (PhD Flopper's slide goes by the slide's.)
+        let bit = if bit == crate::killcam::SND_PHD_SLIDE {
+            crate::killcam::SND_SLIDE
+        } else {
+            bit
+        };
         let mut copy = *self;
         copy.field_mut(bit).map_or(1.0, |(_, v)| *v)
     }
@@ -524,6 +525,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         aim_out: asset_server.load("audio/weapons/sniper/aim_out.mp3"),
         out_of_ammo: asset_server.load("audio/weapons/sniper/out_of_ammo.mp3"),
         slide: asset_server.load("audio/movement/slide.mp3"),
+        phd_slide: asset_server.load("audio/movement/phd_slider_slide.mp3"),
         dive: asset_server.load("audio/movement/dive.mp3"),
         kill_enemy: asset_server.load("audio/combat/kill_enemy.mp3"),
         jump_land: asset_server.load("audio/movement/jump_land.mp3"),
@@ -540,11 +542,27 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),
         perk_buy: asset_server.load("audio/zombies/buy_perk.mp3"),
         pap_buy: asset_server.load("audio/zombies/buy_pap.mp3"),
-        jingle_shroom_tea: asset_server.load("audio/zombies/jingles/shroom_tea.wav"),
-        jingle_nitro_brew: asset_server.load("audio/zombies/jingles/nitro_brew.wav"),
-        jingle_liquid_courage: asset_server.load("audio/zombies/jingles/liquid_courage.wav"),
-        jingle_bomb_shot: asset_server.load("audio/zombies/jingles/bomb_shot.wav"),
-        jingle_kangabrew: asset_server.load("audio/zombies/jingles/kangabrew.wav"),
+        jingles: {
+            use shared::perks::Perk;
+            [
+                (Perk::ShroomTea, "custom/shroom_tea.wav"),
+                (Perk::NitroBrew, "custom/nitro_brew.wav"),
+                (Perk::LiquidCourage, "custom/liquid_courage.wav"),
+                (Perk::BombShot, "custom/bomb_shot.wav"),
+                (Perk::Kangabrew, "custom/kangabrew.wav"),
+                (Perk::Juggernog, "classic/jug.mp3"),
+                (Perk::QuickRevive, "classic/quick_revive.mp3"),
+                (Perk::SpeedCola, "classic/speed_cola.mp3"),
+                (Perk::StaminUp, "classic/stamin_up.mp3"),
+                (Perk::DoubleTap, "classic/double_tap.mp3"),
+                (Perk::DeadshotDaiquiri, "classic/dead_shot.mp3"),
+                (Perk::PhdFlopper, "classic/phd_slider.mp3"),
+                (Perk::DeathPerception, "classic/death_perception.mp3"),
+            ]
+            .into_iter()
+            .map(|(perk, file)| (perk, asset_server.load(format!("audio/zombies/jingles/{file}"))))
+            .collect()
+        },
         power_on: asset_server.load("audio/zombies/power_on.mp3"),
         machine_hum: asset_server.load("audio/zombies/pap_buzzing.mp3"),
         round_start: asset_server.load("audio/zombies/round_start.wav"),

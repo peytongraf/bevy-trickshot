@@ -6,15 +6,14 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Classic CoD perks + perk set setting
 - Aim recoil for all weapons
 - Tracers start from the barrel
 
-# AK-74
-
 # New
 
+- Organize audio/zombies dir
 - When first launching the game it takes a second for the ui to fully load and fill out
-- Add original zombies perks. Have a setting to use original perks or custom perks.
 - Shroom tea still shows glow on zombies bodies when they aren't behind a wall
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
 - Molotov damage shoudld be doubled.

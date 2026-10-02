@@ -59,6 +59,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_bots_passive)
             .add_observer(on_set_bots_frozen)
             .add_observer(on_set_loadout)
+            .add_observer(on_set_perk_set)
             .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
@@ -179,6 +180,7 @@ fn on_create(
                 bomb_test: false,
                 start_round: 1,
                 start_points: 0,
+                perk_set: Default::default(),
                 power_on: false,
                 members: vec![LobbyMember {
                     peer,
@@ -714,6 +716,19 @@ fn on_set_zombies_start(trigger: Trigger<RemoteTrigger<SetZombiesStart>>, mut lo
     }
 }
 
+/// The leader picks which perks a `Zombies` game's machines sell while the
+/// lobby is still waiting.
+fn on_set_perk_set(trigger: Trigger<RemoteTrigger<shared::SetPerkSet>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let set = trigger.trigger.set;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        if lobby.perk_set != set {
+            lobby.perk_set = set;
+            info!("lobby perks set to {set:?} by {peer:?}");
+        }
+    }
+}
+
 /// The leader picks what a `FreeForAll` match replays at the end while the
 /// lobby is still waiting.
 fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
@@ -852,6 +867,7 @@ mod tests {
             bomb_test: false,
             start_round: 1,
             start_points: 0,
+            perk_set: Default::default(),
             power_on: false,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),

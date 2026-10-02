@@ -23,7 +23,7 @@ use shared::bot_players::is_bot_peer;
 use shared::weapon::LOADOUT_SWAP_GRACE_SECS;
 use shared::PlayerInput;
 use shared::health::{
-    fall_damage, FULL_HEALTH, REGEN_DELAY_SECS, REGEN_PER_SEC,
+    fall_damage, FULL_HEALTH,
 };
 
 /// Seconds a dead player stays untargetable / unable to fire before they can
@@ -62,6 +62,9 @@ pub struct PlayerCombat {
     /// swaps their gun on the spot ([`Self::can_swap_loadout`]).
     life_started: f32,
     fired: bool,
+    /// `Time::elapsed_secs()` this player's next PhD Flopper explosion may
+    /// go off ([`Self::try_phd_blast`]).
+    phd_ready_at: f32,
 }
 
 impl PlayerCombat {
@@ -78,6 +81,16 @@ impl PlayerCombat {
     /// `RespawnReady`.
     fn respawn(&mut self, now: f32) {
         *self = Self::spawned(now);
+    }
+
+    /// Whether a PhD Flopper explosion may go off now (alive, and past its
+    /// [`shared::perks::PHD_COOLDOWN_SECS`]) — starting the cooldown if so.
+    fn try_phd_blast(&mut self, now: f32) -> bool {
+        if !self.alive || now < self.phd_ready_at {
+            return false;
+        }
+        self.phd_ready_at = now + shared::perks::PHD_COOLDOWN_SECS;
+        true
     }
 
     /// Call of Duty's class-swap grace: alive, spawned no more than
@@ -109,6 +122,7 @@ impl Default for PlayerCombat {
             respawn_at: 0.0,
             life_started: 0.0,
             fired: false,
+            phd_ready_at: 0.0,
         }
     }
 }
@@ -134,12 +148,15 @@ pub struct PlayerHit {
 
 /// A Bomb Shot went off in `lobby` with its base at `feet`, set off by `by`
 /// — written by [`apply_player_hits`] when a zombie dies to one, consumed by
-/// [`apply_bomb_blasts`].
+/// [`apply_bomb_blasts`]. `phd` marks PhD Flopper's instead (a slide into an
+/// enemy, [`on_phd_slam`], or a big drop, [`on_fall_landed`]) — the same
+/// damage, drawn purple.
 #[derive(Event)]
 pub struct BombBlast {
     pub lobby: Entity,
     pub feet: Vec3,
     pub by: PeerId,
+    pub phd: bool,
 }
 
 /// A player killed a `Zombies` zombie standing at `feet` in `lobby` —
@@ -171,6 +188,7 @@ impl Plugin for PvpPlugin {
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
             .add_observer(on_respawn_ready)
+            .add_observer(on_phd_slam)
             .add_systems(
                 FixedUpdate,
                 (
@@ -299,6 +317,7 @@ pub(crate) fn apply_player_hits(
                         lobby: lobby_e,
                         feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
                         by: ev.killer,
+                        phd: false,
                     });
                 }
             }
@@ -429,6 +448,7 @@ fn apply_bomb_blasts(
         let msg = shared::BombExplosion {
             feet: blast.feet.to_array(),
             variant: variant as u8,
+            phd: blast.phd,
         };
         if let Err(e) =
             sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))
@@ -455,7 +475,8 @@ fn apply_bomb_blasts(
                 critical: false,
             });
         }
-        info!("{:?}'s bomb shot went off, catching {n} zombies", blast.by);
+        let what = if blast.phd { "PhD Flopper blast" } else { "bomb shot" };
+        info!("{:?}'s {what} went off, catching {n} zombies", blast.by);
     }
 }
 
@@ -505,18 +526,47 @@ fn on_fall_landed(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    (mut endings, clock): (
+    (mut endings, clock, mut blasts): (
         ResMut<crate::killcam::EndingLobbies>,
         Res<crate::killcam::ReplayClock>,
+        EventWriter<BombBlast>,
     ),
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
-    // Liquid Courage and Kangabrew (`Zombies` perks) soften falls.
-    let perks: &[shared::perks::Perk] = lobbies
+    // Liquid Courage and Kangabrew (`Zombies` perks) soften falls; PhD
+    // Flopper takes none at all, and a big enough drop explodes.
+    let (lobby_e, perks): (Option<Entity>, &[shared::perks::Perk]) = lobbies
         .iter()
-        .find_map(|(_, l)| l.members.iter().find(|m| m.peer == peer))
-        .map_or(&[], |m| m.perks.as_slice());
+        .find_map(|(e, l)| {
+            l.members
+                .iter()
+                .find(|m| m.peer == peer)
+                .map(|m| ((l.started && l.mode == GameMode::Zombies && !l.paused).then_some(e), m.perks.as_slice()))
+        })
+        .unwrap_or((None, &[]));
+    if let Some(lobby_e) = lobby_e.filter(|e| !endings.is_ending(*e)) {
+        if perks.contains(&shared::perks::Perk::PhdFlopper)
+            && landed.distance >= shared::perks::PHD_DROP_MIN_DISTANCE
+        {
+            let feet = poses
+                .iter()
+                .find(|(id, _)| id.0 == peer)
+                .map(|(_, pose)| pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT);
+            let ready = combats
+                .iter_mut()
+                .find(|(id, _)| id.0 == peer)
+                .is_some_and(|(_, mut c)| c.try_phd_blast(time.elapsed_secs()));
+            if let (Some(feet), true) = (feet, ready) {
+                blasts.write(BombBlast {
+                    lobby: lobby_e,
+                    feet,
+                    by: peer,
+                    phd: true,
+                });
+            }
+        }
+    }
     let damage = shared::perks::fall_damage_taken(perks, fall_damage(landed.distance));
     if damage <= 0.0 {
         return;
@@ -546,6 +596,64 @@ fn on_fall_landed(
         info!("{peer:?} died from a {:.1} m fall", landed.distance);
     } else {
         info!("{peer:?} took {damage:.0} fall damage");
+    }
+}
+
+/// A PhD Flopper owner slid into an enemy ([`shared::PhdSlam`]): if they
+/// really have the perk in a running, unpaused `Zombies` game, its cooldown's
+/// up, and a live zombie is close to where the server has them, it explodes
+/// at their feet.
+fn on_phd_slam(
+    trigger: Trigger<RemoteTrigger<shared::PhdSlam>>,
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    lobbies: Query<(Entity, &Lobby)>,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
+    poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
+    mut blasts: EventWriter<BombBlast>,
+) {
+    let peer = trigger.from;
+    let Some((lobby_e, _)) = lobbies.iter().find(|(e, l)| {
+        l.started
+            && l.mode == GameMode::Zombies
+            && !l.paused
+            && !endings.is_ending(*e)
+            && l.members
+                .iter()
+                .any(|m| m.peer == peer && m.perks.contains(&shared::perks::Perk::PhdFlopper))
+    }) else {
+        return;
+    };
+    let Some(feet) = poses
+        .iter()
+        .find(|(id, ..)| id.0 == peer)
+        .map(|(_, pose, _)| pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT)
+    else {
+        return;
+    };
+    let alive = |p: PeerId| combats.iter().any(|(id, c)| id.0 == p && c.alive);
+    let enemy_close = poses.iter().any(|(id, pose, lp)| {
+        lp.lobby == lobby_e
+            && is_bot_peer(id.0)
+            && alive(id.0)
+            && (pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT).distance(feet)
+                <= shared::perks::PHD_SLAM_SERVER_RADIUS
+    });
+    if !enemy_close {
+        return;
+    }
+    let now = time.elapsed_secs();
+    let ready = combats
+        .iter_mut()
+        .find(|(id, _)| id.0 == peer)
+        .is_some_and(|(_, mut c)| c.try_phd_blast(now));
+    if ready {
+        blasts.write(BombBlast {
+            lobby: lobby_e,
+            feet,
+            by: peer,
+            phd: true,
+        });
     }
 }
 
@@ -717,6 +825,23 @@ fn tick_respawns(
             combat.life_started += dt;
             continue;
         }
+        // (A player's — not a zombie's — health follows their perks:
+        // Juggernog's bigger bar, Quick Revive's quicker regeneration.)
+        let perks: Vec<shared::perks::Perk> = if combat.regenerates {
+            lp.and_then(|lp| lobbies.get(lp.lobby).ok())
+                .and_then(|l| l.members.iter().find(|m| m.peer == id.0))
+                .map(|m| m.perks.clone())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if combat.regenerates {
+            let max = shared::perks::max_health(&perks);
+            if combat.max_health != max {
+                combat.max_health = max;
+                combat.health = combat.health.min(max);
+            }
+        }
         if !combat.alive && now >= combat.respawn_at {
             combat.respawn(now);
             if let Some(mut lobby) = lp.and_then(|lp| lobbies.get_mut(lp.lobby).ok()) {
@@ -725,10 +850,10 @@ fn tick_respawns(
         } else if combat.alive
             && combat.regenerates
             && combat.health < combat.max_health
-            && now - combat.last_damage >= REGEN_DELAY_SECS
+            && now - combat.last_damage >= shared::perks::regen_delay(&perks)
         {
             // Hurt but not dead: hold, then climb back linearly.
-            combat.health = (combat.health + REGEN_PER_SEC * dt).min(combat.max_health);
+            combat.health = (combat.health + shared::perks::regen_rate(&perks) * dt).min(combat.max_health);
         }
     }
 }
@@ -765,6 +890,7 @@ mod tests {
             respawn_at: 99.0,
             life_started: 3.0,
             fired: true,
+            phd_ready_at: 999.0,
         };
         c.respawn(120.0);
         assert!(c.alive);
@@ -774,6 +900,9 @@ mod tests {
         assert_eq!(c.respawn_at, 0.0);
         // A fresh loadout-swap grace.
         assert!(c.can_swap_loadout(120.0));
+        // PhD Flopper's cooldown doesn't carry over a death.
+        assert!(c.try_phd_blast(120.0));
+        assert!(!c.try_phd_blast(120.5));
     }
 
     #[test]

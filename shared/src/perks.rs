@@ -2,6 +2,11 @@
 //! from with their points (Call of Duty zombies' perk-a-colas). The server
 //! owns purchases (`server::zombies::on_buy_perk`); each member's owned perks
 //! are replicated in `LobbyMember::perks`.
+//!
+//! There are two sets, and a lobby plays one ([`PerkSet`],
+//! `Lobby::perk_set`): the game's own [`Perk::CUSTOM`] perks, or the
+//! [`Perk::CLASSIC`] Call of Duty ones, which behave as they do in Black
+//! Ops Cold War.
 
 use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -26,6 +31,108 @@ pub enum Perk {
     /// style). Movement is client-authoritative, so it's all client-side:
     /// `client::zombies_hud::Kangabrew`.
     Kangabrew,
+
+    // --- classic (Call of Duty, as in Cold War) ---
+    /// Juggernog — more maximum health ([`JUGGERNOG_MAX_HEALTH`]).
+    Juggernog,
+    /// Quick Revive — health starts coming back sooner and faster
+    /// ([`regen_delay`], [`regen_rate`]).
+    QuickRevive,
+    /// Speed Cola — faster reloads (client-side: `zombies_hud::NitroBrew`'s
+    /// classic multipliers).
+    SpeedCola,
+    /// Stamin-Up — faster movement (client-side, likewise).
+    StaminUp,
+    /// Double Tap — a faster rate of fire (client-side, likewise).
+    DoubleTap,
+    /// Deadshot Daiquiri — aiming down sights pulls onto enemies (the
+    /// client's aim assist, `player::shroom_aim_assist`).
+    DeadshotDaiquiri,
+    /// PhD Flopper — no fall damage, longer slides, and an explosion when
+    /// sliding into an enemy ([`crate::PhdSlam`]) or landing a big fall
+    /// ([`PHD_DROP_MIN_DISTANCE`]).
+    PhdFlopper,
+    /// Death Perception — enemies behind walls show as an outline
+    /// (client-side: `vfx::shroom_xray`).
+    DeathPerception,
+}
+
+/// Which perks a lobby's machines sell — set by the party leader before a
+/// `Zombies` game ([`crate::SetPerkSet`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default, Hash)]
+pub enum PerkSet {
+    /// The game's own perks ([`Perk::CUSTOM`]).
+    #[default]
+    Custom,
+    /// Call of Duty's ([`Perk::CLASSIC`]), as in Cold War.
+    Classic,
+}
+
+impl PerkSet {
+    pub const ALL: [PerkSet; 2] = [PerkSet::Custom, PerkSet::Classic];
+
+    /// Its perks, in the order their machines' spots are numbered.
+    pub fn perks(self) -> &'static [Perk] {
+        match self {
+            PerkSet::Custom => &Perk::CUSTOM,
+            PerkSet::Classic => &Perk::CLASSIC,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PerkSet::Custom => "CUSTOM",
+            PerkSet::Classic => "CLASSIC",
+        }
+    }
+}
+
+/// Juggernog's maximum health (everyone else's is
+/// [`crate::health::FULL_HEALTH`]).
+pub const JUGGERNOG_MAX_HEALTH: f32 = 150.0;
+
+/// Quick Revive: health starts coming back after this fraction of the usual
+/// [`crate::health::REGEN_DELAY_SECS`]...
+pub const QUICK_REVIVE_REGEN_DELAY_MULT: f32 = 0.5;
+/// ...and comes back this many times as fast.
+pub const QUICK_REVIVE_REGEN_RATE_MULT: f32 = 1.5;
+
+/// PhD Flopper: a landing from at least this far up (m, apex → landing)
+/// explodes.
+pub const PHD_DROP_MIN_DISTANCE: f32 = 5.0;
+/// PhD Flopper: a slide sets off its explosion when an enemy is within this
+/// far (m) of the slider's feet — the server allows a little more for the
+/// pose being a moment old ([`PHD_SLAM_SERVER_RADIUS`]).
+pub const PHD_SLAM_RADIUS: f32 = 1.3;
+pub const PHD_SLAM_SERVER_RADIUS: f32 = 3.0;
+/// PhD Flopper: seconds before one player's next explosion can go off.
+pub const PHD_COOLDOWN_SECS: f32 = 1.5;
+
+/// `perks`' maximum health.
+pub fn max_health(perks: &[Perk]) -> f32 {
+    if perks.contains(&Perk::Juggernog) {
+        JUGGERNOG_MAX_HEALTH
+    } else {
+        crate::health::FULL_HEALTH
+    }
+}
+
+/// Seconds after a hit before `perks`' health starts coming back.
+pub fn regen_delay(perks: &[Perk]) -> f32 {
+    if perks.contains(&Perk::QuickRevive) {
+        crate::health::REGEN_DELAY_SECS * QUICK_REVIVE_REGEN_DELAY_MULT
+    } else {
+        crate::health::REGEN_DELAY_SECS
+    }
+}
+
+/// Health a second `perks` get back once it's coming back.
+pub fn regen_rate(perks: &[Perk]) -> f32 {
+    if perks.contains(&Perk::QuickRevive) {
+        crate::health::REGEN_PER_SEC * QUICK_REVIVE_REGEN_RATE_MULT
+    } else {
+        crate::health::REGEN_PER_SEC
+    }
 }
 
 /// Damage a Liquid Courage owner takes, as a fraction of the normal amount
@@ -70,10 +177,13 @@ pub fn bomb_shot_damage(distance: f32) -> f32 {
 pub const KANGABREW_FALL_DAMAGE_MULT: f32 = 0.5;
 
 /// Fall `damage` scaled by what `perks` protect against — everything
-/// [`damage_taken`] covers, plus Kangabrew's softer landings.
+/// [`damage_taken`] covers, plus Kangabrew's softer landings; none at all
+/// with PhD Flopper.
 pub fn fall_damage_taken(perks: &[Perk], damage: f32) -> f32 {
     let damage = damage_taken(perks, damage);
-    if perks.contains(&Perk::Kangabrew) {
+    if perks.contains(&Perk::PhdFlopper) {
+        0.0
+    } else if perks.contains(&Perk::Kangabrew) {
         damage * KANGABREW_FALL_DAMAGE_MULT
     } else {
         damage
@@ -90,14 +200,62 @@ pub fn damage_taken(perks: &[Perk], damage: f32) -> f32 {
 }
 
 impl Perk {
-    /// Every perk, in the order their icons sit in the HUD.
-    pub const ALL: [Perk; 5] = [
+    /// The game's own perks, in the order their machines' spots are
+    /// numbered ([`Perk::slot`]).
+    pub const CUSTOM: [Perk; 5] = [
         Perk::ShroomTea,
         Perk::NitroBrew,
         Perk::LiquidCourage,
         Perk::BombShot,
         Perk::Kangabrew,
     ];
+
+    /// Call of Duty's, likewise. The first five stand where the custom
+    /// set's do; the rest have spots of their own.
+    pub const CLASSIC: [Perk; 8] = [
+        Perk::Juggernog,
+        Perk::QuickRevive,
+        Perk::SpeedCola,
+        Perk::StaminUp,
+        Perk::DoubleTap,
+        Perk::DeadshotDaiquiri,
+        Perk::PhdFlopper,
+        Perk::DeathPerception,
+    ];
+
+    /// Both sets.
+    pub const ALL: [Perk; 13] = [
+        Perk::ShroomTea,
+        Perk::NitroBrew,
+        Perk::LiquidCourage,
+        Perk::BombShot,
+        Perk::Kangabrew,
+        Perk::Juggernog,
+        Perk::QuickRevive,
+        Perk::SpeedCola,
+        Perk::StaminUp,
+        Perk::DoubleTap,
+        Perk::DeadshotDaiquiri,
+        Perk::PhdFlopper,
+        Perk::DeathPerception,
+    ];
+
+    /// The most perks one set has — what one player can own at once.
+    pub const MAX_PER_SET: usize = 8;
+
+    /// Which set it's from.
+    pub fn set(self) -> PerkSet {
+        if Perk::CUSTOM.contains(&self) {
+            PerkSet::Custom
+        } else {
+            PerkSet::Classic
+        }
+    }
+
+    /// Its machine's spot number: its place in its set.
+    pub fn slot(self) -> usize {
+        self.set().perks().iter().position(|&p| p == self).unwrap_or(0)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -106,6 +264,14 @@ impl Perk {
             Perk::LiquidCourage => "Liquid Courage",
             Perk::BombShot => "Bomb Shot",
             Perk::Kangabrew => "Kangabrew",
+            Perk::Juggernog => "Juggernog",
+            Perk::QuickRevive => "Quick Revive",
+            Perk::SpeedCola => "Speed Cola",
+            Perk::StaminUp => "Stamin-Up",
+            Perk::DoubleTap => "Double Tap",
+            Perk::DeadshotDaiquiri => "Deadshot Daiquiri",
+            Perk::PhdFlopper => "PhD Flopper",
+            Perk::DeathPerception => "Death Perception",
         }
     }
 
@@ -117,10 +283,21 @@ impl Perk {
             Perk::LiquidCourage => "Take less damage from everything.",
             Perk::BombShot => "360 no-scope kills explode, blowing up nearby zombies.",
             Perk::Kangabrew => "Jump three times as high, jump again off walls, and take half fall damage.",
+            Perk::Juggernog => "Increases maximum health.",
+            Perk::QuickRevive => "Health regeneration starts sooner and is faster.",
+            Perk::SpeedCola => "Reload faster.",
+            Perk::StaminUp => "Move faster.",
+            Perk::DoubleTap => "Increases rate of fire.",
+            Perk::DeadshotDaiquiri => "Aiming down sights snaps to enemies.",
+            Perk::PhdFlopper => {
+                "Immune to fall damage. Slide further, and sliding into enemies or landing from a height causes an explosion."
+            }
+            Perk::DeathPerception => "See enemies through walls.",
         }
     }
 
-    /// What's in it, for the machine's card (`client/notes/perk-ingredients.md`).
+    /// What's in it, for the machine's card (`client/notes/perk-ingredients.md`)
+    /// — the custom perks' own lore; the classic ones have none.
     pub fn ingredients(self) -> &'static [&'static str] {
         match self {
             Perk::ShroomTea => &[
@@ -177,6 +354,7 @@ impl Perk {
                 "A pinch of helium",
                 "Crushed parkour YouTube thumbnails",
             ],
+            _ => &[],
         }
     }
 
@@ -185,7 +363,8 @@ impl Perk {
     /// 1, 2,800 after round 4, 4,000 after round 5 and 10,800 after round 9:
     /// the cheaper perks come around rounds 3–4, Liquid Courage (the
     /// strongest, like Juggernog) around round 5, and the whole set plus
-    /// the power by about round 9.
+    /// the power by about round 9. The classic perks cost what they do in
+    /// Cold War.
     pub fn cost(self) -> u32 {
         match self {
             // X-ray + a little aim assist: handy, not life-saving.
@@ -198,54 +377,31 @@ impl Perk {
             Perk::BombShot => 2000,
             // Survive more hits — the one everyone wants first.
             Perk::LiquidCourage => 2500,
+            Perk::Juggernog => 2500,
+            Perk::QuickRevive => 500,
+            Perk::SpeedCola => 3000,
+            Perk::StaminUp => 2000,
+            Perk::DoubleTap => 2000,
+            Perk::DeadshotDaiquiri => 1500,
+            Perk::PhdFlopper => 2500,
+            Perk::DeathPerception => 3000,
         }
     }
 
     /// Where the perk's machine stands on `map` — the centre of the ground
     /// under it (feet level, like `Bot::pos`). The buy range, the machine's
-    /// collision box, its model, light and jingle all go from here. Maps
-    /// without a spot yet use somewhere near the origin.
+    /// collision box, its model, light and jingle all go from here. Each set
+    /// numbers its machines' spots the same way ([`Perk::slot`]), so the
+    /// classic set's first five stand where the custom set's do. Maps
+    /// without spots yet use somewhere near the origin.
     pub fn machine_pos(self, map: MapId) -> Vec3 {
-        match (self, map) {
-            // Ashes of the Damned: placeholders in a row across the
-            // ground-level platform until they're placed properly.
-            (_, MapId::AshesOfTheDamned) => Vec3::new(
-                match self {
-                    Perk::ShroomTea => -12.0,
-                    Perk::NitroBrew => -6.0,
-                    Perk::LiquidCourage => 0.0,
-                    Perk::BombShot => 6.0,
-                    Perk::Kangabrew => 12.0,
-                },
-                0.0,
-                -22.0,
-            ),
-            // Tuned in the client's debug panel ("Machine placement").
-            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-2.76, 4.8, -57.43),
-            (Perk::ShroomTea, _) => Vec3::ZERO,
-            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.62, 6.0, 13.54),
-            // Clear of Shroom Tea's origin spot.
-            (Perk::NitroBrew, _) => Vec3::new(6.0, 0.0, 0.0),
-            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(28.92, 6.0, 59.62),
-            (Perk::LiquidCourage, _) => Vec3::new(-6.0, 0.0, 0.0),
-            // Ground floor, under the upper walkway.
-            (Perk::BombShot, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-30.7, 0.0, -2.03),
-            (Perk::BombShot, _) => Vec3::new(0.0, 0.0, 6.0),
-            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => Vec3::new(-35.6, 15.6, -20.0),
-            (Perk::Kangabrew, _) => Vec3::new(0.0, 0.0, -6.0),
-        }
+        slot_pos(self.slot(), map)
     }
 
     /// Which way the perk's machine faces on `map`: its turn around the
     /// vertical axis (degrees).
     pub fn machine_yaw_deg(self, map: MapId) -> f32 {
-        match (self, map) {
-            (Perk::ShroomTea, MapId::BreakPoint | MapId::BreakPointNight) => -90.0,
-            (Perk::NitroBrew, MapId::BreakPoint | MapId::BreakPointNight) => 90.0,
-            (Perk::LiquidCourage, MapId::BreakPoint | MapId::BreakPointNight) => 180.0,
-            (Perk::Kangabrew, MapId::BreakPoint | MapId::BreakPointNight) => 90.0,
-            _ => 0.0,
-        }
+        slot_yaw_deg(self.slot(), map)
     }
 
     /// The machine's solid box on `map` (only there in `Zombies`):
@@ -256,6 +412,65 @@ impl Perk {
             Quat::from_rotation_y(self.machine_yaw_deg(map).to_radians()),
             MACHINE_HALF_EXTENTS,
         )
+    }
+}
+
+/// Machine spots past the custom set's five stand this far (m) to the side
+/// of one of those, along the wall it's backed against.
+const EXTRA_SLOT_SPACING: f32 = 3.2;
+
+/// Where machine spot `slot` is on `map` (see [`Perk::machine_pos`]).
+fn slot_pos(slot: usize, map: MapId) -> Vec3 {
+    match map {
+        // Ashes of the Damned: placeholders in a row across the ground-level
+        // platform until they're placed properly.
+        MapId::AshesOfTheDamned => {
+            const X: [f32; 8] = [-12.0, -6.0, 0.0, 6.0, 12.0, 18.0, -18.0, 24.0];
+            Vec3::new(X[slot % X.len()], 0.0, -22.0)
+        }
+        MapId::BreakPoint | MapId::BreakPointNight => {
+            // Tuned in the client's debug panel ("Machine placement").
+            const SPOTS: [Vec3; 5] = [
+                Vec3::new(-2.76, 4.8, -57.43),
+                Vec3::new(-35.62, 6.0, 13.54),
+                Vec3::new(28.92, 6.0, 59.62),
+                // Ground floor, under the upper walkway.
+                Vec3::new(-30.7, 0.0, -2.03),
+                Vec3::new(-35.6, 15.6, -20.0),
+            ];
+            if slot < SPOTS.len() {
+                SPOTS[slot]
+            } else {
+                // Beside one of the five, the same way round.
+                let beside = (slot - SPOTS.len()) % SPOTS.len();
+                let side = Quat::from_rotation_y(slot_yaw_deg(beside, map).to_radians()) * Vec3::X;
+                SPOTS[beside] + side * EXTRA_SLOT_SPACING
+            }
+        }
+        _ => {
+            const SPOTS: [Vec3; 8] = [
+                Vec3::ZERO,
+                Vec3::new(6.0, 0.0, 0.0),
+                Vec3::new(-6.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 6.0),
+                Vec3::new(0.0, 0.0, -6.0),
+                Vec3::new(6.0, 0.0, 6.0),
+                Vec3::new(-6.0, 0.0, 6.0),
+                Vec3::new(6.0, 0.0, -6.0),
+            ];
+            SPOTS[slot % SPOTS.len()]
+        }
+    }
+}
+
+/// Which way machine spot `slot` faces on `map` (degrees).
+fn slot_yaw_deg(slot: usize, map: MapId) -> f32 {
+    match map {
+        MapId::BreakPoint | MapId::BreakPointNight => {
+            const YAW: [f32; 5] = [-90.0, 90.0, 180.0, 0.0, 90.0];
+            YAW[slot % YAW.len()]
+        }
+        _ => 0.0,
     }
 }
 
@@ -330,14 +545,41 @@ mod tests {
 
     #[test]
     fn no_two_machines_can_be_bought_from_the_same_spot() {
-        for map in [MapId::BasicMap, MapId::Shipment, MapId::ShipmentDay, MapId::BreakPoint, MapId::BreakPointNight] {
-            for a in Perk::ALL {
-                for b in Perk::ALL {
-                    if a != b {
-                        assert!(!in_range(b, map, a.machine_pos(map), 0.75), "{a:?}/{b:?} on {map:?}");
+        for map in [
+            MapId::BasicMap,
+            MapId::Shipment,
+            MapId::ShipmentDay,
+            MapId::BreakPoint,
+            MapId::BreakPointNight,
+            MapId::AshesOfTheDamned,
+        ] {
+            for set in PerkSet::ALL {
+                for &a in set.perks() {
+                    for &b in set.perks() {
+                        if a != b {
+                            assert!(!in_range(b, map, a.machine_pos(map), 0.75), "{a:?}/{b:?} on {map:?}");
+                        }
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    fn both_sets_share_the_first_five_spots() {
+        for (c, k) in Perk::CUSTOM.iter().zip(Perk::CLASSIC.iter()) {
+            assert_eq!(c.machine_pos(MapId::BreakPoint), k.machine_pos(MapId::BreakPoint));
+        }
+        assert_eq!(Perk::DeathPerception.slot(), 7);
+        assert_eq!(Perk::DeathPerception.set(), PerkSet::Classic);
+    }
+
+    #[test]
+    fn classic_health_perks() {
+        assert_eq!(max_health(&[]), crate::health::FULL_HEALTH);
+        assert_eq!(max_health(&[Perk::Juggernog]), JUGGERNOG_MAX_HEALTH);
+        assert!(regen_delay(&[Perk::QuickRevive]) < regen_delay(&[]));
+        assert!(regen_rate(&[Perk::QuickRevive]) > regen_rate(&[]));
+        assert_eq!(fall_damage_taken(&[Perk::PhdFlopper], 80.0), 0.0);
     }
 }

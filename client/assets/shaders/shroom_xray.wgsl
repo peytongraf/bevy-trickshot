@@ -1,5 +1,6 @@
 // Shroom "x-ray": a bright, hazy, smoke-edged ghost of an enemy seen through
-// walls. Drawn on a twin of each enemy mesh (same skin, so it animates with
+// walls — or, with `outline` set (the classic Death Perception perk), just a
+// clean glowing outline of them. Drawn on a twin of each enemy mesh (same skin, so it animates with
 // it) whose pipeline only passes where something is *in front* of it (see
 // `ShroomXrayMaterial::specialize`) — by at least `min_gap` metres, so the
 // enemy's own limbs / gun covering its body don't count — so it shows
@@ -27,6 +28,8 @@ struct XrayParams {
     smoke_amount: f32,
     shimmer: f32,
     min_gap: f32,
+    // 0 = the shroom's hazy ghost; 1 = an outline only (Death Perception).
+    outline: f32,
 }
 @group(2) @binding(0) var<uniform> x: XrayParams;
 
@@ -125,6 +128,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
     // 1 facing us (the body's middle) … 0 at the silhouette.
     let facing = clamp(abs(dot(n, v)), 0.0, 1.0);
+
+    // Outline: bright only where the surface turns away from us (the
+    // silhouette), dark through the body — no smoke, no hue wobble.
+    if (x.outline > 0.5) {
+        let rim = pow(1.0 - facing, max(x.edge_softness, 0.01));
+        let a = clamp(x.strength * rim, 0.0, 1.0);
+        return vec4<f32>(x.color.rgb * x.color.a * a, 0.0);
+    }
     // Bright through the body, fading out toward (and past) the outline.
     let body = x.fill + (1.0 - x.fill) * pow(facing, x.edge_softness);
 

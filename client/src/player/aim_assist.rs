@@ -1,5 +1,6 @@
-//! Shroom aim assist: while the shroom effect is on and the player is aimed
-//! down sight, a bot within a small cone of the crosshair (and in plain
+//! Shroom aim assist: while the shroom effect is on (or with the classic
+//! Deadshot Daiquiri perk, at full strength) and the player is aimed down
+//! sight, a bot within a small cone of the crosshair (and in plain
 //! sight) gently pulls the aim onto its upper chest. Strength follows the
 //! effect's own fade (`ShroomLevel`); tuned from the debug panel's "Shroom
 //! effect" section (`ShroomSettings::assist_*`).
@@ -44,6 +45,7 @@ pub(crate) fn shroom_aim_assist(
     time: Res<Time>,
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
+    classic: Res<crate::zombies_hud::ClassicPerks>,
     ads: Res<Ads>,
     rapier: ReadRapierContext,
     bot_players: Query<(&shared::PlayerPose, &shared::PlayerId), With<Interpolated>>,
@@ -51,7 +53,13 @@ pub(crate) fn shroom_aim_assist(
     mut player: Single<&mut Transform, (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
-    if !settings.assist_enabled || level.0 <= 1e-3 || ads.t < settings.assist_min_ads {
+    // Deadshot Daiquiri (a classic perk) gives the full pull, no shroom needed.
+    let level = if classic.has(shared::perks::Perk::DeadshotDaiquiri) {
+        1.0
+    } else {
+        level.0
+    };
+    if !settings.assist_enabled || level <= 1e-3 || ads.t < settings.assist_min_ads {
         return;
     }
     let dt = time.delta_secs();
@@ -105,9 +113,9 @@ pub(crate) fn shroom_aim_assist(
     let (want_yaw, want_pitch) = look_angles(dir);
     let (dy, dp) = (wrap(want_yaw - yaw), want_pitch - pitch);
     let closeness = 1.0 - (off / cone.max(1e-4)).clamp(0.0, 1.0);
-    let pull = settings.assist_strength * (0.35 + 0.65 * closeness) * level.0;
+    let pull = settings.assist_strength * (0.35 + 0.65 * closeness) * level;
     let frac = 1.0 - (-pull * dt).exp();
-    let max_step = settings.assist_max_speed_deg.to_radians() * level.0 * dt;
+    let max_step = settings.assist_max_speed_deg.to_radians() * level * dt;
     let step = Vec2::new(dy, dp) * frac;
     let step = if step.length() > max_step {
         step.normalize_or_zero() * max_step

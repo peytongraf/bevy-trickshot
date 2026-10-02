@@ -1,6 +1,8 @@
 //! Shroom "x-ray": while the shroom effect is on, enemy bots hidden behind
 //! walls show through them as a bright, hazy, smoke-edged yellow ghost of
-//! their model (never over them while they're in plain sight).
+//! their model (never over them while they're in plain sight). The classic
+//! Death Perception perk uses the same twins with a second material: a clean
+//! orange outline instead of the ghost.
 //!
 //! How: each enemy avatar's meshes get a twin — same mesh, same
 //! `SkinnedMesh` (so it follows the very same bones and animates in lockstep)
@@ -58,6 +60,8 @@ mod params {
         pub(crate) smoke_amount: f32,
         pub(crate) shimmer: f32,
         pub(crate) min_gap: f32,
+        /// `0` = the shroom's ghost, `1` = an outline only.
+        pub(crate) outline: f32,
     }
 }
 
@@ -96,9 +100,10 @@ impl Material for ShroomXrayMaterial {
     }
 }
 
-/// The one material every twin shares (built on first use).
+/// The materials every twin switches between (built on first use): the
+/// shroom's ghost, and Death Perception's outline.
 #[derive(Resource)]
-struct XrayMaterialHandle(Handle<ShroomXrayMaterial>);
+struct XrayMaterialHandle(Handle<ShroomXrayMaterial>, Handle<ShroomXrayMaterial>);
 
 /// On an enemy avatar once its meshes have their twins.
 #[derive(Component)]
@@ -137,6 +142,27 @@ fn params(settings: &ShroomSettings, level: f32) -> XrayParams {
         smoke_amount: settings.xray_smoke_amount,
         shimmer: settings.xray_shimmer,
         min_gap: settings.xray_min_gap,
+        outline: 0.0,
+    }
+}
+
+/// Death Perception's outline (the classic perk, `ClassicPerks`): the same
+/// see-through-walls twin, drawn as an orange rim instead of a ghost.
+fn outline_params(settings: &ShroomSettings, classic: &crate::zombies_hud::ClassicPerks) -> XrayParams {
+    let [r, g, b] = classic.death_perception_color;
+    let lin = Color::srgb(r, g, b).to_linear();
+    XrayParams {
+        color: Vec4::new(lin.red, lin.green, lin.blue, classic.death_perception_brightness),
+        strength: 1.0,
+        inflate: classic.death_perception_inflate,
+        fill: 0.0,
+        edge_softness: classic.death_perception_sharpness,
+        smoke_scale: 1.0,
+        smoke_speed: 0.0,
+        smoke_amount: 0.0,
+        shimmer: 0.0,
+        min_gap: settings.xray_min_gap,
+        outline: 1.0,
     }
 }
 
@@ -172,7 +198,10 @@ fn twin_enemy_meshes(
             let h = materials.add(ShroomXrayMaterial {
                 params: params(&settings, level.0),
             });
-            commands.insert_resource(XrayMaterialHandle(h.clone()));
+            let outline = materials.add(ShroomXrayMaterial {
+                params: outline_params(&settings, &default()),
+            });
+            commands.insert_resource(XrayMaterialHandle(h.clone(), outline));
             h
         }
     };
@@ -202,37 +231,52 @@ fn twin_enemy_meshes(
 }
 
 /// Follow the shroom effect's fade and the panel's look; hide the twins
-/// outright while the effect is off.
+/// outright while the effect is off. With Death Perception they draw its
+/// outline instead.
 fn update_xray(
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
+    classic: Res<crate::zombies_hud::ClassicPerks>,
     handle: Option<Res<XrayMaterialHandle>>,
     mut materials: ResMut<Assets<ShroomXrayMaterial>>,
-    mut twins: Query<&mut Visibility, With<XrayTwin>>,
+    mut twins: Query<(&mut Visibility, &mut MeshMaterial3d<ShroomXrayMaterial>), With<XrayTwin>>,
 ) {
-    let on = level.0 > 1e-3;
-    for mut vis in &mut twins {
-        vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
-    }
+    let outline = classic.has(shared::perks::Perk::DeathPerception);
+    let on = outline || level.0 > 1e-3;
     let Some(handle) = handle else { return };
+    let material = if outline { &handle.1 } else { &handle.0 };
+    for (mut vis, mut mat) in &mut twins {
+        vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if mat.0 != *material {
+            mat.0 = material.clone();
+        }
+    }
+    let want_outline = outline_params(&settings, &classic);
+    if materials.get(&handle.1).is_some_and(|m| params_differ(&m.params, &want_outline)) {
+        if let Some(m) = materials.get_mut(&handle.1) {
+            m.params = want_outline;
+        }
+    }
     let want = params(&settings, level.0);
     // (`get` first so an unchanged material isn't re-uploaded every frame.)
-    let changed = materials.get(&handle.0).is_some_and(|m| {
-        let p = m.params;
-        p.color != want.color
-            || p.strength != want.strength
-            || p.inflate != want.inflate
-            || p.fill != want.fill
-            || p.edge_softness != want.edge_softness
-            || p.smoke_scale != want.smoke_scale
-            || p.smoke_speed != want.smoke_speed
-            || p.smoke_amount != want.smoke_amount
-            || p.shimmer != want.shimmer
-            || p.min_gap != want.min_gap
-    });
+    let changed = materials.get(&handle.0).is_some_and(|m| params_differ(&m.params, &want));
     if changed {
         if let Some(m) = materials.get_mut(&handle.0) {
             m.params = want;
         }
     }
+}
+
+fn params_differ(p: &XrayParams, want: &XrayParams) -> bool {
+    p.color != want.color
+        || p.strength != want.strength
+        || p.inflate != want.inflate
+        || p.fill != want.fill
+        || p.edge_softness != want.edge_softness
+        || p.smoke_scale != want.smoke_scale
+        || p.smoke_speed != want.smoke_speed
+        || p.smoke_amount != want.smoke_amount
+        || p.shimmer != want.shimmer
+        || p.min_gap != want.min_gap
+        || p.outline != want.outline
 }

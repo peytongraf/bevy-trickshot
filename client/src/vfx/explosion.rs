@@ -36,6 +36,19 @@ pub(crate) struct Explosion {
     /// Which explosion sound (`% clips`) — the server's pick, so everyone
     /// hears the same one.
     pub(crate) variant: u8,
+    /// PhD Flopper's: the same blast, burning purple ([`PhdTint`]).
+    pub(crate) phd: bool,
+}
+
+/// On a PhD Flopper explosion's sprites: its fire, flash and sparks burn
+/// purple instead of orange.
+#[derive(Component)]
+pub(crate) struct PhdTint;
+
+/// A warm explosion colour turned PhD Flopper purple — the red channel kept
+/// as the brightness, the blue raised to match it.
+fn purple(c: [f32; 3]) -> [f32; 3] {
+    [c[0] * 0.62 + c[2] * 0.1, c[1] * 0.22, c[0] * 0.95 + c[2] * 0.3]
 }
 
 /// Panel-adjustable explosion look. `scale` multiplies every size/speed so the
@@ -364,6 +377,7 @@ fn receive_bomb_explosions(
             boom.write(Explosion {
                 feet: Vec3::from_array(msg.feet),
                 variant: msg.variant,
+                phd: msg.phd,
             });
         }
     }
@@ -389,6 +403,7 @@ fn fire_preview(
     boom.write(Explosion {
         feet,
         variant: *count,
+        phd: false,
     });
 }
 
@@ -446,7 +461,11 @@ fn spawn_explosions(
                 peak: s.light_intensity,
             },
             PointLight {
-                color: Color::srgb(1.0, 0.62, 0.3),
+                color: if ev.phd {
+                    Color::srgb(0.7, 0.25, 1.0)
+                } else {
+                    Color::srgb(1.0, 0.62, 0.3)
+                },
                 intensity: s.light_intensity,
                 range: s.light_range * k,
                 radius: 0.5 * k,
@@ -456,6 +475,7 @@ fn spawn_explosions(
             Transform::from_translation(center + Vec3::Y * 0.5 * k),
         ));
 
+        let phd = ev.phd;
         let mut spawn = |commands: &mut Commands,
                          materials: &mut Assets<StandardMaterial>,
                          p: ExplosionParticle,
@@ -465,7 +485,7 @@ fn spawn_explosions(
                 return;
             }
             budget -= 1;
-            commands.spawn((
+            let mut e = commands.spawn((
                 StateScoped(AppState::InGame),
                 Mesh3d(assets.quad.clone()),
                 MeshMaterial3d(materials.add(material)),
@@ -474,6 +494,9 @@ fn spawn_explosions(
                 NoFrustumCulling,
                 NotShadowCaster,
             ));
+            if phd {
+                e.insert(PhdTint);
+            }
         };
 
         // White-hot flash.
@@ -680,6 +703,7 @@ fn update_explosion_particles(
         &mut Transform,
         &mut ExplosionParticle,
         &MeshMaterial3d<StandardMaterial>,
+        Has<PhdTint>,
     )>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -690,7 +714,7 @@ fn update_explosion_particles(
     let cam_up = cam_rot * Vec3::Y;
     let cam_right = cam_rot * Vec3::X;
 
-    for (entity, mut transform, mut p, material) in &mut particles {
+    for (entity, mut transform, mut p, material, phd) in &mut particles {
         if p.delay > 0.0 {
             p.delay -= dt;
             continue;
@@ -781,6 +805,13 @@ fn update_explosion_particles(
             )
         };
 
+        // PhD Flopper's burns purple (its debris and dust stay as they are).
+        let color = if phd && matches!(p.kind, Kind::Flash | Kind::Fire | Kind::Spark | Kind::Smoke) {
+            let [r, g, b] = purple([color.red, color.green, color.blue]);
+            LinearRgba::new(r, g, b, color.alpha)
+        } else {
+            color
+        };
         if let Some(m) = materials.get_mut(&material.0) {
             m.base_color = Color::LinearRgba(color);
         }

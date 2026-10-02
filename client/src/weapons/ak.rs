@@ -306,7 +306,7 @@ pub(crate) fn update_ak_walk_bob(
     cfg: Res<AkSettings>,
     weapon: Res<Weapon>,
     sprinting: Res<crate::player::Sprinting>,
-    nitro: Res<crate::zombies_hud::NitroBrew>,
+    (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
     physics: Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
     mut bob: ResMut<AkWalkBob>,
 ) {
@@ -320,7 +320,7 @@ pub(crate) fn update_ak_walk_bob(
     let k = 1.0 - (-dt * 8.0).exp();
     bob.weight += (target - bob.weight) * k;
     if bob.weight > 1e-3 {
-        let hz = if sprinting.0 { cfg.sprint_bob_hz } else { cfg.walk_bob_hz } * nitro.movement();
+        let hz = if sprinting.0 { cfg.sprint_bob_hz } else { cfg.walk_bob_hz } * nitro.movement() * classic.movement();
         bob.phase = (bob.phase + dt * hz * std::f32::consts::TAU) % std::f32::consts::TAU;
     } else {
         bob.phase = 0.0;
