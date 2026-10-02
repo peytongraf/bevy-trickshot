@@ -2278,8 +2278,13 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut s.xray_smoke_amount, 0.0f32..=1.0).text("smokiness"));
                     ui.add(egui::Slider::new(&mut s.xray_shimmer, 0.0f32..=1.5).text("hue wobble (rad)"));
                     ui.add(
+                        egui::Slider::new(&mut s.xray_body_radius, 0.0f32..=2.0)
+                            .text("body radius (m) — own parts never count as cover"),
+                    );
+                    ui.add(egui::Slider::new(&mut s.xray_body_height, 0.0f32..=2.0).text("body middle above feet (m)"));
+                    ui.add(
                         egui::Slider::new(&mut s.xray_min_gap, 0.0f32..=2.0)
-                            .text("min wall gap (m) — ignores own limbs/gun"),
+                            .text("min wall gap (m)"),
                     );
                     ui.label("Aim assist (while aimed down sight)");
                     ui.checkbox(&mut s.assist_enabled, "aim assist enabled");

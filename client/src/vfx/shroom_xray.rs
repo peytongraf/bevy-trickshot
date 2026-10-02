@@ -9,11 +9,13 @@
 //! — drawn with [`ShroomXrayMaterial`] (`assets/shaders/shroom_xray.wgsl`).
 //! Its pipeline flips the depth test to pass only where something is in
 //! *front* of it and writes no depth, blending additively: so it appears
-//! exactly where the enemy is hidden. "In front" means by at least
-//! `ShroomSettings::xray_min_gap`: the vertex shader pulls the twin that far
-//! toward the camera along each view ray (same spot on screen, only its
-//! depth moves), so the enemy's own limbs and gun covering its body — a few
-//! tens of centimetres in front — don't count, and only real cover does. (A twin rather than a second material
+//! exactly where the enemy is hidden. "In front" means in front of the enemy's
+//! whole body — a sphere `ShroomSettings::xray_body_radius` round its middle,
+//! passed per enemy in its own material ([`XrayParams::anchor`]): the vertex
+//! shader pulls the twin toward the camera along each view ray to that
+//! sphere's near side (same spot on screen, only its depth moves), so none of
+//! the enemy's own parts — an arm behind its back, its gun, its legs — can
+//! ever count as cover; only real cover does. (A twin rather than a second material
 //! on the same entity: Bevy 0.16 keeps one material per entity.)
 //!
 //! "Enemy bots" = `Zombies` zombies (their own model, [`crate::ZombieVisual`])
@@ -47,10 +49,14 @@ mod params {
     use bevy::render::render_resource::ShaderType;
 
     /// Mirrors `XrayParams` in the shader.
-    #[derive(Clone, Copy, Default, ShaderType)]
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct XrayParams {
         /// rgb = colour, a = brightness multiplier.
         pub(crate) color: Vec4,
+        /// xyz = the middle of this enemy's body, w = how far (m) its own
+        /// parts reach from there: only something nearer the camera than
+        /// that whole sphere counts as hiding it.
+        pub(crate) anchor: Vec4,
         pub(crate) strength: f32,
         pub(crate) inflate: f32,
         pub(crate) fill: f32,
@@ -100,14 +106,11 @@ impl Material for ShroomXrayMaterial {
     }
 }
 
-/// The materials every twin switches between (built on first use): the
-/// shroom's ghost, and Death Perception's outline.
-#[derive(Resource)]
-struct XrayMaterialHandle(Handle<ShroomXrayMaterial>, Handle<ShroomXrayMaterial>);
-
-/// On an enemy avatar once its meshes have their twins.
+/// On an enemy avatar once its meshes have their twins: the twins' own
+/// material — one per enemy, since it carries where that enemy is
+/// ([`XrayParams::anchor`]).
 #[derive(Component)]
-struct XrayTwinned;
+struct XrayTwinned(Handle<ShroomXrayMaterial>);
 
 /// A twin mesh drawing the ghost.
 #[derive(Component)]
@@ -128,11 +131,13 @@ impl Plugin for ShroomXrayPlugin {
     }
 }
 
+/// The shroom's ghost look (`anchor` is filled in per enemy).
 fn params(settings: &ShroomSettings, level: f32) -> XrayParams {
     let [r, g, b] = settings.xray_color;
     let lin = Color::srgb(r, g, b).to_linear();
     XrayParams {
         color: Vec4::new(lin.red, lin.green, lin.blue, settings.xray_brightness),
+        anchor: Vec4::ZERO,
         strength: settings.xray_opacity * level,
         inflate: settings.xray_inflate,
         fill: settings.xray_fill,
@@ -153,6 +158,7 @@ fn outline_params(settings: &ShroomSettings, classic: &crate::zombies_hud::Class
     let lin = Color::srgb(r, g, b).to_linear();
     XrayParams {
         color: Vec4::new(lin.red, lin.green, lin.blue, classic.death_perception_brightness),
+        anchor: Vec4::ZERO,
         strength: 1.0,
         inflate: classic.death_perception_inflate,
         fill: 0.0,
@@ -166,11 +172,11 @@ fn outline_params(settings: &ShroomSettings, classic: &crate::zombies_hud::Class
     }
 }
 
-/// Give every live enemy avatar whose scene has loaded a ghost twin per mesh.
+/// Give every live enemy avatar whose scene has loaded a ghost twin per mesh,
+/// all sharing a material of the enemy's own.
 #[allow(clippy::type_complexity)]
 fn twin_enemy_meshes(
     mut commands: Commands,
-    handle: Option<Res<XrayMaterialHandle>>,
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
     mut materials: ResMut<Assets<ShroomXrayMaterial>>,
@@ -189,23 +195,10 @@ fn twin_enemy_meshes(
     children: Query<&Children>,
     meshes: Query<(&Mesh3d, Option<&SkinnedMesh>), Without<XrayTwin>>,
 ) {
-    if avatars.is_empty() {
-        return;
-    }
-    let material = match handle {
-        Some(h) => h.0.clone(),
-        None => {
-            let h = materials.add(ShroomXrayMaterial {
-                params: params(&settings, level.0),
-            });
-            let outline = materials.add(ShroomXrayMaterial {
-                params: outline_params(&settings, &default()),
-            });
-            commands.insert_resource(XrayMaterialHandle(h.clone(), outline));
-            h
-        }
-    };
     for root in &avatars {
+        let material = materials.add(ShroomXrayMaterial {
+            params: params(&settings, level.0),
+        });
         for entity in children.iter_descendants(root) {
             let Ok((mesh, skin)) = meshes.get(entity) else {
                 continue;
@@ -226,57 +219,47 @@ fn twin_enemy_meshes(
                 twin.insert(skin.clone());
             }
         }
-        commands.entity(root).insert(XrayTwinned);
+        commands.entity(root).insert(XrayTwinned(material));
     }
 }
 
-/// Follow the shroom effect's fade and the panel's look; hide the twins
-/// outright while the effect is off. With Death Perception they draw its
-/// outline instead.
+/// Follow the shroom effect's fade and the panel's look — or, with Death
+/// Perception, its outline — and where each enemy is; hide the twins outright
+/// while neither is on.
 fn update_xray(
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
     classic: Res<crate::zombies_hud::ClassicPerks>,
-    handle: Option<Res<XrayMaterialHandle>>,
     mut materials: ResMut<Assets<ShroomXrayMaterial>>,
-    mut twins: Query<(&mut Visibility, &mut MeshMaterial3d<ShroomXrayMaterial>), With<XrayTwin>>,
+    avatars: Query<(&GlobalTransform, &XrayTwinned)>,
+    mut twins: Query<&mut Visibility, With<XrayTwin>>,
 ) {
     let outline = classic.has(shared::perks::Perk::DeathPerception);
     let on = outline || level.0 > 1e-3;
-    let Some(handle) = handle else { return };
-    let material = if outline { &handle.1 } else { &handle.0 };
-    for (mut vis, mut mat) in &mut twins {
+    for mut vis in &mut twins {
         vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
-        if mat.0 != *material {
-            mat.0 = material.clone();
+    }
+    if !on {
+        return;
+    }
+    let base = if outline {
+        outline_params(&settings, &classic)
+    } else {
+        params(&settings, level.0)
+    };
+    for (gt, twinned) in &avatars {
+        // The middle of the enemy's body (the avatar's root is at its feet),
+        // and how far its own parts reach from there.
+        let middle = gt.translation() + Vec3::Y * settings.xray_body_height;
+        let want = XrayParams {
+            anchor: middle.extend(settings.xray_body_radius),
+            ..base
+        };
+        // (`get` first so an unchanged material isn't re-uploaded.)
+        if materials.get(&twinned.0).is_some_and(|m| m.params != want) {
+            if let Some(m) = materials.get_mut(&twinned.0) {
+                m.params = want;
+            }
         }
     }
-    let want_outline = outline_params(&settings, &classic);
-    if materials.get(&handle.1).is_some_and(|m| params_differ(&m.params, &want_outline)) {
-        if let Some(m) = materials.get_mut(&handle.1) {
-            m.params = want_outline;
-        }
-    }
-    let want = params(&settings, level.0);
-    // (`get` first so an unchanged material isn't re-uploaded every frame.)
-    let changed = materials.get(&handle.0).is_some_and(|m| params_differ(&m.params, &want));
-    if changed {
-        if let Some(m) = materials.get_mut(&handle.0) {
-            m.params = want;
-        }
-    }
-}
-
-fn params_differ(p: &XrayParams, want: &XrayParams) -> bool {
-    p.color != want.color
-        || p.strength != want.strength
-        || p.inflate != want.inflate
-        || p.fill != want.fill
-        || p.edge_softness != want.edge_softness
-        || p.smoke_scale != want.smoke_scale
-        || p.smoke_speed != want.smoke_speed
-        || p.smoke_amount != want.smoke_amount
-        || p.shimmer != want.shimmer
-        || p.min_gap != want.min_gap
-        || p.outline != want.outline
 }

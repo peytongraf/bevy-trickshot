@@ -77,9 +77,13 @@ pub(crate) struct ShroomSettings {
     pub(crate) xray_smoke_amount: f32,
     /// ...and the psychedelic hue wobble (radians).
     pub(crate) xray_shimmer: f32,
-    /// ...and how far (m) in front of the enemy something must be to count
-    /// as hiding it — so the enemy's own arms / gun / legs covering its body
-    /// don't light it up while it's in plain sight.
+    /// ...and what counts as hiding an enemy: something in front of its
+    /// whole body — a sphere this far (m) round its middle, this high (m)
+    /// above its feet — so none of its own parts (an arm behind its back,
+    /// its gun) ever light it up while it's in plain sight...
+    pub(crate) xray_body_radius: f32,
+    pub(crate) xray_body_height: f32,
+    /// ...and at least this far (m) in front of the part it hides.
     pub(crate) xray_min_gap: f32,
     /// Aim assist (`player::shroom_aim_assist`) while aimed down sight: on /
     /// off...
@@ -125,6 +129,8 @@ impl Default for ShroomSettings {
             xray_smoke_speed: 0.8,
             xray_smoke_amount: 0.6,
             xray_shimmer: 0.35,
+            xray_body_radius: 0.9,
+            xray_body_height: 0.9,
             xray_min_gap: 0.5,
             assist_enabled: true,
             assist_cone_deg: 4.0,

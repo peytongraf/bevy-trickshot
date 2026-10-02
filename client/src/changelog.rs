@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Fixed see-through-walls perks lighting up zombies' own limbs.",
         "Zombies: classic Call of Duty perks! Pick PERKS: CLASSIC in the lobby.",
         "Guns now have real recoil: each shot kicks your aim up and sideways.",
         "Free For All: AK-74 damage lowered.",

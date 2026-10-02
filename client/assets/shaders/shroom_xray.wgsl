@@ -19,6 +19,9 @@
 struct XrayParams {
     // rgb = the haze colour, a = brightness multiplier (glow, for bloom).
     color: vec4<f32>,
+    // xyz = the middle of this enemy's body, w = how far its own parts reach
+    // from there.
+    anchor: vec4<f32>,
     strength: f32,
     inflate: f32,
     fill: f32,
@@ -108,13 +111,17 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
     out.world_position = world;
     out.world_normal = n;
-    // Depth-test from `min_gap` metres nearer the camera along the view ray:
-    // the same pixel on screen, but "hidden" now needs the occluder at least
-    // that far in front — more than the enemy's own arms or gun ever are.
-    // (Kept past the near plane for an enemy right in your face.)
+    // Depth-test from the near side of the enemy's whole body (a sphere of
+    // `anchor.w` round its middle), or `min_gap` nearer, whichever's nearer
+    // still: the same pixel on screen, but "hidden" now needs the occluder in
+    // front of the entire enemy — so none of its own parts (an arm behind its
+    // back, its gun) ever counts as cover. (Kept past the near plane for an
+    // enemy right in your face.)
     let to = world.xyz - view.world_position;
     let d = max(length(to), 1e-4);
-    let pulled = view.world_position + to * (max(d - x.min_gap, min(d, 0.15)) / d);
+    let body_front = length(x.anchor.xyz - view.world_position) - x.anchor.w;
+    let pulled_d = max(min(body_front, d - x.min_gap), min(d, 0.15));
+    let pulled = view.world_position + to * (pulled_d / d);
     out.position = position_world_to_clip(pulled);
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = vertex.instance_index;
