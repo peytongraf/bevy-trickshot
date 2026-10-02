@@ -335,6 +335,7 @@ fn sample_from_input(
         fov_deg: i.fov_deg,
         scope_zoom: i.scope_zoom,
         sound_bits: i.sound_bits,
+        weapon: i.weapon,
         anim_time: i.anim_time,
         knife_anim_time: i.knife_anim_time,
         ads_t: i.ads_t,

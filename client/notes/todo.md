@@ -6,20 +6,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Zombie health bars
-- Prone at perk machine bonus
-- Critical kill bonus points
-- Nuke gives 500 points, burns zombies over 5s
-
 # AK-74
 
-- After reloading or before shooting, weapon looks normal but after firing a single or many shots, the shell flies out then comes back up and stays there.
 - Shot tracer looks like it doesn't come from barrel position and is from higher. It isn't noticed when standing still but is when moving backward. It appears from the center of the screen. It should be slightly lower than that when ads and maybe start a little ahead of the gun or at least fade in from the end the gun is on. It should start from the hip position when firing from hip fire.
 - AK74 and all other weapons should have a hip fire inacuraccy amount.
 - Ensure the recoil is added for it and all other weapons. There should be a setting for it.
 
 # New
 
+- When first launching the game it takes a second for the ui to fully load and fill out
 - Add original zombies perks. Have a setting to use original perks or custom perks.
 - Shroom tea still shows glow on zombies bodies when they aren't behind a wall
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.

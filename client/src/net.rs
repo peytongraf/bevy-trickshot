@@ -296,6 +296,7 @@ fn write_input(
         knife_view_vis,
         arms_players,
         arms_anims,
+        ak,
     ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
@@ -307,6 +308,7 @@ fn write_input(
         Query<&Visibility, With<crate::KnifeViewModel>>,
         Query<&AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
         Query<&crate::ThrowArmsAnimation>,
+        Res<crate::AkSettings>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -315,8 +317,8 @@ fn write_input(
     action.translation = pt.translation.to_array();
     action.yaw = pt.rotation.to_euler(EulerRot::YXZ).0;
     action.pitch = ht.rotation.to_euler(EulerRot::YXZ).1;
-    // Which primary fires (the server picks its damage — the AK-74's only in
-    // `Zombies`, if that's our loadout).
+    // Which primary fires (the server picks its damage — the AK-74's only if
+    // it's what our lobby says we're carrying).
     action.weapon = weapon.primary.as_u8();
     action.fire = false;
     // A knife stab this frame (`weapon_system` filed it) rides the same
@@ -337,7 +339,12 @@ fn write_input(
     action.shake_recoil = shake.recoil;
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
-    action.scope_zoom = settings.scope_zoom.magnification();
+    // (The AK-74's iron sights zoom only a little, whatever scope is picked.)
+    action.scope_zoom = if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        ak.ads_zoom
+    } else {
+        settings.scope_zoom.magnification()
+    };
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.knife_anim_time = crate::killcam::knife_anim_time(&knife_players, &knife_anims);
@@ -922,7 +929,8 @@ fn spawn_sniper_glints(
 /// stand-ins, which don't carry a glint of their own.
 #[allow(clippy::too_many_arguments)]
 fn update_sniper_glints(
-    poses: Query<&PlayerPose>,
+    poses: Query<(&PlayerPose, Option<&PlayerId>)>,
+    lobbies: Query<&shared::Lobby>,
     bones: Query<Option<&SniperGlintBone>, With<RemoteAvatar>>,
     transforms: Query<&GlobalTransform>,
     settings: Res<SniperGlintSettings>,
@@ -941,10 +949,17 @@ fn update_sniper_glints(
     let cam_pos = camera.translation();
 
     for (entity, glint, mut tf, mut vis, material) in &mut glints {
-        let Ok(pose) = poses.get(glint.src) else {
+        let Ok((pose, id)) = poses.get(glint.src) else {
             commands.entity(entity).try_despawn();
             continue;
         };
+        // Only a scope glints — not someone carrying the AK-74.
+        let iron_sights = id.is_some_and(|id| {
+            lobbies
+                .iter()
+                .flat_map(|l| l.members.iter())
+                .any(|m| m.peer == id.0 && m.primary != shared::weapon::WeaponId::Sniper)
+        });
 
         // The gun bone's `GlobalTransform` carries the huge
         // `RemoteAvatarSettings::scale` (~21×) baked into its own scale
@@ -974,7 +989,7 @@ fn update_sniper_glints(
             .rotation;
         tf.scale = Vec3::splat(settings.scale.max(1.0e-4));
 
-        let amount = if killcam.0.is_some() || !pose.alive {
+        let amount = if killcam.0.is_some() || !pose.alive || iron_sights {
             0.0
         } else {
             let span = (1.0 - settings.ads_threshold).max(1e-3);

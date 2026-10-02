@@ -42,8 +42,10 @@ pub(crate) struct MuzzleFlashState {
 pub(crate) fn update_muzzle_flash(
     time: Res<Time>,
     settings: Res<MuzzleFlashSettings>,
-    // The AK-74's sits at its own muzzle (`AkSettings`).
+    // The AK-74's sits at its own muzzle (`AkSettings`), and rides with the
+    // view model as it aims in / bobs / sways / kicks.
     (weapon, ak): (Res<crate::Weapon>, Res<crate::AkSettings>),
+    view_model: Single<&Transform, (With<crate::weapons::ViewModel>, Without<MuzzleFlash>)>,
     mut state: ResMut<MuzzleFlashState>,
     flash: Single<
         (
@@ -65,14 +67,22 @@ pub(crate) fn update_muzzle_flash(
         Visibility::Hidden
     };
 
-    let (translation, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        (ak.muzzle_translation, ak.muzzle_size)
+    let roll = Quat::from_rotation_z(state.roll);
+    let (translation, rotation, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        // `muzzle_translation` is tuned against the hip pose: carry it from
+        // there to wherever the view model actually is this frame (both are
+        // children of the same rig), so it stays on the barrel at any ADS
+        // amount, mid-transition, and through bob / sway / recoil.
+        let hip = ak.hip.transform();
+        let rel = view_model.compute_affine() * hip.compute_affine().inverse();
+        let turn = view_model.rotation * hip.rotation.inverse();
+        (rel.transform_point3(ak.muzzle_translation), turn * roll, ak.muzzle_size)
     } else {
-        (settings.translation, settings.size)
+        (settings.translation, roll, settings.size)
     };
     *transform = Transform {
         translation,
-        rotation: Quat::from_rotation_z(state.roll),
+        rotation,
         scale: Vec3::new(size.x.max(1.0e-4), size.y.max(1.0e-4), 1.0),
     };
 

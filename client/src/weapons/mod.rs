@@ -1,4 +1,4 @@
-//! Weapons: ammo/fire/reload state, the AK-74 (a `Zombies` loadout primary), ADS, weapon sway, the render-to-texture
+//! Weapons: ammo/fire/reload state, the AK-74 (a loadout primary), ADS, weapon sway, the render-to-texture
 //! scope, the knife's, throwing arms' and drinking arms' view models, camera recoil, and the
 //! view-model animation rig shared by all of them.
 

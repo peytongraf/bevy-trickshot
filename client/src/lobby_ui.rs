@@ -17,7 +17,7 @@ use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use crate::menu::{Menu, Screen};
+use crate::menu::Menu;
 use crate::net::GameClient;
 use crate::settings::Settings;
 use crate::ui::{
@@ -49,7 +49,7 @@ impl Plugin for LobbyUiPlugin {
                     reset_own_kill_tracking,
                 ),
             )
-            .add_systems(Update, catch_match_end)
+            .add_systems(Update, (catch_match_end, watch_loadout_pick))
             .add_systems(
                 Update,
                 drive_ingame_exit.run_if(in_state(AppState::InGame)),
@@ -147,6 +147,15 @@ impl Default for BotSelection {
 
 fn mark_dirty_now(mut ui: ResMut<LobbyUi>) {
     ui.dirty = true;
+}
+
+/// Redraw the room when our loadout pick changes from anywhere (the Loadout
+/// screen opened over it, too).
+fn watch_loadout_pick(settings: Res<Settings>, mut ui: ResMut<LobbyUi>, mut last: Local<Option<shared::weapon::WeaponId>>) {
+    if last.is_some_and(|w| w != settings.primary) {
+        ui.dirty = true;
+    }
+    *last = Some(settings.primary);
 }
 
 fn player_name(settings: &Settings) -> String {
@@ -435,8 +444,11 @@ enum MenuBtn {
     StartRoundUp,
     StartPointsDown,
     StartPointsUp,
-    /// Pick our `Zombies` primary (the room's LOADOUT section).
+    /// Equip this primary (the room's LOADOUT section) — `Settings::primary`,
+    /// which `loadout::push_loadout` sends on.
     SetLoadout(shared::weapon::WeaponId),
+    /// Open the Loadout screen on this weapon's GUNSMITH page.
+    OpenGunsmith(shared::weapon::WeaponId),
 }
 
 /// The − / + step for `Zombies`' starting round: one at a time early on,
@@ -502,6 +514,7 @@ fn rebuild(
     connected: Query<(), (With<GameClient>, With<Connected>)>,
     lobbies: Query<(Entity, &shared::Lobby)>,
     bot_selection: Res<BotSelection>,
+    settings: Res<Settings>,
 ) {
     if !ui.dirty {
         return;
@@ -525,6 +538,7 @@ fn rebuild(
                     me,
                     last_match.0.as_ref(),
                     &bot_selection,
+                    settings.primary,
                 );
             }
         }
@@ -681,54 +695,84 @@ fn setting_row(
         });
 }
 
-/// One primary in the room's LOADOUT section: its HUD icon over its name,
-/// gold-edged and marked EQUIPPED when it's our pick.
-fn loadout_weapon_tile(
+/// One primary in the room's LOADOUT section, Call of Duty style: a card
+/// (its icon, name and class — click to equip it, gold-edged and marked
+/// EQUIPPED when it's our pick) over its GUNSMITH button.
+fn loadout_weapon_card(
     row: &mut ChildSpawnerCommands,
     asset_server: &AssetServer,
     weapon: shared::weapon::WeaponId,
-    selected: bool,
+    equipped: bool,
     can_change: bool,
 ) {
-    let normal = if selected { ACCENT_DIM } else { ROW };
-    let mut tile = row.spawn((
-        Node {
-            width: Val::Px(220.0),
-            flex_direction: FlexDirection::Column,
-            align_items: AlignItems::Center,
-            padding: UiRect::all(Val::Px(12.0)),
-            row_gap: Val::Px(8.0),
-            border: UiRect::all(Val::Px(2.0)),
-            flex_shrink: 0.0,
-            ..default()
-        },
-        BackgroundColor(normal),
-        BorderColor(if selected { ACCENT } else { EDGE }),
-    ));
-    if can_change {
-        tile.insert((
-            Button,
-            Interaction::default(),
-            MenuBtn::SetLoadout(weapon),
-            Hoverable {
-                normal,
-                hover: Color::srgba(1.0, 1.0, 1.0, 0.18),
-                text: None,
-            },
-            ui_sound(UiSound::MENU),
-        ));
-    }
-    tile.with_children(|t| {
-        t.spawn((
-            ImageNode::new(asset_server.load(crate::hud::primary_icon_path(weapon))),
+    row.spawn(Node {
+        width: Val::Px(240.0),
+        flex_direction: FlexDirection::Column,
+        row_gap: Val::Px(4.0),
+        flex_shrink: 0.0,
+        ..default()
+    })
+    .with_children(|col| {
+        let normal = if equipped { ACCENT_DIM } else { ROW };
+        let mut card = col.spawn((
             Node {
-                width: Val::Px(176.0),
-                height: Val::Px(88.0),
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(12.0)),
+                row_gap: Val::Px(2.0),
+                border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
+            BackgroundColor(normal),
+            BorderColor(if equipped { ACCENT } else { EDGE }),
         ));
-        t.spawn(label_hud(asset_server, weapon.label(), 22.0, TEXT));
-        t.spawn(label_hud(asset_server, if selected { "EQUIPPED" } else { " " }, 15.0, ACCENT));
+        if can_change {
+            card.insert((
+                Button,
+                Interaction::default(),
+                MenuBtn::SetLoadout(weapon),
+                Hoverable {
+                    normal,
+                    hover: Color::srgba(1.0, 1.0, 1.0, 0.18),
+                    text: None,
+                },
+                ui_sound(UiSound::MENU),
+            ));
+        }
+        card.with_children(|c| {
+            c.spawn(Node {
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::SpaceBetween,
+                ..default()
+            })
+            .with_children(|top| {
+                top.spawn(label_hud(asset_server, weapon.class_label(), 14.0, TEXT_DIM));
+                if equipped {
+                    top.spawn(label_hud(asset_server, "EQUIPPED", 14.0, ACCENT));
+                }
+            });
+            c.spawn((
+                ImageNode::new(asset_server.load(crate::hud::primary_icon_path(weapon))),
+                Node {
+                    width: Val::Px(200.0),
+                    height: Val::Px(100.0),
+                    align_self: AlignSelf::Center,
+                    ..default()
+                },
+            ));
+            c.spawn(label_hud(asset_server, weapon.label(), 26.0, TEXT));
+        });
+        spawn_button_hud(
+            col,
+            asset_server,
+            "GUNSMITH",
+            16.0,
+            MenuBtn::OpenGunsmith(weapon),
+            ROW,
+            ROW_HOVER,
+            TEXT,
+            UiSound::MENU,
+        );
     });
 }
 
@@ -981,6 +1025,7 @@ fn build_room(
     me: Option<PeerId>,
     last_match: Option<&(String, u32)>,
     bot_selection: &BotSelection,
+    pick: shared::weapon::WeaponId,
 ) {
     let is_leader = me == Some(lobby.leader);
     let can_edit = is_leader && !lobby.started;
@@ -1219,17 +1264,14 @@ fn build_room(
                     }
                 }
 
-                // Our own `Zombies` primary — everyone picks theirs.
-                if is_zombies {
+                // Our own primary — everyone picks theirs.
+                if lobby.mode.has_loadout() {
                     col.spawn(Node {
                         height: Val::Px(18.0),
                         flex_shrink: 0.0,
                         ..default()
                     });
                     section_heading(col, asset_server, "LOADOUT");
-                    let mine = me
-                        .and_then(|me| lobby.members.iter().find(|m| m.peer == me))
-                        .map_or(shared::weapon::WeaponId::Sniper, |m| m.loadout);
                     col.spawn(Node {
                         width: Val::Percent(100.0),
                         flex_wrap: FlexWrap::Wrap,
@@ -1240,8 +1282,9 @@ fn build_room(
                         ..default()
                     })
                     .with_children(|row| {
+                        let can_change = !(lobby.started && is_zombies);
                         for weapon in shared::weapon::LOADOUT_WEAPONS {
-                            loadout_weapon_tile(row, asset_server, weapon, weapon == mine, !lobby.started);
+                            loadout_weapon_card(row, asset_server, weapon, weapon == pick, can_change);
                         }
                     });
                 }
@@ -1398,7 +1441,7 @@ fn build_room(
 fn handle_clicks(
     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
     mut menu: ResMut<Menu>,
-    settings: Res<Settings>,
+    mut settings: ResMut<Settings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
     mut create: Query<&mut TriggerSender<shared::CreateLobby>, With<GameClient>>,
@@ -1411,12 +1454,11 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_loadout): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetLoadout>, With<GameClient>>,
     ),
 ) {
     let name = player_name(&settings);
@@ -1456,11 +1498,7 @@ fn handle_clicks(
             MenuBtn::StartRoundUp => set_start(|r| r + start_round_step(r, true), |p| p),
             MenuBtn::StartPointsDown => set_start(|r| r, |p| p.saturating_sub(start_points_step(p, false))),
             MenuBtn::StartPointsUp => set_start(|r| r, |p| p + start_points_step(p, true)),
-            MenuBtn::OpenLoadout => {
-                menu.loadout_return = menu.screen;
-                menu.screen = Screen::Loadout;
-                menu.dirty = true;
-            }
+            MenuBtn::OpenLoadout => menu.open_loadout(None),
             MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
             MenuBtn::KillDown => nudge_kills(-(KILL_STEP as i64)),
@@ -1496,10 +1534,10 @@ fn handle_clicks(
                 }
             }
             MenuBtn::SetLoadout(weapon) => {
-                if let Ok(mut s) = set_loadout.single_mut() {
-                    s.trigger::<shared::LobbyChannel>(shared::SetLoadout { weapon: *weapon });
-                }
+                settings.primary = *weapon;
+                ui.dirty = true;
             }
+            MenuBtn::OpenGunsmith(weapon) => menu.open_loadout(Some(*weapon)),
             MenuBtn::SetEndCam(cam) => {
                 if let Ok(mut s) = set_end_cam.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetEndCam { cam: *cam });

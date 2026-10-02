@@ -18,7 +18,10 @@ use shared::{
     ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS,
 };
 
+use lightyear::prelude::input::native::ActionState;
 use shared::bot_players::is_bot_peer;
+use shared::weapon::LOADOUT_SWAP_GRACE_SECS;
+use shared::PlayerInput;
 use shared::health::{
     fall_damage, FULL_HEALTH, REGEN_DELAY_SECS, REGEN_PER_SEC,
 };
@@ -53,14 +56,34 @@ pub struct PlayerCombat {
     /// `Time::elapsed_secs()` this player becomes targetable / can fire again.
     /// Meaningless while `alive`.
     pub(crate) respawn_at: f32,
+    /// `Time::elapsed_secs()` this life began (held at "now" while the
+    /// match is still loading, pushed back by a pause), and whether they've
+    /// fired since — together, whether a `FreeForAll` loadout change still
+    /// swaps their gun on the spot ([`Self::can_swap_loadout`]).
+    life_started: f32,
+    fired: bool,
 }
 
 impl PlayerCombat {
+    /// A fresh life starting at `now`.
+    pub fn spawned(now: f32) -> Self {
+        Self {
+            life_started: now,
+            ..default()
+        }
+    }
+
     /// Back to life: full health, targetable, no damage history — everything a
     /// respawn resets. Shared by the respawn timer and the client's
     /// `RespawnReady`.
-    fn respawn(&mut self) {
-        *self = Self::default();
+    fn respawn(&mut self, now: f32) {
+        *self = Self::spawned(now);
+    }
+
+    /// Call of Duty's class-swap grace: alive, spawned no more than
+    /// [`LOADOUT_SWAP_GRACE_SECS`] ago, and not fired yet.
+    pub fn can_swap_loadout(&self, now: f32) -> bool {
+        self.alive && !self.fired && now - self.life_started <= LOADOUT_SWAP_GRACE_SECS
     }
 
     /// A `Zombies` zombie with `health` (for its round), which never
@@ -84,6 +107,8 @@ impl Default for PlayerCombat {
             last_damage: f32::NEG_INFINITY,
             alive: true,
             respawn_at: 0.0,
+            life_started: 0.0,
+            fired: false,
         }
     }
 }
@@ -151,6 +176,7 @@ impl Plugin for PvpPlugin {
                 (
                     apply_player_hits,
                     apply_bomb_blasts,
+                    track_lives,
                     tick_respawns,
                     sync_health,
                     check_kill_limit,
@@ -611,17 +637,62 @@ fn sync_health(mut players: Query<(&PlayerCombat, &mut PlayerHealth)>) {
     }
 }
 
+/// A new life: `peer` now carries whatever they last picked in the loadout
+/// (a `FreeForAll` change made too late to swap mid-life lands here).
+fn arm_from_loadout(lobby: &mut Mut<Lobby>, peer: PeerId) {
+    if !lobby.mode.has_loadout()
+        || !lobby.members.iter().any(|m| m.peer == peer && m.primary != m.loadout)
+    {
+        return;
+    }
+    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        m.primary = m.loadout;
+    }
+}
+
 /// The player's client has respawned (see [`RespawnReady`]): they're alive now,
-/// whatever the timer says. Ignored if they're already alive.
+/// whatever the timer says. Either way their new life — and its loadout-swap
+/// grace — starts now, actually back in the world (the server timer can
+/// beat a long kill cam), with their picked loadout.
 fn on_respawn_ready(
     trigger: Trigger<RemoteTrigger<RespawnReady>>,
-    mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
+    time: Res<Time>,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat, Option<&crate::lobby::LobbyPlayer>)>,
+    mut lobbies: Query<&mut Lobby>,
 ) {
     let peer = trigger.from;
-    if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+    let now = time.elapsed_secs();
+    if let Some((_, mut combat, lp)) = combats.iter_mut().find(|(id, ..)| id.0 == peer) {
         if !combat.alive {
-            combat.respawn();
             info!("{peer:?} respawned");
+        }
+        combat.respawn(now);
+        if let Some(mut lobby) = lp.and_then(|lp| lobbies.get_mut(lp.lobby).ok()) {
+            arm_from_loadout(&mut lobby, peer);
+        }
+    }
+}
+
+/// Keep each player's [`PlayerCombat::life_started`] / `fired` current for
+/// the loadout-swap grace: the clock doesn't start until everyone's loaded
+/// in, and any trigger pull while alive uses it up.
+fn track_lives(
+    time: Res<Time>,
+    lobbies: Query<&Lobby>,
+    mut players: Query<(&crate::lobby::LobbyPlayer, &mut PlayerCombat, Option<&ActionState<PlayerInput>>)>,
+) {
+    let now = time.elapsed_secs();
+    for (lp, mut combat, input) in &mut players {
+        let Ok(lobby) = lobbies.get(lp.lobby) else {
+            continue;
+        };
+        if !lobby.started || lobby.paused {
+            continue;
+        }
+        if !lobby.members.iter().all(|m| m.loaded) {
+            combat.life_started = now;
+        } else if combat.alive && !combat.fired && input.is_some_and(|i| i.0.fire) {
+            combat.fired = true;
         }
     }
 }
@@ -631,21 +702,26 @@ fn on_respawn_ready(
 /// `client::net::flush_pending_respawn`) — this only ungates hit detection.
 fn tick_respawns(
     time: Res<Time>,
-    lobbies: Query<&Lobby>,
-    mut combats: Query<(&mut PlayerCombat, Option<&crate::lobby::LobbyPlayer>)>,
+    mut lobbies: Query<&mut Lobby>,
+    mut combats: Query<(&PlayerId, &mut PlayerCombat, Option<&crate::lobby::LobbyPlayer>)>,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
-    for (mut combat, lp) in &mut combats {
-        // Paused: push the respawn and the regen hold back by the pause, so
-        // neither timer runs down while the game's frozen.
+    for (id, mut combat, lp) in &mut combats {
+        // Paused: push the respawn, the regen hold and the loadout-swap
+        // grace back by the pause, so no timer runs down while the game's
+        // frozen.
         if lp.is_some_and(|lp| lobbies.get(lp.lobby).is_ok_and(|l| l.paused)) {
             combat.respawn_at += dt;
             combat.last_damage += dt;
+            combat.life_started += dt;
             continue;
         }
         if !combat.alive && now >= combat.respawn_at {
-            combat.respawn();
+            combat.respawn(now);
+            if let Some(mut lobby) = lp.and_then(|lp| lobbies.get_mut(lp.lobby).ok()) {
+                arm_from_loadout(&mut lobby, id.0);
+            }
         } else if combat.alive
             && combat.regenerates
             && combat.health < combat.max_health
@@ -687,13 +763,28 @@ mod tests {
             last_damage: 40.0,
             alive: false,
             respawn_at: 99.0,
+            life_started: 3.0,
+            fired: true,
         };
-        c.respawn();
+        c.respawn(120.0);
         assert!(c.alive);
         assert_eq!(c.health, FULL_HEALTH);
         // No leftover damage timer holding off (or restarting) regeneration.
         assert_eq!(c.last_damage, f32::NEG_INFINITY);
         assert_eq!(c.respawn_at, 0.0);
+        // A fresh loadout-swap grace.
+        assert!(c.can_swap_loadout(120.0));
+    }
+
+    #[test]
+    fn a_loadout_swaps_at_once_only_just_after_spawning_and_before_firing() {
+        let c = PlayerCombat::spawned(100.0);
+        assert!(c.can_swap_loadout(100.0 + LOADOUT_SWAP_GRACE_SECS));
+        assert!(!c.can_swap_loadout(100.1 + LOADOUT_SWAP_GRACE_SECS));
+        let fired = PlayerCombat { fired: true, ..PlayerCombat::spawned(100.0) };
+        assert!(!fired.can_swap_loadout(100.5));
+        let dead = PlayerCombat { alive: false, ..PlayerCombat::spawned(100.0) };
+        assert!(!dead.can_swap_loadout(100.5));
     }
 }
 

@@ -59,6 +59,12 @@ pub const ZOMBIE_CRITICAL_POINTS: u32 = 50;
 pub const ZOMBIE_HIT_DAMAGE: f32 = 34.0;
 
 impl GameMode {
+    /// Whether players pick their primary in a loadout
+    /// ([`LobbyMember::loadout`]) — `Freestyle` is always the sniper.
+    pub fn has_loadout(self) -> bool {
+        matches!(self, GameMode::FreeForAll | GameMode::Zombies)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             GameMode::Freestyle => "FREESTYLE",
@@ -557,6 +563,9 @@ pub struct KillCamSample {
     pub scope_zoom: f32,
     /// One-shot sounds triggered on this frame (`killcam::SND_*`).
     pub sound_bits: u16,
+    /// The primary held on this frame ([`WeaponId::as_u8`]) — the replay
+    /// shows that gun, whatever the viewer carries.
+    pub weapon: u8,
     /// First-person weapon animation playhead (seconds) on this frame.
     pub anim_time: f32,
     /// First-person knife animation playhead (seconds) on this frame.
@@ -861,11 +870,17 @@ pub struct LobbyMember {
     /// [`GameMode::Zombies`] Pack-a-Punch level of each of this member's
     /// weapons this game ([`BuyPap`]).
     pub pap: crate::pap::PapLevels,
-    /// The primary this member picked for [`GameMode::Zombies`] in the
-    /// lobby's loadout ([`SetLoadout`]) — one of
-    /// [`crate::weapon::LOADOUT_WEAPONS`]. Kept between games; every other
-    /// mode always plays the sniper.
+    /// The primary this member picked in the loadout ([`SetLoadout`]) — one
+    /// of [`crate::weapon::LOADOUT_WEAPONS`], for the modes that have one
+    /// ([`GameMode::has_loadout`]). Kept between games. What they spawn with
+    /// next — see `primary` for what they're carrying now.
     pub loadout: WeaponId,
+    /// The primary this member is actually carrying this life (server-set):
+    /// `loadout` at the start of a game and on every respawn, or straight
+    /// away on a `FreeForAll` change made within
+    /// [`crate::weapon::LOADOUT_SWAP_GRACE_SECS`] of spawning, before firing.
+    /// Always the sniper in `Freestyle`.
+    pub primary: WeaponId,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1301,9 +1316,11 @@ pub struct SetPowerUpTest {
 }
 
 /// Client → server: the sender picks `weapon` (one of
-/// [`crate::weapon::LOADOUT_WEAPONS`]) as their `Zombies` primary
-/// ([`LobbyMember::loadout`]). Only between games — ignored once their lobby's
-/// started.
+/// [`crate::weapon::LOADOUT_WEAPONS`]) as their primary
+/// ([`LobbyMember::loadout`]). Any time between games; mid-game only in
+/// `FreeForAll` (it swaps their gun at once if they're still within the
+/// spawn grace — see [`LobbyMember::primary`] — otherwise on their next
+/// spawn). Ignored once a `Zombies` game has started.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct SetLoadout {
     pub weapon: WeaponId,

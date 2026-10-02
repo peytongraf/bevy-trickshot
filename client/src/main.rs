@@ -39,6 +39,7 @@ mod hud;
 mod keybinds;
 mod killcam;
 mod knife_sounds;
+mod loadout;
 mod lobby_ui;
 mod match_end;
 mod menu;
@@ -193,6 +194,7 @@ fn main() {
             respawn::RespawnResetPlugin,
             BulletHolePlugin,
         ))
+        .add_plugins(loadout::LoadoutPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
@@ -222,6 +224,14 @@ fn main() {
         .init_resource::<ViewModelPoses>()
         .init_resource::<weapons::AkSettings>()
         .init_resource::<weapons::AkWalkBob>()
+        // In `PostUpdate` so it reads the view model's final pose for the
+        // frame (ADS, bob, sway, recoil — all written in `Update`).
+        .add_systems(
+            PostUpdate,
+            update_muzzle_flash
+                .before(bevy::transform::TransformSystem::TransformPropagate)
+                .run_if(in_state(AppState::InGame)),
+        )
         .add_systems(
             PostUpdate,
             weapons::pin_ak_shell
@@ -494,7 +504,6 @@ fn main() {
                 ),
                 (sky_follow_camera, scroll_water_normal),
                 camera_shake.run_if(killcam::no_killcam.and(fall_death::no_fall_death)),
-                update_muzzle_flash,
                 // After `look_around` so the smoke uses this frame's aim, not
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.

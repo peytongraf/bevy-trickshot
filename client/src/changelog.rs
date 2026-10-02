@@ -15,6 +15,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Free For All: AK-74! Pick it in your loadout.",
+        "New Call of Duty style Loadout and Gunsmith screens.",
+        "Free For All: change loadout mid-match (applies on spawn).",
+        "AK-74 muzzle flash now follows the barrel when aiming.",
         "ADS sensitivity now scales with each weapon's zoom (new Monitor Distance Coefficient setting).",
         "Zombies: AK-74! Pick it in the lobby's new Loadout section.",
         "Zombies: health bars over zombies you hit.",

@@ -29,11 +29,13 @@ use crate::settings::{
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
-    divider, field_box, label_body, label_hud, menu_background, page_title, section_heading, spawn_button_hud,
+    divider, field_box, label_body, label_hud, menu_background, page_title, panel_node, section_heading, spawn_button_hud,
     ui_sound, Hoverable, UiSound, ACCENT, ACCENT_DIM, BACKDROP, DEFEAT, EDGE, PANEL, PANEL_SOLID,
     ROW, ROW_HOVER, TEXT, TEXT_DIM, TRACK, VICTORY,
 };
+use crate::loadout::{weapon_stats, LoadoutCtx};
 use crate::{crosshair_asset_path, AppState};
+use shared::weapon::{WeaponId, LOADOUT_WEAPONS};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Screen {
@@ -51,11 +53,14 @@ pub enum Screen {
     /// freezes gameplay input the same way it does for every other screen.
     /// Not dismissed by `Esc` — `game_start` clears it once everyone's ready.
     LoadingGame,
-    /// The Loadout screen (crosshair and scope zoom selection so far) — reachable from the
-    /// main menu (`lobby_ui`'s `MenuBtn::OpenLoadout`) and, in-game, from a
-    /// button inside `Screen::Settings`. Looks identical either way: it's
-    /// built once here from nothing but `Settings`, not from any
-    /// state/lobby-specific data. `Esc` / `Btn::CloseLoadout` return to
+    /// The Loadout screen, Call of Duty style: the primary weapons down the
+    /// left (click one to equip it), the one picked shown large on the right
+    /// with its stats, and its GUNSMITH page ([`Menu::gunsmith`]) for its
+    /// options (the sniper's reticle and scope zoom). Reachable from the main
+    /// menu and the lobby room (`lobby_ui`'s `MenuBtn::OpenLoadout` /
+    /// `OpenGunsmith`) and, in-game, from a button inside `Screen::Settings`.
+    /// Whether the pick can change is `loadout::LoadoutCtx`'s call (not in a
+    /// `Zombies` game in progress). `Esc` / `Btn::CloseLoadout` return to
     /// [`Menu::loadout_return`] rather than always `Screen::None`, so
     /// backing out from the in-game pause menu lands back on the pause menu
     /// instead of dropping straight into gameplay.
@@ -91,6 +96,11 @@ pub struct Menu {
     /// right before it opened (`Screen::None` from the main menu,
     /// `Screen::Settings` from the pause menu).
     pub loadout_return: Screen,
+    /// The weapon shown large on the Loadout screen — `None` for whatever's
+    /// equipped (`Settings::primary`).
+    pub(crate) loadout_focus: Option<WeaponId>,
+    /// `Some` while the Loadout screen shows that weapon's GUNSMITH page.
+    pub(crate) gunsmith: Option<WeaponId>,
     /// Request a full UI rebuild next frame. `pub(crate)` rather than fully
     /// private: modules that build their own content into a `Screen` (e.g.
     /// `lobby_ui` opening `Screen::Loadout`) need to request the rebuild too.
@@ -106,6 +116,8 @@ impl Default for Menu {
             rebind_armed: false,
             username_draft: String::new(),
             loadout_return: Screen::None,
+            loadout_focus: None,
+            gunsmith: None,
             dirty: true,
         }
     }
@@ -114,6 +126,27 @@ impl Default for Menu {
 impl Menu {
     pub fn is_open(&self) -> bool {
         self.screen != Screen::None
+    }
+
+    /// Open the Loadout screen — straight onto `gunsmith`'s GUNSMITH page if
+    /// given — returning to whatever's showing now when it closes.
+    pub(crate) fn open_loadout(&mut self, gunsmith: Option<WeaponId>) {
+        if self.screen != Screen::Loadout {
+            self.loadout_return = self.screen;
+        }
+        self.screen = Screen::Loadout;
+        self.loadout_focus = gunsmith;
+        self.gunsmith = gunsmith;
+        self.dirty = true;
+    }
+
+    /// Back out one level: GUNSMITH → the weapon list → wherever the
+    /// Loadout screen was opened from.
+    fn back_from_loadout(&mut self) {
+        if self.gunsmith.take().is_none() {
+            self.screen = self.loadout_return;
+        }
+        self.dirty = true;
     }
 }
 
@@ -156,6 +189,7 @@ impl Plugin for MenuPlugin {
                     menu_click,
                     slider_drag,
                     refresh_dynamic,
+                    watch_loadout,
                     show_match_results,
                     rebuild_menu,
                     cursor_and_hud,
@@ -224,10 +258,7 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         Screen::MatchResults => {}
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
-        Screen::Loadout => {
-            menu.screen = menu.loadout_return;
-            menu.dirty = true;
-        }
+        Screen::Loadout => menu.back_from_loadout(),
         Screen::PackAPunch => {
             menu.screen = Screen::None;
             menu.dirty = true;
@@ -331,6 +362,10 @@ enum Btn {
     /// `lobby_ui::MenuBtn::OpenLoadout` instead.
     OpenLoadout,
     CloseLoadout,
+    /// Loadout screen: show this weapon, and equip it if the pick can change.
+    SelectPrimary(WeaponId),
+    OpenGunsmith(WeaponId),
+    CloseGunsmith,
     Rebind(usize),
     ResetKeybinds,
     Step(SliderField, f32),
@@ -408,6 +443,8 @@ fn menu_click(
     mut end_game: Query<&mut TriggerSender<shared::EndGame>, With<GameClient>>,
     mut set_paused: Query<&mut TriggerSender<shared::SetPaused>, With<GameClient>>,
     paused: Res<crate::pause::GamePaused>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
 ) {
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
@@ -455,13 +492,24 @@ fn menu_click(
                 settings.scope_zoom = *z;
                 menu.dirty = true;
             }
-            Btn::OpenLoadout => {
-                menu.loadout_return = menu.screen;
-                menu.screen = Screen::Loadout;
+            Btn::OpenLoadout => menu.open_loadout(None),
+            Btn::CloseLoadout => {
+                menu.gunsmith = None;
+                menu.back_from_loadout();
+            }
+            Btn::SelectPrimary(weapon) => {
+                menu.loadout_focus = Some(*weapon);
+                if !LoadoutCtx::new(&local, &lobbies).locked() {
+                    settings.primary = *weapon;
+                }
                 menu.dirty = true;
             }
-            Btn::CloseLoadout => {
-                menu.screen = menu.loadout_return;
+            Btn::OpenGunsmith(weapon) => {
+                menu.gunsmith = Some(*weapon);
+                menu.dirty = true;
+            }
+            Btn::CloseGunsmith => {
+                menu.gunsmith = None;
                 menu.dirty = true;
             }
             Btn::Rebind(i) => {
@@ -643,6 +691,26 @@ fn refresh_dynamic(
     }
 }
 
+/// Rebuild the open Loadout screen when the game changes under it — a
+/// match starting or ending, or the server handing us a new gun.
+fn watch_loadout(
+    mut menu: ResMut<Menu>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut last: Local<Option<(Option<shared::GameMode>, bool, Option<WeaponId>)>>,
+) {
+    if menu.screen != Screen::Loadout {
+        *last = None;
+        return;
+    }
+    let ctx = LoadoutCtx::new(&local, &lobbies);
+    let key = (ctx.mode, ctx.started, ctx.carrying);
+    if last.is_some_and(|k| k != key) {
+        menu.dirty = true;
+    }
+    *last = Some(key);
+}
+
 /// Scrolls whichever scrollable node the pointer is currently over (e.g. the
 /// keybinds list) in response to the mouse wheel.
 fn scroll_hovered(
@@ -721,7 +789,16 @@ fn rebuild_menu(
         Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
         Screen::LoadingGame => {}
-        Screen::Loadout => build_loadout(&mut commands, &settings, &asset_server, solid),
+        Screen::Loadout => {
+            let ctx = LoadoutCtx::new(&local, &lobbies);
+            match menu.gunsmith {
+                Some(weapon) => build_gunsmith(&mut commands, &settings, &asset_server, weapon, solid),
+                None => {
+                    let focus = menu.loadout_focus.unwrap_or(settings.primary);
+                    build_loadout(&mut commands, &settings, &asset_server, &ctx, focus, solid);
+                }
+            }
+        }
         // Built by `pap_menu`, not here — see `Screen::PackAPunch`'s doc comment.
         Screen::PackAPunch => {}
     }
@@ -1339,16 +1416,121 @@ fn loadout_tile(
     });
 }
 
-/// The Loadout screen — crosshair and scope zoom selection. Built purely
-/// from `Settings`, with no `Tab`/state/lobby involvement, so it looks and
-/// behaves identically whether opened from the main menu or the in-game
-/// pause menu — see `Screen::Loadout`'s doc comment.
-fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer, solid: bool) {
+/// One primary in the Loadout screen's list: a gold edge and wash when it's
+/// the one shown on the right, EQUIPPED when it's our pick.
+fn loadout_weapon_row(
+    list: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    weapon: WeaponId,
+    focused: bool,
+    equipped: bool,
+) {
+    let normal = if focused { ACCENT_DIM } else { ROW };
+    list.spawn((
+        Button,
+        Interaction::default(),
+        Btn::SelectPrimary(weapon),
+        Hoverable {
+            normal,
+            hover: Color::srgba(1.0, 1.0, 1.0, 0.18),
+            text: None,
+        },
+        ui_sound(UiSound::BUTTON),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Px(96.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(16.0),
+            padding: UiRect::new(Val::Px(12.0), Val::Px(18.0), Val::ZERO, Val::ZERO),
+            border: UiRect::left(Val::Px(4.0)),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(normal),
+        BorderColor(if focused { ACCENT } else { Color::NONE }),
+    ))
+    .with_children(|row| {
+        row.spawn((
+            ImageNode::new(asset_server.load(crate::hud::primary_icon_path(weapon))),
+            Node {
+                width: Val::Px(144.0),
+                height: Val::Px(72.0),
+                flex_shrink: 0.0,
+                ..default()
+            },
+        ));
+        row.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            row_gap: Val::Px(2.0),
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(label_hud(asset_server, weapon.label(), 28.0, TEXT));
+            c.spawn(label_hud(asset_server, weapon.class_label(), 15.0, TEXT_DIM));
+        });
+        if equipped {
+            row.spawn(label_hud(asset_server, "EQUIPPED", 16.0, ACCENT));
+        }
+    });
+}
+
+/// One of the weapon card's stat bars: its name, then a track filled to
+/// `value` (0..1).
+fn stat_bar(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, name: &str, value: f32) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            max_width: Val::Px(620.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(14.0),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|r| {
+            r.spawn((
+                label_hud(asset_server, name, 17.0, TEXT_DIM),
+                Node {
+                    width: Val::Px(110.0),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+            ));
+            r.spawn((
+                Node {
+                    flex_grow: 1.0,
+                    height: Val::Px(6.0),
+                    ..default()
+                },
+                BackgroundColor(TRACK),
+            ))
+            .with_child((
+                Node {
+                    width: Val::Percent(value.clamp(0.0, 1.0) * 100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                BackgroundColor(TEXT),
+            ));
+        });
+}
+
+/// The Loadout screen, Call of Duty style — see `Screen::Loadout`'s doc
+/// comment. `focus` is the weapon shown large on the right.
+fn build_loadout(
+    commands: &mut Commands,
+    settings: &Settings,
+    asset_server: &AssetServer,
+    ctx: &LoadoutCtx,
+    focus: WeaponId,
+    solid: bool,
+) {
+    let breadcrumb = ctx.mode.map_or("MULTIPLAYER".to_string(), |m| m.label().to_uppercase());
     commands.spawn(page_root(solid)).with_children(|page| {
         if solid {
             menu_background(page, asset_server);
         }
-        page_title(page, asset_server, "MULTIPLAYER", "LOADOUT");
+        page_title(page, asset_server, &breadcrumb, "LOADOUT");
         page.spawn(divider());
 
         page.spawn(Node {
@@ -1356,68 +1538,111 @@ fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &As
             flex_grow: 1.0,
             flex_basis: Val::Px(0.0),
             min_height: Val::Px(0.0),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(16.0),
+            column_gap: Val::Px(32.0),
             padding: UiRect::vertical(Val::Px(8.0)),
             overflow: Overflow::clip(),
             ..default()
         })
-        .with_children(|content| {
-            section_heading(content, asset_server, "CROSSHAIR");
-            content
-                .spawn(Node {
-                    flex_wrap: FlexWrap::Wrap,
-                    column_gap: Val::Px(14.0),
-                    row_gap: Val::Px(14.0),
+        .with_children(|body| {
+            // The weapons, down the left.
+            body.spawn(Node {
+                width: Val::Px(480.0),
+                flex_shrink: 0.0,
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.0),
+                ..default()
+            })
+            .with_children(|list| {
+                section_heading(list, asset_server, "PRIMARY WEAPON");
+                for weapon in LOADOUT_WEAPONS {
+                    loadout_weapon_row(list, asset_server, weapon, weapon == focus, weapon == settings.primary);
+                }
+            });
+
+            // The one picked, large, with its stats and actions.
+            body.spawn(panel_node(Node {
+                flex_grow: 1.0,
+                flex_basis: Val::Px(0.0),
+                min_width: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(28.0)),
+                row_gap: Val::Px(12.0),
+                overflow: Overflow::clip(),
+                ..default()
+            }))
+            .with_children(|card| {
+                card.spawn(label_hud(asset_server, focus.class_label(), 18.0, TEXT_DIM));
+                card.spawn(label_hud(asset_server, focus.label(), 64.0, TEXT));
+                card.spawn(Node {
+                    width: Val::Percent(100.0),
+                    max_width: Val::Px(620.0),
+                    justify_content: JustifyContent::Center,
+                    padding: UiRect::vertical(Val::Px(6.0)),
+                    flex_shrink: 0.0,
                     ..default()
                 })
-                .with_children(|row| {
-                    for id in CrosshairId::ALL {
-                        let selected = settings.crosshair == id;
-                        loadout_tile(row, asset_server, Btn::SetCrosshair(id), selected, |tile| {
-                            tile.spawn((
-                                ImageNode::new(asset_server.load(crosshair_asset_path(id))),
-                                Node {
-                                    width: Val::Px(150.0),
-                                    height: Val::Px(150.0),
-                                    ..default()
-                                },
-                            ));
-                            tile.spawn(label_hud(
-                                asset_server,
-                                id.label().to_uppercase(),
-                                20.0,
-                                if selected { TEXT } else { TEXT_DIM },
-                            ));
-                        });
-                    }
+                .with_child((
+                    ImageNode::new(asset_server.load(crate::hud::primary_icon_path(focus))),
+                    Node {
+                        width: Val::Px(440.0),
+                        height: Val::Px(220.0),
+                        ..default()
+                    },
+                ));
+                for (name, value) in weapon_stats(focus) {
+                    stat_bar(card, asset_server, name, value);
+                }
+                card.spawn(Node {
+                    flex_grow: 1.0,
+                    min_height: Val::Px(12.0),
+                    ..default()
                 });
 
-            content.spawn(Node {
-                height: Val::Px(8.0),
-                ..default()
-            });
-            section_heading(content, asset_server, "SCOPE ZOOM");
-            content
-                .spawn(Node {
-                    flex_wrap: FlexWrap::Wrap,
-                    column_gap: Val::Px(14.0),
-                    row_gap: Val::Px(14.0),
+                let equipped = focus == settings.primary;
+                let (status, color) = if ctx.mode == Some(shared::GameMode::Freestyle) {
+                    ("FREESTYLE IS SNIPERS ONLY", TEXT_DIM)
+                } else if ctx.locked() && !equipped {
+                    ("LOADOUT LOCKED UNTIL THE GAME ENDS", TEXT_DIM)
+                } else if equipped && ctx.carrying.is_some_and(|c| c != focus) {
+                    ("EQUIPPED  -  ON NEXT SPAWN", ACCENT)
+                } else if equipped {
+                    ("EQUIPPED", ACCENT)
+                } else {
+                    ("SELECT TO EQUIP", TEXT_DIM)
+                };
+                card.spawn(label_hud(asset_server, status, 20.0, color));
+                card.spawn(Node {
+                    column_gap: Val::Px(12.0),
+                    flex_shrink: 0.0,
                     ..default()
                 })
-                .with_children(|row| {
-                    for zoom in ScopeZoom::ALL {
-                        let selected = settings.scope_zoom == zoom;
-                        loadout_tile(row, asset_server, Btn::SetScopeZoom(zoom), selected, |tile| {
-                            tile.spawn(label_hud(
-                                asset_server,
-                                zoom.label().to_uppercase(),
-                                40.0,
-                                if selected { TEXT } else { TEXT_DIM },
-                            ));
-                        });
+                .with_children(|actions| {
+                    if !equipped && !ctx.locked() {
+                        spawn_button_hud(
+                            actions,
+                            asset_server,
+                            "EQUIP",
+                            22.0,
+                            Btn::SelectPrimary(focus),
+                            ACCENT,
+                            ROW_HOVER,
+                            PANEL_SOLID,
+                            UiSound::BUTTON,
+                        );
                     }
+                    spawn_button_hud(
+                        actions,
+                        asset_server,
+                        "GUNSMITH",
+                        22.0,
+                        Btn::OpenGunsmith(focus),
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::BUTTON,
+                    );
                 });
+            });
         });
 
         page.spawn(divider());
@@ -1430,6 +1655,135 @@ fn build_loadout(commands: &mut Commands, settings: &Settings, asset_server: &As
         })
         .with_children(|f| {
             plain_button(f, asset_server, "BACK", Btn::CloseLoadout, UiSound::BUTTON_BACK);
+            f.spawn(label_hud(asset_server, "CHANGES SAVE AUTOMATICALLY", 18.0, TEXT_DIM));
+        });
+    });
+}
+
+/// A weapon's GUNSMITH page: the weapon on the left, its options on the
+/// right — the sniper's reticle and scope zoom; the AK-74 has none yet.
+fn build_gunsmith(commands: &mut Commands, settings: &Settings, asset_server: &AssetServer, weapon: WeaponId, solid: bool) {
+    commands.spawn(page_root(solid)).with_children(|page| {
+        if solid {
+            menu_background(page, asset_server);
+        }
+        page_title(page, asset_server, &format!("LOADOUT  /  {}", weapon.label()), "GUNSMITH");
+        page.spawn(divider());
+
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            column_gap: Val::Px(32.0),
+            padding: UiRect::vertical(Val::Px(8.0)),
+            overflow: Overflow::clip(),
+            ..default()
+        })
+        .with_children(|body| {
+            body.spawn(panel_node(Node {
+                width: Val::Px(520.0),
+                flex_shrink: 0.0,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                padding: UiRect::all(Val::Px(24.0)),
+                row_gap: Val::Px(6.0),
+                align_self: AlignSelf::FlexStart,
+                ..default()
+            }))
+            .with_children(|card| {
+                card.spawn((
+                    ImageNode::new(asset_server.load(crate::hud::primary_icon_path(weapon))),
+                    Node {
+                        width: Val::Px(440.0),
+                        height: Val::Px(220.0),
+                        ..default()
+                    },
+                ));
+                card.spawn(label_hud(asset_server, weapon.label(), 40.0, TEXT));
+                card.spawn(label_hud(asset_server, weapon.class_label(), 16.0, TEXT_DIM));
+            });
+
+            body.spawn(Node {
+                flex_grow: 1.0,
+                flex_basis: Val::Px(0.0),
+                min_width: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(16.0),
+                ..default()
+            })
+            .with_children(|content| {
+                if weapon != WeaponId::Sniper {
+                    return;
+                }
+                section_heading(content, asset_server, "RETICLE");
+                content
+                    .spawn(Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(14.0),
+                        row_gap: Val::Px(14.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        for id in CrosshairId::ALL {
+                            let selected = settings.crosshair == id;
+                            loadout_tile(row, asset_server, Btn::SetCrosshair(id), selected, |tile| {
+                                tile.spawn((
+                                    ImageNode::new(asset_server.load(crosshair_asset_path(id))),
+                                    Node {
+                                        width: Val::Px(150.0),
+                                        height: Val::Px(150.0),
+                                        ..default()
+                                    },
+                                ));
+                                tile.spawn(label_hud(
+                                    asset_server,
+                                    id.label().to_uppercase(),
+                                    20.0,
+                                    if selected { TEXT } else { TEXT_DIM },
+                                ));
+                            });
+                        }
+                    });
+
+                content.spawn(Node {
+                    height: Val::Px(8.0),
+                    ..default()
+                });
+                section_heading(content, asset_server, "SCOPE ZOOM");
+                content
+                    .spawn(Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(14.0),
+                        row_gap: Val::Px(14.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        for zoom in ScopeZoom::ALL {
+                            let selected = settings.scope_zoom == zoom;
+                            loadout_tile(row, asset_server, Btn::SetScopeZoom(zoom), selected, |tile| {
+                                tile.spawn(label_hud(
+                                    asset_server,
+                                    zoom.label().to_uppercase(),
+                                    40.0,
+                                    if selected { TEXT } else { TEXT_DIM },
+                                ));
+                            });
+                        }
+                    });
+            });
+        });
+
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(28.0),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|f| {
+            plain_button(f, asset_server, "BACK", Btn::CloseGunsmith, UiSound::BUTTON_BACK);
             f.spawn(label_hud(asset_server, "CHANGES SAVE AUTOMATICALLY", 18.0, TEXT_DIM));
         });
     });

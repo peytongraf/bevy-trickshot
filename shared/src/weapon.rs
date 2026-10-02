@@ -10,14 +10,20 @@ pub enum WeaponId {
     #[default]
     Sniper,
     Marksman,
-    /// The AK-74 assault rifle — full-auto, `Zombies` only (picked in the
-    /// lobby's loadout, [`crate::LobbyMember::loadout`]).
+    /// The AK-74 assault rifle — full-auto, picked in the loadout
+    /// ([`crate::LobbyMember::loadout`]) for `Zombies` or `FreeForAll`.
     Ak74,
 }
 
-/// The primary weapons a player can pick for `Zombies` in the lobby's
-/// loadout section (every other mode is always the sniper).
+/// The primary weapons a player can pick in the loadout, for the modes that
+/// have one ([`crate::GameMode::has_loadout`]; `Freestyle` is always the
+/// sniper).
 pub const LOADOUT_WEAPONS: [WeaponId; 2] = [WeaponId::Sniper, WeaponId::Ak74];
+
+/// `FreeForAll`, Call of Duty style: a loadout change takes effect on the
+/// spot if the player spawned at most this many seconds ago and hasn't fired
+/// since; otherwise it waits for their next spawn.
+pub const LOADOUT_SWAP_GRACE_SECS: f32 = 10.0;
 
 /// Ballistic + damage parameters for one weapon.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -185,6 +191,15 @@ impl WeaponId {
             WeaponId::Sniper => "SNIPER",
             WeaponId::Marksman => "MARKSMAN",
             WeaponId::Ak74 => "AK-74",
+        }
+    }
+
+    /// Its weapon class, as the loadout lists it.
+    pub const fn class_label(self) -> &'static str {
+        match self {
+            WeaponId::Sniper => "SNIPER RIFLE",
+            WeaponId::Marksman => "MARKSMAN RIFLE",
+            WeaponId::Ak74 => "ASSAULT RIFLE",
         }
     }
 

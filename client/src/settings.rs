@@ -212,6 +212,9 @@ pub struct Settings {
     /// Custom FPS cap applied while `vsync` is off — see `limit_frame_rate`.
     /// Ignored while `vsync` is on (the display's own vblank paces frames).
     pub frame_limit: f32,
+    /// The primary picked on the Loadout screen — sent to whatever lobby
+    /// we're in (`loadout::push_loadout`), for the modes that have a loadout.
+    pub primary: shared::weapon::WeaponId,
     /// Selected scope reticle — Loadout screen. See [`CrosshairId`].
     pub crosshair: CrosshairId,
     /// Selected scope magnification — Loadout screen. See [`ScopeZoom`].
@@ -236,6 +239,7 @@ impl Default for Settings {
             auto_reload: true,
             vsync: false,
             frame_limit: FRAME_LIMIT_DEFAULT,
+            primary: Default::default(),
             crosshair: CrosshairId::default(),
             scope_zoom: ScopeZoom::default(),
             auto_mantle: AutoMantle::default(),

@@ -179,6 +179,17 @@ pub(crate) struct KillCamRun {
 }
 
 impl KillCamRun {
+    /// The primary the killer held on the sample nearest the playhead — the
+    /// view model wears it for the replay (`weapons::sync_primary_model`).
+    pub(crate) fn weapon(&self) -> Option<shared::weapon::WeaponId> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        let duration = self.frames.last().map(|(t, _)| *t).unwrap_or(0.0);
+        let (a, b, frac) = bracket(&self.frames, self.elapsed.min(duration));
+        shared::weapon::WeaponId::from_u8(if frac < 0.5 { a.weapon } else { b.weapon })
+    }
+
     /// `(sniper_active, throwing_reticle_up)` off the recorded sample nearest
     /// the playhead — what the shooter's crosshair was showing at this
     /// moment. Read straight from the recording (rather than via the
@@ -781,7 +792,13 @@ fn drive_killcam(
     // The end-of-match replay (best play / final kill) can't be skipped.
     let skipped = !run.best_play && binds.killcam_skip.just_pressed(&keys, &mouse);
 
-    let anim_node = view_models.iter().next().map(|vm| vm.index);
+    // (The AK-74's clips play through its own nodes, not `index`, and its
+    // recorded playhead means nothing — it's left in its idle pose.)
+    let anim_node = view_models
+        .iter()
+        .next()
+        .filter(|vm| vm.weapon != shared::weapon::WeaponId::Ak74)
+        .map(|vm| vm.index);
 
     if skipped || run.elapsed >= duration + 0.05 {
         // Put the rig back exactly, park the gun at rest, drop the banner and

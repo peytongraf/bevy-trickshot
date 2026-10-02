@@ -1,5 +1,6 @@
-//! The AK-74 (`models/ak_74.glb`) — a `Zombies` loadout primary
-//! (`shared::LobbyMember::loadout`), full-auto, in place of the sniper.
+//! The AK-74 (`models/ak_74.glb`) — a loadout primary for `Zombies` and
+//! `FreeForAll` (`shared::LobbyMember::loadout`), full-auto, in place of the
+//! sniper.
 //!
 //! The view model is the same [`ViewModel`] entity the sniper uses:
 //! [`sync_primary_model`] swaps its scene and [`ViewModelAnimation`] to
@@ -29,7 +30,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::weapon::{WeaponId, LOADOUT_WEAPONS};
-use shared::{GameMode, Lobby};
+use shared::Lobby;
 
 use super::view_model::{AnimationSegment, PrimaryRig, SegAct, ViewModel, ViewModelAnimation, ViewModelOffset};
 use super::weapon::Weapon;
@@ -145,7 +146,8 @@ pub(crate) struct AkSettings {
     /// Camera shake each round adds, and its backward kick (m).
     pub(crate) trauma_per_shot: f32,
     pub(crate) recoil_kick: f32,
-    /// Muzzle flash placement (camera space, m) and size.
+    /// Muzzle flash placement (camera space at the hip pose, m — it follows
+    /// the gun from there) and size.
     pub(crate) muzzle_translation: Vec3,
     pub(crate) muzzle_size: Vec2,
     /// Seconds each clip cross-fades into the next, and the (quicker) fade
@@ -194,7 +196,7 @@ impl Default for AkSettings {
             ads_spread_deg: 0.25,
             trauma_per_shot: 0.12,
             recoil_kick: 0.012,
-            muzzle_translation: Vec3::new(0.12, -0.08, -0.9),
+            muzzle_translation: Vec3::new(0.10, -0.12, -0.9),
             muzzle_size: Vec2::new(0.45, 0.4),
             blend_secs: 0.15,
             shot_blend_secs: 0.04,
@@ -402,23 +404,30 @@ impl PrimaryModels {
     }
 }
 
-/// Wear whichever primary our lobby loadout says — the AK-74 only for a
-/// `Zombies` lobby that we picked it in, the sniper otherwise: set
+/// Wear the primary we're carrying — in a mode with a loadout, the one the
+/// server says we have this life (`LobbyMember::primary`; before the game,
+/// our pick), the sniper otherwise; during a kill cam, the killer's: set
 /// [`Weapon::primary`] (a full mag of it, reserve refilled for the mode), and
 /// swap the view model's scene and animation graph in place.
 pub(crate) fn sync_primary_model(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
+    killcam: Res<crate::killcam::ActiveKillCam>,
     models: Option<Res<PrimaryModels>>,
     view_model: Single<(&mut ViewModelAnimation, &mut SceneRoot), With<ViewModel>>,
     mut weapon: ResMut<Weapon>,
 ) {
     let me = local.iter().next().map(|l| l.0);
-    let wanted = me
-        .and_then(|me| lobbies.iter().find(|l| l.has(me)))
-        .filter(|l| l.mode == GameMode::Zombies)
-        .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
-        .map(|m| m.loadout)
+    let replayed = killcam.0.as_ref().and_then(|run| run.weapon());
+    let wanted = replayed
+        .or_else(|| {
+            let lobby = lobbies.iter().find(|l| me.is_some_and(|me| l.has(me)))?;
+            let m = lobby.members.iter().find(|m| Some(m.peer) == me)?;
+            if !lobby.mode.has_loadout() {
+                return None;
+            }
+            Some(if lobby.started { m.primary } else { m.loadout })
+        })
         .filter(|w| LOADOUT_WEAPONS.contains(w))
         .unwrap_or(WeaponId::Sniper);
     if weapon.primary != wanted {
@@ -480,7 +489,7 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
         ui.add(egui::Slider::new(&mut s.ads_spread_deg, 0.0f32..=5.0).text("ADS spread (°)"));
         ui.add(egui::Slider::new(&mut s.trauma_per_shot, 0.0f32..=1.0).text("shake per shot"));
         ui.add(egui::Slider::new(&mut s.recoil_kick, 0.0f32..=0.1).text("kick per shot (m)"));
-        ui.label("Muzzle flash (camera space)");
+        ui.label("Muzzle flash (camera space, at the hip — follows the gun)");
         ui.add(egui::Slider::new(&mut s.muzzle_translation.x, -1.0f32..=1.0).text("x"));
         ui.add(egui::Slider::new(&mut s.muzzle_translation.y, -1.0f32..=1.0).text("y"));
         ui.add(egui::Slider::new(&mut s.muzzle_translation.z, -3.0f32..=0.0).text("z"));

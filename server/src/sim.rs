@@ -291,14 +291,14 @@ fn resolve_shots(
         let Some(mut weapon) = WeaponId::from_u8(i.weapon) else {
             continue;
         };
-        // The AK-74 is a `Zombies` loadout weapon only — anywhere else (or
-        // from a member who didn't pick it) a shot is the sniper's.
+        // The AK-74 is a loadout weapon only — in a mode without one, or
+        // from a member not carrying it this life, a shot is the sniper's.
         if weapon == WeaponId::Ak74 {
-            let picked = lobby
+            let carried = lobby
                 .members
                 .iter()
-                .any(|m| m.peer == shooter.0 && m.loadout == WeaponId::Ak74);
-            if lobby.mode != GameMode::Zombies || !picked {
+                .any(|m| m.peer == shooter.0 && m.primary == WeaponId::Ak74);
+            if !lobby.mode.has_loadout() || !carried {
                 weapon = WeaponId::Sniper;
             }
         }

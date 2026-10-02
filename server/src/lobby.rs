@@ -190,6 +190,7 @@ fn on_create(
                     perks: Vec::new(),
                     pap: Default::default(),
                     loadout: Default::default(),
+                    primary: Default::default(),
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -240,6 +241,7 @@ fn on_join(
             perks: Vec::new(),
             pap: Default::default(),
             loadout: Default::default(),
+            primary: Default::default(),
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -284,11 +286,14 @@ fn on_start(
     lobby.enemies_active = 0;
     // `Zombies` points are money: everyone starts with what the leader set.
     let start_points = if lobby.mode == GameMode::Zombies { lobby.start_points } else { 0 };
+    let mode_has_loadout = lobby.mode.has_loadout();
     for m in &mut lobby.members {
         m.score = start_points;
         m.kills = 0;
         m.perks.clear();
         m.pap = Default::default();
+        // Everyone starts with the primary they picked (`Freestyle`: the sniper).
+        m.primary = if mode_has_loadout { m.loadout } else { shared::weapon::WeaponId::Sniper };
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
     }
@@ -407,7 +412,7 @@ fn on_start(
         // Health + combat state for every player in either mode: falls hurt in
         // Freestyle too, and `FreeForAll` shots take health off the same bar.
         ec.insert((
-            crate::pvp::PlayerCombat::default(),
+            crate::pvp::PlayerCombat::spawned(time.elapsed_secs()),
             shared::PlayerHealth(shared::health::FULL_HEALTH),
         ));
         let entity = ec.id();
@@ -488,21 +493,41 @@ fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobb
     }
 }
 
-/// A member picks their `Zombies` primary — only between games, and only one
-/// of the loadout's weapons.
-fn on_set_loadout(trigger: Trigger<RemoteTrigger<shared::SetLoadout>>, mut lobbies: Query<&mut Lobby>) {
+/// A member picks their primary — one of the loadout's weapons. Any time
+/// between games; mid-game only in `FreeForAll`, Call of Duty style: it
+/// swaps the gun in their hands right away if they've only just spawned and
+/// haven't fired yet ([`crate::pvp::PlayerCombat::can_swap_loadout`]),
+/// otherwise it's what they'll spawn with next.
+fn on_set_loadout(
+    trigger: Trigger<RemoteTrigger<shared::SetLoadout>>,
+    time: Res<Time>,
+    mut lobbies: Query<&mut Lobby>,
+    combats: Query<(&PlayerId, &crate::pvp::PlayerCombat)>,
+) {
     let peer = trigger.from;
     let weapon = trigger.trigger.weapon;
     if !shared::weapon::LOADOUT_WEAPONS.contains(&weapon) {
         return;
     }
-    let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer) && !l.started) else {
+    let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
         return;
     };
+    if lobby.started && lobby.mode != GameMode::FreeForAll {
+        return;
+    }
+    let swap_now = lobby.started
+        && combats
+            .iter()
+            .find(|(id, _)| id.0 == peer)
+            .is_some_and(|(_, c)| c.can_swap_loadout(time.elapsed_secs()));
     if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
         if m.loadout != weapon {
             m.loadout = weapon;
-            info!("{peer:?} picked the {} for zombies", weapon.label());
+            info!("{peer:?} picked the {}", weapon.label());
+        }
+        if swap_now && m.primary != weapon {
+            m.primary = weapon;
+            info!("{peer:?} swapped to the {} (spawn grace)", weapon.label());
         }
     }
 }
@@ -614,6 +639,7 @@ fn add_bots(
             perks: Vec::new(),
             pap: Default::default(),
             loadout: Default::default(),
+            primary: Default::default(),
         });
         *next_id += 1;
     }
@@ -837,6 +863,7 @@ mod tests {
                 perks: Vec::new(),
                 pap: Default::default(),
                 loadout: Default::default(),
+                primary: Default::default(),
             }],
         }
     }
