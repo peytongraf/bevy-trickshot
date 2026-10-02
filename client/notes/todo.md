@@ -6,10 +6,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Tracers start from the barrel
+
 # AK-74
 
-- Shot tracer looks like it doesn't come from barrel position and is from higher. It isn't noticed when standing still but is when moving backward. It appears from the center of the screen. It should be slightly lower than that when ads and maybe start a little ahead of the gun or at least fade in from the end the gun is on. It should start from the hip position when firing from hip fire.
-- AK74 and all other weapons should have a hip fire inacuraccy amount.
 - Ensure the recoil is added for it and all other weapons. There should be a setting for it.
 
 # New

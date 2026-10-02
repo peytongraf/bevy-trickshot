@@ -421,6 +421,9 @@ fn resolve_shots(
                             if hit.headshot { "HEADSHOT on" } else { "hit" },
                             p,
                         );
+                        // `FreeForAll`: some weapons hit players a bit softer
+                        // (`WeaponId::pvp_damage_mult`).
+                        let pvp_damage = hit.damage * weapon.pvp_damage_mult();
                         if lobby.mode != GameMode::Freestyle {
                             // A zombie's hit is capped — see `ZOMBIE_HIT_DAMAGE`.
                             // A packed sniper's doubles every level
@@ -430,7 +433,7 @@ fn resolve_shots(
                             } else if zombies {
                                 hit.damage * pap_mult(lobby, shooter.0, shared::pap::PapWeapon::Sniper)
                             } else {
-                                hit.damage
+                                pvp_damage
                             };
                             // Bomb Shot: a zombie killed by an owner's 360
                             // no-scope blows up (`pvp::apply_player_hits`).
@@ -453,7 +456,7 @@ fn resolve_shots(
                             target: p.to_bits(),
                             headshot: hit.headshot,
                             point: hit.point.to_array(),
-                            damage: hit.damage,
+                            damage: if lobby.mode == GameMode::FreeForAll { pvp_damage } else { hit.damage },
                         }
                     }
                     None => ShotOutcome::Miss,

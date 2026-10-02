@@ -5,3 +5,4 @@
 - Ammo box is very inconsistant. Sometimes ui won't pop up and sometimes even after purchasing ammo isn't actually increased. See if this has anything to do with pap level. Even after max ammo was activated, no ammo was added and the sniper was still empty.
 - When throwing knives or molotov is the active lethal type and running over that dropped equipment, it doesn't automatically pick it up
 - Check if pausing the game has anything to do with these issues
+- AK74 and all other weapons should have a hip fire inacuraccy amount.

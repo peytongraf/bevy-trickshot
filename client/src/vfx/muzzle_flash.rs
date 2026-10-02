@@ -10,9 +10,10 @@ pub(crate) const MUZZLE_FLASH_TIME: f32 = 0.06;
 #[derive(Component)]
 pub(crate) struct MuzzleFlash;
 
-/// Panel-adjustable placement of the muzzle-flash sprite, relative to the camera
-/// rig. Pitch and yaw are fixed at 0 (the sprite always faces the camera); roll
-/// is randomised per shot.
+/// Panel-adjustable placement of the sniper's muzzle-flash sprite, relative to
+/// the camera rig at the hip pose (it follows the gun from there — see
+/// [`update_muzzle_flash`]). Pitch and yaw follow the gun's tilt; roll is
+/// randomised per shot.
 #[derive(Resource)]
 pub(crate) struct MuzzleFlashSettings {
     pub(crate) translation: Vec3,
@@ -37,16 +38,28 @@ pub(crate) struct MuzzleFlashState {
     pub(crate) shots: u32,
 }
 
+/// Where the primary's barrel ends this frame, in the camera rig's space
+/// (`CameraShake`, which the view model and this sprite hang off) — the
+/// muzzle flash sits on it, and the local player's tracers start where it
+/// shows on screen (`weapons::resolve_local_shot`). Kept by
+/// [`update_muzzle_flash`].
+#[derive(Resource, Default)]
+pub(crate) struct MuzzlePoint(pub(crate) Option<Vec3>);
+
 /// Decay the muzzle flash and push its state onto the sprite: full alpha the
 /// frame a shot fires, then a quick fade; a fresh random roll each shot.
+/// Each primary's muzzle (`MuzzleFlashSettings` for the sniper,
+/// `AkSettings` for the AK-74) is tuned against its hip pose and carried from
+/// there to wherever the view model actually is this frame, so it stays on
+/// the barrel at any ADS amount, mid-transition, and through bob / sway /
+/// recoil.
 pub(crate) fn update_muzzle_flash(
     time: Res<Time>,
     settings: Res<MuzzleFlashSettings>,
-    // The AK-74's sits at its own muzzle (`AkSettings`), and rides with the
-    // view model as it aims in / bobs / sways / kicks.
-    (weapon, ak): (Res<crate::Weapon>, Res<crate::AkSettings>),
+    (weapon, ak, poses): (Res<crate::Weapon>, Res<crate::AkSettings>, Res<crate::ViewModelPoses>),
     view_model: Single<&Transform, (With<crate::weapons::ViewModel>, Without<MuzzleFlash>)>,
     mut state: ResMut<MuzzleFlashState>,
+    mut point: ResMut<MuzzlePoint>,
     flash: Single<
         (
             &mut Transform,
@@ -67,22 +80,19 @@ pub(crate) fn update_muzzle_flash(
         Visibility::Hidden
     };
 
-    let roll = Quat::from_rotation_z(state.roll);
-    let (translation, rotation, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        // `muzzle_translation` is tuned against the hip pose: carry it from
-        // there to wherever the view model actually is this frame (both are
-        // children of the same rig), so it stays on the barrel at any ADS
-        // amount, mid-transition, and through bob / sway / recoil.
-        let hip = ak.hip.transform();
-        let rel = view_model.compute_affine() * hip.compute_affine().inverse();
-        let turn = view_model.rotation * hip.rotation.inverse();
-        (rel.transform_point3(ak.muzzle_translation), turn * roll, ak.muzzle_size)
+    let (hip, muzzle, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
+        (ak.hip.transform(), ak.muzzle_translation, ak.muzzle_size)
     } else {
-        (settings.translation, roll, settings.size)
+        (poses.hip.transform(), settings.translation, settings.size)
     };
+    // Both are children of the same rig: hip pose → the pose right now.
+    let rel = view_model.compute_affine() * hip.compute_affine().inverse();
+    let turn = view_model.rotation * hip.rotation.inverse();
+    let translation = rel.transform_point3(muzzle);
+    point.0 = Some(translation);
     *transform = Transform {
         translation,
-        rotation,
+        rotation: turn * Quat::from_rotation_z(state.roll),
         scale: Vec3::new(size.x.max(1.0e-4), size.y.max(1.0e-4), 1.0),
     };
 

@@ -203,6 +203,15 @@ impl WeaponId {
         }
     }
 
+    /// Multiplier on its damage to players in `FreeForAll` — the AK-74's
+    /// tuned for zombies, a little too strong player-on-player.
+    pub const fn pvp_damage_mult(self) -> f32 {
+        match self {
+            WeaponId::Ak74 => 0.8,
+            _ => 1.0,
+        }
+    }
+
     /// Whether it keeps firing while the trigger's held.
     pub const fn full_auto(self) -> bool {
         matches!(self, WeaponId::Ak74)

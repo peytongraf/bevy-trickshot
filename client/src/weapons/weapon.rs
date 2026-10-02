@@ -119,15 +119,62 @@ pub(crate) struct LocalShot {
     pub(crate) dir: Vec3,
 }
 
+/// Where the local player's tracer starts: the end of the barrel as it shows
+/// on screen. The muzzle ([`crate::MuzzlePoint`], rig space) is drawn by the
+/// view-model camera, whose FOV differs from the world camera's (more so the
+/// further in we've zoomed), so it's taken to the screen through the
+/// view-model camera and back out through the world camera at the same
+/// depth — the tracer then leaves exactly where the barrel's drawn, low and
+/// right at the hip, the middle of the screen fully aimed. `None` before the
+/// rig's ready (the shot's own origin is used instead).
+fn tracer_start(
+    muzzle: &crate::MuzzlePoint,
+    helper: &bevy::transform::helper::TransformHelper,
+    recoil: &Query<(Entity, &Transform), With<crate::CameraRecoil>>,
+    vm_camera: &Query<&Projection, With<crate::player::ViewModelCamera>>,
+    world_camera: &Query<(Entity, &Projection), With<crate::WorldModelCamera>>,
+) -> Option<Vec3> {
+    let fov = |p: &Projection| match p {
+        Projection::Perspective(p) => Some(p.fov),
+        _ => None,
+    };
+    let (_, recoil_tf) = recoil.single().ok()?;
+    let vm_fov = fov(vm_camera.single().ok()?)?;
+    let (world_cam, world_proj) = world_camera.single().ok()?;
+    let world_fov = fov(world_proj)?;
+    // The view-model camera sits untransformed under `CameraRecoil`, which
+    // is itself under the rig the muzzle point is in.
+    let p = recoil_tf.compute_affine().inverse().transform_point3(muzzle.0?);
+    let depth = -p.z;
+    if depth < 0.05 {
+        return None;
+    }
+    let screen = p.truncate() / (depth * (vm_fov * 0.5).tan());
+    let view = (screen * depth * (world_fov * 0.5).tan()).extend(-depth);
+    // Fresh off this frame's local transforms (movement, look), not last
+    // frame's propagated ones, so a moving shooter's tracer isn't left behind.
+    let cam = helper.compute_global_transform(world_cam).ok()?;
+    Some(cam.transform_point(view))
+}
+
 /// Every [`LocalShot`] kicks up dust where it lands and spawns the shooter's
 /// own tracer instantly, rather than waiting on the server (other players'
 /// tracers come off the server's authoritative `ShotResolved`,
-/// `net::receive_shots`). The tracer ends at the first solid surface it meets
-/// — the map's own colliders, the same model the server stops the bullet on —
-/// or the flat ground plane, else at a max-range whiff; the server owns bot /
-/// player hits, so there's no local impact point to use for those.
+/// `net::receive_shots`). The tracer runs from the barrel ([`tracer_start`])
+/// to the first solid surface the shot meets — the map's own colliders, the
+/// same model the server stops the bullet on — or the flat ground plane,
+/// else to a max-range whiff; the server owns bot / player hits, so there's
+/// no local impact point to use for those.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_local_shot(
     rapier: ReadRapierContext,
+    (muzzle, helper, recoil, vm_camera, world_camera): (
+        Res<crate::MuzzlePoint>,
+        bevy::transform::helper::TransformHelper,
+        Query<(Entity, &Transform), With<crate::CameraRecoil>>,
+        Query<&Projection, With<crate::player::ViewModelCamera>>,
+        Query<(Entity, &Projection), With<crate::WorldModelCamera>>,
+    ),
     mut shots: EventReader<LocalShot>,
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut tracer_rec: ResMut<killcam::ReplayTracer>,
@@ -167,11 +214,12 @@ pub(crate) fn resolve_local_shot(
         }
 
         let end = ground_pt.unwrap_or_else(|| shot.origin + aim * max_range);
-        tracers.write(FireTracer { start: shot.origin, end });
+        let start = tracer_start(&muzzle, &helper, &recoil, &vm_camera, &world_camera).unwrap_or(shot.origin);
+        tracers.write(FireTracer { start, end });
         // Stamp it onto this tick's `PlayerInput` too, so the kill cam re-draws
         // the tracer along its true path instead of leaving the live one
         // hanging in the world.
-        tracer_rec.0 = Some((shot.origin, end));
+        tracer_rec.0 = Some((start, end));
     }
 }
 

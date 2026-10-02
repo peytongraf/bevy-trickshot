@@ -124,7 +124,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
-            ResMut<SniperGlintSettings>,
+            (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>),
             ResMut<ShroomSettings>,
             (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>),
             ResMut<BotLookSettings>,
@@ -147,7 +147,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, mut sniper_glint, mut shroom, (mut name_tags, mut health_bars), mut bot_look),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle), mut shroom, (mut name_tags, mut health_bars), mut bot_look),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1142,6 +1142,27 @@ pub(crate) fn ads_tuning_ui(
                     }
                     if ui.button("Reset sniper glint").clicked() {
                         *g = SniperGlintSettings::default();
+                    }
+                });
+                ui.collapsing("Remote tracer start", |ui| {
+                    let m = &mut *remote_muzzle;
+                    ui.label(
+                        "Where other players' / bots' shot tracers leave their gun: an offset \
+                         from the sniper glint's spot (their scope), along where they're aiming. \
+                         Same for every weapon (one soldier model).",
+                    );
+                    ui.checkbox(&mut m.show_marker, "Show marker on every remote gun");
+                    ui.add(egui::Slider::new(&mut m.offset.x, -1.0f32..=1.0).text("x (right +)"));
+                    ui.add(egui::Slider::new(&mut m.offset.y, -1.0f32..=1.0).text("y (up +)"));
+                    ui.add(egui::Slider::new(&mut m.offset.z, -1.0f32..=2.0).text("z (forward +)"));
+                    if ui.button("Copy remote tracer start to console").clicked() {
+                        info!(
+                            "remote tracer start: offset: Vec3::new({:.3}, {:.3}, {:.3})",
+                            m.offset.x, m.offset.y, m.offset.z,
+                        );
+                    }
+                    if ui.button("Reset remote tracer start").clicked() {
+                        *m = crate::RemoteMuzzleSettings::default();
                     }
                 });
             });

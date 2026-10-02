@@ -375,6 +375,59 @@ impl Default for SniperGlintSettings {
     }
 }
 
+/// The scope on a remote soldier's gun right now — where the sniper glint
+/// sits: `glint.offset` off the gun bone's animated pose (`bone`), or off
+/// the replicated pose for the frame or so before the scene's found the
+/// bone. (The bone's `GlobalTransform` carries the avatar's big scale, so
+/// only its translation / rotation are used — the offset stays in metres.)
+pub(crate) fn soldier_scope_point(
+    pose: &shared::PlayerPose,
+    bone: Option<&GlobalTransform>,
+    glint: &SniperGlintSettings,
+) -> Vec3 {
+    let (origin, rotation) = match bone {
+        Some(gt) => (gt.translation(), gt.rotation()),
+        None => (pose.translation, Quat::from_rotation_y(pose.yaw)),
+    };
+    origin
+        + rotation * Vec3::X * glint.offset.x
+        + rotation * Vec3::Y * glint.offset.y
+        + rotation * Vec3::NEG_Z * glint.offset.z
+}
+
+/// Where a remote soldier's barrel ends — their shot tracers start here
+/// (`net::receive_shots`). The soldier model is the same whichever primary
+/// they carry, so one placement serves the sniper and the AK-74 alike.
+#[derive(Resource)]
+pub(crate) struct RemoteMuzzleSettings {
+    /// Offset (m) from the scope ([`soldier_scope_point`]) along where
+    /// they're aiming: `x` right, `y` up, `z` forward — so it follows the
+    /// gun through every animation, aim raise included.
+    pub(crate) offset: Vec3,
+    /// Debug: mark every remote soldier's muzzle point, to tune `offset`.
+    pub(crate) show_marker: bool,
+}
+
+impl Default for RemoteMuzzleSettings {
+    fn default() -> Self {
+        Self {
+            offset: Vec3::new(0.0, -0.06, 0.6),
+            show_marker: false,
+        }
+    }
+}
+
+/// [`RemoteMuzzleSettings`]' point for a soldier at `pose`.
+pub(crate) fn soldier_muzzle_point(
+    pose: &shared::PlayerPose,
+    bone: Option<&GlobalTransform>,
+    glint: &SniperGlintSettings,
+    muzzle: &RemoteMuzzleSettings,
+) -> Vec3 {
+    let aim = Quat::from_euler(EulerRot::YXZ, pose.yaw, pose.pitch, 0.0);
+    soldier_scope_point(pose, bone, glint) + aim * Vec3::new(muzzle.offset.x, muzzle.offset.y, -muzzle.offset.z)
+}
+
 /// Build the remote-player animation graph. Part of `main.rs`'s one
 /// `Startup` tuple rather than its own `add_systems(Startup, ...)`.
 pub(crate) fn setup_soldier_assets(

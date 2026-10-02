@@ -156,7 +156,7 @@ impl Plugin for ClientNetPlugin {
                 animate_remote_avatars,
                 hide_remote_avatars_during_killcam,
                 spawn_sniper_glints,
-                update_sniper_glints,
+                (update_sniper_glints, draw_remote_muzzle_markers),
                 spawn_bot_avatars,
                 sync_bot_poses,
                 receive_shots,
@@ -640,9 +640,17 @@ fn receive_killcam(
 /// While a kill cam is playing the messages are still drained (so they don't
 /// dump in a batch when it ends) but their effects are dropped — the replay
 /// paints only the killer's own recorded tracers / bursts.
+#[allow(clippy::too_many_arguments)]
 fn receive_shots(
     local: Query<&LocalId, With<GameClient>>,
     active: Res<ActiveKillCam>,
+    (avatars, sources, transforms, glint, muzzle): (
+        Query<(&RemoteAvatar, Option<&SniperGlintBone>), With<crate::SoldierVisual>>,
+        Query<(&PlayerPose, Option<&PlayerId>)>,
+        Query<&GlobalTransform>,
+        Res<SniperGlintSettings>,
+        Res<crate::RemoteMuzzleSettings>,
+    ),
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut impacts: EventWriter<GroundImpact>,
     mut holes: EventWriter<crate::BulletImpact>,
@@ -662,8 +670,16 @@ fn receive_shots(
                     normal: Vec3::from_array(normal),
                 });
             }
+            // From the shooter's barrel (their soldier's gun), not their eye.
+            let barrel = avatars.iter().find_map(|(avatar, bone)| {
+                let (pose, id) = sources.get(avatar.src).ok()?;
+                (id?.0 == msg.shooter).then(|| {
+                    let bone = bone.and_then(|b| transforms.get(b.0).ok());
+                    crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle)
+                })
+            });
             tracers.write(crate::FireTracer {
-                start: Vec3::from_array(msg.origin),
+                start: barrel.unwrap_or(Vec3::from_array(msg.origin)),
                 end: Vec3::from_array(msg.tracer_end),
             });
         }
@@ -961,23 +977,12 @@ fn update_sniper_glints(
                 .any(|m| m.peer == id.0 && m.primary != shared::weapon::WeaponId::Sniper)
         });
 
-        // The gun bone's `GlobalTransform` carries the huge
-        // `RemoteAvatarSettings::scale` (~21×) baked into its own scale
-        // component, so only its translation/rotation are used — the offset
-        // stays in real-world metres regardless, same as the pose fallback.
         let anchor = bones
             .get(glint.avatar)
             .ok()
             .flatten()
             .and_then(|bone| transforms.get(bone.0).ok());
-        let (origin, rotation) = match anchor {
-            Some(gt) => (gt.translation(), gt.rotation()),
-            None => (pose.translation, Quat::from_rotation_y(pose.yaw)),
-        };
-        let pos = origin
-            + rotation * Vec3::X * settings.offset.x
-            + rotation * Vec3::Y * settings.offset.y
-            + rotation * Vec3::NEG_Z * settings.offset.z;
+        let pos = crate::avatars::soldier_scope_point(pose, anchor, &settings);
 
         // Always face the local player dead-on, regardless of the gun's own
         // orientation — `looking_at`'s `up` only matters when the look
@@ -1004,6 +1009,27 @@ fn update_sniper_glints(
         } else {
             Visibility::Hidden
         };
+    }
+}
+
+/// Debug (`RemoteMuzzleSettings::show_marker`): a marker on every remote
+/// soldier's muzzle point, where their tracers start.
+fn draw_remote_muzzle_markers(
+    muzzle: Res<crate::RemoteMuzzleSettings>,
+    glint: Res<SniperGlintSettings>,
+    avatars: Query<(&RemoteAvatar, Option<&SniperGlintBone>), With<crate::SoldierVisual>>,
+    poses: Query<&PlayerPose>,
+    transforms: Query<&GlobalTransform>,
+    mut gizmos: Gizmos,
+) {
+    if !muzzle.show_marker {
+        return;
+    }
+    for (avatar, bone) in &avatars {
+        let Ok(pose) = poses.get(avatar.src) else { continue };
+        let bone = bone.and_then(|b| transforms.get(b.0).ok());
+        let p = crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle);
+        gizmos.sphere(Isometry3d::from_translation(p), 0.04, Color::srgb(1.0, 0.2, 0.2));
     }
 }
 
