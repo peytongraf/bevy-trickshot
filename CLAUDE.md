@@ -63,6 +63,15 @@ only place a player learns anything changed.
   without that confirmation, and never leaves a match. It never opens the
   pause menu and is left alone while a key is being rebound. Any new screen or panel
   with a back button needs this too.
+- **Operator quotes start out in `client/assets/audio/unused/quotes/`**
+  (`<operator>/<event>/…`, one folder per operator — `adam`, `von`). When
+  you wire up a group of quotes that isn't used yet, move those files to
+  `client/assets/audio/quotes/`, keeping the exact same folder structure
+  minus `unused/`, so what's still left in `unused/quotes/` is always what
+  isn't played anywhere yet. While moving them, rename folders and files to
+  the asset naming convention: `snake_case` with underscores (no hyphens) and
+  no `sound` suffix (e.g. `perk-quotes/speed-cola/speed-cola-quote-1.mp3` →
+  `perk_quotes/speed_cola/speed_cola_quote_1.mp3`).
 - Black 3D view with only the HUD showing = a camera's output blend. Bevy
   picks which window camera blits opaquely by render-world iteration order
   (which shifts whenever systems/plugins are added), so the world, view-model

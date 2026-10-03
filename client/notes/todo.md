@@ -8,6 +8,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
+- Perk quote volume should be higher
+- Level out perk jingle sound volumes
+- When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
+
 # Improve
 
 - Improve molotov fire look
@@ -20,6 +24,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Big features
 
+- Add armor
+- Add crafting table
+- Add rampage inducer
+- Add monkey bomb
+- Add semtex
+- Add frag
 - Add quotes
 - Add boss
 - Add exfil

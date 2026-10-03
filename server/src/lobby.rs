@@ -59,6 +59,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_bots_passive)
             .add_observer(on_set_bots_frozen)
             .add_observer(on_set_loadout)
+            .add_observer(on_set_operator)
             .add_observer(on_set_perk_set)
             .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
@@ -194,6 +195,7 @@ fn on_create(
                     perks: Vec::new(),
                     pap: Default::default(),
                     loadout: Default::default(),
+                    operator: Default::default(),
                     primary: Default::default(),
                 }],
             },
@@ -245,6 +247,7 @@ fn on_join(
             perks: Vec::new(),
             pap: Default::default(),
             loadout: Default::default(),
+            operator: Default::default(),
             primary: Default::default(),
         });
         info!("{peer:?} joined lobby {target:?}");
@@ -537,6 +540,24 @@ fn on_set_loadout(
     }
 }
 
+/// A member picks who they play as — any time but during a `Zombies` game.
+fn on_set_operator(trigger: Trigger<RemoteTrigger<shared::SetOperator>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let operator = trigger.trigger.operator;
+    let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
+        return;
+    };
+    if lobby.started && lobby.mode == GameMode::Zombies {
+        return;
+    }
+    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        if m.operator != operator {
+            m.operator = operator;
+            info!("{peer:?} plays as {}", operator.label());
+        }
+    }
+}
+
 /// Debug: the leader freezes (or frees) their lobby's bots in place, any time.
 fn on_set_bots_frozen(trigger: Trigger<RemoteTrigger<SetBotsFrozen>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
@@ -644,6 +665,7 @@ fn add_bots(
             perks: Vec::new(),
             pap: Default::default(),
             loadout: Default::default(),
+            operator: Default::default(),
             primary: Default::default(),
         });
         *next_id += 1;
@@ -886,6 +908,7 @@ mod tests {
                 perks: Vec::new(),
                 pap: Default::default(),
                 loadout: Default::default(),
+                operator: Default::default(),
                 primary: Default::default(),
             }],
         }

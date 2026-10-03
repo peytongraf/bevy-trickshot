@@ -34,7 +34,7 @@ impl Plugin for ZombiesHudPlugin {
                     update_active_enemies,
                     update_pregame_countdown,
                     sync_perk_machines,
-                    (play_perk_jingles, update_perk_jingles).chain(),
+                    (play_perk_jingles, play_perk_quotes, update_perk_jingles).chain(),
                     update_perk_card,
                     update_no_power_prompt,
                     update_perk_icons,
@@ -819,10 +819,30 @@ impl PerkMachineSettings {
 
 /// A perk machine's jingle, playing from the machine (see
 /// [`play_perk_jingles`]). Its loudness follows the listener's distance every
-/// frame ([`update_perk_jingles`]); it despawns when the clip ends, and it's
-/// `StateScoped(InGame)` so leaving cuts it off.
+/// frame ([`update_perk_jingles`]). Played with `PlaybackMode::Remove`, so
+/// once the clip ends the entity stays (minus its `AudioPlayer`) for
+/// [`play_perk_quotes`] to notice, play `quote` and despawn it. It's
+/// `StateScoped(InGame)` so leaving cuts it (and the quote to come) off.
 #[derive(Component)]
-struct PerkJingle;
+struct PerkJingle {
+    /// The buyer's operator's line, to play once the jingle ends.
+    quote: Option<PendingQuote>,
+}
+
+struct PendingQuote {
+    clip: Handle<AudioSource>,
+    /// The clip's own "Sound volumes" multiplier.
+    volume: f32,
+    /// We're the buyer — our own voice, so it plays in our head rather than
+    /// from the machine.
+    own: bool,
+}
+
+/// Another player's perk quote, playing from the machine they bought at —
+/// faded by distance like the jingle ([`update_perk_jingles`]). Holds the
+/// clip's own volume multiplier.
+#[derive(Component)]
+struct PerkQuote(f32);
 
 /// Anyone in our `Zombies` game just bought a perk — a new entry in their
 /// replicated `LobbyMember::perks`, which every client sees — so play that
@@ -841,6 +861,7 @@ fn play_perk_jingles(
         *seen = None;
         return;
     };
+    let me = local.iter().next().map(|l| l.0);
     let now: std::collections::HashMap<_, _> =
         lobby.members.iter().map(|m| (m.peer, m.perks.clone())).collect();
     if let (Some(prev), Some(sounds)) = (seen.as_ref(), sounds.as_ref()) {
@@ -850,9 +871,25 @@ fn play_perk_jingles(
                 let Some(jingle) = sounds.jingle(perk) else {
                     continue;
                 };
+                // Picked from what every client sees, so the whole lobby
+                // hears the same line.
+                let seed = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    (peer, perk, lobby.round, perks.len()).hash(&mut h);
+                    h.finish()
+                };
+                let operator = lobby.members.iter().find(|m| m.peer == *peer).map(|m| m.operator);
+                let quote = operator
+                    .and_then(|op| sounds.perk_quote(op, perk, seed))
+                    .map(|clip| PendingQuote {
+                        clip: clip.handle.clone(),
+                        volume: clip.volume,
+                        own: Some(*peer) == me,
+                    });
                 commands.spawn((
                     StateScoped(AppState::InGame),
-                    PerkJingle,
+                    PerkJingle { quote },
                     // Volume is ours to set (`update_perk_jingles`), not the
                     // one-shot volume pass's.
                     crate::RemoteSoundEmitter,
@@ -862,8 +899,12 @@ fn play_perk_jingles(
                         machines.placement(perk, lobby.map).0
                             + Vec3::Y * machines.half_extents().y * 1.6,
                     ),
-                    // Starts silent; the real volume is set from the next frame.
-                    crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                    // Starts silent; the real volume is set from the next
+                    // frame. Kept once it ends, for `play_perk_quotes`.
+                    PlaybackSettings {
+                        mode: bevy::audio::PlaybackMode::Remove,
+                        ..crate::positional_playback(bevy::audio::Volume::Linear(0.0))
+                    },
                 ));
             }
         }
@@ -871,23 +912,62 @@ fn play_perk_jingles(
     *seen = Some(now);
 }
 
-/// Keep each playing jingle's loudness matched to how far the listener is
-/// from its machine — the same fade as other players' sounds ("Remote
-/// sounds" range) — times the "perk jingle" volume.
+/// A perk jingle just ended (its `AudioPlayer` is gone): the buyer's
+/// operator says their line — in our head if it was us, otherwise from the
+/// machine — and the jingle's entity goes.
+fn play_perk_quotes(
+    finished: Query<(Entity, &PerkJingle, &Transform), Without<AudioPlayer>>,
+    sound_vol: Res<crate::SoundVolumes>,
+    mut commands: Commands,
+) {
+    for (entity, jingle, transform) in &finished {
+        commands.entity(entity).despawn();
+        let Some(quote) = &jingle.quote else {
+            continue;
+        };
+        if quote.own {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                AudioPlayer::new(quote.clip.clone()),
+                // (`GlobalVolume` is multiplied in at spawn.)
+                PlaybackSettings::DESPAWN
+                    .with_volume(bevy::audio::Volume::Linear(sound_vol.perk_quote * quote.volume)),
+            ));
+        } else {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                PerkQuote(quote.volume),
+                crate::RemoteSoundEmitter,
+                AudioPlayer::new(quote.clip.clone()),
+                *transform,
+                crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+            ));
+        }
+    }
+}
+
+/// Keep each playing jingle's (and other players' perk quotes') loudness
+/// matched to how far the listener is from its machine — the same fade as
+/// other players' sounds ("Remote sounds" range) — times the "perk jingle"
+/// (or "perk quote") volume.
+#[allow(clippy::type_complexity)]
 fn update_perk_jingles(
     listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
     sound_vol: Res<crate::SoundVolumes>,
     remote: Res<crate::RemoteSoundSettings>,
     global_volume: Res<GlobalVolume>,
-    mut jingles: Query<(&GlobalTransform, &mut SpatialAudioSink), With<PerkJingle>>,
+    mut jingles: Query<
+        (&GlobalTransform, &mut SpatialAudioSink, Option<&PerkQuote>),
+        Or<(With<PerkJingle>, With<PerkQuote>)>,
+    >,
 ) {
     let Ok(ear) = listener.single() else {
         return;
     };
     let ear = ear.translation();
-    for (gt, mut sink) in &mut jingles {
-        let loudness =
-            sound_vol.perk_jingle * crate::distance_falloff(ear.distance(gt.translation()), &remote);
+    for (gt, mut sink, quote) in &mut jingles {
+        let volume = quote.map_or(sound_vol.perk_jingle, |q| sound_vol.perk_quote * q.0);
+        let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
         sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }

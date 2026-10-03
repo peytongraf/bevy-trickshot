@@ -25,7 +25,7 @@ pub(crate) struct LoadoutPlugin;
 impl Plugin for LoadoutPlugin {
     fn build(&self, app: &mut App) {
         // Not gated on `AppState`: the lobby room needs it as much as a game.
-        app.add_systems(Update, push_loadout).add_systems(
+        app.add_systems(Update, (push_loadout, push_operator)).add_systems(
             Update,
             (loadout_notice, update_loadout_notice)
                 .chain()
@@ -97,6 +97,39 @@ fn push_loadout(
     }
     if let Ok(mut s) = sender.single_mut() {
         s.trigger::<shared::LobbyChannel>(shared::SetLoadout { weapon: pick });
+        *sent = Some(pick);
+    }
+}
+
+/// Send our operator pick (`Settings::operator`, the lobby room's OPERATOR
+/// section) to the lobby we're in whenever it differs from what the lobby
+/// has for us — once per pick, like [`push_loadout`].
+fn push_operator(
+    settings: Res<Settings>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut sender: Query<&mut TriggerSender<shared::SetOperator>, With<GameClient>>,
+    mut sent: Local<Option<shared::operator::Operator>>,
+) {
+    let me = local.iter().next().map(|l| l.0);
+    let Some(lobby) = lobbies.iter().find(|l| me.is_some_and(|me| l.has(me))) else {
+        *sent = None;
+        return;
+    };
+    let Some(member) = lobby.members.iter().find(|m| Some(m.peer) == me) else {
+        *sent = None;
+        return;
+    };
+    let pick = settings.operator;
+    if member.operator == pick {
+        *sent = None;
+        return;
+    }
+    if *sent == Some(pick) || (lobby.started && lobby.mode == GameMode::Zombies) {
+        return;
+    }
+    if let Ok(mut s) = sender.single_mut() {
+        s.trigger::<shared::LobbyChannel>(shared::SetOperator { operator: pick });
         *sent = Some(pick);
     }
 }

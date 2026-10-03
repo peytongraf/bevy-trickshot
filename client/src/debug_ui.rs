@@ -1455,6 +1455,7 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: power-up loop", &mut v.power_up_loop),
                         ("zombies: power-up announcer", &mut v.power_up_announcer),
                         ("zombies: perk jingle", &mut v.perk_jingle),
+                        ("zombies: perk quote", &mut v.perk_quote),
                         ("zombies: power on", &mut v.power_on),
                         ("zombies: round start", &mut v.round_start),
                         ("zombies: dog round start", &mut v.dog_round_start),

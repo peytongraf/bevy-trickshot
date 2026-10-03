@@ -16,7 +16,11 @@
 /// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
-    &["Fixed the game assets download cutting off on fresh installs."],
+    &[
+        "Zombies: your operator says a line after buying a perk.",
+        "Zombies: pick your operator (Adam or Von) in the lobby.",
+        "Fixed the game assets download cutting off on fresh installs.",
+    ],
 ), (
     "0.4.6",
     &[

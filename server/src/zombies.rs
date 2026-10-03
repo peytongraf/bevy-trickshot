@@ -721,6 +721,7 @@ mod tests {
                     perks: Vec::new(),
                     pap: Default::default(),
                     loadout: Default::default(),
+                    operator: Default::default(),
                     primary: Default::default(),
                 }],
             })

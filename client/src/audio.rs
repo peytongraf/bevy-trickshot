@@ -3,8 +3,9 @@
 //! "Sound volumes" panel onto whatever's actually playing.
 //!
 //! `assets/audio/` layout: one folder per category — `ambient/`, `combat/`,
-//! `movement/` (+ `footsteps/`), `music/`, `ui/`, `weapons/<weapon>/`, `zombies/`, and
-//! `unused/` for clips not wired up yet. Files are `snake_case`, named for
+//! `movement/` (+ `footsteps/`), `music/`, `quotes/<operator>/`, `ui/`,
+//! `weapons/<weapon>/`, `zombies/`, and `unused/` for clips not wired up yet
+//! (operator quotes move from `unused/quotes/` to `quotes/` as they're used). Files are `snake_case`, named for
 //! what they are within their folder (no `-sound` suffix, no repeating the
 //! folder's name: `weapons/sniper/shot.wav`), with variations numbered
 //! `name_1`, `name_2`, …
@@ -77,6 +78,10 @@ pub(crate) struct GameSounds {
     /// that perk (`zombies_hud::play_perk_jingles`). Pick one with
     /// [`Self::jingle`].
     jingles: std::collections::HashMap<shared::perks::Perk, Handle<AudioSource>>,
+    /// `audio/quotes/<operator>/perk_quotes/` — each operator's lines after
+    /// buying a perk (`zombies_hud::play_perk_quotes`). Pick one with
+    /// [`Self::perk_quote`].
+    perk_quotes: std::collections::HashMap<shared::operator::Operator, PerkQuotes>,
     /// `audio/zombies/machines/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
@@ -142,6 +147,52 @@ impl GameSounds {
     /// `perk`'s machine jingle — `None` for a perk that doesn't have one yet.
     pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Option<Handle<AudioSource>> {
         self.jingles.get(&perk).cloned()
+    }
+
+    /// What `operator` says after buying `perk`: for a classic perk, one of
+    /// its own lines or one of the operator's `any/` lines; for a custom
+    /// perk (no lines of its own), one of `any/`. `seed` picks which, so
+    /// every client can pick the same one.
+    pub(crate) fn perk_quote(
+        &self,
+        operator: shared::operator::Operator,
+        perk: shared::perks::Perk,
+        seed: u64,
+    ) -> Option<&SoundClip> {
+        let quotes = self.perk_quotes.get(&operator)?;
+        let own = quotes.by_perk.get(&perk).map_or(&[][..], |set| &set.clips[..]);
+        let pool: Vec<&SoundClip> = own.iter().chain(&quotes.any.clips).collect();
+        (!pool.is_empty()).then(|| pool[(seed % pool.len() as u64) as usize])
+    }
+}
+
+/// One operator's perk quotes (`audio/quotes/<operator>/perk_quotes/`):
+/// `any/`, and a folder per classic perk.
+pub(crate) struct PerkQuotes {
+    any: SoundSet,
+    by_perk: std::collections::HashMap<shared::perks::Perk, SoundSet>,
+}
+
+impl PerkQuotes {
+    fn load(asset_server: &AssetServer, operator: shared::operator::Operator) -> Self {
+        use shared::perks::Perk;
+        let dir = format!("audio/quotes/{}/perk_quotes", operator.dir());
+        Self {
+            any: SoundSet::load(asset_server, &format!("{dir}/any"), 1.0),
+            by_perk: [
+                (Perk::Juggernog, "jug"),
+                (Perk::QuickRevive, "quick_revive"),
+                (Perk::SpeedCola, "speed_cola"),
+                (Perk::StaminUp, "stamin_up"),
+                (Perk::DoubleTap, "double_tap"),
+                (Perk::DeadshotDaiquiri, "deadshot"),
+                (Perk::PhdFlopper, "phd"),
+                (Perk::DeathPerception, "death_perception"),
+            ]
+            .into_iter()
+            .map(|(perk, sub)| (perk, SoundSet::load(asset_server, &format!("{dir}/{sub}"), 1.0)))
+            .collect(),
+        }
     }
 }
 
@@ -273,6 +324,9 @@ pub(crate) struct SoundVolumes {
     pub(crate) perk_buy: f32,
     /// Every perk machine's jingle (on top of its distance fade).
     pub(crate) perk_jingle: f32,
+    /// An operator's line after buying a perk (another player's on top of
+    /// its distance fade).
+    pub(crate) perk_quote: f32,
     /// The power lever being thrown (on top of its distance fade).
     pub(crate) power_on: f32,
     pub(crate) round_start: f32,
@@ -334,6 +388,7 @@ impl Default for SoundVolumes {
             hit_marker: 1.0,
             perk_buy: 1.0,
             perk_jingle: 1.0,
+            perk_quote: 1.0,
             power_on: 1.0,
             round_start: 4.0,
             dog_round_start: 1.0,
@@ -589,6 +644,10 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .map(|(perk, file)| (perk, asset_server.load(format!("audio/zombies/perks/jingles/{file}"))))
             .collect()
         },
+        perk_quotes: shared::operator::Operator::ALL
+            .into_iter()
+            .map(|op| (op, PerkQuotes::load(&asset_server, op)))
+            .collect(),
         power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
         machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
         round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),

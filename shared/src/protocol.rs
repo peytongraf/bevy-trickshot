@@ -939,6 +939,9 @@ pub struct LobbyMember {
     /// ([`GameMode::has_loadout`]). Kept between games. What they spawn with
     /// next — see `primary` for what they're carrying now.
     pub loadout: WeaponId,
+    /// Who this member plays as in [`GameMode::Zombies`] ([`SetOperator`]) —
+    /// whose voice their quotes are in. Kept between games.
+    pub operator: crate::operator::Operator,
     /// The primary this member is actually carrying this life (server-set):
     /// `loadout` at the start of a game and on every respawn, or straight
     /// away on a `FreeForAll` change made within
@@ -1450,6 +1453,14 @@ pub struct SetLoadout {
     pub weapon: WeaponId,
 }
 
+/// Client → server: the sender plays as `operator`
+/// ([`LobbyMember::operator`]). Any time between games; ignored once a
+/// `Zombies` game has started.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetOperator {
+    pub operator: crate::operator::Operator,
+}
+
 /// Client → server: the sender just went prone at `perk`'s machine. The
 /// first in the lobby to do so at each machine gets
 /// [`crate::perks::PRONE_BONUS_POINTS`] ([`ProneBonus`]); anything else is
@@ -1733,6 +1744,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetLoadout>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetOperator>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()

@@ -218,6 +218,9 @@ pub struct Settings {
     /// The primary picked on the Loadout screen — sent to whatever lobby
     /// we're in (`loadout::push_loadout`), for the modes that have a loadout.
     pub primary: shared::weapon::WeaponId,
+    /// Who we play as in `Zombies` — picked in the lobby room, sent to
+    /// whatever lobby we're in (`loadout::push_operator`).
+    pub operator: shared::operator::Operator,
     /// Selected scope reticle — Loadout screen. See [`CrosshairId`].
     pub crosshair: CrosshairId,
     /// Selected scope magnification — Loadout screen. See [`ScopeZoom`].
@@ -244,6 +247,7 @@ impl Default for Settings {
             vsync: false,
             frame_limit: FRAME_LIMIT_DEFAULT,
             primary: Default::default(),
+            operator: Default::default(),
             crosshair: CrosshairId::default(),
             scope_zoom: ScopeZoom::default(),
             auto_mantle: AutoMantle::default(),

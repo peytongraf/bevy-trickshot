@@ -500,6 +500,9 @@ enum MenuBtn {
     /// Equip this primary (the room's LOADOUT section) — `Settings::primary`,
     /// which `loadout::push_loadout` sends on.
     SetLoadout(shared::weapon::WeaponId),
+    /// Play as this operator (the room's OPERATOR section, `Zombies`) —
+    /// `Settings::operator`, which `loadout::push_operator` sends on.
+    SetOperator(shared::operator::Operator),
     /// Open the Loadout screen on this weapon's GUNSMITH page.
     OpenGunsmith(shared::weapon::WeaponId),
 }
@@ -605,6 +608,7 @@ fn rebuild(
                     last_match.0.as_ref(),
                     &bot_selection,
                     settings.primary,
+                    settings.operator,
                 );
                 if ui.confirm_leave {
                     build_leave_confirm(&mut commands, &asset_server);
@@ -919,6 +923,67 @@ fn loadout_weapon_card(
     });
 }
 
+/// One operator in the room's OPERATOR section: their portrait and name —
+/// click to play as them, gold-edged and marked SELECTED when it's our pick.
+fn operator_card(
+    row: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    op: shared::operator::Operator,
+    selected: bool,
+    can_change: bool,
+) {
+    let normal = if selected { ACCENT_DIM } else { ROW };
+    let mut card = row.spawn((
+        Node {
+            width: Val::Px(180.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(10.0)),
+            row_gap: Val::Px(6.0),
+            border: UiRect::all(Val::Px(2.0)),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(normal),
+        BorderColor(if selected { ACCENT } else { EDGE }),
+    ));
+    if can_change {
+        card.insert((
+            Button,
+            Interaction::default(),
+            MenuBtn::SetOperator(op),
+            Hoverable {
+                normal,
+                hover: Color::srgba(1.0, 1.0, 1.0, 0.18),
+                text: None,
+            },
+            ui_sound(UiSound::MENU),
+        ));
+    }
+    card.with_children(|c| {
+        // The portraits are 2:3.
+        c.spawn((
+            ImageNode::new(asset_server.load(format!("textures/operators/{}.png", op.dir()))),
+            Node {
+                width: Val::Px(156.0),
+                height: Val::Px(234.0),
+                ..default()
+            },
+        ));
+        c.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|bottom| {
+            bottom.spawn(label_hud(asset_server, op.label(), 26.0, TEXT));
+            if selected {
+                bottom.spawn(label_hud(asset_server, "SELECTED", 14.0, ACCENT));
+            }
+        });
+    });
+}
+
 /// A read-only setting value (what non-leaders see).
 fn setting_value(row: &mut ChildSpawnerCommands, asset_server: &AssetServer, value: String) {
     row.spawn(label_hud(asset_server, value, 24.0, TEXT));
@@ -1174,6 +1239,7 @@ fn build_room(
     last_match: Option<&(String, u32)>,
     bot_selection: &BotSelection,
     pick: shared::weapon::WeaponId,
+    operator: shared::operator::Operator,
 ) {
     let is_leader = me == Some(lobby.leader);
     let can_edit = is_leader && !lobby.started;
@@ -1481,6 +1547,30 @@ fn build_room(
                         }
                     });
                 }
+
+                // Who we play as — only `Zombies` has operators (their voice).
+                if is_zombies {
+                    col.spawn(Node {
+                        height: Val::Px(18.0),
+                        flex_shrink: 0.0,
+                        ..default()
+                    });
+                    section_heading(col, asset_server, "OPERATOR");
+                    col.spawn(Node {
+                        width: Val::Percent(100.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(12.0),
+                        row_gap: Val::Px(12.0),
+                        padding: UiRect::vertical(Val::Px(8.0)),
+                        flex_shrink: 0.0,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        for op in shared::operator::Operator::ALL {
+                            operator_card(row, asset_server, op, op == operator, !lobby.started);
+                        }
+                    });
+                }
             });
 
             // the party
@@ -1737,6 +1827,10 @@ fn handle_clicks(
             }
             MenuBtn::SetLoadout(weapon) => {
                 settings.primary = *weapon;
+                ui.dirty = true;
+            }
+            MenuBtn::SetOperator(op) => {
+                settings.operator = *op;
                 ui.dirty = true;
             }
             MenuBtn::OpenGunsmith(weapon) => menu.open_loadout(Some(*weapon)),
