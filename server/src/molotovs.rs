@@ -303,6 +303,7 @@ fn burn(
                 bomb_shot: false,
                 blast: false,
                 critical: false,
+                point: None,
             });
         }
     }

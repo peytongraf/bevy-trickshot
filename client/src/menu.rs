@@ -236,7 +236,24 @@ fn show_match_results(mut ended: EventReader<crate::MatchEndedEvent>, mut menu: 
 
 // ---- input ---------------------------------------------------------------
 
-fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings: Res<Settings>) {
+/// Esc opens the menu or backs out of it; the mouse back button backs out
+/// the same way (but never opens it, and while a key is being rebound it's
+/// left to `rebind_capture` to bind).
+pub(crate) fn menu_toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut menu: ResMut<Menu>,
+    settings: Res<Settings>,
+) {
+    // (Pack-a-Punch and Der Wunderfizz close themselves on it — once it's
+    // released, like their EXIT buttons: `pap_menu`, `wunderfizz`.)
+    if mouse.just_pressed(MouseButton::Back)
+        && menu.rebinding.is_none()
+        && !matches!(menu.screen, Screen::None | Screen::PackAPunch | Screen::Wunderfizz)
+    {
+        go_back(&mut menu, &settings);
+        return;
+    }
     if !keys.just_pressed(KeyCode::Escape) {
         return;
     }
@@ -245,18 +262,25 @@ fn menu_toggle(keys: Res<ButtonInput<KeyCode>>, mut menu: ResMut<Menu>, settings
         menu.dirty = true;
         return;
     }
+    if menu.screen == Screen::None {
+        menu.screen = if settings.has_username() {
+            Screen::Settings
+        } else {
+            Screen::Username
+        };
+        menu.tab = Tab::Profile;
+        menu.username_draft = settings.username.clone().unwrap_or_default();
+        menu.dirty = true;
+        return;
+    }
+    go_back(&mut menu, &settings);
+}
+
+/// Back out of the open menu screen one level — Esc / the mouse back button.
+fn go_back(menu: &mut Menu, settings: &Settings) {
     let has_name = settings.has_username();
     match menu.screen {
-        Screen::None => {
-            menu.screen = if has_name {
-                Screen::Settings
-            } else {
-                Screen::Username
-            };
-            menu.tab = Tab::Profile;
-            menu.username_draft = settings.username.clone().unwrap_or_default();
-            menu.dirty = true;
-        }
+        Screen::None => {}
         Screen::Settings => {
             menu.screen = if has_name {
                 Screen::None

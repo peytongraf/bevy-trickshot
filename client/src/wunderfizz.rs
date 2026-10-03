@@ -628,6 +628,10 @@ fn wunderfizz_lifecycle(
     mut commands: Commands,
 ) {
     if menu.screen == Screen::Wunderfizz {
+        // The mouse back button exits like EXIT does (once it's released).
+        if mouse.just_pressed(MouseButton::Back) {
+            state.close_pending = true;
+        }
         let still_here = !death.is_active()
             && player.is_some_and(|p| {
                 at_wunderfizz(&local, &lobbies, &machines, &p).is_some_and(|(l, ..)| shared::wunderfizz::active(l))

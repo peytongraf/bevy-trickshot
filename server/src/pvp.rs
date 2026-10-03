@@ -15,7 +15,7 @@ use lightyear::prelude::*;
 use shared::{
     FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
     PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady, ScoreLine, TrickScore,
-    ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS,
+    ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS, ZombieDamaged,
 };
 
 use lightyear::prelude::input::native::ActionState;
@@ -144,6 +144,10 @@ pub struct PlayerHit {
     /// A headshot or a knife stab: a `Zombies` zombie killed by one scores
     /// its killer [`ZOMBIE_CRITICAL_POINTS`] on top of the kill.
     pub critical: bool,
+    /// Where the hit landed, when it landed somewhere in particular (a shot,
+    /// a stab, a thrown knife) — where a `Zombies` damage number floats up
+    /// from ([`shared::ZombieDamaged`]). `None`: the middle of the body.
+    pub point: Option<Vec3>,
 }
 
 /// A Bomb Shot went off in `lobby` with its base at `feet`, set off by `by`
@@ -204,6 +208,10 @@ impl Plugin for PvpPlugin {
     }
 }
 
+/// How high (m) above a zombie's feet a hit with no particular spot (fire,
+/// a blast) shows its damage number — about mid-chest.
+const ZOMBIE_DAMAGE_CENTER_Y: f32 = 1.1;
+
 /// Apply queued damage; a fatal hit marks the victim dead, starts their
 /// respawn timer, credits the killer's kill count, and tells the victim
 /// where they'll reappear.
@@ -256,12 +264,39 @@ pub(crate) fn apply_player_hits(
                     && l.mode == GameMode::Zombies
                     && l.power_up_active(shared::power_ups::PowerUp::InstaKill)
             });
+        let health_before = combat.health.max(0.0);
         combat.health -= if insta {
-            combat.health.max(0.0) + 1.0
+            health_before + 1.0
         } else {
             shared::perks::damage_taken(perks, ev.damage)
         };
         combat.last_damage = time.elapsed_secs();
+        // `Zombies`: a player's hit on a zombie floats its damage number up
+        // on their screen (an Insta-Kill's being whatever health it took).
+        let zombie_hit = is_bot_peer(ev.victim)
+            && !is_bot_peer(ev.killer)
+            && lobbies.iter().any(|(_, l)| in_lobby(l) && l.mode == GameMode::Zombies);
+        if zombie_hit {
+            let point = ev.point.or_else(|| {
+                poses.iter().find(|(id, _)| id.0 == ev.victim).map(|(_, pose)| {
+                    pose.translation - Vec3::Y * (crate::sim::EYE_HEIGHT - ZOMBIE_DAMAGE_CENTER_Y)
+                })
+            });
+            let damage = if insta { health_before } else { ev.damage };
+            if let Some(point) = point {
+                if let Err(e) = sender.send::<_, GameChannel>(
+                    &ZombieDamaged {
+                        point: point.to_array(),
+                        damage: damage.round().max(1.0) as u32,
+                        critical: ev.critical,
+                    },
+                    server,
+                    &NetworkTarget::Single(ev.killer),
+                ) {
+                    error!("failed to send zombie damage to {:?}: {e:?}", ev.killer);
+                }
+            }
+        }
         if combat.health > 0.0 {
             // Hurt but alive: the shooter gets a hit marker (a bot shooter has
             // no client to show it to, and a player burnt by their own
@@ -487,6 +522,7 @@ fn apply_bomb_blasts(
                 bomb_shot: false,
                 blast: true,
                 critical: false,
+                point: None,
             });
         }
         let what = if blast.phd { "PhD Flopper blast" } else { "bomb shot" };

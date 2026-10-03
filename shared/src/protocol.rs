@@ -1214,6 +1214,18 @@ pub struct HitMarker {
     pub victim: Option<PeerId>,
 }
 
+/// Server → the attacker only, in `Zombies`: one of their hits (any weapon —
+/// shot, stab, thrown knife, fire, blast) took `damage` off a zombie, at
+/// `point` (where it landed, or the middle of the body when there's no one
+/// spot). The client floats the number up from there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieDamaged {
+    pub point: [f32; 3],
+    pub damage: u32,
+    /// A headshot or a knife — drawn yellow.
+    pub critical: bool,
+}
+
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
 /// `Freestyle`, another player in `FreeForAll`) at `point` — every client
 /// plays the hit sound from there.
@@ -1579,6 +1591,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<PlayerKilledBy>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<HitMarker>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombieDamaged>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);

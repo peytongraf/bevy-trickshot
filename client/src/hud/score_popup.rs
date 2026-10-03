@@ -1,5 +1,6 @@
-//! The CoD-style yellow "+N" score stack that pops up centre-screen when the
-//! local player's shot scores.
+//! The CoD-style "+N" score stack that pops up centre-screen when the local
+//! player's shot scores — yellow, except a plain (non-critical) `Zombies`
+//! payout, which is white.
 
 use bevy::prelude::*;
 
@@ -16,19 +17,33 @@ pub(crate) struct TrickScoredEvent {
     pub(crate) lines: Vec<(String, u32)>,
     /// Played instead of the usual kill sound.
     pub(crate) sound: Option<Handle<AudioSource>>,
+    /// The stack's colour ([`score_color`]).
+    pub(crate) color: Color,
+}
+
+/// What colour a stack of `lines` is: in `Zombies`, white unless it has a
+/// critical (headshot / knife) bonus, which stays yellow; yellow elsewhere.
+pub(crate) fn score_color(zombies: bool, lines: &[(String, u32)]) -> Color {
+    if zombies && !lines.iter().any(|(label, _)| label == "CRITICAL") {
+        SCORE_WHITE
+    } else {
+        SCORE_YELLOW
+    }
 }
 
 /// The score-popup stack (one per scored shot; a fresh one replaces the last).
 #[derive(Component)]
 pub(crate) struct ScorePopup {
     age: f32,
+    color: Color,
 }
 
 pub(crate) const SCORE_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
+pub(crate) const SCORE_WHITE: Color = Color::srgb(1.0, 1.0, 1.0);
 pub(crate) const SCORE_POPUP_HOLD: f32 = 1.1;
 pub(crate) const SCORE_POPUP_TTL: f32 = 2.6;
 
-/// Spawn the yellow `+N  LABEL` stack, centred a little above the crosshair.
+/// Spawn the `+N  LABEL` stack, centred a little above the crosshair.
 pub(crate) fn spawn_score_popup(
     mut events: EventReader<TrickScoredEvent>,
     existing: Query<Entity, With<ScorePopup>>,
@@ -52,7 +67,10 @@ pub(crate) fn spawn_score_popup(
 
     commands
         .spawn((
-            ScorePopup { age: 0.0 },
+            ScorePopup {
+                age: 0.0,
+                color: ev.color,
+            },
             StateScoped(AppState::InGame),
             GlobalZIndex(9),
             Node {
@@ -81,7 +99,7 @@ pub(crate) fn spawn_score_popup(
                     font_size: 32.0,
                     ..default()
                 },
-                TextColor(SCORE_YELLOW),
+                TextColor(ev.color),
             ));
             for (label, points) in &ev.lines {
                 col.spawn((
@@ -91,7 +109,7 @@ pub(crate) fn spawn_score_popup(
                         font_size: 25.0,
                         ..default()
                     },
-                    TextColor(SCORE_YELLOW),
+                    TextColor(ev.color),
                 ));
             }
         });
@@ -117,7 +135,7 @@ pub(crate) fn update_score_popups(
         };
         for child in children {
             if let Ok(mut tc) = texts.get_mut(*child) {
-                tc.0 = SCORE_YELLOW.with_alpha(a.clamp(0.0, 1.0));
+                tc.0 = popup.color.with_alpha(a.clamp(0.0, 1.0));
             }
         }
     }

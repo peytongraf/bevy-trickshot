@@ -412,10 +412,11 @@ fn write_input(
     }
 }
 
-/// Server → everyone: a shot scored style points. Pop the yellow stack for our
-/// own shooter id.
+/// Server → everyone: a shot scored style points. Pop the score stack for
+/// our own shooter id.
 fn receive_trick_scores(
     local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
     mut receivers: Query<&mut MessageReceiver<TrickScore>>,
     mut scored: EventWriter<TrickScoredEvent>,
 ) {
@@ -425,9 +426,12 @@ fn receive_trick_scores(
             if Some(msg.shooter) != me {
                 continue;
             }
+            let lines: Vec<(String, u32)> = msg.lines.into_iter().map(|l| (l.label, l.points)).collect();
+            let zombies = crate::zombies_hud::zombies_game(&local, &lobbies).is_some();
             scored.write(TrickScoredEvent {
                 total: msg.total,
-                lines: msg.lines.into_iter().map(|l| (l.label, l.points)).collect(),
+                color: crate::hud::score_color(zombies, &lines),
+                lines,
                 sound: None,
             });
         }

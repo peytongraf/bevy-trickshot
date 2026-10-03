@@ -6,16 +6,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Mouse back button goes back
+- White zombies points popup
+- Floating damage numbers
 - Launch loading screen
 
 # Current todo
 
-- Mouse back button should work to go back on any menu like pressing the ui back button ( add this to cluade.md for future features that may require a ui back button )
-
 # New
 
-- Make normal zombie points added text white unless it is a critical in which case it should be yellow
-- Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.
 - Improve molotov fire look
 - Dial in phd slider effect look ( trail and explosion )
 - Make all maps have a day and night setting with just different fog / sky settings

@@ -717,6 +717,10 @@ fn pap_menu_lifecycle(
 ) {
     let open = menu.screen == Screen::PackAPunch;
     if open {
+        // The mouse back button exits like EXIT does (once it's released).
+        if mouse.just_pressed(MouseButton::Back) {
+            state.close_pending = true;
+        }
         let still_here = !death.is_active()
             && player.is_some_and(|p| at_machine(&local, &lobbies, &settings, &p).is_some());
         let released = state.close_pending && mouse.get_pressed().next().is_none();

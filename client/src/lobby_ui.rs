@@ -57,6 +57,12 @@ impl Plugin for LobbyUiPlugin {
             .add_systems(Update, wheel_scroll.run_if(in_menu))
             .add_systems(
                 Update,
+                lobby_back
+                    .before(crate::menu::menu_toggle)
+                    .run_if(in_state(AppState::InLobby)),
+            )
+            .add_systems(
+                Update,
                 (
                     watch_lobbies,
                     auto_lobby.run_if(in_state(AppState::MainMenu)),
@@ -125,6 +131,9 @@ fn in_menu(state: Res<State<AppState>>) -> bool {
 #[derive(Resource, Default)]
 struct LobbyUi {
     dirty: bool,
+    /// The "leave the lobby?" popup is up over the room (LEAVE / the mouse
+    /// back button opened it).
+    confirm_leave: bool,
 }
 
 /// What the leader's "add bots" controls are set to: how many, and at which
@@ -147,6 +156,37 @@ impl Default for BotSelection {
 
 fn mark_dirty_now(mut ui: ResMut<LobbyUi>) {
     ui.dirty = true;
+    ui.confirm_leave = false;
+}
+
+/// In the lobby room, the mouse back button asks to leave (the LEAVE
+/// button's popup); with the popup up, it or Esc cancels it. Runs before
+/// `menu::menu_toggle` and eats the press, so Esc doesn't also open the
+/// settings over the popup — and leaves a press alone while a menu screen
+/// (the loadout) is open over the room, for that screen's own back.
+fn lobby_back(
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    menu: Res<Menu>,
+    mut ui: ResMut<LobbyUi>,
+) {
+    if menu.is_open() {
+        return;
+    }
+    let back = mouse.just_pressed(MouseButton::Back);
+    if ui.confirm_leave {
+        let esc = keys.just_pressed(KeyCode::Escape);
+        if back || esc {
+            mouse.clear_just_pressed(MouseButton::Back);
+            keys.clear_just_pressed(KeyCode::Escape);
+            ui.confirm_leave = false;
+            ui.dirty = true;
+        }
+    } else if back {
+        mouse.clear_just_pressed(MouseButton::Back);
+        ui.confirm_leave = true;
+        ui.dirty = true;
+    }
 }
 
 /// Redraw the room when our loadout pick changes from anywhere (the Loadout
@@ -421,7 +461,12 @@ enum MenuBtn {
     CreateLobby,
     Join(Entity),
     Start,
+    /// Opens the "leave the lobby?" popup...
     Leave,
+    /// ...which this actually leaves from...
+    ConfirmLeave,
+    /// ...and this closes.
+    CancelLeave,
     TimeDown,
     TimeUp,
     KillDown,
@@ -513,7 +558,8 @@ fn catch_match_end(
     }
 }
 
-fn despawn_lobby_ui(mut commands: Commands, roots: Query<Entity, With<LobbyUiRoot>>) {
+fn despawn_lobby_ui(mut commands: Commands, roots: Query<Entity, With<LobbyUiRoot>>, mut ui: ResMut<LobbyUi>) {
+    ui.confirm_leave = false;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -557,10 +603,87 @@ fn rebuild(
                     &bot_selection,
                     settings.primary,
                 );
+                if ui.confirm_leave {
+                    build_leave_confirm(&mut commands, &asset_server);
+                }
             }
         }
         _ => {}
     }
+}
+
+/// The "leave the lobby?" popup, centred over the room, which it dims and
+/// blocks clicks to.
+fn build_leave_confirm(commands: &mut Commands, asset_server: &AssetServer) {
+    commands
+        .spawn((
+            LobbyUiRoot,
+            GlobalZIndex(11),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+            // Swallows clicks meant for the room underneath.
+            Interaction::default(),
+            bevy::ui::FocusPolicy::Block,
+        ))
+        .with_children(|dim| {
+            dim.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(18.0),
+                    padding: UiRect::axes(Val::Px(44.0), Val::Px(32.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(PANEL_SOLID),
+                BorderColor(EDGE),
+            ))
+            .with_children(|card| {
+                card.spawn(label_hud(asset_server, "LEAVE LOBBY?", 40.0, TEXT));
+                card.spawn(label_hud(
+                    asset_server,
+                    "ARE YOU SURE YOU WANT TO LEAVE THE LOBBY?",
+                    18.0,
+                    TEXT_DIM,
+                ));
+                card.spawn(Node {
+                    column_gap: Val::Px(12.0),
+                    margin: UiRect::top(Val::Px(6.0)),
+                    ..default()
+                })
+                .with_children(|b| {
+                    spawn_button_hud(
+                        b,
+                        asset_server,
+                        "CANCEL",
+                        24.0,
+                        MenuBtn::CancelLeave,
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::MENU,
+                    );
+                    spawn_button_hud(
+                        b,
+                        asset_server,
+                        "LEAVE",
+                        24.0,
+                        MenuBtn::ConfirmLeave,
+                        ACCENT,
+                        ROW_HOVER,
+                        PANEL_SOLID,
+                        UiSound::MENU_BACK,
+                    );
+                });
+            });
+        });
 }
 
 /// A full-screen, black out-of-game page (`LobbyUiRoot`): a column with the
@@ -1477,7 +1600,7 @@ fn build_room(
                     ROW,
                     ROW_HOVER,
                     TEXT,
-                    UiSound::MENU_BACK,
+                    UiSound::MENU,
                 );
                 if is_leader {
                     spawn_button_hud(
@@ -1642,6 +1765,16 @@ fn handle_clicks(
                 }
             }
             MenuBtn::Leave => {
+                ui.confirm_leave = true;
+                ui.dirty = true;
+            }
+            MenuBtn::CancelLeave => {
+                ui.confirm_leave = false;
+                ui.dirty = true;
+            }
+            MenuBtn::ConfirmLeave => {
+                ui.confirm_leave = false;
+                ui.dirty = true;
                 if let Ok(mut s) = leave.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::LeaveLobby);
                 }

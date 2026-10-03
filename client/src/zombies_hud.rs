@@ -1798,6 +1798,7 @@ fn receive_prone_bonus(
                 total: msg.points,
                 lines: Vec::new(),
                 sound: Some(sounds.money_ching.clone()),
+                color: crate::hud::SCORE_WHITE,
             });
         }
     }

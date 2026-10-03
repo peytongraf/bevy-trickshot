@@ -53,6 +53,16 @@ only place a player learns anything changed.
   finish it, update the todo list and changelog, then stop and let the user
   test it before starting the next one. Don't chain multiple todo items into
   one uninterrupted pass.
+- **The mouse back button must work anywhere the UI has a back / exit
+  button** — it does exactly what that button (or Esc) does. Menu screens
+  get it through `menu::menu_toggle` → `go_back` (add a new `Screen`'s back
+  step there); a menu with its own close path handles it there instead
+  (`pap_menu`, `wunderfizz`: closing once it's released, like their EXIT
+  buttons). In the lobby room it opens the same "leave the lobby?" popup as
+  the LEAVE button (`lobby_ui::lobby_back`) — it never leaves a lobby
+  without that confirmation, and never leaves a match. It never opens the
+  pause menu and is left alone while a key is being rebound. Any new screen or panel
+  with a back button needs this too.
 - Black 3D view with only the HUD showing = a camera's output blend. Bevy
   picks which window camera blits opaquely by render-world iteration order
   (which shifts whenever systems/plugins are added), so the world, view-model
