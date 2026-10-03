@@ -49,6 +49,9 @@ pub(crate) enum SoldierAnimState {
     StrafeLeft,
     /// Moving backward with no strafe component: `backpaddle`, looped.
     Backward,
+    /// Mid knife stab (`pose.stabbing`): `melee`, played once — outranks
+    /// everything but `Dead`.
+    Melee,
     /// Dead (`pose.alive == false`): `death`, played once and held on its
     /// last frame (the model falling onto its back) until `pose.alive` goes
     /// back to `true` on respawn — outranks every other state, including
@@ -58,8 +61,8 @@ pub(crate) enum SoldierAnimState {
 
 /// Graph + node indices for `models/characters/soldier.glb`'s `idleWgun` / `walk` /
 /// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
-/// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` / `death` clips —
-/// 13 of its 18 animations wired up so far. Built once at startup.
+/// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` / `melee` / `death`
+/// clips — 14 of its 18 animations wired up so far. Built once at startup.
 #[derive(Resource, Clone)]
 pub(crate) struct SoldierAnimations {
     graph: Handle<AnimationGraph>,
@@ -75,6 +78,7 @@ pub(crate) struct SoldierAnimations {
     strafe_right: AnimationNodeIndex,
     strafe_left: AnimationNodeIndex,
     backward: AnimationNodeIndex,
+    melee: AnimationNodeIndex,
     death: AnimationNodeIndex,
 }
 
@@ -93,6 +97,7 @@ impl SoldierAnimations {
             SoldierAnimState::StrafeRight => self.strafe_right,
             SoldierAnimState::StrafeLeft => self.strafe_left,
             SoldierAnimState::Backward => self.backward,
+            SoldierAnimState::Melee => self.melee,
             SoldierAnimState::Dead => self.death,
         }
     }
@@ -437,7 +442,8 @@ pub(crate) fn setup_soldier_assets(
 ) {
     // Indices into `models/characters/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
     // 3 run, 4 shooting, 6 runAndShooting, 7 strafeRight, 8 strafeLeft,
-    // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 15 death.
+    // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 14 melee,
+    // 15 death.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/characters/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -462,6 +468,8 @@ pub(crate) fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(8).from_asset("models/characters/soldier.glb"));
     let backward_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(9).from_asset("models/characters/soldier.glb"));
+    let melee_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(14).from_asset("models/characters/soldier.glb"));
     let death_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/characters/soldier.glb"));
     let (graph, indices) = AnimationGraph::from_clips([
@@ -478,6 +486,7 @@ pub(crate) fn setup_soldier_assets(
         strafe_left_clip,
         backward_clip,
         death_clip,
+        melee_clip,
     ]);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
@@ -495,6 +504,7 @@ pub(crate) fn setup_soldier_assets(
         strafe_left: indices[10],
         backward: indices[11],
         death: indices[12],
+        melee: indices[13],
     });
 }
 

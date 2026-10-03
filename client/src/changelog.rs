@@ -15,6 +15,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Settings: new music volume slider for the main menu music.",
+        "You can now see other players swing their knife.",
+        "Zombies: throwing knives always kill in one hit.",
+        "Zombies: the ammo crate is now solid.",
+        "Zombies: molotov fire does double damage.",
         "Zombies: optional pre-game countdown (up to 2 minutes) to get set up before round 1.",
         "Zombies: classic perks are now the default.",
         "PhD Flopper: faster slides that leave a trail of purple fire.",

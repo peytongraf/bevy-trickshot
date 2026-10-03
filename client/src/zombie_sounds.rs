@@ -1,4 +1,4 @@
-//! `Zombies` zombie voices, all positional (`audio/zombies/`):
+//! `Zombies` zombie voices, all positional (`audio/zombies/enemy/`):
 //!
 //! * a spawn groan as each one climbs out of the ground,
 //! * moans now and then while it's up — low / medium / high intensity by how
@@ -138,15 +138,15 @@ fn load_zombie_sounds(mut commands: Commands, asset_server: Res<AssetServer>) {
             .collect()
     };
     commands.insert_resource(ZombieSounds {
-        spawns: set("zombie_spawns", "zombie_spawn", 5),
-        deaths: set("zombie_deaths", "zombie_death", 7),
+        spawns: set("enemy/spawns", "zombie_spawn", 5),
+        deaths: set("enemy/deaths", "zombie_death", 7),
         moans: [
-            set("zombie_moans/low", "moan", 6),
-            set("zombie_moans/medium", "moan", 24),
-            set("zombie_moans/high", "moan", 10),
+            set("enemy/moans/low", "moan", 6),
+            set("enemy/moans/medium", "moan", 24),
+            set("enemy/moans/high", "moan", 10),
         ],
-        attack: asset_server.load("audio/zombies/zombie_attack.mp3"),
-        final_zombie: asset_server.load("audio/zombies/final_zombie.mp3"),
+        attack: asset_server.load("audio/zombies/enemy/attack.mp3"),
+        final_zombie: asset_server.load("audio/zombies/rounds/final_zombie.mp3"),
     });
 }
 

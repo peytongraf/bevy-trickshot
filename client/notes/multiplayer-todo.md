@@ -1,0 +1,1 @@
+- Add molotov to multiplayer loadout

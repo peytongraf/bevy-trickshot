@@ -1361,6 +1361,7 @@ impl ActorPose {
             reloading: self.sample.has(shared::ActorSample::RELOADING),
             jumping: self.sample.has(shared::ActorSample::JUMPING),
             sliding: self.sample.has(shared::ActorSample::SLIDING),
+            stabbing: self.sample.has(shared::ActorSample::STABBING),
             alive: self.alive,
             ..default()
         }

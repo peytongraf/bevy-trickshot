@@ -6,48 +6,44 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Zombies pre-game countdown
-- Classic perks first and default
-- PhD slide stops on first hit
-- PhD blast stuns survivors
-- Classic CoD perks + perk set setting
-- Aim recoil for all weapons
-- Tracers start from the barrel
+- Molotov damage doubled
+- Ammo crate collidable
+- Throwing knife always one-shots
+- Organized audio/zombies dir
+- Remote player melee animation
+- Music volume setting
+
+# Current todo
+
+- Mouse back button should work to go back on any menu like pressing the ui back button ( add this to cluade.md for future features that may require a ui back button )
 
 # New
 
-- Add health bar to free for all.
-- Dial in phd slider effect look ( trail and explosion )
-- Molotov damage shoudld be doubled.
-- Ammo box should be collidable
-- On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
-- Ensure that throwing knife is always a one shot kill regardless of where it hits an enemy
-- Organize audio/zombies dir
 - When first launching the game it takes a second for the ui to fully load and fill out
-- Shroom tea still shows glow on zombies bodies when they aren't behind a wall
-- If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
-- Make all maps have a day and night setting with just different fog / sky settings
-- Ensure that walk and sprint bob for sniper, knife, and throwing knife are the same as the ak74. ALl should be the same as it. They should all have the same general settings instead of individual so that setting should be removed for ak74 and made general.
 - Make normal zombie points added text white unless it is a critical in which case it should be yellow
 - Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.
-- Add pap shot sounds
-- On break point night zombies, regular bird ambient sound should be removed and only zombies ambient sound should play
-- Use melee animation for remote player when using knife
 - Improve molotov fire look
-- Add quotes
-- Separate todo into regular multiplayer and zombies todos
-- Add molotov to multiplayer loadout
-- Only one light is coming on when turning on the power
+- Dial in phd slider effect look ( trail and explosion )
+- Make all maps have a day and night setting with just different fog / sky settings
+- Ensure that walk and sprint bob for sniper, knife, and throwing knife are the same as the ak74. ALl should be the same as it. They should all have the same general settings instead of individual so that setting should be removed for ak74 and made general.
+- On break point night zombies, regular bird ambient sound should be removed and only zombies ambient sound should play
 - Improve end game screen
-- Add music volume setting under audio
-- Zombie max speed should be faster and there should be more total zombies on higher rounds
-- Zombies base speed should be faster
+
+# Big features
+
+- Add quotes
 - Add dogs or dog style rounds with a different enemy
 - Add boss
 - Add exfil
 - Add revive other players
 - Add killchains
 - Add field upgrade like aether shroud
+
+# Bugs
+
+- On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
+- If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
+- Only one light is coming on when turning on the power
 
 # Today
 
@@ -83,6 +79,7 @@ Everything below is ordered easiest → hardest, within each section.
 - Add mantle sound
 - Add footstep sounds for other players
 - Possibly convert audio to wav files.
+- Add pap shot sounds
 
 ## UI / HUD
 

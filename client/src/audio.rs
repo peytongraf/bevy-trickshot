@@ -66,28 +66,28 @@ pub(crate) struct GameSounds {
     /// `audio/combat/hit_marker.mp3` — one of your shots damaged
     /// (but didn't kill) a bot / player (`hit_marker`).
     pub(crate) hit_marker: Handle<AudioSource>,
-    /// `audio/zombies/buy_perk.mp3` — we just bought a perk in
+    /// `audio/zombies/purchases/buy_perk.mp3` — we just bought a perk in
     /// `Zombies` (`zombies_hud::sync_owned_perks`).
     pub(crate) perk_buy: Handle<AudioSource>,
-    /// `audio/zombies/buy_pap.mp3` — we just Pack-a-Punched a weapon
+    /// `audio/zombies/purchases/buy_pap.mp3` — we just Pack-a-Punched a weapon
     /// (`pap_menu`).
     pub(crate) pap_buy: Handle<AudioSource>,
-    /// `audio/zombies/jingles/{custom,classic}/<perk>` — a perk machine's
+    /// `audio/zombies/perks/jingles/{custom,classic}/<perk>` — a perk machine's
     /// jingle, played from the machine for the whole lobby when anyone buys
     /// that perk (`zombies_hud::play_perk_jingles`). Pick one with
     /// [`Self::jingle`].
     jingles: std::collections::HashMap<shared::perks::Perk, Handle<AudioSource>>,
-    /// `audio/zombies/power_on.mp3` — someone threw the `Zombies` power
+    /// `audio/zombies/machines/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
-    /// `audio/zombies/pap_buzzing.mp3` — the electric hum looped from every
+    /// `audio/zombies/machines/pap_buzzing.mp3` — the electric hum looped from every
     /// perk machine and the Pack-a-Punch once the power's on
     /// (`power::sync_machine_hums`).
     pub(crate) machine_hum: Handle<AudioSource>,
-    /// `audio/zombies/round_start.wav` — a `Zombies` round starting, for
+    /// `audio/zombies/rounds/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
-    /// `audio/zombies/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
+    /// `audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
     /// Bomb Shot blast, from where it went off (`vfx::spawn_explosions`);
     /// the server picks which one so the whole lobby hears the same clip.
     pub(crate) bomb_shot_explosions: Vec<Handle<AudioSource>>,
@@ -103,10 +103,10 @@ pub(crate) struct GameSounds {
     /// `audio/ambient/zombies.mp3` — the eerie bed looped under a running
     /// `Zombies` game (`zombies_audio`).
     pub(crate) zombies_ambient: Handle<AudioSource>,
-    /// `audio/zombies/buy_ammo.mp3` — buying ammo at the ammo crate (only
+    /// `audio/zombies/purchases/buy_ammo.mp3` — buying ammo at the ammo crate (only
     /// the buyer hears it).
     pub(crate) buy_ammo: Handle<AudioSource>,
-    /// `audio/zombies/money_ching.mp3` — the prone-at-a-perk-machine bonus
+    /// `audio/zombies/purchases/money_ching.mp3` — the prone-at-a-perk-machine bonus
     /// paying out (only the one who got it hears it).
     pub(crate) money_ching: Handle<AudioSource>,
     /// `audio/zombies/power_ups/grab.mp3` — walking into a power-up (only
@@ -540,8 +540,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),
         hit_marker: asset_server.load("audio/combat/hit_marker.mp3"),
-        perk_buy: asset_server.load("audio/zombies/buy_perk.mp3"),
-        pap_buy: asset_server.load("audio/zombies/buy_pap.mp3"),
+        perk_buy: asset_server.load("audio/zombies/purchases/buy_perk.mp3"),
+        pap_buy: asset_server.load("audio/zombies/purchases/buy_pap.mp3"),
         jingles: {
             use shared::perks::Perk;
             [
@@ -560,22 +560,22 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
                 (Perk::DeathPerception, "classic/death_perception.mp3"),
             ]
             .into_iter()
-            .map(|(perk, file)| (perk, asset_server.load(format!("audio/zombies/jingles/{file}"))))
+            .map(|(perk, file)| (perk, asset_server.load(format!("audio/zombies/perks/jingles/{file}"))))
             .collect()
         },
-        power_on: asset_server.load("audio/zombies/power_on.mp3"),
-        machine_hum: asset_server.load("audio/zombies/pap_buzzing.mp3"),
-        round_start: asset_server.load("audio/zombies/round_start.wav"),
+        power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
+        machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
+        round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),
         bomb_shot_explosions: (1..=3)
-            .map(|i| asset_server.load(format!("audio/zombies/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
+            .map(|i| asset_server.load(format!("audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
             .collect(),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
             .collect(),
         menu_music: asset_server.load("audio/music/main_menu.wav"),
         zombies_ambient: asset_server.load("audio/ambient/zombies.mp3"),
-        buy_ammo: asset_server.load("audio/zombies/buy_ammo.mp3"),
-        money_ching: asset_server.load("audio/zombies/money_ching.mp3"),
+        buy_ammo: asset_server.load("audio/zombies/purchases/buy_ammo.mp3"),
+        money_ching: asset_server.load("audio/zombies/purchases/money_ching.mp3"),
         power_up_grab: asset_server.load("audio/zombies/power_ups/grab.mp3"),
         power_up_loop: asset_server.load("audio/zombies/power_ups/drop_loop.mp3"),
         power_up_max_ammo: asset_server.load("audio/zombies/power_ups/max_ammo.mp3"),
@@ -628,6 +628,7 @@ pub(crate) fn sync_menu_music(
     mut commands: Commands,
     state: Res<State<AppState>>,
     sounds: Res<GameSounds>,
+    settings: Res<Settings>,
     music: Query<Entity, With<MenuMusic>>,
 ) {
     if *state.get() == AppState::InGame {
@@ -639,7 +640,8 @@ pub(crate) fn sync_menu_music(
             MenuMusic,
             AudioPlayer::new(sounds.menu_music.clone()),
             // `GlobalVolume` (master volume) is multiplied in at spawn.
-            PlaybackSettings::LOOP.with_volume(Volume::Linear(MENU_MUSIC_VOLUME)),
+            PlaybackSettings::LOOP
+                .with_volume(Volume::Linear(MENU_MUSIC_VOLUME * settings.music_volume)),
         ));
     }
 }
@@ -650,7 +652,7 @@ pub(crate) fn sync_menu_music(
 /// audio that's already playing, though, so the looping ambience needs its own
 /// direct nudge here too — also picking up the "Sound volumes" panel's
 /// multiplier for whichever ambience loop `start_ambient` actually started —
-/// and the menu music loop likewise.
+/// and the menu music loop likewise (with `Settings::music_volume` on top).
 pub(crate) fn apply_master_volume(
     settings: Res<Settings>,
     vols: Res<SoundVolumes>,
@@ -674,7 +676,9 @@ pub(crate) fn apply_master_volume(
         ));
     }
     for mut sink in &mut music {
-        sink.set_volume(Volume::Linear(MENU_MUSIC_VOLUME * settings.master_volume));
+        sink.set_volume(Volume::Linear(
+            MENU_MUSIC_VOLUME * settings.music_volume * settings.master_volume,
+        ));
     }
 }
 

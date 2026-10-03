@@ -6,8 +6,9 @@
 //! for us alone.
 //!
 //! Its placement is panel-tunable for now ("Zombies perks" → "Ammo crate"),
-//! on this client only — no collision, and the server takes the client's word
-//! that it's at the crate (see `shared::ammo`).
+//! on this client only — the server takes the client's word that it's at the
+//! crate, and its solid box (zombies' and ours) is at the default spot in
+//! `shared::ammo`, which the panel's collider follows here.
 //!
 //! The crate and card are `StateScoped(InGame)`; the crate is also taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
@@ -71,8 +72,8 @@ pub(crate) struct AmmoCrateSettings {
 impl Default for AmmoCrateSettings {
     fn default() -> Self {
         Self {
-            pos: Vec3::new(9.6, 0.4, -35.0),
-            rotation_deg: Vec3::new(0.0, -90.0, 0.0),
+            pos: shared::ammo::crate_pos(shared::MapId::BreakPoint).unwrap_or_default(),
+            rotation_deg: Vec3::new(0.0, shared::ammo::CRATE_YAW_DEG, 0.0),
             scale: 1.0,
             snap_to_player: false,
         }
@@ -102,6 +103,11 @@ impl AmmoCrateSettings {
 #[derive(Component)]
 struct AmmoCrate;
 
+/// The crate's solid box (a child of [`AmmoCrate`], so it follows the
+/// panel's placement and scale) — the server's `shared::ammo::crate_box`.
+#[derive(Component)]
+struct AmmoCrateCollider;
+
 /// Put the crate on the map while we're in a `Zombies` game (and take it
 /// away otherwise), where the panel says.
 fn sync_ammo_crate(
@@ -125,12 +131,19 @@ fn sync_ammo_crate(
         return;
     }
     if crates.is_empty() {
-        commands.spawn((
-            StateScoped(AppState::InGame),
-            AmmoCrate,
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
-            settings.transform(),
-        ));
+        let half = shared::ammo::CRATE_HALF_EXTENTS;
+        commands
+            .spawn((
+                StateScoped(AppState::InGame),
+                AmmoCrate,
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
+                settings.transform(),
+            ))
+            .with_child((
+                AmmoCrateCollider,
+                bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
+                Transform::default(),
+            ));
         return;
     }
     for (_, mut t) in &mut crates {

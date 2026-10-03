@@ -382,7 +382,7 @@ fn step_knives(
                 }
                 Some(Victim::Player(victim)) => {
                     let damage = if lobby.mode == GameMode::Zombies {
-                        shared::zombies::ZOMBIE_KNIFE_DAMAGE
+                        shared::zombies::ZOMBIE_THROWING_KNIFE_DAMAGE
                     } else {
                         shared::melee::KNIFE_DAMAGE
                     };

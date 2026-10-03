@@ -220,6 +220,12 @@ pub struct PlayerPose {
     /// since a slide should always show the static crouch pose, never
     /// `crouchWalk`, regardless of slide speed.
     pub sliding: bool,
+    /// Whether the owner is mid knife stab, copied from
+    /// `PlayerInput::stabbing` so remote avatars can play the melee
+    /// animation. Discrete, same as `crouching`; sustained for the whole
+    /// stab rather than the one-tick `PlayerInput::melee` pulse, for the
+    /// same reason as `jumping`.
+    pub stabbing: bool,
     /// Whether the owner is alive, copied server-side from their
     /// `PlayerCombat::alive` (`server::sim::apply_client_pose`) — unlike
     /// every other field above, this one is **not** taken from the owner's
@@ -279,6 +285,7 @@ impl Default for PlayerPose {
             reloading: false,
             jumping: false,
             sliding: false,
+            stabbing: false,
             alive: true,
             zombie: ZombieAnim::None,
         }
@@ -296,6 +303,7 @@ impl Ease for PlayerPose {
             reloading: end.reloading,
             jumping: end.jumping,
             sliding: end.sliding,
+            stabbing: end.stabbing,
             alive: end.alive,
             zombie: end.zombie,
         })
@@ -424,6 +432,9 @@ pub struct PlayerInput {
     pub jumping: bool,
     /// Whether the player's stance is `Sliding` this tick.
     pub sliding: bool,
+    /// Whether a knife stab is playing out this tick (from the stab until
+    /// its swing is over) — see `PlayerPose::stabbing`.
+    pub stabbing: bool,
     /// Camera Y offset from standing this tick (metres, `<= 0.0` — see the
     /// client's `Slide::drop`), so the kill cam can reproduce crouch / slide /
     /// prone height exactly instead of always replaying at standing height.
@@ -468,6 +479,7 @@ impl Default for PlayerInput {
             reloading: false,
             jumping: false,
             sliding: false,
+            stabbing: false,
             crouch_drop: 0.0,
         }
     }
@@ -673,6 +685,7 @@ impl ActorSample {
     pub const RELOADING: u8 = 1 << 2;
     pub const JUMPING: u8 = 1 << 3;
     pub const SLIDING: u8 = 1 << 4;
+    pub const STABBING: u8 = 1 << 5;
 
     pub fn has(&self, flag: u8) -> bool {
         self.flags & flag != 0
@@ -691,6 +704,7 @@ impl ActorSample {
             (pose.reloading, Self::RELOADING),
             (pose.jumping, Self::JUMPING),
             (pose.sliding, Self::SLIDING),
+            (pose.stabbing, Self::STABBING),
         ] {
             if on {
                 flags |= bit;

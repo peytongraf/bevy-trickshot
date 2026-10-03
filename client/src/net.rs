@@ -260,6 +260,10 @@ fn mark_local_input(
     }
 }
 
+/// How long (s) a stab shows as `PlayerInput::stabbing` — the remote
+/// avatar's `melee` clip's length.
+const STAB_ANIM_SECS: f32 = 0.67;
+
 /// Copy this frame's local pose (client-authoritative) into the input packet,
 /// and — if `weapon_system` pulled the trigger — the fire request too.
 #[allow(clippy::too_many_arguments)]
@@ -297,6 +301,8 @@ fn write_input(
         arms_players,
         arms_anims,
         ak,
+        time,
+        mut stabbed_at,
     ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
@@ -309,6 +315,11 @@ fn write_input(
         Query<&AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
         Query<&crate::ThrowArmsAnimation>,
         Res<crate::AkSettings>,
+        Res<Time>,
+        // When (`Time::elapsed_secs`) we last stabbed, for `stabbing` — a
+        // timestamp, so a stab cut short by leaving a match is long over by
+        // the next one.
+        Local<Option<f32>>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -329,7 +340,9 @@ fn write_input(
         action.melee = true;
         action.fire_origin = origin.to_array();
         action.fire_dir = dir.to_array();
+        *stabbed_at = Some(time.elapsed_secs());
     }
+    action.stabbing = stabbed_at.is_some_and(|t| time.elapsed_secs() - t < STAB_ANIM_SECS);
     // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
     // FOV, so a replay can reproduce shake / recoil / sway and render at this
     // player's FOV instead of re-deriving an absolute camera transform that
@@ -1166,6 +1179,9 @@ fn animate_remote_avatars(
         // motion.
         let new_state = if !pose.alive {
             crate::SoldierAnimState::Dead
+        } else if pose.stabbing {
+            // A stab mid-jump or mid-reload still shows the swing.
+            crate::SoldierAnimState::Melee
         } else if pose.jumping {
             crate::SoldierAnimState::Jump
         } else if pose.reloading {
@@ -1237,6 +1253,7 @@ fn animate_remote_avatars(
             let repeat = match new_state {
                 crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
+                | crate::SoldierAnimState::Melee
                 | crate::SoldierAnimState::Dead => RepeatAnimation::Never,
                 _ => RepeatAnimation::Forever,
             };
@@ -1256,7 +1273,8 @@ fn animate_remote_avatars(
                 | crate::SoldierAnimState::Aim
                 | crate::SoldierAnimState::Crouch
                 | crate::SoldierAnimState::Reload
-                | crate::SoldierAnimState::Jump => 1.0,
+                | crate::SoldierAnimState::Jump
+                | crate::SoldierAnimState::Melee => 1.0,
                 crate::SoldierAnimState::Walk => walk_anim_speed,
                 crate::SoldierAnimState::Sprint => sprint_anim_speed,
                 crate::SoldierAnimState::AimWalk => aim_walk_anim_speed,

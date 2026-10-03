@@ -39,7 +39,7 @@ pub const FIRE_SECS: f32 = 8.0;
 /// Seconds between damage ticks.
 pub const FIRE_TICK_SECS: f32 = 0.2;
 /// Damage each tick does to a zombie standing in the fire.
-pub const ZOMBIE_TICK_DAMAGE: f32 = 14.0;
+pub const ZOMBIE_TICK_DAMAGE: f32 = 28.0;
 /// Damage each tick does to the thrower standing in their own fire.
 pub const SELF_TICK_DAMAGE: f32 = 4.0;
 /// How close (m, across the ground) to a fire spot a body has to be to burn.

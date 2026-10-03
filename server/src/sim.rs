@@ -65,6 +65,7 @@ pub(crate) fn apply_client_pose(
         pose.reloading = i.reloading;
         pose.jumping = i.jumping;
         pose.sliding = i.sliding;
+        pose.stabbing = i.stabbing;
         // Not from `input` like everything else above — a dead client isn't
         // sending fresh input at all (`client::net::write_input` stops for
         // the duration of their kill cam), so this has to come from our own

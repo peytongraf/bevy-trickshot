@@ -56,8 +56,9 @@ pub const MAX_START_POINTS: u32 = 1_000_000;
 /// while no zombies come, until it runs out and the first round begins.
 pub const MAX_COUNTDOWN_SECS: u32 = 120;
 
-/// The last round a plain (un-Pack-a-Punched) knife — stabbed or thrown —
-/// kills a zombie in one; Cold War's knife gives out around round 13 too.
+/// The last round a plain (un-Pack-a-Punched) stab kills a zombie in one
+/// (a thrown knife always does: [`ZOMBIE_THROWING_KNIFE_DAMAGE`]); Cold
+/// War's knife gives out around round 13 too.
 /// See [`ZOMBIE_KNIFE_DAMAGE`].
 pub const ZOMBIE_KNIFE_ONE_HIT_ROUND: u32 = 13;
 /// Most health a zombie ever has, reached with its top speed at
@@ -65,11 +66,14 @@ pub const ZOMBIE_KNIFE_ONE_HIT_ROUND: u32 = 13;
 /// headshot, so that still kills in one there.
 pub const ZOMBIE_MAX_HEALTH: f32 = 3_000.0;
 
-/// What a knife (stab or throw) does to a zombie before Pack-a-Punch — just
+/// What a knife stab does to a zombie before Pack-a-Punch — just
 /// over [`zombie_health`] at [`ZOMBIE_KNIFE_ONE_HIT_ROUND`], so it stops
 /// killing in one right after. (Against players a knife always kills:
 /// [`crate::melee::KNIFE_DAMAGE`].)
 pub const ZOMBIE_KNIFE_DAMAGE: f32 = 231.0;
+/// What a thrown knife does to a zombie: enough to kill one in any round,
+/// wherever it hits.
+pub const ZOMBIE_THROWING_KNIFE_DAMAGE: f32 = ZOMBIE_MAX_HEALTH;
 
 /// How much health round `round`'s zombies spawn with: a player's
 /// `health::FULL_HEALTH` in round 1, growing by the same factor every round
@@ -143,6 +147,8 @@ mod tests {
         // A stab kills when it takes health to 0.
         assert!(ZOMBIE_KNIFE_DAMAGE >= zombie_health(ZOMBIE_KNIFE_ONE_HIT_ROUND));
         assert!(ZOMBIE_KNIFE_DAMAGE < zombie_health(ZOMBIE_KNIFE_ONE_HIT_ROUND + 1));
+        // A thrown knife always kills.
+        assert!(ZOMBIE_THROWING_KNIFE_DAMAGE >= zombie_health(500));
         // Against players the knife still always kills.
         assert!(KNIFE_DAMAGE >= crate::health::FULL_HEALTH);
         // Sniper body shot (200): one-shots through ~round 10 plain, and ten

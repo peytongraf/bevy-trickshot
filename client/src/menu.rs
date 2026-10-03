@@ -433,6 +433,7 @@ enum SliderField {
     AdsCoefficient,
     Fov,
     MasterVolume,
+    MusicVolume,
     FrameLimit,
 }
 
@@ -598,6 +599,10 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
             settings.master_volume =
                 (settings.master_volume + delta).clamp(VOLUME_MIN, VOLUME_MAX);
         }
+        SliderField::MusicVolume => {
+            settings.music_volume =
+                (settings.music_volume + delta).clamp(VOLUME_MIN, VOLUME_MAX);
+        }
         SliderField::FrameLimit => {
             settings.frame_limit =
                 (settings.frame_limit + delta).clamp(FRAME_LIMIT_MIN, FRAME_LIMIT_MAX);
@@ -640,6 +645,10 @@ fn slider_drag(
                 settings.master_volume =
                     (VOLUME_MIN + t * (VOLUME_MAX - VOLUME_MIN)).clamp(VOLUME_MIN, VOLUME_MAX);
             }
+            SliderField::MusicVolume => {
+                settings.music_volume =
+                    (VOLUME_MIN + t * (VOLUME_MAX - VOLUME_MIN)).clamp(VOLUME_MIN, VOLUME_MAX);
+            }
             SliderField::FrameLimit => {
                 settings.frame_limit = (FRAME_LIMIT_MIN + t * (FRAME_LIMIT_MAX - FRAME_LIMIT_MIN))
                     .round()
@@ -662,6 +671,9 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
         SliderField::MasterVolume => {
             (settings.master_volume - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
         }
+        SliderField::MusicVolume => {
+            (settings.music_volume - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN)
+        }
         SliderField::FrameLimit => {
             (settings.frame_limit - FRAME_LIMIT_MIN) / (FRAME_LIMIT_MAX - FRAME_LIMIT_MIN)
         }
@@ -676,6 +688,7 @@ fn field_value_text(settings: &Settings, field: SliderField) -> String {
         SliderField::AdsCoefficient => format!("{:.2}", settings.ads_sens_coefficient),
         SliderField::Fov => format!("{:.0}", settings.fov),
         SliderField::MasterVolume => format!("{:.0}%", settings.master_volume * 100.0),
+        SliderField::MusicVolume => format!("{:.0}%", settings.music_volume * 100.0),
         SliderField::FrameLimit => format!("{:.0}", settings.frame_limit),
     }
 }
@@ -1915,6 +1928,15 @@ fn build_audio(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, s
         "Controls the volume of every game sound — gunshots, footsteps, kills, the \
          ambience, all of it.",
     );
+    spawn_slider_row(
+        content,
+        asset_server,
+        "MUSIC VOLUME",
+        SliderField::MusicVolume,
+        settings,
+        0.05,
+    );
+    desc(content, asset_server, "How loud the main menu music is.");
 }
 
 fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
