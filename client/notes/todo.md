@@ -6,14 +6,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Hellhound dog rounds
-- Same walk/sprint bob for every weapon
-- Only zombies ambience in Zombies
-- Mouse back button goes back
-- White zombies points popup
-- Floating damage numbers
-- Launch loading screen
-
 # Current todo
 
 # Improve

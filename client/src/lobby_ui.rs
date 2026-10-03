@@ -458,6 +458,9 @@ enum MenuBtn {
     /// point is `menu::Btn::OpenLoadout` instead (inside the pause menu) —
     /// see that screen's doc comment for why it looks the same either way.
     OpenLoadout,
+    /// Opens `menu::Screen::Changelog` (every older version's notes) from
+    /// the main menu's "WHAT'S NEW" panel.
+    OpenChangelog,
     CreateLobby,
     Join(Entity),
     Start,
@@ -1117,24 +1120,29 @@ fn build_browser(
                         },
                     ))
                     .with_children(|list| {
-                        for (i, (version, notes)) in crate::changelog::ENTRIES.iter().enumerate() {
-                            list.spawn((
-                                label_hud(asset_server, format!("v{version}"), 18.0, ACCENT),
-                                Node {
-                                    margin: UiRect::top(Val::Px(if i == 0 { 0.0 } else { 10.0 })),
-                                    ..default()
-                                },
+                        // Just this version — older ones are on PAST UPDATES.
+                        for note in crate::changelog::current().map_or(&[][..], |(_, notes)| notes) {
+                            list.spawn(crate::ui::label_body(
+                                asset_server,
+                                format!("\u{2022}  {note}"),
+                                14.0,
+                                TEXT,
                             ));
-                            for note in *notes {
-                                list.spawn(crate::ui::label_body(
-                                    asset_server,
-                                    format!("\u{2022}  {note}"),
-                                    14.0,
-                                    TEXT,
-                                ));
-                            }
                         }
                     });
+                panel.spawn(Node { flex_shrink: 0.0, ..default() }).with_children(|row| {
+                    spawn_button_hud(
+                        row,
+                        asset_server,
+                        "PAST UPDATES",
+                        18.0,
+                        MenuBtn::OpenChangelog,
+                        ROW,
+                        ROW_HOVER,
+                        TEXT,
+                        UiSound::BUTTON,
+                    );
+                });
             });
         });
 
@@ -1689,6 +1697,10 @@ fn handle_clicks(
             MenuBtn::CountdownDown => set_start(|r| r, |p| p, |c| c.saturating_sub(COUNTDOWN_STEP_SECS)),
             MenuBtn::CountdownUp => set_start(|r| r, |p| p, |c| c + COUNTDOWN_STEP_SECS),
             MenuBtn::OpenLoadout => menu.open_loadout(None),
+            MenuBtn::OpenChangelog => {
+                menu.screen = crate::menu::Screen::Changelog;
+                menu.dirty = true;
+            }
             MenuBtn::TimeDown => nudge_time(-(TIME_STEP_SECS as i64)),
             MenuBtn::TimeUp => nudge_time(TIME_STEP_SECS as i64),
             MenuBtn::KillDown => nudge_kills(-(KILL_STEP as i64)),

@@ -75,6 +75,11 @@ pub enum Screen {
     /// [`Screen::PackAPunch`]; unlike it, buying keeps it open — the drink
     /// plays behind it (see [`weapon_active`]). `Esc` closes it.
     Wunderfizz,
+    /// PAST UPDATES: every older version's patch notes
+    /// ([`crate::changelog::history`]) — the main menu's "WHAT'S NEW" panel
+    /// only shows the current version's. Opened from that panel
+    /// (`lobby_ui`'s `MenuBtn::OpenChangelog`); `Esc` / BACK close it.
+    Changelog,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -300,7 +305,7 @@ fn go_back(menu: &mut Menu, settings: &Settings) {
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
         Screen::Loadout => menu.back_from_loadout(),
-        Screen::PackAPunch | Screen::Wunderfizz => {
+        Screen::PackAPunch | Screen::Wunderfizz | Screen::Changelog => {
             menu.screen = Screen::None;
             menu.dirty = true;
         }
@@ -403,6 +408,8 @@ enum Btn {
     /// `lobby_ui::MenuBtn::OpenLoadout` instead.
     OpenLoadout,
     CloseLoadout,
+    /// Back out of `Screen::Changelog`.
+    CloseChangelog,
     /// Loadout screen: show this weapon, and equip it if the pick can change.
     SelectPrimary(WeaponId),
     OpenGunsmith(WeaponId),
@@ -535,6 +542,10 @@ fn menu_click(
                 menu.dirty = true;
             }
             Btn::OpenLoadout => menu.open_loadout(None),
+            Btn::CloseChangelog => {
+                menu.screen = Screen::None;
+                menu.dirty = true;
+            }
             Btn::CloseLoadout => {
                 menu.gunsmith = None;
                 menu.back_from_loadout();
@@ -857,6 +868,7 @@ fn rebuild_menu(
         Screen::PackAPunch => {}
         // Built by `wunderfizz`, likewise.
         Screen::Wunderfizz => {}
+        Screen::Changelog => build_changelog(&mut commands, &asset_server, solid),
     }
 }
 
@@ -1712,6 +1724,92 @@ fn build_loadout(
         .with_children(|f| {
             plain_button(f, asset_server, "BACK", Btn::CloseLoadout, UiSound::BUTTON_BACK);
             f.spawn(label_hud(asset_server, "CHANGES SAVE AUTOMATICALLY", 18.0, TEXT_DIM));
+        });
+    });
+}
+
+/// PAST UPDATES — see `Screen::Changelog`. One panel of every older
+/// version's notes, styled like the main menu's "WHAT'S NEW" panel and
+/// scrolled with the wheel ([`scroll_hovered`]: the text is
+/// `Pickable::IGNORE` so the hover lands on the list itself).
+fn build_changelog(commands: &mut Commands, asset_server: &AssetServer, solid: bool) {
+    let history = crate::changelog::history();
+    commands.spawn(page_root(solid)).with_children(|page| {
+        if solid {
+            menu_background(page, asset_server);
+        }
+        page_title(page, asset_server, "WHAT'S NEW", "PAST UPDATES");
+        page.spawn(divider());
+
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            padding: UiRect::vertical(Val::Px(8.0)),
+            ..default()
+        })
+        .with_children(|body| {
+            body.spawn(panel_node(Node {
+                width: Val::Percent(100.0),
+                max_width: Val::Px(900.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(22.0)),
+                min_height: Val::Px(0.0),
+                ..default()
+            }))
+            .with_children(|panel| {
+                panel
+                    .spawn((
+                        ScrollPosition::default(),
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            flex_grow: 1.0,
+                            flex_basis: Val::Px(0.0),
+                            min_height: Val::Px(0.0),
+                            row_gap: Val::Px(6.0),
+                            padding: UiRect::right(Val::Px(6.0)),
+                            overflow: Overflow::scroll_y(),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|list| {
+                        if history.is_empty() {
+                            list.spawn((
+                                label_hud(asset_server, "NO PAST UPDATES YET", 20.0, TEXT_DIM),
+                                Pickable::IGNORE,
+                            ));
+                        }
+                        for (i, (version, notes)) in history.iter().enumerate() {
+                            list.spawn((
+                                label_hud(asset_server, format!("v{version}"), 18.0, ACCENT),
+                                Node {
+                                    margin: UiRect::top(Val::Px(if i == 0 { 0.0 } else { 10.0 })),
+                                    ..default()
+                                },
+                                Pickable::IGNORE,
+                            ));
+                            for note in *notes {
+                                list.spawn((
+                                    label_body(asset_server, format!("\u{2022}  {note}"), 14.0, TEXT),
+                                    Pickable::IGNORE,
+                                ));
+                            }
+                        }
+                    });
+            });
+        });
+
+        page.spawn(divider());
+        page.spawn(Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|f| {
+            plain_button(f, asset_server, "BACK", Btn::CloseChangelog, UiSound::BUTTON_BACK);
         });
     });
 }

@@ -182,8 +182,6 @@ fn relaunch() -> ! {
 
 // ---- tiny HTTP + zip helpers -------------------------------------------------
 
-const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
-
 fn http_text(url: &str) -> Fallible<String> {
     let mut resp = ureq::get(url).call()?;
     Ok(resp.body_mut().with_config().limit(4 * 1024 * 1024).read_to_string()?)
@@ -200,7 +198,9 @@ fn download_to_temp(url: &str, name: &str) -> Fallible<PathBuf> {
 
     let dest = env::temp_dir().join(format!("trickshot-{name}"));
     let mut out = fs::File::create(&dest)?;
-    let mut reader = resp.body_mut().with_config().limit(MAX_DOWNLOAD).reader();
+    // No size cap: `assets.zip` only grows, and a fixed limit silently left
+    // fresh installs without assets once it was crossed.
+    let mut reader = resp.body_mut().with_config().limit(u64::MAX).reader();
 
     let mut buf = [0u8; 64 * 1024];
     let mut done: u64 = 0;
@@ -220,6 +220,10 @@ fn download_to_temp(url: &str, name: &str) -> Fallible<PathBuf> {
     print_progress(name, done, total);
     eprintln!();
     out.flush()?;
+    if total > 0 && done != total {
+        let _ = fs::remove_file(&dest);
+        return Err(format!("{name} download incomplete ({done} of {total} bytes)").into());
+    }
     Ok(dest)
 }
 

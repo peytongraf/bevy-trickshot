@@ -9,10 +9,15 @@
 //! doesn't happen automatically — if you don't add the line here, players
 //! never see it.
 
-/// `(version, notes)`, newest version first. `version` is the tag this will
-/// ship under — keep it in sync with the workspace `Cargo.toml` `version`
-/// (bump both together when starting the next round of changes).
+/// `(version, notes)`, newest version first. The main menu's "WHAT'S NEW"
+/// panel shows only the first (current) version; every older one lives on
+/// the PAST UPDATES screen (`menu::Screen::Changelog`). `version` is the tag
+/// this will ship under — keep it in sync with the workspace `Cargo.toml`
+/// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.7",
+    &["Fixed the game assets download cutting off on fresh installs."],
+), (
     "0.4.6",
     &[
         "Zombies: every 5th round is a hellhound round!",
@@ -179,3 +184,13 @@ pub const ENTRIES: &[(&str, &[&str])] = &[(
         "Removed PRACTICE mode. Every game now runs through the server: create a lobby (or join one) and start it to play. Freestyle still gives you bots to shoot at.",
     ],
 )];
+
+/// The current version's notes — the main menu's "WHAT'S NEW" panel.
+pub fn current() -> Option<(&'static str, &'static [&'static str])> {
+    ENTRIES.first().copied()
+}
+
+/// Every older version's notes, newest first — the PAST UPDATES screen.
+pub fn history() -> &'static [(&'static str, &'static [&'static str])] {
+    ENTRIES.get(1..).unwrap_or(&[])
+}
