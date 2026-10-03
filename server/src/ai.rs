@@ -185,6 +185,11 @@ struct ZombieBody {
     /// `Time::elapsed_secs()` a PhD Flopper stun wears off
     /// ([`BotBrain::stun`]): until then it can't attack and barely moves.
     stunned_until: f32,
+    /// A dog-round hellhound ([`BotBrain::dog`]): always runs, and blows up
+    /// on a player instead of swiping (`shared::dogs`)...
+    dog: bool,
+    /// ...once (it's dead from then on).
+    exploded: bool,
 }
 
 impl ZombieBody {
@@ -205,12 +210,13 @@ impl ZombieBody {
     /// Its speed right now, lurching a little either side of its own —
     /// never outside `shared::zombies`' min / max.
     fn speed_now(&self, now: f32) -> f32 {
-        shared::zombies::clamp_speed(
-            self.speed
-                * (1.0
-                    + self.surge
-                        * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin()),
-        )
+        let speed = self.speed
+            * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin());
+        if self.dog {
+            speed.clamp(shared::dogs::DOG_MIN_SPEED, shared::dogs::DOG_MAX_SPEED)
+        } else {
+            shared::zombies::clamp_speed(speed)
+        }
     }
 }
 
@@ -349,8 +355,23 @@ impl BotBrain {
             surge: 0.04 + 0.1 * self.roll(),
             surge_hz: 0.3 + 0.5 * self.roll(),
             stunned_until: f32::NEG_INFINITY,
+            dog: false,
+            exploded: false,
         });
         self
+    }
+
+    /// Make it a dog-round hellhound: a zombie that always runs, at `speed`
+    /// (m/s), and blows up on a player instead of swiping (`shared::dogs`).
+    pub fn dog(self, speed: f32) -> Self {
+        let mut brain = self.zombie(true, speed);
+        if let Some(z) = brain.zombie.as_mut() {
+            z.dog = true;
+            // A tighter line in than a zombie's stagger.
+            z.weave_amp *= 0.5;
+            z.surge *= 0.5;
+        }
+        brain
     }
 
     /// Stun a zombie until `until` (`Time::elapsed_secs()`) — PhD Flopper's
@@ -364,7 +385,8 @@ impl BotBrain {
     /// A zombie's current animation state ([`ZombieAnim::None`] for any
     /// other bot).
     pub fn zombie_anim(&self) -> ZombieAnim {
-        self.zombie.map_or(ZombieAnim::None, |z| z.anim)
+        self.zombie
+            .map_or(ZombieAnim::None, |z| if z.dog { ZombieAnim::Dog } else { z.anim })
     }
 
     fn skill(&self) -> BotSkill {
@@ -754,7 +776,54 @@ pub(crate) fn drive_bots(
             None => (f32::MAX, f32::MAX),
         };
         let mut hold = false;
-        if let Some(z) = brain.zombie.as_mut() {
+        if let Some(z) = brain.zombie.as_mut().filter(|z| z.dog) {
+            // A hellhound: once it's on a player, it blows up — hurting
+            // everyone close — and dies (the server's dog handling turns the
+            // death into the explosion everyone sees). Not while stunned, nor
+            // with the leader's debug "bots don't attack" on.
+            let stunned = z.stunned_until > now;
+            if !z.exploded
+                && !stunned
+                && !lobby.bots_passive
+                && brain.target.is_some()
+                && flat_dist <= shared::dogs::DOG_EXPLODE_RANGE
+                && height_diff <= shared::dogs::DOG_EXPLODE_HEIGHT
+            {
+                z.exploded = true;
+                let at = brain.feet;
+                for (pid, pose, olp, oc) in &others {
+                    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+                    if olp.lobby == lp.lobby
+                        && oc.alive
+                        && enemy(pid.0)
+                        && feet.distance(at) <= shared::dogs::DOG_BLAST_RADIUS
+                    {
+                        hits.write(crate::pvp::PlayerHit {
+                            victim: pid.0,
+                            killer: id.0,
+                            damage: shared::dogs::DOG_BLAST_DAMAGE,
+                            bomb_shot: false,
+                            blast: false,
+                            critical: false,
+                            point: None,
+                        });
+                    }
+                }
+                // ...and itself (no one scores for it).
+                hits.write(crate::pvp::PlayerHit {
+                    victim: id.0,
+                    killer: id.0,
+                    damage: 1.0e6,
+                    bomb_shot: false,
+                    blast: true,
+                    critical: false,
+                    point: None,
+                });
+            }
+            if z.exploded || (flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT) {
+                hold = true;
+            }
+        } else if let Some(z) = brain.zombie.as_mut() {
             // Stunned (PhD Flopper): any swing is dropped, and none starts.
             let stunned = z.stunned_until > now;
             if stunned {

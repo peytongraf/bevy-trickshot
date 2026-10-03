@@ -318,7 +318,10 @@ fn animate_zombie_avatars(
                 ZombieAnim::WalkArmsUp => ZombieAnimState::WalkArmsUp,
                 ZombieAnim::Run => ZombieAnimState::Run,
                 ZombieAnim::Attack => ZombieAnimState::Attack,
-                ZombieAnim::Idle | ZombieAnim::Rising | ZombieAnim::None => ZombieAnimState::Idle,
+                // (A hellhound gets its own avatar — `dogs`.)
+                ZombieAnim::Idle | ZombieAnim::Rising | ZombieAnim::None | ZombieAnim::Dog => {
+                    ZombieAnimState::Idle
+                }
             };
             // Only tread along while actually getting somewhere (a little
             // hysteresis so it doesn't flicker at the threshold).

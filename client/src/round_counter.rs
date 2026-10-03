@@ -1,6 +1,8 @@
 //! `Zombies`' round number (top right, Call of Duty red) and what happens when
 //! a round starts: the round-start sound plays for everyone (not
-//! positional), and the number slides to the middle of the screen, turns
+//! positional) — a dog round's own instead on a dog round, and when one
+//! ends its end sound, then the usual one once that's done — and the
+//! number slides to the middle of the screen, turns
 //! into the new round, swells up, then eases back down as it slides home.
 //! Round 1 skips the slide — there's no old number — and just swells up in
 //! the middle before settling into the corner.
@@ -13,6 +15,10 @@ use lightyear::prelude::LocalId;
 use shared::Lobby;
 
 use crate::net::GameClient;
+
+/// How long (s) the dog round end sound plays before the next round's usual
+/// start sound — its audible length.
+const DOG_ROUND_END_SECS: f32 = 7.6;
 use crate::zombies_hud::zombies_game;
 use crate::{AppState, GameSounds, HUD_FONT};
 
@@ -129,6 +135,9 @@ fn update_round_counter(
     sounds: Option<Res<GameSounds>>,
     mut settings: ResMut<RoundAnimSettings>,
     strip: Single<&ComputedNode, With<RoundStrip>>,
+    // When (`Time::elapsed_secs`) to play a round's usual start sound held
+    // back behind the dog round end sound.
+    mut start_after_dogs: Local<Option<f32>>,
     counter: Single<
         (&mut RoundCounter, &mut Node, &mut Text, &mut TextFont, &mut Visibility, &ComputedNode),
         Without<RoundStrip>,
@@ -149,6 +158,22 @@ fn update_round_counter(
         // No old number to slide over: start in the middle, swelling.
         c.anim = Some(if c.old == 0 { settings.slide_in_secs } else { 0.0 });
         if let Some(sounds) = &sounds {
+            let dogs_ended = c.old > 0 && shared::dogs::is_dog_round(c.old) && !shared::dogs::is_dog_round(c.round);
+            *start_after_dogs = None;
+            let clip = if shared::dogs::is_dog_round(c.round) {
+                sounds.dog_round_start.clone()
+            } else if dogs_ended {
+                *start_after_dogs = Some(time.elapsed_secs() + DOG_ROUND_END_SECS);
+                sounds.dog_round_end.clone()
+            } else {
+                sounds.round_start.clone()
+            };
+            commands.spawn((StateScoped(AppState::InGame), AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+        }
+    }
+    if let (Some(at), Some(sounds)) = (*start_after_dogs, &sounds) {
+        if time.elapsed_secs() >= at {
+            *start_after_dogs = None;
             commands.spawn((
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(sounds.round_start.clone()),
@@ -157,6 +182,7 @@ fn update_round_counter(
         }
     }
     if c.round == 0 {
+        *start_after_dogs = None;
         vis.set_if_neq(Visibility::Hidden);
         return;
     }

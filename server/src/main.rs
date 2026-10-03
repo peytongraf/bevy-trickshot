@@ -19,6 +19,7 @@
 mod ai;
 mod bots;
 mod collision;
+mod dogs;
 mod health;
 mod killcam;
 mod knives;
@@ -67,6 +68,7 @@ fn main() {
         .add_plugins(molotovs::MolotovsPlugin)
         .add_plugins(ai::BotAiPlugin)
         .add_plugins(zombies::ZombiesPlugin)
+        .add_plugins(dogs::DogsPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .run();
 }

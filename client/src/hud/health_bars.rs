@@ -72,6 +72,9 @@ struct HealthBar {
     last_hit: Option<f32>,
 }
 
+/// How much lower (m) a hellhound's bar sits than a zombie's.
+const DOG_BAR_DROP: f32 = 1.0;
+
 /// A bar's red fill.
 #[derive(Component)]
 struct HealthBarFill;
@@ -99,7 +102,14 @@ impl Plugin for HealthBarsPlugin {
 
 /// One (hidden) bar per zombie avatar.
 fn spawn_health_bars(
-    avatars: Query<Entity, (With<RemoteAvatar>, With<ZombieVisual>, Without<killcam::KillCamPlayerGhost>)>,
+    avatars: Query<
+        Entity,
+        (
+            With<RemoteAvatar>,
+            Or<(With<ZombieVisual>, With<crate::dogs::DogVisual>)>,
+            Without<killcam::KillCamPlayerGhost>,
+        ),
+    >,
     bars: Query<&HealthBar>,
     settings: Res<HealthBarSettings>,
     mut commands: Commands,
@@ -182,7 +192,7 @@ fn update_health_bars(
     (menu, active_killcam): (Res<menu::Menu>, Res<killcam::ActiveKillCam>),
     time: Res<Time>,
     settings: Res<HealthBarSettings>,
-    avatars: Query<&RemoteAvatar>,
+    avatars: Query<(&RemoteAvatar, Has<crate::dogs::DogVisual>)>,
     poses: Query<&PlayerPose>,
     (ids, interp, healths): (Query<&PlayerId>, Query<&Interpolated>, Query<(&PlayerHealth, Option<&PlayerId>)>),
     camera: Single<(Entity, &Camera), With<WorldModelCamera>>,
@@ -203,7 +213,7 @@ fn update_health_bars(
     let now = time.elapsed_secs();
 
     for (entity, mut bar, mut node, mut back, mut vis, children) in &mut bars {
-        let Ok(avatar) = avatars.get(bar.avatar) else {
+        let Ok((avatar, dog)) = avatars.get(bar.avatar) else {
             commands.entity(entity).try_despawn();
             continue;
         };
@@ -238,7 +248,9 @@ fn update_health_bars(
             }
             let cam_gt = cam_gt?;
             let cam_pos = cam_gt.translation();
-            let anchor = pose.translation + Vec3::Y * settings.height;
+            // (A hellhound's back is well under a zombie's head.)
+            let dog_drop = if dog { DOG_BAR_DROP } else { 0.0 };
+            let anchor = pose.translation + Vec3::Y * (settings.height - dog_drop);
             // `world_to_viewport` fails for points behind the camera.
             let screen = cam.world_to_viewport(&cam_gt, anchor).ok()?;
             let size = window.size();

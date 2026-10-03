@@ -127,7 +127,14 @@ pub(crate) fn ads_tuning_ui(
             (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>, ResMut<crate::AimRecoilSettings>),
             ResMut<ShroomSettings>,
             (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>),
-            ResMut<BotLookSettings>,
+            (
+                ResMut<BotLookSettings>,
+                (
+                    ResMut<crate::dogs::DogSettings>,
+                    ResMut<crate::dogs::DogPreview>,
+                    Res<crate::dogs::DogReadout>,
+                ),
+            ),
         ),
     ),
 ) -> Result {
@@ -147,7 +154,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars), mut bot_look),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1450,6 +1457,12 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: power on", &mut v.power_on),
                         ("zombies: round start", &mut v.round_start),
+                        ("zombies: dog round start", &mut v.dog_round_start),
+                        ("zombies: dog round end", &mut v.dog_round_end),
+                        ("zombies: dog lightning (pre-spawn)", &mut v.dog_pre_spawn),
+                        ("zombies: dog spawn", &mut v.dog_spawn),
+                        ("zombies: dog bark", &mut v.dog_bark),
+                        ("zombies: dog explosion", &mut v.dog_explosion),
                         ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
                         ("zombies: zombie moans", &mut v.zombie_moan),
                         ("zombies: zombie spawn", &mut v.zombie_spawn),
@@ -1598,6 +1611,11 @@ pub(crate) fn ads_tuning_ui(
                 if ui.button("Reset zombie sounds").clicked() {
                     *s = default();
                 }
+            });
+
+            ui.separator();
+            ui.collapsing("Dogs (Zombies)", |ui| {
+                crate::dogs::dogs_section(ui, &mut dog_settings, &mut dog_preview, &dog_readout);
             });
 
             ui.separator();

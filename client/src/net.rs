@@ -808,16 +808,24 @@ pub(crate) struct RemoteAvatarMotion {
 /// zombie. Polled rather than an `OnAdd` observer so it doesn't matter
 /// whether `Interpolated` or `PlayerPose` lands first.
 fn spawn_remote_avatars(
-    remotes: Query<(Entity, &PlayerPose), With<Interpolated>>,
+    // (Not a hellhound that's already exploded, waiting on its despawn.)
+    remotes: Query<(Entity, &PlayerPose), (With<Interpolated>, Without<crate::dogs::DogGone>)>,
     avatars: Query<&RemoteAvatar>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     zombie_settings: Res<crate::ZombieAvatarSettings>,
+    dog_settings: Res<crate::dogs::DogSettings>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
     let have: std::collections::HashSet<Entity> = avatars.iter().map(|a| a.src).collect();
     for (src, pose) in &remotes {
         if have.contains(&src) {
+            continue;
+        }
+        if pose.zombie.is_dog() {
+            if pose.alive {
+                crate::dogs::spawn_dog_avatar(&mut commands, &asset_server, &dog_settings, src);
+            }
             continue;
         }
         if pose.zombie.is_zombie() {
@@ -854,10 +862,17 @@ fn follow_remote_avatars(
     poses: Query<&PlayerPose>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     zombie_settings: Res<crate::ZombieAvatarSettings>,
-    mut avatars: Query<(Entity, &RemoteAvatar, &mut Transform, Has<crate::ZombieVisual>)>,
+    dog_settings: Res<crate::dogs::DogSettings>,
+    mut avatars: Query<(
+        Entity,
+        &RemoteAvatar,
+        &mut Transform,
+        Has<crate::ZombieVisual>,
+        Has<crate::dogs::DogVisual>,
+    )>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, mut tf, zombie) in &mut avatars {
+    for (entity, avatar, mut tf, zombie, dog) in &mut avatars {
         match poses.get(avatar.src) {
             Ok(pose) => {
                 // The replicated pose is at eye level; the model's origin is
@@ -866,6 +881,11 @@ fn follow_remote_avatars(
                 tf.translation = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
                 // `soldier.glb`'s forward faces +Z, opposite the local rig's
                 // -Z convention that `pose.yaw` is authored in, so flip it.
+                if dog {
+                    tf.rotation = Quat::from_rotation_y(pose.yaw + dog_settings.yaw_offset_deg.to_radians());
+                    tf.scale = Vec3::splat(dog_settings.scale.max(0.001));
+                    continue;
+                }
                 if zombie {
                     tf.rotation = Quat::from_rotation_y(
                         pose.yaw + zombie_settings.yaw_offset_deg.to_radians(),
@@ -888,7 +908,10 @@ fn follow_remote_avatars(
 /// (a bot peer id). Polled, since an avatar can exist a frame before its
 /// source's `PlayerId` arrives. (Kill-cam stand-ins get it when spawned.)
 fn mark_bot_avatars(
-    avatars: Query<(Entity, &RemoteAvatar), (Without<crate::BotLook>, Without<crate::ZombieVisual>)>,
+    avatars: Query<
+        (Entity, &RemoteAvatar),
+        (Without<crate::BotLook>, Without<crate::ZombieVisual>, Without<crate::dogs::DogVisual>),
+    >,
     sources: Query<(Option<&PlayerId>, Has<BotPose>)>,
     mut commands: Commands,
 ) {
@@ -909,8 +932,8 @@ fn mark_bot_avatars(
 /// alpha can fade independently of every other glint's (mirrors
 /// `vfx::impacts`).
 fn spawn_sniper_glints(
-    // (A zombie has no gun.)
-    avatars: Query<(Entity, &RemoteAvatar), Without<crate::ZombieVisual>>,
+    // (A zombie — or hellhound — has no gun.)
+    avatars: Query<(Entity, &RemoteAvatar), (Without<crate::ZombieVisual>, Without<crate::dogs::DogVisual>)>,
     glints: Query<&SniperGlint>,
     assets: Res<SniperGlintAssets>,
     mut materials: ResMut<Assets<StandardMaterial>>,

@@ -266,11 +266,20 @@ pub enum ZombieAnim {
     Run,
     /// Swinging at someone (see `crate::zombies::ZOMBIE_ATTACK_SECS`).
     Attack,
+    /// A dog-round hellhound (`crate::dogs`) — always running; the client
+    /// matches its legs to how fast it's really going.
+    Dog,
 }
 
 impl ZombieAnim {
+    /// A zombie — or a hellhound, which counts as one for everything but
+    /// its look.
     pub fn is_zombie(self) -> bool {
         self != ZombieAnim::None
+    }
+
+    pub fn is_dog(self) -> bool {
+        self == ZombieAnim::Dog
     }
 }
 
@@ -1271,6 +1280,30 @@ pub struct BombExplosion {
     pub phd: bool,
 }
 
+/// Server → every member of a `Zombies` lobby: a hellhound is about to
+/// appear at `at` (the ground) — lightning strikes there, with the pre-spawn
+/// sound, for `crate::dogs::DOG_PRE_SPAWN_SECS`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DogLightning {
+    pub at: [f32; 3],
+}
+
+/// Server → every member of a `Zombies` lobby: a hellhound just appeared at
+/// `at` (its feet) — a flash and its spawn sound there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DogSpawned {
+    pub at: [f32; 3],
+}
+
+/// Server → every member of a `Zombies` lobby: hellhound `dog` (its bot peer
+/// id) just blew up at `at` (its feet) — on a player, or killed. It's gone
+/// at once; clients swap its body for the explosion.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DogExploded {
+    pub dog: PeerId,
+    pub at: [f32; 3],
+}
+
 /// Client (party leader) → server: which perks the `Zombies` machines sell
 /// ([`Lobby::perk_set`]) — before starting only.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
@@ -1595,6 +1628,12 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<ZombieDamaged>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<DogLightning>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<DogSpawned>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<DogExploded>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieSwipeLanded>()
             .add_direction(NetworkDirection::ServerToClient);

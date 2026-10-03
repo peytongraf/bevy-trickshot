@@ -169,6 +169,15 @@ impl FireMaterial {
     pub(crate) fn set_fade(&mut self, fade: f32) {
         self.params.fade = fade;
     }
+
+    /// A flame in the molotov's own look (`settings`), `brightness` bright,
+    /// its top bent by `wind` (m per m of height) — for fires elsewhere (a
+    /// hellhound's back, `dogs`).
+    pub(crate) fn flame(settings: &MolotovSettings, brightness: f32, wind: Vec3) -> Self {
+        Self {
+            params: settings.params(brightness, 0.0, 1.0, wind),
+        }
+    }
 }
 
 /// A flame / smoke quad's scale: `size` (m) across and up, and the seed the
@@ -390,12 +399,12 @@ impl MolotovSettings {
         }
     }
 
-    fn light_color(&self) -> Color {
+    pub(crate) fn light_color(&self) -> Color {
         Color::srgb(self.light_color[0], self.light_color[1], self.light_color[2])
     }
 
     /// How far a flame moving at `vel` (m/s) leans (m per m of height).
-    fn lean(&self, vel: Vec3) -> Vec3 {
+    pub(crate) fn lean(&self, vel: Vec3) -> Vec3 {
         (-vel * self.trail).clamp_length_max(self.max_lean)
     }
 
@@ -414,7 +423,7 @@ impl MolotovSettings {
 
 /// A light's brightness multiplier this moment: a steady base with fast,
 /// uneven wobble (`amount` 0..1), different per `seed`.
-fn flicker(t: f32, seed: f32, amount: f32) -> f32 {
+pub(crate) fn flicker(t: f32, seed: f32, amount: f32) -> f32 {
     let w = (t * 11.0 + seed * 3.1).sin() * 0.45
         + (t * 17.3 + seed * 7.7).sin() * 0.35
         + (t * 29.1 + seed * 1.9).sin() * 0.2;

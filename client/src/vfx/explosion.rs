@@ -38,6 +38,9 @@ pub(crate) struct Explosion {
     pub(crate) variant: u8,
     /// PhD Flopper's: the same blast, burning purple ([`PhdTint`]).
     pub(crate) phd: bool,
+    /// A hellhound's (`dogs`): the same blast at
+    /// [`ExplosionSettings::dog_scale`], with the dog explosion sound.
+    pub(crate) dog: bool,
 }
 
 /// On a PhD Flopper explosion's sprites: its fire, flash and sparks burn
@@ -111,12 +114,15 @@ pub(crate) struct ExplosionSettings {
     /// Distance (m) at which the explosion sound has faded to silence —
     /// much further than other players' sounds, it's a bomb.
     pub(crate) sound_max_distance: f32,
+    /// A hellhound's explosion's size, as a multiple of the whole thing's.
+    pub(crate) dog_scale: f32,
 }
 
 impl Default for ExplosionSettings {
     fn default() -> Self {
         Self {
             preview_requested: false,
+            dog_scale: 0.6,
             scale: 1.0,
             height: 0.9,
 
@@ -379,6 +385,7 @@ fn receive_bomb_explosions(
                 feet: Vec3::from_array(msg.feet),
                 variant: msg.variant,
                 phd: msg.phd,
+                dog: false,
             });
         }
     }
@@ -405,6 +412,7 @@ fn fire_preview(
         feet,
         variant: *count,
         phd: false,
+        dog: false,
     });
 }
 
@@ -425,6 +433,8 @@ fn spawn_explosions(
     let k = s.scale.max(0.05);
 
     for ev in events.read() {
+        // A hellhound's is the same blast, smaller.
+        let k = if ev.dog { k * s.dog_scale.max(0.05) } else { k };
         *seq = seq.wrapping_add(1);
         let base = seq.wrapping_mul(2_654_435_761);
         let center = ev.feet + Vec3::Y * s.height * k;
@@ -432,17 +442,23 @@ fn spawn_explosions(
         // Camera shake, falling off with distance.
         let dist = player.translation.distance(center);
         let falloff = (1.0 - dist / s.shake_radius.max(0.1)).clamp(0.0, 1.0);
-        shake.trauma = (shake.trauma + s.shake * falloff * falloff).min(1.0);
+        let jolt = if ev.dog { s.shake * s.dog_scale } else { s.shake };
+        shake.trauma = (shake.trauma + jolt * falloff * falloff).min(1.0);
 
         // The boom, from the blast (positional), fading with distance.
-        let clip = sounds
-            .as_ref()
-            .filter(|snd| !snd.bomb_shot_explosions.is_empty())
-            .map(|snd| {
-                snd.bomb_shot_explosions[ev.variant as usize % snd.bomb_shot_explosions.len()].clone()
-            });
+        let clip = if ev.dog {
+            sounds.as_ref().map(|snd| snd.dog_explosion.clone())
+        } else {
+            sounds
+                .as_ref()
+                .filter(|snd| !snd.bomb_shot_explosions.is_empty())
+                .map(|snd| {
+                    snd.bomb_shot_explosions[ev.variant as usize % snd.bomb_shot_explosions.len()].clone()
+                })
+        };
         let fade = (1.0 - dist / s.sound_max_distance.max(1.0)).clamp(0.0, 1.0);
-        let loudness = volumes.bomb_shot_explosion * fade * fade;
+        let volume = if ev.dog { volumes.dog_explosion } else { volumes.bomb_shot_explosion };
+        let loudness = volume * fade * fade;
         if let (Some(clip), true) = (clip, loudness > 0.0) {
             commands.spawn((
                 StateScoped(AppState::InGame),
@@ -849,6 +865,7 @@ pub(crate) fn explosion_section(ui: &mut egui::Ui, s: &mut ExplosionSettings) {
     }
     ui.separator();
     ui.add(egui::Slider::new(&mut s.scale, 0.2f32..=3.0).text("overall scale"));
+    ui.add(egui::Slider::new(&mut s.dog_scale, 0.1f32..=2.0).text("hellhound's size (× overall)"));
     ui.add(egui::Slider::new(&mut s.height, 0.0f32..=3.0).text("height above feet (m)"));
     ui.collapsing("Flash + light", |ui| {
         ui.add(egui::Slider::new(&mut s.flash_size, 0.0f32..=20.0).text("flash size (m)"));

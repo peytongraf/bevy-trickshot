@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Hellhound dog rounds
 - Same walk/sprint bob for every weapon
 - Only zombies ambience in Zombies
 - Mouse back button goes back
@@ -28,7 +29,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Big features
 
 - Add quotes
-- Add dogs or dog style rounds with a different enemy
 - Add boss
 - Add exfil
 - Add revive other players
@@ -44,7 +44,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Today
 
 - Knife won't stab when enemies are totally point blank
-- On zombies could add a boss that can only take damage from trick shots
 - On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
 - Add tdm
 
@@ -56,7 +55,7 @@ Everything below is ordered easiest → hardest, within each section.
 - On windows terminal pops up to play prod client
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Add spawn points for all maps
-- Clear all client runtime errors so that logging will work for things like position
+- Clear all client runtime errors
 - Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
 - Ensure state is fully reset when leaving a match / starting a new game, and everything works properly when joining a new match
 - When leaving with party the lobby should still be together

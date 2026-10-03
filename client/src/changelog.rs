@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: every 5th round is a hellhound round!",
+        "Zombies: the last hellhound of a dog round drops a Max Ammo.",
         "Zombies: perk machines vent cold fog once the power is on.",
         "Zombies: no more birdsong — just the zombies ambience.",
         "Sniper, knife and throwing knife now bob as you walk and sprint, like the AK-74.",

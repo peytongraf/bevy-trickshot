@@ -87,6 +87,17 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/rounds/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
+    /// `audio/zombies/rounds/dog_round_{start,end}.mp3` — a dog round
+    /// starting (in place of `round_start`), and ending (`round_counter`).
+    pub(crate) dog_round_start: Handle<AudioSource>,
+    pub(crate) dog_round_end: Handle<AudioSource>,
+    /// `audio/zombies/dogs/*.mp3` — a hellhound's: the lightning before it
+    /// appears, its appearing, its bark (looped while it's alive) and its
+    /// explosion, each from where it happens (`dogs`).
+    pub(crate) dog_pre_spawn: Handle<AudioSource>,
+    pub(crate) dog_spawn: Handle<AudioSource>,
+    pub(crate) dog_bark: Handle<AudioSource>,
+    pub(crate) dog_explosion: Handle<AudioSource>,
     /// `audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
     /// Bomb Shot blast, from where it went off (`vfx::spawn_explosions`);
     /// the server picks which one so the whole lobby hears the same clip.
@@ -265,6 +276,13 @@ pub(crate) struct SoundVolumes {
     /// The power lever being thrown (on top of its distance fade).
     pub(crate) power_on: f32,
     pub(crate) round_start: f32,
+    pub(crate) dog_round_start: f32,
+    pub(crate) dog_round_end: f32,
+    /// A hellhound's sounds (`dogs`), each on top of its distance fade.
+    pub(crate) dog_pre_spawn: f32,
+    pub(crate) dog_spawn: f32,
+    pub(crate) dog_bark: f32,
+    pub(crate) dog_explosion: f32,
     /// A Bomb Shot explosion (on top of its distance fade).
     pub(crate) bomb_shot_explosion: f32,
     /// Zombie voices (`zombie_sounds`), each on top of its distance fade.
@@ -318,6 +336,12 @@ impl Default for SoundVolumes {
             perk_jingle: 1.0,
             power_on: 1.0,
             round_start: 4.0,
+            dog_round_start: 1.0,
+            dog_round_end: 1.0,
+            dog_pre_spawn: 1.0,
+            dog_spawn: 1.0,
+            dog_bark: 0.6,
+            dog_explosion: 1.0,
             bomb_shot_explosion: 1.0,
             zombie_moan: 1.0,
             zombie_spawn: 1.0,
@@ -378,6 +402,8 @@ impl SoundVolumes {
             (sounds.power_up_nuke.id(), self.power_up_announcer),
             (sounds.power_up_bonus_points.id(), self.power_up_announcer),
             (sounds.round_start.id(), self.round_start),
+            (sounds.dog_round_start.id(), self.dog_round_start),
+            (sounds.dog_round_end.id(), self.dog_round_end),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -566,6 +592,12 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
         machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
         round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),
+        dog_round_start: asset_server.load("audio/zombies/rounds/dog_round_start.mp3"),
+        dog_round_end: asset_server.load("audio/zombies/rounds/dog_round_end.mp3"),
+        dog_pre_spawn: asset_server.load("audio/zombies/dogs/pre_spawn.mp3"),
+        dog_spawn: asset_server.load("audio/zombies/dogs/spawn.mp3"),
+        dog_bark: asset_server.load("audio/zombies/dogs/bark.mp3"),
+        dog_explosion: asset_server.load("audio/zombies/dogs/explosion.mp3"),
         bomb_shot_explosions: (1..=3)
             .map(|i| asset_server.load(format!("audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
             .collect(),

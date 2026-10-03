@@ -11,6 +11,11 @@
 //! connected to them. Once a round's zombies are all dead, a short break,
 //! then the next round.
 //!
+//! Every fifth round is a dog round instead (`shared::dogs`): only
+//! hellhounds come, each announced by a lightning strike where it'll appear
+//! — this queues them ([`PendingDog`]); `crate::dogs` strikes the lightning,
+//! brings each one in when it's due and turns their deaths into explosions.
+//!
 //! Scoring and the game ending (any member dying) live in `pvp`; the round
 //! number is replicated as `Lobby::round` for the HUD and results screen.
 
@@ -48,6 +53,16 @@ const CORPSE_SECS: f32 = 3.0;
 /// Seconds before retrying a spawn that found nowhere to go.
 const SPAWN_RETRY_SECS: f32 = 0.25;
 
+/// How many enemies round `round` sends, for `players` members: zombies, or
+/// on a dog round dogs.
+pub fn enemies_in_round(round: u32, players: usize) -> u32 {
+    if shared::dogs::is_dog_round(round) {
+        shared::dogs::dogs_in_round(round, players)
+    } else {
+        zombies_in_round(round, players)
+    }
+}
+
 /// How many zombies round `round` sends, for `players` members.
 pub fn zombies_in_round(round: u32, players: usize) -> u32 {
     let round = round.max(1);
@@ -83,9 +98,19 @@ pub fn zombie_skill(round: u32) -> BotSkill {
     }
 }
 
-/// On a zombie's player entity.
+/// On a zombie's player entity (a dog-round hellhound's too).
 #[derive(Component)]
 pub struct Zombie;
+
+/// A dog round's hellhound, struck in by lightning but not here yet: it
+/// appears at `feet`, facing `yaw`, at `spawn_at` (`Time::elapsed_secs`).
+pub(crate) struct PendingDog {
+    pub(crate) feet: Vec3,
+    pub(crate) yaw: f32,
+    pub(crate) spawn_at: f32,
+    /// Its lightning's been sent to the lobby (`crate::dogs`).
+    pub(crate) announced: bool,
+}
 
 /// When a zombie died (`Time::elapsed_secs`), for [`CORPSE_SECS`].
 #[derive(Component)]
@@ -97,7 +122,12 @@ struct ZombieDeath(f32);
 pub(crate) struct ZombieRounds {
     /// `0` during the pre-game countdown (`countdown_left`), then the round
     /// being played.
-    round: u32,
+    pub(crate) round: u32,
+    /// A dog round's hellhounds on their way in ([`PendingDog`]).
+    pub(crate) pending_dogs: Vec<PendingDog>,
+    /// Where this round's last hellhound died (`crate::dogs`) — a Max Ammo
+    /// drops there once the dog round's over.
+    pub(crate) last_dog_at: Option<Vec3>,
     /// Seconds of the pre-game countdown still to go (`Lobby::countdown_secs`
     /// at the start): the party roams, buys and turns the power on, and no
     /// zombie comes until it's out.
@@ -138,7 +168,7 @@ impl Plugin for ZombiesPlugin {
 
 /// Start, advance and feed every running `Zombies` game.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn run_rounds(
+pub(crate) fn run_rounds(
     time: Res<Time>,
     navs: Res<NavGraphs>,
     endings: Res<crate::killcam::EndingLobbies>,
@@ -170,6 +200,9 @@ fn run_rounds(
             if let Some(mut rounds) = rounds {
                 rounds.break_until += time.delta_secs();
                 rounds.next_spawn_at += time.delta_secs();
+                for dog in &mut rounds.pending_dogs {
+                    dog.spawn_at += time.delta_secs();
+                }
             }
             continue;
         }
@@ -180,6 +213,8 @@ fn run_rounds(
             lobby.countdown_left = countdown;
             commands.entity(lobby_e).insert(ZombieRounds {
                 round: 0,
+                pending_dogs: Vec::new(),
+                last_dog_at: None,
                 countdown_left: countdown as f32,
                 to_spawn: 0,
                 next_spawn_at: now,
@@ -204,10 +239,10 @@ fn run_rounds(
             // (After a countdown the party's ready: no extra delay.)
             let first = lobby.start_round.max(1);
             rounds.round = first;
-            rounds.to_spawn = zombies_in_round(first, members);
+            rounds.to_spawn = enemies_in_round(first, members);
             rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
             lobby.round = first;
-            lobby.enemies_left = zombies_in_round(first, members);
+            lobby.enemies_left = rounds.to_spawn;
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
         }
@@ -219,8 +254,10 @@ fn run_rounds(
             .iter()
             .filter(|(lp, c)| lp.lobby == lobby_e && c.alive)
             .count();
+        // A dog round's hellhounds struck in but not here yet.
+        let coming = rounds.pending_dogs.len();
         // For the HUD's "enemies left": still to come plus still standing.
-        let left = rounds.to_spawn + alive as u32;
+        let left = rounds.to_spawn + (alive + coming) as u32;
         if lobby.enemies_left != left {
             lobby.enemies_left = left;
         }
@@ -230,9 +267,20 @@ fn run_rounds(
         }
 
         // Round cleared: a breather, then the next one.
-        if rounds.to_spawn == 0 && alive == 0 {
+        if rounds.to_spawn == 0 && alive == 0 && coming == 0 {
+            // A dog round over: its last dog leaves a Max Ammo behind.
+            if let Some(at) = rounds.last_dog_at.take().filter(|_| shared::dogs::is_dog_round(rounds.round)) {
+                crate::power_ups::spawn_drop(
+                    &mut commands,
+                    lobby_e,
+                    lobby.real_peers(),
+                    shared::power_ups::PowerUp::MaxAmmo,
+                    at,
+                );
+                info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
+            }
             rounds.round += 1;
-            rounds.to_spawn = zombies_in_round(rounds.round, members);
+            rounds.to_spawn = enemies_in_round(rounds.round, members);
             rounds.break_until = now + ROUND_BREAK_SECS;
             rounds.next_spawn_at = rounds.break_until;
             lobby.round = rounds.round;
@@ -241,7 +289,7 @@ fn run_rounds(
             continue;
         }
 
-        if rounds.to_spawn == 0 || alive >= MAX_ALIVE || now < rounds.next_spawn_at {
+        if rounds.to_spawn == 0 || alive + coming >= MAX_ALIVE || now < rounds.next_spawn_at {
             continue;
         }
 
@@ -264,6 +312,21 @@ fn run_rounds(
             rounds.next_spawn_at = now + SPAWN_RETRY_SECS;
             continue;
         };
+
+        // A dog round: lightning strikes there first, and the hellhound
+        // follows once it's done (`crate::dogs`).
+        if shared::dogs::is_dog_round(rounds.round) {
+            let to_player = near - feet;
+            rounds.pending_dogs.push(PendingDog {
+                feet,
+                yaw: f32::atan2(-to_player.x, -to_player.z),
+                spawn_at: now + shared::dogs::DOG_PRE_SPAWN_SECS,
+                announced: false,
+            });
+            rounds.to_spawn -= 1;
+            rounds.next_spawn_at = now + spawn_interval(rounds.round);
+            continue;
+        }
 
         let peer = bot_peer(next_id.0);
         next_id.0 += 1;
@@ -564,10 +627,10 @@ fn on_buy_ammo(
 }
 
 /// Let a dead zombie lie for [`CORPSE_SECS`] (its death animation), then
-/// remove it.
+/// remove it. (A dead hellhound is gone at once — `crate::dogs`.)
 fn clear_dead_zombies(
     time: Res<Time>,
-    fresh: Query<(Entity, &PlayerCombat), (With<Zombie>, Without<ZombieDeath>)>,
+    fresh: Query<(Entity, &PlayerCombat), (With<Zombie>, Without<ZombieDeath>, Without<crate::dogs::Dog>)>,
     dead: Query<(Entity, &ZombieDeath)>,
     mut commands: Commands,
 ) {
@@ -756,6 +819,49 @@ mod tests {
         assert_eq!(left(&app), zombies_in_round(2, 1));
         run(&mut app, ROUND_BREAK_SECS + 20.0);
         assert_eq!(zombies_of(&mut app).len() as u32, zombies_in_round(2, 1));
+    }
+
+    #[test]
+    fn a_dog_round_queues_only_dogs_and_isnt_over_until_theyre_in_and_dead() {
+        let (mut app, lobby) = game();
+        // Start again on round 5.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 5;
+        app.update();
+        app.update();
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert_eq!(l.round, 5);
+        assert_eq!(l.enemies_left, shared::dogs::dogs_in_round(5, 1));
+        run(&mut app, FIRST_ROUND_DELAY_SECS + 20.0);
+        // (Bringing them in is `crate::dogs`', not running here): every one
+        // queued behind its lightning, no zombie in sight, and the round
+        // still on.
+        assert!(zombies_of(&mut app).is_empty());
+        let queued = app.world().get::<ZombieRounds>(lobby).unwrap().pending_dogs.len() as u32;
+        assert_eq!(queued, shared::dogs::dogs_in_round(5, 1));
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert_eq!(l.round, 5);
+        assert_eq!(l.enemies_left, queued);
+
+        // The last of them dies (`crate::dogs` notes where): the round's
+        // over, and a Max Ammo lies there.
+        let at = Vec3::new(3.0, 0.0, -4.0);
+        {
+            let mut rounds = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
+            rounds.pending_dogs.clear();
+            rounds.last_dog_at = Some(at);
+        }
+        app.update();
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().round, 6);
+        let drops: Vec<shared::PowerUpDrop> = app
+            .world_mut()
+            .query::<&shared::PowerUpDrop>()
+            .iter(app.world())
+            .cloned()
+            .collect();
+        assert_eq!(drops.len(), 1);
+        assert_eq!(drops[0].kind, shared::power_ups::PowerUp::MaxAmmo);
+        assert_eq!(drops[0].pos, at);
     }
 
     #[test]

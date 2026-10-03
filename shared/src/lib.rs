@@ -14,6 +14,7 @@
 //! protocol and one definition of "did this shot hit".
 
 pub mod ammo;
+pub mod dogs;
 pub mod ballistics;
 pub mod bot_players;
 pub mod bots;
@@ -41,7 +42,7 @@ pub use protocol::{
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
-    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, PhdSlam, ProneAtPerk, ProneBonus, SetPerkSet, SetLoadout, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, SetMap, SetPaused,
+    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, PhdSlam, ProneAtPerk, ProneBonus, SetPerkSet, SetLoadout, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
     SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,

@@ -75,6 +75,21 @@ impl Plugin for PowerUpsPlugin {
     }
 }
 
+/// Drop a `kind` power-up at `pos` in `lobby` (seen by its `peers`) — the
+/// same as a zombie dropping one.
+pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<PeerId>, kind: PowerUp, pos: Vec3) {
+    commands.spawn((
+        Name::from("PowerUpDrop"),
+        PowerUpDrop {
+            kind,
+            pos,
+            blinking: false,
+        },
+        DropSim { lobby, age: 0.0 },
+        Replicate::to_clients(NetworkTarget::Only(peers)),
+    ));
+}
+
 /// Maybe drop a power-up where each zombie a player killed fell.
 fn roll_drops(
     time: Res<Time>,

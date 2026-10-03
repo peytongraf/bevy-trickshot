@@ -8,3 +8,4 @@
 - Add remote player models animated on main menus
 - Could make shroom tea brighten map slightly like a sort of night vision
 - Make multiplayer and then zombies modes that are seen at the main screen like cod. When clicking on multiplayer it shows a different bg and plays different music than zombies.
+- On zombies could add a boss that can only take damage from trick shots

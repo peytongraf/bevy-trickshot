@@ -30,6 +30,7 @@ mod avatars;
 mod changelog;
 mod death_effect;
 mod debug_ui;
+mod dogs;
 mod environment;
 mod fall_death;
 mod game_start;
@@ -202,6 +203,7 @@ fn main() {
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)
         .add_plugins(vfx::MachineFogPlugin)
+        .add_plugins(dogs::DogsPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)
