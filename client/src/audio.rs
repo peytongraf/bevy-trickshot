@@ -592,14 +592,20 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
 /// one, by [`CurrentMap`]. Ordered `.after(lobby_ui::sync_current_map)`
 /// (both run on `OnEnter(AppState::InGame)`) so this always sees the map
 /// just selected, not whatever `CurrentMap` was left at after the previous
-/// match.
+/// match. Not in `Zombies`, on any map: its own ambience
+/// (`zombies_audio`) is the only one there.
 pub(crate) fn start_ambient(
     mut commands: Commands,
     sounds: Res<GameSounds>,
     settings: Res<Settings>,
     vols: Res<SoundVolumes>,
     current: Res<CurrentMap>,
+    local: Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
+    lobbies: Query<&shared::Lobby>,
 ) {
+    if crate::zombies_hud::my_lobby(&local, &lobbies).is_some_and(|l| l.mode == shared::GameMode::Zombies) {
+        return;
+    }
     let (clip, volume_mult) = match current.0 {
         shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
         | shared::MapId::AshesOfTheDamned => {

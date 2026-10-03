@@ -229,7 +229,7 @@ fn main() {
         })
         .init_resource::<ViewModelPoses>()
         .init_resource::<weapons::AkSettings>()
-        .init_resource::<weapons::AkWalkBob>()
+        .init_resource::<weapons::WalkBob>()
         // In `PostUpdate` so it reads the view model's final pose for the
         // frame (ADS, bob, sway, recoil — all written in `Update`).
         .add_systems(
@@ -246,7 +246,7 @@ fn main() {
         )
         .add_systems(
             Update,
-            weapons::update_ak_walk_bob
+            weapons::update_walk_bob
                 .before(apply_ads)
                 .run_if(in_state(AppState::InGame)),
         )

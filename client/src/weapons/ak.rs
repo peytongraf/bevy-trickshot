@@ -17,8 +17,8 @@
 //!   — [`ak_locomotion`], whenever nothing else is playing.
 //!
 //! Walking and sprinting don't use the model's walk clips (`Walk` barely
-//! moves — a ~1.5 mm sway): a procedural bob ([`AkWalkBob`]) sways the view
-//! model instead, at its own walk / sprint pace, faster with Nitro Brew.
+//! moves — a ~1.5 mm sway): the procedural bob every view model shares
+//! (`sway::WalkBob`, tuned under "Weapon sway") sways it instead.
 //!
 //! Everything about its look and feel is in [`AkSettings`] (the debug panel's
 //! "AK-74" section).
@@ -161,16 +161,6 @@ pub(crate) struct AkSettings {
     pub(crate) idle_speed: f32,
     /// of Nitro Brew's movement multiplier).
     pub(crate) jump_speed: f32,
-    /// Below this speed (m/s) it counts as standing still.
-    pub(crate) move_threshold: f32,
-    /// The walking / sprinting bob ([`AkWalkBob`]): how far (m) the gun
-    /// swings side to side (it dips half that), how many swings a second
-    /// walking and sprinting (both times Nitro Brew's movement multiplier),
-    /// and how much of it is left fully aimed.
-    pub(crate) walk_bob: f32,
-    pub(crate) walk_bob_hz: f32,
-    pub(crate) sprint_bob_hz: f32,
-    pub(crate) walk_bob_ads: f32,
 }
 
 impl Default for AkSettings {
@@ -205,11 +195,6 @@ impl Default for AkSettings {
             draw_speed: 1.0,
             idle_speed: 1.0,
             jump_speed: 1.0,
-            move_threshold: 0.5,
-            walk_bob: 0.006,
-            walk_bob_hz: 1.25,
-            sprint_bob_hz: 1.9,
-            walk_bob_ads: 0.2,
         }
     }
 }
@@ -274,64 +259,11 @@ impl AkLoco {
     }
 }
 
-/// The AK's walking / sprinting bob: a sway of the view model (side to
-/// side, dipping twice a cycle) that eases in while we move on the ground
-/// and out when we stop — `walk_bob_hz` swings a second walking,
-/// `sprint_bob_hz` sprinting, both times Nitro Brew's movement multiplier.
-/// Added onto the hip / ADS pose by `ads::apply_ads`.
-#[derive(Resource, Default)]
-pub(crate) struct AkWalkBob {
-    phase: f32,
-    /// 0..1 — how much of the bob is showing.
-    weight: f32,
-}
-
-impl AkWalkBob {
-    /// The view-model offset (camera space, m) right now, at ADS amount
-    /// `ads_t`.
-    pub(crate) fn offset(&self, cfg: &AkSettings, ads_t: f32) -> Vec3 {
-        let amount = cfg.walk_bob * self.weight * 1.0.lerp(cfg.walk_bob_ads, ads_t.clamp(0.0, 1.0));
-        Vec3::new(
-            self.phase.sin() * amount,
-            -(self.phase.sin().abs()) * amount * 0.5,
-            0.0,
-        )
-    }
-}
-
-/// Advance [`AkWalkBob`]: in while the AK's out and we're walking on the
-/// ground, out otherwise.
-pub(crate) fn update_ak_walk_bob(
-    time: Res<Time>,
-    cfg: Res<AkSettings>,
-    weapon: Res<Weapon>,
-    sprinting: Res<crate::player::Sprinting>,
-    (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
-    physics: Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
-    mut bob: ResMut<AkWalkBob>,
-) {
-    let dt = time.delta_secs();
-    let walking = weapon.primary == WeaponId::Ak74
-        && weapon.slot == super::weapon::WeaponSlot::Primary
-        && physics
-            .single()
-            .is_ok_and(|p| p.grounded && p.horizontal_velocity.length() > cfg.move_threshold);
-    let target = if walking { 1.0 } else { 0.0 };
-    let k = 1.0 - (-dt * 8.0).exp();
-    bob.weight += (target - bob.weight) * k;
-    if bob.weight > 1e-3 {
-        let hz = if sprinting.0 { cfg.sprint_bob_hz } else { cfg.walk_bob_hz } * nitro.movement() * classic.movement();
-        bob.phase = (bob.phase + dt * hz * std::f32::consts::TAU) % std::f32::consts::TAU;
-    } else {
-        bob.phase = 0.0;
-    }
-}
-
 /// Play the AK's idle / jump clips while nothing else is: `Start_Jump`
 /// the moment we jump, `Loop_Jump` while airborne, `Stop_Jump` the moment we
 /// land, `Idle` otherwise — each one-off played once, all cross-faded. Picks
 /// back up from wherever we are after a shot / reload / draw took over.
-/// (Walking and sprinting are [`AkWalkBob`]'s.)
+/// (Walking and sprinting are `sway::WalkBob`'s.)
 pub(crate) fn ak_locomotion(rig: &mut PrimaryRig, loco: &mut AkLoco, m: AkMotion, cfg: &AkSettings) {
     // Something else took over since: carry on from where that leaves us.
     let mut state = *loco;
@@ -504,13 +436,6 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
         ui.add(egui::Slider::new(&mut s.draw_speed, 0.1f32..=4.0).text("draw / hide speed (×)"));
         ui.add(egui::Slider::new(&mut s.idle_speed, 0.1f32..=4.0).text("idle speed (×)"));
         ui.add(egui::Slider::new(&mut s.jump_speed, 0.1f32..=4.0).text("jump clips speed (×)"));
-        ui.add(egui::Slider::new(&mut s.move_threshold, 0.0f32..=3.0).text("counts as moving above (m/s)"));
-        ui.separator();
-        ui.label("Walking / sprinting bob (× Nitro Brew's movement speed-up)");
-        ui.add(egui::Slider::new(&mut s.walk_bob, 0.0f32..=0.05).text("bob size (m)"));
-        ui.add(egui::Slider::new(&mut s.walk_bob_hz, 0.0f32..=4.0).text("bob swings / s walking"));
-        ui.add(egui::Slider::new(&mut s.sprint_bob_hz, 0.0f32..=6.0).text("bob swings / s sprinting"));
-        ui.add(egui::Slider::new(&mut s.walk_bob_ads, 0.0f32..=1.0).text("bob left when aimed"));
     });
     ui.horizontal(|ui| {
         if ui.button("Copy AK-74 settings to console").clicked() {
@@ -525,8 +450,7 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
                  ads_spread_deg: {:.2}, trauma_per_shot: {:.3}, recoil_kick: {:.4}, muzzle_translation: \
                  Vec3::new({:.3}, {:.3}, {:.3}), muzzle_size: Vec2::new({:.2}, {:.2}), blend_secs: {:.2}, \
                  shot_blend_secs: {:.3}, shot_speed: {:.2}, reload_speed: {:.2}, draw_speed: {:.2}, \
-                 idle_speed: {:.2}, jump_speed: {:.2}, move_threshold: {:.2}, walk_bob: {:.4}, \
-                 walk_bob_hz: {:.2}, sprint_bob_hz: {:.2}, walk_bob_ads: {:.2}",
+                 idle_speed: {:.2}, jump_speed: {:.2}",
                 p(&s.hip),
                 p(&s.ads),
                 s.ads_zoom,
@@ -547,11 +471,6 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
                 s.draw_speed,
                 s.idle_speed,
                 s.jump_speed,
-                s.move_threshold,
-                s.walk_bob,
-                s.walk_bob_hz,
-                s.sprint_bob_hz,
-                s.walk_bob_ads,
             );
         }
         if ui.button("Reset AK-74 settings").clicked() {

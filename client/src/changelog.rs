@@ -15,6 +15,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Zombies: no more birdsong — just the zombies ambience.",
+        "Sniper, knife and throwing knife now bob as you walk and sprint, like the AK-74.",
         "Lobby: leaving now asks you to confirm.",
         "Zombies: damage numbers pop off zombies when you hit them.",
         "Zombies: kill points are white, yellow for criticals.",

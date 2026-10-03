@@ -418,18 +418,39 @@ pub(crate) fn ads_tuning_ui(
                         ads.t,
                         w.hip_strength.lerp(w.ads_strength, ads.t.clamp(0.0, 1.0)),
                     ));
+                    ui.separator();
+                    ui.label(
+                        "walking / sprinting bob — every weapon (sniper, AK-74, knife, \
+                         throwing knife); × Nitro Brew's movement speed-up",
+                    );
+                    ui.add(egui::Slider::new(&mut w.walk_bob, 0.0f32..=0.05).text("bob size (m)"));
+                    ui.add(egui::Slider::new(&mut w.walk_bob_hz, 0.0f32..=4.0).text("bob swings / s walking"));
+                    ui.add(
+                        egui::Slider::new(&mut w.sprint_bob_hz, 0.0f32..=6.0).text("bob swings / s sprinting"),
+                    );
+                    ui.add(egui::Slider::new(&mut w.walk_bob_ads, 0.0f32..=1.0).text("bob left when aimed"));
+                    ui.add(
+                        egui::Slider::new(&mut w.bob_move_threshold, 0.0f32..=3.0)
+                            .text("counts as moving above (m/s)"),
+                    );
 
                     if ui.button("Copy weapon sway to console").clicked() {
                         info!(
                             "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
                              return_speed {:.4}, max_offset_deg {:.4}, hip_shift_m {:.4}, \
-                             ads_shift_m {:.4}",
+                             ads_shift_m {:.4}, walk_bob {:.4}, walk_bob_hz {:.2}, \
+                             sprint_bob_hz {:.2}, walk_bob_ads {:.2}, bob_move_threshold {:.2}",
                             w.hip_strength,
                             w.ads_strength,
                             w.return_speed,
                             w.max_offset_deg,
                             w.hip_shift_m,
                             w.ads_shift_m,
+                            w.walk_bob,
+                            w.walk_bob_hz,
+                            w.sprint_bob_hz,
+                            w.walk_bob_ads,
+                            w.bob_move_threshold,
                         );
                     }
                     if ui.button("Reset weapon sway").clicked() {

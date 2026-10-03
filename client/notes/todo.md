@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Same walk/sprint bob for every weapon
+- Only zombies ambience in Zombies
 - Mouse back button goes back
 - White zombies points popup
 - Floating damage numbers
@@ -13,14 +15,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
-# New
+# Improve
 
 - Improve molotov fire look
 - Dial in phd slider effect look ( trail and explosion )
-- Make all maps have a day and night setting with just different fog / sky settings
-- Ensure that walk and sprint bob for sniper, knife, and throwing knife are the same as the ak74. ALl should be the same as it. They should all have the same general settings instead of individual so that setting should be removed for ak74 and made general.
-- On break point night zombies, regular bird ambient sound should be removed and only zombies ambient sound should play
 - Improve end game screen
+
+# New
+
+- Make all maps have a day and night setting with just different fog / sky settings
 
 # Big features
 

@@ -1,5 +1,6 @@
-//! View-model sway: the turn-lag "weapon sway", the idle breathing drift, and
-//! the aim-idle drift that actually moves the real aim while scoped.
+//! View-model sway: the turn-lag "weapon sway", the walking / sprinting bob,
+//! the idle breathing drift, and the aim-idle drift that actually moves the
+//! real aim while scoped.
 
 use bevy::prelude::*;
 
@@ -54,6 +55,17 @@ pub(crate) struct WeaponSwaySettings {
     /// Metres of translation per radian of the current lag angle, at full ADS
     /// — bigger than `hip_shift_m` so the shift reads clearly once scoped.
     pub(crate) ads_shift_m: f32,
+    /// The walking / sprinting bob ([`WalkBob`]) — every view model's
+    /// (sniper, AK-74, knife, throwing arms): how far (m) it swings side to
+    /// side (dipping half that), how many swings a second walking and
+    /// sprinting (both times Nitro Brew's movement multiplier), and how much
+    /// of it is left fully aimed.
+    pub(crate) walk_bob: f32,
+    pub(crate) walk_bob_hz: f32,
+    pub(crate) sprint_bob_hz: f32,
+    pub(crate) walk_bob_ads: f32,
+    /// Below this speed (m/s) the bob counts us as standing still.
+    pub(crate) bob_move_threshold: f32,
 }
 
 impl Default for WeaponSwaySettings {
@@ -65,7 +77,61 @@ impl Default for WeaponSwaySettings {
             max_offset_deg: 12.0,
             hip_shift_m: 0.01,
             ads_shift_m: 0.005,
+            walk_bob: 0.006,
+            walk_bob_hz: 1.25,
+            sprint_bob_hz: 1.9,
+            walk_bob_ads: 0.2,
+            bob_move_threshold: 0.5,
         }
+    }
+}
+
+/// The walking / sprinting bob, shared by every view model: a sway (side to
+/// side, dipping twice a cycle) that eases in while we move on the ground
+/// and out when we stop — see [`WeaponSwaySettings::walk_bob`]. Added onto
+/// the sniper / AK-74 pose by `ads::apply_ads`, and onto the knife and the
+/// throwing arms by [`knife_weapon_sway`] / [`throw_arms_weapon_sway`].
+#[derive(Resource, Default)]
+pub(crate) struct WalkBob {
+    phase: f32,
+    /// 0..1 — how much of the bob is showing.
+    weight: f32,
+}
+
+impl WalkBob {
+    /// The view-model offset (camera space, m) right now, at ADS amount
+    /// `ads_t`.
+    pub(crate) fn offset(&self, cfg: &WeaponSwaySettings, ads_t: f32) -> Vec3 {
+        let amount = cfg.walk_bob * self.weight * 1.0.lerp(cfg.walk_bob_ads, ads_t.clamp(0.0, 1.0));
+        Vec3::new(
+            self.phase.sin() * amount,
+            -(self.phase.sin().abs()) * amount * 0.5,
+            0.0,
+        )
+    }
+}
+
+/// Advance [`WalkBob`]: in while we're moving on the ground, out otherwise.
+pub(crate) fn update_walk_bob(
+    time: Res<Time>,
+    cfg: Res<WeaponSwaySettings>,
+    sprinting: Res<crate::player::Sprinting>,
+    (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
+    physics: Query<&PlayerPhysics, With<Player>>,
+    mut bob: ResMut<WalkBob>,
+) {
+    let dt = time.delta_secs();
+    let walking = physics
+        .single()
+        .is_ok_and(|p| p.grounded && p.horizontal_velocity.length() > cfg.bob_move_threshold);
+    let target = if walking { 1.0 } else { 0.0 };
+    let k = 1.0 - (-dt * 8.0).exp();
+    bob.weight += (target - bob.weight) * k;
+    if bob.weight > 1e-3 {
+        let hz = if sprinting.0 { cfg.sprint_bob_hz } else { cfg.walk_bob_hz } * nitro.movement() * classic.movement();
+        bob.phase = (bob.phase + dt * hz * std::f32::consts::TAU) % std::f32::consts::TAU;
+    } else {
+        bob.phase = 0.0;
     }
 }
 
@@ -209,9 +275,11 @@ pub(crate) fn knife_weapon_sway(
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
     state: Res<WeaponSwayState>,
+    bob: Res<WalkBob>,
     mut knife: Single<&mut Transform, With<KnifeViewModel>>,
 ) {
-    **knife = sway_pose(state.offset, &tuning, ads.t.clamp(0.0, 1.0)) * **knife;
+    let t = ads.t.clamp(0.0, 1.0);
+    **knife = Transform::from_translation(bob.offset(&tuning, t)) * sway_pose(state.offset, &tuning, t) * **knife;
 }
 
 /// Layer a slow procedural "breathing" drift onto the view model while the
@@ -274,9 +342,11 @@ pub(crate) fn throw_arms_weapon_sway(
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
     state: Res<WeaponSwayState>,
+    bob: Res<WalkBob>,
     mut arms: Single<&mut Transform, With<ThrowArmsViewModel>>,
 ) {
-    **arms = sway_pose(state.offset, &tuning, ads.t.clamp(0.0, 1.0)) * **arms;
+    let t = ads.t.clamp(0.0, 1.0);
+    **arms = Transform::from_translation(bob.offset(&tuning, t)) * sway_pose(state.offset, &tuning, t) * **arms;
 }
 
 /// The breathing drift on the throwing arms — see [`knife_idle_sway`].

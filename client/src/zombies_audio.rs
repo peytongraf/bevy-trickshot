@@ -1,5 +1,6 @@
 //! `Zombies`' own music bed: an ambience loop ([`ZombiesAmbient`]) under the
-//! whole game (on top of the map's usual ambience), and the game-over music
+//! whole game (in place of the map's usual ambience — `audio::start_ambient`
+//! skips it in `Zombies`), and the game-over music
 //! ([`ZombiesGameOverMusic`]) played once the moment the game ends — when the
 //! server's `MatchEnding` starts the end-of-match freeze — which is also when
 //! the ambience stops.
