@@ -721,10 +721,15 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) scale: f32,
     /// Every machine's light (only its colour is the perk's own).
     pub(crate) light: MachineLight,
+    /// The fog every machine vents once the power's on
+    /// (`vfx::machine_fog`).
+    pub(crate) fog: crate::vfx::MachineFog,
     /// Each machine's nudge from its spot.
     pub(crate) nudges: std::collections::HashMap<Perk, MachineNudge>,
     /// Each classic machine model's turn (degrees) inside its box — the
-    /// imported models don't all face the same way.
+    /// imported models don't all face the same way. The machine's own turn
+    /// (its spot's, plus its nudge) is what the fog follows, so this lines
+    /// the model's front up with that and nothing else.
     pub(crate) model_yaw_deg: std::collections::HashMap<Perk, f32>,
     /// Der Wunderfizz's nudge from its spot (`shared::wunderfizz`), and its
     /// model's turn inside its box (`crate::wunderfizz`).
@@ -743,8 +748,14 @@ impl Default for PerkMachineSettings {
         Self {
             scale: shared::perks::MACHINE_HALF_EXTENTS.y / MODEL_HALF_EXTENTS.y,
             light: default(),
+            fog: default(),
             nudges: default(),
-            model_yaw_deg: default(),
+            // Turned so each model's front — its dispenser slot — faces the
+            // machine's front, the way its fog vents (`vfx::machine_fog`);
+            // the rest already do. Degrees counter-clockwise seen from above.
+            model_yaw_deg: [(Perk::StaminUp, 90.0), (Perk::QuickRevive, -90.0), (Perk::Juggernog, 180.0)]
+                .into_iter()
+                .collect(),
             wunderfizz: default(),
             wunderfizz_model_yaw_deg: 0.0,
             snap_wunderfizz: false,
@@ -986,6 +997,7 @@ fn spawn_perk_machine(
             PerkMachine(perk),
             // (From about its middle — the root's on the ground.)
             crate::power::PoweredHum(Vec3::Y * 1.2),
+            crate::vfx::MachineFogEmitter::default(),
             machine_transform(settings, perk, map),
             Visibility::default(),
         ))

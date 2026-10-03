@@ -1887,6 +1887,43 @@ pub(crate) fn ads_tuning_ui(
                             l.offset.x, l.offset.y, l.offset.z, l.intensity, l.range, l.radius, l.shadows,
                         );
                     }
+                    ui.collapsing("Fog (vented once the power's on)", |ui| {
+                        let f = &mut m.fog;
+                        ui.checkbox(&mut f.enabled, "on");
+                        ui.add(egui::Slider::new(&mut f.rate, 0.0f32..=20.0).text("puffs / s per vent"));
+                        ui.add(egui::Slider::new(&mut f.life_secs, 0.2f32..=10.0).text("puff life (s)"));
+                        ui.add(egui::Slider::new(&mut f.fade_in_secs, 0.0f32..=3.0).text("fade in (s)"));
+                        ui.add(egui::Slider::new(&mut f.front_height, 0.0f32..=2.5).text("front vent height (m)"));
+                        ui.add(egui::Slider::new(&mut f.side_height, 0.0f32..=2.5).text("side vents height (m)"));
+                        ui.add(
+                            egui::Slider::new(&mut f.front_yaw_deg, -180.0f32..=180.0)
+                                .text("which way is the front (°)"),
+                        );
+                        ui.add(egui::Slider::new(&mut f.out_speed, 0.0f32..=3.0).text("out speed (m/s)"));
+                        ui.add(egui::Slider::new(&mut f.fall_speed, 0.0f32..=3.0).text("sink speed (m/s)"));
+                        ui.add(egui::Slider::new(&mut f.gravity, 0.0f32..=5.0).text("heaviness (m/s²)"));
+                        ui.add(egui::Slider::new(&mut f.floor_spread, 0.0f32..=3.0).text("floor spread (m/s²)"));
+                        ui.add(egui::Slider::new(&mut f.drag, 0.0f32..=5.0).text("drag"));
+                        ui.add(egui::Slider::new(&mut f.start_size, 0.05f32..=2.0).text("start size (m)"));
+                        ui.add(egui::Slider::new(&mut f.end_size, 0.05f32..=5.0).text("end size (m)"));
+                        ui.add(egui::Slider::new(&mut f.opacity, 0.0f32..=1.0).text("opacity"));
+                        ui.add(egui::Slider::new(&mut f.glow, 0.0f32..=1.0).text("glow"));
+                        ui.add(egui::Slider::new(&mut f.max_distance, 5.0f32..=150.0).text("vents within (m)"));
+                        if ui.button("Copy fog settings to console").clicked() {
+                            info!(
+                                "perk machine fog: rate: {:.2}, life_secs: {:.2}, fade_in_secs: {:.2}, \
+                                 front_height: {:.2}, side_height: {:.2}, front_yaw_deg: {:.1}, out_speed: {:.2}, \
+                                 fall_speed: {:.2}, gravity: {:.2}, floor_spread: {:.2}, drag: {:.2}, \
+                                 start_size: {:.2}, end_size: {:.2}, opacity: {:.3}, glow: {:.3}, max_distance: {:.1}",
+                                f.rate, f.life_secs, f.fade_in_secs, f.front_height, f.side_height,
+                                f.front_yaw_deg, f.out_speed, f.fall_speed, f.gravity, f.floor_spread, f.drag,
+                                f.start_size, f.end_size, f.opacity, f.glow, f.max_distance,
+                            );
+                        }
+                        if ui.button("Reset fog").clicked() {
+                            *f = crate::vfx::MachineFog::default();
+                        }
+                    });
                     for perk in shared::perks::Perk::ALL {
                         ui.label(format!(
                             "{} (from its spot — drag the numbers to go past the sliders)",

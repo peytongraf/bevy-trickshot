@@ -201,6 +201,7 @@ fn main() {
         .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)
+        .add_plugins(vfx::MachineFogPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)
