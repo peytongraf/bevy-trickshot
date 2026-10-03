@@ -6,12 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Molotov damage doubled
-- Ammo crate collidable
-- Throwing knife always one-shots
-- Organized audio/zombies dir
-- Remote player melee animation
-- Music volume setting
+- Launch loading screen
 
 # Current todo
 
@@ -19,7 +14,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
-- When first launching the game it takes a second for the ui to fully load and fill out
 - Make normal zombie points added text white unless it is a critical in which case it should be yellow
 - Add point text in white that randomly floats away from the damaged enemy on zombies based on how much damage it took on that hit.
 - Improve molotov fire look

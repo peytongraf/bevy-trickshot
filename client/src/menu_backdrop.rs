@@ -26,7 +26,7 @@ use crate::util::rand01;
 
 /// The menu art, and its size in pixels (to cover the screen without
 /// stretching).
-const ART: &str = "textures/menu/main_menu_bg.png";
+pub(crate) const ART: &str = "textures/menu/main_menu_bg.png";
 const ART_SIZE: Vec2 = Vec2::new(1672.0, 940.0);
 /// The art's scale past just covering the screen, so its drift never shows
 /// an edge...
@@ -47,7 +47,7 @@ const BROWNOUT_CHANCE: f32 = 0.08;
 
 /// Fog bands, each two smoke sprites wide so it always spans the screen.
 const FOG_LAYERS: usize = 4;
-const SMOKE: &str = "textures/vfx/smoke.png";
+pub(crate) const SMOKE: &str = "textures/vfx/smoke.png";
 
 /// Embers (and ash) on screen at once.
 const EMBERS: usize = 56;

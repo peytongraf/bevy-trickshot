@@ -15,6 +15,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.6",
     &[
+        "Added a loading screen on launch, so the menu no longer pops in half-drawn.",
         "Settings: new music volume slider for the main menu music.",
         "You can now see other players swing their knife.",
         "Zombies: throwing knives always kill in one hit.",

@@ -40,6 +40,7 @@ mod keybinds;
 mod killcam;
 mod knife_sounds;
 mod loadout;
+mod loading_screen;
 mod lobby_ui;
 mod match_end;
 mod menu;
@@ -178,6 +179,7 @@ fn main() {
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
         // protocol; add it before anything that spawns a `Client`.
         .add_plugins(net::ClientNetPlugin)
+        .add_plugins(loading_screen::LoadingScreenPlugin)
         .add_plugins((
             ui::UiKitPlugin,
             settings::SettingsPlugin,
