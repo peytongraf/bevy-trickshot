@@ -6,11 +6,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Ray gun shot glitching fixed
+
 # Current todo
 
 - Ray gun shot is killing enemies before the blast reaches them. The blast should possibly "stun" enenmies that it damages but doesn't kill similar to phd slider.
 - If player is by themselves then it should just have a leave button instead of leave with or without party since they don't have a party.
-- When shooting the raygun is glitching out and the zombies are too but only when shooting.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
