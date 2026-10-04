@@ -204,7 +204,11 @@ pub(crate) fn crouch_slide(
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
-    classic: Res<crate::zombies_hud::ClassicPerks>,
+    (classic, revive, mut was_down): (
+        Res<crate::zombies_hud::ClassicPerks>,
+        Res<crate::revive::LocalRevive>,
+        Local<bool>,
+    ),
     sounds: Res<GameSounds>,
     weapon: Res<Weapon>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -232,7 +236,10 @@ pub(crate) fn crouch_slide(
         1.0
     };
 
-    let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+    // Down in `Zombies`: held flat, the stance keys do nothing — and stood
+    // straight back up once revived.
+    let down = crate::revive::hold_downed_stance(&revive, &mut slide, &mut was_down);
+    let locked = window.cursor_options.grab_mode != CursorGrabMode::None && !down;
     let crouch_pressed = locked && binds.crouch.just_pressed(&keys, &mouse);
     let prone_pressed = locked && binds.prone.just_pressed(&keys, &mouse);
     let jump_pressed = locked && binds.jump.just_pressed(&keys, &mouse);

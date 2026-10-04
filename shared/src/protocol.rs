@@ -448,6 +448,9 @@ pub struct PlayerInput {
     /// client's `Slide::drop`), so the kill cam can reproduce crouch / slide /
     /// prone height exactly instead of always replaying at standing height.
     pub crouch_drop: f32,
+    /// `Zombies`: the interact key's held down to revive a downed teammate
+    /// (`server::revive` picks the nearest one in reach).
+    pub revive: bool,
 }
 
 impl Default for PlayerInput {
@@ -490,6 +493,7 @@ impl Default for PlayerInput {
             sliding: false,
             stabbing: false,
             crouch_drop: 0.0,
+            revive: false,
         }
     }
 }
@@ -1770,6 +1774,8 @@ impl Plugin for ProtocolPlugin {
         // Replicated as-is (no prediction / interpolation): the client only
         // ever reads it, off the replicated entity.
         app.register_component::<PlayerHealth>();
+        // Same: only changes on events (`crate::revive`).
+        app.register_component::<crate::revive::Downed>();
 
         app.register_component::<Bot>()
             .add_interpolation(InterpolationMode::Full)

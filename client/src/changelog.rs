@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: going down no longer ends the game — teammates can revive you.",
+        "Zombies: Quick Revive revives faster, and revives you when playing solo.",
         "Zombies: your operator says a line after buying a perk.",
         "Zombies: pick your operator (Adam or Von) in the lobby.",
         "Fixed the game assets download cutting off on fresh installs.",

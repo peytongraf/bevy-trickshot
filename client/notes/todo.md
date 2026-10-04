@@ -6,8 +6,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Revive downed players (zombies)
+
 # Current todo
 
+- May need to add auto revive on next round start, or revive completely dead team mate. Chech how this is done on cold war.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
@@ -33,7 +36,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add quotes
 - Add boss
 - Add exfil
-- Add revive other players
 - Add killchains
 - Add field upgrade like aether shroud
 

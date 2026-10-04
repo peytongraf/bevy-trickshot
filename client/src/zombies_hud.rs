@@ -1561,6 +1561,7 @@ fn update_perk_icons(
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
+    revive: Res<crate::revive::LocalRevive>,
     mut slots: Query<(
         &mut PerkIconSlot,
         &mut ImageNode,
@@ -1572,7 +1573,8 @@ fn update_perk_icons(
     let owned: &[Perk] = zombies_game(&local, &lobbies)
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
         .map_or(&[], |m| m.perks.as_slice());
-    let hud_up = !menu.is_open() && active_killcam.0.is_none();
+    // (While we're down they're under the bleed-out bar instead — `revive`.)
+    let hud_up = !menu.is_open() && active_killcam.0.is_none() && !revive.downed && !revive.bled_out;
     for (mut slot, mut image, mut vis, mut node) in &mut slots {
         let perk = owned.get(slot.index).copied();
         if slot.shown != perk {

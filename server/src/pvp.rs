@@ -65,6 +65,12 @@ pub struct PlayerCombat {
     /// `Time::elapsed_secs()` this player's next PhD Flopper explosion may
     /// go off ([`Self::try_phd_blast`]).
     phd_ready_at: f32,
+    /// `Zombies`: down and bleeding out (`crate::revive`) — `alive` is
+    /// `false` meanwhile, so nothing targets them and they can't attack.
+    pub(crate) down: Option<crate::revive::LastStand>,
+    /// `Zombies`: bled out (or fell out of the world) in this round — dead
+    /// until the next one starts (`crate::revive`).
+    pub(crate) bled_out: Option<u32>,
 }
 
 impl PlayerCombat {
@@ -79,7 +85,7 @@ impl PlayerCombat {
     /// Back to life: full health, targetable, no damage history — everything a
     /// respawn resets. Shared by the respawn timer and the client's
     /// `RespawnReady`.
-    fn respawn(&mut self, now: f32) {
+    pub(crate) fn respawn(&mut self, now: f32) {
         *self = Self::spawned(now);
     }
 
@@ -97,6 +103,35 @@ impl PlayerCombat {
     /// [`LOADOUT_SWAP_GRACE_SECS`] ago, and not fired yet.
     pub fn can_swap_loadout(&self, now: f32) -> bool {
         self.alive && !self.fired && now - self.life_started <= LOADOUT_SWAP_GRACE_SECS
+    }
+
+    /// `Zombies`: health's run out — go down instead of dying, holding
+    /// `perks` (purchase order). Playing `solo` with Quick Revive they'll
+    /// get themselves back up (`crate::revive`).
+    pub(crate) fn go_down(&mut self, perks: Vec<shared::perks::Perk>, solo: bool) {
+        self.alive = false;
+        self.health = 0.0;
+        self.respawn_at = f32::INFINITY;
+        self.down = Some(crate::revive::LastStand::new(perks, solo));
+    }
+
+    /// `Zombies`: back up from a last stand — full health, targetable.
+    pub(crate) fn revive(&mut self) {
+        self.alive = true;
+        self.health = self.max_health;
+        self.last_damage = f32::NEG_INFINITY;
+        self.respawn_at = 0.0;
+        self.down = None;
+    }
+
+    /// `Zombies`: dead for the rest of `round` (bled out, or fell out of the
+    /// world) — back when the next one starts (`crate::revive`).
+    pub(crate) fn bleed_out(&mut self, round: u32) {
+        self.alive = false;
+        self.health = 0.0;
+        self.respawn_at = f32::INFINITY;
+        self.down = None;
+        self.bled_out = Some(round);
     }
 
     /// A `Zombies` zombie with `health` (for its round), which never
@@ -123,6 +158,8 @@ impl Default for PlayerCombat {
             life_started: 0.0,
             fired: false,
             phd_ready_at: 0.0,
+            down: None,
+            bled_out: None,
         }
     }
 }
@@ -227,10 +264,7 @@ pub(crate) fn apply_player_hits(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    (mut endings, clock): (
-        ResMut<crate::killcam::EndingLobbies>,
-        Res<crate::killcam::ReplayClock>,
-    ),
+    endings: Res<crate::killcam::EndingLobbies>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
@@ -336,8 +370,9 @@ pub(crate) fn apply_player_hits(
         };
 
         // `Zombies`: nobody respawns. A dead zombie scores its killer and is
-        // cleared away by `crate::zombies`; a dead *player* ends the game for
-        // everyone. No kill cams either way.
+        // cleared away by `crate::zombies`; a *player* goes down instead, for
+        // a teammate to revive (`crate::revive`, which also ends the game
+        // once everyone's down). No kill cams either way.
         if lobby.mode == GameMode::Zombies {
             combat.respawn_at = f32::INFINITY;
             // Bomb Shot (or the debug `bomb_test`, for any player's kill):
@@ -400,8 +435,14 @@ pub(crate) fn apply_player_hits(
                     }
                 }
             } else {
-                info!("{:?} was killed — zombies game over", ev.victim);
-                endings.begin(lobby_e, clock.0, false);
+                let perks = lobby
+                    .members
+                    .iter()
+                    .find(|m| m.peer == ev.victim)
+                    .map(|m| m.perks.clone())
+                    .unwrap_or_default();
+                combat.go_down(perks, lobby.real_count() == 1);
+                info!("{:?} is down", ev.victim);
             }
             continue;
         }
@@ -542,10 +583,6 @@ fn on_fell_to_death(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    (mut endings, clock): (
-        ResMut<crate::killcam::EndingLobbies>,
-        Res<crate::killcam::ReplayClock>,
-    ),
 ) {
     fall_kill(
         trigger.from,
@@ -556,7 +593,6 @@ fn on_fell_to_death(
         &mut combats,
         &poses,
         &mut lobbies,
-        (&mut endings, clock.0),
     );
     info!("{:?} fell out of the world", trigger.from);
 }
@@ -576,11 +612,7 @@ fn on_fall_landed(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    (mut endings, clock, mut blasts): (
-        ResMut<crate::killcam::EndingLobbies>,
-        Res<crate::killcam::ReplayClock>,
-        EventWriter<BombBlast>,
-    ),
+    (endings, mut blasts): (Res<crate::killcam::EndingLobbies>, EventWriter<BombBlast>),
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
@@ -641,7 +673,6 @@ fn on_fall_landed(
             &mut combats,
             &poses,
             &mut lobbies,
-            (&mut endings, clock.0),
         );
         info!("{peer:?} died from a {:.1} m fall", landed.distance);
     } else {
@@ -712,7 +743,7 @@ fn on_phd_slam(
 /// before this arrives — start the respawn timer, and send where they'll
 /// reappear. If the fall was a graded landing (`speed` is `Some`) the victim
 /// is also told to play the fall-death effect ([`shared::FallDeath`]); a void
-/// fall already started it client-side.
+/// fall already started it client-side. (`Zombies` is different: see below.)
 #[allow(clippy::too_many_arguments)]
 fn fall_kill(
     peer: PeerId,
@@ -723,12 +754,35 @@ fn fall_kill(
     combats: &mut Query<(&PlayerId, &mut PlayerCombat)>,
     poses: &Query<(&PlayerId, &PlayerPose)>,
     lobbies: &mut Query<(Entity, &mut Lobby)>,
-    (endings, clock): (&mut crate::killcam::EndingLobbies, u64),
 ) {
-    let Some((lobby_e, lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(peer)) else {
+    let Some((_, lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(peer)) else {
         return;
     };
-    let zombies = lobby.mode == GameMode::Zombies;
+    // `Zombies`: a hard landing puts them down where they land, for a
+    // teammate to revive; falling out of the world leaves nobody to reach,
+    // so they're out until the next round (`crate::revive` — which also
+    // ends the game once everyone's down or out). No respawn here.
+    if lobby.mode == GameMode::Zombies {
+        if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+            if !combat.alive {
+                return;
+            }
+            if speed.is_some() {
+                let perks = lobby
+                    .members
+                    .iter()
+                    .find(|m| m.peer == peer)
+                    .map(|m| m.perks.clone())
+                    .unwrap_or_default();
+                combat.go_down(perks, lobby.real_count() == 1);
+                info!("{peer:?} is down from a fall");
+            } else {
+                combat.bleed_out(lobby.round);
+                info!("{peer:?} fell out of the world — out until the next round");
+            }
+        }
+        return;
+    }
     if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
         // Only a player who was already dead is skipped: a landing that just
         // took health to zero arrives here with `alive` still true.
@@ -737,27 +791,7 @@ fn fall_kill(
         }
         combat.alive = false;
         combat.health = 0.0;
-        combat.respawn_at = if zombies {
-            f32::INFINITY
-        } else {
-            time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS
-        };
-    }
-
-    // `Zombies`: any member dying ends the game — no respawn.
-    if zombies {
-        if let Some(speed) = speed {
-            if let Err(e) = sender.send::<_, GameChannel>(
-                &FallDeath { speed },
-                server,
-                &NetworkTarget::Single(peer),
-            ) {
-                error!("failed to send fall death to {peer:?}: {e:?}");
-            }
-        }
-        info!("{peer:?} fell to their death — zombies game over");
-        endings.begin(lobby_e, clock, false);
-        return;
+        combat.respawn_at = time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS;
     }
     let others: Vec<Vec3> = poses
         .iter()
@@ -941,6 +975,8 @@ mod tests {
             life_started: 3.0,
             fired: true,
             phd_ready_at: 999.0,
+            down: None,
+            bled_out: Some(3),
         };
         c.respawn(120.0);
         assert!(c.alive);
@@ -953,6 +989,7 @@ mod tests {
         // PhD Flopper's cooldown doesn't carry over a death.
         assert!(c.try_phd_blast(120.0));
         assert!(!c.try_phd_blast(120.5));
+        assert!(c.bled_out.is_none());
     }
 
     #[test]

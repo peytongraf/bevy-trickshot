@@ -29,6 +29,7 @@ mod nav;
 mod net;
 mod power_ups;
 mod pvp;
+mod revive;
 mod sim;
 mod zombies;
 
@@ -63,6 +64,7 @@ fn main() {
         .add_plugins(sim::SimPlugin)
         .add_plugins(bots::BotsPlugin)
         .add_plugins(pvp::PvpPlugin)
+        .add_plugins(revive::RevivePlugin)
         .add_plugins(killcam::KillCamPlugin)
         .add_plugins(knives::KnivesPlugin)
         .add_plugins(molotovs::MolotovsPlugin)

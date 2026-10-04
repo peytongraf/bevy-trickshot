@@ -29,6 +29,7 @@ pub mod perks;
 pub mod power_ups;
 pub mod power;
 pub mod protocol;
+pub mod revive;
 pub mod scoring;
 pub mod spawns;
 pub mod throwing_knife;
@@ -59,7 +60,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001d;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001e;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

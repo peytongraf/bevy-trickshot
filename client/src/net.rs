@@ -267,7 +267,7 @@ const STAB_ANIM_SECS: f32 = 0.67;
 /// Copy this frame's local pose (client-authoritative) into the input packet,
 /// and — if `weapon_system` pulled the trigger — the fire request too.
 #[allow(clippy::too_many_arguments)]
-fn write_input(
+pub(crate) fn write_input(
     player: Query<&Transform, With<Player>>,
     head: Query<&Transform, With<PlayerHead>>,
     cam: Query<&GlobalTransform, With<WorldModelCamera>>,

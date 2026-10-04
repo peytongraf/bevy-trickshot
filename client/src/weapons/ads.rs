@@ -133,6 +133,7 @@ pub(crate) fn update_ads(
     freeze: Res<crate::match_end::MatchEndFreeze>,
     death: Res<crate::death_effect::DeathEffect>,
     nitro: Res<crate::zombies_hud::NitroBrew>,
+    revive: Res<crate::revive::LocalRevive>,
 ) {
     if tuning.force_full {
         ads.t = 1.0;
@@ -145,6 +146,8 @@ pub(crate) fn update_ads(
     let aiming = window.cursor_options.grab_mode != CursorGrabMode::None
         && !freeze.active
         && !death.is_active()
+        // (Nor while down in `Zombies`, or reviving someone.)
+        && !revive.blocks_weapon()
         && binds.aim.pressed(&keys, &mouse);
 
     // One-shot cue the instant the player starts / stops aiming.

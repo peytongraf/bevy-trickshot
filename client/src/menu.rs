@@ -179,13 +179,19 @@ pub fn game_active(
 /// Run condition for the weapon: like [`game_active`], but it also keeps
 /// running under Der Wunderfizz's menu, so a perk bought there is drunk
 /// while it stays open (`weapon_system` itself takes no other input then).
+/// Off while we're down in `Zombies`, or reviving someone (`revive`).
 pub fn weapon_active(
     menu: Res<Menu>,
     freeze: Res<crate::match_end::MatchEndFreeze>,
     death: Res<crate::death_effect::DeathEffect>,
     paused: Res<crate::pause::GamePaused>,
+    revive: Res<crate::revive::LocalRevive>,
 ) -> bool {
-    (!menu.is_open() || menu.screen == Screen::Wunderfizz) && !freeze.active && !death.is_active() && !paused.0
+    (!menu.is_open() || menu.screen == Screen::Wunderfizz)
+        && !freeze.active
+        && !death.is_active()
+        && !paused.0
+        && !revive.blocks_weapon()
 }
 
 /// Run condition for the egui dev panels.

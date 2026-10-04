@@ -419,6 +419,7 @@ pub(crate) fn move_player(
     slide: Res<Slide>,
     weapon: Res<Weapon>,
     (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
+    revive: Res<crate::revive::LocalRevive>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
     let (mut transform, mut physics) = player.into_inner();
@@ -477,6 +478,13 @@ pub(crate) fn move_player(
         };
         physics.horizontal_velocity =
             direction.normalize_or_zero() * speed * weapon_mult * dir_mult * nitro.movement() * classic.movement();
+        // `Zombies`: down, only a slow crawl (whatever the perks); out, or
+        // reviving someone, rooted to the spot.
+        if revive.bled_out || revive.reviving.is_some() {
+            physics.horizontal_velocity = Vec3::ZERO;
+        } else if revive.downed {
+            physics.horizontal_velocity = direction.normalize_or_zero() * crate::revive::CRAWL_SPEED;
+        }
     }
 
     transform.translation += physics.horizontal_velocity * time.delta_secs();

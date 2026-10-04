@@ -302,7 +302,7 @@ impl Perk {
             Perk::BombShot => "360 no-scope kills explode, blowing up nearby zombies.",
             Perk::Kangabrew => "Jump three times as high, jump again off walls, and take half fall damage.",
             Perk::Juggernog => "Increases maximum health.",
-            Perk::QuickRevive => "Health regeneration starts sooner and is faster.",
+            Perk::QuickRevive => "Revive teammates faster, or yourself when playing solo. Health regenerates sooner and faster.",
             Perk::SpeedCola => "Reload faster.",
             Perk::StaminUp => "Move faster.",
             Perk::DoubleTap => "Increases rate of fire.",

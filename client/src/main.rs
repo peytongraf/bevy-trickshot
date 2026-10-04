@@ -54,6 +54,7 @@ mod pap_menu;
 mod power_ups;
 mod power;
 mod respawn;
+mod revive;
 mod round_counter;
 mod settings;
 mod ammo_crate;
@@ -218,6 +219,7 @@ fn main() {
         .add_plugins(pap::PapPlugin)
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
+        .add_plugins(revive::RevivePlugin)
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
@@ -476,7 +478,8 @@ fn main() {
                     move_player,
                     resolve_wall_collisions,
                     resolve_body_collisions,
-                    teleport_home,
+                    // (Not while down or out in `Zombies`.)
+                    teleport_home.run_if(revive::up),
                     jump,
                     apply_gravity,
                     // Reads this frame's velocity + grounded state, so last in

@@ -151,14 +151,23 @@ fn sync_damage_overlay(
     death: Res<DeathEffect>,
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
+    revive: Res<crate::revive::LocalRevive>,
     mut root: Single<(&mut Visibility, &mut BackgroundColor), With<DamageOverlay>>,
     mut blood: Single<&mut ImageNode, With<DamageBlood>>,
 ) {
-    let opacity = health.hurt_fraction();
+    // Down in `Zombies`: it fades in as the bleed-out runs (full once out).
+    let down = revive.downed || revive.bled_out;
+    let opacity = if revive.bled_out {
+        1.0
+    } else if revive.downed {
+        0.15 + 0.85 * revive.progress
+    } else {
+        health.hurt_fraction()
+    };
     // Dead (health at or below zero — waiting on the kill cam / respawn) isn't
     // "hurt": the death overlay covers that, and this one must not be left up
     // at full strength across the respawn.
-    let show = opacity > 0.0 && health.health > 0.0 && !suppressed(&death, &fall, &killcam);
+    let show = opacity > 0.0 && (health.health > 0.0 || down) && !suppressed(&death, &fall, &killcam);
     let (vis, tint) = &mut *root;
     vis.set_if_neq(if show {
         Visibility::Inherited
