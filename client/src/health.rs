@@ -152,6 +152,7 @@ fn sync_damage_overlay(
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
     revive: Res<crate::revive::LocalRevive>,
+    spectating: Res<crate::revive::Spectate>,
     mut root: Single<(&mut Visibility, &mut BackgroundColor), With<DamageOverlay>>,
     mut blood: Single<&mut ImageNode, With<DamageBlood>>,
 ) {
@@ -167,7 +168,11 @@ fn sync_damage_overlay(
     // Dead (health at or below zero — waiting on the kill cam / respawn) isn't
     // "hurt": the death overlay covers that, and this one must not be left up
     // at full strength across the respawn.
-    let show = opacity > 0.0 && (health.health > 0.0 || down) && !suppressed(&death, &fall, &killcam);
+    // (Not over a teammate we're watching.)
+    let show = opacity > 0.0
+        && (health.health > 0.0 || down)
+        && !suppressed(&death, &fall, &killcam)
+        && !spectating.active();
     let (vis, tint) = &mut *root;
     vis.set_if_neq(if show {
         Visibility::Inherited

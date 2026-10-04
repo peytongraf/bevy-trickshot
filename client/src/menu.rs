@@ -167,7 +167,13 @@ pub fn game_active(
     freeze: Res<crate::match_end::MatchEndFreeze>,
     death: Res<crate::death_effect::DeathEffect>,
     paused: Res<crate::pause::GamePaused>,
+    spectate: Res<crate::revive::Spectate>,
 ) -> bool {
+    // Bled out in `Zombies` and watching a teammate (`revive`): the view's
+    // theirs, so no gameplay input either.
+    if spectate.active() {
+        return false;
+    }
     // Also off for a `FreeForAll` match's end-of-match freeze (see
     // `match_end`: nothing counts, so no input does either), and from the
     // moment the local player is killed until their kill cam takes over —
@@ -1076,74 +1082,212 @@ fn build_username(commands: &mut Commands, asset_server: &AssetServer) {
     });
 }
 
-/// The results screens' player list: a header line, then one row per member
-/// (ours marked in gold), each with the given value columns.
-fn results_table(
-    card: &mut ChildSpawnerCommands,
+/// One member's line on the results screen.
+struct ResultRow {
+    name: String,
+    me: bool,
+    /// One per column, the first (the ranking one) shown biggest.
+    values: Vec<String>,
+}
+
+/// The results screen's look (Call of Duty: Cold War zombies' end screen):
+/// over the world, only lightly darkened...
+const RESULTS_SHADE: Color = Color::srgba(0.0, 0.0, 0.0, 0.4);
+/// ...its headline in warm white, the line under it in blood red...
+const RESULTS_TITLE: Color = Color::srgb(0.94, 0.89, 0.81);
+const RESULTS_RED: Color = Color::srgb(0.86, 0.09, 0.09);
+/// ...the table on a dark glass panel under a red header bar...
+const RESULTS_PANEL: Color = Color::srgba(0.07, 0.07, 0.08, 0.86);
+const RESULTS_HEADER: Color = Color::srgb(0.6, 0.04, 0.05);
+const RESULTS_LINE: Color = Color::srgba(1.0, 1.0, 1.0, 0.1);
+/// ...and the numbers in gold.
+const RESULTS_GOLD: Color = Color::srgb(0.98, 0.79, 0.24);
+/// The table: rank column, value columns (the player column takes the rest).
+const RANK_W: f32 = 80.0;
+const VALUE_W: f32 = 170.0;
+
+/// "1st", "2nd", "3rd", "4th"...
+fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// The end-of-game screen: the headline and what it means over the world
+/// (still showing, just darkened), then every member ranked on a panel
+/// across the middle — a column per stat — and CONTINUE.
+fn results_screen(
+    commands: &mut Commands,
     asset_server: &AssetServer,
+    (title, title_color): (&str, Color),
+    subtitle: &str,
     headings: &[&str],
-    rows: &[(String, Vec<String>, bool)],
+    rows: &[ResultRow],
 ) {
-    let cell = || Node {
-        width: Val::Px(110.0),
+    let column = |width: f32| Node {
+        width: Val::Px(width),
+        flex_shrink: 0.0,
+        height: Val::Percent(100.0),
         justify_content: JustifyContent::FlexEnd,
+        align_items: AlignItems::Center,
+        padding: UiRect::right(Val::Px(18.0)),
         ..default()
     };
-    card.spawn(Node {
-        width: Val::Percent(100.0),
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(4.0),
-        ..default()
-    })
-    .with_children(|table| {
-        table
-            .spawn(Node {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
-                padding: UiRect::axes(Val::Px(16.0), Val::Px(4.0)),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                row_gap: Val::Px(14.0),
+                ..default()
+            },
+            BackgroundColor(RESULTS_SHADE),
+        ))
+        .with_children(|root| {
+            root.spawn((label_hud(asset_server, title, 112.0, title_color), TextShadow::default()));
+            root.spawn((
+                Node {
+                    width: Val::Px(560.0),
+                    height: Val::Px(2.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.22)),
+            ));
+            root.spawn((label_hud(asset_server, subtitle, 38.0, RESULTS_RED), TextShadow::default()));
+            root.spawn(Node {
+                height: Val::Px(18.0),
+                ..default()
+            });
+
+            // The table.
+            root.spawn((
+                Node {
+                    width: Val::Px(RANK_W + 380.0 + VALUE_W * headings.len() as f32),
+                    max_width: Val::Percent(94.0),
+                    min_height: Val::Px(360.0),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                BackgroundColor(RESULTS_PANEL),
+            ))
+            .with_children(|panel| {
+                panel
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(40.0),
+                            flex_shrink: 0.0,
+                            ..default()
+                        },
+                        BackgroundColor(RESULTS_HEADER),
+                        BorderRadius::top_right(Val::Px(18.0)),
+                    ))
+                    .with_children(|head| {
+                        head.spawn(Node {
+                            width: Val::Px(RANK_W),
+                            flex_shrink: 0.0,
+                            ..default()
+                        });
+                        head.spawn(Node {
+                            flex_grow: 1.0,
+                            ..default()
+                        });
+                        for h in headings {
+                            head.spawn(column(VALUE_W)).with_child(label_hud(asset_server, *h, 20.0, TEXT));
+                        }
+                    });
+                for (i, row) in rows.iter().enumerate() {
+                    let name_color = if row.me { ACCENT } else { TEXT };
+                    panel
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                height: Val::Px(78.0),
+                                flex_shrink: 0.0,
+                                align_items: AlignItems::Center,
+                                border: UiRect::bottom(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BorderColor(RESULTS_LINE),
+                        ))
+                        .with_children(|line| {
+                            line.spawn(Node {
+                                width: Val::Px(RANK_W),
+                                flex_shrink: 0.0,
+                                justify_content: JustifyContent::Center,
+                                ..default()
+                            })
+                            .with_child(label_hud(asset_server, ordinal(i + 1), 30.0, TEXT));
+                            // The player's plate (ours edged in gold).
+                            line.spawn(Node {
+                                flex_grow: 1.0,
+                                height: Val::Percent(100.0),
+                                padding: UiRect::vertical(Val::Px(8.0)),
+                                ..default()
+                            })
+                            .with_child((
+                                Node {
+                                    width: Val::Px(340.0),
+                                    max_width: Val::Percent(100.0),
+                                    height: Val::Percent(100.0),
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::left(Val::Px(16.0)),
+                                    border: UiRect::left(Val::Px(4.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
+                                BorderColor(if row.me { ACCENT } else { Color::srgba(1.0, 1.0, 1.0, 0.2) }),
+                                children![label_hud(asset_server, row.name.to_uppercase(), 30.0, name_color)],
+                            ));
+                            for (k, value) in row.values.iter().enumerate() {
+                                // (The ranking column biggest.)
+                                let size = if k == 0 { 40.0 } else { 32.0 };
+                                line.spawn((
+                                    Node {
+                                        border: UiRect::left(Val::Px(1.0)),
+                                        height: Val::Percent(70.0),
+                                        ..column(VALUE_W)
+                                    },
+                                    BorderColor(RESULTS_LINE),
+                                ))
+                                .with_child(label_hud(asset_server, value.clone(), size, RESULTS_GOLD));
+                            }
+                        });
+                }
+            });
+
+            root.spawn(Node {
+                margin: UiRect::top(Val::Px(10.0)),
                 ..default()
             })
             .with_children(|row| {
-                row.spawn(Node {
-                    flex_grow: 1.0,
-                    ..default()
-                })
-                .with_child(label_hud(asset_server, "PLAYER", 16.0, TEXT_DIM));
-                for h in headings {
-                    row.spawn(cell()).with_child(label_hud(asset_server, *h, 16.0, TEXT_DIM));
-                }
+                option_button(row, asset_server, "CONTINUE", Btn::ContinueFromResults, true, UiSound::MENU);
             });
-        for (name, values, is_me) in rows {
-            let col = if *is_me { ACCENT } else { TEXT };
-            table
-                .spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
-                        border: UiRect::left(Val::Px(3.0)),
-                        ..default()
-                    },
-                    BackgroundColor(ROW),
-                    BorderColor(if *is_me { ACCENT } else { Color::NONE }),
-                ))
-                .with_children(|row| {
-                    row.spawn(Node {
-                        flex_grow: 1.0,
-                        ..default()
-                    })
-                    .with_child(label_hud(asset_server, name.to_uppercase(), 24.0, col));
-                    for v in values {
-                        row.spawn(cell()).with_child(label_hud(asset_server, v.clone(), 24.0, col));
-                    }
-                });
-        }
-    });
+        });
 }
 
-/// The match-just-ended screen: VICTORY/DEFEAT for the local player plus the
-/// lobby's final scoreboard, sorted highest-first. Reads scores straight off
-/// the still-replicated `Lobby.members` (the server flips `started` false at
-/// match end but doesn't clear membership) rather than trusting a name-string
-/// match against `MatchOver`, since two players could share a name.
+/// A number with thousands separators ("54,650").
+fn grouped(n: u32) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn build_match_results(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -1152,121 +1296,59 @@ fn build_match_results(
 ) {
     let me = local.iter().next().map(|l| l.0);
     let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
+    let Some(lobby) = lobby else {
+        results_screen(commands, asset_server, ("MATCH COMPLETE", RESULTS_TITLE), "", &[], &[]);
+        return;
+    };
+    let mut members: Vec<&shared::LobbyMember> = lobby.members.iter().collect();
+    members.sort_by(|a, b| b.score.cmp(&a.score).then(b.kills.cmp(&a.kills)));
+    let is_me = |m: &shared::LobbyMember| Some(m.peer) == me;
 
-    if let Some(lobby) = lobby.filter(|l| l.mode == shared::GameMode::Zombies) {
-        build_zombies_results(commands, asset_server, lobby, me);
+    if lobby.mode == shared::GameMode::Zombies {
+        // Down during round N: N - 1 rounds fully survived.
+        let survived = lobby.round.saturating_sub(1);
+        let rows: Vec<ResultRow> = members
+            .iter()
+            .map(|m| ResultRow {
+                name: m.name.clone(),
+                me: is_me(m),
+                values: vec![
+                    grouped(m.score),
+                    m.kills.to_string(),
+                    m.critical_kills.to_string(),
+                    m.revives.to_string(),
+                    m.downs.to_string(),
+                ],
+            })
+            .collect();
+        results_screen(
+            commands,
+            asset_server,
+            ("GAME OVER", RESULTS_TITLE),
+            &format!("YOU SURVIVED {survived} ROUND{}", if survived == 1 { "" } else { "S" }),
+            &["SCORE", "KILLS", "CRITICAL KILLS", "REVIVES", "DOWNS"],
+            &rows,
+        );
         return;
     }
 
-    let mut rows: Vec<(String, u32, bool)> = lobby
-        .map(|l| {
-            l.members
-                .iter()
-                .map(|m| (m.name.clone(), m.score, Some(m.peer) == me))
-                .collect()
-        })
-        .unwrap_or_default();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
-
-    let top_score = rows.first().map(|r| r.1).unwrap_or(0);
-    let top_name = rows.first().map(|r| r.0.clone()).unwrap_or_default();
-    // A tie for the top score still counts as first place.
-    let won = rows.iter().any(|(_, score, is_me)| *is_me && *score == top_score);
-
-    let (headline, color) = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };
-    let table: Vec<(String, Vec<String>, bool)> = rows
-        .into_iter()
-        .map(|(name, score, is_me)| (name, vec![score.to_string()], is_me))
-        .collect();
-
-    commands.spawn(overlay_root(true)).with_children(|root| {
-        root.spawn(Node {
-            width: Val::Px(640.0),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(16.0),
-            ..default()
-        })
-        .with_children(|card| {
-            card.spawn(label_hud(asset_server, "MATCH COMPLETE", 18.0, TEXT_DIM));
-            card.spawn(label_hud(asset_server, headline, 96.0, color));
-            card.spawn(label_hud(
-                asset_server,
-                format!("{} WINS WITH {top_score}", top_name.to_uppercase()),
-                22.0,
-                TEXT,
-            ));
-            card.spawn(divider());
-            results_table(card, asset_server, &["SCORE"], &table);
-            card.spawn(Node::default()).with_children(|row| {
-                option_button(
-                    row,
-                    asset_server,
-                    "CONTINUE",
-                    Btn::ContinueFromResults,
-                    true,
-                    UiSound::MENU,
-                );
-            });
-        });
-    });
-}
-
-/// `Zombies`' end screen (the game ends the moment anyone dies): how many
-/// rounds the party survived, then every member's points and kills.
-fn build_zombies_results(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    lobby: &shared::Lobby,
-    me: Option<PeerId>,
-) {
-    // Died during round N: N - 1 rounds fully survived.
-    let survived = lobby.round.saturating_sub(1);
-    let mut rows: Vec<(&str, u32, u32, bool)> = lobby
-        .members
+    // `FreeForAll` (score = kills) and `Freestyle` (score = style points): a
+    // tie for the top still counts as first place.
+    let top = members.first().map(|m| (m.name.to_uppercase(), m.score));
+    let won = top.as_ref().is_some_and(|(_, best)| members.iter().any(|m| is_me(m) && m.score == *best));
+    let unit = if lobby.mode == shared::GameMode::FreeForAll { "KILLS" } else { "POINTS" };
+    let subtitle = top.map_or(String::new(), |(name, best)| format!("{name} WINS WITH {} {unit}", grouped(best)));
+    let rows: Vec<ResultRow> = members
         .iter()
-        .map(|m| (m.name.as_str(), m.score, m.kills, Some(m.peer) == me))
-        .collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
-    let table: Vec<(String, Vec<String>, bool)> = rows
-        .into_iter()
-        .map(|(name, score, kills, is_me)| {
-            (name.to_string(), vec![kills.to_string(), score.to_string()], is_me)
+        .map(|m| ResultRow {
+            name: m.name.clone(),
+            me: is_me(m),
+            values: vec![grouped(m.score)],
         })
         .collect();
-
-    commands.spawn(overlay_root(true)).with_children(|root| {
-        root.spawn(Node {
-            width: Val::Px(680.0),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(16.0),
-            ..default()
-        })
-        .with_children(|card| {
-            card.spawn(label_hud(asset_server, "ZOMBIES", 18.0, TEXT_DIM));
-            card.spawn(label_hud(asset_server, "GAME OVER", 96.0, DEFEAT));
-            card.spawn(label_hud(
-                asset_server,
-                format!(
-                    "YOU SURVIVED {survived} ROUND{}",
-                    if survived == 1 { "" } else { "S" }
-                ),
-                26.0,
-                TEXT,
-            ));
-            card.spawn(divider());
-            results_table(card, asset_server, &["KILLS", "POINTS"], &table);
-            card.spawn(Node::default()).with_children(|row| {
-                option_button(
-                    row,
-                    asset_server,
-                    "CONTINUE",
-                    Btn::ContinueFromResults,
-                    true,
-                    UiSound::MENU,
-                );
-            });
-        });
-    });
+    let headline = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };
+    let heading = if lobby.mode == shared::GameMode::FreeForAll { "KILLS" } else { "SCORE" };
+    results_screen(commands, asset_server, headline, &subtitle, &[heading], &rows);
 }
 
 /// A tab in the settings screen's top bar: bright with a gold underline when
@@ -2286,6 +2368,7 @@ mod tests {
     fn gameplay_is_off_while_dead_frozen_or_in_a_menu_and_only_then() {
         let mut world = World::new();
         world.init_resource::<Menu>();
+        world.init_resource::<crate::revive::Spectate>();
         world.init_resource::<crate::match_end::MatchEndFreeze>();
         world.init_resource::<crate::death_effect::DeathEffect>();
         world.init_resource::<crate::pause::GamePaused>();

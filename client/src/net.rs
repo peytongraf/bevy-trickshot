@@ -142,7 +142,9 @@ impl Plugin for ClientNetPlugin {
                 .run_if(
                     in_state(AppState::InGame)
                         .and(killcam::no_killcam)
-                        .and(fall_death::no_fall_death),
+                        .and(fall_death::no_fall_death)
+                        // (Spectating a teammate borrows the rig likewise.)
+                        .and(crate::revive::not_spectating),
                 ),
         );
         app.add_systems(
@@ -531,7 +533,7 @@ fn flush_pending_match_end(
 /// *unordered* `GameChannel`, and the cam is buffered ~1.5 s server-side (see
 /// `server::killcam::flush_killcams`), so it can easily arrive after this.
 #[derive(Resource, Default)]
-struct PendingRespawn {
+pub(crate) struct PendingRespawn {
     to: Option<(Vec3, f32)>,
     /// Set once a kill cam has been seen to start since `to` arrived, so we
     /// know to wait for it to *finish* rather than teleport out from under it.
@@ -573,7 +575,7 @@ pub(crate) struct LocalPlayerRespawned;
 /// Once it's safe — the paired kill cam (if one ever arrives) has both
 /// started and finished, or enough time has passed that it evidently isn't
 /// coming — teleport the local player rig to the stored respawn point.
-fn flush_pending_respawn(
+pub(crate) fn flush_pending_respawn(
     time: Res<Time>,
     mut pending: ResMut<PendingRespawn>,
     active: Res<ActiveKillCam>,

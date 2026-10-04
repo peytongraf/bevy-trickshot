@@ -206,6 +206,11 @@ fn run_last_stands(
                     }
                     info!("{:?} was revived by {:?}", id.0, down.reviver);
                     let reviver = down.reviver.unwrap_or(id.0);
+                    if reviver != id.0 {
+                        if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == reviver) {
+                            m.revives += 1;
+                        }
+                    }
                     let msg = PlayerRevived { peer: id.0, reviver };
                     let mut to = vec![id.0];
                     if reviver != id.0 {

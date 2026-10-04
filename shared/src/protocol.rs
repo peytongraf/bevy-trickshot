@@ -933,6 +933,12 @@ pub struct LobbyMember {
     /// How many enemies this member has killed this game ([`GameMode::Zombies`]'s
     /// results screen; `FreeForAll` counts kills in `score` itself).
     pub kills: u32,
+    /// [`GameMode::Zombies`], this game: kills that were critical (a headshot
+    /// or a knife kill), teammates revived, and times gone down — the
+    /// results screen's other columns.
+    pub critical_kills: u32,
+    pub revives: u32,
+    pub downs: u32,
     /// [`GameMode::Zombies`] perks this member has bought this game.
     pub perks: Vec<crate::perks::Perk>,
     /// [`GameMode::Zombies`] Pack-a-Punch level of each of this member's

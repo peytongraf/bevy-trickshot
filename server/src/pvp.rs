@@ -421,6 +421,9 @@ pub(crate) fn apply_player_hits(
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
                     m.score += points;
                     m.kills += 1;
+                    if ev.critical {
+                        m.critical_kills += 1;
+                    }
                     let trick = TrickScore {
                         shooter: ev.killer,
                         total: points,
@@ -442,6 +445,9 @@ pub(crate) fn apply_player_hits(
                     .map(|m| m.perks.clone())
                     .unwrap_or_default();
                 combat.go_down(perks, lobby.real_count() == 1);
+                if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.victim) {
+                    m.downs += 1;
+                }
                 info!("{:?} is down", ev.victim);
             }
             continue;
@@ -755,7 +761,7 @@ fn fall_kill(
     poses: &Query<(&PlayerId, &PlayerPose)>,
     lobbies: &mut Query<(Entity, &mut Lobby)>,
 ) {
-    let Some((_, lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(peer)) else {
+    let Some((_, mut lobby)) = lobbies.iter_mut().find(|(_, l)| l.has(peer)) else {
         return;
     };
     // `Zombies`: a hard landing puts them down where they land, for a
@@ -766,6 +772,9 @@ fn fall_kill(
         if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
             if !combat.alive {
                 return;
+            }
+            if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+                m.downs += 1;
             }
             if speed.is_some() {
                 let perks = lobby
@@ -778,6 +787,10 @@ fn fall_kill(
                 info!("{peer:?} is down from a fall");
             } else {
                 combat.bleed_out(lobby.round);
+                // (Out loses every perk, as a bleed-out does.)
+                if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+                    m.perks.clear();
+                }
                 info!("{peer:?} fell out of the world — out until the next round");
             }
         }

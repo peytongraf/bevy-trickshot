@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: bled out? Spectate a teammate until the next round.",
+        "Zombies: no weapon in hand while down.",
+        "New end of game screen, with each player's kills, revives and downs.",
         "Zombies: new round number font.",
         "Zombies: drop and pick up weapons, which keep their ammo and Pack-a-Punch.",
         "Zombies: wall buys for the sniper and AK-74.",

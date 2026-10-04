@@ -11,7 +11,13 @@
 //!   it's lost ([`shared::revive::perk_mark`]); above it, while someone's
 //!   reviving us, who and how far along.
 //! * **Bled out** (us): fully black and white until the next round brings us
-//!   back (a `PlayerRespawn`).
+//!   back (a `PlayerRespawn`) — and while a teammate's still standing, the
+//!   camera follows one of them ([`Spectate`], left click for the next),
+//!   borrowing the player rig like the kill cam does (our own input's off
+//!   and our pose isn't sent meanwhile).
+//! * **Game over** with us down or out: still no weapon, through the end and
+//!   the results screen (the state sticks until the game's left), and the
+//!   world's back in colour behind the results.
 //! * **A teammate down**: the revive icon over them, through walls, white
 //!   going red as they bleed out; in reach, "hold [interact] to revive", and
 //!   holding it ([`PlayerInput::revive`]) stops us, lowers the weapon and
@@ -36,7 +42,7 @@ use shared::{Lobby, PlayerId, PlayerInput, PlayerPose};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
-use crate::player::{Slide, Stance, ViewModelCamera, WorldModelCamera};
+use crate::player::{PlayerHead, Slide, Stance, ViewModelCamera, WorldModelCamera};
 use crate::zombies_hud::{perk_icon_path, zombies_game};
 use crate::{
     killcam, menu, AppState, GameSounds, Player, EYE_HEIGHT, HUD_FONT, VIEW_MODEL_RENDER_LAYER,
@@ -62,7 +68,12 @@ pub(crate) struct RevivePlugin;
 impl Plugin for RevivePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalRevive>()
-            .add_systems(OnEnter(AppState::InGame), (reset_local, spawn_revive_hud))
+            .init_resource::<Spectate>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (reset_local, spawn_revive_hud, spawn_spectate_label),
+            )
+            .add_systems(OnExit(AppState::InGame), (reset_local, stop_spectating_on_exit))
             // Before anything's run conditions read it this frame.
             .add_systems(
                 PreUpdate,
@@ -83,6 +94,11 @@ impl Plugin for RevivePlugin {
                     update_revive_panel,
                     update_revive_markers,
                     play_revive_sounds,
+                    // (After a respawn's applied, so one that lands while
+                    // we're watching isn't overwritten.)
+                    (spectate, update_spectate_label)
+                        .chain()
+                        .after(crate::net::flush_pending_respawn),
                 )
                     .run_if(in_state(AppState::InGame)),
             )
@@ -240,8 +256,12 @@ fn track_local(
     let me = local.iter().next().map(|l| l.0);
     let lobby = zombies_game(&local, &lobbies).filter(|_| *state.get() == AppState::InGame);
     let (Some(me), Some(lobby)) = (me, lobby) else {
-        if out.downed || out.bled_out || out.reviving.is_some() || out.prompt.is_some() {
-            *out = LocalRevive::default();
+        // The game's over (or gone) while we're still in it: down or out at
+        // the end stays that way — no weapon through the end and the results
+        // — until it's left (`reset_local`).
+        if out.reviving.is_some() || out.prompt.is_some() {
+            out.reviving = None;
+            out.prompt = None;
         }
         return;
     };
@@ -331,11 +351,18 @@ pub(crate) fn hold_downed_stance(local: &LocalRevive, slide: &mut Slide, was_dow
 fn apply_down_view(
     time: Res<Time>,
     local: Res<LocalRevive>,
+    menu: Res<menu::Menu>,
+    spectating: Res<Spectate>,
     mut saturation: Local<Option<f32>>,
     mut grading: Query<&mut ColorGrading, Or<(With<WorldModelCamera>, With<ViewModelCamera>)>>,
     mut vm_layers: Query<&mut RenderLayers, With<ViewModelCamera>>,
 ) {
-    let target = if local.bled_out {
+    // Behind the results screen: the world in colour, and no weapon.
+    let results = menu.screen == menu::Screen::MatchResults;
+    // (A teammate we're watching is seen as they are.)
+    let target = if results || spectating.active() {
+        1.0
+    } else if local.bled_out {
         0.0
     } else if local.downed {
         1.0 - local.progress
@@ -355,7 +382,7 @@ fn apply_down_view(
             g.global.post_saturation = next;
         }
     }
-    let want = if local.blocks_weapon() {
+    let want = if local.blocks_weapon() || results {
         RenderLayers::none()
     } else {
         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER)
@@ -363,6 +390,236 @@ fn apply_down_view(
     for mut layers in &mut vm_layers {
         if *layers != want {
             *layers = want.clone();
+        }
+    }
+}
+
+// --- spectating ----------------------------------------------------------
+
+/// How far (m) behind and above the watched teammate's eye the camera sits,
+/// and how far ahead of them it looks.
+const SPECTATE_BACK: f32 = 3.0;
+const SPECTATE_UP: f32 = 0.7;
+const SPECTATE_AHEAD: f32 = 4.0;
+
+/// Bled out with a teammate still standing: the camera follows one of them,
+/// over their shoulder. While it does, the player rig is the camera's — what
+/// it was is kept here and put back once it's over (unless a respawn's
+/// already put us somewhere new).
+#[derive(Resource, Default)]
+pub(crate) struct Spectate {
+    /// Who we're watching.
+    target: Option<PeerId>,
+    /// The player's and head's transforms from before.
+    saved: Option<(Transform, Transform)>,
+    /// Where the camera is (eased toward where it should be).
+    cam: Option<Vec3>,
+    /// Back from a respawn while the server still shows us out — don't
+    /// start watching again until that clears.
+    back: bool,
+}
+
+impl Spectate {
+    pub(crate) fn active(&self) -> bool {
+        self.target.is_some()
+    }
+}
+
+/// Run condition: not watching a teammate.
+pub(crate) fn not_spectating(spectate: Res<Spectate>) -> bool {
+    !spectate.active()
+}
+
+/// Put the rig back (if `restore`) and stop watching.
+fn end_spectating(
+    spectate: &mut Spectate,
+    restore: bool,
+    rig: &mut Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
+    capsule: &mut Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
+) {
+    if let Some((player, head)) = spectate.saved.take() {
+        if restore {
+            for (mut t, is_player) in rig.iter_mut() {
+                *t = if is_player { player } else { head };
+            }
+        }
+        // (Its shadow hung under the camera otherwise.)
+        for mut v in capsule.iter_mut() {
+            *v = Visibility::Inherited;
+        }
+    }
+    spectate.target = None;
+    spectate.cam = None;
+}
+
+/// Watch a standing teammate while we're out: start (keeping the rig as it
+/// was), follow, left click for the next one, and stop — putting the rig
+/// back — when we're not out, nobody's left standing or the results are
+/// up. A respawn ends it where the respawn put us.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn spectate(
+    time: Res<Time>,
+    local_revive: Res<LocalRevive>,
+    menu: Res<menu::Menu>,
+    binds: Res<KeyBindings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    downs: Query<(&PlayerId, &Downed)>,
+    poses: Query<(&PlayerId, &PlayerPose), With<Interpolated>>,
+    rapier: bevy_rapier3d::prelude::ReadRapierContext,
+    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut state: ResMut<Spectate>,
+    mut rig: Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
+    mut capsule: Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
+) {
+    if respawned.read().count() > 0 {
+        state.back = true;
+        end_spectating(&mut state, false, &mut rig, &mut capsule);
+    }
+    if !local_revive.bled_out {
+        state.back = false;
+    }
+    let me = local.iter().next().map(|l| l.0);
+    let out = |peer: PeerId| downs.iter().any(|(id, d)| id.0 == peer && d.bled_out);
+    // Teammates still standing (or down, but not out), in lobby order.
+    let standing: Vec<PeerId> = zombies_game(&local, &lobbies)
+        .map(|l| {
+            l.members
+                .iter()
+                .filter(|m| m.bot.is_none() && Some(m.peer) != me && !out(m.peer))
+                .map(|m| m.peer)
+                .collect()
+        })
+        .unwrap_or_default();
+    let want = local_revive.bled_out
+        && !state.back
+        && !standing.is_empty()
+        && menu.screen != menu::Screen::MatchResults;
+    if !want {
+        if state.active() {
+            end_spectating(&mut state, true, &mut rig, &mut capsule);
+        }
+        return;
+    }
+    if state.saved.is_none() {
+        let mut player = Transform::IDENTITY;
+        let mut head = Transform::IDENTITY;
+        for (t, is_player) in &rig {
+            if is_player {
+                player = *t;
+            } else {
+                head = *t;
+            }
+        }
+        state.saved = Some((player, head));
+        for mut v in &mut capsule {
+            *v = Visibility::Hidden;
+        }
+    }
+    // Keep to whoever we're on while they're standing; left click moves on.
+    let at = state.target.and_then(|t| standing.iter().position(|&p| p == t));
+    let next = match at {
+        Some(i) if !menu.is_open() && binds.fire.just_pressed(&keys, &mouse) => (i + 1) % standing.len(),
+        Some(i) => i,
+        None => 0,
+    };
+    if state.target != Some(standing[next]) {
+        state.target = Some(standing[next]);
+        state.cam = None;
+    }
+    let Some((_, pose)) = poses.iter().find(|(id, _)| Some(id.0) == state.target) else {
+        return;
+    };
+    // Over their shoulder: back along the way they face, kept off walls.
+    let eye = pose.translation;
+    let ahead = Quat::from_rotation_y(pose.yaw) * Vec3::NEG_Z;
+    let mut wanted = eye - ahead * SPECTATE_BACK + Vec3::Y * SPECTATE_UP;
+    let to = wanted - eye;
+    let len = to.length();
+    if let (Ok(ctx), Some(dir)) = (rapier.single(), to.try_normalize()) {
+        if let Some((_, t)) = ctx.cast_ray(eye, dir, len, true, bevy_rapier3d::prelude::QueryFilter::default()) {
+            wanted = eye + dir * (t - 0.3).max(0.2);
+        }
+    }
+    let cam = match state.cam {
+        Some(c) => c.lerp(wanted, 1.0 - (-time.delta_secs() * 10.0).exp()),
+        None => wanted,
+    };
+    state.cam = Some(cam);
+    let look = (eye + ahead * SPECTATE_AHEAD - Vec3::Y * 0.4 - cam).normalize_or(ahead);
+    for (mut t, is_player) in &mut rig {
+        if is_player {
+            t.translation = cam;
+            t.rotation = Quat::from_rotation_y(f32::atan2(-look.x, -look.z));
+        } else {
+            t.rotation = Quat::from_rotation_x(look.y.clamp(-1.0, 1.0).asin());
+        }
+    }
+}
+
+/// Leaving the game mid-watch: put the rig back.
+fn stop_spectating_on_exit(
+    mut state: ResMut<Spectate>,
+    mut rig: Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
+    mut capsule: Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
+) {
+    end_spectating(&mut state, true, &mut rig, &mut capsule);
+    *state = Spectate::default();
+}
+
+/// "SPECTATING <NAME>", top middle, while we're watching someone.
+#[derive(Component)]
+struct SpectateLabel;
+
+#[derive(Component)]
+struct SpectateName;
+
+fn spawn_spectate_label(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font = asset_server.load(HUD_FONT);
+    commands
+        .spawn((
+            SpectateLabel,
+            StateScoped(AppState::InGame),
+            GlobalZIndex(11),
+            Visibility::Hidden,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Percent(9.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+        ))
+        .with_children(|col| {
+            col.spawn((Text::new("SPECTATING"), text(&font, 22.0, Color::srgba(1.0, 1.0, 1.0, 0.6))));
+            col.spawn((SpectateName, Text::new(""), text(&font, 40.0, Color::WHITE)));
+            col.spawn((
+                Text::new("LEFT CLICK: NEXT PLAYER  ·  BACK NEXT ROUND"),
+                text(&font, 18.0, Color::srgba(1.0, 1.0, 1.0, 0.5)),
+            ));
+        });
+}
+
+fn update_spectate_label(
+    state: Res<Spectate>,
+    menu: Res<menu::Menu>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    mut label: Single<&mut Visibility, With<SpectateLabel>>,
+    mut name: Single<&mut Text, With<SpectateName>>,
+) {
+    let watching = state.target.filter(|_| !menu.is_open()).and_then(|t| {
+        zombies_game(&local, &lobbies).and_then(|l| l.members.iter().find(|m| m.peer == t).map(|m| m.name.to_uppercase()))
+    });
+    label.set_if_neq(if watching.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    if let Some(watching) = watching {
+        if name.0 != watching {
+            name.0 = watching;
         }
     }
 }
@@ -588,6 +845,7 @@ fn update_down_panel(
     mut parts: Query<(&DownPart, &mut Node), Without<DownPerkSlot>>,
     mut slots: Query<(&mut DownPerkSlot, &mut ImageNode, &mut Node), Without<DownPart>>,
     mut revive_text: Single<&mut Text, With<DownReviveText>>,
+    spectating: Res<Spectate>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let lobby = zombies_game(&local, &lobbies);
@@ -596,7 +854,8 @@ fn update_down_panel(
         panel.set_if_neq(Visibility::Hidden);
         return;
     };
-    let hud_up = !menu.is_open() && active_killcam.0.is_none();
+    // (Watching a teammate, the spectate label says it instead.)
+    let hud_up = !menu.is_open() && active_killcam.0.is_none() && !spectating.active();
     panel.set_if_neq(if hud_up { Visibility::Inherited } else { Visibility::Hidden });
     let display = |on: bool| if on { Display::Flex } else { Display::None };
 

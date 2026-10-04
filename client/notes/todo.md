@@ -6,11 +6,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Spectate when bled out, back next round
+- End game screen over the world
 - Revive downed players (zombies)
 
 # Current todo
 
-- May need to add auto revive on next round start, or revive completely dead team mate. Chech how this is done on cold war.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
@@ -19,7 +20,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Improve molotov fire look
 - Dial in phd slider effect look ( trail and explosion )
-- Improve end game screen
 
 # New
 

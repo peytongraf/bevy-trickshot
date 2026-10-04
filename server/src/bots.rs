@@ -559,6 +559,9 @@ mod tests {
                     operator: Default::default(),
                     primary: Default::default(),
                     weapons: shared::weapon::SlotWeapon::starting(Default::default()),
+                    critical_kills: 0,
+                    revives: 0,
+                    downs: 0,
                 }],
             })
             .id();

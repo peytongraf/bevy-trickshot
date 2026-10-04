@@ -198,6 +198,9 @@ fn on_create(
                     operator: Default::default(),
                     primary: Default::default(),
                     weapons: shared::weapon::SlotWeapon::starting(Default::default()),
+                    critical_kills: 0,
+                    revives: 0,
+                    downs: 0,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -251,6 +254,9 @@ fn on_join(
             operator: Default::default(),
             primary: Default::default(),
             weapons: shared::weapon::SlotWeapon::starting(Default::default()),
+            critical_kills: 0,
+            revives: 0,
+            downs: 0,
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -300,6 +306,9 @@ fn on_start(
     for m in &mut lobby.members {
         m.score = start_points;
         m.kills = 0;
+        m.critical_kills = 0;
+        m.revives = 0;
+        m.downs = 0;
         m.perks.clear();
         m.pap = Default::default();
         // Everyone starts with the primary they picked (`Freestyle`: the sniper).
@@ -672,6 +681,9 @@ fn add_bots(
             operator: Default::default(),
             primary: Default::default(),
             weapons: shared::weapon::SlotWeapon::starting(Default::default()),
+            critical_kills: 0,
+            revives: 0,
+            downs: 0,
         });
         *next_id += 1;
     }
@@ -916,6 +928,9 @@ mod tests {
                 operator: Default::default(),
                 primary: Default::default(),
                 weapons: shared::weapon::SlotWeapon::starting(Default::default()),
+                critical_kills: 0,
+                revives: 0,
+                downs: 0,
             }],
         }
     }
