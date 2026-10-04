@@ -30,11 +30,8 @@ pub const CRATE_HALF_EXTENTS: Vec3 = Vec3::new(0.9, 0.42, 0.43);
 /// The crate's solid box on `map`, if it has one (only there in `Zombies`):
 /// `(centre, rotation, half extents)`.
 pub fn crate_box(map: MapId) -> Option<(Vec3, Quat, Vec3)> {
-    crate_pos(map).map(|pos| {
-        (
-            pos + Vec3::Y * CRATE_HALF_EXTENTS.y,
-            Quat::from_rotation_y(crate_yaw_deg(map).to_radians()),
-            CRATE_HALF_EXTENTS,
-        )
+    crate::level::layout(map).ammo_crate.map(|at| {
+        let half = CRATE_HALF_EXTENTS * at.scale;
+        (at.pos + Vec3::Y * half.y, at.rotation(), half)
     })
 }

@@ -1018,9 +1018,8 @@ fn sync_perk_machines(
     }
 }
 
-fn machine_transform(settings: &PerkMachineSettings, perk: Perk, map: shared::MapId) -> Transform {
-    let (pos, yaw_deg) = settings.placement(perk, map);
-    Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw_deg.to_radians()))
+fn machine_transform(_settings: &PerkMachineSettings, perk: Perk, map: shared::MapId) -> Transform {
+    crate::util::placed(shared::level::layout(map).perk(perk))
 }
 
 /// One perk's machine: its model, solid box and light.

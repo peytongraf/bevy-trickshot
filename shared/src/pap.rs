@@ -127,12 +127,9 @@ pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.625, 1.0, 0.3);
 /// The machine's solid box on `map`, if it has one (only there in
 /// `Zombies`): `(centre, rotation, half extents)`.
 pub fn machine_box(map: MapId) -> Option<(Vec3, bevy::math::Quat, Vec3)> {
-    machine_pos(map).map(|pos| {
-        (
-            pos + Vec3::Y * MACHINE_HALF_EXTENTS.y,
-            bevy::math::Quat::from_rotation_y(machine_yaw_deg(map).to_radians()),
-            MACHINE_HALF_EXTENTS,
-        )
+    crate::level::layout(map).pack_a_punch.map(|at| {
+        let half = MACHINE_HALF_EXTENTS * at.scale;
+        (at.pos + Vec3::Y * half.y, at.rotation(), half)
     })
 }
 

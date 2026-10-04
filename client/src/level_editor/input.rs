@@ -11,7 +11,7 @@ use bevy_egui::input::EguiWantsInput;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::level::{Placement, ZombiesLayout};
 
-use super::{Editor, EditorGizmos, ObjectId};
+use super::{Doc, Editor, EditorGizmos, ObjectId};
 use crate::player::{PlayerHead, WorldModelCamera};
 use crate::power::PowerLeverSettings;
 use crate::{AppState, Player};
@@ -24,9 +24,13 @@ const ORBIT_PER_PX: f32 = 0.006;
 const VIEW_STEP: f32 = PI / 12.0;
 /// How far a drag must go (px) before it's a drag rather than a click.
 const DRAG_PX: f32 = 4.0;
-/// Ctrl snapping: metres, and degrees.
+/// Ctrl snapping: metres, degrees, and scale steps.
 const SNAP_M: f32 = 0.25;
 const SNAP_DEG: f32 = 15.0;
+const SNAP_SCALE: f32 = 0.05;
+/// The smallest and biggest anything's scaled.
+pub(crate) const MIN_SCALE: f32 = 0.05;
+pub(crate) const MAX_SCALE: f32 = 20.0;
 /// Furthest (m) a click or a move looks for the map.
 const RAY_M: f32 = 2_000.0;
 
@@ -95,13 +99,12 @@ fn wrap_deg(a: f32) -> f32 {
 
 /// A view that takes in all of `ids`, from the current angle.
 pub(crate) fn frame(editor: &Editor, ids: &[ObjectId], lever: &PowerLeverSettings) -> OrbitCam {
-    let layout = &editor.doc().layout;
+    let doc = editor.doc();
     let points: Vec<Vec3> = ids
         .iter()
         .filter_map(|&id| {
-            let at = id.get(layout)?;
-            let (center, half) = id.bounds(lever);
-            Some([at.pos + at.rotation() * center - half.length(), at.pos + at.rotation() * center + half.length()])
+            let (center, _, half) = id.world_box(id.get(doc)?, lever);
+            Some([center - half.length(), center + half.length()])
         })
         .flatten()
         .collect();
@@ -273,14 +276,13 @@ fn ray_box(ray: Ray3d, center: Vec3, rot: Quat, half: Vec3) -> Option<f32> {
 
 /// The shown thing nearest along `ray`.
 fn pick(editor: &Editor, ray: Ray3d, lever: &PowerLeverSettings) -> Option<ObjectId> {
-    let layout = &editor.doc().layout;
+    let doc = editor.doc();
     editor
         .objects()
         .into_iter()
         .filter_map(|id| {
-            let at = id.get(layout)?;
-            let (center, half) = id.bounds(lever);
-            ray_box(ray, at.pos + at.rotation() * center, at.rotation(), half).map(|t| (id, t))
+            let (center, rot, half) = id.world_box(id.get(doc)?, lever);
+            ray_box(ray, center, rot, half).map(|t| (id, t))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, _)| id)
@@ -309,6 +311,8 @@ fn to_screen(cam: &GlobalTransform, camera: &Camera, pos: Vec3) -> Option<Vec2> 
 pub(crate) enum OpKind {
     Move,
     Turn,
+    /// Bigger / smaller — not the stand-ins, which are the yardstick.
+    Scale,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -336,11 +340,13 @@ impl Axis {
     }
 }
 
-/// A move or turn in progress (G / R, or dragging a selected thing).
+/// A move, turn or scale in progress (G / R / S, or dragging a selected
+/// thing).
 pub(crate) struct Op {
     pub(crate) kind: OpKind,
     pub(crate) axis: Option<Axis>,
     /// The layout before it — put back on cancel, an undo step on confirm.
+    /// (The stand-ins go back to `starts`.)
     before: ZombiesLayout,
     /// Each selected thing's placement at the start; the last is the
     /// active one, which the cursor steers.
@@ -353,7 +359,7 @@ pub(crate) struct Op {
     /// last frame.
     turned: f32,
     last_angle: Option<f32>,
-    /// A typed amount (metres along the axis, or degrees).
+    /// A typed amount (metres along the axis, degrees, or a scale factor).
     pub(crate) typed: String,
     /// Started by dragging: it ends when the button's let go.
     from_drag: bool,
@@ -370,17 +376,18 @@ impl Op {
     }
 
     /// What the status bar says about it.
-    pub(crate) fn describe(&self, layout: &ZombiesLayout) -> String {
+    pub(crate) fn describe(&self, doc: &Doc) -> String {
         let axis = self.axis.map_or(String::new(), |a| format!(" along {a:?}"));
         let typed = if self.typed.is_empty() { String::new() } else { format!("  [{}]", self.typed) };
         let Some(&(id, start)) = self.starts.last() else { return String::new() };
-        let now = id.get(layout).unwrap_or(start);
+        let now = id.get(doc).unwrap_or(start);
         match self.kind {
             OpKind::Move => {
                 let d = now.pos - start.pos;
                 format!("Move{axis}  Δ ({:.2}, {:.2}, {:.2}) m{typed}", d.x, d.y, d.z)
             }
             OpKind::Turn => format!("Turn  {:.1}°{typed}", wrap_deg(now.yaw_deg - start.yaw_deg)),
+            OpKind::Scale => format!("Scale  ×{:.3}  (now {:.3}){typed}", now.scale / start.scale.max(1e-4), now.scale),
         }
     }
 }
@@ -388,11 +395,14 @@ impl Op {
 /// Start moving / turning the selection.
 fn start_op(editor: &mut Editor, kind: OpKind, cursor: Vec2, camera: &Camera, from_drag: bool) {
     let cam = editor.cam.global();
-    let layout = &editor.doc().layout;
+    let doc = editor.doc();
+    let layout = &doc.layout;
     let starts: Vec<(ObjectId, Placement)> = editor
         .selected
         .iter()
-        .filter_map(|&id| id.get(layout).map(|at| (id, at)))
+        // (The stand-ins and wall buys keep their size.)
+        .filter(|id| kind != OpKind::Scale || id.scalable())
+        .filter_map(|&id| id.get(doc).map(|at| (id, at)))
         .collect();
     let Some(&(_, active)) = starts.last() else { return };
     let grab_offset = to_screen(&cam, camera, active.pos).map_or(Vec2::ZERO, |s| s - cursor);
@@ -413,7 +423,11 @@ fn start_op(editor: &mut Editor, kind: OpKind, cursor: Vec2, camera: &Camera, fr
 /// Drop the move / turn in progress, putting everything back.
 pub(crate) fn cancel_op(editor: &mut Editor) {
     if let Some(op) = editor.op.take() {
-        editor.doc_mut().layout = op.before;
+        let doc = editor.doc_mut();
+        doc.layout = op.before;
+        for (id, start) in op.starts.into_iter().filter(|(id, _)| id.is_reference()) {
+            id.set(doc, start);
+        }
     }
 }
 
@@ -488,6 +502,7 @@ fn update_op(
     let active = op.active_start();
     let mut delta_pos = Vec3::ZERO;
     let mut delta_yaw = 0.0;
+    let mut factor = 1.0;
     match op.kind {
         OpKind::Move => match (op.axis, op.typed_value()) {
             (Some(axis), Some(v)) => delta_pos = axis.vec() * v,
@@ -547,12 +562,73 @@ fn update_op(
                 }
             }
         }
+        OpKind::Scale => {
+            factor = match op.typed_value() {
+                Some(v) => v,
+                None => {
+                    // How far the cursor is from the active thing's middle
+                    // on screen, against how far it started.
+                    let pivot = to_screen(&cam, camera, active.pos + Vec3::Y).unwrap_or(op.cursor_start);
+                    let from = (op.cursor_start - pivot).length().max(8.0);
+                    let mut f = (cursor - pivot).length() / from;
+                    if ctrl {
+                        f = (f / SNAP_SCALE).round() * SNAP_SCALE;
+                    }
+                    f
+                }
+            };
+        }
     }
     let starts = op.starts.clone();
-    let layout = &mut editor.doc_mut().layout;
+    let doc = editor.doc_mut();
     for (id, start) in starts {
-        id.set(layout, Placement::new(start.pos + delta_pos, wrap_deg(start.yaw_deg + delta_yaw)));
+        let scale = (start.scale * factor).clamp(MIN_SCALE, MAX_SCALE);
+        id.set(
+            doc,
+            Placement::new(start.pos + delta_pos, wrap_deg(start.yaw_deg + delta_yaw)).with_scale(scale),
+        );
     }
+}
+
+/// The view of `id` a player gets using it: from where they'd stand — just
+/// in front of it, or a wall buy's use spot — at the game's eye height on
+/// the ground there, looking at it (a wall buy's outline). The player
+/// stand-in instead looks out of its own eyes, the way it faces. The camera
+/// still orbits from there, round what it's looking at.
+pub(crate) fn player_view(
+    editor: &Editor,
+    id: ObjectId,
+    lever: &PowerLeverSettings,
+    rapier: &ReadRapierContext,
+) -> Option<OrbitCam> {
+    let at = id.get(editor.doc())?;
+    let (center, rot, half) = id.world_box(at, lever);
+    let (eye, target) = match id {
+        ObjectId::Reference(super::RefKind::Player) => {
+            let eye = at.pos + Vec3::Y * crate::EYE_HEIGHT;
+            (eye, eye + rot * Vec3::Z * 5.0)
+        }
+        _ => {
+            let (stand, target) = match id {
+                ObjectId::WallBuy(_) => (
+                    shared::wall_buy::use_spot(at),
+                    at.pos + rot * crate::wall_buys::DECAL_CENTER * at.scale,
+                ),
+                _ => (at.pos + rot * Vec3::Z * (half.z + 1.2), center),
+            };
+            let feet = ground_below(rapier, stand).unwrap_or(Vec3::new(stand.x, at.pos.y, stand.z));
+            (feet + Vec3::Y * crate::EYE_HEIGHT, target)
+        }
+    };
+    let to = target - eye;
+    let distance = to.length().max(0.1);
+    let d = to / distance;
+    Some(OrbitCam {
+        focus: target,
+        yaw: f32::atan2(-d.x, -d.z),
+        pitch: d.y.clamp(-1.0, 1.0).asin(),
+        distance,
+    })
 }
 
 // --- clicks and keys -----------------------------------------------------------------
@@ -562,11 +638,11 @@ pub(crate) fn drop_to_ground(editor: &mut Editor, rapier: &ReadRapierContext, no
     let before = editor.doc().layout.clone();
     let mut missed = 0;
     for id in editor.selected.clone() {
-        let Some(mut at) = id.get(&editor.doc().layout) else { continue };
+        let Some(mut at) = id.get(editor.doc()) else { continue };
         match ground_below(rapier, at.pos) {
             Some(ground) => {
                 at.pos.y = ground.y;
-                id.set(&mut editor.doc_mut().layout, at);
+                id.set(editor.doc_mut(), at);
             }
             None => missed += 1,
         }
@@ -582,7 +658,7 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     let before = editor.doc().layout.clone();
     let mut kept = false;
     for id in editor.selected.clone() {
-        if !id.remove(&mut editor.doc_mut().layout) {
+        if !id.remove(editor.doc_mut()) {
             kept = true;
         }
     }
@@ -594,12 +670,14 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
 }
 
 /// Put `id` (an optional thing that isn't there) on the map, on the ground
-/// at the middle of the view, and select it.
+/// at the middle of the view, facing the camera, and select it.
 pub(crate) fn add_at_view(editor: &mut Editor, id: ObjectId, rapier: &ReadRapierContext) {
     let focus = editor.cam.focus;
     let ground = hit_map(rapier, focus + Vec3::Y * 50.0, Vec3::NEG_Y, 500.0).unwrap_or(focus);
+    let to_camera = editor.cam.eye() - ground;
+    let yaw_deg = f32::atan2(to_camera.x, to_camera.z).to_degrees();
     let before = editor.doc().layout.clone();
-    id.set(&mut editor.doc_mut().layout, Placement::new(ground, 0.0));
+    id.set(editor.doc_mut(), Placement::new(ground, yaw_deg));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
 }
@@ -721,14 +799,14 @@ pub(crate) fn edit_input(
                     Some(start) => {
                         // Everything whose middle is inside the box.
                         let (lo, hi) = (start.min(cursor), start.max(cursor));
-                        let layout = &editor.doc().layout;
+                        let doc = editor.doc();
                         let inside: Vec<ObjectId> = editor
                             .objects()
                             .into_iter()
                             .filter(|id| {
-                                id.get(layout).is_some_and(|at| {
-                                    let (center, _) = id.bounds(&lever);
-                                    to_screen(&cam, &camera, at.pos + at.rotation() * center)
+                                id.get(doc).is_some_and(|at| {
+                                    let (center, ..) = id.world_box(at, &lever);
+                                    to_screen(&cam, &camera, center)
                                         .is_some_and(|p| p.cmpge(lo).all() && p.cmple(hi).all())
                                 })
                             })
@@ -777,12 +855,19 @@ pub(crate) fn edit_input(
         } else {
             editor.selected = editor.objects();
         }
+    } else if keys.just_pressed(KeyCode::Numpad0) || keys.just_pressed(KeyCode::Digit0) {
+        match editor.active().and_then(|id| player_view(&editor, id, &lever, &rapier)) {
+            Some(view) => editor.cam_goto = Some(view),
+            None => editor.toast("Select something to see it as a player would", now),
+        }
     } else if editor.selected.is_empty() {
         // (The rest work on the selection.)
     } else if keys.just_pressed(KeyCode::KeyG) {
         start_op(&mut editor, OpKind::Move, cursor_or_middle, &camera, false);
     } else if keys.just_pressed(KeyCode::KeyR) {
         start_op(&mut editor, OpKind::Turn, cursor_or_middle, &camera, false);
+    } else if keys.just_pressed(KeyCode::KeyS) {
+        start_op(&mut editor, OpKind::Scale, cursor_or_middle, &camera, false);
     } else if keys.just_pressed(KeyCode::KeyX) || keys.just_pressed(KeyCode::Delete) {
         delete_selected(&mut editor, now);
     } else if keys.just_pressed(KeyCode::End) {
@@ -819,10 +904,10 @@ pub(crate) fn draw_gizmos(
         grid.line(Vec3::new(-100.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0), Axis::X.color().with_alpha(0.6));
         grid.line(Vec3::new(0.0, 0.0, -100.0), Vec3::new(0.0, 0.0, 100.0), Axis::Z.color().with_alpha(0.6));
     }
-    let layout = &editor.doc().layout;
+    let doc = editor.doc();
     let active = editor.active();
     for id in editor.objects() {
-        let Some(at) = id.get(layout) else { continue };
+        let Some(at) = id.get(doc) else { continue };
         let selected = editor.selected.contains(&id);
         let color = if active == Some(id) {
             ACTIVE
@@ -831,12 +916,9 @@ pub(crate) fn draw_gizmos(
         } else {
             id.color().with_alpha(0.45)
         };
-        let (center, half) = id.bounds(&lever);
-        let rot = at.rotation();
+        let (center, rot, half) = id.world_box(at, &lever);
         gizmos.cuboid(
-            Transform::from_translation(at.pos + rot * center)
-                .with_rotation(rot)
-                .with_scale(half * 2.0),
+            Transform::from_translation(center).with_rotation(rot).with_scale(half * 2.0),
             color,
         );
         // Which way it faces (its front, +Z), along the ground.

@@ -420,13 +420,19 @@ impl Perk {
         crate::level::layout(map).perk(self).yaw_deg
     }
 
+    /// How big the perk's machine is on `map` (`1` = as made).
+    pub fn machine_scale(self, map: MapId) -> f32 {
+        crate::level::layout(map).perk(self).scale
+    }
+
     /// The machine's solid box on `map` (only there in `Zombies`):
     /// `(centre, rotation, half extents)`.
     pub fn machine_box(self, map: MapId) -> (Vec3, Quat, Vec3) {
+        let half = MACHINE_HALF_EXTENTS * self.machine_scale(map);
         (
-            self.machine_pos(map) + Vec3::Y * MACHINE_HALF_EXTENTS.y,
+            self.machine_pos(map) + Vec3::Y * half.y,
             Quat::from_rotation_y(self.machine_yaw_deg(map).to_radians()),
-            MACHINE_HALF_EXTENTS,
+            half,
         )
     }
 }

@@ -35,10 +35,11 @@ pub fn machine_yaw_deg(map: MapId) -> f32 {
 
 /// Its solid box on `map` — the same as a perk machine's.
 pub fn machine_box(map: MapId) -> (Vec3, Quat, Vec3) {
+    let half = MACHINE_HALF_EXTENTS * crate::level::layout(map).wunderfizz.scale;
     (
-        machine_pos(map) + Vec3::Y * MACHINE_HALF_EXTENTS.y,
+        machine_pos(map) + Vec3::Y * half.y,
         Quat::from_rotation_y(machine_yaw_deg(map).to_radians()),
-        MACHINE_HALF_EXTENTS,
+        half,
     )
 }
 

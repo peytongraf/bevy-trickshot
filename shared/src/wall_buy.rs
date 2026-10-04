@@ -12,6 +12,11 @@ use crate::perks::PERK_USE_HEIGHT;
 use crate::weapon::WeaponId;
 use crate::MapId;
 
+/// How big every sign is (its model's scale) — the same for all of them, so
+/// the layout doesn't store one ([`crate::level::ZombiesLayout::wall_buy`]
+/// puts it on).
+pub const SIGN_SCALE: f32 = 0.75;
+
 /// How far (m, across the ground) from the spot just in front of the sign a
 /// player can buy from it...
 pub const USE_RADIUS: f32 = 1.8;

@@ -103,7 +103,7 @@ impl PapSettings {
 
 /// The machine's root standing at `at`.
 pub(crate) fn root_transform(at: shared::level::Placement) -> Transform {
-    Transform::from_translation(at.pos).with_rotation(at.rotation())
+    crate::util::placed(at)
 }
 
 #[derive(Component)]

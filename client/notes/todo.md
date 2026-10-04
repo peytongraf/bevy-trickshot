@@ -27,6 +27,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Big features
 
+- Add raygun
 - Add armor
 - Add crafting table
 - Add rampage inducer

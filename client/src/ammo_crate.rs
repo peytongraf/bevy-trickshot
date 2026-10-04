@@ -72,9 +72,7 @@ impl AmmoCrateSettings {
     /// The crate standing at `at` — its model's origin is the middle of the
     /// box, lifted to stand on the ground there.
     pub(crate) fn transform(&self, at: shared::level::Placement) -> Transform {
-        Transform::from_translation(at.pos)
-            .with_rotation(at.rotation())
-            .mul_transform(self.model_transform())
+        crate::util::placed(at).mul_transform(self.model_transform())
     }
 
     /// The model, from the ground under the crate's middle.

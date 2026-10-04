@@ -141,7 +141,9 @@ fn sync_wunderfizz_machine(
         return;
     };
     let (pos, yaw_deg) = settings.wunderfizz_placement(lobby.map);
-    let place = Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw_deg.to_radians()));
+    let place = Transform::from_translation(pos)
+        .with_rotation(Quat::from_rotation_y(yaw_deg.to_radians()))
+        .with_scale(Vec3::splat(shared::level::layout(lobby.map).wunderfizz.scale.max(0.01)));
     let half = settings.half_extents();
     if machines.is_empty() {
         commands

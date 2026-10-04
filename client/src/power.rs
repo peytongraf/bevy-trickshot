@@ -220,9 +220,7 @@ impl Default for PowerLeverSettings {
 impl PowerLeverSettings {
     /// The lever at a switch standing at `switch`.
     pub(crate) fn transform(&self, switch: shared::level::Placement) -> Transform {
-        Transform::from_translation(switch.pos)
-            .with_rotation(switch.rotation())
-            .mul_transform(self.model_transform())
+        crate::util::placed(switch).mul_transform(self.model_transform())
     }
 
     /// The lever, in the switch's own frame (from the ground under it).

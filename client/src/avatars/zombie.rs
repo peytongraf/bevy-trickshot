@@ -236,7 +236,7 @@ pub(crate) fn spawn_zombie_avatar(
 
 /// Once a zombie's scene is in: loop `Idle` (it's climbing out of the
 /// ground), and remember its `AnimationPlayer`.
-fn start_zombie_animation(
+pub(crate) fn start_zombie_animation(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,

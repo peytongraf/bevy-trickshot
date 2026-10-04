@@ -6,7 +6,6 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts};
 use bevy_rapier3d::prelude::ReadRapierContext;
-use shared::level::Placement;
 use shared::perks::PerkSet;
 use shared::MapId;
 
@@ -46,6 +45,8 @@ const CONTROLS: &[(&str, &str)] = &[
     ("G", "Move along the surface under the cursor"),
     ("G then X / Y / Z", "Move along that axis only"),
     ("R", "Turn"),
+    ("S", "Scale (not wall buys — all one size — or the reference player / zombie)"),
+    ("Numpad 0  /  0", "View the selection as a player would (eye height, in front of it)"),
     ("While moving / turning: type a number", "Move that many metres / turn that many degrees"),
     ("While moving / turning: Ctrl", "Snap (0.25 m / 15°)"),
     ("Left click / Enter  ·  Right click / Esc", "Confirm  ·  cancel"),
@@ -139,9 +140,10 @@ fn menu_bar(
                 }
             });
             ui.menu_button("Add", |ui| {
-                let missing: Vec<ObjectId> = super::ObjectId::OPTIONAL
+                let missing: Vec<ObjectId> = ObjectId::OPTIONAL
                     .into_iter()
-                    .filter(|o| o.get(&ed.doc().layout).is_none())
+                    .chain(ObjectId::REFERENCES)
+                    .filter(|o| o.get(ed.doc()).is_none())
                     .collect();
                 if missing.is_empty() {
                     ui.label("Everything's on this map — perk machines can only be moved.");
@@ -149,6 +151,7 @@ fn menu_bar(
                 for id in missing {
                     if ui.button(id.label()).clicked() {
                         input::add_at_view(ed, id, rapier);
+                        ui.close();
                     }
                 }
             });
@@ -228,13 +231,17 @@ fn status_bar(ctx: &egui::Context, ed: &mut Editor, map_state: &MapLoadState, no
         ui.horizontal(|ui| {
             match &ed.op {
                 Some(op) => {
-                    ui.strong(op.describe(&ed.doc().layout));
+                    ui.strong(op.describe(ed.doc()));
                     ui.label(match op.kind {
                         input::OpKind::Move => {
                             "X / Y / Z: axis  ·  type a number  ·  Ctrl: snap  ·  click / Enter: confirm  ·  right click / Esc: cancel"
                         }
                         input::OpKind::Turn => {
                             "type degrees  ·  Ctrl: snap  ·  click / Enter: confirm  ·  right click / Esc: cancel"
+                        }
+                        input::OpKind::Scale => {
+                            "move away / toward it  ·  type a factor  ·  Ctrl: snap  ·  click / Enter: confirm  ·  \
+                             right click / Esc: cancel"
                         }
                     });
                 }
@@ -302,18 +309,24 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                 }
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("MACHINES, SWITCHES & WALL BUYS").small().color(DIM));
-                for id in ObjectId::OPTIONAL {
-                    if shown.contains(&id) {
-                        row(ui, ed, id);
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(DIM, format!("{} (none)", id.label()));
-                            if ui.small_button("Add").clicked() && ed.op.is_none() {
-                                input::add_at_view(ed, id, rapier);
-                            }
-                        });
+                let listed = |ui: &mut egui::Ui, ed: &mut Editor, ids: &[ObjectId]| {
+                    for &id in ids {
+                        if shown.contains(&id) {
+                            row(ui, ed, id);
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.colored_label(DIM, format!("{} (none)", id.label()));
+                                if ui.small_button("Add").clicked() && ed.op.is_none() {
+                                    input::add_at_view(ed, id, rapier);
+                                }
+                            });
+                        }
                     }
-                }
+                };
+                listed(ui, ed, &ObjectId::OPTIONAL);
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
+                listed(ui, ed, &ObjectId::REFERENCES);
 
                 let clashes = overlaps(&ed.doc().layout);
                 if !clashes.is_empty() {
@@ -357,7 +370,7 @@ fn properties(
                 ui.colored_label(DIM, format!("+{} more selected — the fields edit this one", ed.selected.len() - 1));
             }
             ui.add_space(6.0);
-            let Some(at) = id.get(&ed.doc().layout) else { return };
+            let Some(at) = id.get(ed.doc()) else { return };
             let busy = ed.op.is_some();
             let before = ed.doc().layout.clone();
             let mut edited = at;
@@ -380,9 +393,29 @@ fn properties(
                 );
                 editing |= r.dragged() || r.has_focus();
                 ui.end_row();
+                // (Not the stand-ins — the yardstick, always as in game — or
+                // the wall buys, all one size.)
+                if id.scalable() {
+                    ui.label("Scale");
+                    ui.horizontal(|ui| {
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(&mut edited.scale)
+                                .speed(0.01)
+                                .range(input::MIN_SCALE..=input::MAX_SCALE)
+                                .prefix("×")
+                                .max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        if ui.add_enabled(!busy && edited.scale != 1.0, egui::Button::new("1")).on_hover_text("Back to as made").clicked() {
+                            edited.scale = 1.0;
+                        }
+                    });
+                    ui.end_row();
+                }
             });
             if edited != at {
-                id.set(&mut ed.doc_mut().layout, Placement::new(edited.pos, edited.yaw_deg));
+                id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
                     ed.doc_mut().checkpoint(before);
@@ -394,6 +427,12 @@ fn properties(
             ui.colored_label(DIM, format!("Used from within {:.1} m", id.use_radius()));
             ui.add_space(6.0);
             ui.add_enabled_ui(!busy, |ui| {
+                if ui.button("View as a player  (0)").clicked() {
+                    match input::player_view(ed, id, lever, rapier) {
+                        Some(view) => ed.cam_goto = Some(view),
+                        None => ed.toast("Nothing to look at", now),
+                    }
+                }
                 if ui.button("Drop to ground  (End)").clicked() {
                     input::drop_to_ground(ed, rapier, now);
                 }
@@ -422,11 +461,11 @@ fn viewport_overlay(
         let painter = ctx
             .layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("level_editor_labels")))
             .with_clip_rect(viewport);
-        let layout = &ed.doc().layout;
+        let doc = ed.doc();
         for id in ed.objects() {
-            let Some(at) = id.get(layout) else { continue };
-            let (center, half) = id.bounds(lever);
-            let top = at.pos + at.rotation() * center + Vec3::Y * (half.y + 0.25);
+            let Some(at) = id.get(doc) else { continue };
+            let (center, _, half) = id.world_box(at, lever);
+            let top = center + Vec3::Y * (half.y + 0.25);
             let Ok(p) = camera.world_to_viewport(&cam, top) else { continue };
             let color = if ed.active() == Some(id) {
                 color32(ACTIVE)

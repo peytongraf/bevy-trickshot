@@ -114,6 +114,22 @@ pub(crate) enum ObjectId {
     PowerSwitch,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
+    /// A stand-in model, just to judge sizes against — never saved.
+    Reference(RefKind),
+}
+
+/// The stand-ins ([`ObjectId::Reference`]): a player (another player's
+/// soldier, as they look in game) and a zombie.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub(crate) enum RefKind {
+    Player,
+    Zombie,
+}
+
+impl RefKind {
+    fn index(self) -> usize {
+        self as usize
+    }
 }
 
 impl ObjectId {
@@ -126,6 +142,10 @@ impl ObjectId {
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
 
+    /// The stand-ins.
+    pub(crate) const REFERENCES: [ObjectId; 2] =
+        [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             ObjectId::Perk(p) => p.label(),
@@ -135,11 +155,25 @@ impl ObjectId {
             ObjectId::PowerSwitch => "Power switch",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
+            ObjectId::Reference(RefKind::Player) => "Player (reference)",
+            ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
     }
 
+    /// Whether its size can be changed — not the stand-ins (the yardstick)
+    /// or the wall buys (every sign's one size, `shared::wall_buy::SIGN_SCALE`).
+    pub(crate) fn scalable(self) -> bool {
+        !matches!(self, ObjectId::Reference(_) | ObjectId::WallBuy(_))
+    }
+
+    /// A stand-in, not part of the layout.
+    pub(crate) fn is_reference(self) -> bool {
+        matches!(self, ObjectId::Reference(_))
+    }
+
+    /// Whether it can be added and removed (everything but the machines).
     pub(crate) fn is_optional(self) -> bool {
-        Self::OPTIONAL.contains(&self)
+        Self::OPTIONAL.contains(&self) || self.is_reference()
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
@@ -151,8 +185,33 @@ impl ObjectId {
         }
     }
 
-    pub(crate) fn get(self, layout: &ZombiesLayout) -> Option<Placement> {
+    /// Where it stands in `doc` (the layout, or the stand-ins).
+    pub(crate) fn get(self, doc: &Doc) -> Option<Placement> {
         match self {
+            ObjectId::Reference(kind) => doc.refs[kind.index()],
+            other => other.get_in(&doc.layout),
+        }
+    }
+
+    /// Move it in `doc` (or, for an optional one that isn't there, add it).
+    pub(crate) fn set(self, doc: &mut Doc, at: Placement) {
+        match self {
+            ObjectId::Reference(kind) => doc.refs[kind.index()] = Some(at),
+            other => other.set_in(&mut doc.layout, at),
+        }
+    }
+
+    /// Take an optional one out of `doc`; `false` for one that can't go.
+    fn remove(self, doc: &mut Doc) -> bool {
+        match self {
+            ObjectId::Reference(kind) => doc.refs[kind.index()].take().is_some(),
+            other => other.remove_in(&mut doc.layout),
+        }
+    }
+
+    fn get_in(self, layout: &ZombiesLayout) -> Option<Placement> {
+        match self {
+            ObjectId::Reference(_) => None,
             ObjectId::Perk(p) => layout.perks.get(&p).copied(),
             ObjectId::Wunderfizz => Some(layout.wunderfizz),
             ObjectId::PackAPunch => layout.pack_a_punch,
@@ -162,8 +221,7 @@ impl ObjectId {
         }
     }
 
-    /// Move it (or, for an optional one that isn't there, add it).
-    pub(crate) fn set(self, layout: &mut ZombiesLayout, at: Placement) {
+    fn set_in(self, layout: &mut ZombiesLayout, at: Placement) {
         match self {
             ObjectId::Perk(p) => {
                 layout.perks.insert(p, at);
@@ -178,8 +236,7 @@ impl ObjectId {
         }
     }
 
-    /// Take an optional one off the map; `false` for one that can't go.
-    fn remove(self, layout: &mut ZombiesLayout) -> bool {
+    fn remove_in(self, layout: &mut ZombiesLayout) -> bool {
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
             layout.wall_buys.retain(|w| w.weapon != gun);
@@ -200,6 +257,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
+            ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
         }
     }
 
@@ -220,9 +278,17 @@ impl ObjectId {
         }
     }
 
-    /// Its box in its own frame (from the ground under its middle):
-    /// `(centre, half extents)` — what's clicked and outlined.
-    pub(crate) fn bounds(self, lever: &PowerLeverSettings) -> (Vec3, Vec3) {
+    /// Its box standing at `at`, scale and all: `(centre, rotation, half
+    /// extents)` — what's clicked and outlined.
+    pub(crate) fn world_box(self, at: Placement, lever: &PowerLeverSettings) -> (Vec3, Quat, Vec3) {
+        let (center, half) = self.bounds(lever);
+        let rot = at.rotation();
+        (at.pos + rot * center * at.scale, rot, half * at.scale)
+    }
+
+    /// Its box in its own frame (from the ground under its middle), as made:
+    /// `(centre, half extents)`.
+    fn bounds(self, lever: &PowerLeverSettings) -> (Vec3, Vec3) {
         let standing = |half: Vec3| (Vec3::Y * half.y, half);
         match self {
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
@@ -232,6 +298,8 @@ impl ObjectId {
             // used from.
             // The sign: post and board.
             ObjectId::WallBuy(_) => (Vec3::new(-0.02, 1.3, 0.0), Vec3::new(1.0, 1.5, 0.15)),
+            // A person: the in-game body's height.
+            ObjectId::Reference(_) => standing(Vec3::new(0.35, crate::EYE_HEIGHT * 0.5 + 0.1, 0.25)),
             ObjectId::PowerSwitch => {
                 let top = lever.offset.y + 0.4;
                 (Vec3::new(lever.offset.x, top * 0.5, lever.offset.z), Vec3::new(0.35, top * 0.5, 0.25))
@@ -240,13 +308,18 @@ impl ObjectId {
     }
 }
 
-/// What's on the map in `set`'s game, in outliner order.
-pub(crate) fn objects(layout: &ZombiesLayout, set: PerkSet) -> Vec<ObjectId> {
+/// What's on the map in `set`'s game, then the stand-ins, in outliner order.
+pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     let mut out: Vec<ObjectId> = set.machine_perks().map(ObjectId::Perk).collect();
     if set == PerkSet::Classic {
         out.push(ObjectId::Wunderfizz);
     }
-    out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(layout).is_some()));
+    out.extend(
+        ObjectId::OPTIONAL
+            .into_iter()
+            .chain(ObjectId::REFERENCES)
+            .filter(|o| o.get(doc).is_some()),
+    );
     out
 }
 
@@ -261,7 +334,7 @@ pub(crate) fn overlaps(layout: &ZombiesLayout) -> Vec<(ObjectId, ObjectId)> {
         }
         for (i, &a) in things.iter().enumerate() {
             for &b in &things[i + 1..] {
-                let (Some(pa), Some(pb)) = (a.get(layout), b.get(layout)) else {
+                let (Some(pa), Some(pb)) = (a.get_in(layout), b.get_in(layout)) else {
                     continue;
                 };
                 let close = shared::perks::in_range_of(pa.pos, pb.pos, 0.75)
@@ -287,6 +360,9 @@ pub(crate) struct Doc {
     pub(crate) built_in: ZombiesLayout,
     undo: Vec<ZombiesLayout>,
     redo: Vec<ZombiesLayout>,
+    /// The stand-ins ([`RefKind`]) — the editor's alone: never saved, and
+    /// gone once it's left.
+    pub(crate) refs: [Option<Placement>; 2],
 }
 
 /// Most undo steps kept per map.
@@ -319,6 +395,7 @@ impl Doc {
             built_in,
             undo: Vec::new(),
             redo: Vec::new(),
+            refs: [None; 2],
         }
     }
 
@@ -435,7 +512,7 @@ impl Editor {
 
     /// What's on the map, as shown.
     pub(crate) fn objects(&self) -> Vec<ObjectId> {
-        objects(&self.doc().layout, self.perk_set)
+        objects(self.doc(), self.perk_set)
     }
 
     pub(crate) fn active(&self) -> Option<ObjectId> {
@@ -692,6 +769,7 @@ fn model_of(
     pap: &PapSettings,
     ammo: &AmmoCrateSettings,
     lever: &PowerLeverSettings,
+    avatars: &(Res<crate::RemoteAvatarSettings>, Res<crate::ZombieAvatarSettings>),
 ) -> (&'static str, Transform) {
     match id {
         ObjectId::Perk(p) => (machine_model(p).0, machines.model_transform(p)),
@@ -700,11 +778,22 @@ fn model_of(
         ObjectId::AmmoCrate => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
+        // At their in-game sizes; both models face +Z as made (the zombie's
+        // panel turn is from the game's -Z facing).
+        ObjectId::Reference(RefKind::Player) => (
+            "models/characters/soldier.glb",
+            Transform::from_scale(Vec3::splat(avatars.0.scale)),
+        ),
+        ObjectId::Reference(RefKind::Zombie) => (
+            crate::ZOMBIE_MODEL,
+            Transform::from_scale(Vec3::splat(avatars.1.scale.max(0.001)))
+                .with_rotation(Quat::from_rotation_y((avatars.1.yaw_offset_deg - 180.0).to_radians())),
+        ),
     }
 }
 
 fn root_transform(at: Placement) -> Transform {
-    Transform::from_translation(at.pos).with_rotation(at.rotation())
+    crate::util::placed(at)
 }
 
 /// Keep a model standing where each shown thing is, and none for anything
@@ -717,6 +806,7 @@ fn sync_objects(
     ammo: Res<AmmoCrateSettings>,
     lever: Res<PowerLeverSettings>,
     wall_buys: Option<Res<crate::wall_buys::WallBuyAssets>>,
+    avatars: (Res<crate::RemoteAvatarSettings>, Res<crate::ZombieAvatarSettings>),
     asset_server: Res<AssetServer>,
     mut spawned: Query<(Entity, &EditorObject, &mut Transform)>,
     mut commands: Commands,
@@ -724,10 +814,10 @@ fn sync_objects(
     if editor.docs.is_empty() {
         return;
     }
-    let layout = &editor.doc().layout;
+    let doc = editor.doc();
     let wanted = editor.objects();
     for (e, obj, mut t) in &mut spawned {
-        match obj.0.get(layout).filter(|_| wanted.contains(&obj.0)) {
+        match obj.0.get(doc).filter(|_| wanted.contains(&obj.0)) {
             Some(at) => {
                 t.set_if_neq(root_transform(at));
             }
@@ -738,15 +828,31 @@ fn sync_objects(
         if spawned.iter().any(|(_, o, _)| o.0 == id) {
             continue;
         }
-        let Some(at) = id.get(layout) else { continue };
-        let (model, offset) = model_of(id, &machines, &pap, &ammo, &lever);
+        let Some(at) = id.get(doc) else { continue };
+        let (model, offset) = model_of(id, &machines, &pap, &ammo, &lever, &avatars);
         let mut object = commands.spawn((
             StateScoped(AppState::LevelEditor),
             EditorObject(id),
             root_transform(at),
             Visibility::default(),
         ));
-        object.with_child((SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model))), offset));
+        let scene = SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
+        // The stand-ins stand idling, as in game.
+        match id {
+            ObjectId::Reference(RefKind::Player) => {
+                object.with_children(|o| {
+                    o.spawn((crate::SoldierVisual, scene, offset)).observe(crate::start_soldier_animation);
+                });
+            }
+            ObjectId::Reference(RefKind::Zombie) => {
+                object.with_children(|o| {
+                    o.spawn((scene, offset)).observe(crate::start_zombie_animation);
+                });
+            }
+            _ => {
+                object.with_child((scene, offset));
+            }
+        }
         // (A sign's gun outline, as the game has it.)
         if let (ObjectId::WallBuy(gun), Some(assets)) = (id, wall_buys.as_deref()) {
             object.with_child(crate::wall_buys::decal(gun, assets));

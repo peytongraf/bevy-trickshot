@@ -39,3 +39,12 @@ pub(crate) fn ads_ease(t: f32, amount: f32) -> f32 {
     let smootherstep = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
     t + (smootherstep - t) * amount.clamp(0.0, 1.0)
 }
+
+/// A `Zombies` thing's root standing at `at` (`shared::level`): on its
+/// spot, turned its way, at its scale — its model, solid box and light are
+/// children, so they all scale with it.
+pub(crate) fn placed(at: shared::level::Placement) -> bevy::prelude::Transform {
+    bevy::prelude::Transform::from_translation(at.pos)
+        .with_rotation(at.rotation())
+        .with_scale(bevy::prelude::Vec3::splat(at.scale.max(0.01)))
+}

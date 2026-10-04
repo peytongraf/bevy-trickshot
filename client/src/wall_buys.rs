@@ -28,9 +28,10 @@ pub(crate) const SIGN_MODEL: &str = "models/props/wooden_sign.glb";
 
 /// Where the outline sits on the sign, in its own frame (m): just proud of
 /// the board's front face (the board spans x -1.02..0.98, y 1.51..2.81, its
-/// planks' fronts at z 0.13), and how wide it is.
-const DECAL_CENTER: Vec3 = Vec3::new(-0.02, 2.16, 0.14);
-const DECAL_WIDTH: f32 = 1.55;
+/// planks' fronts at z 0.13) — a touch below its middle, clear of the notch
+/// cut out of its top-right edge — and how wide it is.
+pub(crate) const DECAL_CENTER: Vec3 = Vec3::new(-0.04, 2.1, 0.14);
+const DECAL_WIDTH: f32 = 1.45;
 /// How brightly the outline glows (it blooms).
 const DECAL_GLOW: f32 = 4.0;
 
@@ -149,12 +150,12 @@ fn sync_wall_buy_signs(
         return;
     }
     for wall_buy in &shared::level::layout(lobby.map).wall_buys {
-        let at = wall_buy.at;
+        let Some(at) = shared::level::layout(lobby.map).wall_buy(wall_buy.weapon) else { continue };
         commands
             .spawn((
                 StateScoped(AppState::InGame),
                 WallBuySign,
-                Transform::from_translation(at.pos).with_rotation(at.rotation()),
+                crate::util::placed(at),
                 Visibility::default(),
             ))
             .with_children(|sign| {

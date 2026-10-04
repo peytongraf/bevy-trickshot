@@ -20,7 +20,11 @@ use crate::net::GameClient;
 /// start sound — its audible length.
 const DOG_ROUND_END_SECS: f32 = 7.6;
 use crate::zombies_hud::zombies_game;
-use crate::{AppState, GameSounds, HUD_FONT};
+use crate::{AppState, GameSounds};
+
+/// The round number's face: Creepster (`assets/fonts/Creepster-OFL.txt`),
+/// a dripping hand-painted horror face like Call of Duty zombies' own.
+const ROUND_FONT: &str = "fonts/Creepster-Regular.ttf";
 
 pub(crate) struct RoundCounterPlugin;
 
@@ -109,7 +113,7 @@ fn spawn_round_counter(mut commands: Commands, asset_server: Res<AssetServer>, s
             },
             Text::new(""),
             TextFont {
-                font: asset_server.load(HUD_FONT),
+                font: asset_server.load(ROUND_FONT),
                 font_size: settings.size,
                 ..default()
             },

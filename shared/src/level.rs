@@ -26,18 +26,35 @@ use crate::perks::Perk;
 use crate::weapon::{WeaponId, WALL_BUY_WEAPONS};
 use crate::MapId;
 
-/// Where one thing stands: the ground under its middle, and which way it
-/// faces — its turn about the vertical axis (degrees, counter-clockwise seen
-/// from above; `0` faces +Z).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+/// Where one thing stands: the ground under its middle, which way it faces
+/// — its turn about the vertical axis (degrees, counter-clockwise seen from
+/// above; `0` faces +Z) — and how big it is (`1` = as made; its model and
+/// solid box both scale, its use range doesn't).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub pos: Vec3,
     pub yaw_deg: f32,
+    #[serde(default = "unscaled")]
+    pub scale: f32,
+}
+
+fn unscaled() -> f32 {
+    1.0
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Self::new(Vec3::ZERO, 0.0)
+    }
 }
 
 impl Placement {
     pub const fn new(pos: Vec3, yaw_deg: f32) -> Self {
-        Self { pos, yaw_deg }
+        Self { pos, yaw_deg, scale: 1.0 }
+    }
+
+    pub const fn with_scale(self, scale: f32) -> Self {
+        Self { scale, ..self }
     }
 
     /// Its turn as a rotation.
@@ -52,15 +69,18 @@ impl Placement {
         Self {
             pos: Vec3::new(r(self.pos.x, 1000.0), r(self.pos.y, 1000.0), r(self.pos.z, 1000.0)),
             yaw_deg: r(self.yaw_deg, 10.0),
+            scale: r(self.scale, 1000.0),
         }
     }
 
     /// As RON, on one line.
     fn to_ron(self) -> String {
         let p = self.rounded();
-        // (`{:?}` always writes a float with a decimal point.)
+        // (`{:?}` always writes a float with a decimal point; the scale only
+        // when it isn't 1.)
+        let scale = if p.scale == 1.0 { String::new() } else { format!(", scale: {:?}", p.scale) };
         format!(
-            "(pos: ({:?}, {:?}, {:?}), yaw_deg: {:?})",
+            "(pos: ({:?}, {:?}, {:?}), yaw_deg: {:?}{scale})",
             p.pos.x, p.pos.y, p.pos.z, p.yaw_deg
         )
     }
@@ -105,13 +125,19 @@ impl ZombiesLayout {
         self.perks.get(&perk).copied().unwrap_or_default()
     }
 
-    /// Where the wall buy selling `gun` stands, if the place has one.
+    /// Where the wall buy selling `gun` stands, if the place has one — at
+    /// every sign's one size ([`crate::wall_buy::SIGN_SCALE`]).
     pub fn wall_buy(&self, gun: WeaponId) -> Option<Placement> {
-        self.wall_buys.iter().find(|w| w.weapon == gun).map(|w| w.at)
+        self.wall_buys
+            .iter()
+            .find(|w| w.weapon == gun)
+            .map(|w| w.at.with_scale(crate::wall_buy::SIGN_SCALE))
     }
 
     /// Put the wall buy selling `gun` at `at` (adding it if it isn't there).
+    /// (Its scale's every sign's, so it isn't kept.)
     pub fn set_wall_buy(&mut self, gun: WeaponId, at: Placement) {
+        let at = at.with_scale(1.0);
         match self.wall_buys.iter_mut().find(|w| w.weapon == gun) {
             Some(w) => w.at = at,
             None => self.wall_buys.push(WallBuy { weapon: gun, at }),
@@ -142,7 +168,7 @@ impl ZombiesLayout {
         out += &format!("    power_switch: {},\n", optional(self.power_switch));
         out += "    wall_buys: [\n";
         for gun in WALL_BUY_WEAPONS {
-            if let Some(at) = self.wall_buy(gun) {
+            if let Some(at) = self.wall_buys.iter().find(|w| w.weapon == gun).map(|w| w.at.with_scale(1.0)) {
                 out += &format!("        (weapon: {gun:?}, at: {}),\n", at.to_ron());
             }
         }
@@ -224,6 +250,24 @@ mod tests {
                 assert!(l.perks.contains_key(&perk), "{perk:?} missing on {map:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_scale_is_kept_and_an_unscaled_one_left_out() {
+        let mut l = layout(MapId::BreakPoint).clone();
+        l.wunderfizz = l.wunderfizz.with_scale(1.25);
+        let text = l.to_ron();
+        assert!(text.contains("scale: 1.25"));
+        assert_eq!(text.matches("scale:").count(), 1);
+        assert_eq!(ZombiesLayout::from_ron(&text).unwrap().wunderfizz.scale, 1.25);
+    }
+
+    #[test]
+    fn every_wall_buy_is_one_size_and_the_files_dont_say() {
+        let mut l = layout(MapId::BreakPoint).clone();
+        l.set_wall_buy(WeaponId::Ak74, Placement::new(Vec3::ONE, 0.0).with_scale(3.0));
+        assert_eq!(l.wall_buy(WeaponId::Ak74).unwrap().scale, crate::wall_buy::SIGN_SCALE);
+        assert!(!l.to_ron().contains("scale:"));
     }
 
     #[test]
