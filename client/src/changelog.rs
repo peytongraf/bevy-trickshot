@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: drop and pick up weapons, which keep their ammo and Pack-a-Punch.",
+        "Zombies: wall buys for the sniper and AK-74.",
         "Added a Zombies level editor (main menu).",
         "Zombies: sounds when a teammate goes down and when a revive finishes.",
         "Zombies: going down no longer ends the game — teammates can revive you.",

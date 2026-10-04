@@ -1,6 +1,6 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
-//! crate and the power switch.
+//! crate, the power switch and the wall buys.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -23,6 +23,7 @@ use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::perks::Perk;
+use crate::weapon::{WeaponId, WALL_BUY_WEAPONS};
 use crate::MapId;
 
 /// Where one thing stands: the ground under its middle, and which way it
@@ -65,6 +66,15 @@ impl Placement {
     }
 }
 
+/// A wall buy: the sign selling `weapon` (`crate::wall_buy`), standing at
+/// `at` — the foot of its post, its front (with the weapon's outline) facing
+/// the way it's turned.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WallBuy {
+    pub weapon: WeaponId,
+    pub at: Placement,
+}
+
 /// One place's `Zombies` layout — see the module docs.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ZombiesLayout {
@@ -83,6 +93,9 @@ pub struct ZombiesLayout {
     /// always on there ([`crate::power::has_power`]).
     #[serde(default)]
     pub power_switch: Option<Placement>,
+    /// The wall buys — at most one per gun ([`WALL_BUY_WEAPONS`]).
+    #[serde(default)]
+    pub wall_buys: Vec<WallBuy>,
 }
 
 impl ZombiesLayout {
@@ -90,6 +103,19 @@ impl ZombiesLayout {
     /// at the origin — the editor always writes every one.)
     pub fn perk(&self, perk: Perk) -> Placement {
         self.perks.get(&perk).copied().unwrap_or_default()
+    }
+
+    /// Where the wall buy selling `gun` stands, if the place has one.
+    pub fn wall_buy(&self, gun: WeaponId) -> Option<Placement> {
+        self.wall_buys.iter().find(|w| w.weapon == gun).map(|w| w.at)
+    }
+
+    /// Put the wall buy selling `gun` at `at` (adding it if it isn't there).
+    pub fn set_wall_buy(&mut self, gun: WeaponId, at: Placement) {
+        match self.wall_buys.iter_mut().find(|w| w.weapon == gun) {
+            Some(w) => w.at = at,
+            None => self.wall_buys.push(WallBuy { weapon: gun, at }),
+        }
     }
 
     pub fn from_ron(text: &str) -> Result<Self, ron::error::SpannedError> {
@@ -114,6 +140,13 @@ impl ZombiesLayout {
         out += &format!("    pack_a_punch: {},\n", optional(self.pack_a_punch));
         out += &format!("    ammo_crate: {},\n", optional(self.ammo_crate));
         out += &format!("    power_switch: {},\n", optional(self.power_switch));
+        out += "    wall_buys: [\n";
+        for gun in WALL_BUY_WEAPONS {
+            if let Some(at) = self.wall_buy(gun) {
+                out += &format!("        (weapon: {gun:?}, at: {}),\n", at.to_ron());
+            }
+        }
+        out += "    ],\n";
         out += ")\n";
         out
     }

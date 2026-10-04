@@ -67,6 +67,8 @@ mod ui;
 mod updater;
 mod util;
 mod vfx;
+mod wall_buys;
+mod weapon_drops;
 mod weapons;
 mod wunderfizz;
 mod zombie_sounds;
@@ -225,6 +227,7 @@ fn main() {
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
+        .add_plugins((wall_buys::WallBuysPlugin, weapon_drops::WeaponDropsPlugin))
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// The weapons a trickshot can be taken with. Add variants here and give them a
 /// [`WeaponSpec`] in [`WeaponId::spec`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum WeaponId {
     #[default]
     Sniper,
@@ -19,6 +19,48 @@ pub enum WeaponId {
 /// have one ([`crate::GameMode::has_loadout`]; `Freestyle` is always the
 /// sniper).
 pub const LOADOUT_WEAPONS: [WeaponId; 2] = [WeaponId::Sniper, WeaponId::Ak74];
+
+/// What fills one of a player's two weapon slots: a gun, or the knife. A
+/// player carries two different ones — a `Zombies` wall buy or a dropped
+/// weapon picked up takes the place of the one in their hands
+/// ([`crate::LobbyMember::weapons`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SlotWeapon {
+    Gun(WeaponId),
+    Knife,
+}
+
+impl SlotWeapon {
+    /// What a player starts a life with: `primary`, and the knife.
+    pub const fn starting(primary: WeaponId) -> [SlotWeapon; 2] {
+        [SlotWeapon::Gun(primary), SlotWeapon::Knife]
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            SlotWeapon::Gun(gun) => gun.label(),
+            SlotWeapon::Knife => "KNIFE",
+        }
+    }
+
+    pub const fn gun(self) -> Option<WeaponId> {
+        match self {
+            SlotWeapon::Gun(gun) => Some(gun),
+            SlotWeapon::Knife => None,
+        }
+    }
+}
+
+/// The guns a `Zombies` wall buy sells ([`crate::level::WallBuy`]).
+pub const WALL_BUY_WEAPONS: [WeaponId; 2] = [WeaponId::Sniper, WeaponId::Ak74];
+
+/// What a `Zombies` wall buy charges for `gun`.
+pub const fn wall_buy_cost(gun: WeaponId) -> u32 {
+    match gun {
+        WeaponId::Ak74 => 1000,
+        _ => 1500,
+    }
+}
 
 /// `FreeForAll`, Call of Duty style: a loadout change takes effect on the
 /// spot if the player spawned at most this many seconds ago and hasn't fired

@@ -17,6 +17,7 @@ use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::LocalId;
 use shared::pap::{PapLevels, PapWeapon};
+use shared::weapon::SlotWeapon;
 use shared::{GameMode, Lobby};
 
 use crate::net::GameClient;
@@ -240,21 +241,24 @@ pub(crate) fn my_pap_levels(local: &Query<&LocalId, With<GameClient>>, lobbies: 
         .map_or_else(PapLevels::default, |m| m.pap)
 }
 
-/// Keep the sniper's ammo limit in step with its level; a new level is our
-/// purchase going through, so the mag and reserve are both filled to the
-/// new most, Cold War style.
+/// Keep the gun in hand's ammo limit in step with its level; a new level on
+/// the same gun is our purchase going through, so the mag and reserve are
+/// both filled to the new most, Cold War style. (A different gun — swapped
+/// to, bought or picked up — just brings its own level.)
 fn sync_pap_levels(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     mut weapon: ResMut<Weapon>,
+    mut last_gun: Local<Option<shared::weapon::WeaponId>>,
 ) {
-    let level = my_pap_levels(&local, &lobbies).sniper;
+    let level = my_pap_levels(&local, &lobbies).get(PapWeapon::gun(weapon.primary));
+    let same_gun = last_gun.replace(weapon.primary) == Some(weapon.primary);
     if weapon.pap_level == level {
         return;
     }
     let raised = level > weapon.pap_level;
     weapon.pap_level = level;
-    if raised {
+    if raised && same_gun {
         weapon.fill_mag_and_reserve(GameMode::Zombies);
     }
 }
@@ -297,14 +301,34 @@ impl FromWorld for PapCamo {
     }
 }
 
+/// The glTF names of `weapon`'s view model parts that wear the camo — the
+/// gun itself, not the arms.
+pub(crate) fn camo_parts(weapon: SlotWeapon) -> &'static [&'static str] {
+    match weapon {
+        SlotWeapon::Gun(shared::weapon::WeaponId::Ak74) => &AK_CAMO_PARTS,
+        SlotWeapon::Gun(_) => &SNIPER_CAMO_PARTS,
+        SlotWeapon::Knife => &KNIFE_CAMO_PARTS,
+    }
+}
+
+/// Whether the entity named `name` is one of `parts` (a glTF node or mesh
+/// name, or a mesh primitive under one — `"name.0"`).
+pub(crate) fn is_camo_part(parts: &[&str], name: &str) -> bool {
+    parts
+        .iter()
+        .any(|p| name == *p || name.strip_prefix(p).is_some_and(|r| r.starts_with('.')))
+}
+
 /// Whose level a camo part follows.
 #[derive(Clone, Copy)]
 enum CamoOwner {
-    /// Our own view model's sniper or knife.
+    /// Our own view model's gun or knife.
     Mine(PapWeapon),
     /// The gun on this remote player avatar (`net::RemoteAvatar`) — its
-    /// player's sniper level.
+    /// player's level for the gun they last took.
     Avatar(Entity),
+    /// A dropped weapon (`weapon_drops`) — its own level.
+    Fixed(u8),
 }
 
 /// On a weapon mesh that wears the camo when packed: whose level it follows,
@@ -324,6 +348,7 @@ fn tag_camo_parts(
     primary: Query<&crate::weapons::ViewModelAnimation, With<ViewModel>>,
     knife: Query<(), With<KnifeViewModel>>,
     avatars: Query<(), (With<crate::net::RemoteAvatar>, With<crate::SoldierVisual>)>,
+    drops: Query<&crate::weapon_drops::DropModel>,
     children: Query<&Children>,
     names: Query<&Name>,
     parents: Query<&ChildOf>,
@@ -331,15 +356,10 @@ fn tag_camo_parts(
     mut commands: Commands,
 ) {
     let root = trigger.target();
-    // (The primary's camo follows `PapWeapon::Sniper` — the AK-74 when that's
-    // our loadout.)
     let (owner, parts): (_, &[&str]) = if let Ok(anim) = primary.get(root) {
-        let parts: &[&str] = if anim.weapon == shared::weapon::WeaponId::Ak74 {
-            &AK_CAMO_PARTS
-        } else {
-            &SNIPER_CAMO_PARTS
-        };
-        (CamoOwner::Mine(PapWeapon::Sniper), parts)
+        (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(SlotWeapon::Gun(anim.weapon)))
+    } else if let Ok(drop) = drops.get(root) {
+        (CamoOwner::Fixed(drop.pap), camo_parts(drop.weapon))
     } else if knife.contains(root) {
         (CamoOwner::Mine(PapWeapon::Knife), &KNIFE_CAMO_PARTS)
     } else if avatars.contains(root) {
@@ -347,13 +367,7 @@ fn tag_camo_parts(
     } else {
         return;
     };
-    let is_part = |e: Entity| {
-        names.get(e).is_ok_and(|n| {
-            parts
-                .iter()
-                .any(|p| n.as_str() == *p || n.as_str().strip_prefix(p).is_some_and(|r| r.starts_with('.')))
-        })
-    };
+    let is_part = |e: Entity| names.get(e).is_ok_and(|n| is_camo_part(parts, n.as_str()));
     let mut tagged = 0;
     for entity in children.iter_descendants(root) {
         let Ok(mat) = mats.get(entity) else {
@@ -396,7 +410,8 @@ fn apply_pap_camo(
             .and_then(|a| ids.get(a.src).ok())
             .zip(lobby)
             .and_then(|(id, l)| l.members.iter().find(|m| m.peer == id.0))
-            .map_or(0, |m| m.pap.sniper),
+            .map_or(0, |m| m.pap.get(PapWeapon::gun(m.primary))),
+        CamoOwner::Fixed(level) => level,
     };
     let mut in_use = false;
     for (part, mut mat) in &mut parts {

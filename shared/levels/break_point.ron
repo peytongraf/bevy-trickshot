@@ -19,4 +19,8 @@
     pack_a_punch: Some((pos: (25.0, 0.0, -59.6), yaw_deg: 0.0)),
     ammo_crate: Some((pos: (9.6, -0.02, -35.0), yaw_deg: -90.0)),
     power_switch: Some((pos: (-7.0, 0.0, -56.35), yaw_deg: 0.0)),
+    wall_buys: [
+        (weapon: Sniper, at: (pos: (9.6, 0.0, -39.0), yaw_deg: -90.0)),
+        (weapon: Ak74, at: (pos: (9.6, 0.0, -31.0), yaw_deg: -90.0)),
+    ],
 )

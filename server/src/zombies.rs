@@ -537,6 +537,10 @@ fn on_buy_pap(
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
         return;
     };
+    // (Only a weapon they're carrying.)
+    if !member.weapons.iter().any(|&w| shared::pap::PapWeapon::of(w) == weapon) {
+        return;
+    }
     let current = member.pap.get(weapon);
     let cost = shared::pap::cost_to(current, level);
     if level > shared::pap::MAX_LEVEL || level <= current || member.score < cost {
@@ -723,6 +727,7 @@ mod tests {
                     loadout: Default::default(),
                     operator: Default::default(),
                     primary: Default::default(),
+                    weapons: shared::weapon::SlotWeapon::starting(Default::default()),
                 }],
             })
             .id();

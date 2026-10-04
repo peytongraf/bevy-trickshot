@@ -9,17 +9,19 @@ use bevy::math::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::perks::{PERK_USE_HEIGHT, PERK_USE_RADIUS};
+use crate::weapon::{SlotWeapon, WeaponId};
 use crate::MapId;
 
 /// Highest level a weapon can be packed to.
 pub const MAX_LEVEL: u8 = 3;
 
-/// Which weapon is being packed — whichever the player is holding.
+/// Which weapon is being packed — whichever the player is holding. A
+/// player carries at most one of each ([`crate::LobbyMember::weapons`]), so
+/// the level goes with the kind.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PapWeapon {
-    /// The primary — the sniper, or the AK-74 if that's the member's
-    /// loadout ([`crate::LobbyMember::loadout`]).
     Sniper,
+    Ak74,
     Knife,
 }
 
@@ -27,16 +29,34 @@ impl PapWeapon {
     pub fn label(self) -> &'static str {
         match self {
             PapWeapon::Sniper => "Sniper",
+            PapWeapon::Ak74 => "AK-74",
             PapWeapon::Knife => "Knife",
+        }
+    }
+
+    /// The level `weapon` is packed by.
+    pub fn of(weapon: SlotWeapon) -> PapWeapon {
+        match weapon {
+            SlotWeapon::Gun(gun) => PapWeapon::gun(gun),
+            SlotWeapon::Knife => PapWeapon::Knife,
+        }
+    }
+
+    pub fn gun(gun: WeaponId) -> PapWeapon {
+        match gun {
+            WeaponId::Ak74 => PapWeapon::Ak74,
+            _ => PapWeapon::Sniper,
         }
     }
 }
 
 /// A member's Pack-a-Punch level (0 = not packed) for each weapon. Reset
-/// whenever a game starts.
+/// whenever a game starts; a weapon dropped takes its level with it (a
+/// [`crate::WeaponDrop`]), and one picked up brings its own.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PapLevels {
     pub sniper: u8,
+    pub ak: u8,
     pub knife: u8,
 }
 
@@ -44,6 +64,7 @@ impl PapLevels {
     pub fn get(self, weapon: PapWeapon) -> u8 {
         match weapon {
             PapWeapon::Sniper => self.sniper,
+            PapWeapon::Ak74 => self.ak,
             PapWeapon::Knife => self.knife,
         }
     }
@@ -51,6 +72,7 @@ impl PapLevels {
     pub fn set(&mut self, weapon: PapWeapon, level: u8) {
         match weapon {
             PapWeapon::Sniper => self.sniper = level,
+            PapWeapon::Ak74 => self.ak = level,
             PapWeapon::Knife => self.knife = level,
         }
     }
@@ -158,6 +180,8 @@ mod tests {
         l.set(PapWeapon::Knife, 2);
         assert_eq!(l.get(PapWeapon::Knife), 2);
         assert_eq!(l.get(PapWeapon::Sniper), 0);
+        assert_eq!(l.get(PapWeapon::Ak74), 0);
+        assert_eq!(PapWeapon::of(SlotWeapon::Gun(WeaponId::Ak74)), PapWeapon::Ak74);
     }
 
     #[test]

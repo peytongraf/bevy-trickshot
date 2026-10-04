@@ -293,13 +293,14 @@ fn resolve_shots(
         let Some(mut weapon) = WeaponId::from_u8(i.weapon) else {
             continue;
         };
-        // The AK-74 is a loadout weapon only — in a mode without one, or
-        // from a member not carrying it this life, a shot is the sniper's.
+        // The AK-74 is a loadout weapon (or a `Zombies` wall buy) only — in
+        // a mode without one, or from a member not carrying it, a shot is
+        // the sniper's.
         if weapon == WeaponId::Ak74 {
             let carried = lobby
                 .members
                 .iter()
-                .any(|m| m.peer == shooter.0 && m.primary == WeaponId::Ak74);
+                .any(|m| m.peer == shooter.0 && m.weapons.contains(&shared::weapon::SlotWeapon::Gun(WeaponId::Ak74)));
             if !lobby.mode.has_loadout() || !carried {
                 weapon = WeaponId::Sniper;
             }
@@ -433,7 +434,7 @@ fn resolve_shots(
                             let damage = if zombies && shared::bot_players::is_bot_peer(shooter.0) {
                                 hit.damage.min(shared::ZOMBIE_HIT_DAMAGE)
                             } else if zombies {
-                                hit.damage * pap_mult(lobby, shooter.0, shared::pap::PapWeapon::Sniper)
+                                hit.damage * pap_mult(lobby, shooter.0, shared::pap::PapWeapon::gun(weapon))
                             } else {
                                 pvp_damage
                             };

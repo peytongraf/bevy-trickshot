@@ -31,6 +31,7 @@ mod power_ups;
 mod pvp;
 mod revive;
 mod sim;
+mod wall_buys;
 mod zombies;
 
 use bevy::app::ScheduleRunnerPlugin;
@@ -72,5 +73,6 @@ fn main() {
         .add_plugins(zombies::ZombiesPlugin)
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
+        .add_plugins(wall_buys::WallBuysPlugin)
         .run();
 }

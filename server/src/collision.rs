@@ -541,19 +541,24 @@ mod tests {
     fn perk_machines_are_solid_only_in_zombies() {
         let c = colliders();
         let map = MapId::BreakPoint;
-        let (center, _, half) = Perk::NitroBrew.machine_box(map);
-        // A ray fired sideways at the machine's middle from a metre and a
-        // half away...
-        let from = center + Vec3::X * 1.5;
+        // (Each set against one of its own machines — the sets' spots needn't
+        // be shared.)
+        for (set, perk) in [(PerkSet::Classic, Perk::QuickRevive), (PerkSet::Custom, Perk::NitroBrew)] {
+            let (center, _, half) = perk.machine_box(map);
+            // A ray fired sideways at the machine's middle from a metre and a
+            // half away hits it before reaching its middle...
+            let from = center + Vec3::X * 1.5;
+            let zombies = c.for_game(map, GameMode::Zombies, set);
+            let hit = zombies.raycast(from, Vec3::NEG_X, 3.0).expect("hits the machine");
+            assert!(hit.distance < 1.5 && hit.distance >= 1.5 - half.max_element() - 0.01, "{perk:?} hit at {}", hit.distance);
+            assert!(zombies.sweep_sphere(from, center, 0.3).is_some(), "a body bumps into it");
+            // ...but there's nothing there outside `Zombies`.
+            let ffa = c.for_game(map, GameMode::FreeForAll, set);
+            assert!(ffa.raycast(from, Vec3::NEG_X, 1.4).is_none(), "no machine outside Zombies");
+        }
         let with = c.with_machines(map);
-        let hit = with.raycast(from, Vec3::NEG_X, 3.0).expect("hits the machine");
-        // (Nitro Brew is turned 90°, so its depth faces along x.)
-        assert!((hit.distance - (1.5 - half.z)).abs() < 0.01, "hit at {}", hit.distance);
-        let ffa = c.for_game(map, GameMode::FreeForAll, PerkSet::Custom);
-        assert!(ffa.raycast(from, Vec3::NEG_X, 1.4).is_none(), "no machine outside Zombies");
-        let zombies = c.for_game(map, GameMode::Zombies, PerkSet::Custom);
-        assert!(zombies.raycast(from, Vec3::NEG_X, 1.4).is_some());
-        assert!(zombies.sweep_sphere(from, center, 0.3).is_some(), "a body bumps into it");
+        let (center, ..) = Perk::QuickRevive.machine_box(map);
+        assert!(with.raycast(center + Vec3::X * 1.5, Vec3::NEG_X, 3.0).is_some());
     }
 
     #[test]

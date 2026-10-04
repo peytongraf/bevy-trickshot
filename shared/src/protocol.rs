@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::weapon::WeaponId;
+use crate::weapon::{SlotWeapon, WeaponId};
 
 /// Fallback hip FOV (degrees) for a fresh `PlayerInput` before the client's
 /// first tick fills in its real `Settings::fov`. Mirrors the client's own
@@ -950,8 +950,14 @@ pub struct LobbyMember {
     /// `loadout` at the start of a game and on every respawn, or straight
     /// away on a `FreeForAll` change made within
     /// [`crate::weapon::LOADOUT_SWAP_GRACE_SECS`] of spawning, before firing.
-    /// Always the sniper in `Freestyle`.
+    /// Always the sniper in `Freestyle`. In `Zombies` the gun most recently
+    /// taken (a wall buy or a pickup) — `weapons` is everything carried.
     pub primary: WeaponId,
+    /// The two weapon slots this member carries (server-set): `primary` and
+    /// the knife at the start of a game, then in `Zombies` whatever wall buys
+    /// ([`BuyWallWeapon`]) and pickups ([`PickUpWeapon`]) swap in — never two
+    /// of the same.
+    pub weapons: [SlotWeapon; 2],
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1189,6 +1195,62 @@ pub struct MolotovFire {
 pub struct MolotovDrop {
     pub pos: Vec3,
     pub yaw: f32,
+}
+
+/// A weapon a `Zombies` player dropped (swapping it for a wall buy or a
+/// pickup), lying at `pos` turned `yaw` radians, for anyone to pick up
+/// ([`PickUpWeapon`]) — with its Pack-a-Punch level and, for a gun, the
+/// rounds it had.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WeaponDrop {
+    pub weapon: SlotWeapon,
+    pub pap: u8,
+    pub mag: u32,
+    pub reserve: u32,
+    pub pos: Vec3,
+    pub yaw: f32,
+}
+
+/// Client → server: buy `weapon` at its `Zombies` wall buy
+/// ([`crate::wall_buy`]), in place of the one in weapon slot `slot` (the one
+/// in the buyer's hands), which is dropped with `mag` / `reserve` rounds
+/// (ammo is client-side). The server checks the sign's in reach, the weapon
+/// isn't carried already and the points, and answers [`WallWeaponBought`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyWallWeapon {
+    pub weapon: WeaponId,
+    pub slot: u8,
+    pub mag: u32,
+    pub reserve: u32,
+}
+
+/// Server → the buyer only: their [`BuyWallWeapon`] went through — `weapon`
+/// is now in slot `slot`, with a full load.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WallWeaponBought {
+    pub weapon: WeaponId,
+    pub slot: u8,
+}
+
+/// Client → server: pick up the dropped weapon ([`WeaponDrop`]) nearest
+/// this player, in place of the one in slot `slot`, which is dropped with
+/// `mag` / `reserve` rounds. Answered with [`WeaponPickedUp`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PickUpWeapon {
+    pub slot: u8,
+    pub mag: u32,
+    pub reserve: u32,
+}
+
+/// Server → the picker only: their [`PickUpWeapon`] worked — `weapon` is now
+/// in slot `slot`, packed to `pap`, with the rounds it was dropped with.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WeaponPickedUp {
+    pub weapon: SlotWeapon,
+    pub slot: u8,
+    pub pap: u8,
+    pub mag: u32,
+    pub reserve: u32,
 }
 
 /// Client → server: the local player just landed after falling `distance`
@@ -1668,6 +1730,10 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<AmmoBought>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<WallWeaponBought>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<WeaponPickedUp>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PowerUpGrabbed>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieNuked>()
@@ -1730,6 +1796,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<ThrowMolotov>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpMolotov>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyWallWeapon>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PickUpWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetMolotovTest>()
             .add_direction(NetworkDirection::ClientToServer);
@@ -1799,6 +1869,7 @@ impl Plugin for ProtocolPlugin {
         // Static once spawned, so no interpolation.
         app.register_component::<MolotovFire>();
         app.register_component::<MolotovDrop>();
+        app.register_component::<WeaponDrop>();
 
         app.register_component::<Lobby>();
 

@@ -1,7 +1,11 @@
 //! Stopped throwing knives: a blue outline so they're easy to spot where they
 //! landed, and picking them up (one more knife, and the pickup sound for the
 //! picker alone). Dropped molotovs (`molotov.rs`) share the outline
-//! ([`OutlineWhenLoaded`]) and the pickup rules.
+//! ([`OutlineWhenLoaded`]) and the pickup rules. Dropped weapons
+//! (`weapon_drops.rs`) share the outline too, tinted by their Pack-a-Punch
+//! level ([`OutlineTint`]), and this card: the interact key swaps the weapon
+//! in hand for the nearest one (unless a wall buy we can buy is in reach —
+//! that key's the sign's then).
 //!
 //! A player carries one kind of lethal at a time, like Call of Duty. Walking
 //! into the kind already carried (or anything, carrying none) picks it up
@@ -31,8 +35,10 @@ use bevy::render::mesh::{MeshVertexBufferLayoutRef, VertexAttributeValues};
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
 };
+use bevy::render::mesh::skinning::SkinnedMesh;
+use bevy::render::view::NoFrustumCulling;
 use lightyear::prelude::*;
-use shared::{MolotovDrop, ThrownKnife};
+use shared::{MolotovDrop, ThrownKnife, WeaponDrop};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
@@ -42,7 +48,7 @@ use crate::{killcam, menu, AppState, GameSounds, Lethal, Player, Weapon, EYE_HEI
 const SHADER_ASSET_PATH: &str = "shaders/knife_outline.wgsl";
 
 /// The outline's colour (sRGB).
-const OUTLINE_BLUE: Color = Color::srgb(0.2, 0.6, 1.0);
+pub(crate) const OUTLINE_BLUE: Color = Color::srgb(0.2, 0.6, 1.0);
 /// Outline thickness (m) per metre from the camera — about 2 px at 1080p.
 const OUTLINE_WIDTH_PER_M: f32 = 0.004;
 /// Least outline thickness (m), up close.
@@ -94,13 +100,18 @@ impl Material for KnifeOutlineMaterial {
     }
 }
 
-/// The one outline material, and each knife mesh's smoothed-normal copy
-/// (built on first use — the knife model never changes).
+/// An outline material per colour, and each mesh's smoothed-normal copy
+/// (built on first use — the models never change).
 #[derive(Resource, Default)]
 struct OutlineAssets {
-    material: Option<Handle<KnifeOutlineMaterial>>,
+    materials: HashMap<[u8; 4], Handle<KnifeOutlineMaterial>>,
     meshes: HashMap<AssetId<Mesh>, Handle<Mesh>>,
 }
+
+/// On an [`OutlineWhenLoaded`] avatar: its outline's colour, if not
+/// [`OUTLINE_BLUE`].
+#[derive(Component, Clone, Copy)]
+pub(crate) struct OutlineTint(pub(crate) Color);
 
 /// On a knife avatar once its meshes have their outline twins.
 #[derive(Component)]
@@ -126,6 +137,10 @@ struct PickupCardAction;
 /// The card's heading — what's in reach.
 #[derive(Component)]
 struct PickupCardTitle;
+
+/// The card's border and action strip, in the colour of what's in reach.
+#[derive(Component)]
+struct PickupCardColor;
 
 /// When (`Time::elapsed_secs`) a pickup request last went out that the
 /// server hasn't answered yet — none is sent while one's in flight, so
@@ -168,6 +183,7 @@ impl Plugin for KnifePickupPlugin {
                 update_pickup_card,
                 (auto_pick_up, swap_lethal).run_if(menu::game_active.and(killcam::no_killcam)),
                 receive_pickups,
+                receive_weapon_pickups,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -201,6 +217,12 @@ fn outline_mesh(mesh: &Mesh) -> Option<Mesh> {
     let mut out = Mesh::new(mesh.primitive_topology(), RenderAssetUsages::RENDER_WORLD);
     out.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
     out.insert_attribute(Mesh::ATTRIBUTE_NORMAL, smooth);
+    // A skinned mesh's twin is skinned the same way.
+    for attribute in [Mesh::ATTRIBUTE_JOINT_INDEX, Mesh::ATTRIBUTE_JOINT_WEIGHT] {
+        if let Some(values) = mesh.attribute(attribute) {
+            out.insert_attribute(attribute, values.clone());
+        }
+    }
     if let Some(indices) = mesh.indices() {
         out.insert_indices(indices.clone());
     }
@@ -214,24 +236,26 @@ fn outline_mesh(mesh: &Mesh) -> Option<Mesh> {
 fn outline_resting_knives(
     knives: Query<&ThrownKnife>,
     avatars: Query<
-        (Entity, Option<&KnifeAvatar>),
+        (Entity, Option<&KnifeAvatar>, Option<&OutlineTint>),
         (Without<KnifeOutlined>, Or<(With<KnifeAvatar>, With<OutlineWhenLoaded>)>),
     >,
     children: Query<&Children>,
-    mesh_entities: Query<&Mesh3d, Without<KnifeOutlineTwin>>,
+    mesh_entities: Query<(&Mesh3d, Option<&SkinnedMesh>), Without<KnifeOutlineTwin>>,
     mut outline: ResMut<OutlineAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<KnifeOutlineMaterial>>,
     mut commands: Commands,
 ) {
-    for (root, avatar) in &avatars {
+    for (root, avatar, tint) in &avatars {
         if avatar.is_some_and(|a| !knives.get(a.src).is_ok_and(|k| k.resting)) {
             continue;
         }
+        let color = tint.map_or(OUTLINE_BLUE, |t| t.0);
         let material = outline
-            .material
-            .get_or_insert_with(|| {
-                let lin = OUTLINE_BLUE.to_linear();
+            .materials
+            .entry(color.to_srgba().to_u8_array())
+            .or_insert_with(|| {
+                let lin = color.to_linear();
                 materials.add(KnifeOutlineMaterial {
                     params: OutlineParams {
                         color: Vec4::new(lin.red, lin.green, lin.blue, 1.0),
@@ -243,7 +267,7 @@ fn outline_resting_knives(
             .clone();
         let mut twinned = false;
         for entity in children.iter_descendants(root) {
-            let Ok(mesh) = mesh_entities.get(entity) else {
+            let Ok((mesh, skinned)) = mesh_entities.get(entity) else {
                 continue;
             };
             let twin_mesh = match outline.meshes.get(&mesh.0.id()) {
@@ -258,7 +282,7 @@ fn outline_resting_knives(
                 }
             };
             // A child of the mesh it outlines, so it inherits its transform.
-            commands.spawn((
+            let mut twin = commands.spawn((
                 KnifeOutlineTwin,
                 Mesh3d(twin_mesh),
                 MeshMaterial3d(material.clone()),
@@ -267,6 +291,11 @@ fn outline_resting_knives(
                 NotShadowCaster,
                 ChildOf(entity),
             ));
+            // (Bent by the same bones — and culled by its posed bounds, not
+            // its rest pose's, like its mesh.)
+            if let Some(skinned) = skinned {
+                twin.insert((skinned.clone(), NoFrustumCulling));
+            }
             twinned = true;
         }
         // (Model not in yet: try again next frame.)
@@ -284,6 +313,16 @@ fn pickup_in_reach<'a>(
     drops: impl Iterator<Item = &'a MolotovDrop>,
     wanted: impl Fn(Lethal) -> bool,
 ) -> Option<Lethal> {
+    lethal_in_reach(player, knives, drops, wanted).map(|(what, _)| what)
+}
+
+/// [`pickup_in_reach`], with how far (squared, from the eye) it is.
+fn lethal_in_reach<'a>(
+    player: &Transform,
+    knives: impl Iterator<Item = &'a ThrownKnife>,
+    drops: impl Iterator<Item = &'a MolotovDrop>,
+    wanted: impl Fn(Lethal) -> bool,
+) -> Option<(Lethal, f32)> {
     let eye = player.translation;
     let feet = eye - Vec3::Y * EYE_HEIGHT;
     let in_range = |p: Vec3| shared::throwing_knife::in_pickup_range(feet, eye, p);
@@ -292,8 +331,38 @@ fn pickup_in_reach<'a>(
         .map(|k| (Lethal::ThrowingKnife, k.pos))
         .chain(drops.filter(|d| in_range(d.pos)).map(|d| (Lethal::Molotov, d.pos)))
         .filter(|(what, _)| wanted(*what))
-        .min_by(|a, b| a.1.distance_squared(eye).total_cmp(&b.1.distance_squared(eye)))
-        .map(|(what, _)| what)
+        .map(|(what, pos)| (what, pos.distance_squared(eye)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+/// The nearest dropped weapon in pickup range of the local player, with how
+/// far (squared, from the eye) it is.
+fn weapon_in_reach<'a>(player: &Transform, drops: impl Iterator<Item = &'a WeaponDrop>) -> Option<(WeaponDrop, f32)> {
+    let eye = player.translation;
+    let feet = eye - Vec3::Y * EYE_HEIGHT;
+    drops
+        .filter(|d| shared::throwing_knife::in_pickup_range(feet, eye, d.pos))
+        .map(|d| (*d, d.pos.distance_squared(eye)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+/// What the card's about (and the interact key would take).
+enum Offer {
+    Lethal(Lethal),
+    Weapon(WeaponDrop),
+}
+
+/// The nearer of the lethal `lethal` and a dropped weapon in reach — the
+/// weapon left out while a wall buy we can buy is in reach (the key's the
+/// sign's then).
+fn offer(lethal: Option<(Lethal, f32)>, weapon: Option<(WeaponDrop, f32)>, wall_buy_here: bool) -> Option<Offer> {
+    let weapon = weapon.filter(|_| !wall_buy_here);
+    match (lethal, weapon) {
+        (Some((l, dl)), Some((w, dw))) => Some(if dw < dl { Offer::Weapon(w) } else { Offer::Lethal(l) }),
+        (Some((l, _)), None) => Some(Offer::Lethal(l)),
+        (None, Some((w, _))) => Some(Offer::Weapon(w)),
+        (None, None) => None,
+    }
 }
 
 /// Whether walking into a `kind` picks it up without the interact key: it's
@@ -357,6 +426,7 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor(OUTLINE_BLUE),
+                PickupCardColor,
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
@@ -374,6 +444,7 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ..default()
                     },
                     BackgroundColor(OUTLINE_BLUE.with_alpha(0.25)),
+                    PickupCardColor,
                     BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((PickupCardAction, Text::new(""), heading(22.0), TextColor::WHITE));
@@ -383,8 +454,9 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 /// Show the card while a stopped knife or dropped molotov is in reach that
 /// isn't picked up automatically — the other kind of lethal (to swap to), or
-/// the carried kind while full (hidden behind menus, during a kill cam and
-/// while dead, like the rest of the HUD).
+/// the carried kind while full — or a dropped weapon, whichever's nearer
+/// (hidden behind menus, during a kill cam and while dead, like the rest of
+/// the HUD).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_pickup_card(
     menu: Res<menu::Menu>,
@@ -395,35 +467,62 @@ fn update_pickup_card(
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
     drops: Query<&MolotovDrop>,
+    weapon_drops: Query<&WeaponDrop>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
     mut card: Single<&mut Visibility, With<PickupCard>>,
     mut action: Single<&mut Text, (With<PickupCardAction>, Without<PickupCardTitle>)>,
-    mut title: Single<&mut Text, (With<PickupCardTitle>, Without<PickupCardAction>)>,
+    title: Single<(&mut Text, &mut TextColor), (With<PickupCardTitle>, Without<PickupCardAction>)>,
+    mut colors: Query<(Option<&mut BorderColor>, Option<&mut BackgroundColor>), With<PickupCardColor>>,
 ) {
-    let what = (!menu.is_open() && active_killcam.0.is_none() && !death.is_active())
+    let shown = !menu.is_open() && active_killcam.0.is_none() && !death.is_active();
+    let what = shown
         .then(|| {
-            pickup_in_reach(&player, knives.iter(), drops.iter(), |k| {
+            let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| {
                 !auto_kind(&weapon, k) || weapon.lethal_full(k)
-            })
+            });
+            let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player);
+            offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall)
         })
         .flatten();
     card.set_if_neq(if what.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     let Some(what) = what else {
         return;
     };
-    let heading = match what {
-        Lethal::ThrowingKnife => "THROWING KNIFE",
-        Lethal::Molotov => "MOLOTOV",
+    let press = format!("PRESS {} TO SWAP", binds.interact.label().to_uppercase());
+    let (heading, wanted, color) = match what {
+        Offer::Lethal(kind) => (
+            match kind {
+                Lethal::ThrowingKnife => "THROWING KNIFE".to_string(),
+                Lethal::Molotov => "MOLOTOV".to_string(),
+            },
+            if auto_kind(&weapon, kind) { "CARRYING THE MOST".to_string() } else { press },
+            OUTLINE_BLUE,
+        ),
+        Offer::Weapon(drop) => (
+            match drop.pap {
+                0 => drop.weapon.label().to_string(),
+                level => format!("{}  {}", drop.weapon.label(), shared::pap::numeral(level)),
+            },
+            if weapon.carries(drop.weapon) { "ALREADY CARRYING".to_string() } else { press },
+            crate::weapon_drops::outline_color(drop.pap),
+        ),
     };
-    let wanted = if auto_kind(&weapon, what) {
-        "CARRYING THE MOST".to_string()
-    } else {
-        format!("PRESS {} TO SWAP", binds.interact.label().to_uppercase())
-    };
-    if title.0 != heading {
-        title.0 = heading.to_string();
+    let (mut title_text, mut title_color) = title.into_inner();
+    if title_text.0 != heading {
+        title_text.0 = heading;
     }
+    title_color.set_if_neq(TextColor(color));
     if action.0 != wanted {
         action.0 = wanted;
+    }
+    for (border, background) in &mut colors {
+        if let Some(mut border) = border {
+            border.set_if_neq(BorderColor(color));
+        }
+        if let Some(mut background) = background {
+            background.set_if_neq(BackgroundColor(color.with_alpha(0.25)));
+        }
     }
 }
 
@@ -456,7 +555,9 @@ fn auto_pick_up(
 }
 
 /// The interact key with the other kind of lethal in reach: swap to it —
-/// the server drops every one of the current kind around the player.
+/// the server drops every one of the current kind around the player. Or,
+/// with a dropped weapon nearer (and our hands free), swap the one in hand
+/// for it — the server drops ours where we stand.
 #[allow(clippy::too_many_arguments)]
 fn swap_lethal(
     time: Res<Time>,
@@ -464,24 +565,40 @@ fn swap_lethal(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     weapon: Res<Weapon>,
+    hands: crate::weapons::Hands,
     mut pending: ResMut<PendingPickup>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
     drops: Query<&MolotovDrop>,
+    (weapon_drops, local, lobbies): (Query<&WeaponDrop>, Query<&LocalId, With<GameClient>>, Query<&shared::Lobby>),
     mut knife_sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
     mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+    mut weapon_sender: Query<&mut TriggerSender<shared::PickUpWeapon>, With<GameClient>>,
 ) {
     let now = time.elapsed_secs();
     if !binds.interact.just_pressed(&keys, &mouse) || pending.waiting(now) {
         return;
     }
-    let Some(kind) =
-        pickup_in_reach(&player, knives.iter(), drops.iter(), |k| !auto_kind(&weapon, k))
-    else {
-        return;
-    };
-    request_pickup(kind, weapon.lethal_count(), &mut knife_sender, &mut molotov_sender);
-    pending.0 = Some(now);
+    let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| !auto_kind(&weapon, k));
+    let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player);
+    match offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall) {
+        Some(Offer::Lethal(kind)) => {
+            request_pickup(kind, weapon.lethal_count(), &mut knife_sender, &mut molotov_sender);
+            pending.0 = Some(now);
+        }
+        Some(Offer::Weapon(drop)) if !weapon.carries(drop.weapon) && hands.free() => {
+            let (mag, reserve) = weapon.held_ammo();
+            if let Ok(mut s) = weapon_sender.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpWeapon {
+                    slot: weapon.held as u8,
+                    mag,
+                    reserve,
+                });
+                pending.0 = Some(now);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The server handed us a knife we picked up: count it (it's now the only
@@ -496,6 +613,29 @@ fn receive_pickups(
     for mut rx in &mut receivers {
         for _ in rx.receive() {
             weapon.add_throwing_knife();
+            pending.0 = None;
+            commands.spawn((
+                AudioPlayer::new(sounds.pick_up_equipment.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+        }
+    }
+}
+
+/// The server handed us a dropped weapon we picked up: it's in our hands now
+/// (with the rounds it was dropped with), drawn; the pickup sound, just for
+/// us.
+fn receive_weapon_pickups(
+    mut receivers: Query<&mut MessageReceiver<shared::WeaponPickedUp>>,
+    mut weapon: ResMut<Weapon>,
+    mut pending: ResMut<PendingPickup>,
+    sounds: Res<GameSounds>,
+    mut commands: Commands,
+) {
+    for mut rx in &mut receivers {
+        for got in rx.receive() {
+            let ammo = got.weapon.gun().map(|_| (got.mag, got.reserve));
+            weapon.take_into_slot(got.slot as usize, got.weapon, ammo);
             pending.0 = None;
             commands.spawn((
                 AudioPlayer::new(sounds.pick_up_equipment.clone()),

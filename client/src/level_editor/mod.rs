@@ -1,7 +1,7 @@
 //! The `Zombies` level editor — main menu → LEVEL EDITOR
 //! ([`AppState::LevelEditor`]). It places everything a `Zombies` game puts on
 //! a map (the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo crate,
-//! the power switch) and saves each map's layout to its file in
+//! the power switch, the wall buys) and saves each map's layout to its file in
 //! `shared/levels/` (`shared::level`), which the client and the server both
 //! build in — rebuild them to play the new layout.
 //!
@@ -41,6 +41,7 @@ use bevy::render::view::RenderLayers;
 use bevy_egui::EguiPrimaryContextPass;
 use shared::level::{Placement, ZombiesLayout};
 use shared::perks::{Perk, PerkSet};
+use shared::weapon::WeaponId;
 use shared::MapId;
 
 use crate::ammo_crate::{AmmoCrateSettings, AMMO_CRATE_MODEL};
@@ -111,11 +112,19 @@ pub(crate) enum ObjectId {
     PackAPunch,
     AmmoCrate,
     PowerSwitch,
+    /// The wall buy selling this gun.
+    WallBuy(WeaponId),
 }
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 3] = [ObjectId::PackAPunch, ObjectId::AmmoCrate, ObjectId::PowerSwitch];
+    pub(crate) const OPTIONAL: [ObjectId; 5] = [
+        ObjectId::PackAPunch,
+        ObjectId::AmmoCrate,
+        ObjectId::PowerSwitch,
+        ObjectId::WallBuy(WeaponId::Sniper),
+        ObjectId::WallBuy(WeaponId::Ak74),
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -124,6 +133,8 @@ impl ObjectId {
             ObjectId::PackAPunch => "Pack-a-Punch",
             ObjectId::AmmoCrate => "Ammo crate",
             ObjectId::PowerSwitch => "Power switch",
+            ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
+            ObjectId::WallBuy(_) => "Sniper wall buy",
         }
     }
 
@@ -147,6 +158,7 @@ impl ObjectId {
             ObjectId::PackAPunch => layout.pack_a_punch,
             ObjectId::AmmoCrate => layout.ammo_crate,
             ObjectId::PowerSwitch => layout.power_switch,
+            ObjectId::WallBuy(gun) => layout.wall_buy(gun),
         }
     }
 
@@ -157,6 +169,7 @@ impl ObjectId {
                 layout.perks.insert(p, at);
             }
             ObjectId::Wunderfizz => layout.wunderfizz = at,
+            ObjectId::WallBuy(gun) => layout.set_wall_buy(gun, at),
             other => {
                 if let Some(slot) = other.slot(layout) {
                     *slot = Some(at);
@@ -167,6 +180,11 @@ impl ObjectId {
 
     /// Take an optional one off the map; `false` for one that can't go.
     fn remove(self, layout: &mut ZombiesLayout) -> bool {
+        if let ObjectId::WallBuy(gun) = self {
+            let before = layout.wall_buys.len();
+            layout.wall_buys.retain(|w| w.weapon != gun);
+            return layout.wall_buys.len() != before;
+        }
         match self.slot(layout) {
             Some(slot) => slot.take().is_some(),
             None => false,
@@ -181,6 +199,7 @@ impl ObjectId {
             ObjectId::PackAPunch => crate::pap::PAP_BLUE,
             ObjectId::AmmoCrate => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
+            ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
         }
     }
 
@@ -188,7 +207,16 @@ impl ObjectId {
     pub(crate) fn use_radius(self) -> f32 {
         match self {
             ObjectId::PackAPunch => shared::perks::PERK_USE_RADIUS + 0.5,
+            ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
             _ => shared::perks::PERK_USE_RADIUS,
+        }
+    }
+
+    /// The middle of where it's used from, standing at `at`.
+    pub(crate) fn use_center(self, at: Placement) -> Vec3 {
+        match self {
+            ObjectId::WallBuy(_) => shared::wall_buy::use_spot(at),
+            _ => at.pos,
         }
     }
 
@@ -202,6 +230,8 @@ impl ObjectId {
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
+            // The sign: post and board.
+            ObjectId::WallBuy(_) => (Vec3::new(-0.02, 1.3, 0.0), Vec3::new(1.0, 1.5, 0.15)),
             ObjectId::PowerSwitch => {
                 let top = lever.offset.y + 0.4;
                 (Vec3::new(lever.offset.x, top * 0.5, lever.offset.z), Vec3::new(0.35, top * 0.5, 0.25))
@@ -669,6 +699,7 @@ fn model_of(
         ObjectId::PackAPunch => (PAP_MODEL, pap.model_transform()),
         ObjectId::AmmoCrate => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
+        ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
     }
 }
 
@@ -685,6 +716,7 @@ fn sync_objects(
     pap: Res<PapSettings>,
     ammo: Res<AmmoCrateSettings>,
     lever: Res<PowerLeverSettings>,
+    wall_buys: Option<Res<crate::wall_buys::WallBuyAssets>>,
     asset_server: Res<AssetServer>,
     mut spawned: Query<(Entity, &EditorObject, &mut Transform)>,
     mut commands: Commands,
@@ -708,13 +740,16 @@ fn sync_objects(
         }
         let Some(at) = id.get(layout) else { continue };
         let (model, offset) = model_of(id, &machines, &pap, &ammo, &lever);
-        commands
-            .spawn((
-                StateScoped(AppState::LevelEditor),
-                EditorObject(id),
-                root_transform(at),
-                Visibility::default(),
-            ))
-            .with_child((SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model))), offset));
+        let mut object = commands.spawn((
+            StateScoped(AppState::LevelEditor),
+            EditorObject(id),
+            root_transform(at),
+            Visibility::default(),
+        ));
+        object.with_child((SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model))), offset));
+        // (A sign's gun outline, as the game has it.)
+        if let (ObjectId::WallBuy(gun), Some(assets)) = (id, wall_buys.as_deref()) {
+            object.with_child(crate::wall_buys::decal(gun, assets));
+        }
     }
 }

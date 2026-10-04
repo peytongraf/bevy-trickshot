@@ -558,6 +558,7 @@ mod tests {
                     loadout: Default::default(),
                     operator: Default::default(),
                     primary: Default::default(),
+                    weapons: shared::weapon::SlotWeapon::starting(Default::default()),
                 }],
             })
             .id();

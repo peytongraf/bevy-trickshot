@@ -340,7 +340,10 @@ impl PrimaryModels {
 /// server says we have this life (`LobbyMember::primary`; before the game,
 /// our pick), the sniper otherwise; during a kill cam, the killer's: set
 /// [`Weapon::primary`] (a full mag of it, reserve refilled for the mode), and
-/// swap the view model's scene and animation graph in place.
+/// swap the view model's scene and animation graph in place. In a running
+/// `Zombies` game the gun's our own to pick ([`Weapon::slots`] — wall buys,
+/// pickups and swapping between two guns), so the view model just follows
+/// [`Weapon::primary`].
 pub(crate) fn sync_primary_model(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -357,6 +360,9 @@ pub(crate) fn sync_primary_model(
             let m = lobby.members.iter().find(|m| Some(m.peer) == me)?;
             if !lobby.mode.has_loadout() {
                 return None;
+            }
+            if lobby.started && lobby.mode == shared::GameMode::Zombies {
+                return Some(weapon.primary);
             }
             Some(if lobby.started { m.primary } else { m.loadout })
         })

@@ -50,7 +50,7 @@ const CONTROLS: &[(&str, &str)] = &[
     ("While moving / turning: Ctrl", "Snap (0.25 m / 15°)"),
     ("Left click / Enter  ·  Right click / Esc", "Confirm  ·  cancel"),
     ("End", "Drop onto the ground below"),
-    ("X  /  Delete", "Remove (Pack-a-Punch, ammo crate, power switch)"),
+    ("X  /  Delete", "Remove (Pack-a-Punch, ammo crate, power switch, wall buys)"),
     ("Ctrl + Z  /  Ctrl + Shift + Z", "Undo / redo"),
     ("Ctrl + S", "Save this map"),
     ("Esc  /  mouse back", "Exit (asks first if anything's unsaved)"),
@@ -301,7 +301,7 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                     row(ui, ed, id);
                 }
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("MACHINES & SWITCHES").small().color(DIM));
+                ui.label(egui::RichText::new("MACHINES, SWITCHES & WALL BUYS").small().color(DIM));
                 for id in ObjectId::OPTIONAL {
                     if shown.contains(&id) {
                         row(ui, ed, id);

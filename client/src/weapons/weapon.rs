@@ -15,7 +15,7 @@ use crate::util::{rand01, rand_roll};
 use crate::{BulletImpact, FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
 use shared::ballistics::ground_impact;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
-use shared::weapon::WeaponId;
+use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
 use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZE, AK_ZOMBIES_TOTAL_MAGS};
@@ -225,8 +225,9 @@ pub(crate) fn resolve_local_shot(
     }
 }
 
-/// Which weapon slot is up. The knife has no model yet, so `Secondary` just
-/// means "sniper hidden, hands empty" (plus a small movement-speed bump).
+/// Which view model is up: `Primary` a gun (whichever [`Weapon::primary`]
+/// is), `Secondary` the knife. Which of the two carried weapons that is —
+/// [`Weapon::slots`] — is [`Weapon::held`].
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(crate) enum WeaponSlot {
     #[default]
@@ -275,6 +276,23 @@ pub(crate) struct Weapon {
     next_shot_at: f32,
     /// The AK's walk / jump animation state (`ak::ak_locomotion`).
     ak_loco: AkLoco,
+    /// The two weapons carried — a gun and the knife to start with; in
+    /// `Zombies` a wall buy or a pickup replaces the one in hand
+    /// ([`Weapon::take_into_slot`]), so it can be two guns, or a gun and the
+    /// knife. Never two of the same. Kept in step with the server's
+    /// `LobbyMember::weapons`, which it answers.
+    pub(crate) slots: [SlotWeapon; 2],
+    /// Which of `slots` is in hand (or on its way there mid-swap).
+    pub(crate) held: usize,
+    /// The other gun's rounds `(mag, reserve)`, while both slots are guns —
+    /// `mag` / `reserve` are always [`Weapon::primary`]'s.
+    other_ammo: (u32, u32),
+    /// A weapon that just went into our hands (bought or picked up), to draw
+    /// once nothing else is on screen — see `weapon_system`.
+    pending_draw: Option<SlotWeapon>,
+    /// `slots` has been set up for this game (`apply_loadout`) — a `Zombies`
+    /// respawn then only refills the ammo, keeping what was bought.
+    slots_set: bool,
 }
 
 pub(crate) struct WeaponBusy {
@@ -292,6 +310,9 @@ pub(crate) enum WeaponFinish {
     Reload,
     /// Hide finished — the sniper is now stowed; drop its model.
     Holster,
+    /// Hide finished, swapping to the other slot's gun: take it in hand
+    /// ([`Weapon::switch_guns`]) and draw it.
+    SwapGun,
     /// Show finished — the sniper is back out; resume any interrupted action.
     Draw,
 }
@@ -391,6 +412,11 @@ impl Default for Weapon {
             primary: WeaponId::Sniper,
             next_shot_at: 0.0,
             ak_loco: AkLoco::Idle,
+            slots: SlotWeapon::starting(WeaponId::Sniper),
+            held: 0,
+            other_ammo: (0, 0),
+            pending_draw: None,
+            slots_set: false,
         }
     }
 }
@@ -421,6 +447,10 @@ impl Weapon {
     /// for the game mode as soon as that's known (`apply_loadout`). Anything
     /// the old one was doing is dropped.
     pub(crate) fn set_primary(&mut self, primary: WeaponId) {
+        // (A gun and the knife, as every mode but `Zombies` always has.)
+        if let Some(gun) = self.slots.iter_mut().find(|w| w.gun().is_some()) {
+            *gun = SlotWeapon::Gun(primary);
+        }
         self.primary = primary;
         self.mag = self.mag_size();
         self.busy = None;
@@ -508,6 +538,88 @@ impl Weapon {
         self.lethal = Lethal::ThrowingKnife;
     }
 
+    /// The weapon in hand (or on its way there).
+    pub(crate) fn held_weapon(&self) -> SlotWeapon {
+        self.slots[self.held]
+    }
+
+    /// Whether `weapon` is one of the two carried.
+    pub(crate) fn carries(&self, weapon: SlotWeapon) -> bool {
+        self.slots.contains(&weapon)
+    }
+
+    /// `(mag, reserve)` to hand over with the weapon in hand when it's
+    /// dropped — nothing for the knife.
+    pub(crate) fn held_ammo(&self) -> (u32, u32) {
+        match self.held_weapon() {
+            SlotWeapon::Gun(g) if g == self.primary => (self.mag, self.reserve),
+            SlotWeapon::Gun(_) => self.other_ammo,
+            SlotWeapon::Knife => (0, 0),
+        }
+    }
+
+    /// A full load of `gun` in `Zombies`: a mag and its whole reserve.
+    fn full_load(gun: WeaponId) -> (u32, u32) {
+        (mag_size(gun), starting_reserve(shared::GameMode::Zombies, gun))
+    }
+
+    /// Make `gun` the one in hand's view model, with `(mag, reserve)`.
+    fn arm(&mut self, gun: WeaponId, (mag, reserve): (u32, u32)) {
+        self.primary = gun;
+        self.mag = mag;
+        self.reserve = reserve;
+        self.busy = None;
+        self.interrupted = None;
+        self.next_shot_at = 0.0;
+        self.ak_loco = AkLoco::Idle;
+    }
+
+    /// `weapon` (with `ammo` if it's a gun; a full load if `None`) goes in
+    /// slot `slot` — a wall buy or a pickup, which took the place of the
+    /// weapon in hand — and is drawn once nothing else is on screen.
+    pub(crate) fn take_into_slot(&mut self, slot: usize, weapon: SlotWeapon, ammo: Option<(u32, u32)>) {
+        let slot = slot.min(1);
+        let other = self.slots[1 - slot];
+        self.slots[slot] = weapon;
+        self.held = slot;
+        match weapon {
+            SlotWeapon::Gun(gun) => {
+                // The other slot's gun, if it was the one armed (the knife
+                // was in hand), is stowed now.
+                if other == SlotWeapon::Gun(self.primary) {
+                    self.other_ammo = (self.mag, self.reserve);
+                }
+                self.arm(gun, ammo.unwrap_or_else(|| Self::full_load(gun)));
+            }
+            SlotWeapon::Knife => {
+                // The gun left is the other slot's.
+                if let Some(gun) = other.gun() {
+                    if gun != self.primary {
+                        let stowed = self.other_ammo;
+                        self.arm(gun, stowed);
+                    }
+                }
+                self.busy = None;
+                self.interrupted = None;
+            }
+        }
+        self.pending_draw = Some(weapon);
+    }
+
+    /// Take the other slot's gun in hand (both slots are guns), stowing the
+    /// one that was.
+    fn switch_guns(&mut self) {
+        let to = 1 - self.held;
+        let Some(gun) = self.slots[to].gun() else { return };
+        if gun == self.primary {
+            self.held = to;
+            return;
+        }
+        let stowed = std::mem::replace(&mut self.other_ammo, (self.mag, self.reserve));
+        self.arm(gun, stowed);
+        self.held = to;
+    }
+
     pub(crate) fn refill_ammo(&mut self) {
         self.mag = self.mag_size();
         self.reserve = 0;
@@ -534,6 +646,29 @@ pub(crate) fn apply_loadout(
     let Some(lobby) = lobbies.iter().find(|l| l.started && l.has(me)) else {
         return;
     };
+    let member = lobby.members.iter().find(|m| m.peer == me);
+    if lobby.mode == shared::GameMode::Zombies && weapon.slots_set {
+        // A `Zombies` respawn keeps what was carried: both guns topped up.
+        if let Some(other) = weapon.slots.iter().filter_map(|w| w.gun()).find(|&g| g != weapon.primary) {
+            weapon.other_ammo = Weapon::full_load(other);
+        }
+    } else {
+        // A new game (or any other mode's life): what the server says we
+        // start with — in `Zombies` our loadout pick, which can't change
+        // mid-game.
+        let gun = member.map_or(weapon.primary, |m| {
+            if lobby.mode == shared::GameMode::Zombies { m.loadout } else { m.primary }
+        });
+        let gun = if lobby.mode.has_loadout() { gun } else { WeaponId::Sniper };
+        weapon.slots = SlotWeapon::starting(gun);
+        weapon.held = if weapon.slot == WeaponSlot::Secondary { 1 } else { 0 };
+        weapon.other_ammo = (0, 0);
+        weapon.slots_set = true;
+        if weapon.primary != gun {
+            weapon.primary = gun;
+            weapon.mag = mag_size(gun);
+        }
+    }
     weapon.reserve = starting_reserve(lobby.mode, weapon.primary);
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
     weapon.molotovs = 0;
@@ -1007,7 +1142,7 @@ pub(crate) fn weapon_system(
         Query<&GlobalTransform, With<WorldModelCamera>>,
         Query<Entity, With<WeaponActionSound>>,
         Query<
-            (&mut AnimationPlayer, Option<&mut AnimationTransitions>),
+            (&mut AnimationPlayer, Option<&mut AnimationTransitions>, Option<&AnimationGraphHandle>),
             (
                 With<SniperAnimationPlayer>,
                 Without<KnifeAnimationPlayer>,
@@ -1087,7 +1222,12 @@ pub(crate) fn weapon_system(
         swap_speed
     };
     let stow_speed = arms_settings.weapon_hide_speed * swap_speed;
-    let Some((player, transitions)) = players.iter_mut().next() else {
+    // (Just after a gun swap the old gun's scene can linger a frame: the
+    // player that's this gun's.)
+    let Some((player, transitions, _)) = players
+        .iter_mut()
+        .find(|(_, _, graph)| graph.is_some_and(|g| g.0 == view_model.graph))
+    else {
         return;
     };
     let mut rig = PrimaryRig::new(player, transitions, &view_model, ak_cfg.blend_secs);
@@ -1119,6 +1259,56 @@ pub(crate) fn weapon_system(
     let key_held = debug_hold || binds.lethal.pressed(&keys, &mouse);
     let melee_pressed = locked && binds.melee.just_pressed(&keys, &mouse);
     let melee_idle = melee.phase == MeleePhase::Idle;
+
+    // A weapon that just came into our hands (a wall buy or a pickup — the
+    // one that was out is dropped): draw it, cutting off whatever the old
+    // one was doing — once no throw, drink or quick melee is under way.
+    if weapon.pending_draw.is_some()
+        && knife.phase == ThrowPhase::Idle
+        && drink.phase == DrinkPhase::Idle
+        && melee.phase == MeleePhase::Idle
+    {
+        let drawn = weapon.pending_draw.take();
+        for e in &action_sounds {
+            commands.entity(e).try_despawn();
+        }
+        weapon.busy = None;
+        knife_state.busy = None;
+        if let Some(active) = knife_player.animation_mut(knife_node) {
+            active.seek_to(0.0);
+            active.pause();
+        }
+        match drawn {
+            Some(SlotWeapon::Knife) => {
+                rig.park();
+                **view_model_vis = Visibility::Hidden;
+                weapon.slot = WeaponSlot::Secondary;
+                **knife_vis = Visibility::Inherited;
+                commands.spawn((AudioPlayer::new(sounds.knife_equip.clone()), PlaybackSettings::DESPAWN));
+                play_segment_at(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW], swap_speed);
+                knife_state.busy = Some(KnifeBusy {
+                    remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
+                    seg_end: KNIFE_SEGMENTS[KNIFE_SEG_SHOW].end_secs(),
+                    on_finish: KnifeFinish::Nothing,
+                    interruptible: false,
+                });
+            }
+            _ => {
+                **knife_vis = Visibility::Hidden;
+                weapon.slot = WeaponSlot::Primary;
+                **view_model_vis = Visibility::Inherited;
+                commands.spawn((AudioPlayer::new(sounds.sniper_equip.clone()), PlaybackSettings::DESPAWN));
+                let show = rig.seg(SegAct::Show);
+                rig.play_at(show, primary_swap);
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![show],
+                    seg_end: show.end_secs(),
+                    on_finish: WeaponFinish::Draw,
+                });
+            }
+        }
+        return;
+    }
 
     // Throwing knife — see [`ThrowPhase`]. Press: settle any half-finished
     // swap, then play the equipped weapon's Hide (sped up), which also cuts a
@@ -1347,6 +1537,7 @@ pub(crate) fn weapon_system(
         && melee_pressed
         && weapon.slot == WeaponSlot::Primary
         && knife_state.busy.is_none()
+        && weapon.carries(SlotWeapon::Knife)
     {
         melee.elapsed = 0.0;
         stow_equipped(
@@ -1443,8 +1634,33 @@ pub(crate) fn weapon_system(
     // Weapon swap — accepted even mid-action, so it can cut a reload / rechamber
     // short.
     if locked && binds.swap_weapon.just_pressed(&keys, &mouse) {
+        // From the weapon that's out to the other slot's.
+        let out = match weapon.slot {
+            WeaponSlot::Primary => SlotWeapon::Gun(weapon.primary),
+            WeaponSlot::Secondary => SlotWeapon::Knife,
+        };
+        let from = weapon.slots.iter().position(|&w| w == out).unwrap_or(weapon.held);
+        let to = 1 - from;
+        let to_gun = weapon.slots[to].gun().is_some();
         match weapon.slot {
+            // Two guns: hide this one, then draw the other.
+            WeaponSlot::Primary if to_gun => {
+                if let Some(busy) = weapon.busy.take() {
+                    for e in &action_sounds {
+                        commands.entity(e).try_despawn();
+                    }
+                    stash_interrupted(&mut weapon, busy);
+                }
+                let hide = rig.seg(SegAct::Hide);
+                rig.play_at(hide, primary_swap);
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![hide],
+                    seg_end: hide.end_secs(),
+                    on_finish: WeaponFinish::SwapGun,
+                });
+            }
             WeaponSlot::Primary => {
+                weapon.held = to;
                 // Stow the sniper. Cancel whatever it was doing: silence the
                 // reload / rechamber audio, and remember a reload / rechamber so
                 // it can be replayed from the top when the sniper is drawn again.
@@ -1464,6 +1680,7 @@ pub(crate) fn weapon_system(
                 });
             }
             WeaponSlot::Secondary => {
+                weapon.held = to;
                 // Stow the knife first (cutting short whatever it was doing —
                 // showing, adjusting grip, or mid-slice — same "accepted
                 // even mid-action" policy as the sniper above). `weapon.slot`
@@ -1552,6 +1769,14 @@ pub(crate) fn weapon_system(
                         knife_state.adjust_rolls = knife_state.adjust_rolls.wrapping_add(1);
                         knife_state.next_adjust_in =
                             roll_knife_adjust_delay(knife_state.adjust_rolls);
+                    }
+                    WeaponFinish::SwapGun => {
+                        // This gun's away: the other comes out once the view
+                        // model has switched to it (`ak::sync_primary_model`).
+                        **view_model_vis = Visibility::Hidden;
+                        weapon.switch_guns();
+                        let drawn = weapon.held_weapon();
+                        weapon.pending_draw = Some(drawn);
                     }
                     WeaponFinish::Draw => {
                         // Sniper back out: restart whatever the swap interrupted,
@@ -1859,5 +2084,24 @@ pub(crate) fn weapon_system(
             seg_end: reload.end_secs(),
             on_finish: WeaponFinish::Reload,
         });
+    }
+}
+
+/// Whether our hands are free to take a new weapon (a wall buy or a pickup):
+/// no throw, perk drink or quick melee under way, and not down or reviving.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Hands<'w> {
+    knife: Res<'w, ThrowingKnife>,
+    drink: Res<'w, PerkDrink>,
+    melee: Res<'w, QuickMelee>,
+    revive: Res<'w, crate::revive::LocalRevive>,
+}
+
+impl Hands<'_> {
+    pub(crate) fn free(&self) -> bool {
+        self.knife.phase == ThrowPhase::Idle
+            && self.drink.phase == DrinkPhase::Idle
+            && self.melee.phase == MeleePhase::Idle
+            && !self.revive.blocks_weapon()
     }
 }

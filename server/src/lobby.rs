@@ -197,6 +197,7 @@ fn on_create(
                     loadout: Default::default(),
                     operator: Default::default(),
                     primary: Default::default(),
+                    weapons: shared::weapon::SlotWeapon::starting(Default::default()),
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -249,6 +250,7 @@ fn on_join(
             loadout: Default::default(),
             operator: Default::default(),
             primary: Default::default(),
+            weapons: shared::weapon::SlotWeapon::starting(Default::default()),
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -302,6 +304,7 @@ fn on_start(
         m.pap = Default::default();
         // Everyone starts with the primary they picked (`Freestyle`: the sniper).
         m.primary = if mode_has_loadout { m.loadout } else { shared::weapon::WeaponId::Sniper };
+        m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
     }
@@ -535,6 +538,7 @@ fn on_set_loadout(
         }
         if swap_now && m.primary != weapon {
             m.primary = weapon;
+            m.weapons = shared::weapon::SlotWeapon::starting(weapon);
             info!("{peer:?} swapped to the {} (spawn grace)", weapon.label());
         }
     }
@@ -667,6 +671,7 @@ fn add_bots(
             loadout: Default::default(),
             operator: Default::default(),
             primary: Default::default(),
+            weapons: shared::weapon::SlotWeapon::starting(Default::default()),
         });
         *next_id += 1;
     }
@@ -910,6 +915,7 @@ mod tests {
                 loadout: Default::default(),
                 operator: Default::default(),
                 primary: Default::default(),
+                weapons: shared::weapon::SlotWeapon::starting(Default::default()),
             }],
         }
     }

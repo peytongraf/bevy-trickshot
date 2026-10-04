@@ -844,7 +844,7 @@ pub(crate) fn draw_gizmos(
         gizmos.arrow(base, base + rot * Vec3::Z * (half.z + 1.0), color);
         if selected || editor.view.ranges {
             gizmos.circle(
-                Isometry3d::new(base, flat),
+                Isometry3d::new(id.use_center(at) + Vec3::Y * 0.05, flat),
                 id.use_radius(),
                 id.color().with_alpha(if selected { 0.9 } else { 0.4 }),
             );

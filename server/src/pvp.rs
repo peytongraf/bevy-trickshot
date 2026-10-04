@@ -832,13 +832,17 @@ fn sync_health(mut players: Query<(&PlayerCombat, &mut PlayerHealth)>) {
 /// A new life: `peer` now carries whatever they last picked in the loadout
 /// (a `FreeForAll` change made too late to swap mid-life lands here).
 fn arm_from_loadout(lobby: &mut Mut<Lobby>, peer: PeerId) {
+    // (`Zombies` keeps what was bought or picked up through a bleed-out,
+    // like its Pack-a-Punch levels — and its loadout can't change mid-game.)
     if !lobby.mode.has_loadout()
+        || lobby.mode == GameMode::Zombies
         || !lobby.members.iter().any(|m| m.peer == peer && m.primary != m.loadout)
     {
         return;
     }
     if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
         m.primary = m.loadout;
+        m.weapons = shared::weapon::SlotWeapon::starting(m.loadout);
     }
 }
 

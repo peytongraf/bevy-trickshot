@@ -99,17 +99,14 @@ fn level_status(level: u8, current: u8, points: u32) -> LevelStatus {
 /// The weapon in our hands.
 fn held_weapon(weapon: &Weapon) -> PapWeapon {
     match weapon.slot {
-        WeaponSlot::Primary => PapWeapon::Sniper,
+        WeaponSlot::Primary => PapWeapon::gun(weapon.primary),
         WeaponSlot::Secondary => PapWeapon::Knife,
     }
 }
 
-/// The held weapon's name — the primary's is whichever we carry.
+/// The held weapon's name.
 fn held_label(weapon: &Weapon) -> &'static str {
-    match held_weapon(weapon) {
-        PapWeapon::Sniper if weapon.primary == shared::weapon::WeaponId::Ak74 => "AK-74",
-        held => held.label(),
-    }
+    held_weapon(weapon).label()
 }
 
 /// What packing `weapon` (its magazine `mag` rounds) to `level` does, for the
@@ -117,7 +114,7 @@ fn held_label(weapon: &Weapon) -> &'static str {
 fn level_description(weapon: PapWeapon, mag: u32, level: u8) -> String {
     let damage = format!("{:.0}x Damage", shared::pap::damage_mult(level));
     match weapon {
-        PapWeapon::Sniper => format!(
+        PapWeapon::Sniper | PapWeapon::Ak74 => format!(
             "{damage}  |  +{} Max Ammo",
             mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32
         ),
