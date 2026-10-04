@@ -88,16 +88,14 @@ pub fn numeral(level: u8) -> &'static str {
 }
 
 /// Where the Pack-a-Punch machine stands on `map` (the ground under its
-/// middle), if the map has one. Only Break Point (day or night — the map
-/// with the power switch) so far.
+/// middle), if the map has one — from its layout ([`crate::level`]).
 pub fn machine_pos(map: MapId) -> Option<Vec3> {
-    // Tuned in the client's debug panel ("Pack-a-Punch machine").
-    map.is_break_point().then_some(Vec3::new(25.0, 0.0, -59.6))
+    crate::level::layout(map).pack_a_punch.map(|p| p.pos)
 }
 
 /// Which way the machine faces on `map` (degrees about y).
-pub fn machine_yaw_deg(_map: MapId) -> f32 {
-    0.0
+pub fn machine_yaw_deg(map: MapId) -> f32 {
+    crate::level::layout(map).pack_a_punch.map_or(0.0, |p| p.yaw_deg)
 }
 
 /// Half the machine's width, height and depth (m) — the client's model at
@@ -164,10 +162,15 @@ mod tests {
 
     #[test]
     fn range_is_only_where_there_is_a_machine() {
-        let m = machine_pos(MapId::BreakPointNight).unwrap();
-        assert!(in_range(MapId::BreakPointNight, m, 0.0));
-        assert!(!in_range(MapId::BreakPointNight, m + Vec3::X * 10.0, 0.0));
-        assert!(in_range(MapId::BreakPoint, m, 0.0), "day has it too");
-        assert!(!in_range(MapId::BasicMap, m, 0.0));
+        for map in MapId::PLACES {
+            match machine_pos(map) {
+                Some(m) => {
+                    assert!(in_range(map, m, 0.0));
+                    assert!(!in_range(map, m + Vec3::X * 10.0, 0.0));
+                    assert!(in_range(map.with_night(!map.is_night()), m, 0.0), "day and night alike");
+                }
+                None => assert!(!in_range(map, Vec3::ZERO, 0.0)),
+            }
+        }
     }
 }

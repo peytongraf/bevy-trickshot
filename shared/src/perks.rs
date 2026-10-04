@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::MapId;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Perk {
     /// Shroom Tea — the shroom screen effect, x-ray and a little aim assist.
     ShroomTea,
@@ -270,7 +270,7 @@ impl Perk {
         }
     }
 
-    /// Its machine's spot number: its place in its set.
+    /// Its place in its set.
     pub fn slot(self) -> usize {
         self.set().perks().iter().position(|&p| p == self).unwrap_or(0)
     }
@@ -407,19 +407,17 @@ impl Perk {
     }
 
     /// Where the perk's machine stands on `map` — the centre of the ground
-    /// under it (feet level, like `Bot::pos`). The buy range, the machine's
-    /// collision box, its model, light and jingle all go from here. Each set
-    /// numbers its machines' spots the same way ([`Perk::slot`]), so the
-    /// classic set's first five stand where the custom set's do. Maps
-    /// without spots yet use somewhere near the origin.
+    /// under it (feet level, like `Bot::pos`), from the map's layout
+    /// ([`crate::level`]). The buy range, the machine's collision box, its
+    /// model, light and jingle all go from here.
     pub fn machine_pos(self, map: MapId) -> Vec3 {
-        slot_pos(self.slot(), map)
+        crate::level::layout(map).perk(self).pos
     }
 
     /// Which way the perk's machine faces on `map`: its turn around the
     /// vertical axis (degrees).
     pub fn machine_yaw_deg(self, map: MapId) -> f32 {
-        slot_yaw_deg(self.slot(), map)
+        crate::level::layout(map).perk(self).yaw_deg
     }
 
     /// The machine's solid box on `map` (only there in `Zombies`):
@@ -430,65 +428,6 @@ impl Perk {
             Quat::from_rotation_y(self.machine_yaw_deg(map).to_radians()),
             MACHINE_HALF_EXTENTS,
         )
-    }
-}
-
-/// Machine spots past the custom set's five stand this far (m) to the side
-/// of one of those, along the wall it's backed against.
-const EXTRA_SLOT_SPACING: f32 = 3.2;
-
-/// Where machine spot `slot` is on `map` (see [`Perk::machine_pos`]).
-fn slot_pos(slot: usize, map: MapId) -> Vec3 {
-    match map {
-        // Ashes of the Damned: placeholders in a row across the ground-level
-        // platform until they're placed properly.
-        MapId::AshesOfTheDamned => {
-            const X: [f32; 8] = [-12.0, -6.0, 0.0, 6.0, 12.0, 18.0, -18.0, 24.0];
-            Vec3::new(X[slot % X.len()], 0.0, -22.0)
-        }
-        MapId::BreakPoint | MapId::BreakPointNight => {
-            // Tuned in the client's debug panel ("Machine placement").
-            const SPOTS: [Vec3; 5] = [
-                Vec3::new(-2.76, 4.8, -57.43),
-                Vec3::new(-35.62, 6.0, 13.54),
-                Vec3::new(28.92, 6.0, 59.62),
-                // Ground floor, under the upper walkway.
-                Vec3::new(-30.7, 0.0, -2.03),
-                Vec3::new(-35.6, 15.6, -20.0),
-            ];
-            if slot < SPOTS.len() {
-                SPOTS[slot]
-            } else {
-                // Beside one of the five, the same way round.
-                let beside = (slot - SPOTS.len()) % SPOTS.len();
-                let side = Quat::from_rotation_y(slot_yaw_deg(beside, map).to_radians()) * Vec3::X;
-                SPOTS[beside] + side * EXTRA_SLOT_SPACING
-            }
-        }
-        _ => {
-            const SPOTS: [Vec3; 8] = [
-                Vec3::ZERO,
-                Vec3::new(6.0, 0.0, 0.0),
-                Vec3::new(-6.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, 6.0),
-                Vec3::new(0.0, 0.0, -6.0),
-                Vec3::new(6.0, 0.0, 6.0),
-                Vec3::new(-6.0, 0.0, 6.0),
-                Vec3::new(6.0, 0.0, -6.0),
-            ];
-            SPOTS[slot % SPOTS.len()]
-        }
-    }
-}
-
-/// Which way machine spot `slot` faces on `map` (degrees).
-fn slot_yaw_deg(slot: usize, map: MapId) -> f32 {
-    match map {
-        MapId::BreakPoint | MapId::BreakPointNight => {
-            const YAW: [f32; 5] = [-90.0, 90.0, 180.0, 0.0, 90.0];
-            YAW[slot % YAW.len()]
-        }
-        _ => 0.0,
     }
 }
 
@@ -527,13 +466,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn standing_at_the_logged_spot_is_in_range_and_a_few_metres_away_is_not() {
-        let m = Perk::ShroomTea.machine_pos(MapId::BreakPoint);
-        assert!(in_range(Perk::ShroomTea, MapId::BreakPoint, m, 0.0));
-        assert!(in_range(Perk::ShroomTea, MapId::BreakPoint, m + Vec3::X * 1.5, 0.0));
-        assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m + Vec3::X * 3.0, 0.0));
+    fn standing_at_the_machine_is_in_range_and_a_few_metres_away_is_not() {
+        let m = Vec3::new(3.0, 4.8, -7.0);
+        assert!(in_range_of(m, m, 0.0));
+        assert!(in_range_of(m, m + Vec3::X * 1.5, 0.0));
+        assert!(!in_range_of(m, m + Vec3::X * 3.0, 0.0));
         // A floor below doesn't count.
-        assert!(!in_range(Perk::ShroomTea, MapId::BreakPoint, m - Vec3::Y * 4.0, 0.0));
+        assert!(!in_range_of(m, m - Vec3::Y * 4.0, 0.0));
     }
 
     #[test]
@@ -563,14 +502,8 @@ mod tests {
 
     #[test]
     fn no_two_machines_can_be_bought_from_the_same_spot() {
-        for map in [
-            MapId::BasicMap,
-            MapId::Shipment,
-            MapId::ShipmentDay,
-            MapId::BreakPoint,
-            MapId::BreakPointNight,
-            MapId::AshesOfTheDamned,
-        ] {
+        // (The level editor warns about the same thing.)
+        for map in MapId::PLACES {
             for set in PerkSet::ALL {
                 for a in set.machine_perks() {
                     for b in set.machine_perks() {
@@ -584,10 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn both_sets_share_the_first_five_spots() {
-        for (c, k) in Perk::CUSTOM.iter().zip(Perk::CLASSIC.iter()) {
-            assert_eq!(c.machine_pos(MapId::BreakPoint), k.machine_pos(MapId::BreakPoint));
-        }
+    fn death_perception_is_the_last_classic_perk() {
         assert_eq!(Perk::DeathPerception.slot(), 7);
         assert_eq!(Perk::DeathPerception.set(), PerkSet::Classic);
     }

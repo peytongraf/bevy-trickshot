@@ -21,7 +21,7 @@ use shared::Lobby;
 use crate::keybinds::KeyBindings;
 use crate::menu::{self, Screen};
 use crate::net::GameClient;
-use crate::pap::{my_pap_levels, PapSettings};
+use crate::pap::my_pap_levels;
 use crate::ui::{ui_sound, UiSfx, UiSound};
 use crate::weapons::{Weapon, WeaponSlot, MAG_SIZE, PAP_EXTRA_MAGS_PER_LEVEL};
 use crate::zombies_hud::{zombies_game, MONEY_YELLOW};
@@ -130,13 +130,12 @@ fn level_description(weapon: PapWeapon, mag: u32, level: u8) -> String {
 fn at_machine<'a>(
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &'a Query<&Lobby>,
-    settings: &PapSettings,
     player: &Transform,
 ) -> Option<(&'a Lobby, u32)> {
     let lobby = zombies_game(local, lobbies).filter(|l| shared::pap::machine_pos(l.map).is_some())?;
     let me = local.iter().next()?.0;
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    if !settings.in_range(feet) {
+    if !shared::pap::in_range(lobby.map, feet, 0.0) {
         return None;
     }
     let points = lobby.members.iter().find(|m| m.peer == me)?.score;
@@ -218,7 +217,6 @@ fn update_pap_prompt(
     active_killcam: Res<killcam::ActiveKillCam>,
     death: Res<crate::death_effect::DeathEffect>,
     binds: Res<KeyBindings>,
-    settings: Res<PapSettings>,
     weapon: Res<Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -228,7 +226,7 @@ fn update_pap_prompt(
 ) {
     let here = player
         .filter(|_| !menu.is_open() && active_killcam.0.is_none() && !death.is_active())
-        .and_then(|p| at_machine(&local, &lobbies, &settings, &p));
+        .and_then(|p| at_machine(&local, &lobbies, &p));
     let Some((lobby, _)) = here else {
         prompt.set_if_neq(Visibility::Hidden);
         return;
@@ -258,7 +256,6 @@ fn open_pap_menu(
     binds: Res<KeyBindings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    settings: Res<PapSettings>,
     weapon: Res<Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -272,7 +269,7 @@ fn open_pap_menu(
     let Some(player) = player else {
         return;
     };
-    let Some((lobby, _)) = at_machine(&local, &lobbies, &settings, &player) else {
+    let Some((lobby, _)) = at_machine(&local, &lobbies, &player) else {
         return;
     };
     if !shared::power::has_power(lobby.map, lobby.power_on) {
@@ -707,7 +704,6 @@ fn pap_menu_lifecycle(
     mut state: ResMut<PapMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
     death: Res<crate::death_effect::DeathEffect>,
-    settings: Res<PapSettings>,
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -722,7 +718,7 @@ fn pap_menu_lifecycle(
             state.close_pending = true;
         }
         let still_here = !death.is_active()
-            && player.is_some_and(|p| at_machine(&local, &lobbies, &settings, &p).is_some());
+            && player.is_some_and(|p| at_machine(&local, &lobbies, &p).is_some());
         let released = state.close_pending && mouse.get_pressed().next().is_none();
         if !still_here || released {
             menu.screen = Screen::None;

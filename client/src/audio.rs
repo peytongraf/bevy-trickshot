@@ -742,7 +742,7 @@ pub(crate) fn sync_menu_music(
     settings: Res<Settings>,
     music: Query<Entity, With<MenuMusic>>,
 ) {
-    if *state.get() == AppState::InGame {
+    if matches!(state.get(), AppState::InGame | AppState::LevelEditor) {
         for e in &music {
             commands.entity(e).despawn();
         }

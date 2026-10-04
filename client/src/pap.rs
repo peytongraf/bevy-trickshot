@@ -1,5 +1,5 @@
-//! The `Zombies` Pack-a-Punch machine (`models/props/pap_machine.glb`) on the map
-//! that has one (`shared::pap::machine_pos` — Break Point, day or night), glowing
+//! The `Zombies` Pack-a-Punch machine (`models/props/pap_machine.glb`) on a map
+//! that has one (`shared::pap::machine_pos`, from its level layout), glowing
 //! blue once the power's on (and solid, like the perk machines), and what
 //! being packed looks like: each packed weapon's body — ours, and the gun in
 //! other players' hands — wears that level's camo
@@ -22,9 +22,9 @@ use shared::{GameMode, Lobby};
 use crate::net::GameClient;
 use crate::weapons::{KnifeViewModel, ViewModel, Weapon};
 use crate::zombies_hud::{zombies_game, PerkMachineSettings};
-use crate::{AppState, Player, EYE_HEIGHT};
+use crate::AppState;
 
-const PAP_MODEL: &str = "models/props/pap_machine.glb";
+pub(crate) const PAP_MODEL: &str = "models/props/pap_machine.glb";
 /// Half the model's height (m) at scale 1 — its origin is at its middle.
 const PAP_HALF_HEIGHT: f32 = 2.0;
 /// The machine's glow.
@@ -54,21 +54,12 @@ impl Plugin for PapPlugin {
     }
 }
 
-/// Panel-tunable Pack-a-Punch placement and look.
+/// Panel-tunable Pack-a-Punch look. Where it stands is the map's layout's
+/// (`shared::pap::machine_pos`).
 #[derive(Resource, Clone)]
 pub(crate) struct PapSettings {
-    /// World position (m) of the ground under its middle — its model is
-    /// lifted by its own half height (times `scale`) to stand there. The
-    /// server's range check uses `shared::pap::machine_pos`; this only moves
-    /// it on this client, for finding a spot to bake in there.
-    pub(crate) pos: Vec3,
-    /// Degrees about x (pitch), y (turn) and z (roll).
-    pub(crate) rotation_deg: Vec3,
     /// 1 = the model as it comes: 2.5 m wide, 4 m tall, 1.2 m deep.
     pub(crate) scale: f32,
-    /// Set by the panel's "move to me" button: `sync_pap_machine` moves `pos`
-    /// to our feet, then clears it.
-    pub(crate) snap_to_player: bool,
     /// Where its blue light sits (m) from the ground under its middle, in
     /// the machine's own frame. Intensity / range / softness are the perk
     /// machines' ("Perk machines" → Light).
@@ -84,11 +75,8 @@ pub(crate) struct PapSettings {
 impl Default for PapSettings {
     fn default() -> Self {
         Self {
-            pos: shared::pap::machine_pos(shared::MapId::BreakPointNight).unwrap_or(Vec3::ZERO),
-            rotation_deg: Vec3::Y * shared::pap::machine_yaw_deg(shared::MapId::BreakPointNight),
             // A 2 m tall machine.
             scale: 0.5,
-            snap_to_player: false,
             light_offset: Vec3::new(0.0, 1.6, 0.9),
             camo_scroll: Vec2::new(0.08, 0.03),
             camo_tiling: 2.0,
@@ -98,15 +86,6 @@ impl Default for PapSettings {
 }
 
 impl PapSettings {
-    fn root_transform(&self) -> Transform {
-        let r = self.rotation_deg;
-        Transform::from_translation(self.pos).with_rotation(Quat::from_euler(
-            EulerRot::YXZ,
-            r.y.to_radians(),
-            r.x.to_radians(),
-            r.z.to_radians(),
-        ))
-    }
 
     /// Half the solid box's width, height and depth (m) at this scale — at
     /// the default it's `shared::pap::MACHINE_HALF_EXTENTS`, the server's.
@@ -114,16 +93,16 @@ impl PapSettings {
         Vec3::new(1.25, PAP_HALF_HEIGHT, 0.6) * self.scale.max(1e-4)
     }
 
-    fn model_transform(&self) -> Transform {
+    /// The model, from the machine's root (the ground under its middle).
+    pub(crate) fn model_transform(&self) -> Transform {
         let scale = self.scale.max(1e-4);
         Transform::from_translation(Vec3::Y * PAP_HALF_HEIGHT * scale).with_scale(Vec3::splat(scale))
     }
+}
 
-    /// Whether feet at `feet` can use the machine where it stands on this
-    /// client.
-    pub(crate) fn in_range(&self, feet: Vec3) -> bool {
-        shared::pap::in_range_of(self.pos, feet, 0.0)
-    }
+/// The machine's root standing at `at`.
+pub(crate) fn root_transform(at: shared::level::Placement) -> Transform {
+    Transform::from_translation(at.pos).with_rotation(at.rotation())
 }
 
 #[derive(Component)]
@@ -139,16 +118,13 @@ struct PapLight;
 struct PapCollider;
 
 /// Put the machine on the map while we're in a `Zombies` game on a map with
-/// one (and take it away otherwise), where the panel says, its light faded
+/// one (and take it away otherwise), where its layout says, its light faded
 /// in with the power like the perk machines'.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sync_pap_machine(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut settings: ResMut<PapSettings>,
-    player: Option<
-        Single<&Transform, (With<Player>, Without<PapMachine>, Without<PapModel>, Without<PapLight>, Without<PapCollider>)>,
-    >,
+    settings: Res<PapSettings>,
     machines_cfg: Res<PerkMachineSettings>,
     map_lights: Res<crate::power::MapLightSettings>,
     time: Res<Time>,
@@ -171,14 +147,8 @@ fn sync_pap_machine(
     mut power: Local<f32>,
     mut commands: Commands,
 ) {
-    if settings.snap_to_player {
-        settings.snap_to_player = false;
-        if let Some(player) = &player {
-            settings.pos = player.translation - Vec3::Y * EYE_HEIGHT;
-        }
-    }
-    let Some(lobby) = zombies_game(&local, &lobbies).filter(|l| shared::pap::machine_pos(l.map).is_some())
-    else {
+    let found = zombies_game(&local, &lobbies).and_then(|l| shared::level::layout(l.map).pack_a_punch.map(|at| (l, at)));
+    let Some((lobby, at)) = found else {
         for (e, _) in &machines {
             commands.entity(e).despawn();
         }
@@ -191,7 +161,7 @@ fn sync_pap_machine(
                 StateScoped(AppState::InGame),
                 PapMachine,
                 crate::power::PoweredHum(Vec3::Y * 1.0),
-                settings.root_transform(),
+                root_transform(at),
                 Visibility::default(),
             ))
             .with_children(|m| {
@@ -234,7 +204,7 @@ fn sync_pap_machine(
     let fade = *power * *power * (3.0 - 2.0 * *power);
 
     for (_, mut t) in &mut machines {
-        t.set_if_neq(settings.root_transform());
+        t.set_if_neq(root_transform(at));
     }
     for mut t in &mut models {
         t.set_if_neq(settings.model_transform());

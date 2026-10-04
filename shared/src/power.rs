@@ -14,14 +14,15 @@ pub const POWER_COST: u32 = 750;
 
 /// Where the power switch is on `map` (the ground under its middle — the
 /// lever itself is mounted on the wall above, see the client's
-/// `power::PowerLeverSettings`), if that map has one. Only Break Point does
-/// for now (day or night — the same in every way but the look).
+/// `power::PowerLeverSettings`), if that map has one — from its layout
+/// ([`crate::level`]).
 pub fn switch_pos(map: MapId) -> Option<Vec3> {
-    if map.is_break_point() {
-        Some(Vec3::new(-7.0, 0.0, -56.35))
-    } else {
-        None
-    }
+    crate::level::layout(map).power_switch.map(|p| p.pos)
+}
+
+/// Which way the switch faces on `map` (degrees about y).
+pub fn switch_yaw_deg(map: MapId) -> f32 {
+    crate::level::layout(map).power_switch.map_or(0.0, |p| p.yaw_deg)
 }
 
 /// Whether the power's on in a game on `map` (`Lobby::power_on`) — always,
@@ -46,21 +47,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_map_without_a_switch_always_has_power() {
-        assert!(has_power(MapId::BasicMap, false));
-        for map in [MapId::BreakPoint, MapId::BreakPointNight] {
-            assert!(!has_power(map, false));
+    fn a_map_without_a_switch_always_has_power_and_one_with_needs_it_on() {
+        for map in MapId::PLACES {
+            assert_eq!(has_power(map, false), switch_pos(map).is_none());
             assert!(has_power(map, true));
         }
     }
 
     #[test]
-    fn only_break_point_has_a_switch_day_or_night_and_its_reach_is_a_couple_of_metres() {
-        assert!(switch_pos(MapId::BasicMap).is_none());
-        assert!(!in_range(MapId::BasicMap, Vec3::ZERO, 0.0));
-        assert_eq!(switch_pos(MapId::BreakPoint), switch_pos(MapId::BreakPointNight));
-        let s = switch_pos(MapId::BreakPointNight).unwrap();
-        assert!(in_range(MapId::BreakPointNight, s + Vec3::X * 1.5, 0.0));
-        assert!(!in_range(MapId::BreakPointNight, s + Vec3::X * 3.0, 0.0));
+    fn day_and_night_share_a_switch_and_its_reach_is_a_couple_of_metres() {
+        for map in MapId::PLACES {
+            assert_eq!(switch_pos(map), switch_pos(map.with_night(!map.is_night())));
+            match switch_pos(map) {
+                Some(s) => {
+                    assert!(in_range(map, s + Vec3::X * 1.5, 0.0));
+                    assert!(!in_range(map, s + Vec3::X * 3.0, 0.0));
+                }
+                None => assert!(!in_range(map, Vec3::ZERO, 0.0)),
+            }
+        }
     }
 }

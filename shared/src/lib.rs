@@ -20,6 +20,7 @@ pub mod bot_players;
 pub mod bots;
 pub mod health;
 pub mod hitbox;
+pub mod level;
 pub mod map;
 pub mod melee;
 pub mod molotov;
@@ -60,7 +61,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001e;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_001f;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

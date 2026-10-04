@@ -586,7 +586,7 @@ const MODEL_HALF_EXTENTS: Vec3 = Vec3::new(1.25, 2.0, 0.6);
 /// from all over, each at its own scale and some with their origin at the
 /// base, some in the middle — so each is fitted to the machine's box:
 /// scaled to its height, stood on the ground and centred.
-struct ModelFit {
+pub(crate) struct ModelFit {
     /// Its height, its lowest point, and the middle of its footprint
     /// (x, z).
     height: f32,
@@ -623,7 +623,7 @@ fn fit_transform(fit: &ModelFit, height: f32, yaw_deg: f32) -> Transform {
 /// Each perk's machine model, and for a classic one how to fit it (measured
 /// from the `.glb`s' bounds). Death Perception and PhD Flopper have none
 /// (only Der Wunderfizz sells them); they'd get its model.
-fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
+pub(crate) fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
     const WUNDERFIZZ: (&str, Option<ModelFit>) = (WUNDERFIZZ_MODEL, Some(WUNDERFIZZ_FIT));
     match perk {
         Perk::ShroomTea => ("models/props/perk_machines/custom/shroom_tea_perk_machine.glb", None),
@@ -657,15 +657,6 @@ fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
         ),
         Perk::PhdFlopper | Perk::DeathPerception => WUNDERFIZZ,
     }
-}
-
-/// A machine's nudge away from where `shared` puts it, from the debug panel.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct MachineNudge {
-    /// Metres from [`Perk::machine_pos`].
-    pub(crate) offset: Vec3,
-    /// Degrees on top of [`Perk::machine_yaw_deg`].
-    pub(crate) yaw_deg: f32,
 }
 
 /// The light every perk machine has, in the perk's colour.
@@ -709,11 +700,10 @@ impl MachineLight {
     }
 }
 
-/// Panel-tunable perk machines ("Zombies perks" → "Perk machines"). The
-/// machines' real spots live in `shared::perks` so the server agrees on them
-/// (buy range, collision for bots and shots); these nudges move a machine —
-/// model, collider, light, jingle and the range for its card — on this
-/// client only, for finding a spot to bake into `shared`.
+/// Panel-tunable perk machines ("Zombies perks" → "Perk machines"): their
+/// look. Where they stand is the map's layout's (`shared::level`, placed in
+/// the level editor), so the server agrees on it (buy range, collision for
+/// bots and shots).
 #[derive(Resource, Clone)]
 pub(crate) struct PerkMachineSettings {
     /// Model scale for every machine. At the default it matches the
@@ -724,23 +714,13 @@ pub(crate) struct PerkMachineSettings {
     /// The fog every machine vents once the power's on
     /// (`vfx::machine_fog`).
     pub(crate) fog: crate::vfx::MachineFog,
-    /// Each machine's nudge from its spot.
-    pub(crate) nudges: std::collections::HashMap<Perk, MachineNudge>,
     /// Each classic machine model's turn (degrees) inside its box — the
     /// imported models don't all face the same way. The machine's own turn
-    /// (its spot's, plus its nudge) is what the fog follows, so this lines
+    /// (its layout's) is what the fog follows, so this lines
     /// the model's front up with that and nothing else.
     pub(crate) model_yaw_deg: std::collections::HashMap<Perk, f32>,
-    /// Der Wunderfizz's nudge from its spot (`shared::wunderfizz`), and its
-    /// model's turn inside its box (`crate::wunderfizz`).
-    pub(crate) wunderfizz: MachineNudge,
+    /// Der Wunderfizz's model's turn inside its box (`crate::wunderfizz`).
     pub(crate) wunderfizz_model_yaw_deg: f32,
-    /// Set by the panel's "move Der Wunderfizz to me" button
-    /// (`wunderfizz::sync_wunderfizz_machine` clears it).
-    pub(crate) snap_wunderfizz: bool,
-    /// Set by the panel's "move to me" buttons: `sync_perk_machines` moves
-    /// that perk's machine to our feet (by its nudge), then clears it.
-    pub(crate) snap_to_player: Option<Perk>,
 }
 
 impl Default for PerkMachineSettings {
@@ -749,44 +729,33 @@ impl Default for PerkMachineSettings {
             scale: shared::perks::MACHINE_HALF_EXTENTS.y / MODEL_HALF_EXTENTS.y,
             light: default(),
             fog: default(),
-            nudges: default(),
             // Turned so each model's front — its dispenser slot — faces the
             // machine's front, the way its fog vents (`vfx::machine_fog`);
             // the rest already do. Degrees counter-clockwise seen from above.
             model_yaw_deg: [(Perk::StaminUp, 90.0), (Perk::QuickRevive, -90.0), (Perk::Juggernog, 180.0)]
                 .into_iter()
                 .collect(),
-            wunderfizz: default(),
             wunderfizz_model_yaw_deg: 0.0,
-            snap_wunderfizz: false,
-            snap_to_player: None,
         }
     }
 }
 
 impl PerkMachineSettings {
-    pub(crate) fn nudge_mut(&mut self, perk: Perk) -> &mut MachineNudge {
-        self.nudges.entry(perk).or_default()
-    }
-
-    fn nudge(&self, perk: Perk) -> MachineNudge {
-        self.nudges.get(&perk).copied().unwrap_or_default()
-    }
-
     /// Where `perk`'s machine stands on `map` (the ground under its middle)
-    /// and which way it faces (degrees), nudges included.
+    /// and which way it faces (degrees).
     pub(crate) fn placement(&self, perk: Perk, map: shared::MapId) -> (Vec3, f32) {
-        let n = self.nudge(perk);
-        (perk.machine_pos(map) + n.offset, perk.machine_yaw_deg(map) + n.yaw_deg)
+        (perk.machine_pos(map), perk.machine_yaw_deg(map))
     }
 
     /// Where Der Wunderfizz stands on `map` and which way it faces
-    /// (degrees), nudge included.
+    /// (degrees).
     pub(crate) fn wunderfizz_placement(&self, map: shared::MapId) -> (Vec3, f32) {
-        (
-            shared::wunderfizz::machine_pos(map) + self.wunderfizz.offset,
-            shared::wunderfizz::machine_yaw_deg(map) + self.wunderfizz.yaw_deg,
-        )
+        (shared::wunderfizz::machine_pos(map), shared::wunderfizz::machine_yaw_deg(map))
+    }
+
+    /// `perk`'s machine model, from the machine's root.
+    pub(crate) fn model_transform(&self, perk: Perk) -> Transform {
+        self.part_transform(MachinePart::Model(perk))
     }
 
     /// Der Wunderfizz's model, fitted to the machine box like the classic
@@ -978,8 +947,7 @@ fn update_perk_jingles(
 fn sync_perk_machines(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut settings: ResMut<PerkMachineSettings>,
-    player: Option<Single<&Transform, (With<Player>, Without<PerkMachine>, Without<MachinePart>)>>,
+    settings: Res<PerkMachineSettings>,
     asset_server: Res<AssetServer>,
     mut machines: Query<(Entity, &PerkMachine, &mut Transform)>,
     mut parts: Query<(&MachinePart, &mut Transform), Without<PerkMachine>>,
@@ -999,13 +967,6 @@ fn sync_perk_machines(
         *power = 0.0;
         return;
     };
-    if let Some(perk) = settings.snap_to_player {
-        settings.snap_to_player = None;
-        if let Some(player) = &player {
-            let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-            settings.nudge_mut(perk).offset = feet - perk.machine_pos(lobby.map);
-        }
-    }
     let before = *power;
     let target = if shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on {
         1.0

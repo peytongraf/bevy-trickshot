@@ -5,10 +5,9 @@
 //! mag and reserve (`Weapon::fill_mag_and_reserve`) and plays the buy sound
 //! for us alone.
 //!
-//! Its placement is panel-tunable for now ("Zombies perks" → "Ammo crate"),
-//! on this client only — the server takes the client's word that it's at the
-//! crate, and its solid box (zombies' and ours) is at the default spot in
-//! `shared::ammo`, which the panel's collider follows here.
+//! It stands where the map's layout says (`shared::ammo::crate_pos`, placed
+//! in the level editor) — the server takes the client's word that it's at
+//! the crate; its solid box (zombies' and ours) is `shared::ammo::crate_box`.
 //!
 //! The crate and card are `StateScoped(InGame)`; the crate is also taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
@@ -25,7 +24,7 @@ use crate::{
     killcam, menu, AppState, GameSounds, Player, Weapon, WeaponSlot, EYE_HEIGHT, HUD_FONT,
 };
 
-const AMMO_CRATE_MODEL: &str = "models/props/ammo_crate.glb";
+pub(crate) const AMMO_CRATE_MODEL: &str = "models/props/ammo_crate.glb";
 /// How close (m, across the ground) our feet must be to the crate's spot.
 const USE_RADIUS: f32 = 2.0;
 /// How far (m) above / below the crate's spot our feet may be.
@@ -55,81 +54,71 @@ impl Plugin for AmmoCratePlugin {
     }
 }
 
-/// Panel-tunable ammo crate placement.
+/// Panel-tunable ammo crate look ("Zombies perks" → "Ammo crate"). Where it
+/// stands is the map's layout's.
 #[derive(Resource, Clone)]
 pub(crate) struct AmmoCrateSettings {
-    /// World position (m) of the model's origin.
-    pub(crate) pos: Vec3,
-    /// Degrees about x (pitch), y (turn) and z (roll).
-    pub(crate) rotation_deg: Vec3,
     /// 1 = the model as it comes.
     pub(crate) scale: f32,
-    /// Set by the panel's "move to me" button: `sync_ammo_crate` moves `pos`
-    /// to our feet, then clears it.
-    pub(crate) snap_to_player: bool,
 }
 
 impl Default for AmmoCrateSettings {
     fn default() -> Self {
-        Self {
-            pos: shared::ammo::crate_pos(shared::MapId::BreakPoint).unwrap_or_default(),
-            rotation_deg: Vec3::new(0.0, shared::ammo::CRATE_YAW_DEG, 0.0),
-            scale: 1.0,
-            snap_to_player: false,
-        }
+        Self { scale: 1.0 }
     }
 }
 
 impl AmmoCrateSettings {
-    fn transform(&self) -> Transform {
-        let r = self.rotation_deg;
-        Transform::from_translation(self.pos)
-            .with_rotation(Quat::from_euler(
-                EulerRot::YXZ,
-                r.y.to_radians(),
-                r.x.to_radians(),
-                r.z.to_radians(),
-            ))
-            .with_scale(Vec3::splat(self.scale.max(1e-4)))
+    /// The crate standing at `at` — its model's origin is the middle of the
+    /// box, lifted to stand on the ground there.
+    pub(crate) fn transform(&self, at: shared::level::Placement) -> Transform {
+        Transform::from_translation(at.pos)
+            .with_rotation(at.rotation())
+            .mul_transform(self.model_transform())
     }
 
-    /// Whether feet at `feet` are close enough to use the crate.
-    fn in_reach(&self, feet: Vec3) -> bool {
-        let d = feet - self.pos;
-        Vec2::new(d.x, d.z).length() <= USE_RADIUS && d.y.abs() <= USE_HEIGHT
+    /// The model, from the ground under the crate's middle.
+    pub(crate) fn model_transform(&self) -> Transform {
+        let scale = self.scale.max(1e-4);
+        Transform::from_translation(Vec3::Y * shared::ammo::CRATE_HALF_EXTENTS.y * scale).with_scale(Vec3::splat(scale))
     }
+}
+
+/// `map`'s ammo crate, if it has one.
+fn crate_on(map: shared::MapId) -> Option<shared::level::Placement> {
+    shared::level::layout(map).ammo_crate
+}
+
+/// Whether feet at `feet` are close enough to use a crate standing at `at`.
+fn in_reach(at: Vec3, feet: Vec3) -> bool {
+    let d = feet - at;
+    Vec2::new(d.x, d.z).length() <= USE_RADIUS && d.y.abs() <= USE_HEIGHT
 }
 
 #[derive(Component)]
 struct AmmoCrate;
 
 /// The crate's solid box (a child of [`AmmoCrate`], so it follows the
-/// panel's placement and scale) — the server's `shared::ammo::crate_box`.
+/// panel's scale) — the server's `shared::ammo::crate_box`.
 #[derive(Component)]
 struct AmmoCrateCollider;
 
-/// Put the crate on the map while we're in a `Zombies` game (and take it
-/// away otherwise), where the panel says.
+/// Put the crate on the map while we're in a `Zombies` game on a map with one
+/// (and take it away otherwise), where its layout says.
 fn sync_ammo_crate(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut settings: ResMut<AmmoCrateSettings>,
-    player: Single<&Transform, (With<Player>, Without<AmmoCrate>)>,
+    settings: Res<AmmoCrateSettings>,
     asset_server: Res<AssetServer>,
     mut crates: Query<(Entity, &mut Transform), With<AmmoCrate>>,
     mut commands: Commands,
 ) {
-    if settings.snap_to_player {
-        settings.snap_to_player = false;
-        settings.pos = player.translation - Vec3::Y * EYE_HEIGHT;
-    }
-    // (Only placed on Break Point so far.)
-    if !zombies_game(&local, &lobbies).is_some_and(|l| l.map.is_break_point()) {
+    let Some(at) = zombies_game(&local, &lobbies).and_then(|l| crate_on(l.map)) else {
         for (e, _) in &crates {
             commands.entity(e).despawn();
         }
         return;
-    }
+    };
     if crates.is_empty() {
         let half = shared::ammo::CRATE_HALF_EXTENTS;
         commands
@@ -137,7 +126,7 @@ fn sync_ammo_crate(
                 StateScoped(AppState::InGame),
                 AmmoCrate,
                 SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
-                settings.transform(),
+                settings.transform(at),
             ))
             .with_child((
                 AmmoCrateCollider,
@@ -147,26 +136,25 @@ fn sync_ammo_crate(
         return;
     }
     for (_, mut t) in &mut crates {
-        t.set_if_neq(settings.transform());
+        t.set_if_neq(settings.transform(at));
     }
 }
 
-/// Our points, if we're at the crate in a running `Zombies` game (on Break
-/// Point, the only map it's placed on so far) with the
-/// sniper out and short of ammo.
+/// Our points, if we're at the crate in a running `Zombies` game (on a map
+/// with one) with the sniper out and short of ammo.
 fn at_crate(
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &Query<&Lobby>,
-    settings: &AmmoCrateSettings,
     weapon: &Weapon,
     player: &Transform,
 ) -> Option<u32> {
-    let lobby = zombies_game(local, lobbies).filter(|l| l.map.is_break_point())?;
+    let lobby = zombies_game(local, lobbies)?;
+    let at = crate_on(lobby.map)?;
     let me = local.iter().next()?.0;
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     if weapon.slot != WeaponSlot::Primary
         || weapon.ammo_full(GameMode::Zombies)
-        || !settings.in_reach(feet)
+        || !in_reach(at.pos, feet)
     {
         return None;
     }
@@ -285,7 +273,6 @@ fn update_ammo_card(
     active_killcam: Res<killcam::ActiveKillCam>,
     death: Res<crate::death_effect::DeathEffect>,
     binds: Res<KeyBindings>,
-    settings: Res<AmmoCrateSettings>,
     weapon: Res<Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -296,7 +283,7 @@ fn update_ammo_card(
 ) {
     let (mut vis, mut border) = card.into_inner();
     let points = (!menu.is_open() && active_killcam.0.is_none() && !death.is_active())
-        .then(|| at_crate(&local, &lobbies, &settings, &weapon, &player))
+        .then(|| at_crate(&local, &lobbies, &weapon, &player))
         .flatten();
     let Some(points) = points else {
         vis.set_if_neq(Visibility::Hidden);
@@ -354,7 +341,6 @@ fn buy_ammo(
     binds: Res<KeyBindings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    settings: Res<AmmoCrateSettings>,
     weapon: Res<Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -368,7 +354,7 @@ fn buy_ammo(
     if last_buy.is_some_and(|t| now - t < BUY_COOLDOWN_SECS) {
         return;
     }
-    let affordable = at_crate(&local, &lobbies, &settings, &weapon, &player)
+    let affordable = at_crate(&local, &lobbies, &weapon, &player)
         .is_some_and(|points| points >= shared::ammo::AMMO_COST);
     if !affordable {
         return;

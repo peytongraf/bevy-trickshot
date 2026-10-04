@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -1735,10 +1735,10 @@ pub(crate) fn ads_tuning_ui(
             ui.collapsing("Power lever (Zombies)", |ui| {
                 let pl = &mut *power_lever;
                 ui.label(
-                    "The lever at the power switch (Break Point Night), on this client only — \
-                     the server's switch spot (where you press to buy it) is shared/src/power.rs.",
+                    "The lever at the power switch, on this client only — the switch itself \
+                     (where you press to buy it) is placed in the level editor.",
                 );
-                ui.label("Position (m, from the switch spot)");
+                ui.label("Position (m, from the switch spot, in its frame)");
                 ui.add(egui::Slider::new(&mut pl.offset.x, -80.0f32..=80.0).text("x (m)"));
                 ui.add(egui::Slider::new(&mut pl.offset.y, -10.0f32..=60.0).text("y (m)"));
                 ui.add(egui::Slider::new(&mut pl.offset.z, -80.0f32..=80.0).text("z (m)"));
@@ -1945,72 +1945,25 @@ pub(crate) fn ads_tuning_ui(
                             *f = crate::vfx::MachineFog::default();
                         }
                     });
+                    ui.label("Where each machine stands is placed in the level editor (main menu).");
                     for perk in shared::perks::Perk::ALL {
-                        ui.label(format!(
-                            "{} (from its spot — drag the numbers to go past the sliders)",
-                            perk.label()
-                        ));
-                        if ui.button(format!("Move {} to where I'm standing", perk.label())).clicked() {
-                            m.snap_to_player = Some(perk);
-                        }
-                        let n = m.nudge_mut(perk);
-                        for (label, v, range) in [
-                            ("x", &mut n.offset.x, -150.0f32..=150.0),
-                            ("y", &mut n.offset.y, -20.0f32..=60.0),
-                            ("z", &mut n.offset.z, -150.0f32..=150.0),
-                        ] {
-                            ui.horizontal(|ui| {
-                                ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
-                                ui.add(egui::DragValue::new(v).speed(0.05));
-                            });
-                        }
-                        ui.add(egui::Slider::new(&mut n.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
-                        if perk.set() == shared::perks::PerkSet::Classic {
+                        if perk.set() == shared::perks::PerkSet::Classic && perk.has_machine() {
                             let yaw = m.model_yaw_deg.entry(perk).or_insert(0.0);
                             ui.add(
                                 egui::Slider::new(yaw, -180.0f32..=180.0)
-                                    .text("model turn inside its box (deg)"),
+                                    .text(format!("{} model turn inside its box (deg)", perk.label())),
                             );
                         }
                     }
-                    ui.label("Der Wunderfizz (classic perks; from its spot)");
-                    if ui.button("Move Der Wunderfizz to where I'm standing").clicked() {
-                        m.snap_wunderfizz = true;
-                    }
-                    for (label, v, range) in [
-                        ("x", &mut m.wunderfizz.offset.x, -150.0f32..=150.0),
-                        ("y", &mut m.wunderfizz.offset.y, -20.0f32..=60.0),
-                        ("z", &mut m.wunderfizz.offset.z, -150.0f32..=150.0),
-                    ] {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
-                            ui.add(egui::DragValue::new(v).speed(0.05));
-                        });
-                    }
-                    ui.add(egui::Slider::new(&mut m.wunderfizz.yaw_deg, -180.0f32..=180.0).text("turn (deg)"));
                     ui.add(
                         egui::Slider::new(&mut m.wunderfizz_model_yaw_deg, -180.0f32..=180.0)
-                            .text("model turn inside its box (deg)"),
+                            .text("Der Wunderfizz model turn inside its box (deg)"),
                     );
-                    if ui.button("Copy perk machine placements to console").clicked() {
-                        let map = current_map.0;
-                        for perk in shared::perks::Perk::ALL {
-                            let (pos, yaw) = m.placement(perk, map);
-                            info!(
-                                "{} machine ({map:?}): pos: ({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}",
-                                perk.label(),
-                                pos.x,
-                                pos.y,
-                                pos.z,
-                                yaw,
-                            );
-                        }
-                        let (pos, yaw) = m.wunderfizz_placement(map);
+                    if ui.button("Copy perk machine looks to console").clicked() {
                         info!(
-                            "Der Wunderfizz ({map:?}): pos: ({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}, model turn: {:.1}",
-                            pos.x, pos.y, pos.z, yaw, m.wunderfizz_model_yaw_deg,
+                            "perk machine scale: {:.3}, Der Wunderfizz model turn: {:.1}",
+                            m.scale, m.wunderfizz_model_yaw_deg
                         );
-                        info!("perk machine scale: {:.3}", m.scale);
                         for (perk, yaw) in &m.model_yaw_deg {
                             if *yaw != 0.0 {
                                 info!("{} model turn: {yaw:.1} deg", perk.label());
@@ -2023,73 +1976,19 @@ pub(crate) fn ads_tuning_ui(
                 });
                 ui.collapsing("Ammo crate", |ui| {
                     let a = &mut *ammo_crate;
-                    ui.label(
-                        "Shown in Zombies games on Break Point, on this client only — no collision. Stand \
-                         within 2 m of its position (the model's origin) with the sniper out and \
-                         not full to buy ammo.",
-                    );
-                    if ui.button("Move crate to where I'm standing").clicked() {
-                        a.snap_to_player = true;
-                    }
-                    ui.label("Position (m, world — drag the numbers to go past the sliders)");
-                    for (label, v) in [("x", &mut a.pos.x), ("y", &mut a.pos.y), ("z", &mut a.pos.z)] {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Slider::new(v, -150.0f32..=150.0).text(format!("{label} (m)")));
-                            ui.add(egui::DragValue::new(v).speed(0.05));
-                        });
-                    }
-                    ui.label("Rotation (deg)");
-                    ui.add(egui::Slider::new(&mut a.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
-                    ui.add(egui::Slider::new(&mut a.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
-                    ui.add(egui::Slider::new(&mut a.rotation_deg.z, -180.0f32..=180.0).text("roll (z)"));
+                    ui.label("Where it stands is placed in the level editor (main menu).");
                     ui.add(
                         egui::Slider::new(&mut a.scale, 0.001f32..=100.0)
                             .logarithmic(true)
                             .text("scale (1 = as modelled)"),
                     );
-                    if ui.button("Copy ammo crate settings to console").clicked() {
-                        info!(
-                            "ammo crate: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.4}",
-                            a.pos.x,
-                            a.pos.y,
-                            a.pos.z,
-                            a.rotation_deg.x,
-                            a.rotation_deg.y,
-                            a.rotation_deg.z,
-                            a.scale,
-                        );
-                    }
                     if ui.button("Reset ammo crate").clicked() {
                         *a = default();
                     }
                 });
                 ui.collapsing("Pack-a-Punch machine", |ui| {
                     let p = &mut *pap;
-                    ui.label(
-                        "Moves it on this client only (Break Point Night). The server's range \
-                         check uses shared/src/pap.rs until the spot's copied there.",
-                    );
-                    if ui.button("Move Pack-a-Punch to where I'm standing").clicked() {
-                        p.snap_to_player = true;
-                    }
-                    ui.label(
-                        "Position (m, world — the ground under its middle; drag the numbers to go \
-                         past the sliders)",
-                    );
-                    for (label, v, range) in [
-                        ("x", &mut p.pos.x, -150.0f32..=150.0),
-                        ("y", &mut p.pos.y, -20.0f32..=60.0),
-                        ("z", &mut p.pos.z, -150.0f32..=150.0),
-                    ] {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Slider::new(v, range).text(format!("{label} (m)")));
-                            ui.add(egui::DragValue::new(v).speed(0.05));
-                        });
-                    }
-                    ui.label("Rotation (deg)");
-                    ui.add(egui::Slider::new(&mut p.rotation_deg.y, -180.0f32..=180.0).text("turn (y)"));
-                    ui.add(egui::Slider::new(&mut p.rotation_deg.x, -180.0f32..=180.0).text("pitch (x)"));
-                    ui.add(egui::Slider::new(&mut p.rotation_deg.z, -180.0f32..=180.0).text("roll (z)"));
+                    ui.label("Where it stands is placed in the level editor (main menu).");
                     ui.add(
                         egui::Slider::new(&mut p.scale, 0.05f32..=3.0)
                             .logarithmic(true)
@@ -2106,15 +2005,9 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut p.camo_glow, 0.0f32..=10.0).text("glow"));
                     if ui.button("Copy Pack-a-Punch settings to console").clicked() {
                         info!(
-                            "pap machine: pos: ({:.2}, {:.2}, {:.2}), rotation_deg: ({:.1}, {:.1}, {:.1}), scale: {:.3}, \
+                            "pap machine: scale: {:.3}, \
                              light_offset: ({:.2}, {:.2}, {:.2}), camo_scroll: ({:.3}, {:.3}), camo_tiling: {:.2}, \
                              camo_glow: {:.2}",
-                            p.pos.x,
-                            p.pos.y,
-                            p.pos.z,
-                            p.rotation_deg.x,
-                            p.rotation_deg.y,
-                            p.rotation_deg.z,
                             p.scale,
                             p.light_offset.x,
                             p.light_offset.y,

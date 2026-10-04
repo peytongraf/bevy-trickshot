@@ -6572,6 +6572,7 @@ version = "0.4.7"
 dependencies = [
  "bevy",
  "lightyear",
+ "ron",
  "serde",
 ]
 

@@ -40,6 +40,7 @@ mod hud;
 mod keybinds;
 mod killcam;
 mod knife_sounds;
+mod level_editor;
 mod loadout;
 mod loading_screen;
 mod lobby_ui;
@@ -93,6 +94,9 @@ pub enum AppState {
     InLobby,
     /// In the shared world.
     InGame,
+    /// The `Zombies` level editor (`level_editor`) — offline, no lobby or
+    /// game.
+    LevelEditor,
 }
 
 use std::f32::consts::{FRAC_PI_2, PI};
@@ -220,6 +224,7 @@ fn main() {
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
+        .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)

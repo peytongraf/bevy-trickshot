@@ -123,8 +123,7 @@ fn sync_wunderfizz_machine(
     time: Res<Time>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut settings: ResMut<PerkMachineSettings>,
-    player: Option<Single<&Transform, (With<Player>, Without<WunderfizzMachine>, Without<WunderfizzModel>, Without<WunderfizzLight>)>>,
+    settings: Res<PerkMachineSettings>,
     asset_server: Res<AssetServer>,
     mut machines: Query<(Entity, &mut Transform), With<WunderfizzMachine>>,
     mut models: Query<&mut Transform, (With<WunderfizzModel>, Without<WunderfizzMachine>)>,
@@ -141,13 +140,6 @@ fn sync_wunderfizz_machine(
         *glow = 0.0;
         return;
     };
-    if settings.snap_wunderfizz {
-        settings.snap_wunderfizz = false;
-        if let Some(player) = &player {
-            let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-            settings.wunderfizz.offset = feet - shared::wunderfizz::machine_pos(lobby.map);
-        }
-    }
     let (pos, yaw_deg) = settings.wunderfizz_placement(lobby.map);
     let place = Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw_deg.to_radians()));
     let half = settings.half_extents();

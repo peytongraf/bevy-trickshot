@@ -180,17 +180,18 @@ fn sync_map_lights(
 // --- the switch ------------------------------------------------------------
 
 /// The power lever model: one clip, the lever going from up to down.
-const LEVER_MODEL: &str = "models/props/power_lever.glb";
+pub(crate) const LEVER_MODEL: &str = "models/props/power_lever.glb";
 /// That clip's length (s) at normal speed.
 const LEVER_CLIP_SECS: f32 = 0.833;
 
 /// Panel-tunable power lever ("Power lever (Zombies)"): where it stands
-/// relative to the switch spot `shared::power` gives, its turn, size, and
-/// how fast it throws.
+/// relative to the switch spot in the map's layout (`shared::power`), in the
+/// switch's own frame, its turn on top of the switch's, size, and how fast
+/// it throws.
 #[derive(Resource, Clone)]
 pub(crate) struct PowerLeverSettings {
     /// Metres from `shared::power::switch_pos` (the ground under it) to the
-    /// model's middle.
+    /// model's middle, turned with the switch.
     pub(crate) offset: Vec3,
     /// Degrees about x (pitch), y (turn) and z (roll).
     pub(crate) rotation_deg: Vec3,
@@ -217,15 +218,18 @@ impl Default for PowerLeverSettings {
 }
 
 impl PowerLeverSettings {
-    fn transform(&self, switch: Vec3) -> Transform {
+    /// The lever at a switch standing at `switch`.
+    pub(crate) fn transform(&self, switch: shared::level::Placement) -> Transform {
+        Transform::from_translation(switch.pos)
+            .with_rotation(switch.rotation())
+            .mul_transform(self.model_transform())
+    }
+
+    /// The lever, in the switch's own frame (from the ground under it).
+    pub(crate) fn model_transform(&self) -> Transform {
         let r = self.rotation_deg;
-        Transform::from_translation(switch + self.offset)
-            .with_rotation(Quat::from_euler(
-                EulerRot::YXZ,
-                r.y.to_radians(),
-                r.x.to_radians(),
-                r.z.to_radians(),
-            ))
+        Transform::from_translation(self.offset)
+            .with_rotation(Quat::from_euler(EulerRot::YXZ, r.y.to_radians(), r.x.to_radians(), r.z.to_radians()))
             .with_scale(Vec3::splat(self.scale.max(1e-5)))
     }
 }
@@ -262,7 +266,7 @@ fn sync_power_lever(
     mut commands: Commands,
 ) {
     let lobby = zombies_game(&local, &lobbies);
-    let switch = lobby.and_then(|l| shared::power::switch_pos(l.map));
+    let switch = lobby.and_then(|l| shared::level::layout(l.map).power_switch);
     let (Some(lobby), Some(switch)) = (lobby, switch) else {
         for (e, ..) in &levers {
             commands.entity(e).despawn();

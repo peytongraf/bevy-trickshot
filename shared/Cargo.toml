@@ -7,3 +7,5 @@ edition.workspace = true
 bevy = { workspace = true }
 lightyear = { workspace = true }
 serde = { workspace = true }
+# The zombies level layouts (`levels/*.ron`, `level.rs`).
+ron = "0.8"

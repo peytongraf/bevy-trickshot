@@ -1,0 +1,22 @@
+// Zombies level layout — written by the client's level editor (main menu →
+// LEVEL EDITOR). `pos` is the ground under each thing's middle (m), `yaw_deg`
+// its turn about the vertical (degrees). See shared/src/level.rs.
+(
+    perks: {
+        ShroomTea: (pos: (-2.76, 4.8, -57.43), yaw_deg: -90.0),
+        NitroBrew: (pos: (-35.62, 6.0, 13.54), yaw_deg: 90.0),
+        LiquidCourage: (pos: (28.92, 6.0, 59.62), yaw_deg: 180.0),
+        BombShot: (pos: (-30.7, 0.0, -2.03), yaw_deg: 0.0),
+        Kangabrew: (pos: (-35.6, 15.6, -20.0), yaw_deg: 90.0),
+        Juggernog: (pos: (-2.76, 4.8, -57.43), yaw_deg: -90.0),
+        QuickRevive: (pos: (-35.62, 6.0, 18.15), yaw_deg: 90.0),
+        SpeedCola: (pos: (28.92, 6.0, 59.62), yaw_deg: 180.0),
+        StaminUp: (pos: (-30.7, 0.0, -2.03), yaw_deg: 0.0),
+        DoubleTap: (pos: (20.75, 0.0, 6.4), yaw_deg: -90.0),
+        DeadshotDaiquiri: (pos: (-2.76, 4.8, -54.23), yaw_deg: -90.0),
+    },
+    wunderfizz: (pos: (-35.25, 15.6, -19.65), yaw_deg: 90.0),
+    pack_a_punch: Some((pos: (25.0, 0.0, -59.6), yaw_deg: 0.0)),
+    ammo_crate: Some((pos: (9.6, -0.02, -35.0), yaw_deg: -90.0)),
+    power_switch: Some((pos: (-7.0, 0.0, -56.35), yaw_deg: 0.0)),
+)

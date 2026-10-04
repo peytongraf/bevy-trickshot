@@ -255,7 +255,12 @@ pub(crate) fn menu_toggle(
     mouse: Res<ButtonInput<MouseButton>>,
     mut menu: ResMut<Menu>,
     settings: Res<Settings>,
+    state: Res<State<AppState>>,
 ) {
+    // (The level editor has its own: `level_editor::input::edit_input`.)
+    if *state.get() == AppState::LevelEditor {
+        return;
+    }
     // (Pack-a-Punch and Der Wunderfizz close themselves on it — once it's
     // released, like their EXIT buttons: `pap_menu`, `wunderfizz`.)
     if mouse.just_pressed(MouseButton::Back)

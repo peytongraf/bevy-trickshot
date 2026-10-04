@@ -39,6 +39,7 @@ impl Plugin for LobbyUiPlugin {
             .init_resource::<BotSelection>()
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
+            .add_systems(OnEnter(AppState::LevelEditor), despawn_lobby_ui)
             .add_systems(
                 OnEnter(AppState::InGame),
                 (
@@ -461,6 +462,8 @@ enum MenuBtn {
     /// Opens `menu::Screen::Changelog` (every older version's notes) from
     /// the main menu's "WHAT'S NEW" panel.
     OpenChangelog,
+    /// Opens the `Zombies` level editor (`AppState::LevelEditor`).
+    OpenLevelEditor,
     CreateLobby,
     Join(Entity),
     Start,
@@ -1068,6 +1071,14 @@ fn build_browser(
                     "LOADOUT",
                     "Crosshair and scope zoom",
                     MenuBtn::OpenLoadout,
+                    false,
+                );
+                menu_tile(
+                    col,
+                    asset_server,
+                    "LEVEL EDITOR",
+                    "Place the Zombies machines on each map",
+                    MenuBtn::OpenLevelEditor,
                     false,
                 );
                 col.spawn(Node {
@@ -1737,12 +1748,13 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut next_state): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetPerkSet>, With<GameClient>>,
+        ResMut<NextState<AppState>>,
     ),
 ) {
     let name = player_name(&settings);
@@ -1787,6 +1799,7 @@ fn handle_clicks(
             MenuBtn::CountdownDown => set_start(|r| r, |p| p, |c| c.saturating_sub(COUNTDOWN_STEP_SECS)),
             MenuBtn::CountdownUp => set_start(|r| r, |p| p, |c| c + COUNTDOWN_STEP_SECS),
             MenuBtn::OpenLoadout => menu.open_loadout(None),
+            MenuBtn::OpenLevelEditor => next_state.set(AppState::LevelEditor),
             MenuBtn::OpenChangelog => {
                 menu.screen = crate::menu::Screen::Changelog;
                 menu.dirty = true;

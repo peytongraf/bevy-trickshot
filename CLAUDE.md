@@ -53,6 +53,14 @@ only place a player learns anything changed.
   finish it, update the todo list and changelog, then stop and let the user
   test it before starting the next one. Don't chain multiple todo items into
   one uninterrupted pass.
+- **Anything new that a `Zombies` game places on a map must work with the
+  level editor** (main menu → LEVEL EDITOR, `client/src/level_editor/`).
+  Its placement goes in the map's layout — `shared::level::ZombiesLayout`,
+  saved as `shared/levels/<map>.ron` and read through
+  `shared::level::layout` by the client and the server alike — never
+  hardcoded or nudged from a debug panel. And it gets an `ObjectId` in the
+  editor (label, model, pick box, use range) so it can be selected, moved,
+  turned, added / removed and saved like everything else there.
 - **The mouse back button must work anywhere the UI has a back / exit
   button** — it does exactly what that button (or Esc) does. Menu screens
   get it through `menu::menu_toggle` → `go_back` (add a new `Screen`'s back
