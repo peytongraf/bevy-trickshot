@@ -89,6 +89,22 @@ pub struct Downed {
     pub bled_out: bool,
 }
 
+/// Server → every member of a `Zombies` lobby: `peer` just went down — the
+/// "teammate down" sound, heard by everyone (not from where they are).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerWentDown {
+    pub peer: PeerId,
+}
+
+/// Server → the revived player and their reviver: `peer` is back up — the
+/// revive sound (not from where they are). `reviver` is `peer` itself after
+/// a solo Quick Revive.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerRevived {
+    pub peer: PeerId,
+    pub reviver: PeerId,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

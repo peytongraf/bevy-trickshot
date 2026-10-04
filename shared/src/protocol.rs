@@ -1674,6 +1674,10 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ProneBonus>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::revive::PlayerWentDown>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::revive::PlayerRevived>()
+            .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
         app.add_trigger::<CreateLobby>()

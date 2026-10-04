@@ -1464,6 +1464,8 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: dog spawn", &mut v.dog_spawn),
                         ("zombies: dog bark", &mut v.dog_bark),
                         ("zombies: dog explosion", &mut v.dog_explosion),
+                        ("zombies: player down", &mut v.player_down),
+                        ("zombies: revived", &mut v.revived),
                         ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
                         ("zombies: zombie moans", &mut v.zombie_moan),
                         ("zombies: zombie spawn", &mut v.zombie_spawn),

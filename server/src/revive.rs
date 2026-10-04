@@ -17,7 +17,9 @@ use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
 use shared::perks::Perk;
-use shared::revive::{Downed, BLEED_OUT_SECS, REVIVE_RANGE, SOLO_SELF_REVIVE_SECS};
+use shared::revive::{
+    Downed, PlayerRevived, PlayerWentDown, BLEED_OUT_SECS, REVIVE_RANGE, SOLO_SELF_REVIVE_SECS,
+};
 use shared::{GameChannel, GameMode, Lobby, PlayerId, PlayerInput, PlayerPose, PlayerRespawn};
 
 use crate::lobby::LobbyPlayer;
@@ -203,6 +205,15 @@ fn run_last_stands(
                         }
                     }
                     info!("{:?} was revived by {:?}", id.0, down.reviver);
+                    let reviver = down.reviver.unwrap_or(id.0);
+                    let msg = PlayerRevived { peer: id.0, reviver };
+                    let mut to = vec![id.0];
+                    if reviver != id.0 {
+                        to.push(reviver);
+                    }
+                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(to)) {
+                        error!("failed to send a revive to {:?}: {e:?}", id.0);
+                    }
                     combat.revive();
                 }
                 continue;
@@ -301,12 +312,17 @@ fn downed_state(combat: &PlayerCombat) -> Option<Downed> {
 
 /// Mirror each player's last stand onto their replicated [`Downed`] — only
 /// when it changes in a way the clients can't follow by themselves (so not
-/// for the clocks just running down).
+/// for the clocks just running down) — and tell the lobby whoever's just
+/// gone down ([`PlayerWentDown`]).
 fn sync_downed(
-    players: Query<(Entity, &PlayerCombat, Option<&Downed>)>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    lobbies: Query<&Lobby>,
+    players: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Option<&Downed>)>,
     mut commands: Commands,
 ) {
-    for (entity, combat, current) in &players {
+    let server = server.into_inner();
+    for (entity, id, lp, combat, current) in &players {
         let want = downed_state(combat);
         match (want, current) {
             (None, None) => {}
@@ -317,7 +333,17 @@ fn sync_downed(
                 if want.bled_out == have.bled_out
                     && want.reviver == have.reviver
                     && want.perks == have.perks => {}
-            (Some(want), _) => {
+            (Some(want), current) => {
+                // Just down (not straight out — a fall out of the world).
+                if current.is_none() && !want.bled_out {
+                    if let Ok(lobby) = lobbies.get(lp.lobby) {
+                        let msg = PlayerWentDown { peer: id.0 };
+                        let to = NetworkTarget::Only(lobby.real_peers());
+                        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &to) {
+                            error!("failed to send {:?} going down: {e:?}", id.0);
+                        }
+                    }
+                }
                 commands.entity(entity).insert(want);
             }
         }

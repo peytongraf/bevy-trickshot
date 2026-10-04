@@ -27,16 +27,20 @@ use bevy::transform::helper::TransformHelper;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use lightyear::prelude::input::client::InputSet;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
-use lightyear::prelude::{Interpolated, LocalId, PeerId};
+use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId};
 use shared::perks::Perk;
-use shared::revive::{Downed, BLEED_OUT_SECS, DOWNED_CRAWL_SPEED, REVIVE_RANGE};
+use shared::revive::{
+    Downed, PlayerRevived, PlayerWentDown, BLEED_OUT_SECS, DOWNED_CRAWL_SPEED, REVIVE_RANGE,
+};
 use shared::{Lobby, PlayerId, PlayerInput, PlayerPose};
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
 use crate::player::{Slide, Stance, ViewModelCamera, WorldModelCamera};
 use crate::zombies_hud::{perk_icon_path, zombies_game};
-use crate::{killcam, menu, AppState, Player, EYE_HEIGHT, HUD_FONT, VIEW_MODEL_RENDER_LAYER};
+use crate::{
+    killcam, menu, AppState, GameSounds, Player, EYE_HEIGHT, HUD_FONT, VIEW_MODEL_RENDER_LAYER,
+};
 
 /// The revive icon (over a downed teammate, and beside our bleed-out bar).
 const REVIVE_ICON: &str = "textures/icons/revive.webp";
@@ -74,7 +78,12 @@ impl Plugin for RevivePlugin {
             )
             .add_systems(
                 Update,
-                (update_down_panel, update_revive_panel, update_revive_markers)
+                (
+                    update_down_panel,
+                    update_revive_panel,
+                    update_revive_markers,
+                    play_revive_sounds,
+                )
                     .run_if(in_state(AppState::InGame)),
             )
             // Not gated on `InGame`: it's what puts the view back once the
@@ -174,6 +183,38 @@ fn tick_down_clocks(
                 clock.revive_done += dt;
             } else {
                 clock.bleed_left = (clock.bleed_left - dt).max(0.0);
+            }
+        }
+    }
+}
+
+/// The server's say-so: a lobby member's gone down (everyone hears it), or a
+/// revive we were part of — revived or reviving — just finished. Played flat,
+/// not from where it happened.
+fn play_revive_sounds(
+    mut downs: Query<&mut MessageReceiver<PlayerWentDown>>,
+    mut revives: Query<&mut MessageReceiver<PlayerRevived>>,
+    sounds: Option<Res<GameSounds>>,
+    mut commands: Commands,
+) {
+    let mut play = |clip: &Handle<AudioSource>| {
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            AudioPlayer::new(clip.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
+    };
+    for mut rx in &mut downs {
+        for _ in rx.receive() {
+            if let Some(sounds) = &sounds {
+                play(&sounds.player_down);
+            }
+        }
+    }
+    for mut rx in &mut revives {
+        for _ in rx.receive() {
+            if let Some(sounds) = &sounds {
+                play(&sounds.revived);
             }
         }
     }

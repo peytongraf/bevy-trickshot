@@ -103,6 +103,11 @@ pub(crate) struct GameSounds {
     pub(crate) dog_spawn: Handle<AudioSource>,
     pub(crate) dog_bark: Handle<AudioSource>,
     pub(crate) dog_explosion: Handle<AudioSource>,
+    /// `audio/zombies/revive/{player_down,revived}.mp3` — a lobby member
+    /// going down (everyone hears it), and a revive finishing (the revived
+    /// and their reviver hear it) — neither positional (`revive`).
+    pub(crate) player_down: Handle<AudioSource>,
+    pub(crate) revived: Handle<AudioSource>,
     /// `audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
     /// Bomb Shot blast, from where it went off (`vfx::spawn_explosions`);
     /// the server picks which one so the whole lobby hears the same clip.
@@ -337,6 +342,9 @@ pub(crate) struct SoundVolumes {
     pub(crate) dog_spawn: f32,
     pub(crate) dog_bark: f32,
     pub(crate) dog_explosion: f32,
+    /// A lobby member going down, and a revive finishing (`revive`).
+    pub(crate) player_down: f32,
+    pub(crate) revived: f32,
     /// A Bomb Shot explosion (on top of its distance fade).
     pub(crate) bomb_shot_explosion: f32,
     /// Zombie voices (`zombie_sounds`), each on top of its distance fade.
@@ -397,6 +405,8 @@ impl Default for SoundVolumes {
             dog_spawn: 1.0,
             dog_bark: 0.6,
             dog_explosion: 1.0,
+            player_down: 1.0,
+            revived: 1.0,
             bomb_shot_explosion: 1.0,
             zombie_moan: 1.0,
             zombie_spawn: 1.0,
@@ -459,6 +469,8 @@ impl SoundVolumes {
             (sounds.round_start.id(), self.round_start),
             (sounds.dog_round_start.id(), self.dog_round_start),
             (sounds.dog_round_end.id(), self.dog_round_end),
+            (sounds.player_down.id(), self.player_down),
+            (sounds.revived.id(), self.revived),
         ]
         .into_iter()
         .find_map(|(hid, vol)| (hid == id).then_some(vol))
@@ -657,6 +669,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         dog_spawn: asset_server.load("audio/zombies/dogs/spawn.mp3"),
         dog_bark: asset_server.load("audio/zombies/dogs/bark.mp3"),
         dog_explosion: asset_server.load("audio/zombies/dogs/explosion.mp3"),
+        player_down: asset_server.load("audio/zombies/revive/player_down.mp3"),
+        revived: asset_server.load("audio/zombies/revive/revived.mp3"),
         bomb_shot_explosions: (1..=3)
             .map(|i| asset_server.load(format!("audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
             .collect(),
