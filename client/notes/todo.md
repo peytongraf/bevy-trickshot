@@ -6,15 +6,18 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Spectate when bled out, back next round
-- End game screen over the world
-- Revive downed players (zombies)
-
 # Current todo
 
+- Ray gun shot is killing enemies before the blast reaches them. The blast should possibly "stun" enenmies that it damages but doesn't kill similar to phd slider.
+- If player is by themselves then it should just have a leave button instead of leave with or without party since they don't have a party.
+- When shooting the raygun is glitching out and the zombies are too but only when shooting.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
+
+# Raygun
+
+ray gun: hip { translation: Vec3::new(0.0000, 0.0000, 0.0000), yaw: 3.1416, pitch: 0.0000, scale: 0.2000 }, ads { translation: Vec3::new(-0.0960, 0.0550, 0.0800), yaw: 3.1416, pitch: 0.0000, scale: 0.2000 }, ads_zoom: 1.25, fire_interval: 0.330, trauma_per_shot: 0.200, recoil_kick: 0.0200, muzzle_translation: Vec3::new(0.090, -0.020, -0.460), muzzle_size: Vec2::new(0.30, 0.30), bolt_speed: 70.0, lower_drop: 0.35, lower_tip: 0.70
 
 # Improve
 
@@ -24,10 +27,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # New
 
 - Make all maps have a day and night setting with just different fog / sky settings
+- Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup
 
 # Big features
 
-- Add raygun
 - Add armor
 - Add crafting table
 - Add rampage inducer

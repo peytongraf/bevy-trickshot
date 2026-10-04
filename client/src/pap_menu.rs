@@ -114,7 +114,7 @@ fn held_label(weapon: &Weapon) -> &'static str {
 fn level_description(weapon: PapWeapon, mag: u32, level: u8) -> String {
     let damage = format!("{:.0}x Damage", shared::pap::damage_mult(level));
     match weapon {
-        PapWeapon::Sniper | PapWeapon::Ak74 => format!(
+        PapWeapon::Sniper | PapWeapon::Ak74 | PapWeapon::RayGun => format!(
             "{damage}  |  +{} Max Ammo",
             mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32
         ),

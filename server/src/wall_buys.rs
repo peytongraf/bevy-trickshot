@@ -19,7 +19,7 @@ use shared::pap::PapWeapon;
 use shared::throwing_knife::in_pickup_range;
 use shared::weapon::SlotWeapon;
 use shared::{
-    BuyWallWeapon, GameChannel, GameMode, Lobby, PickUpWeapon, PlayerId, PlayerPose, WallWeaponBought,
+    BuyWallWeapon, GameChannel, GiveWeapon, GameMode, Lobby, PickUpWeapon, PlayerId, PlayerPose, WallWeaponBought,
     WeaponDrop, WeaponPickedUp,
 };
 
@@ -39,6 +39,7 @@ pub struct WallBuysPlugin;
 impl Plugin for WallBuysPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_buy_wall_weapon)
+            .add_observer(on_give_weapon)
             .add_observer(on_pick_up_weapon)
             .add_systems(FixedUpdate, cull_drops);
     }
@@ -163,6 +164,41 @@ fn on_buy_wall_weapon(
         error!("failed to send a wall buy to {peer:?}: {e:?}");
     }
     info!("{peer:?} bought the {} off the wall", weapon.label());
+}
+
+/// Debug: put a gun in a member's hands for free, like a wall buy with no
+/// sign or cost — for trying out guns there's no other way to get yet (the
+/// Ray Gun).
+#[allow(clippy::too_many_arguments)]
+fn on_give_weapon(
+    trigger: Trigger<RemoteTrigger<GiveWeapon>>,
+    endings: Res<EndingLobbies>,
+    colliders: Res<MapColliders>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut commands: Commands,
+) {
+    let peer = trigger.from;
+    let GiveWeapon { weapon, slot, mag, reserve } = trigger.trigger;
+    let Some((lobby_e, feet, _)) = standing_in_game(peer, &endings, &lobbies, &players) else {
+        return;
+    };
+    let Ok((_, mut lobby)) = lobbies.get_mut(lobby_e) else {
+        return;
+    };
+    let taken = SlotWeapon::Gun(weapon);
+    if swap_into_slot(&mut commands, &colliders, lobby_e, &mut lobby, peer, slot, taken, 0, (mag, reserve), feet)
+        .is_none()
+    {
+        return;
+    }
+    let msg = WallWeaponBought { weapon, slot };
+    if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
+        error!("failed to send a debug weapon to {peer:?}: {e:?}");
+    }
+    info!("{peer:?} was given the {} (debug)", weapon.label());
 }
 
 /// A member wants the dropped weapon nearest them, in place of the weapon in

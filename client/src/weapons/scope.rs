@@ -204,7 +204,7 @@ pub(crate) fn update_scope(
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
     lens_cfg: Res<LensSettings>,
-    (weapon, ak): (Res<super::Weapon>, Res<super::AkSettings>),
+    (weapon, ak, ray): (Res<super::Weapon>, Res<super::AkSettings>, Res<super::RayGunSettings>),
     scope_camera: Single<
         (&mut Camera, &mut Projection, &mut Transform),
         (With<ScopeCamera>, Without<ScopeReticle>),
@@ -213,9 +213,10 @@ pub(crate) fn update_scope(
     mut lens: Query<(&MeshMaterial3d<StandardMaterial>, &mut Visibility), With<ScopeLens>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // (The AK-74 has iron sights — no scope picture to render.)
+    // (Only the sniper has a scope picture to render — the AK-74 and the Ray
+    // Gun aim down their own sights.)
     let active = ads.t > SCOPE_SHOW_AT
-        && (killcam.0.is_some() || weapon.primary != shared::weapon::WeaponId::Ak74);
+        && (killcam.0.is_some() || weapon.primary == shared::weapon::WeaponId::Sniper);
 
     // How far the magnified sight picture has come in: held off until the optic
     // is nearly centred on the eye, then ramped to full by `ads.t == 1`, so the
@@ -230,7 +231,7 @@ pub(crate) fn update_scope(
     // Before the picture comes in, keep the scope camera at the world FOV so the
     // render target matches the view *behind* the glass 1:1; converge to the
     // real scope magnification as the picture arrives.
-    let optic = Optic::current(&settings, &killcam, &weapon, &ak);
+    let optic = Optic::current(&settings, &killcam, &weapon, &ak, &ray);
     let world_fov = ads_fov_rad(optic, &tuning, ads.t);
     let scope_fov = world_fov.lerp(full_scope_fov_rad(optic, &tuning), picture);
     if let Projection::Perspective(perspective) = projection.as_mut() {

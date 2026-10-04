@@ -311,6 +311,9 @@ pub(crate) struct PrimaryModels {
     pub(crate) ak_scene: Handle<Scene>,
     pub(crate) ak_graph: Handle<AnimationGraph>,
     pub(crate) ak_nodes: Vec<AnimationNodeIndex>,
+    pub(crate) raygun_scene: Handle<Scene>,
+    pub(crate) raygun_graph: Handle<AnimationGraph>,
+    pub(crate) raygun_nodes: Vec<AnimationNodeIndex>,
 }
 
 impl PrimaryModels {
@@ -325,6 +328,9 @@ impl PrimaryModels {
         let clips = (0..AK_CLIP_COUNT)
             .map(|i| asset_server.load(GltfAssetLabel::Animation(i).from_asset(AK_MODEL)));
         let (graph, ak_nodes) = AnimationGraph::from_clips(clips);
+        let raygun_clips = super::raygun::RAYGUN_CLIPS
+            .map(|i| asset_server.load(GltfAssetLabel::Animation(i).from_asset(super::raygun::RAYGUN_MODEL)));
+        let (raygun_graph, raygun_nodes) = AnimationGraph::from_clips(raygun_clips);
         Self {
             sniper_scene,
             sniper_graph,
@@ -332,6 +338,9 @@ impl PrimaryModels {
             ak_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset(AK_MODEL)),
             ak_graph: graphs.add(graph),
             ak_nodes,
+            raygun_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset(super::raygun::RAYGUN_MODEL)),
+            raygun_graph: graphs.add(raygun_graph),
+            raygun_nodes,
         }
     }
 }
@@ -366,7 +375,7 @@ pub(crate) fn sync_primary_model(
             }
             Some(if lobby.started { m.primary } else { m.loadout })
         })
-        .filter(|w| LOADOUT_WEAPONS.contains(w))
+        .filter(|w| LOADOUT_WEAPONS.contains(w) || *w == WeaponId::RayGun)
         .unwrap_or(WeaponId::Sniper);
     if weapon.primary != wanted {
         weapon.set_primary(wanted);
@@ -378,6 +387,7 @@ pub(crate) fn sync_primary_model(
     }
     let (scene_handle, graph, nodes) = match wanted {
         WeaponId::Ak74 => (models.ak_scene.clone(), models.ak_graph.clone(), models.ak_nodes.clone()),
+        WeaponId::RayGun => (models.raygun_scene.clone(), models.raygun_graph.clone(), models.raygun_nodes.clone()),
         _ => (models.sniper_scene.clone(), models.sniper_graph.clone(), vec![models.sniper_index]),
     };
     *anim = ViewModelAnimation {

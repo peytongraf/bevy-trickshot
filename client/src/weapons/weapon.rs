@@ -19,6 +19,7 @@ use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
 use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZE, AK_ZOMBIES_TOTAL_MAGS};
+use super::raygun::{raygun_hold_seg, raygun_idle_seg, RayGunSettings, RAYGUN_MAG_SIZE, RAYGUN_ZOMBIES_TOTAL_MAGS};
 use super::drink_arms::{DrinkPhase, PerkDrink};
 use super::knife_view_model::{
     KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, KNIFE_SEGMENTS, KNIFE_SEG_ADJUST_GRIP,
@@ -53,6 +54,7 @@ pub(crate) const PAP_EXTRA_MAGS_PER_LEVEL: u32 = 2;
 pub(crate) fn mag_size(primary: WeaponId) -> u32 {
     match primary {
         WeaponId::Ak74 => AK_MAG_SIZE,
+        WeaponId::RayGun => RAYGUN_MAG_SIZE,
         _ => MAG_SIZE,
     }
 }
@@ -65,6 +67,7 @@ fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
         shared::GameMode::Freestyle => FREESTYLE_RESERVE,
         shared::GameMode::FreeForAll => mag * (TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1),
+        shared::GameMode::Zombies if primary == WeaponId::RayGun => mag * (RAYGUN_ZOMBIES_TOTAL_MAGS - 1),
         shared::GameMode::Zombies => mag * (ZOMBIES_TOTAL_MAGS - 1),
     }
 }
@@ -183,9 +186,10 @@ pub(crate) fn resolve_local_shot(
     mut impacts: EventWriter<GroundImpact>,
     mut holes: EventWriter<BulletImpact>,
     mut tracers: EventWriter<FireTracer>,
+    mut bolts: EventWriter<crate::RayGunBolt>,
 ) {
     for shot in shots.read() {
-        let max_range = WeaponId::Sniper.spec().max_range;
+        let max_range = shot.weapon.spec().max_range;
         let aim = shot.dir.normalize_or_zero();
         // Each candidate surface carries its normal (the collider's own, or
         // straight up for the flat plane) for the bullet hole.
@@ -207,6 +211,16 @@ pub(crate) fn resolve_local_shot(
             (w, g) => w.or(g),
         };
         let ground_pt = surface.map(|(p, _)| p);
+        // A Ray Gun bolt, not a bullet: no dust, hole or tracer — its bolt
+        // flies from the barrel toward the surface it'll hit here (the
+        // server's answer steers it onto whatever it really hit,
+        // `net::receive_shots`).
+        if shot.weapon == WeaponId::RayGun {
+            let end = ground_pt.unwrap_or_else(|| shot.origin + aim * max_range);
+            let start = tracer_start(&muzzle, &helper, &recoil, &vm_camera, &world_camera).unwrap_or(shot.origin);
+            bolts.write(crate::RayGunBolt { start, end, own: true });
+            continue;
+        }
         if let Some((p, normal)) = surface {
             impacts.write(GroundImpact(p));
             holes.write(BulletImpact { point: p, normal });
@@ -290,6 +304,9 @@ pub(crate) struct Weapon {
     /// A weapon that just went into our hands (bought or picked up), to draw
     /// once nothing else is on screen — see `weapon_system`.
     pending_draw: Option<SlotWeapon>,
+    /// That draw is the weapon's first since it came into our hands (its own
+    /// equip sound — the Ray Gun's — rather than the usual).
+    first_draw: bool,
     /// `slots` has been set up for this game (`apply_loadout`) — a `Zombies`
     /// respawn then only refills the ammo, keeping what was bought.
     slots_set: bool,
@@ -416,6 +433,7 @@ impl Default for Weapon {
             held: 0,
             other_ammo: (0, 0),
             pending_draw: None,
+            first_draw: false,
             slots_set: false,
         }
     }
@@ -604,6 +622,7 @@ impl Weapon {
             }
         }
         self.pending_draw = Some(weapon);
+        self.first_draw = true;
     }
 
     /// Take the other slot's gun in hand (both slots are guns), stowing the
@@ -1064,6 +1083,7 @@ struct SegCtx<'a> {
     reload_speed: f32,
     rechamber_speed: f32,
     ak: &'a AkSettings,
+    ray: &'a RayGunSettings,
 }
 
 /// Start `seg` on the primary, with its sound (heard by us, and — via the
@@ -1078,7 +1098,15 @@ fn begin_segment(
     snd: &mut killcam::ReplaySoundBits,
 ) {
     let ak = rig.weapon == WeaponId::Ak74;
+    let raygun = rig.weapon == WeaponId::RayGun;
     let (sound, bit, sound_speed, anim_speed) = match seg.act {
+        // (One reload, full or not.)
+        SegAct::Reload | SegAct::ReloadEmpty if raygun => (
+            &ctx.sounds.raygun_reload,
+            killcam::SND_RAYGUN_RELOAD,
+            ctx.reload_speed * ctx.ray.reload_speed,
+            ctx.reload_speed * ctx.ray.reload_speed,
+        ),
         SegAct::Rechamber => (
             &ctx.sounds.rechamber,
             killcam::SND_RECHAMBER,
@@ -1193,11 +1221,12 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, ak_cfg, classic, menu): (
+    (physics, ak_cfg, classic, menu, ray_cfg): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
         Res<AkSettings>,
         Res<crate::zombies_hud::ClassicPerks>,
         Res<crate::menu::Menu>,
+        Res<RayGunSettings>,
     ),
     mut commands: Commands,
 ) {
@@ -1216,10 +1245,15 @@ pub(crate) fn weapon_system(
         nitro.swap(),
     );
     // The primary's own draw / hide (the AK's panel speed on top).
-    let primary_swap = if weapon.primary == WeaponId::Ak74 {
-        swap_speed * ak_cfg.draw_speed
+    let primary_swap = match weapon.primary {
+        WeaponId::Ak74 => swap_speed * ak_cfg.draw_speed,
+        WeaponId::RayGun => swap_speed * ray_cfg.draw_speed,
+        _ => swap_speed,
+    };
+    let blend_secs = if weapon.primary == WeaponId::RayGun {
+        ray_cfg.blend_secs
     } else {
-        swap_speed
+        ak_cfg.blend_secs
     };
     let stow_speed = arms_settings.weapon_hide_speed * swap_speed;
     // (Just after a gun swap the old gun's scene can linger a frame: the
@@ -1230,13 +1264,14 @@ pub(crate) fn weapon_system(
     else {
         return;
     };
-    let mut rig = PrimaryRig::new(player, transitions, &view_model, ak_cfg.blend_secs);
+    let mut rig = PrimaryRig::new(player, transitions, &view_model, blend_secs);
     let seg_ctx = SegCtx {
         sounds: &sounds,
         rechamber_anim: anim.rechamber_speed,
         reload_speed,
         rechamber_speed,
         ak: &ak_cfg,
+        ray: &ray_cfg,
     };
     let knife_node = knife_anim.index;
     let Some(mut knife_player) = knife_players.iter_mut().next() else {
@@ -1269,6 +1304,7 @@ pub(crate) fn weapon_system(
         && melee.phase == MeleePhase::Idle
     {
         let drawn = weapon.pending_draw.take();
+        let first = std::mem::take(&mut weapon.first_draw);
         for e in &action_sounds {
             commands.entity(e).try_despawn();
         }
@@ -1297,7 +1333,13 @@ pub(crate) fn weapon_system(
                 **knife_vis = Visibility::Hidden;
                 weapon.slot = WeaponSlot::Primary;
                 **view_model_vis = Visibility::Inherited;
-                commands.spawn((AudioPlayer::new(sounds.sniper_equip.clone()), PlaybackSettings::DESPAWN));
+                // (The Ray Gun's own sound when it first comes into our hands.)
+                let equip = if first && weapon.primary == WeaponId::RayGun {
+                    &sounds.raygun_equip
+                } else {
+                    &sounds.sniper_equip
+                };
+                commands.spawn((AudioPlayer::new(equip.clone()), PlaybackSettings::DESPAWN));
                 let show = rig.seg(SegAct::Show);
                 rig.play_at(show, primary_swap);
                 weapon.busy = Some(WeaponBusy {
@@ -1874,6 +1916,27 @@ pub(crate) fn weapon_system(
         }
     }
 
+    // The Ray Gun, out and free: its idle clip, looping — or, aimed down
+    // sights, held still in its rest pose — unless a shot's still playing
+    // out.
+    if weapon.slot == WeaponSlot::Primary && rig.weapon == WeaponId::RayGun {
+        let shot = rig.seg(SegAct::Shoot);
+        let shooting = rig.is_main(shot) && !rig.reached(shot, shot.end_secs());
+        let (rest, speed) = if ads.t > 0.05 {
+            (raygun_hold_seg(), 0.0)
+        } else {
+            (raygun_idle_seg(), ray_cfg.idle_speed.max(0.01))
+        };
+        if !shooting && !rig.is_main(rest) {
+            rig.play_with(
+                rest,
+                speed,
+                RepeatAnimation::Forever,
+                std::time::Duration::from_secs_f32(ray_cfg.blend_secs.max(0.0)),
+            );
+        }
+    }
+
     // Idle: only take input while the cursor is captured (i.e. in-game).
     if !locked {
         return;
@@ -1910,6 +1973,62 @@ pub(crate) fn weapon_system(
         return;
     }
     // Only `WeaponSlot::Primary` is left.
+
+    // The Ray Gun: semi-auto — a bolt each pull, at most one every
+    // `fire_interval`, each restarting its shoot clip. The last one out
+    // goes straight into a reload (auto-reload on).
+    if rig.weapon == WeaponId::RayGun {
+        let now = time.elapsed_secs();
+        if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
+            weapon.next_shot_at = now + (ray_cfg.fire_interval / classic.fire_rate()).max(0.05);
+            weapon.mag -= 1;
+            shake.trauma = (shake.trauma + ray_cfg.trauma_per_shot).min(1.0);
+            shake.recoil = ray_cfg.recoil_kick;
+            muzzle.shots = muzzle.shots.wrapping_add(1);
+            muzzle.roll = rand_roll(muzzle.shots);
+            muzzle.intensity = 1.0;
+            commands.spawn((AudioPlayer::new(sounds.raygun_shot.clone()), PlaybackSettings::DESPAWN));
+            snd.note(killcam::SND_RAYGUN_SHOT);
+            let cam_gt = cam.single().ok();
+            let dir = cam_gt.map_or(Vec3::NEG_Z, |cam| cam.forward().as_vec3());
+            pending_shot.0 = Some(dir);
+            if let Some(cam) = cam_gt {
+                shots.write(LocalShot {
+                    origin: cam.translation(),
+                    dir,
+                    weapon: WeaponId::RayGun,
+                });
+            }
+            let shot = rig.seg(SegAct::Shoot);
+            rig.play_with(
+                shot,
+                ray_cfg.shot_speed,
+                RepeatAnimation::Never,
+                std::time::Duration::from_secs_f32(ray_cfg.shot_blend_secs.max(0.0)),
+            );
+            if weapon.mag == 0 && settings.auto_reload && weapon.reserve > 0 {
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![shot, rig.seg(SegAct::Reload)],
+                    seg_end: shot.end_secs(),
+                    on_finish: WeaponFinish::Reload,
+                });
+            }
+        } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
+            commands.spawn((AudioPlayer::new(sounds.out_of_ammo.clone()), PlaybackSettings::DESPAWN));
+        } else if binds.reload.just_pressed(&keys, &mouse)
+            && weapon.reserve > 0
+            && weapon.mag < weapon.mag_size()
+        {
+            let seg = rig.seg(SegAct::Reload);
+            begin_segment(&mut rig, seg, &seg_ctx, &mut commands, &mut snd);
+            weapon.busy = Some(WeaponBusy {
+                remaining: vec![seg],
+                seg_end: seg.end_secs(),
+                on_finish: WeaponFinish::Reload,
+            });
+        }
+        return;
+    }
 
     // The AK-74: full-auto — a round every `fire_interval` while the trigger's
     // held, each restarting its Shot clip. No bolt to work: the last round

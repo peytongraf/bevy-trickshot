@@ -56,7 +56,12 @@ pub(crate) struct MuzzlePoint(pub(crate) Option<Vec3>);
 pub(crate) fn update_muzzle_flash(
     time: Res<Time>,
     settings: Res<MuzzleFlashSettings>,
-    (weapon, ak, poses): (Res<crate::Weapon>, Res<crate::AkSettings>, Res<crate::ViewModelPoses>),
+    (weapon, ak, poses, ray): (
+        Res<crate::Weapon>,
+        Res<crate::AkSettings>,
+        Res<crate::ViewModelPoses>,
+        Res<crate::RayGunSettings>,
+    ),
     view_model: Single<&Transform, (With<crate::weapons::ViewModel>, Without<MuzzleFlash>)>,
     mut state: ResMut<MuzzleFlashState>,
     mut point: ResMut<MuzzlePoint>,
@@ -80,10 +85,11 @@ pub(crate) fn update_muzzle_flash(
         Visibility::Hidden
     };
 
-    let (hip, muzzle, size) = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        (ak.hip.transform(), ak.muzzle_translation, ak.muzzle_size)
-    } else {
-        (poses.hip.transform(), settings.translation, settings.size)
+    let raygun = weapon.primary == shared::weapon::WeaponId::RayGun;
+    let (hip, muzzle, size) = match weapon.primary {
+        shared::weapon::WeaponId::Ak74 => (ak.hip.transform(), ak.muzzle_translation, ak.muzzle_size),
+        shared::weapon::WeaponId::RayGun => (ray.hip.transform(), ray.muzzle_translation, ray.muzzle_size),
+        _ => (poses.hip.transform(), settings.translation, settings.size),
     };
     // Both are children of the same rig: hip pose → the pose right now.
     let rel = view_model.compute_affine() * hip.compute_affine().inverse();
@@ -97,6 +103,11 @@ pub(crate) fn update_muzzle_flash(
     };
 
     if let Some(material) = materials.get_mut(&material.0) {
-        material.base_color = Color::srgba(1.0, 1.0, 1.0, state.intensity);
+        // (The Ray Gun's flash is its bolt's green.)
+        material.base_color = if raygun {
+            Color::srgba(0.35, 1.0, 0.35, state.intensity)
+        } else {
+            Color::srgba(1.0, 1.0, 1.0, state.intensity)
+        };
     }
 }

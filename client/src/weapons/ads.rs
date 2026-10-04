@@ -197,18 +197,36 @@ impl Optic {
         killcam: &ActiveKillCam,
         weapon: &super::Weapon,
         ak: &super::AkSettings,
+        ray: &super::RayGunSettings,
     ) -> Self {
         killcam.0.as_ref().and_then(|run| run.optic).unwrap_or_else(|| {
-            if weapon.primary == shared::weapon::WeaponId::Ak74 {
-                Self {
+            match iron_sight_zoom(weapon.primary, ak, ray) {
+                Some(zoom) => Self {
                     hip_fov_deg: settings.fov,
-                    zoom: ak.ads_zoom,
-                }
-            } else {
-                Self::live(settings)
+                    zoom,
+                },
+                None => Self::live(settings),
             }
         })
     }
+}
+
+/// The zoom of a gun aimed down its own sights rather than a scope (the
+/// AK-74's, the Ray Gun's) — `None` for the sniper, whose scope's is the
+/// player's pick.
+pub(crate) fn iron_sight_zoom(
+    gun: shared::weapon::WeaponId,
+    ak: &super::AkSettings,
+    ray: &super::RayGunSettings,
+) -> Option<f32> {
+    match gun {
+        shared::weapon::WeaponId::Ak74 => Some(ak.ads_zoom),
+        shared::weapon::WeaponId::RayGun => Some(ray.ads_zoom),
+        _ => None,
+    }
+}
+
+impl Optic {
 }
 
 /// Pure: the world camera's vertical FOV (radians) at full ADS. Magnification is
@@ -257,6 +275,7 @@ pub(crate) fn apply_ads(
         Res<super::WalkBob>,
         Res<super::WeaponSwaySettings>,
     ),
+    (ray, lower): (Res<super::RayGunSettings>, Res<super::GunLower>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
@@ -266,14 +285,21 @@ pub(crate) fn apply_ads(
     let e = ads_ease(ads.t, tuning.ads_ease);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak), &tuning, ads.t);
+        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak, &ray), &tuning, ads.t);
     }
 
-    let mut pose = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        lerp_pose(&ak.hip, &ak.ads, e)
-    } else {
-        lerp_pose(&poses.hip, &poses.ads, e)
+    let mut pose = match weapon.primary {
+        shared::weapon::WeaponId::Ak74 => lerp_pose(&ak.hip, &ak.ads, e),
+        shared::weapon::WeaponId::RayGun => lerp_pose(&ray.hip, &ray.ads, e),
+        _ => lerp_pose(&poses.hip, &poses.ads, e),
     };
     pose.translation += bob.offset(&sway, ads.t);
+    // The Ray Gun putting itself away / coming back up (it has no clip for
+    // it): down and tipped forward, about the eye.
+    if lower.0 > 0.0 {
+        pose.translation += Vec3::NEG_Y * ray.lower_drop * lower.0;
+        pose.translation = Quat::from_rotation_x(-ray.lower_tip * lower.0) * pose.translation;
+        pose.rotation = Quat::from_rotation_x(-ray.lower_tip * lower.0) * pose.rotation;
+    }
     **view_model = pose;
 }

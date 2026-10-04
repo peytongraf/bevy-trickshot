@@ -306,6 +306,7 @@ impl FromWorld for PapCamo {
 pub(crate) fn camo_parts(weapon: SlotWeapon) -> &'static [&'static str] {
     match weapon {
         SlotWeapon::Gun(shared::weapon::WeaponId::Ak74) => &AK_CAMO_PARTS,
+        SlotWeapon::Gun(shared::weapon::WeaponId::RayGun) => &crate::weapons::RAYGUN_CAMO_PARTS,
         SlotWeapon::Gun(_) => &SNIPER_CAMO_PARTS,
         SlotWeapon::Knife => &KNIFE_CAMO_PARTS,
     }

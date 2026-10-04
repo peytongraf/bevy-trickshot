@@ -316,7 +316,7 @@ pub(crate) fn write_input(
         Query<&Visibility, With<crate::KnifeViewModel>>,
         Query<&AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
         Query<&crate::ThrowArmsAnimation>,
-        Res<crate::AkSettings>,
+        (Res<crate::AkSettings>, Res<crate::RayGunSettings>),
         Res<Time>,
         // When (`Time::elapsed_secs`) we last stabbed, for `stabbing` — a
         // timestamp, so a stab cut short by leaving a match is long over by
@@ -355,11 +355,8 @@ pub(crate) fn write_input(
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
     // (The AK-74's iron sights zoom only a little, whatever scope is picked.)
-    action.scope_zoom = if weapon.primary == shared::weapon::WeaponId::Ak74 {
-        ak.ads_zoom
-    } else {
-        settings.scope_zoom.magnification()
-    };
+    action.scope_zoom = crate::weapons::iron_sight_zoom(weapon.primary, &ak.0, &ak.1)
+        .unwrap_or_else(|| settings.scope_zoom.magnification());
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
     action.knife_anim_time = crate::killcam::knife_anim_time(&knife_players, &knife_anims);
@@ -674,15 +671,25 @@ fn receive_shots(
     mut impacts: EventWriter<GroundImpact>,
     mut holes: EventWriter<crate::BulletImpact>,
     mut tracers: EventWriter<crate::FireTracer>,
+    (mut bolts, mut landed): (EventWriter<crate::RayGunBolt>, EventWriter<crate::RayGunLanded>),
 ) {
     let me = local.iter().next().map(|l| l.0);
     let killcam_playing = active.0.is_some();
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            let raygun = msg.weapon == shared::weapon::WeaponId::RayGun.as_u8();
+            // Our own Ray Gun bolt's already flying: this is where it really
+            // landed.
+            if raygun && Some(msg.shooter) == me && !killcam_playing {
+                landed.write(crate::RayGunLanded {
+                    end: Vec3::from_array(msg.tracer_end),
+                });
+                continue;
+            }
             if killcam_playing || Some(msg.shooter) == me {
                 continue;
             }
-            if let ShotOutcome::Ground { point, normal } = msg.outcome {
+            if let (false, ShotOutcome::Ground { point, normal }) = (raygun, msg.outcome) {
                 impacts.write(GroundImpact(Vec3::from_array(point)));
                 holes.write(crate::BulletImpact {
                     point: Vec3::from_array(point),
@@ -697,10 +704,13 @@ fn receive_shots(
                     crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle)
                 })
             });
-            tracers.write(crate::FireTracer {
-                start: barrel.unwrap_or(Vec3::from_array(msg.origin)),
-                end: Vec3::from_array(msg.tracer_end),
-            });
+            let start = barrel.unwrap_or(Vec3::from_array(msg.origin));
+            let end = Vec3::from_array(msg.tracer_end);
+            if raygun {
+                bolts.write(crate::RayGunBolt { start, end, own: false });
+            } else {
+                tracers.write(crate::FireTracer { start, end });
+            }
         }
     }
 }

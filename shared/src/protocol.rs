@@ -541,6 +541,9 @@ pub struct ShotResolved {
     /// bots aren't a valid `ShotOutcome::Hit` target), or a point at the
     /// weapon's max range for a clean miss.
     pub tracer_end: [f32; 3],
+    /// What fired it ([`WeaponId::as_u8`]) — a Ray Gun's is a green bolt
+    /// and burst, not a tracer.
+    pub weapon: u8,
 }
 
 /// Server → everyone else in the lobby: a player triggered one or more
@@ -1230,6 +1233,18 @@ pub struct BuyWallWeapon {
     pub reserve: u32,
 }
 
+/// Client → server (debug, `Zombies`): put `weapon` in slot `slot` (the one
+/// in hand, dropped with `mag` / `reserve` rounds) for free — answered like
+/// a wall buy, with [`WallWeaponBought`]. For trying out guns there's no
+/// other way to get yet (the Ray Gun).
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct GiveWeapon {
+    pub weapon: WeaponId,
+    pub slot: u8,
+    pub mag: u32,
+    pub reserve: u32,
+}
+
 /// Server → the buyer only: their [`BuyWallWeapon`] went through — `weapon`
 /// is now in slot `slot`, with a full load.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -1806,6 +1821,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpWeapon>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<GiveWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetMolotovTest>()
             .add_direction(NetworkDirection::ClientToServer);

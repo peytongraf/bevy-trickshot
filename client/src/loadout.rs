@@ -232,6 +232,7 @@ pub(crate) fn weapon_stats(weapon: WeaponId) -> [(&'static str, f32); 5] {
         WeaponId::Sniper => (0.12, 0.92, 0.42),
         WeaponId::Marksman => (0.35, 0.8, 0.55),
         WeaponId::Ak74 => (0.78, 0.58, 0.72),
+        WeaponId::RayGun => (0.4, 0.8, 0.85),
     };
     [
         ("DAMAGE", (spec.base_damage / 200.0).clamp(0.05, 1.0)),

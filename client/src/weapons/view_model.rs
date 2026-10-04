@@ -204,6 +204,7 @@ impl<'a> PrimaryRig<'a> {
     pub(crate) fn seg(&self, act: SegAct) -> AnimationSegment {
         match self.weapon {
             WeaponId::Ak74 => super::ak::ak_seg(act),
+            WeaponId::RayGun => super::raygun::raygun_seg(act),
             _ => sniper_seg(act),
         }
     }
@@ -459,9 +460,13 @@ pub(crate) fn start_view_model_animation(
         }
 
         if let Ok(mut player) = players.get_mut(entity) {
-            if anim.weapon == WeaponId::Ak74 {
+            if anim.weapon != WeaponId::Sniper {
                 let mut transitions = AnimationTransitions::new();
-                let idle = super::ak::ak_idle_seg();
+                let idle = if anim.weapon == WeaponId::RayGun {
+                    super::raygun::raygun_idle_seg()
+                } else {
+                    super::ak::ak_idle_seg()
+                };
                 let node = anim.nodes.get(idle.clip).copied().unwrap_or(anim.index);
                 transitions
                     .play(&mut player, node, Duration::ZERO)

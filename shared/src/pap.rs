@@ -22,6 +22,7 @@ pub const MAX_LEVEL: u8 = 3;
 pub enum PapWeapon {
     Sniper,
     Ak74,
+    RayGun,
     Knife,
 }
 
@@ -30,6 +31,7 @@ impl PapWeapon {
         match self {
             PapWeapon::Sniper => "Sniper",
             PapWeapon::Ak74 => "AK-74",
+            PapWeapon::RayGun => "Ray Gun",
             PapWeapon::Knife => "Knife",
         }
     }
@@ -45,6 +47,7 @@ impl PapWeapon {
     pub fn gun(gun: WeaponId) -> PapWeapon {
         match gun {
             WeaponId::Ak74 => PapWeapon::Ak74,
+            WeaponId::RayGun => PapWeapon::RayGun,
             _ => PapWeapon::Sniper,
         }
     }
@@ -57,6 +60,8 @@ impl PapWeapon {
 pub struct PapLevels {
     pub sniper: u8,
     pub ak: u8,
+    #[serde(default)]
+    pub raygun: u8,
     pub knife: u8,
 }
 
@@ -65,6 +70,7 @@ impl PapLevels {
         match weapon {
             PapWeapon::Sniper => self.sniper,
             PapWeapon::Ak74 => self.ak,
+            PapWeapon::RayGun => self.raygun,
             PapWeapon::Knife => self.knife,
         }
     }
@@ -73,6 +79,7 @@ impl PapLevels {
         match weapon {
             PapWeapon::Sniper => self.sniper = level,
             PapWeapon::Ak74 => self.ak = level,
+            PapWeapon::RayGun => self.raygun = level,
             PapWeapon::Knife => self.knife = level,
         }
     }

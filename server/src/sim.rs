@@ -167,6 +167,9 @@ fn resolve_shots(
 
         let mut kind: HashMap<u64, HitKind> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
+        // Every player / zombie that can be hit, and the middle of their
+        // body — for a Ray Gun burst.
+        let mut bodies: Vec<(PeerId, Vec3)> = Vec::new();
 
         for (id, pose, lp) in &poses {
             if id.0 == shooter.0 || lp.lobby != lobby_e || !is_alive(id.0) {
@@ -188,6 +191,7 @@ fn resolve_shots(
                 body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
                 head: Capsule::head(feet, PLAYER_HEIGHT, HEAD_RADIUS),
             });
+            bodies.push((id.0, feet + Vec3::Y * PLAYER_HEIGHT * 0.5));
         }
         // No bots in `FreeForAll` — it's pure PvP.
         if lobby.mode == GameMode::Freestyle {
@@ -293,14 +297,14 @@ fn resolve_shots(
         let Some(mut weapon) = WeaponId::from_u8(i.weapon) else {
             continue;
         };
-        // The AK-74 is a loadout weapon (or a `Zombies` wall buy) only — in
-        // a mode without one, or from a member not carrying it, a shot is
-        // the sniper's.
-        if weapon == WeaponId::Ak74 {
+        // Anything but the sniper (the AK-74 — a loadout pick or a `Zombies`
+        // wall buy — or the Ray Gun) only from a member carrying it, in a
+        // mode with a loadout; otherwise a shot is the sniper's.
+        if weapon != WeaponId::Sniper {
             let carried = lobby
                 .members
                 .iter()
-                .any(|m| m.peer == shooter.0 && m.weapons.contains(&shared::weapon::SlotWeapon::Gun(WeaponId::Ak74)));
+                .any(|m| m.peer == shooter.0 && m.weapons.contains(&shared::weapon::SlotWeapon::Gun(weapon)));
             if !lobby.mode.has_loadout() || !carried {
                 weapon = WeaponId::Sniper;
             }
@@ -323,7 +327,7 @@ fn resolve_shots(
         // Collateral: the bullet keeps going after a bot (Call-of-Duty style),
         // so a single shot can pierce through several — `hits` is every one it
         // reached, nearest first.
-        let hits = resolve_shot_pierce(
+        let mut hits = resolve_shot_pierce(
             weapon,
             origin,
             dir,
@@ -332,6 +336,14 @@ fn resolve_shots(
             // than the first solid surface is behind it, so it can't be hit.
             |_from, to| wall_dist.is_some_and(|d| origin.distance(to) > d),
         );
+        // (A Ray Gun bolt stops at the first thing it hits.)
+        if !weapon.pierces() {
+            hits.truncate(1);
+        }
+        let direct = hits.first().and_then(|h| match kind.get(&h.target) {
+            Some(HitKind::Player(p)) => Some(*p),
+            _ => None,
+        });
 
         let outcome = match hits.last() {
             Some(last) => {
@@ -494,12 +506,38 @@ fn resolve_shots(
             }
         };
 
+        // A Ray Gun bolt bursts where it lands: every zombie close by (but
+        // the one it hit) takes the burst, less the further out — packed,
+        // more. (`Zombies` only: no other mode hands one out.)
+        if weapon == WeaponId::RayGun && zombies && !shared::bot_players::is_bot_peer(shooter.0) {
+            let mult = pap_mult(lobby, shooter.0, shared::pap::PapWeapon::RayGun);
+            for &(victim, middle) in &bodies {
+                if Some(victim) == direct || !shared::bot_players::is_bot_peer(victim) {
+                    continue;
+                }
+                let damage = shared::weapon::raygun_splash_damage(middle.distance(tracer_end)) * mult;
+                if damage <= 0.0 {
+                    continue;
+                }
+                player_hits.write(PlayerHit {
+                    victim,
+                    killer: shooter.0,
+                    damage,
+                    bomb_shot: false,
+                    blast: true,
+                    critical: false,
+                    point: None,
+                });
+            }
+        }
+
         let msg = ShotResolved {
             shooter: shooter.0,
             tick,
             outcome,
             origin: origin.to_array(),
             tracer_end: tracer_end.to_array(),
+            weapon: weapon.as_u8(),
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::All) {
             error!("failed to broadcast shot result: {e:?}");

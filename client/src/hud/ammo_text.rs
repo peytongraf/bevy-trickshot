@@ -104,6 +104,7 @@ fn weapon_icon_path(slot: WeaponSlot, primary: shared::weapon::WeaponId) -> &'st
 pub(crate) fn primary_icon_path(primary: shared::weapon::WeaponId) -> &'static str {
     match primary {
         shared::weapon::WeaponId::Ak74 => "textures/icons/weapons/ak_74.png",
+        shared::weapon::WeaponId::RayGun => "textures/icons/weapons/raygun.png",
         _ => "textures/icons/weapons/sniper.png",
     }
 }

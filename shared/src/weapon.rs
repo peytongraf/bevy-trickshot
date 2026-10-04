@@ -13,6 +13,27 @@ pub enum WeaponId {
     /// The AK-74 assault rifle — full-auto, picked in the loadout
     /// ([`crate::LobbyMember::loadout`]) for `Zombies` or `FreeForAll`.
     Ak74,
+    /// The Ray Gun — `Zombies`' wonder weapon, Call of Duty's: semi-auto,
+    /// each shot a green bolt that bursts where it lands, hurting every
+    /// zombie close by ([`raygun_splash_damage`]).
+    RayGun,
+}
+
+/// How far (m) from where a Ray Gun bolt lands its burst reaches...
+pub const RAYGUN_SPLASH_RADIUS: f32 = 2.5;
+/// ...and the burst's damage at its middle, fading to...
+pub const RAYGUN_SPLASH_DAMAGE_MAX: f32 = 180.0;
+/// ...this at its edge.
+pub const RAYGUN_SPLASH_DAMAGE_MIN: f32 = 50.0;
+
+/// A Ray Gun burst's damage to something `distance` m from where it landed
+/// (before Pack-a-Punch) — none past [`RAYGUN_SPLASH_RADIUS`].
+pub fn raygun_splash_damage(distance: f32) -> f32 {
+    if distance > RAYGUN_SPLASH_RADIUS {
+        return 0.0;
+    }
+    let t = (distance / RAYGUN_SPLASH_RADIUS).clamp(0.0, 1.0);
+    RAYGUN_SPLASH_DAMAGE_MAX + (RAYGUN_SPLASH_DAMAGE_MIN - RAYGUN_SPLASH_DAMAGE_MAX) * t
 }
 
 /// The primary weapons a player can pick in the loadout, for the modes that
@@ -206,6 +227,19 @@ impl WeaponId {
                 min_damage_fraction: 0.55,
                 lower_body_multiplier: 0.6,
             },
+            WeaponId::RayGun => WeaponSpec {
+                // The bolt's direct hit, on top of its burst
+                // (`raygun_splash_damage`) — a zombie's head is no softer to
+                // it. Its burst is the real point: a crowd at once.
+                max_range: 150.0,
+                muzzle_velocity: f32::INFINITY,
+                gravity: 0.0,
+                base_damage: 300.0,
+                falloff_start: 150.0,
+                headshot_multiplier: 1.0,
+                min_damage_fraction: 1.0,
+                lower_body_multiplier: 1.0,
+            },
         }
     }
 
@@ -215,6 +249,7 @@ impl WeaponId {
             WeaponId::Sniper => 0,
             WeaponId::Marksman => 1,
             WeaponId::Ak74 => 2,
+            WeaponId::RayGun => 3,
         }
     }
 
@@ -223,6 +258,7 @@ impl WeaponId {
             0 => Some(WeaponId::Sniper),
             1 => Some(WeaponId::Marksman),
             2 => Some(WeaponId::Ak74),
+            3 => Some(WeaponId::RayGun),
             _ => None,
         }
     }
@@ -233,6 +269,7 @@ impl WeaponId {
             WeaponId::Sniper => "SNIPER",
             WeaponId::Marksman => "MARKSMAN",
             WeaponId::Ak74 => "AK-74",
+            WeaponId::RayGun => "RAY GUN",
         }
     }
 
@@ -242,6 +279,7 @@ impl WeaponId {
             WeaponId::Sniper => "SNIPER RIFLE",
             WeaponId::Marksman => "MARKSMAN RIFLE",
             WeaponId::Ak74 => "ASSAULT RIFLE",
+            WeaponId::RayGun => "WONDER WEAPON",
         }
     }
 
@@ -259,10 +297,31 @@ impl WeaponId {
         matches!(self, WeaponId::Ak74)
     }
 
+    /// Whether a shot keeps going through what it hits (the sniper's
+    /// collaterals) — the Ray Gun's bolt bursts on the first.
+    pub const fn pierces(self) -> bool {
+        !matches!(self, WeaponId::RayGun)
+    }
+
     /// True when the weapon has no travel time and no drop, so the server can
     /// resolve it with a single ray instead of stepping a trajectory.
     pub fn is_hitscan(self) -> bool {
         let s = self.spec();
         s.muzzle_velocity.is_infinite() && s.gravity == 0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ray_gun_burst_fades_out_to_its_edge_and_stops_there() {
+        assert_eq!(raygun_splash_damage(0.0), RAYGUN_SPLASH_DAMAGE_MAX);
+        assert!((raygun_splash_damage(RAYGUN_SPLASH_RADIUS) - RAYGUN_SPLASH_DAMAGE_MIN).abs() < 1e-3);
+        assert!(raygun_splash_damage(1.0) < RAYGUN_SPLASH_DAMAGE_MAX);
+        assert_eq!(raygun_splash_damage(RAYGUN_SPLASH_RADIUS + 0.01), 0.0);
+        assert_eq!(WeaponId::from_u8(WeaponId::RayGun.as_u8()), Some(WeaponId::RayGun));
+        assert!(!WeaponId::RayGun.pierces() && WeaponId::Sniper.pierces());
     }
 }

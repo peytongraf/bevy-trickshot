@@ -75,8 +75,11 @@ pub(crate) const SND_AK_RELOAD: u16 = 1 << 11;
 pub(crate) const SND_AK_RELOAD_FAST: u16 = 1 << 12;
 /// A slide with PhD Flopper — its own sound in place of [`SND_SLIDE`].
 pub(crate) const SND_PHD_SLIDE: u16 = 1 << 13;
+/// The Ray Gun's shot and reload.
+pub(crate) const SND_RAYGUN_SHOT: u16 = 1 << 14;
+pub(crate) const SND_RAYGUN_RELOAD: u16 = 1 << 15;
 /// All bits currently in use, for iterating a `sound_bits` mask.
-pub(crate) const ALL_SND_BITS: [u16; 14] = [
+pub(crate) const ALL_SND_BITS: [u16; 16] = [
     SND_SHOT,
     SND_RELOAD,
     SND_RECHAMBER,
@@ -91,6 +94,8 @@ pub(crate) const ALL_SND_BITS: [u16; 14] = [
     SND_AK_RELOAD,
     SND_AK_RELOAD_FAST,
     SND_PHD_SLIDE,
+    SND_RAYGUN_SHOT,
+    SND_RAYGUN_RELOAD,
 ];
 
 /// Fallback kill time (seconds into the replay) if a message's `kill_index`
@@ -364,6 +369,8 @@ pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSo
         SND_AK_SHOT => &sounds.ak_shot,
         SND_AK_RELOAD => &sounds.ak_reload,
         SND_AK_RELOAD_FAST => &sounds.ak_reload_fast,
+        SND_RAYGUN_SHOT => &sounds.raygun_shot,
+        SND_RAYGUN_RELOAD => &sounds.raygun_reload,
         SND_SLIDE => &sounds.slide,
         SND_PHD_SLIDE => &sounds.phd_slide,
         SND_DIVE => &sounds.dive,
@@ -801,7 +808,7 @@ fn drive_killcam(
     let anim_node = view_models
         .iter()
         .next()
-        .filter(|vm| vm.weapon != shared::weapon::WeaponId::Ak74)
+        .filter(|vm| vm.weapon == shared::weapon::WeaponId::Sniper)
         .map(|vm| vm.index);
 
     if skipped || run.elapsed >= duration + 0.05 {
@@ -1007,6 +1014,8 @@ fn drive_killcam(
             SND_AK_RELOAD,
             SND_AK_RELOAD_FAST,
             SND_PHD_SLIDE,
+            SND_RAYGUN_SHOT,
+            SND_RAYGUN_RELOAD,
         ] {
             if bits & bit != 0 {
                 if let Some(clip) = sound_for(&sounds, bit) {

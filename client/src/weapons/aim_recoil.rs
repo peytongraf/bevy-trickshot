@@ -39,6 +39,7 @@ pub(crate) struct AimRecoilSettings {
     pub(crate) kick_speed: f32,
     pub(crate) sniper: WeaponRecoil,
     pub(crate) ak: WeaponRecoil,
+    pub(crate) raygun: WeaponRecoil,
 }
 
 impl Default for AimRecoilSettings {
@@ -64,6 +65,13 @@ impl Default for AimRecoilSettings {
                 horizontal_bias: 0.15,
                 ads_mult: 0.7,
             },
+            // A sharp little hop each shot, straight up.
+            raygun: WeaponRecoil {
+                vertical_deg: 1.4,
+                horizontal_deg: 0.25,
+                horizontal_bias: 0.0,
+                ads_mult: 0.6,
+            },
         }
     }
 }
@@ -72,6 +80,7 @@ impl AimRecoilSettings {
     pub(crate) fn for_weapon(&self, weapon: WeaponId) -> WeaponRecoil {
         match weapon {
             WeaponId::Ak74 => self.ak,
+            WeaponId::RayGun => self.raygun,
             _ => self.sniper,
         }
     }
