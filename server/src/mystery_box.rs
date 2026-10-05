@@ -52,7 +52,7 @@ fn on_spin(
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
 ) {
     let peer = trigger.from;
-    let SpinMysteryBox { knives_full, molotovs_full } = trigger.trigger;
+    let SpinMysteryBox { knives_full, molotovs_full, monkeys_full } = trigger.trigger;
     let Some((lobby_e, feet, _)) = standing_in_game(peer, &endings, &lobbies, &players) else {
         return;
     };
@@ -72,6 +72,7 @@ fn on_spin(
     let excluded = |p: BoxPrize| match p {
         BoxPrize::ThrowingKnife => knives_full,
         BoxPrize::Molotov => molotovs_full,
+        BoxPrize::MonkeyBomb => monkeys_full,
         gun => gun.gun().is_some_and(|g| carried.contains(&SlotWeapon::Gun(g))),
     };
     let seed = time.elapsed().as_nanos() as u64 ^ peer.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
@@ -111,7 +112,7 @@ fn on_take_prize(
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let TakeBoxPrize { slot, mag, reserve, drop_knives, drop_molotovs } = trigger.trigger;
+    let TakeBoxPrize { slot, mag, reserve, dropping } = trigger.trigger;
     let Some((lobby_e, feet, _)) = standing_in_game(peer, &endings, &lobbies, &players) else {
         return;
     };
@@ -135,12 +136,9 @@ fn on_take_prize(
             }
         }
         None => {
-            let world = colliders.for_lobby(&lobby);
-            if spin.prize == BoxPrize::Molotov && drop_knives > 0 {
-                crate::knives::drop_knives_around(&mut commands, lobby_e, &lobby, peer, feet, drop_knives, &world);
-            }
-            if spin.prize == BoxPrize::ThrowingKnife && drop_molotovs > 0 {
-                crate::molotovs::drop_around(&mut commands, lobby_e, &lobby, feet, drop_molotovs, &world);
+            if let Some(kind) = spin.prize.lethal() {
+                let world = colliders.for_lobby(&lobby);
+                crate::lethals::drop_carried(&mut commands, lobby_e, &lobby, peer, feet, dropping, kind, &world);
             }
         }
     }

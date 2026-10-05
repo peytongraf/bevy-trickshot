@@ -431,18 +431,16 @@ fn on_pick_up_molotov(
         return;
     };
     commands.entity(entity).try_despawn();
-    let drop = trigger.trigger.drop_knives;
-    if drop > 0 {
-        crate::knives::drop_knives_around(
-            &mut commands,
-            lobby_e,
-            lobby,
-            peer,
-            feet,
-            drop,
-            &colliders.for_lobby(lobby),
-        );
-    }
+    crate::lethals::drop_carried(
+        &mut commands,
+        lobby_e,
+        lobby,
+        peer,
+        feet,
+        trigger.trigger.dropping,
+        shared::lethal::LethalKind::Molotov,
+        &colliders.for_lobby(lobby),
+    );
     if let Err(e) = sender.send::<_, GameChannel>(
         &MolotovPickedUp,
         server.into_inner(),

@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Monkey bomb
 - Armor
 - Compass HUD
 - Mystery box
@@ -36,7 +37,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add minimap top left
 - Add crafting table
 - Add rampage inducer
-- Add monkey bomb
 - Add semtex
 - Add frag
 - Add quotes

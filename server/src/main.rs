@@ -24,8 +24,10 @@ mod dogs;
 mod health;
 mod killcam;
 mod knives;
+mod lethals;
 mod lobby;
 mod molotovs;
+mod monkey_bombs;
 mod mystery_box;
 mod nav;
 mod net;
@@ -79,5 +81,6 @@ fn main() {
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)
         .add_plugins(armor::ArmorPlugin)
+        .add_plugins(monkey_bombs::MonkeyBombsPlugin)
         .run();
 }

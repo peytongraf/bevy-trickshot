@@ -115,6 +115,7 @@ fn lethal_icon_path(lethal: Lethal) -> &'static str {
     match lethal {
         Lethal::ThrowingKnife => "textures/icons/weapons/throwing_knife.png",
         Lethal::Molotov => "textures/icons/weapons/molotov.png",
+        Lethal::MonkeyBomb => "textures/icons/weapons/monkey_bomb.png",
     }
 }
 

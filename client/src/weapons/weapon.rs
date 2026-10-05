@@ -267,6 +267,8 @@ pub(crate) struct Weapon {
     pub(crate) throwing_knives: u32,
     /// Molotovs carried (`Zombies` only — picked up from dropped ones).
     pub(crate) molotovs: u32,
+    /// Monkey bombs carried (`Zombies` only).
+    pub(crate) monkey_bombs: u32,
     /// Which lethal the lethal key throws — the only kind carried: picking up
     /// the other kind swaps to it (the old ones are dropped, see
     /// `knife_pickup`). Stays put when it runs out.
@@ -424,6 +426,7 @@ impl Default for Weapon {
             reserve: 0,
             throwing_knives: 0,
             molotovs: 0,
+            monkey_bombs: 0,
             lethal: Lethal::ThrowingKnife,
             loadout_pending: true,
             busy: None,
@@ -509,10 +512,38 @@ impl Weapon {
 
     /// How many of the current lethal are left.
     pub(crate) fn lethal_count(&self) -> u32 {
-        match self.lethal {
+        self.count_of(self.lethal)
+    }
+
+    /// How many of `kind` are carried.
+    pub(crate) fn count_of(&self, kind: Lethal) -> u32 {
+        match kind {
             Lethal::ThrowingKnife => self.throwing_knives,
             Lethal::Molotov => self.molotovs,
+            Lethal::MonkeyBomb => self.monkey_bombs,
         }
+    }
+
+    /// What's carried of a kind other than `taking` — handed to the server
+    /// with a pickup of `taking`, to drop.
+    pub(crate) fn carried_other_than(&self, taking: Lethal) -> shared::lethal::Carried {
+        self.carried_lethal()
+            .filter(|kind| *kind != taking)
+            .map(|kind| (kind.kind(), self.count_of(kind)))
+    }
+
+    /// `kind` is the only lethal now: every other kind's gone.
+    fn only(&mut self, kind: Lethal) {
+        if kind != Lethal::ThrowingKnife {
+            self.throwing_knives = 0;
+        }
+        if kind != Lethal::Molotov {
+            self.molotovs = 0;
+        }
+        if kind != Lethal::MonkeyBomb {
+            self.monkey_bombs = 0;
+        }
+        self.lethal = kind;
     }
 
     /// One `kind` just left the hand.
@@ -520,6 +551,7 @@ impl Weapon {
         match kind {
             Lethal::ThrowingKnife => self.throwing_knives = self.throwing_knives.saturating_sub(1),
             Lethal::Molotov => self.molotovs = self.molotovs.saturating_sub(1),
+            Lethal::MonkeyBomb => self.monkey_bombs = self.monkey_bombs.saturating_sub(1),
         }
     }
 
@@ -535,46 +567,43 @@ impl Weapon {
         match kind {
             Lethal::ThrowingKnife => self.throwing_knives >= shared::throwing_knife::MAX_CARRIED,
             Lethal::Molotov => self.molotovs >= shared::molotov::MAX_MOLOTOVS,
+            Lethal::MonkeyBomb => self.monkey_bombs >= shared::monkey_bomb::MAX_MONKEYS,
         }
     }
 
     /// A molotov was picked up: one more (up to the most that can be
     /// carried), and it's now the only lethal — any knives were dropped.
     pub(crate) fn add_molotov(&mut self) {
-        if self.lethal != Lethal::Molotov {
-            self.throwing_knives = 0;
-        }
+        self.only(Lethal::Molotov);
         self.molotovs = (self.molotovs + 1).min(shared::molotov::MAX_MOLOTOVS);
-        self.lethal = Lethal::Molotov;
+    }
+
+    /// A monkey bomb was picked up: one more (up to the most that can be
+    /// carried), and it's now the only lethal — any other kind was dropped.
+    pub(crate) fn add_monkey_bomb(&mut self) {
+        self.only(Lethal::MonkeyBomb);
+        self.monkey_bombs = (self.monkey_bombs + 1).min(shared::monkey_bomb::MAX_MONKEYS);
     }
 
     /// A full load of `kind` from the Mystery Box: it's now the only
     /// lethal, as many as can be carried (any of the other kind were
     /// dropped).
     pub(crate) fn fill_lethal(&mut self, kind: Lethal) {
+        self.only(kind);
         match kind {
-            Lethal::ThrowingKnife => {
-                self.molotovs = 0;
-                self.throwing_knives = shared::throwing_knife::MAX_CARRIED;
-            }
-            Lethal::Molotov => {
-                self.throwing_knives = 0;
-                self.molotovs = shared::molotov::MAX_MOLOTOVS;
-            }
+            Lethal::ThrowingKnife => self.throwing_knives = shared::throwing_knife::MAX_CARRIED,
+            Lethal::Molotov => self.molotovs = shared::molotov::MAX_MOLOTOVS,
+            Lethal::MonkeyBomb => self.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
         }
-        self.lethal = kind;
     }
 
     /// A throwing knife was picked up: one more (up to the most that can be
     /// carried), and it's now the only lethal — any molotovs were dropped.
     pub(crate) fn add_throwing_knife(&mut self) {
-        if self.lethal != Lethal::ThrowingKnife {
-            self.molotovs = 0;
-        }
+        self.only(Lethal::ThrowingKnife);
         if self.throwing_knives < shared::throwing_knife::MAX_CARRIED {
             self.throwing_knives += 1;
         }
-        self.lethal = Lethal::ThrowingKnife;
     }
 
     /// The weapon in hand (or on its way there).
@@ -712,6 +741,7 @@ pub(crate) fn apply_loadout(
     weapon.reserve = starting_reserve(lobby.mode, weapon.primary);
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
     weapon.molotovs = 0;
+    weapon.monkey_bombs = 0;
     weapon.lethal = Lethal::ThrowingKnife;
     weapon.loadout_pending = false;
 }
@@ -722,6 +752,18 @@ pub(crate) enum Lethal {
     #[default]
     ThrowingKnife,
     Molotov,
+    MonkeyBomb,
+}
+
+impl Lethal {
+    /// The shared kind it is (what the server's told about).
+    pub(crate) fn kind(self) -> shared::lethal::LethalKind {
+        match self {
+            Lethal::ThrowingKnife => shared::lethal::LethalKind::ThrowingKnife,
+            Lethal::Molotov => shared::lethal::LethalKind::Molotov,
+            Lethal::MonkeyBomb => shared::lethal::LethalKind::MonkeyBomb,
+        }
+    }
 }
 
 /// Where the throwing-knife key's sequence is up to. Independent of
@@ -741,6 +783,9 @@ enum ThrowPhase {
     Stowing,
     /// Arms sliding in / held out, waiting on the key's release.
     Held,
+    /// A monkey bomb, released: held on to while its prime plays — no
+    /// taking it back — then thrown.
+    Priming,
     /// The throw clip is playing.
     Throwing,
     /// Arms sliding back down; the weapon returns once they're out of view.
@@ -776,6 +821,8 @@ pub(crate) struct ThrowingKnife {
     /// How far the arms have slid into view: `0` hidden below the screen, `1`
     /// in place. Advanced by `throw_arms::slide_throw_arms`.
     pub(crate) slide: f32,
+    /// Seconds of a monkey bomb's prime left ([`ThrowPhase::Priming`]).
+    prime_left: f32,
 }
 
 impl ThrowingKnife {
@@ -787,7 +834,7 @@ impl ThrowingKnife {
 
     /// Whether the arms should be sliding into (or holding) view.
     pub(crate) fn arms_out(&self) -> bool {
-        matches!(self.phase, ThrowPhase::Held | ThrowPhase::Throwing)
+        matches!(self.phase, ThrowPhase::Held | ThrowPhase::Priming | ThrowPhase::Throwing)
     }
 
     /// Take the filed throw request, if any (`(eye position, aim direction)`).
@@ -800,6 +847,18 @@ impl ThrowingKnife {
     /// by `molotov::send_throw_requests`).
     pub(crate) fn has_molotov_request(&self) -> bool {
         self.pending_throw.is_some() && self.kind == Lethal::Molotov
+    }
+
+    /// Whether a monkey bomb throw request is waiting to be sent
+    /// (`monkey_bomb::send_throw_requests`).
+    pub(crate) fn has_monkey_request(&self) -> bool {
+        self.pending_throw.is_some() && self.kind == Lethal::MonkeyBomb
+    }
+
+    /// Whether the monkey bomb should be in the arms' hand: from the press
+    /// (through its prime) until it's thrown.
+    pub(crate) fn monkey_in_hand(&self) -> bool {
+        self.kind == Lethal::MonkeyBomb && self.phase != ThrowPhase::Idle && !self.thrown
     }
 
     /// Whether a throwing-knife throw request is waiting to be sent.
@@ -1229,11 +1288,12 @@ pub(crate) fn weapon_system(
         ResMut<PerkDrink>,
         ResMut<QuickMelee>,
     ),
-    (mut pending_shot, mut shake, mut muzzle, mut smoke): (
+    (mut pending_shot, mut shake, mut muzzle, mut smoke, monkey_cfg): (
         ResMut<PendingShot>,
         ResMut<Shake>,
         ResMut<MuzzleFlashState>,
         ResMut<SmokeEmission>,
+        Res<crate::monkey_bomb::MonkeyBombSettings>,
     ),
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -1530,6 +1590,16 @@ pub(crate) fn weapon_system(
                 // Cancelled: no throw animation.
                 knife.active = false;
                 knife.phase = ThrowPhase::Returning;
+            } else if !key_held && knife.slide >= 1.0 && knife.kind == Lethal::MonkeyBomb {
+                // A monkey bomb, released: primed — held on to while its
+                // prime plays (just for us), then thrown, no taking it back.
+                knife.phase = ThrowPhase::Priming;
+                knife.prime_left = monkey_cfg.prime_secs;
+                commands.spawn((
+                    StateScoped(crate::AppState::InGame),
+                    AudioPlayer::new(sounds.monkey_bomb_prime.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
             } else if !key_held && knife.slide >= 1.0 {
                 // Released with the arms fully in place: throw.
                 knife.phase = ThrowPhase::Throwing;
@@ -1545,6 +1615,18 @@ pub(crate) fn weapon_system(
                     ));
                     snd.note(killcam::SND_THROW);
                 }
+                if let Some(arms) = arms_player.as_mut() {
+                    play_throw(arms, arms_node);
+                }
+            }
+            return;
+        }
+        ThrowPhase::Priming => {
+            // Nothing stops it now (a swap press is ignored).
+            knife.prime_left -= time.delta_secs();
+            if knife.prime_left <= 0.0 {
+                knife.phase = ThrowPhase::Throwing;
+                knife.thrown = true;
                 if let Some(arms) = arms_player.as_mut() {
                     play_throw(arms, arms_node);
                 }

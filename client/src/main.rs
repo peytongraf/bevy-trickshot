@@ -62,6 +62,7 @@ mod ammo_crate;
 mod armor;
 mod knife_pickup;
 mod molotov;
+mod monkey_bomb;
 mod mystery_box;
 mod zombies_audio;
 mod thrown_knife;
@@ -219,6 +220,7 @@ fn main() {
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)
         .add_plugins(molotov::MolotovPlugin)
+        .add_plugins(monkey_bomb::MonkeyBombPlugin)
         .add_plugins(ammo_crate::AmmoCratePlugin)
         .add_plugins(armor::ArmorPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)

@@ -21,10 +21,12 @@ pub mod bot_players;
 pub mod bots;
 pub mod health;
 pub mod hitbox;
+pub mod lethal;
 pub mod level;
 pub mod map;
 pub mod melee;
 pub mod molotov;
+pub mod monkey_bomb;
 pub mod mystery_box;
 pub mod operator;
 pub mod pap;
@@ -54,6 +56,7 @@ pub use protocol::{
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
     SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor,
+    ThrownMonkey, MonkeyDrop, ThrowMonkey, PickUpMonkey, MonkeyPickedUp, SetMonkeyFuse,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 

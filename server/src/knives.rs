@@ -214,10 +214,16 @@ fn on_pick_up_knife(
         return;
     };
     commands.entity(knife).try_despawn();
-    let drop = trigger.trigger.drop_molotovs.min(shared::molotov::MAX_MOLOTOVS);
-    if drop > 0 && lobby.mode == GameMode::Zombies {
-        crate::molotovs::drop_around(&mut commands, lobby_e, lobby, feet, drop, &colliders.for_lobby(lobby));
-    }
+    crate::lethals::drop_carried(
+        &mut commands,
+        lobby_e,
+        lobby,
+        peer,
+        feet,
+        trigger.trigger.dropping,
+        shared::lethal::LethalKind::ThrowingKnife,
+        &colliders.for_lobby(lobby),
+    );
     if let Err(e) =
         sender.send::<_, GameChannel>(&KnifePickedUp, server.into_inner(), &NetworkTarget::Single(peer))
     {

@@ -569,6 +569,7 @@ pub(crate) fn drive_bots(
     )>,
     mut hits: EventWriter<crate::pvp::PlayerHit>,
     mut swipes: EventWriter<ZombieSwipeLanded>,
+    lures: Res<crate::monkey_bombs::MonkeyLures>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -748,6 +749,17 @@ pub(crate) fn drive_bots(
                 .find(|(pid, ..)| pid.0 == t)
                 .map(|(_, pose, ..)| pose.translation)
         });
+        // A landed monkey bomb near a zombie (not a hellhound) draws it
+        // instead: it walks to it and crowds round, swiping at no one
+        // (`monkey_bombs`).
+        let lure = brain
+            .zombie
+            .filter(|z| !z.dog)
+            .and_then(|_| lures.nearest(lp.lobby, brain.feet));
+        let target_pose = match lure {
+            Some(at) => Some(at + Vec3::Y * EYE_HEIGHT),
+            None => target_pose,
+        };
 
         // Can it see them? (Chest of the target, through the map's geometry.)
         let mut visible = false;
@@ -757,7 +769,7 @@ pub(crate) fn drive_bots(
             let chest = t_eye - Vec3::Y * 0.45;
             to_target = chest - eye;
             distance = to_target.length();
-            visible = distance <= skill.sight_range && !world.segment_blocked(eye, chest);
+            visible = lure.is_none() && distance <= skill.sight_range && !world.segment_blocked(eye, chest);
         }
         brain.seen_for = if visible { brain.seen_for + dt } else { 0.0 };
         // (A zombie never stops to shoot — it just keeps coming.)
@@ -1316,6 +1328,7 @@ mod tests {
         app.insert_resource(MapColliders::load());
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.init_resource::<crate::killcam::EndingLobbies>();
+        app.init_resource::<crate::monkey_bombs::MonkeyLures>();
         app.add_event::<crate::pvp::PlayerHit>();
         app.add_event::<ZombieSwipeLanded>();
         app.add_systems(Update, drive_bots);
@@ -1475,6 +1488,22 @@ mod tests {
         assert!(landed.len() >= 2, "swipes landed at {landed:?}");
         // Not instant: the arm has to come round first.
         assert!(landed[0] >= ZOMBIE_ATTACK_HIT_SECS - 0.05, "first swipe at {}", landed[0]);
+    }
+
+    /// A landed monkey bomb draws a zombie off the player right next to it:
+    /// it never swipes, and walks over to the monkey.
+    #[test]
+    fn a_zombie_goes_to_a_monkey_bomb_instead_of_its_target() {
+        let (mut app, bot) = zombie_world(Vec3::new(-28.8, 0.0, -40.0));
+        let lobby = app.world().get::<LobbyPlayer>(bot).unwrap().lobby;
+        let monkey = Vec3::new(-30.0, 0.0, -46.0);
+        app.world_mut()
+            .resource_mut::<crate::monkey_bombs::MonkeyLures>()
+            .add(lobby, monkey);
+        let landed = zombie_swipes(&mut app, bot, 5.0, |_| {});
+        assert!(landed.is_empty(), "it swiped at the player at {landed:?}");
+        let feet = Vec3::from_array(input(&app, bot).translation) - Vec3::Y * EYE_HEIGHT;
+        assert!(feet.distance(monkey) < 2.0, "it ended at {feet:?}, not by the monkey");
     }
 
     #[test]

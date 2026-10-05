@@ -1447,6 +1447,11 @@ pub(crate) fn ads_tuning_ui(
                         ("knife: equip", &mut v.knife_equip),
                         ("molotov: light (held)", &mut v.molotov_light),
                         ("molotov: burst", &mut v.molotov_burst),
+                        ("monkey bomb: prime", &mut v.monkey_bomb_prime),
+                        ("monkey bomb: throw", &mut v.monkey_bomb_throw),
+                        ("monkey bomb: land", &mut v.monkey_bomb_land),
+                        ("monkey bomb: song", &mut v.monkey_bomb_song),
+                        ("monkey bomb: bye bye", &mut v.monkey_bomb_explode_vox),
                         ("throwing knife: pick up", &mut v.pick_up_equipment),
                         ("sniper: equip", &mut v.sniper_equip),
                         ("heartbeat (at zero health)", &mut v.heartbeat),
@@ -1883,6 +1888,18 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Molotov (Zombies)", |ui| {
                 crate::molotov::molotov_section(ui, &mut molotov_dbg, &mut arms_view.debug_hold_key);
+            });
+
+            ui.separator();
+            ui.collapsing("Monkey bomb (Zombies)", |ui| {
+                let d = &mut molotov_dbg;
+                crate::monkey_bomb::monkey_section(
+                    ui,
+                    &mut d.monkey,
+                    &mut d.weapon,
+                    &mut arms_view.debug_hold_key,
+                    &mut d.monkey_fuse_tx,
+                );
             });
 
             ui.separator();

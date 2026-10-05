@@ -305,12 +305,24 @@ fn outline_resting_knives(
     }
 }
 
-/// The kind of the nearest stopped knife or dropped molotov in pickup range
+/// Every dropped lethal lying about (molotovs and monkey bombs): its kind
+/// and where.
+type DroppedLethals<'w, 's> = (Query<'w, 's, &'static MolotovDrop>, Query<'w, 's, &'static shared::MonkeyDrop>);
+
+fn dropped<'a>(drops: &'a DroppedLethals) -> impl Iterator<Item = (Lethal, Vec3)> + 'a {
+    drops
+        .0
+        .iter()
+        .map(|d| (Lethal::Molotov, d.pos))
+        .chain(drops.1.iter().map(|d| (Lethal::MonkeyBomb, d.pos)))
+}
+
+/// The kind of the nearest stopped knife or dropped lethal in pickup range
 /// of the local player that `wanted` accepts, if any.
 fn pickup_in_reach<'a>(
     player: &Transform,
     knives: impl Iterator<Item = &'a ThrownKnife>,
-    drops: impl Iterator<Item = &'a MolotovDrop>,
+    drops: impl Iterator<Item = (Lethal, Vec3)>,
     wanted: impl Fn(Lethal) -> bool,
 ) -> Option<Lethal> {
     lethal_in_reach(player, knives, drops, wanted).map(|(what, _)| what)
@@ -320,7 +332,7 @@ fn pickup_in_reach<'a>(
 fn lethal_in_reach<'a>(
     player: &Transform,
     knives: impl Iterator<Item = &'a ThrownKnife>,
-    drops: impl Iterator<Item = &'a MolotovDrop>,
+    drops: impl Iterator<Item = (Lethal, Vec3)>,
     wanted: impl Fn(Lethal) -> bool,
 ) -> Option<(Lethal, f32)> {
     let eye = player.translation;
@@ -329,7 +341,7 @@ fn lethal_in_reach<'a>(
     knives
         .filter(|k| k.resting && in_range(k.pos))
         .map(|k| (Lethal::ThrowingKnife, k.pos))
-        .chain(drops.filter(|d| in_range(d.pos)).map(|d| (Lethal::Molotov, d.pos)))
+        .chain(drops.filter(|(_, pos)| in_range(*pos)))
         .filter(|(what, _)| wanted(*what))
         .map(|(what, pos)| (what, pos.distance_squared(eye)))
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -371,23 +383,30 @@ fn auto_kind(weapon: &Weapon, kind: Lethal) -> bool {
     weapon.carried_lethal().is_none_or(|c| c == kind)
 }
 
-/// Ask the server for the nearest `kind` in reach, dropping `drop` of the
-/// other kind.
-fn request_pickup(
-    kind: Lethal,
-    drop: u32,
-    knife_sender: &mut Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
-    molotov_sender: &mut Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
-) {
+/// The pickup requests, one per kind of lethal.
+type PickupSenders<'w, 's> = (
+    Query<'w, 's, &'static mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
+    Query<'w, 's, &'static mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+    Query<'w, 's, &'static mut TriggerSender<shared::PickUpMonkey>, With<GameClient>>,
+);
+
+/// Ask the server for the nearest `kind` in reach, dropping what's
+/// carried of another kind (`dropping`).
+fn request_pickup(kind: Lethal, dropping: shared::lethal::Carried, senders: &mut PickupSenders) {
     match kind {
         Lethal::ThrowingKnife => {
-            if let Ok(mut s) = knife_sender.single_mut() {
-                s.trigger::<shared::LobbyChannel>(shared::PickUpKnife { drop_molotovs: drop });
+            if let Ok(mut s) = senders.0.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpKnife { dropping });
             }
         }
         Lethal::Molotov => {
-            if let Ok(mut s) = molotov_sender.single_mut() {
-                s.trigger::<shared::LobbyChannel>(shared::PickUpMolotov { drop_knives: drop });
+            if let Ok(mut s) = senders.1.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpMolotov { dropping });
+            }
+        }
+        Lethal::MonkeyBomb => {
+            if let Ok(mut s) = senders.2.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpMonkey { dropping });
             }
         }
     }
@@ -466,7 +485,7 @@ fn update_pickup_card(
     weapon: Res<Weapon>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
-    drops: Query<&MolotovDrop>,
+    drops: DroppedLethals,
     weapon_drops: Query<&WeaponDrop>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
@@ -478,7 +497,7 @@ fn update_pickup_card(
     let shown = !menu.is_open() && active_killcam.0.is_none() && !death.is_active();
     let what = shown
         .then(|| {
-            let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| {
+            let lethal = lethal_in_reach(&player, knives.iter(), dropped(&drops), |k| {
                 !auto_kind(&weapon, k) || weapon.lethal_full(k)
             });
             let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
@@ -496,6 +515,7 @@ fn update_pickup_card(
             match kind {
                 Lethal::ThrowingKnife => "THROWING KNIFE".to_string(),
                 Lethal::Molotov => "MOLOTOV".to_string(),
+                Lethal::MonkeyBomb => "MONKEY BOMB".to_string(),
             },
             if auto_kind(&weapon, kind) { "CARRYING THE MOST".to_string() } else { press },
             OUTLINE_BLUE,
@@ -538,20 +558,19 @@ fn auto_pick_up(
     death: Res<crate::death_effect::DeathEffect>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
-    drops: Query<&MolotovDrop>,
-    mut knife_sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
-    mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+    drops: DroppedLethals,
+    mut senders: PickupSenders,
 ) {
     let now = time.elapsed_secs();
     if pending.waiting(now) || death.is_active() {
         return;
     }
-    let Some(kind) = pickup_in_reach(&player, knives.iter(), drops.iter(), |k| {
+    let Some(kind) = pickup_in_reach(&player, knives.iter(), dropped(&drops), |k| {
         auto_kind(&weapon, k) && !weapon.lethal_full(k)
     }) else {
         return;
     };
-    request_pickup(kind, 0, &mut knife_sender, &mut molotov_sender);
+    request_pickup(kind, None, &mut senders);
     pending.0 = Some(now);
 }
 
@@ -570,22 +589,21 @@ fn swap_lethal(
     mut pending: ResMut<PendingPickup>,
     player: Single<&Transform, With<Player>>,
     knives: Query<&ThrownKnife, With<Interpolated>>,
-    drops: Query<&MolotovDrop>,
+    drops: DroppedLethals,
     (weapon_drops, local, lobbies): (Query<&WeaponDrop>, Query<&LocalId, With<GameClient>>, Query<&shared::Lobby>),
-    mut knife_sender: Query<&mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
-    mut molotov_sender: Query<&mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
+    mut senders: PickupSenders,
     mut weapon_sender: Query<&mut TriggerSender<shared::PickUpWeapon>, With<GameClient>>,
 ) {
     let now = time.elapsed_secs();
     if !binds.interact.just_pressed(&keys, &mouse) || pending.waiting(now) {
         return;
     }
-    let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| !auto_kind(&weapon, k));
+    let lethal = lethal_in_reach(&player, knives.iter(), dropped(&drops), |k| !auto_kind(&weapon, k));
     let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
                 || crate::mystery_box::usable_in_reach(&local, &lobbies, &player);
     match offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall) {
         Some(Offer::Lethal(kind)) => {
-            request_pickup(kind, weapon.lethal_count(), &mut knife_sender, &mut molotov_sender);
+            request_pickup(kind, weapon.carried_other_than(kind), &mut senders);
             pending.0 = Some(now);
         }
         Some(Offer::Weapon(drop)) if !weapon.carries(drop.weapon) && hands.free() => {

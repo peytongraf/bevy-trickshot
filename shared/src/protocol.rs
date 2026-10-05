@@ -1219,6 +1219,41 @@ pub struct MolotovFire {
     pub spots: Vec<Vec3>,
 }
 
+/// A monkey bomb in a `Zombies` lobby, flying or `landed` (then clapping
+/// and singing, drawing zombies to it, until it blows up). The server owns
+/// it (`server::monkey_bombs`, [`crate::monkey_bomb`]); clients draw it and
+/// play its sounds from it.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrownMonkey {
+    pub owner: PeerId,
+    pub pos: Vec3,
+    pub rot: Quat,
+    pub landed: bool,
+    /// Seconds from landing to blowing up — its lobby's at the throw
+    /// ([`SetMonkeyFuse`]), so every client ends its sounds on time.
+    pub fuse: f32,
+}
+
+impl Ease for ThrownMonkey {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| ThrownMonkey {
+            owner: end.owner,
+            pos: Vec3::lerp(start.pos, end.pos, t),
+            rot: Quat::slerp(start.rot, end.rot, t),
+            landed: end.landed,
+            fuse: end.fuse,
+        })
+    }
+}
+
+/// A monkey bomb a zombie dropped (or a player swapped away), lying at
+/// `pos` turned `yaw` radians, for any player to pick up ([`PickUpMonkey`]).
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MonkeyDrop {
+    pub pos: Vec3,
+    pub yaw: f32,
+}
+
 /// A molotov a zombie dropped, lying on its side at `pos` (turned `yaw`
 /// radians about the vertical) for any player to pick up ([`PickUpMolotov`]).
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -1297,20 +1332,21 @@ pub struct RefillArmor;
 pub struct SpinMysteryBox {
     pub knives_full: bool,
     pub molotovs_full: bool,
+    pub monkeys_full: bool,
 }
 
 /// Client → server: take the Mystery Box's prize this player spun for,
 /// while it's on offer. A gun goes in slot `slot` (the one in hand), whose
 /// weapon is dropped with `mag` / `reserve` rounds; a lethal fills them up
-/// with it, dropping the other kind they carry (`drop_knives` /
-/// `drop_molotovs`). Answered with [`BoxPrizeTaken`].
+/// with it, dropping another kind they carry (`dropping`). Answered with
+/// [`BoxPrizeTaken`].
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct TakeBoxPrize {
     pub slot: u8,
     pub mag: u32,
     pub reserve: u32,
-    pub drop_knives: u32,
-    pub drop_molotovs: u32,
+    /// Another kind of lethal carried, dropped for a lethal prize.
+    pub dropping: crate::lethal::Carried,
 }
 
 /// Server → the taker only: their [`TakeBoxPrize`] went through — a gun's
@@ -1500,12 +1536,12 @@ pub struct ThrowKnife {
 /// it, checks the range (`shared::throwing_knife::in_pickup_range`), removes
 /// it and answers with [`KnifePickedUp`].
 ///
-/// A player carries one kind of lethal at a time: swapping from molotovs,
-/// the client says how many it's carrying and the server drops that many
-/// [`MolotovDrop`]s around them (only if the pickup worked).
+/// A player carries one kind of lethal at a time: swapping from another
+/// kind, the client says what it's carrying ([`crate::lethal::Carried`]) and
+/// the server drops that many around them (only if the pickup worked).
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct PickUpKnife {
-    pub drop_molotovs: u32,
+    pub dropping: crate::lethal::Carried,
 }
 
 /// Server → the picker only: their [`PickUpKnife`] worked — one more
@@ -1523,12 +1559,41 @@ pub struct ThrowMolotov {
 
 /// Client → server: pick up the dropped molotov nearest this player. The
 /// server checks the range and answers with [`MolotovPickedUp`]. Swapping
-/// from throwing knives, `drop_knives` of them are left lying around the
-/// player (see [`PickUpKnife`]).
+/// from another kind, what's carried of it is dropped (see [`PickUpKnife`]).
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct PickUpMolotov {
-    pub drop_knives: u32,
+    pub dropping: crate::lethal::Carried,
 }
+
+/// Client → server: the player's prime ran out and their throw reached the
+/// release point — the monkey bomb leaves their hand (`Zombies` only, see
+/// [`crate::monkey_bomb`] and [`ThrowKnife`]).
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ThrowMonkey {
+    pub origin: [f32; 3],
+    pub dir: [f32; 3],
+}
+
+/// Client → server: pick up the dropped monkey bomb nearest this player,
+/// dropping what's carried of another kind (see [`PickUpKnife`]). Answered
+/// with [`MonkeyPickedUp`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PickUpMonkey {
+    pub dropping: crate::lethal::Carried,
+}
+
+/// Client → server (debug): how long (s) a monkey bomb thrown in this
+/// member's lobby takes from landing to blowing up (default
+/// [`crate::monkey_bomb::FUSE_SECS`]). Kept for the lobby's lifetime.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetMonkeyFuse {
+    pub secs: f32,
+}
+
+/// Server → the picker only: their [`PickUpMonkey`] worked — one more
+/// monkey bomb, and it's now their only lethal.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MonkeyPickedUp;
 
 /// Server → everyone in a `Zombies` lobby: a thrown molotov broke at
 /// `point` — every client plays the burst sound from there.
@@ -1817,6 +1882,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MolotovPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<MonkeyPickedUp>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MolotovBurst>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<AmmoBought>()
@@ -1889,6 +1956,12 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<ThrowMolotov>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpMolotov>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ThrowMonkey>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PickUpMonkey>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetMonkeyFuse>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
@@ -1968,6 +2041,11 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ThrownMolotov>()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
+
+        app.register_component::<ThrownMonkey>()
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
+        app.register_component::<MonkeyDrop>();
 
         // Static once spawned, so no interpolation.
         app.register_component::<MolotovFire>();

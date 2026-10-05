@@ -64,6 +64,15 @@ pub(crate) struct GameSounds {
     /// `audio/weapons/molotov/molotov_burst.mp3` — a thrown molotov breaking,
     /// from where it broke, for the whole lobby.
     pub(crate) molotov_burst: Handle<AudioSource>,
+    /// `audio/weapons/monkey_bomb/` — a monkey bomb primed (the thrower's
+    /// alone), thrown, landing, its song while it claps, and its "bye bye
+    /// zombies" before it blows up (the rest from the monkey, for the whole
+    /// lobby — `monkey_bomb`).
+    pub(crate) monkey_bomb_prime: Handle<AudioSource>,
+    pub(crate) monkey_bomb_throw: Handle<AudioSource>,
+    pub(crate) monkey_bomb_land: Handle<AudioSource>,
+    pub(crate) monkey_bomb_song: Handle<AudioSource>,
+    pub(crate) monkey_bomb_explode_vox: Handle<AudioSource>,
     /// `audio/weapons/pick_up_equipment.mp3` — picking up a thrown knife
     /// (only the picker hears it).
     pub(crate) pick_up_equipment: Handle<AudioSource>,
@@ -337,6 +346,11 @@ pub(crate) struct SoundVolumes {
     pub(crate) knife_equip: f32,
     pub(crate) molotov_light: f32,
     pub(crate) molotov_burst: f32,
+    pub(crate) monkey_bomb_prime: f32,
+    pub(crate) monkey_bomb_throw: f32,
+    pub(crate) monkey_bomb_land: f32,
+    pub(crate) monkey_bomb_song: f32,
+    pub(crate) monkey_bomb_explode_vox: f32,
     pub(crate) pick_up_equipment: f32,
     pub(crate) sniper_equip: f32,
     /// Loudness of the heartbeat at zero health (it fades toward silence as
@@ -415,6 +429,11 @@ impl Default for SoundVolumes {
             knife_equip: 1.0,
             molotov_light: 1.0,
             molotov_burst: 1.5,
+            monkey_bomb_prime: 1.0,
+            monkey_bomb_throw: 1.0,
+            monkey_bomb_land: 1.0,
+            monkey_bomb_song: 1.0,
+            monkey_bomb_explode_vox: 1.0,
             pick_up_equipment: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
@@ -486,6 +505,7 @@ impl SoundVolumes {
             (sounds.knife_in_air.id(), self.knife_in_air),
             (sounds.knife_equip.id(), self.knife_equip),
             (sounds.molotov_light.id(), self.molotov_light),
+            (sounds.monkey_bomb_prime.id(), self.monkey_bomb_prime),
             (sounds.pick_up_equipment.id(), self.pick_up_equipment),
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
@@ -670,6 +690,11 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         knife_equip: asset_server.load("audio/weapons/knife/equip.mp3"),
         molotov_light: asset_server.load("audio/weapons/molotov/molotov_light.mp3"),
         molotov_burst: asset_server.load("audio/weapons/molotov/molotov_burst.mp3"),
+        monkey_bomb_prime: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_prime.mp3"),
+        monkey_bomb_throw: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_throw.mp3"),
+        monkey_bomb_land: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_land.mp3"),
+        monkey_bomb_song: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_song.mp3"),
+        monkey_bomb_explode_vox: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_explode_vox.mp3"),
         pick_up_equipment: asset_server.load("audio/weapons/pick_up_equipment.mp3"),
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),

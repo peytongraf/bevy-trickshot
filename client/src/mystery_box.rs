@@ -272,6 +272,15 @@ fn sync_mystery_box(
                             Visibility::Hidden,
                         ));
                     }
+                    // The monkey bomb: as made, upright, its middle at the
+                    // origin (its skinned model isn't fitted by its shape).
+                    None if prize == BoxPrize::MonkeyBomb => {
+                        let height = crate::monkey_bomb::BOX_HEIGHT;
+                        holder.with_child((
+                            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::monkey_bomb::MONKEY_MODEL))),
+                            crate::monkey_bomb::centered_transform(height),
+                        ));
+                    }
                     None => {
                         let (path, length) = match prize {
                             BoxPrize::Molotov => ("models/weapons/molotov_1k.glb", MOLOTOV_LENGTH),
@@ -695,6 +704,7 @@ fn use_mystery_box(
                 s.trigger::<shared::LobbyChannel>(shared::SpinMysteryBox {
                     knives_full: weapon.lethal_full(Lethal::ThrowingKnife),
                     molotovs_full: weapon.lethal_full(Lethal::Molotov),
+                    monkeys_full: weapon.lethal_full(Lethal::MonkeyBomb),
                 });
                 *last_press = Some(now);
             }
@@ -706,8 +716,12 @@ fn use_mystery_box(
                     slot: weapon.held as u8,
                     mag,
                     reserve,
-                    drop_knives: if prize == BoxPrize::Molotov { weapon.throwing_knives } else { 0 },
-                    drop_molotovs: if prize == BoxPrize::ThrowingKnife { weapon.molotovs } else { 0 },
+                    dropping: match prize {
+                        BoxPrize::ThrowingKnife => weapon.carried_other_than(Lethal::ThrowingKnife),
+                        BoxPrize::Molotov => weapon.carried_other_than(Lethal::Molotov),
+                        BoxPrize::MonkeyBomb => weapon.carried_other_than(Lethal::MonkeyBomb),
+                        _ => None,
+                    },
                 });
                 *last_press = Some(now);
             }
@@ -729,6 +743,7 @@ fn receive_prizes(
             match got.prize {
                 BoxPrize::ThrowingKnife => weapon.fill_lethal(Lethal::ThrowingKnife),
                 BoxPrize::Molotov => weapon.fill_lethal(Lethal::Molotov),
+                BoxPrize::MonkeyBomb => weapon.fill_lethal(Lethal::MonkeyBomb),
                 gun => {
                     if let Some(gun) = gun.gun() {
                         weapon.take_into_slot(got.slot as usize, SlotWeapon::Gun(gun), None);
