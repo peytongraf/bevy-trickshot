@@ -462,6 +462,9 @@ struct LeaveCtx {
     is_leader: bool,
     /// That match is paused (`pause::GamePaused`).
     paused: bool,
+    /// We're the only real player in it (bots don't count) — leaving with
+    /// or without the party is the same thing, so there's just LEAVE GAME.
+    solo: bool,
 }
 
 fn leave_ctx(
@@ -476,6 +479,7 @@ fn leave_ctx(
         in_game: *app_state.get() == AppState::InGame,
         is_leader: matches!((me, my_lobby), (Some(me), Some(l)) if l.leader == me),
         paused: paused.0,
+        solo: my_lobby.is_some_and(|l| l.real_count() <= 1),
     }
 }
 
@@ -1484,7 +1488,19 @@ fn build_settings(
                     ..default()
                 })
                 .with_children(|actions| {
-                    if leave.is_leader {
+                    if leave.solo {
+                        // Alone: one way out (the lobby goes with us).
+                        actions.spawn(label_body(asset_server, "Leaving ends the match.", 13.0, TEXT_DIM));
+                        option_button(
+                            actions,
+                            asset_server,
+                            if leave.paused { "RESUME GAME" } else { "PAUSE GAME" },
+                            Btn::TogglePause,
+                            true,
+                            UiSound::BUTTON,
+                        );
+                        plain_button(actions, asset_server, "LEAVE GAME", Btn::LeaveGame, UiSound::BUTTON_BACK);
+                    } else if leave.is_leader {
                         actions.spawn((
                             label_body(
                                 asset_server,

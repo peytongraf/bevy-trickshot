@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Solo players get a single leave button
 - Monkey bomb
 - Armor
 - Compass HUD
@@ -17,7 +18,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
-- If player is by themselves then it should just have a leave button instead of leave with or without party since they don't have a party.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
@@ -29,6 +29,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
+- With current wall buy placements on break point, player can jump inbetween wall and wooden sign and get stuck
 - Make all maps have a day and night setting with just different fog / sky settings
 - Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup
 
