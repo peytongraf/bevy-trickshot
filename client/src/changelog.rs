@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Added a compass to the top of the screen.",
         "Zombies: the Mystery Box.",
         "Zombies: the Ray Gun (debug only for now).",
         "Zombies: bled out? Spectate a teammate until the next round.",

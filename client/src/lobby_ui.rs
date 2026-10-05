@@ -2007,7 +2007,8 @@ fn spawn_match_timer(mut commands: Commands) {
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(14.0),
+                // (Under the compass.)
+                top: Val::Px(crate::hud::COMPASS_HEIGHT + 4.0),
                 left: Val::Percent(0.0),
                 right: Val::Percent(0.0),
                 justify_content: JustifyContent::Center,

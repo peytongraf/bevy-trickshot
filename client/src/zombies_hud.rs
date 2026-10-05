@@ -445,7 +445,8 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
-                top: Val::Px(18.0),
+                // (Under the compass.)
+                top: Val::Px(crate::hud::COMPASS_HEIGHT + 8.0),
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
                 flex_direction: FlexDirection::Column,

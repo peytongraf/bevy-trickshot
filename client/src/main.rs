@@ -247,6 +247,7 @@ fn main() {
         .init_resource::<weapons::GunLower>()
         .add_plugins(vfx::RayGunVfxPlugin)
         .add_plugins(vfx::MysteryBoxVfxPlugin)
+        .add_plugins(CompassPlugin)
         .add_systems(
             Update,
             weapons::raygun_draw_lower

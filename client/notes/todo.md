@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Compass HUD
 - Mystery box
 - Ray gun muzzle rings
 - Ray gun shot glitching fixed
@@ -31,7 +32,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Big features
 
-- Add compass at the top
 - Add minimap top left
 - Add armor
 - Add crafting table
