@@ -151,6 +151,7 @@ const PHD_MID: [f32; 3] = [0.55, 0.08, 1.0];
 const PHD_TIP: [f32; 3] = [0.18, 0.0, 0.42];
 
 impl FireMaterial {
+
     /// A flame like the molotov's (`settings`' look) in PhD Flopper's
     /// purple, `brightness` bright and faded in to `fade` (0..1).
     pub(crate) fn phd_flame(settings: &MolotovSettings, brightness: f32, fade: f32) -> Self {

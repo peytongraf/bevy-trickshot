@@ -13,7 +13,7 @@ pub enum WeaponId {
     /// The AK-74 assault rifle — full-auto, picked in the loadout
     /// ([`crate::LobbyMember::loadout`]) for `Zombies` or `FreeForAll`.
     Ak74,
-    /// The Ray Gun — `Zombies`' wonder weapon, Call of Duty's: semi-auto,
+    /// The Ray Gun — `Zombies`' wonder weapon, Call of Duty's: full-auto,
     /// each shot a green bolt that bursts where it lands, hurting every
     /// zombie close by ([`raygun_splash_damage`]).
     RayGun,
@@ -302,7 +302,7 @@ impl WeaponId {
 
     /// Whether it keeps firing while the trigger's held.
     pub const fn full_auto(self) -> bool {
-        matches!(self, WeaponId::Ak74)
+        matches!(self, WeaponId::Ak74 | WeaponId::RayGun)
     }
 
     /// Whether a shot keeps going through what it hits (the sniper's

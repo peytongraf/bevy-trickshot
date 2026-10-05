@@ -2083,13 +2083,21 @@ pub(crate) fn weapon_system(
     }
     // Only `WeaponSlot::Primary` is left.
 
-    // The Ray Gun: semi-auto — a bolt each pull, at most one every
-    // `fire_interval`, each restarting its shoot clip. The last one out
+    // The Ray Gun: full-auto — a bolt every `fire_interval` while the
+    // trigger's held, each restarting its shoot clip. The last one out
     // goes straight into a reload (auto-reload on).
     if rig.weapon == WeaponId::RayGun {
         let now = time.elapsed_secs();
-        if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
-            weapon.next_shot_at = now + (ray_cfg.fire_interval / classic.fire_rate()).max(0.05);
+        if binds.fire.pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
+            // Held: an even cadence across uneven frames, like the AK-74's;
+            // a fresh pull after a pause counts from now.
+            let interval = (ray_cfg.fire_interval / classic.fire_rate()).max(0.05);
+            let due = if now - weapon.next_shot_at < interval {
+                weapon.next_shot_at
+            } else {
+                now
+            };
+            weapon.next_shot_at = due + interval;
             weapon.mag -= 1;
             shake.trauma = (shake.trauma + ray_cfg.trauma_per_shot).min(1.0);
             shake.recoil = ray_cfg.recoil_kick;

@@ -39,6 +39,8 @@ const MUZZLE_RING_SECS: f32 = 0.55;
 const MUZZLE_RING_SPEED: f32 = 5.0;
 const MUZZLE_RING_START_SCALE: f32 = 0.35;
 const MUZZLE_RING_END_SCALE: f32 = 2.4;
+/// How opaque a muzzle ring starts (it fades from there).
+const MUZZLE_RING_OPACITY: f32 = 0.5;
 
 const GREEN: Color = Color::srgb(0.35, 1.0, 0.3);
 
@@ -74,7 +76,14 @@ impl Plugin for RayGunVfxPlugin {
             .add_systems(Startup, make_assets)
             .add_systems(
                 Update,
-                (spawn_bolts, steer_own_bolts, fly_bolts, play_bursts, fly_sparks, puff_muzzle_rings)
+                (
+                    spawn_bolts,
+                    steer_own_bolts,
+                    fly_bolts,
+                    play_bursts,
+                    fly_sparks,
+                    puff_muzzle_rings,
+                )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -167,7 +176,7 @@ fn spawn_bolts(
     for bolt in fired.read() {
         let dir = (bolt.end - bolt.start).normalize_or(Vec3::NEG_Z);
         for i in 0..MUZZLE_RINGS {
-            let material = glowing(&mut materials, 5.0, 0.9);
+            let material = glowing(&mut materials, 5.0 * MUZZLE_RING_OPACITY, MUZZLE_RING_OPACITY);
             // (A torus lies in its XZ plane: stood up to face along the
             // shot.)
             let facing = Transform::from_translation(bolt.start).looking_to(dir, Vec3::Y).rotation
@@ -400,9 +409,9 @@ fn puff_muzzle_rings(
         t.scale = Vec3::splat(MUZZLE_RING_START_SCALE + grow * (MUZZLE_RING_END_SCALE - MUZZLE_RING_START_SCALE));
         let fade = ((1.0 - k) * 2.0).min(1.0);
         if let Some(m) = materials.get_mut(&ring.material) {
-            m.base_color = GREEN.with_alpha(0.9 * fade);
+            m.base_color = GREEN.with_alpha(MUZZLE_RING_OPACITY * fade);
             let c = GREEN.to_linear();
-            m.emissive = LinearRgba::rgb(c.red, c.green, c.blue) * (5.0 * fade);
+            m.emissive = LinearRgba::rgb(c.red, c.green, c.blue) * (5.0 * MUZZLE_RING_OPACITY * fade);
         }
     }
 }
