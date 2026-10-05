@@ -14,6 +14,7 @@
 //! protocol and one definition of "did this shot hit".
 
 pub mod ammo;
+pub mod armor;
 pub mod dogs;
 pub mod ballistics;
 pub mod bot_players;
@@ -52,7 +53,7 @@ pub use protocol::{
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
-    SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken,
+    SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 

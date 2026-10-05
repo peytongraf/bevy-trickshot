@@ -59,6 +59,7 @@ mod revive;
 mod round_counter;
 mod settings;
 mod ammo_crate;
+mod armor;
 mod knife_pickup;
 mod molotov;
 mod mystery_box;
@@ -219,6 +220,7 @@ fn main() {
         .add_plugins(knife_pickup::KnifePickupPlugin)
         .add_plugins(molotov::MolotovPlugin)
         .add_plugins(ammo_crate::AmmoCratePlugin)
+        .add_plugins(armor::ArmorPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)

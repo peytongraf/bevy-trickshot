@@ -16,11 +16,13 @@
         DeadshotDaiquiri: (pos: (18.0, 0.0, -22.0), yaw_deg: 0.0),
     },
     wunderfizz: (pos: (-18.0, 0.0, -22.0), yaw_deg: 0.0),
-    pack_a_punch: None,
-    ammo_crate: None,
-    power_switch: None,
+    pack_a_punch: Some((pos: (0.0, 1.139, -26.948), yaw_deg: 44.7)),
+    ammo_crate: Some((pos: (0.0, 6.65, -35.2), yaw_deg: 44.7)),
+    power_switch: Some((pos: (0.0, 5.7, -33.55), yaw_deg: 44.7)),
     wall_buys: [
         (weapon: Sniper, at: (pos: (-8.0, 0.0, -32.0), yaw_deg: 0.0)),
         (weapon: Ak74, at: (pos: (8.0, 0.0, -32.0), yaw_deg: 0.0)),
     ],
+    mystery_box: Some((pos: (0.0, 1.139, -33.1), yaw_deg: 44.7)),
+    armor_station: Some((pos: (0.0, 1.139, -37.0), yaw_deg: 44.7)),
 )

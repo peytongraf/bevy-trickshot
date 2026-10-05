@@ -979,6 +979,10 @@ pub struct LobbyMember {
     /// ([`BuyWallWeapon`]) and pickups ([`PickUpWeapon`]) swap in — never two
     /// of the same.
     pub weapons: [SlotWeapon; 2],
+    /// [`GameMode::Zombies`]: this member's armor ([`crate::armor`]) —
+    /// server-owned, cleared whenever a game starts and when they bleed out.
+    #[serde(default)]
+    pub armor: crate::armor::Armor,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1269,6 +1273,19 @@ pub struct WallWeaponBought {
     pub weapon: WeaponId,
     pub slot: u8,
 }
+
+/// Client → server: buy armor up to `level` at the `Zombies` armor station
+/// ([`crate::armor`]) — paying for every level on the way, and filling every
+/// plate. The server checks it's in reach and the points.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyArmor {
+    pub level: u8,
+}
+
+/// Client → server: fill every armor plate this member owns back up at the
+/// station, for [`crate::armor::REFILL_COST`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct RefillArmor;
 
 /// Client → server: spin the `Zombies` Mystery Box ([`crate::mystery_box`]).
 /// Ammo and lethals are client-side, so the client says which lethal it's
@@ -1876,6 +1893,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SpinMysteryBox>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyArmor>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<RefillArmor>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TakeBoxPrize>()
             .add_direction(NetworkDirection::ClientToServer);

@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Armor
 - Compass HUD
 - Mystery box
 - Ray gun muzzle rings
@@ -33,7 +34,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Big features
 
 - Add minimap top left
-- Add armor
 - Add crafting table
 - Add rampage inducer
 - Add monkey bomb

@@ -677,7 +677,9 @@ pub(crate) fn add_at_view(editor: &mut Editor, id: ObjectId, rapier: &ReadRapier
     let to_camera = editor.cam.eye() - ground;
     let yaw_deg = f32::atan2(to_camera.x, to_camera.z).to_degrees();
     let before = editor.doc().layout.clone();
-    id.set(editor.doc_mut(), Placement::new(ground, yaw_deg));
+    // (At its kind's size — every map's.)
+    let size = id.size_key().map_or(1.0, |key| editor.sizes.get(&key));
+    id.set(editor.doc_mut(), Placement::new(ground, yaw_deg).with_scale(size));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
 }

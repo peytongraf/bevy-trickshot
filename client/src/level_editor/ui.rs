@@ -395,8 +395,9 @@ fn properties(
                 ui.end_row();
                 // (Not the stand-ins — the yardstick, always as in game — or
                 // the wall buys, all one size.)
+                // (A kind's size is every map's.)
                 if id.scalable() {
-                    ui.label("Scale");
+                    ui.label("Scale").on_hover_text("Its size on every map — the same kind is always the same size");
                     ui.horizontal(|ui| {
                         let r = ui.add_enabled(
                             !busy,

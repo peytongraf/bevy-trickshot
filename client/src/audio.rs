@@ -96,6 +96,9 @@ pub(crate) struct GameSounds {
     pub(crate) mystery_box_open: Handle<AudioSource>,
     pub(crate) mystery_box_close: Handle<AudioSource>,
     pub(crate) mystery_box_spin: Handle<AudioSource>,
+    /// `audio/zombies/armor/destroy.mp3` — the last of our armor broke
+    /// (`armor::play_armor_broken`).
+    pub(crate) armor_destroy: Handle<AudioSource>,
     /// `audio/zombies/machines/pap_buzzing.mp3` — the electric hum looped from every
     /// perk machine and the Pack-a-Punch once the power's on
     /// (`power::sync_machine_hums`).
@@ -352,6 +355,7 @@ pub(crate) struct SoundVolumes {
     pub(crate) mystery_box_open: f32,
     pub(crate) mystery_box_close: f32,
     pub(crate) mystery_box_spin: f32,
+    pub(crate) armor_destroy: f32,
     pub(crate) round_start: f32,
     pub(crate) dog_round_start: f32,
     pub(crate) dog_round_end: f32,
@@ -422,6 +426,7 @@ impl Default for SoundVolumes {
             mystery_box_open: 1.0,
             mystery_box_close: 1.0,
             mystery_box_spin: 1.0,
+            armor_destroy: 1.0,
             round_start: 4.0,
             dog_round_start: 1.0,
             dog_round_end: 1.0,
@@ -700,6 +705,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         mystery_box_open: asset_server.load("audio/zombies/mystery_box/open.mp3"),
         mystery_box_close: asset_server.load("audio/zombies/mystery_box/close.mp3"),
         mystery_box_spin: asset_server.load("audio/zombies/mystery_box/spin.mp3"),
+        armor_destroy: asset_server.load("audio/zombies/armor/destroy.mp3"),
         machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
         round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),
         dog_round_start: asset_server.load("audio/zombies/rounds/dog_round_start.mp3"),

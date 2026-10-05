@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "No more aiming in while holding a lethal.",
+        "Zombies: armor — buy up to 3 levels at the armor station.",
         "Added a compass to the top of the screen.",
         "Zombies: the Mystery Box.",
         "Zombies: the Ray Gun (debug only for now).",

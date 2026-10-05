@@ -1290,14 +1290,27 @@ struct PartyMoney(lightyear::prelude::PeerId);
 struct PartyHealthFill(lightyear::prelude::PeerId);
 #[derive(Component)]
 struct PartyHealthText(lightyear::prelude::PeerId);
+/// One of the member's armor plates' bars (`.1`: 0 = the bottom plate),
+/// and its blue fill.
+#[derive(Component)]
+struct PartyArmorBar(lightyear::prelude::PeerId, u8);
+#[derive(Component)]
+struct PartyArmorFill(lightyear::prelude::PeerId, u8);
+
+/// Armor bar height (px), and the gap between them.
+const ARMOR_BAR_H: f32 = 6.0;
+const ARMOR_BAR_GAP: f32 = 4.0;
 
 /// Health bar width / height (px).
 const HEALTH_BAR_W: f32 = 240.0;
 const HEALTH_BAR_H: f32 = 7.0;
 pub(crate) const MONEY_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
 
-/// One member's panel: a yellow `$` and their points; a white health bar over
-/// a grey track, the number beside it; their name.
+/// One member's panel: a yellow `$` and their points; a bar for each armor
+/// plate they own (`shared::armor` — blue over half-clear black, three
+/// across the health bar's width, only the owned ones shown, from the
+/// left); a white health bar over a grey track, the number beside it; their
+/// name.
 fn spawn_party_panel(
     root: &mut bevy::ecs::hierarchy::ChildSpawnerCommands,
     font: &Handle<Font>,
@@ -1334,6 +1347,41 @@ fn spawn_party_panel(
                     TextColor(Color::WHITE),
                     shadow,
                 ));
+            });
+        // The armor plates' bars, over the health bar.
+        panel
+            .spawn(Node {
+                width: Val::Px(HEALTH_BAR_W),
+                height: Val::Px(ARMOR_BAR_H),
+                column_gap: Val::Px(ARMOR_BAR_GAP),
+                ..default()
+            })
+            .with_children(|row| {
+                let plates = shared::armor::MAX_LEVEL;
+                let width = (HEALTH_BAR_W - ARMOR_BAR_GAP * (plates - 1) as f32) / plates as f32;
+                for plate in 0..plates {
+                    row.spawn((
+                        PartyArmorBar(peer, plate),
+                        Node {
+                            width: Val::Px(width),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+                        BorderRadius::all(Val::Px(2.0)),
+                        Visibility::Hidden,
+                    ))
+                    .with_child((
+                        PartyArmorFill(peer, plate),
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(crate::armor::ARMOR_BLUE),
+                        BorderRadius::all(Val::Px(2.0)),
+                    ));
+                }
             });
         panel
             .spawn(Node {
@@ -1395,7 +1443,9 @@ fn update_party_panels(
     mut layout: Local<(Option<Entity>, Vec<(lightyear::prelude::PeerId, String)>)>,
     root: Single<(Entity, &mut Visibility), With<PartyRoot>>,
     mut money: Query<(&PartyMoney, &mut Text), Without<PartyHealthText>>,
-    mut fills: Query<(&PartyHealthFill, &mut Node)>,
+    mut fills: Query<(&PartyHealthFill, &mut Node), Without<PartyArmorFill>>,
+    mut armor_bars: Query<(&PartyArmorBar, &mut Visibility), Without<PartyRoot>>,
+    mut armor_fills: Query<(&PartyArmorFill, &mut Node), Without<PartyHealthFill>>,
     mut health_text: Query<(&PartyHealthText, &mut Text), Without<PartyMoney>>,
     mut commands: Commands,
 ) {
@@ -1473,6 +1523,23 @@ fn update_party_panels(
         let s = format!("{:.0}", hp(h.0).ceil());
         if text.0 != s {
             text.0 = s;
+        }
+    }
+    // Armor: a bar for each plate owned, emptying toward the left.
+    let armor = |peer| {
+        lobby
+            .members
+            .iter()
+            .find(|m| m.peer == peer)
+            .map_or_else(shared::armor::Armor::default, |m| m.armor)
+    };
+    for (bar, mut v) in &mut armor_bars {
+        v.set_if_neq(if bar.1 < armor(bar.0).level { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    for (fill, mut node) in &mut armor_fills {
+        let pct = Val::Percent(armor(fill.0).plate_fill(fill.1) * 100.0);
+        if node.width != pct {
+            node.width = pct;
         }
     }
 }

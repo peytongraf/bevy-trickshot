@@ -556,6 +556,7 @@ mod tests {
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
+                    armor: Default::default(),
                     pap: Default::default(),
                     loadout: Default::default(),
                     operator: Default::default(),

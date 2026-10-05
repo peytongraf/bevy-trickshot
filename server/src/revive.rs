@@ -233,6 +233,7 @@ fn run_last_stands(
                 }
                 if down.bleed_left <= 0.0 {
                     m.perks.clear();
+                    m.armor = Default::default();
                 }
             }
             if down.bleed_left <= 0.0 {

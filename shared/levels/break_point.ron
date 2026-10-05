@@ -23,5 +23,6 @@
         (weapon: Sniper, at: (pos: (9.6, 0.0, -39.0), yaw_deg: -90.0)),
         (weapon: Ak74, at: (pos: (9.6, 0.0, -31.0), yaw_deg: -90.0)),
     ],
-    mystery_box: Some((pos: (-17.3, 6.0, 21.15), yaw_deg: -90.0, scale: 1.5)),
+    mystery_box: Some((pos: (-17.3, 6.0, 21.15), yaw_deg: -90.0)),
+    armor_station: Some((pos: (8.4, 0.0, -59.15), yaw_deg: 0.0)),
 )

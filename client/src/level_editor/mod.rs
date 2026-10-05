@@ -39,7 +39,7 @@ use bevy::pbr::FogFalloff;
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_egui::EguiPrimaryContextPass;
-use shared::level::{Placement, ZombiesLayout};
+use shared::level::{ObjectSizes, Placement, ZombiesLayout};
 use shared::perks::{Perk, PerkSet};
 use shared::weapon::WeaponId;
 use shared::MapId;
@@ -77,6 +77,7 @@ impl Plugin for LevelEditorPlugin {
                     (
                         input::camera_input,
                         input::edit_input,
+                        share_sizes,
                         input::drive_camera,
                         sync_objects,
                         input::draw_gizmos,
@@ -113,6 +114,7 @@ pub(crate) enum ObjectId {
     AmmoCrate,
     PowerSwitch,
     MysteryBox,
+    ArmorStation,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
     /// A stand-in model, just to judge sizes against — never saved.
@@ -135,11 +137,12 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 6] = [
+    pub(crate) const OPTIONAL: [ObjectId; 7] = [
         ObjectId::PackAPunch,
         ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
         ObjectId::MysteryBox,
+        ObjectId::ArmorStation,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
@@ -156,6 +159,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => "Ammo crate",
             ObjectId::PowerSwitch => "Power switch",
             ObjectId::MysteryBox => "Mystery Box",
+            ObjectId::ArmorStation => "Armor station",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
@@ -167,6 +171,22 @@ impl ObjectId {
     /// or the wall buys (every sign's one size, `shared::wall_buy::SIGN_SCALE`).
     pub(crate) fn scalable(self) -> bool {
         !matches!(self, ObjectId::Reference(_) | ObjectId::WallBuy(_))
+    }
+
+    /// Its kind's key in the sizes every map shares
+    /// ([`shared::level::ObjectSizes`]) — `None` for what isn't sized there
+    /// (the wall buys, the stand-ins).
+    pub(crate) fn size_key(self) -> Option<String> {
+        match self {
+            ObjectId::Perk(p) => Some(shared::level::perk_size_key(p)),
+            ObjectId::Wunderfizz => Some("wunderfizz".into()),
+            ObjectId::PackAPunch => Some("pack_a_punch".into()),
+            ObjectId::AmmoCrate => Some("ammo_crate".into()),
+            ObjectId::PowerSwitch => Some("power_switch".into()),
+            ObjectId::MysteryBox => Some("mystery_box".into()),
+            ObjectId::ArmorStation => Some("armor_station".into()),
+            ObjectId::WallBuy(_) | ObjectId::Reference(_) => None,
+        }
     }
 
     /// A stand-in, not part of the layout.
@@ -185,6 +205,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => Some(&mut layout.ammo_crate),
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
             ObjectId::MysteryBox => Some(&mut layout.mystery_box),
+            ObjectId::ArmorStation => Some(&mut layout.armor_station),
             _ => None,
         }
     }
@@ -222,6 +243,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => layout.ammo_crate,
             ObjectId::PowerSwitch => layout.power_switch,
             ObjectId::MysteryBox => layout.mystery_box,
+            ObjectId::ArmorStation => layout.armor_station,
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
         }
     }
@@ -262,6 +284,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
             ObjectId::MysteryBox => crate::mystery_box::AMBER,
+            ObjectId::ArmorStation => crate::armor::ARMOR_BLUE,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
         }
@@ -273,6 +296,7 @@ impl ObjectId {
             ObjectId::PackAPunch => shared::perks::PERK_USE_RADIUS + 0.5,
             ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
             ObjectId::MysteryBox => shared::mystery_box::USE_RADIUS,
+            ObjectId::ArmorStation => shared::armor::USE_RADIUS,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -303,6 +327,7 @@ impl ObjectId {
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
             ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
+            ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
             // The sign: post and board.
@@ -378,9 +403,9 @@ pub(crate) struct Doc {
 const UNDO_LIMIT: usize = 200;
 
 impl Doc {
-    /// `map`'s layout: the repo's file when there is one (it may be newer
-    /// than this build), else the built-in one.
-    fn load(map: MapId) -> Self {
+    /// `map`'s layout, everything at `sizes`: the repo's file when there is
+    /// one (it may be newer than this build), else the built-in one.
+    fn load(map: MapId, sizes: &ObjectSizes) -> Self {
         let built_in = shared::level::layout(map).clone();
         let mut layout = std::fs::read_to_string(shared::level::source_path(map))
             .ok()
@@ -398,6 +423,7 @@ impl Doc {
                 layout.perks.insert(perk, built_in.perk(perk));
             }
         }
+        let layout = layout.sized(sizes);
         Self {
             saved: layout.clone(),
             layout,
@@ -477,6 +503,10 @@ pub(crate) struct Editor {
     /// Where a view change (frame, front / top / ...) is easing the camera.
     pub(crate) cam_goto: Option<input::OrbitCam>,
     pub(crate) view: ViewOptions,
+    /// How big each kind of thing is, on every map — as edited, and as last
+    /// saved ([`share_sizes`]).
+    pub(crate) sizes: ObjectSizes,
+    saved_sizes: ObjectSizes,
     /// The "leave with unsaved changes?" window is up.
     pub(crate) exit_prompt: bool,
     pub(crate) help_open: bool,
@@ -489,10 +519,24 @@ pub(crate) struct Editor {
 impl Editor {
     fn fresh() -> Self {
         let map = MapId::BreakPoint;
+        // The repo's sizes when there are (they may be newer than this
+        // build), else the built-in ones.
+        let sizes = std::fs::read_to_string(shared::level::sizes_source_path())
+            .ok()
+            .and_then(|text| match ObjectSizes::from_ron(&text) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    warn!("level editor: couldn't read {}: {e}", shared::level::SIZES_FILE);
+                    None
+                }
+            })
+            .unwrap_or_else(|| shared::level::sizes().clone());
         Self {
             map,
             perk_set: PerkSet::Classic,
-            docs: MapId::PLACES.iter().map(|&p| Doc::load(p)).collect(),
+            docs: MapId::PLACES.iter().map(|&p| Doc::load(p, &sizes)).collect(),
+            saved_sizes: sizes.clone(),
+            sizes,
             ..default()
         }
     }
@@ -588,6 +632,22 @@ impl Editor {
         info!("level editor: {name}:\n{text}");
         let path = shared::level::source_path(place);
         let in_repo = std::path::Path::new(shared::level::LEVELS_DIR).is_dir();
+        // Every map's sizes go with it.
+        let sizes_text = self.sizes.to_ron();
+        if self.sizes != self.saved_sizes {
+            info!("level editor: {}:\n{sizes_text}", shared::level::SIZES_FILE);
+            if in_repo {
+                if let Err(e) = std::fs::write(shared::level::sizes_source_path(), &sizes_text) {
+                    self.toast(format!("Couldn't write {}: {e} (printed to the console)", shared::level::SIZES_FILE), now);
+                    return;
+                }
+            }
+            self.saved_sizes = self.sizes.clone();
+            // (Every map's saved layout is at the saved sizes now.)
+            for doc in &mut self.docs {
+                doc.saved = doc.saved.clone().sized(&self.saved_sizes);
+            }
+        }
         let message = if !in_repo {
             format!("No repo here — {name} printed to the console")
         } else {
@@ -787,6 +847,7 @@ fn model_of(
         ObjectId::AmmoCrate => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
         ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
+        ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).
@@ -866,6 +927,33 @@ fn sync_objects(
         // (A sign's gun outline, as the game has it.)
         if let (ObjectId::WallBuy(gun), Some(assets)) = (id, wall_buys.as_deref()) {
             object.with_child(crate::wall_buys::decal(gun, assets));
+        }
+    }
+}
+
+/// A thing's size is its kind's, on every map: one changed on the shown map
+/// (a scale, an undo, a revert) becomes every map's.
+fn share_sizes(mut editor: ResMut<Editor>) {
+    if editor.docs.is_empty() {
+        return;
+    }
+    let used = editor.doc().layout.sizes_used();
+    let changed: Vec<(String, f32)> = used
+        .into_iter()
+        .filter(|(key, scale)| editor.sizes.get(key) != *scale)
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let editor = editor.as_mut();
+    for (key, scale) in changed {
+        editor.sizes.set(&key, scale);
+    }
+    let sizes = editor.sizes.clone();
+    for doc in &mut editor.docs {
+        let sized = doc.layout.clone().sized(&sizes);
+        if sized != doc.layout {
+            doc.layout = sized;
         }
     }
 }

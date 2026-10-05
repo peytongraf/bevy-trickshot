@@ -1,6 +1,7 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
-//! crate, the power switch, the wall buys and the Mystery Box.
+//! crate, the power switch, the wall buys, the Mystery Box and the armor
+//! station.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -14,6 +15,12 @@
 //!
 //! **Anything new a `Zombies` game puts on a map goes in here**, so the
 //! editor can place it.
+//!
+//! How big each kind of thing is isn't the map's to say: a Mystery Box is
+//! the same size everywhere. Each kind's size is in one file of its own,
+//! `shared/levels/sizes.ron` ([`ObjectSizes`], [`sizes`]), and every
+//! layout's placements take theirs from it as they're read
+//! ([`ZombiesLayout::sized`]) — the places' files leave sizes out.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -29,7 +36,8 @@ use crate::MapId;
 /// Where one thing stands: the ground under its middle, which way it faces
 /// — its turn about the vertical axis (degrees, counter-clockwise seen from
 /// above; `0` faces +Z) — and how big it is (`1` = as made; its model and
-/// solid box both scale, its use range doesn't).
+/// solid box both scale, its use range doesn't). The size is its kind's,
+/// from [`ObjectSizes`] — the places' files don't keep it.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub pos: Vec3,
@@ -95,6 +103,72 @@ pub struct WallBuy {
     pub at: Placement,
 }
 
+/// How big each kind of thing a layout places is (`1` = as made, the
+/// default) — the same on every map. Keyed by [`ZombiesLayout`]'s slot
+/// names (`"mystery_box"`, `"armor_station"`, ...) and each perk machine's
+/// perk ([`perk_size_key`]). Wall buys aren't in it: every sign's
+/// [`crate::wall_buy::SIGN_SCALE`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(transparent)]
+pub struct ObjectSizes(pub BTreeMap<String, f32>);
+
+/// A perk machine's key in [`ObjectSizes`].
+pub fn perk_size_key(perk: Perk) -> String {
+    format!("{perk:?}")
+}
+
+impl ObjectSizes {
+    /// The size for `key` (`1` when it isn't set).
+    pub fn get(&self, key: &str) -> f32 {
+        self.0.get(key).copied().unwrap_or(1.0)
+    }
+
+    /// Set `key`'s size (one of `1` isn't kept — it's the default).
+    pub fn set(&mut self, key: &str, size: f32) {
+        let size = (size as f64 * 1000.0).round() as f32 / 1000.0;
+        if size == 1.0 {
+            self.0.remove(key);
+        } else {
+            self.0.insert(key.to_string(), size);
+        }
+    }
+
+    pub fn from_ron(text: &str) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(text)
+    }
+
+    /// The file's text: a header, then one size a line.
+    pub fn to_ron(&self) -> String {
+        let mut out = String::from(
+            "// How big each kind of thing in a Zombies layout is, on every map (1 = as\n\
+             // made) — written by the client's level editor. See shared/src/level.rs.\n\
+             {\n",
+        );
+        for (key, size) in &self.0 {
+            out += &format!("    {key:?}: {size:?},\n");
+        }
+        out += "}\n";
+        out
+    }
+}
+
+/// The sizes file in the repo ([`LEVELS_DIR`]).
+pub const SIZES_FILE: &str = "sizes.ron";
+
+pub fn sizes_source_path() -> PathBuf {
+    PathBuf::from(LEVELS_DIR).join(SIZES_FILE)
+}
+
+static SIZES: LazyLock<ObjectSizes> = LazyLock::new(|| {
+    ObjectSizes::from_ron(include_str!("../levels/sizes.ron")).unwrap_or_else(|e| panic!("shared/levels/{SIZES_FILE}: {e}"))
+});
+
+/// Each kind of thing's size, as built in (the same on the client and the
+/// server).
+pub fn sizes() -> &'static ObjectSizes {
+    &SIZES
+}
+
 /// One place's `Zombies` layout — see the module docs.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ZombiesLayout {
@@ -119,6 +193,9 @@ pub struct ZombiesLayout {
     /// The Mystery Box ([`crate::mystery_box`]), if the place has one.
     #[serde(default)]
     pub mystery_box: Option<Placement>,
+    /// The armor station ([`crate::armor`]), if the place has one.
+    #[serde(default)]
+    pub armor_station: Option<Placement>,
 }
 
 impl ZombiesLayout {
@@ -151,9 +228,48 @@ impl ZombiesLayout {
         ron::from_str(text)
     }
 
+    /// Every sized placement (each but the wall buys), with its key in
+    /// [`ObjectSizes`].
+    fn sized_slots(&mut self) -> Vec<(String, &mut Placement)> {
+        let mut out: Vec<(String, &mut Placement)> =
+            self.perks.iter_mut().map(|(perk, at)| (perk_size_key(*perk), at)).collect();
+        out.push(("wunderfizz".into(), &mut self.wunderfizz));
+        for (key, slot) in [
+            ("pack_a_punch", &mut self.pack_a_punch),
+            ("ammo_crate", &mut self.ammo_crate),
+            ("power_switch", &mut self.power_switch),
+            ("mystery_box", &mut self.mystery_box),
+            ("armor_station", &mut self.armor_station),
+        ] {
+            if let Some(at) = slot.as_mut() {
+                out.push((key.into(), at));
+            }
+        }
+        out
+    }
+
+    /// This layout with every placement at its kind's size in `sizes`.
+    pub fn sized(mut self, sizes: &ObjectSizes) -> Self {
+        for (key, at) in self.sized_slots() {
+            at.scale = sizes.get(&key);
+        }
+        self
+    }
+
+    /// The sizes this layout's placements are at — of the kinds it has.
+    pub fn sizes_used(&self) -> Vec<(String, f32)> {
+        self.clone().sized_slots().into_iter().map(|(key, at)| (key, at.scale)).collect()
+    }
+
     /// The file's text: a header, then the layout — one thing a line, every
-    /// value rounded ([`Placement::rounded`]).
+    /// value rounded ([`Placement::rounded`]), and no sizes (they're
+    /// [`ObjectSizes`]').
     pub fn to_ron(&self) -> String {
+        let layout = self.clone().sized(&ObjectSizes::default());
+        layout.write_ron()
+    }
+
+    fn write_ron(&self) -> String {
         let optional = |p: Option<Placement>| p.map_or("None".to_string(), |p| format!("Some({})", p.to_ron()));
         let mut out = String::from(
             "// Zombies level layout — written by the client's level editor (main menu →\n\
@@ -177,6 +293,7 @@ impl ZombiesLayout {
         }
         out += "    ],\n";
         out += &format!("    mystery_box: {},\n", optional(self.mystery_box));
+        out += &format!("    armor_station: {},\n", optional(self.armor_station));
         out += ")\n";
         out
     }
@@ -226,7 +343,8 @@ static LAYOUTS: LazyLock<Vec<(MapId, ZombiesLayout)>> = LazyLock::new(|| {
         .iter()
         .map(|&p| {
             let layout = ZombiesLayout::from_ron(built_in_text(p))
-                .unwrap_or_else(|e| panic!("shared/levels/{}: {e}", file_name(p)));
+                .unwrap_or_else(|e| panic!("shared/levels/{}: {e}", file_name(p)))
+                .sized(sizes());
             (place(p), layout)
         })
         .collect()
@@ -257,13 +375,27 @@ mod tests {
     }
 
     #[test]
-    fn a_scale_is_kept_and_an_unscaled_one_left_out() {
-        let mut l = layout(MapId::BreakPoint).clone();
-        l.wunderfizz = l.wunderfizz.with_scale(1.25);
-        let text = l.to_ron();
-        assert!(text.contains("scale: 1.25"));
-        assert_eq!(text.matches("scale:").count(), 1);
-        assert_eq!(ZombiesLayout::from_ron(&text).unwrap().wunderfizz.scale, 1.25);
+    fn sizes_are_every_maps_and_the_places_files_dont_keep_them() {
+        let mut sizes = ObjectSizes::default();
+        sizes.set("wunderfizz", 1.25);
+        sizes.set("mystery_box", 1.0);
+        assert_eq!(sizes.0.len(), 1);
+        for map in MapId::PLACES {
+            let l = layout(map).clone().sized(&sizes);
+            assert_eq!(l.wunderfizz.scale, 1.25);
+            assert!(!l.to_ron().contains("scale:"));
+        }
+        let back = ObjectSizes::from_ron(&sizes.to_ron()).unwrap();
+        assert_eq!(back, sizes);
+    }
+
+    #[test]
+    fn the_built_in_layouts_are_at_the_built_in_sizes() {
+        for map in MapId::PLACES {
+            for (key, scale) in layout(map).sizes_used() {
+                assert_eq!(scale, sizes().get(&key), "{key} on {map:?}");
+            }
+        }
     }
 
     #[test]

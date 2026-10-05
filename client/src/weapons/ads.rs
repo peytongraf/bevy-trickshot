@@ -134,6 +134,7 @@ pub(crate) fn update_ads(
     death: Res<crate::death_effect::DeathEffect>,
     nitro: Res<crate::zombies_hud::NitroBrew>,
     revive: Res<crate::revive::LocalRevive>,
+    lethal: Res<crate::ThrowingKnife>,
 ) {
     if tuning.force_full {
         ads.t = 1.0;
@@ -148,6 +149,8 @@ pub(crate) fn update_ads(
         && !death.is_active()
         // (Nor while down in `Zombies`, or reviving someone.)
         && !revive.blocks_weapon()
+        // (Nor with a lethal out — a throwing knife or molotov.)
+        && !lethal.in_use()
         && binds.aim.pressed(&keys, &mouse);
 
     // One-shot cue the instant the player starts / stops aiming.

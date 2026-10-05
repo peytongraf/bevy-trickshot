@@ -17,6 +17,7 @@
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
 mod ai;
+mod armor;
 mod bots;
 mod collision;
 mod dogs;
@@ -77,5 +78,6 @@ fn main() {
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)
+        .add_plugins(armor::ArmorPlugin)
         .run();
 }

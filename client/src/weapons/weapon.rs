@@ -779,6 +779,12 @@ pub(crate) struct ThrowingKnife {
 }
 
 impl ThrowingKnife {
+    /// Whether a lethal's sequence is under way — from the key press until
+    /// the gun's back up. No aiming in meanwhile (`ads::update_ads`).
+    pub(crate) fn in_use(&self) -> bool {
+        self.phase != ThrowPhase::Idle
+    }
+
     /// Whether the arms should be sliding into (or holding) view.
     pub(crate) fn arms_out(&self) -> bool {
         matches!(self.phase, ThrowPhase::Held | ThrowPhase::Throwing)

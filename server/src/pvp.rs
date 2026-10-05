@@ -299,11 +299,18 @@ pub(crate) fn apply_player_hits(
                     && l.power_up_active(shared::power_ups::PowerUp::InstaKill)
             });
         let health_before = combat.health.max(0.0);
-        combat.health -= if insta {
+        let taken = if insta {
             health_before + 1.0
         } else {
             shared::perks::damage_taken(perks, ev.damage)
         };
+        // `Zombies` armor soaks a player's damage before their health does.
+        let taken = if is_bot_peer(ev.victim) {
+            taken
+        } else {
+            crate::armor::soak(&mut lobbies, ev.victim, taken)
+        };
+        combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
         // `Zombies`: a player's hit on a zombie floats its damage number up
         // on their screen (an Insta-Kill's being whatever health it took).
@@ -656,6 +663,8 @@ fn on_fall_landed(
         }
     }
     let damage = shared::perks::fall_damage_taken(perks, fall_damage(landed.distance));
+    // (Armor soaks a fall too.)
+    let damage = crate::armor::soak(&mut lobbies, peer, damage);
     if damage <= 0.0 {
         return;
     }
@@ -787,9 +796,10 @@ fn fall_kill(
                 info!("{peer:?} is down from a fall");
             } else {
                 combat.bleed_out(lobby.round);
-                // (Out loses every perk, as a bleed-out does.)
+                // (Out loses every perk and their armor, as a bleed-out does.)
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
                     m.perks.clear();
+                    m.armor = Default::default();
                 }
                 info!("{peer:?} fell out of the world — out until the next round");
             }

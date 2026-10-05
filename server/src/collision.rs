@@ -285,6 +285,7 @@ fn machine_boxes(map: MapId, set: PerkSet) -> Vec<MachineBox> {
         .chain(shared::pap::machine_box(map))
         .chain(shared::ammo::crate_box(map))
         .chain(shared::mystery_box::solid_box(map))
+        .chain(shared::armor::solid_box(map))
         .map(|(center, rot, half)| MachineBox {
             iso: Isometry::from_parts(
                 parry3d::math::Translation::new(center.x, center.y, center.z),

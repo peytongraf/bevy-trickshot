@@ -1463,6 +1463,7 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: mystery box open", &mut v.mystery_box_open),
                         ("zombies: mystery box close", &mut v.mystery_box_close),
                         ("zombies: mystery box spin", &mut v.mystery_box_spin),
+                        ("zombies: armor destroyed", &mut v.armor_destroy),
                         ("zombies: round start", &mut v.round_start),
                         ("zombies: dog round start", &mut v.dog_round_start),
                         ("zombies: dog round end", &mut v.dog_round_end),

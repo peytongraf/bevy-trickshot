@@ -75,6 +75,10 @@ pub enum Screen {
     /// [`Screen::PackAPunch`]; unlike it, buying keeps it open — the drink
     /// plays behind it (see [`weapon_active`]). `Esc` closes it.
     Wunderfizz,
+    /// The `Zombies` armor station menu, opened with the interact key at the
+    /// station. Owned and built by `armor`, like [`Screen::PackAPunch`].
+    /// `Esc` closes it.
+    Armor,
     /// PAST UPDATES: every older version's patch notes
     /// ([`crate::changelog::history`]) — the main menu's "WHAT'S NEW" panel
     /// only shows the current version's. Opened from that panel
@@ -267,11 +271,12 @@ pub(crate) fn menu_toggle(
     if *state.get() == AppState::LevelEditor {
         return;
     }
-    // (Pack-a-Punch and Der Wunderfizz close themselves on it — once it's
-    // released, like their EXIT buttons: `pap_menu`, `wunderfizz`.)
+    // (Pack-a-Punch, Der Wunderfizz and the armor station close themselves
+    // on it — once it's released, like their EXIT buttons: `pap_menu`,
+    // `wunderfizz`, `armor`.)
     if mouse.just_pressed(MouseButton::Back)
         && menu.rebinding.is_none()
-        && !matches!(menu.screen, Screen::None | Screen::PackAPunch | Screen::Wunderfizz)
+        && !matches!(menu.screen, Screen::None | Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor)
     {
         go_back(&mut menu, &settings);
         return;
@@ -322,7 +327,7 @@ fn go_back(menu: &mut Menu, settings: &Settings) {
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
         Screen::Loadout => menu.back_from_loadout(),
-        Screen::PackAPunch | Screen::Wunderfizz | Screen::Changelog => {
+        Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor | Screen::Changelog => {
             menu.screen = Screen::None;
             menu.dirty = true;
         }
@@ -885,6 +890,8 @@ fn rebuild_menu(
         Screen::PackAPunch => {}
         // Built by `wunderfizz`, likewise.
         Screen::Wunderfizz => {}
+        // Built by `armor`, likewise.
+        Screen::Armor => {}
         Screen::Changelog => build_changelog(&mut commands, &asset_server, solid),
     }
 }

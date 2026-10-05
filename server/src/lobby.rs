@@ -194,6 +194,7 @@ fn on_create(
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
+                    armor: Default::default(),
                     pap: Default::default(),
                     loadout: Default::default(),
                     operator: Default::default(),
@@ -250,6 +251,7 @@ fn on_join(
             bot: None,
             kills: 0,
             perks: Vec::new(),
+            armor: Default::default(),
             pap: Default::default(),
             loadout: Default::default(),
             operator: Default::default(),
@@ -313,6 +315,7 @@ fn on_start(
         m.downs = 0;
         m.perks.clear();
         m.pap = Default::default();
+        m.armor = Default::default();
         // Everyone starts with the primary they picked (`Freestyle`: the sniper).
         m.primary = if mode_has_loadout { m.loadout } else { shared::weapon::WeaponId::Sniper };
         m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
@@ -678,6 +681,7 @@ fn add_bots(
             bot: Some(difficulty),
             kills: 0,
             perks: Vec::new(),
+            armor: Default::default(),
             pap: Default::default(),
             loadout: Default::default(),
             operator: Default::default(),
@@ -927,6 +931,7 @@ mod tests {
                 bot: None,
                 kills: 0,
                 perks: Vec::new(),
+                armor: Default::default(),
                 pap: Default::default(),
                 loadout: Default::default(),
                 operator: Default::default(),

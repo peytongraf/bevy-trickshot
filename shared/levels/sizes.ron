@@ -1,0 +1,5 @@
+// How big each kind of thing in a Zombies layout is, on every map (1 = as
+// made) — written by the client's level editor. See shared/src/level.rs.
+{
+    "mystery_box": 1.5,
+}
