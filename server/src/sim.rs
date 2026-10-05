@@ -27,7 +27,7 @@ use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 /// values once real models exist.
 pub(crate) const PLAYER_HEIGHT: f32 = 1.8;
 pub(crate) const PLAYER_RADIUS: f32 = 0.35;
-const HEAD_RADIUS: f32 = 0.12;
+pub(crate) const HEAD_RADIUS: f32 = 0.12;
 
 /// `PlayerPose::translation` is the owner's eye/camera position, not their
 /// feet (see `client::net::follow_remote_avatars`, which subtracts this same
@@ -44,9 +44,15 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<crate::raygun::RayGunBolts>().add_systems(
             FixedUpdate,
-            (apply_client_pose, resolve_shots, broadcast_remote_sounds).chain(),
+            (
+                apply_client_pose,
+                resolve_shots,
+                crate::raygun::fly_bolts,
+                broadcast_remote_sounds,
+            )
+                .chain(),
         );
     }
 }
@@ -135,6 +141,7 @@ fn resolve_shots(
     lobbies: Query<(Entity, &Lobby)>,
     mut bot_hits: EventWriter<BotHit>,
     mut player_hits: EventWriter<PlayerHit>,
+    mut bolts: ResMut<crate::raygun::RayGunBolts>,
 ) {
     let tick = timeline.tick().0;
     let server = server.into_inner();
@@ -167,9 +174,6 @@ fn resolve_shots(
 
         let mut kind: HashMap<u64, HitKind> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
-        // Every player / zombie that can be hit, and the middle of their
-        // body — for a Ray Gun burst.
-        let mut bodies: Vec<(PeerId, Vec3)> = Vec::new();
 
         for (id, pose, lp) in &poses {
             if id.0 == shooter.0 || lp.lobby != lobby_e || !is_alive(id.0) {
@@ -191,7 +195,6 @@ fn resolve_shots(
                 body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
                 head: Capsule::head(feet, PLAYER_HEIGHT, HEAD_RADIUS),
             });
-            bodies.push((id.0, feet + Vec3::Y * PLAYER_HEIGHT * 0.5));
         }
         // No bots in `FreeForAll` — it's pure PvP.
         if lobby.mode == GameMode::Freestyle {
@@ -319,6 +322,25 @@ fn resolve_shots(
             .raycast(origin, aim, weapon.spec().max_range);
         let wall_dist = wall.map(|h| h.distance);
 
+        // A Ray Gun bolt isn't resolved here: it flies (`crate::raygun`),
+        // hurting nothing until it reaches the first zombie in its way or
+        // this surface.
+        if weapon == WeaponId::RayGun {
+            let surface = first_surface(origin, aim, wall.map(|h| (h.distance, h.normal)));
+            crate::raygun::fire(
+                &mut bolts,
+                &mut sender,
+                server,
+                lobby_e,
+                lobby,
+                shooter.0,
+                origin,
+                aim,
+                surface,
+            );
+            continue;
+        }
+
         // The tracer's true endpoint — captured up front so it's correct even
         // for a bot kill, which `outcome` below reports as `Miss` (bots aren't
         // a valid `ShotOutcome::Hit` target).
@@ -327,7 +349,7 @@ fn resolve_shots(
         // Collateral: the bullet keeps going after a bot (Call-of-Duty style),
         // so a single shot can pierce through several — `hits` is every one it
         // reached, nearest first.
-        let mut hits = resolve_shot_pierce(
+        let hits = resolve_shot_pierce(
             weapon,
             origin,
             dir,
@@ -336,14 +358,6 @@ fn resolve_shots(
             // than the first solid surface is behind it, so it can't be hit.
             |_from, to| wall_dist.is_some_and(|d| origin.distance(to) > d),
         );
-        // (A Ray Gun bolt stops at the first thing it hits.)
-        if !weapon.pierces() {
-            hits.truncate(1);
-        }
-        let direct = hits.first().and_then(|h| match kind.get(&h.target) {
-            Some(HitKind::Player(p)) => Some(*p),
-            _ => None,
-        });
 
         let outcome = match hits.last() {
             Some(last) => {
@@ -481,19 +495,7 @@ fn resolve_shots(
             None => {
                 // Nothing hit: the shot ends on whichever comes first, the
                 // map's own surface or the flat ground plane fallback.
-                // Each candidate carries its surface normal (the mesh's own, or
-                // straight up for the flat plane) for the clients' bullet hole.
-                let mesh_hit = wall.map(|h| (origin + aim * h.distance, h.normal));
-                let plane_hit = ground_impact(origin, dir).map(|p| (p, Vec3::Y));
-                let surface = match (mesh_hit, plane_hit) {
-                    (Some(w), Some(g)) => Some(if origin.distance(w.0) <= origin.distance(g.0) {
-                        w
-                    } else {
-                        g
-                    }),
-                    (w, g) => w.or(g),
-                };
-                match surface {
+                match first_surface(origin, aim, wall.map(|h| (h.distance, h.normal))) {
                     Some((p, normal)) => {
                         tracer_end = p;
                         ShotOutcome::Ground {
@@ -505,31 +507,6 @@ fn resolve_shots(
                 }
             }
         };
-
-        // A Ray Gun bolt bursts where it lands: every zombie close by (but
-        // the one it hit) takes the burst, less the further out — packed,
-        // more. (`Zombies` only: no other mode hands one out.)
-        if weapon == WeaponId::RayGun && zombies && !shared::bot_players::is_bot_peer(shooter.0) {
-            let mult = pap_mult(lobby, shooter.0, shared::pap::PapWeapon::RayGun);
-            for &(victim, middle) in &bodies {
-                if Some(victim) == direct || !shared::bot_players::is_bot_peer(victim) {
-                    continue;
-                }
-                let damage = shared::weapon::raygun_splash_damage(middle.distance(tracer_end)) * mult;
-                if damage <= 0.0 {
-                    continue;
-                }
-                player_hits.write(PlayerHit {
-                    victim,
-                    killer: shooter.0,
-                    damage,
-                    bomb_shot: false,
-                    blast: true,
-                    critical: false,
-                    point: None,
-                });
-            }
-        }
 
         let msg = ShotResolved {
             shooter: shooter.0,
@@ -545,9 +522,24 @@ fn resolve_shots(
     }
 }
 
+/// Where a shot along `aim` from `origin` first meets something solid: the
+/// map's own surface (`wall`: its distance and normal, from
+/// `MapColliders`' raycast) or the flat ground plane fallback, whichever
+/// comes first — with its surface normal (the mesh's own, or straight up
+/// for the plane) for the clients' bullet hole. `None`: neither, a clean
+/// miss into the sky.
+pub(crate) fn first_surface(origin: Vec3, aim: Vec3, wall: Option<(f32, Vec3)>) -> Option<(Vec3, Vec3)> {
+    let mesh_hit = wall.map(|(d, normal)| (origin + aim * d, normal));
+    let plane_hit = ground_impact(origin, aim).map(|p| (p, Vec3::Y));
+    match (mesh_hit, plane_hit) {
+        (Some(w), Some(g)) => Some(if origin.distance(w.0) <= origin.distance(g.0) { w } else { g }),
+        (w, g) => w.or(g),
+    }
+}
+
 /// `peer`'s Pack-a-Punch damage multiplier for `weapon` in `lobby` (1 for a
 /// zombie or anyone not packed).
-fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap::PapWeapon) -> f32 {
+pub(crate) fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap::PapWeapon) -> f32 {
     lobby
         .members
         .iter()

@@ -7,19 +7,50 @@ use core::time::Duration;
 use std::net::ToSocketAddrs;
 
 use lightyear::connection::client::Connected;
+use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prelude::input::native::ActionState;
+use lightyear::prelude::server::input::InputSet;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{DEFAULT_PORT, DEV_PRIVATE_KEY, PROTOCOL_ID};
+use shared::{DEFAULT_PORT, DEV_PRIVATE_KEY, PROTOCOL_ID, PlayerInput};
 
 pub struct ServerNetPlugin;
 
 impl Plugin for ServerNetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_server, start_listening).chain());
+        app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSet::ReceiveInputs));
         app.add_observer(on_client_link);
         app.add_observer(on_client_connected);
+    }
+}
+
+/// Most ticks of input a player's server-side buffer should ever hold —
+/// normally it's only the few the client runs ahead by.
+const MAX_INPUT_BUFFER_TICKS: usize = 256;
+
+/// Throw away a player's input buffer that's run away (a client input tick
+/// far off the server's), before lightyear adds to it: past 32 767 ticks
+/// its `len() as i16 - 1` overflows and panics the whole server
+/// (`lightyear_inputs::input_buffer::InputBuffer::set_raw`). The next input
+/// message starts it afresh.
+fn reset_runaway_input_buffers(
+    server: Query<&LocalTimeline, With<Server>>,
+    mut buffers: Query<(Entity, &mut InputBuffer<ActionState<PlayerInput>>)>,
+) {
+    for (entity, mut buffer) in &mut buffers {
+        if buffer.buffer.len() <= MAX_INPUT_BUFFER_TICKS {
+            continue;
+        }
+        warn!(
+            "resetting runaway input buffer on {entity:?}: {} ticks from {:?} (server tick {:?})",
+            buffer.buffer.len(),
+            buffer.start_tick,
+            server.iter().next().map(|t| t.tick()),
+        );
+        *buffer = InputBuffer::default();
     }
 }
 

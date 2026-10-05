@@ -112,6 +112,7 @@ pub(crate) enum ObjectId {
     PackAPunch,
     AmmoCrate,
     PowerSwitch,
+    MysteryBox,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
     /// A stand-in model, just to judge sizes against — never saved.
@@ -134,10 +135,11 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 5] = [
+    pub(crate) const OPTIONAL: [ObjectId; 6] = [
         ObjectId::PackAPunch,
         ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
+        ObjectId::MysteryBox,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
@@ -153,6 +155,7 @@ impl ObjectId {
             ObjectId::PackAPunch => "Pack-a-Punch",
             ObjectId::AmmoCrate => "Ammo crate",
             ObjectId::PowerSwitch => "Power switch",
+            ObjectId::MysteryBox => "Mystery Box",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
@@ -181,6 +184,7 @@ impl ObjectId {
             ObjectId::PackAPunch => Some(&mut layout.pack_a_punch),
             ObjectId::AmmoCrate => Some(&mut layout.ammo_crate),
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
+            ObjectId::MysteryBox => Some(&mut layout.mystery_box),
             _ => None,
         }
     }
@@ -217,6 +221,7 @@ impl ObjectId {
             ObjectId::PackAPunch => layout.pack_a_punch,
             ObjectId::AmmoCrate => layout.ammo_crate,
             ObjectId::PowerSwitch => layout.power_switch,
+            ObjectId::MysteryBox => layout.mystery_box,
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
         }
     }
@@ -256,6 +261,7 @@ impl ObjectId {
             ObjectId::PackAPunch => crate::pap::PAP_BLUE,
             ObjectId::AmmoCrate => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
+            ObjectId::MysteryBox => crate::mystery_box::AMBER,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
         }
@@ -266,6 +272,7 @@ impl ObjectId {
         match self {
             ObjectId::PackAPunch => shared::perks::PERK_USE_RADIUS + 0.5,
             ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
+            ObjectId::MysteryBox => shared::mystery_box::USE_RADIUS,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -274,6 +281,7 @@ impl ObjectId {
     pub(crate) fn use_center(self, at: Placement) -> Vec3 {
         match self {
             ObjectId::WallBuy(_) => shared::wall_buy::use_spot(at),
+            ObjectId::MysteryBox => shared::mystery_box::use_spot(at),
             _ => at.pos,
         }
     }
@@ -294,6 +302,7 @@ impl ObjectId {
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
+            ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
             // The sign: post and board.
@@ -777,6 +786,7 @@ fn model_of(
         ObjectId::PackAPunch => (PAP_MODEL, pap.model_transform()),
         ObjectId::AmmoCrate => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
+        ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).

@@ -1,6 +1,6 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
-//! crate, the power switch and the wall buys.
+//! crate, the power switch, the wall buys and the Mystery Box.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -116,6 +116,9 @@ pub struct ZombiesLayout {
     /// The wall buys — at most one per gun ([`WALL_BUY_WEAPONS`]).
     #[serde(default)]
     pub wall_buys: Vec<WallBuy>,
+    /// The Mystery Box ([`crate::mystery_box`]), if the place has one.
+    #[serde(default)]
+    pub mystery_box: Option<Placement>,
 }
 
 impl ZombiesLayout {
@@ -173,6 +176,7 @@ impl ZombiesLayout {
             }
         }
         out += "    ],\n";
+        out += &format!("    mystery_box: {},\n", optional(self.mystery_box));
         out += ")\n";
         out
     }

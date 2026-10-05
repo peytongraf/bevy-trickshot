@@ -715,6 +715,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                mystery_box: None,
                 members: vec![shared::LobbyMember {
                     peer: me,
                     name: "me".into(),

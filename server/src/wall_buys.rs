@@ -47,7 +47,7 @@ impl Plugin for WallBuysPlugin {
 
 /// `peer`'s running, unpaused `Zombies` game (not ending), if they're up and
 /// about in it: the lobby, and their feet and eye.
-fn standing_in_game(
+pub(crate) fn standing_in_game(
     peer: PeerId,
     endings: &EndingLobbies,
     lobbies: &Query<(Entity, &mut Lobby)>,
@@ -71,7 +71,7 @@ fn standing_in_game(
 /// there (with `mag` / `reserve` rounds) at `feet`. `None` if `peer` isn't a
 /// member, `slot` is out of range or they carry `taken` already.
 #[allow(clippy::too_many_arguments)]
-fn swap_into_slot(
+pub(crate) fn swap_into_slot(
     commands: &mut Commands,
     colliders: &MapColliders,
     lobby_e: Entity,

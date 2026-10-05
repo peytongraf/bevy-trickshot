@@ -1,46 +1,68 @@
-//! The Ray Gun's shot, as Call of Duty draws it: a bright green bolt ringed
-//! by spinning green rings, flying from the barrel, and a quick green burst
-//! where it lands — a flash that swells and fades, sparks, and a pulse of
+//! The Ray Gun's shot, as Call of Duty draws it: three green rings puffed
+//! out of the barrel one after another — each starting small, drifting
+//! forward as it swells, then fading — a bright green bolt flying from the
+//! barrel, and a quick green burst where it lands — a flash that swells and fades, sparks, and a pulse of
 //! green light.
 //!
 //! Our own bolt leaves the barrel the moment we fire ([`RayGunBolt`], from
 //! `weapons::resolve_local_shot`), aimed at the surface the shot's ray meets
-//! here; the server's answer then steers it ([`RayGunLanded`]) onto where it
-//! really landed — on the zombie it hit, which this client can't tell.
-//! Everyone else's come off the server's answer directly (`net`). All of it
-//! is `StateScoped(InGame)`.
+//! here; everyone else's when the server says it was fired
+//! (`shared::RayGunFired`, `net`). Each flies at the speed the server flies
+//! it (`shared::weapon::RAYGUN_BOLT_SPEED`, `server::raygun`), and the
+//! server's word when it really lands steers it ([`RayGunLanded`]) — onto
+//! the zombie it hit, which this client can't tell. All of it is
+//! `StateScoped(InGame)`.
 
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+use lightyear::prelude::PeerId;
+use shared::weapon::RAYGUN_BOLT_SPEED;
 
 use crate::util::rand01;
 use crate::AppState;
 
-/// How long (s) an own bolt waits at its guessed end for the server's word
-/// on where it really landed, before bursting there anyway.
-const CONFIRM_WAIT_SECS: f32 = 0.35;
+/// How long (s) a bolt waits at its guessed end for the server's word on
+/// where it really landed, before bursting there anyway.
+const CONFIRM_WAIT_SECS: f32 = 0.5;
 /// How long (s) a burst lasts, and how big (m) it swells.
 const BURST_SECS: f32 = 0.3;
 const BURST_RADIUS: f32 = 1.1;
 /// Sparks each burst throws, and their life (s).
 const SPARKS: usize = 10;
 const SPARK_SECS: f32 = 0.35;
+/// The rings each shot puffs out of the barrel: how many, how far apart
+/// (s) they leave, how long (s) each lives, how fast (m/s) it starts out
+/// drifting forward, and how much it swells from its starting size.
+const MUZZLE_RINGS: usize = 3;
+const MUZZLE_RING_GAP_SECS: f32 = 0.06;
+const MUZZLE_RING_SECS: f32 = 0.55;
+const MUZZLE_RING_SPEED: f32 = 5.0;
+const MUZZLE_RING_START_SCALE: f32 = 0.35;
+const MUZZLE_RING_END_SCALE: f32 = 2.4;
 
 const GREEN: Color = Color::srgb(0.35, 1.0, 0.3);
 
-/// Fire a Ray Gun bolt from `start` toward `end`. `own`: ours, waiting on
+/// Whose bolt it is.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum BoltOwner {
+    Own,
+    Remote(PeerId),
+}
+
+/// Fire `owner`'s Ray Gun bolt from `start` toward `end`, where it waits on
 /// the server's [`RayGunLanded`].
 #[derive(Event)]
 pub(crate) struct RayGunBolt {
     pub(crate) start: Vec3,
     pub(crate) end: Vec3,
-    pub(crate) own: bool,
+    pub(crate) owner: BoltOwner,
 }
 
-/// The server says where our oldest bolt in flight really landed.
+/// The server says where `owner`'s oldest bolt in flight really landed.
 #[derive(Event)]
 pub(crate) struct RayGunLanded {
     pub(crate) end: Vec3,
+    pub(crate) owner: BoltOwner,
 }
 
 pub(crate) struct RayGunVfxPlugin;
@@ -52,7 +74,7 @@ impl Plugin for RayGunVfxPlugin {
             .add_systems(Startup, make_assets)
             .add_systems(
                 Update,
-                (spawn_bolts, steer_own_bolts, fly_bolts, play_bursts, fly_sparks)
+                (spawn_bolts, steer_own_bolts, fly_bolts, play_bursts, fly_sparks, puff_muzzle_rings)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -62,6 +84,7 @@ impl Plugin for RayGunVfxPlugin {
 #[derive(Resource)]
 struct RayGunAssets {
     ring: Handle<Mesh>,
+    muzzle_ring: Handle<Mesh>,
     core: Handle<Mesh>,
     spark: Handle<Mesh>,
     glow: Handle<StandardMaterial>,
@@ -85,6 +108,7 @@ fn make_assets(
 ) {
     commands.insert_resource(RayGunAssets {
         ring: meshes.add(Torus::new(0.09, 0.13)),
+        muzzle_ring: meshes.add(Torus::new(0.105, 0.13)),
         core: meshes.add(Sphere::new(0.055)),
         spark: meshes.add(Sphere::new(0.025)),
         glow: glowing(&mut materials, 6.0, 1.0),
@@ -95,7 +119,8 @@ fn make_assets(
 #[derive(Component)]
 struct Bolt {
     end: Vec3,
-    /// Ours, still waiting on the server's word on where it landed.
+    owner: BoltOwner,
+    /// Still waiting on the server's word on where it landed.
     awaiting: bool,
     /// Seconds it's been waiting at its end for that.
     waited: f32,
@@ -114,25 +139,62 @@ struct Burst {
     material: Handle<StandardMaterial>,
 }
 
+/// A ring puffed out of the barrel: its age (s — negative until it
+/// leaves), the way it drifts, and its own fading material.
+#[derive(Component)]
+struct MuzzleRing {
+    age: f32,
+    dir: Vec3,
+    material: Handle<StandardMaterial>,
+}
+
 #[derive(Component)]
 struct Spark {
     velocity: Vec3,
     age: f32,
 }
 
-fn spawn_bolts(mut fired: EventReader<RayGunBolt>, assets: Option<Res<RayGunAssets>>, mut commands: Commands) {
+fn spawn_bolts(
+    mut fired: EventReader<RayGunBolt>,
+    assets: Option<Res<RayGunAssets>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
     let Some(assets) = assets else {
         fired.clear();
         return;
     };
     for bolt in fired.read() {
         let dir = (bolt.end - bolt.start).normalize_or(Vec3::NEG_Z);
+        for i in 0..MUZZLE_RINGS {
+            let material = glowing(&mut materials, 5.0, 0.9);
+            // (A torus lies in its XZ plane: stood up to face along the
+            // shot.)
+            let facing = Transform::from_translation(bolt.start).looking_to(dir, Vec3::Y).rotation
+                * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                MuzzleRing {
+                    age: -(i as f32) * MUZZLE_RING_GAP_SECS,
+                    dir,
+                    material: material.clone(),
+                },
+                Mesh3d(assets.muzzle_ring.clone()),
+                MeshMaterial3d(material),
+                Transform::from_translation(bolt.start)
+                    .with_rotation(facing)
+                    .with_scale(Vec3::splat(MUZZLE_RING_START_SCALE)),
+                Visibility::Hidden,
+                NotShadowCaster,
+            ));
+        }
         commands
             .spawn((
                 StateScoped(AppState::InGame),
                 Bolt {
                     end: bolt.end,
-                    awaiting: bolt.own,
+                    owner: bolt.owner,
+                    awaiting: true,
                     waited: 0.0,
                     age: 0.0,
                 },
@@ -165,9 +227,9 @@ fn spawn_bolts(mut fired: EventReader<RayGunBolt>, assets: Option<Res<RayGunAsse
     }
 }
 
-/// The server's word on where our bolt really landed: the oldest of ours
-/// still waiting goes there instead (or, if it's already burst, a burst
-/// there now).
+/// The server's word on where a bolt really landed: the oldest of its
+/// owner's still waiting goes there instead (or, if it's already burst, a
+/// burst there now).
 fn steer_own_bolts(
     mut landed: EventReader<RayGunLanded>,
     mut bolts: Query<&mut Bolt>,
@@ -178,7 +240,7 @@ fn steer_own_bolts(
     for ev in landed.read() {
         let oldest = bolts
             .iter_mut()
-            .filter(|b| b.awaiting)
+            .filter(|b| b.awaiting && b.owner == ev.owner)
             .max_by(|a, b| a.age.total_cmp(&b.age));
         match oldest {
             Some(mut bolt) => {
@@ -196,7 +258,6 @@ fn steer_own_bolts(
 
 fn fly_bolts(
     time: Res<Time>,
-    settings: Res<crate::RayGunSettings>,
     assets: Option<Res<RayGunAssets>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut bolts: Query<(Entity, &mut Bolt, &mut Transform), Without<BoltRing>>,
@@ -208,7 +269,7 @@ fn fly_bolts(
     for (entity, mut bolt, mut t) in &mut bolts {
         bolt.age += dt;
         let to = bolt.end - t.translation;
-        let step = settings.bolt_speed.max(1.0) * dt;
+        let step = RAYGUN_BOLT_SPEED * dt;
         if to.length() > step {
             let dir = to / to.length();
             t.translation += dir * step;
@@ -310,5 +371,38 @@ fn fly_sparks(time: Res<Time>, mut sparks: Query<(Entity, &mut Spark, &mut Trans
         s.velocity.y -= 9.0 * dt;
         t.translation += s.velocity * dt;
         t.scale = Vec3::splat(1.0 - s.age / SPARK_SECS);
+    }
+}
+
+/// Each muzzle ring, once it's left: drifting forward (slowing as it
+/// goes) while it swells, fading out over the back half of its life.
+fn puff_muzzle_rings(
+    time: Res<Time>,
+    mut rings: Query<(Entity, &mut MuzzleRing, &mut Transform, &mut Visibility)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut ring, mut t, mut vis) in &mut rings {
+        ring.age += dt;
+        if ring.age < 0.0 {
+            continue;
+        }
+        let k = ring.age / MUZZLE_RING_SECS;
+        if k >= 1.0 {
+            materials.remove(&ring.material);
+            commands.entity(entity).despawn();
+            continue;
+        }
+        *vis = Visibility::Inherited;
+        t.translation += ring.dir * MUZZLE_RING_SPEED * (1.0 - k).powi(2) * dt;
+        let grow = 1.0 - (1.0 - k).powi(2);
+        t.scale = Vec3::splat(MUZZLE_RING_START_SCALE + grow * (MUZZLE_RING_END_SCALE - MUZZLE_RING_START_SCALE));
+        let fade = ((1.0 - k) * 2.0).min(1.0);
+        if let Some(m) = materials.get_mut(&ring.material) {
+            m.base_color = GREEN.with_alpha(0.9 * fade);
+            let c = GREEN.to_linear();
+            m.emissive = LinearRgba::rgb(c.red, c.green, c.blue) * (5.0 * fade);
+        }
     }
 }

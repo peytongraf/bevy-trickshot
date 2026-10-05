@@ -121,8 +121,6 @@ pub(crate) struct RayGunSettings {
     /// How far (m) it drops, and how far (radians) it tips, when put away.
     pub(crate) lower_drop: f32,
     pub(crate) lower_tip: f32,
-    /// How fast (m/s) its bolt flies.
-    pub(crate) bolt_speed: f32,
 }
 
 impl Default for RayGunSettings {
@@ -138,7 +136,7 @@ impl Default for RayGunSettings {
                 scale,
             },
             ads: ViewModelOffset {
-                translation: Vec3::new(-0.093, -0.045, 0.02),
+                translation: Vec3::new(-0.0963, 0.055, 0.08),
                 yaw: std::f32::consts::PI,
                 pitch: 0.0,
                 scale,
@@ -147,8 +145,8 @@ impl Default for RayGunSettings {
             fire_interval: 0.33,
             trauma_per_shot: 0.2,
             recoil_kick: 0.02,
-            muzzle_translation: Vec3::new(0.09, -0.02, -0.46),
-            muzzle_size: Vec2::new(0.3, 0.3),
+            muzzle_translation: Vec3::new(0.05, -0.05, -0.46),
+            muzzle_size: Vec2::new(0.25, 0.3),
             blend_secs: 0.15,
             shot_blend_secs: 0.03,
             shot_speed: 1.0,
@@ -157,7 +155,6 @@ impl Default for RayGunSettings {
             idle_speed: 1.0,
             lower_drop: 0.35,
             lower_tip: 0.7,
-            bolt_speed: 70.0,
         }
     }
 }
@@ -258,7 +255,6 @@ pub(crate) fn raygun_debug_ui(
                 ui.add(egui::Slider::new(&mut s.fire_interval, 0.05f32..=1.0).text("between shots (s)"));
                 ui.add(egui::Slider::new(&mut s.trauma_per_shot, 0.0f32..=1.0).text("shake per shot"));
                 ui.add(egui::Slider::new(&mut s.recoil_kick, 0.0f32..=0.1).text("kick per shot (m)"));
-                ui.add(egui::Slider::new(&mut s.bolt_speed, 5.0f32..=200.0).text("bolt speed (m/s)"));
                 ui.label("Muzzle flash (camera space, at the hip)");
                 ui.add(egui::Slider::new(&mut s.muzzle_translation.x, -1.0f32..=1.0).text("x"));
                 ui.add(egui::Slider::new(&mut s.muzzle_translation.y, -1.0f32..=1.0).text("y"));
@@ -286,7 +282,7 @@ pub(crate) fn raygun_debug_ui(
                     info!(
                         "ray gun: hip {{ {} }}, ads {{ {} }}, ads_zoom: {:.2}, fire_interval: {:.3}, \
                          trauma_per_shot: {:.3}, recoil_kick: {:.4}, muzzle_translation: Vec3::new({:.3}, {:.3}, {:.3}), \
-                         muzzle_size: Vec2::new({:.2}, {:.2}), bolt_speed: {:.1}, lower_drop: {:.2}, lower_tip: {:.2}",
+                         muzzle_size: Vec2::new({:.2}, {:.2}), lower_drop: {:.2}, lower_tip: {:.2}",
                         p(&s.hip),
                         p(&s.ads),
                         s.ads_zoom,
@@ -298,7 +294,6 @@ pub(crate) fn raygun_debug_ui(
                         s.muzzle_translation.z,
                         s.muzzle_size.x,
                         s.muzzle_size.y,
-                        s.bolt_speed,
                         s.lower_drop,
                         s.lower_tip,
                     );

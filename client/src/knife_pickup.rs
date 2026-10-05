@@ -481,7 +481,8 @@ fn update_pickup_card(
             let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| {
                 !auto_kind(&weapon, k) || weapon.lethal_full(k)
             });
-            let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player);
+            let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
+                || crate::mystery_box::usable_in_reach(&local, &lobbies, &player);
             offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall)
         })
         .flatten();
@@ -580,7 +581,8 @@ fn swap_lethal(
         return;
     }
     let lethal = lethal_in_reach(&player, knives.iter(), drops.iter(), |k| !auto_kind(&weapon, k));
-    let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player);
+    let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
+                || crate::mystery_box::usable_in_reach(&local, &lobbies, &player);
     match offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall) {
         Some(Offer::Lethal(kind)) => {
             request_pickup(kind, weapon.lethal_count(), &mut knife_sender, &mut molotov_sender);

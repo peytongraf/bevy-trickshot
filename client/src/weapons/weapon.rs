@@ -218,7 +218,11 @@ pub(crate) fn resolve_local_shot(
         if shot.weapon == WeaponId::RayGun {
             let end = ground_pt.unwrap_or_else(|| shot.origin + aim * max_range);
             let start = tracer_start(&muzzle, &helper, &recoil, &vm_camera, &world_camera).unwrap_or(shot.origin);
-            bolts.write(crate::RayGunBolt { start, end, own: true });
+            bolts.write(crate::RayGunBolt {
+                start,
+                end,
+                owner: crate::BoltOwner::Own,
+            });
             continue;
         }
         if let Some((p, normal)) = surface {
@@ -542,6 +546,23 @@ impl Weapon {
         }
         self.molotovs = (self.molotovs + 1).min(shared::molotov::MAX_MOLOTOVS);
         self.lethal = Lethal::Molotov;
+    }
+
+    /// A full load of `kind` from the Mystery Box: it's now the only
+    /// lethal, as many as can be carried (any of the other kind were
+    /// dropped).
+    pub(crate) fn fill_lethal(&mut self, kind: Lethal) {
+        match kind {
+            Lethal::ThrowingKnife => {
+                self.molotovs = 0;
+                self.throwing_knives = shared::throwing_knife::MAX_CARRIED;
+            }
+            Lethal::Molotov => {
+                self.throwing_knives = 0;
+                self.molotovs = shared::molotov::MAX_MOLOTOVS;
+            }
+        }
+        self.lethal = kind;
     }
 
     /// A throwing knife was picked up: one more (up to the most that can be

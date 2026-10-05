@@ -19,6 +19,14 @@ pub enum WeaponId {
     RayGun,
 }
 
+/// How fast (m/s) a Ray Gun bolt flies — it hurts nothing until it gets
+/// there (the server flies it, `server::raygun`; clients draw it at the
+/// same speed).
+pub const RAYGUN_BOLT_SPEED: f32 = 70.0;
+/// How long (s) a zombie a Ray Gun bolt hurts but doesn't kill is stunned
+/// (as PhD Flopper's blast stuns, `perks::PHD_STUN_SECS`).
+pub const RAYGUN_STUN_SECS: f32 = 2.0;
+
 /// How far (m) from where a Ray Gun bolt lands its burst reaches...
 pub const RAYGUN_SPLASH_RADIUS: f32 = 2.5;
 /// ...and the burst's damage at its middle, fading to...

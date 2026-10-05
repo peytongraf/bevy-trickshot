@@ -25,10 +25,12 @@ mod killcam;
 mod knives;
 mod lobby;
 mod molotovs;
+mod mystery_box;
 mod nav;
 mod net;
 mod power_ups;
 mod pvp;
+mod raygun;
 mod revive;
 mod sim;
 mod wall_buys;
@@ -74,5 +76,6 @@ fn main() {
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
+        .add_plugins(mystery_box::MysteryBoxPlugin)
         .run();
 }

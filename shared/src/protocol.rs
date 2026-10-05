@@ -546,6 +546,18 @@ pub struct ShotResolved {
     pub weapon: u8,
 }
 
+/// Server → everyone else in the shooter's lobby: a Ray Gun bolt just left
+/// `shooter`'s barrel, headed for `end` (the surface it'll burst on if
+/// nothing gets in its way). Its [`ShotResolved`] follows once it has
+/// really landed — the server flies it at
+/// [`crate::weapon::RAYGUN_BOLT_SPEED`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct RayGunFired {
+    pub shooter: PeerId,
+    pub origin: [f32; 3],
+    pub end: [f32; 3],
+}
+
 /// Server → everyone else in the lobby: a player triggered one or more
 /// one-shot sounds (`killcam::SND_*`) this tick, so it can be played back
 /// positionally at `position` on every other client. Never sent to the
@@ -1053,6 +1065,11 @@ pub struct Lobby {
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
     pub power_on: bool,
+    /// [`GameMode::Zombies`]: the Mystery Box's spin, while there is one
+    /// ([`crate::mystery_box`]). Server-owned; cleared whenever a game starts
+    /// or ends.
+    #[serde(default)]
+    pub mystery_box: Option<crate::mystery_box::MysteryBoxSpin>,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1250,6 +1267,40 @@ pub struct GiveWeapon {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct WallWeaponBought {
     pub weapon: WeaponId,
+    pub slot: u8,
+}
+
+/// Client → server: spin the `Zombies` Mystery Box ([`crate::mystery_box`]).
+/// Ammo and lethals are client-side, so the client says which lethal it's
+/// carrying a full load of — the box won't land on that (nor on a gun the
+/// server knows it carries). The server checks it's in reach, idle, and the
+/// points ([`crate::mystery_box::COST`]), then starts the spin
+/// ([`Lobby::mystery_box`]).
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SpinMysteryBox {
+    pub knives_full: bool,
+    pub molotovs_full: bool,
+}
+
+/// Client → server: take the Mystery Box's prize this player spun for,
+/// while it's on offer. A gun goes in slot `slot` (the one in hand), whose
+/// weapon is dropped with `mag` / `reserve` rounds; a lethal fills them up
+/// with it, dropping the other kind they carry (`drop_knives` /
+/// `drop_molotovs`). Answered with [`BoxPrizeTaken`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct TakeBoxPrize {
+    pub slot: u8,
+    pub mag: u32,
+    pub reserve: u32,
+    pub drop_knives: u32,
+    pub drop_molotovs: u32,
+}
+
+/// Server → the taker only: their [`TakeBoxPrize`] went through — a gun's
+/// now in slot `slot` (full), or they carry a full load of the lethal.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BoxPrizeTaken {
+    pub prize: crate::mystery_box::BoxPrize,
     pub slot: u8,
 }
 
@@ -1705,6 +1756,8 @@ impl Plugin for ProtocolPlugin {
         // messages
         app.add_message::<ShotResolved>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<RayGunFired>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<LobbyError>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<TrickScore>()
@@ -1752,6 +1805,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<AmmoBought>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<WallWeaponBought>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BoxPrizeTaken>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<WeaponPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
@@ -1819,6 +1874,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<PickUpMolotov>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyWallWeapon>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SpinMysteryBox>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<TakeBoxPrize>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpWeapon>()
             .add_direction(NetworkDirection::ClientToServer);

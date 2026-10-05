@@ -6,19 +6,18 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Mystery box
+- Ray gun muzzle rings
 - Ray gun shot glitching fixed
+- Ray gun bolt travel time, splash and stun
+- Ray gun view model settings
 
 # Current todo
 
-- Ray gun shot is killing enemies before the blast reaches them. The blast should possibly "stun" enenmies that it damages but doesn't kill similar to phd slider.
 - If player is by themselves then it should just have a leave button instead of leave with or without party since they don't have a party.
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
-
-# Raygun
-
-ray gun: hip { translation: Vec3::new(0.0000, 0.0000, 0.0000), yaw: 3.1416, pitch: 0.0000, scale: 0.2000 }, ads { translation: Vec3::new(-0.0960, 0.0550, 0.0800), yaw: 3.1416, pitch: 0.0000, scale: 0.2000 }, ads_zoom: 1.25, fire_interval: 0.330, trauma_per_shot: 0.200, recoil_kick: 0.0200, muzzle_translation: Vec3::new(0.090, -0.020, -0.460), muzzle_size: Vec2::new(0.30, 0.30), bolt_speed: 70.0, lower_drop: 0.35, lower_tip: 0.70
 
 # Improve
 
@@ -32,6 +31,8 @@ ray gun: hip { translation: Vec3::new(0.0000, 0.0000, 0.0000), yaw: 3.1416, pitc
 
 # Big features
 
+- Add compass at the top
+- Add minimap top left
 - Add armor
 - Add crafting table
 - Add rampage inducer

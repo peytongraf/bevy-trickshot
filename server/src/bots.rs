@@ -465,6 +465,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                mystery_box: None,
                 members: Vec::new(),
             })
             .id();
@@ -546,6 +547,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                mystery_box: None,
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),
                     name: "me".into(),

@@ -185,6 +185,7 @@ fn on_create(
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                mystery_box: None,
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -293,6 +294,7 @@ fn on_start(
     lobby.started = true;
     lobby.paused = false;
     lobby.power_on = false;
+    lobby.mystery_box = None;
     lobby.active_power_ups.clear();
     lobby.time_left_secs = lobby.time_limit_secs;
     // (`crate::zombies` runs the countdown, then starts round 1.)
@@ -838,6 +840,7 @@ pub(crate) fn end_match(
     lobby.started = false;
     lobby.paused = false;
     lobby.power_on = false;
+    lobby.mystery_box = None;
     lobby.active_power_ups.clear();
     info!("match over — {winner_name} wins with {winner_score}");
 }
@@ -915,6 +918,7 @@ mod tests {
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,
+            mystery_box: None,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),

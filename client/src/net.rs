@@ -668,6 +668,7 @@ fn receive_shots(
         Res<crate::RemoteMuzzleSettings>,
     ),
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
+    mut fired: Query<&mut MessageReceiver<shared::RayGunFired>>,
     mut impacts: EventWriter<GroundImpact>,
     mut holes: EventWriter<crate::BulletImpact>,
     mut tracers: EventWriter<crate::FireTracer>,
@@ -675,42 +676,59 @@ fn receive_shots(
 ) {
     let me = local.iter().next().map(|l| l.0);
     let killcam_playing = active.0.is_some();
+    // From the shooter's barrel (their soldier's gun), not their eye.
+    let barrel = |shooter: PeerId| {
+        avatars.iter().find_map(|(avatar, bone)| {
+            let (pose, id) = sources.get(avatar.src).ok()?;
+            (id?.0 == shooter).then(|| {
+                let bone = bone.and_then(|b| transforms.get(b.0).ok());
+                crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle)
+            })
+        })
+    };
+    // Someone else's Ray Gun bolt leaving their barrel — it waits on the
+    // server's word on where it lands, below.
+    for mut rx in &mut fired {
+        for msg in rx.receive() {
+            if killcam_playing || Some(msg.shooter) == me {
+                continue;
+            }
+            bolts.write(crate::RayGunBolt {
+                start: barrel(msg.shooter).unwrap_or(Vec3::from_array(msg.origin)),
+                end: Vec3::from_array(msg.end),
+                owner: crate::BoltOwner::Remote(msg.shooter),
+            });
+        }
+    }
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             let raygun = msg.weapon == shared::weapon::WeaponId::RayGun.as_u8();
-            // Our own Ray Gun bolt's already flying: this is where it really
-            // landed.
-            if raygun && Some(msg.shooter) == me && !killcam_playing {
+            // A Ray Gun bolt's already flying (ours, or theirs from its
+            // `RayGunFired`): this is where it really landed.
+            if raygun && !killcam_playing {
                 landed.write(crate::RayGunLanded {
                     end: Vec3::from_array(msg.tracer_end),
+                    owner: if Some(msg.shooter) == me {
+                        crate::BoltOwner::Own
+                    } else {
+                        crate::BoltOwner::Remote(msg.shooter)
+                    },
                 });
                 continue;
             }
             if killcam_playing || Some(msg.shooter) == me {
                 continue;
             }
-            if let (false, ShotOutcome::Ground { point, normal }) = (raygun, msg.outcome) {
+            if let ShotOutcome::Ground { point, normal } = msg.outcome {
                 impacts.write(GroundImpact(Vec3::from_array(point)));
                 holes.write(crate::BulletImpact {
                     point: Vec3::from_array(point),
                     normal: Vec3::from_array(normal),
                 });
             }
-            // From the shooter's barrel (their soldier's gun), not their eye.
-            let barrel = avatars.iter().find_map(|(avatar, bone)| {
-                let (pose, id) = sources.get(avatar.src).ok()?;
-                (id?.0 == msg.shooter).then(|| {
-                    let bone = bone.and_then(|b| transforms.get(b.0).ok());
-                    crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle)
-                })
-            });
-            let start = barrel.unwrap_or(Vec3::from_array(msg.origin));
+            let start = barrel(msg.shooter).unwrap_or(Vec3::from_array(msg.origin));
             let end = Vec3::from_array(msg.tracer_end);
-            if raygun {
-                bolts.write(crate::RayGunBolt { start, end, own: false });
-            } else {
-                tracers.write(crate::FireTracer { start, end });
-            }
+            tracers.write(crate::FireTracer { start, end });
         }
     }
 }

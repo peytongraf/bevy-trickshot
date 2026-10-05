@@ -61,6 +61,7 @@ mod settings;
 mod ammo_crate;
 mod knife_pickup;
 mod molotov;
+mod mystery_box;
 mod zombies_audio;
 mod thrown_knife;
 mod ui;
@@ -227,7 +228,7 @@ fn main() {
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
-        .add_plugins((wall_buys::WallBuysPlugin, weapon_drops::WeaponDropsPlugin))
+        .add_plugins((wall_buys::WallBuysPlugin, weapon_drops::WeaponDropsPlugin, mystery_box::MysteryBoxPlugin))
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
@@ -245,6 +246,7 @@ fn main() {
         .init_resource::<weapons::RayGunSettings>()
         .init_resource::<weapons::GunLower>()
         .add_plugins(vfx::RayGunVfxPlugin)
+        .add_plugins(vfx::MysteryBoxVfxPlugin)
         .add_systems(
             Update,
             weapons::raygun_draw_lower

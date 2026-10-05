@@ -24,6 +24,7 @@ pub mod level;
 pub mod map;
 pub mod melee;
 pub mod molotov;
+pub mod mystery_box;
 pub mod operator;
 pub mod pap;
 pub mod perks;
@@ -47,10 +48,11 @@ pub use protocol::{
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, PlayerKilledBy, PlayerName, PlayerPose,
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, PhdSlam, ProneAtPerk, ProneBonus, SetPerkSet, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
-    SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
+    RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, ZombieAnim, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
+    SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 

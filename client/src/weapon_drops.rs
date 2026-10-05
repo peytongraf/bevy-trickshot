@@ -44,7 +44,7 @@ pub(crate) fn outline_color(level: u8) -> Color {
 }
 
 /// The view model scene a weapon's drawn from.
-fn model_path(weapon: SlotWeapon) -> &'static str {
+pub(crate) fn model_path(weapon: SlotWeapon) -> &'static str {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => "models/weapons/ak_74.glb",
         SlotWeapon::Gun(WeaponId::RayGun) => crate::weapons::RAYGUN_MODEL,
@@ -54,7 +54,7 @@ fn model_path(weapon: SlotWeapon) -> &'static str {
 }
 
 /// How long (m) a weapon lying on the ground is, end to end.
-fn real_length(weapon: SlotWeapon) -> f32 {
+pub(crate) fn real_length(weapon: SlotWeapon) -> f32 {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => 0.95,
         SlotWeapon::Gun(WeaponId::RayGun) => 0.45,
@@ -77,6 +77,10 @@ struct DropVisual {
 pub(crate) struct DropModel {
     pub(crate) weapon: SlotWeapon,
     pub(crate) pap: u8,
+    /// Stood up as it's held — sights up, barrel along +X, its middle at
+    /// the origin ([`fit_upright`]) — instead of laid on its side (the
+    /// Mystery Box's, `mystery_box`).
+    pub(crate) upright: bool,
 }
 
 /// A visual for every drop, and none for one that's gone.
@@ -106,6 +110,7 @@ fn sync_drop_visuals(
                 DropModel {
                     weapon: drop.weapon,
                     pap: drop.pap,
+                    upright: false,
                 },
                 SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model_path(drop.weapon)))),
                 // (Hidden until it's laid down — see `fit_dropped_model`.)
@@ -118,7 +123,7 @@ fn sync_drop_visuals(
 
 /// `entity`'s transform from `root`'s frame (the product of the local
 /// transforms on the way down).
-fn root_from(
+pub(crate) fn root_from(
     entity: Entity,
     root: Entity,
     parents: &Query<&ChildOf>,
@@ -198,6 +203,35 @@ fn fit_model(points: &[Vec3], length: f32) -> Option<Transform> {
     })
 }
 
+/// Stand a scene shaped like `points` (in its own frame, upright as made —
+/// a view model's, sights up) `length` long: its longer way across the
+/// ground along +X, its middle at the origin.
+pub(crate) fn fit_upright(points: &[Vec3], length: f32) -> Option<Transform> {
+    if points.len() < 3 {
+        return None;
+    }
+    let lo = points.iter().copied().reduce(Vec3::min)?;
+    let hi = points.iter().copied().reduce(Vec3::max)?;
+    let size = hi - lo;
+    let long = size.x.max(size.z);
+    if long <= 1e-6 {
+        return None;
+    }
+    let scale = length / long;
+    // (Barrel along Z as made: turned a quarter so it runs along X.)
+    let turn = if size.z > size.x {
+        Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
+    } else {
+        Quat::IDENTITY
+    };
+    let center = (lo + hi) * 0.5;
+    Some(Transform {
+        translation: -(turn * (center * scale)),
+        rotation: turn,
+        scale: Vec3::splat(scale),
+    })
+}
+
 /// A dropped weapon's scene is in: hide everything but the weapon (the
 /// arms), and lay it down by its shape — the weapon's vertices, posed as
 /// the scene stands (the AK-74's skinned to its rig), give its size and
@@ -267,7 +301,12 @@ fn fit_dropped_model(
             }
         }
     }
-    match fit_model(&points, real_length(model.weapon)) {
+    let fit = if model.upright {
+        fit_upright(&points, real_length(model.weapon))
+    } else {
+        fit_model(&points, real_length(model.weapon))
+    };
+    match fit {
         Some(fit) => {
             commands.entity(root).insert((fit, Visibility::Inherited));
         }
