@@ -418,7 +418,11 @@ pub(crate) fn move_player(
     sprinting: Res<Sprinting>,
     slide: Res<Slide>,
     weapon: Res<Weapon>,
-    (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
+    (nitro, classic, shroud): (
+        Res<crate::zombies_hud::NitroBrew>,
+        Res<crate::zombies_hud::ClassicPerks>,
+        Res<crate::aether_shroud::LocalShroud>,
+    ),
     revive: Res<crate::revive::LocalRevive>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
 ) {
@@ -477,7 +481,13 @@ pub(crate) fn move_player(
             1.0
         };
         physics.horizontal_velocity =
-            direction.normalize_or_zero() * speed * weapon_mult * dir_mult * nitro.movement() * classic.movement();
+            direction.normalize_or_zero()
+            * speed
+            * weapon_mult
+            * dir_mult
+            * nitro.movement()
+            * classic.movement()
+            * shroud.movement();
         // `Zombies`: down, only a slow crawl (whatever the perks); out, or
         // reviving someone, rooted to the spot.
         if revive.bled_out || revive.reviving.is_some() {

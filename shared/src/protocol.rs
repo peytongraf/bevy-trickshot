@@ -983,6 +983,12 @@ pub struct LobbyMember {
     /// server-owned, cleared whenever a game starts and when they bleed out.
     #[serde(default)]
     pub armor: crate::armor::Armor,
+    /// [`GameMode::Zombies`]: this member's field upgrade (the Aether
+    /// Shroud, [`crate::field_upgrade`]) — its stored charges, the next one
+    /// building, and the one in use. Server-owned, cleared whenever a game
+    /// starts or ends.
+    #[serde(default)]
+    pub field_upgrade: crate::field_upgrade::FieldUpgrade,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1316,6 +1322,18 @@ pub struct WallWeaponBought {
 pub struct BuyArmor {
     pub level: u8,
 }
+
+/// Client → server: use a stored field upgrade charge (the Aether Shroud,
+/// [`crate::field_upgrade`]). The server checks there's one, that none is
+/// in use, and that the member's up in a running `Zombies` game.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct UseFieldUpgrade;
+
+/// Client → server (debug): the party leader's field upgrade gets every
+/// charge at once. Only in a running `Zombies` game; ignored from anyone
+/// else.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct FillFieldUpgrade;
 
 /// Client → server: fill every armor plate this member owns back up at the
 /// station, for [`crate::armor::REFILL_COST`].
@@ -1970,6 +1988,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyArmor>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<RefillArmor>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<UseFieldUpgrade>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<FillFieldUpgrade>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TakeBoxPrize>()
             .add_direction(NetworkDirection::ClientToServer);

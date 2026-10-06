@@ -1,9 +1,11 @@
 //! Shot/weapon visual effects: muzzle flash, barrel smoke, fire tracers, and
 //! bullet-impact particles (ground rock/dust, bot blood), bullet holes, and
 //! the shroom screen distortion (and its see-enemies-through-walls ghosts),
-//! Liquid Courage's drunk screen effect, the big fireball explosion, and the
-//! ground breaking open under a rising zombie.
+//! Liquid Courage's drunk screen effect, the Aether Shroud's purple one, the
+//! big fireball explosion, and the ground breaking open under a rising
+//! zombie.
 
+mod aether_shroud;
 mod bullet_holes;
 mod drunk;
 mod explosion;
@@ -20,6 +22,7 @@ mod smoke;
 mod tracers;
 mod zombie_rise;
 
+pub(crate) use aether_shroud::*;
 pub(crate) use bullet_holes::*;
 pub(crate) use drunk::*;
 pub(crate) use explosion::*;

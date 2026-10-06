@@ -245,7 +245,7 @@ fn sync_drunk(
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct DrunkLabel;
+pub(super) struct DrunkLabel;
 
 #[derive(Default)]
 struct DrunkNode;

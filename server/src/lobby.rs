@@ -195,6 +195,7 @@ fn on_create(
                     kills: 0,
                     perks: Vec::new(),
                     armor: Default::default(),
+                    field_upgrade: Default::default(),
                     pap: Default::default(),
                     loadout: Default::default(),
                     operator: Default::default(),
@@ -252,6 +253,7 @@ fn on_join(
             kills: 0,
             perks: Vec::new(),
             armor: Default::default(),
+            field_upgrade: Default::default(),
             pap: Default::default(),
             loadout: Default::default(),
             operator: Default::default(),
@@ -316,6 +318,7 @@ fn on_start(
         m.perks.clear();
         m.pap = Default::default();
         m.armor = Default::default();
+        m.field_upgrade = Default::default();
         // Everyone starts with the primary they picked (`Freestyle`: the sniper).
         m.primary = if mode_has_loadout { m.loadout } else { shared::weapon::WeaponId::Sniper };
         m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
@@ -682,6 +685,7 @@ fn add_bots(
             kills: 0,
             perks: Vec::new(),
             armor: Default::default(),
+            field_upgrade: Default::default(),
             pap: Default::default(),
             loadout: Default::default(),
             operator: Default::default(),
@@ -846,6 +850,9 @@ pub(crate) fn end_match(
     lobby.power_on = false;
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
+    for m in &mut lobby.members {
+        m.field_upgrade = Default::default();
+    }
     info!("match over — {winner_name} wins with {winner_score}");
 }
 
@@ -932,6 +939,7 @@ mod tests {
                 kills: 0,
                 perks: Vec::new(),
                 armor: Default::default(),
+                field_upgrade: Default::default(),
                 pap: Default::default(),
                 loadout: Default::default(),
                 operator: Default::default(),

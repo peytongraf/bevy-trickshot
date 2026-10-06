@@ -21,6 +21,7 @@ mod armor;
 mod bots;
 mod collision;
 mod dogs;
+mod field_upgrades;
 mod health;
 mod killcam;
 mod knives;
@@ -81,6 +82,7 @@ fn main() {
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)
         .add_plugins(armor::ArmorPlugin)
+        .add_plugins(field_upgrades::FieldUpgradesPlugin)
         .add_plugins(monkey_bombs::MonkeyBombsPlugin)
         .run();
 }

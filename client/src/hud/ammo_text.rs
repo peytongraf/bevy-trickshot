@@ -1,7 +1,8 @@
 //! The bottom-right ammo HUD, Call-of-Duty style, left to right: the current
 //! weapon's icon; the rounds in the mag (big) with the reserve count (small)
 //! and a bullet icon stacked beside it; a thin divider; then the throwing
-//! knife — its count above its icon, its keybind in a key cap below.
+//! knife — its count above its icon, its keybind in a key cap below; and in
+//! `Zombies`, after another divider, the field upgrade (`aether_shroud`).
 //!
 //! No panel behind it: every text, icon and line carries a slight black drop
 //! shadow instead, so the white stays readable over bright ground and sky.
@@ -171,6 +172,7 @@ pub(crate) fn setup_ammo_ui(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     binds: Res<KeyBindings>,
+    mut shroud_materials: ResMut<Assets<crate::aether_shroud::ShroudIconMaterial>>,
 ) {
     let font = asset_server.load(HUD_FONT);
     let text = |size: f32| {
@@ -301,6 +303,16 @@ pub(crate) fn setup_ammo_ui(
                         TextColor(Color::BLACK),
                     ));
             });
+
+            // `Zombies`: the field upgrade (hidden in every other mode).
+            crate::aether_shroud::spawn_shroud_hud(
+                row,
+                &asset_server,
+                &mut shroud_materials,
+                font.clone(),
+                &binds,
+                (SHADOW_COLOR, SHADOW_OFFSET),
+            );
         });
 }
 
@@ -447,7 +459,10 @@ pub(crate) fn scale_ammo_hud(
     mut nodes: Query<(&mut Node, Option<&HudBase>)>,
     mut fonts: Query<(&mut TextFont, Option<&HudBase>, Option<&mut TextShadow>)>,
     mut box_shadows: Query<&mut BoxShadow, With<HudBase>>,
-    mut radii: Query<&mut BorderRadius, With<KnifeKeyCap>>,
+    mut radii: Query<
+        &mut BorderRadius,
+        Or<(With<KnifeKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>,
+    >,
     mut applied: Local<f32>,
 ) {
     let s = (window.height() / HUD_REF_HEIGHT).max(0.1);

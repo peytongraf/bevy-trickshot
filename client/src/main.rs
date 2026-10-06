@@ -58,6 +58,7 @@ mod respawn;
 mod revive;
 mod round_counter;
 mod settings;
+mod aether_shroud;
 mod ammo_crate;
 mod armor;
 mod knife_pickup;
@@ -217,6 +218,9 @@ fn main() {
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)
+        // After `DrunkPlugin`: its pass chains onto the drunk one.
+        .add_plugins(AetherScreenPlugin)
+        .add_plugins(aether_shroud::AetherShroudPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)
         .add_plugins(molotov::MolotovPlugin)

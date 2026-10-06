@@ -689,6 +689,28 @@ impl Weapon {
         self.held = to;
     }
 
+    /// Reload every gun carried on the spot, from its own reserve (the
+    /// Aether Shroud) — no animation; a reload waiting to be replayed is
+    /// dropped, as there's nothing left for it to load.
+    pub(crate) fn reload_instantly(&mut self) {
+        let top_up = |gun: WeaponId, (mag, reserve): (u32, u32)| {
+            let moved = mag_size(gun).saturating_sub(mag).min(reserve);
+            (mag + moved, reserve - moved)
+        };
+        (self.mag, self.reserve) = top_up(self.primary, (self.mag, self.reserve));
+        if let Some(other) = self.slots.iter().filter_map(|w| w.gun()).find(|g| *g != self.primary) {
+            self.other_ammo = top_up(other, self.other_ammo);
+        }
+        if self
+            .interrupted
+            .as_ref()
+            .and_then(|b| b.remaining.first())
+            .is_some_and(|seg| matches!(seg.act, SegAct::Reload | SegAct::ReloadEmpty))
+        {
+            self.interrupted = None;
+        }
+    }
+
     pub(crate) fn refill_ammo(&mut self) {
         self.mag = self.mag_size();
         self.reserve = 0;

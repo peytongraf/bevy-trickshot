@@ -725,6 +725,7 @@ mod tests {
                     kills: 0,
                     perks: Vec::new(),
                     armor: Default::default(),
+                    field_upgrade: Default::default(),
                     pap: Default::default(),
                     loadout: Default::default(),
                     operator: Default::default(),

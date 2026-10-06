@@ -595,9 +595,14 @@ pub(crate) fn drive_bots(
         let nav = navs.graph(lobby.map);
         let skill: BotSkill = brain.skill();
         // Who it may go after: anyone else in a free-for-all; only the real
-        // players in `Zombies` (the zombies are all on one side).
+        // players in `Zombies` (the zombies are all on one side) — and not
+        // one with the Aether Shroud up, whom they can't see at all.
         let zombies = lobby.mode == shared::GameMode::Zombies;
-        let enemy = |peer: PeerId| peer != id.0 && !(zombies && shared::bot_players::is_bot_peer(peer));
+        let enemy = |peer: PeerId| {
+            peer != id.0
+                && !(zombies && shared::bot_players::is_bot_peer(peer))
+                && !crate::field_upgrades::shrouded(lobby, peer)
+        };
 
         // The match is over (`EndingLobbies`) or paused: stand still, fire
         // nothing.

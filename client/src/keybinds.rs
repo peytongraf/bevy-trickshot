@@ -99,6 +99,9 @@ pub struct KeyBindings {
     /// `zombies_hud`). F like Call of Duty; it shares F with
     /// `killcam_skip`, which only acts during a kill cam (`Zombies` has none).
     pub interact: Binding,
+    /// Use the `Zombies` field upgrade (the Aether Shroud) once a charge has
+    /// built up — see `aether_shroud`.
+    pub field_upgrade: Binding,
     /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
     pub cursor_toggle: Binding,
 }
@@ -127,6 +130,7 @@ impl Default for KeyBindings {
             killcam_skip: Key(KeyCode::KeyF),
             ping: Mouse(MouseButton::Middle),
             interact: Key(KeyCode::KeyF),
+            field_upgrade: Key(KeyCode::KeyX),
             cursor_toggle: Key(KeyCode::KeyL),
         }
     }
@@ -155,6 +159,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Skip Kill Cam", |b| &mut b.killcam_skip),
     ("Ping Enemy", |b| &mut b.ping),
     ("Interact / Buy", |b| &mut b.interact),
+    ("Field Upgrade", |b| &mut b.field_upgrade),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];
 

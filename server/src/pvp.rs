@@ -284,6 +284,10 @@ pub(crate) fn apply_player_hits(
         if !combat.alive {
             continue;
         }
+        // The Aether Shroud (a `Zombies` field upgrade): nothing hurts them.
+        if lobbies.iter().any(|(_, l)| crate::field_upgrades::shrouded(l, ev.victim)) {
+            continue;
+        }
         // Liquid Courage (a `Zombies` perk) softens every hit.
         let perks: &[shared::perks::Perk] = lobbies
             .iter()
@@ -661,6 +665,10 @@ fn on_fall_landed(
                 });
             }
         }
+    }
+    // (Nor does a fall hurt them under the Aether Shroud.)
+    if lobbies.iter().any(|(_, l)| crate::field_upgrades::shrouded(l, peer)) {
+        return;
     }
     let damage = shared::perks::fall_damage_taken(perks, fall_damage(landed.distance));
     // (Armor soaks a fall too.)
