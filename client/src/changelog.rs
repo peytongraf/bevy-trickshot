@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: Max Ammo fills both guns, mags included — no reload needed.",
+        "Fixed a doubled or huge gun when a game starts right after launching.",
         "Zombies: damage numbers show only the health the hit took.",
         "Weapon name under its icon — coloured by its Pack-a-Punch level.",
         "Fixed sometimes falling through the map as a game starts.",

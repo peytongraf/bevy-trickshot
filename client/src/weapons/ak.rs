@@ -358,7 +358,9 @@ pub(crate) fn sync_primary_model(
     lobbies: Query<&Lobby>,
     killcam: Res<crate::killcam::ActiveKillCam>,
     models: Option<Res<PrimaryModels>>,
-    view_model: Single<(&mut ViewModelAnimation, &mut SceneRoot), With<ViewModel>>,
+    asset_server: Res<AssetServer>,
+    scene_spawner: Res<SceneSpawner>,
+    view_model: Single<(&mut ViewModelAnimation, &mut SceneRoot, Option<&bevy::scene::SceneInstance>), With<ViewModel>>,
     mut weapon: ResMut<Weapon>,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -381,7 +383,7 @@ pub(crate) fn sync_primary_model(
         weapon.set_primary(wanted);
     }
     let Some(models) = models else { return };
-    let (mut anim, mut scene) = view_model.into_inner();
+    let (mut anim, mut scene, instance) = view_model.into_inner();
     if anim.weapon == wanted {
         return;
     }
@@ -390,6 +392,16 @@ pub(crate) fn sync_primary_model(
         WeaponId::RayGun => (models.raygun_scene.clone(), models.raygun_graph.clone(), models.raygun_nodes.clone()),
         _ => (models.sniper_scene.clone(), models.sniper_graph.clone(), vec![models.sniper_index]),
     };
+    // Only swap once the new model's loaded and the one showing has
+    // finished spawning: Bevy can only take away a scene it's already
+    // spawned, so swapping while the old one's still loading (a game
+    // started straight after launch) left it to spawn in anyway, on top
+    // of the new gun. Until then the old model stays a moment longer.
+    if !asset_server.is_loaded_with_dependencies(&scene_handle)
+        || !instance.is_some_and(|i| scene_spawner.instance_is_ready(**i))
+    {
+        return;
+    }
     *anim = ViewModelAnimation {
         graph,
         index: nodes[0],

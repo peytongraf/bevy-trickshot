@@ -580,10 +580,12 @@ fn apply_power_up_settings(
 }
 
 /// Someone grabbed a power-up: its announcer for everyone, the grab sound
-/// for whoever it was, and Max Ammo fills our ammo.
+/// for whoever it was, and Max Ammo fills our ammo — both guns, mags and
+/// all.
 fn receive_grabs(
     mut receivers: Query<&mut MessageReceiver<PowerUpGrabbed>>,
     local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
     sounds: Res<GameSounds>,
     mut weapon: ResMut<Weapon>,
     mut commands: Commands,
@@ -611,7 +613,7 @@ fn receive_grabs(
                 ));
             }
             if msg.kind == PowerUp::MaxAmmo {
-                weapon.fill_ammo(GameMode::Zombies);
+                weapon.max_ammo(crate::pap::my_pap_levels(&local, &lobbies));
                 // Only the lethal actually carried fills up.
                 match weapon.lethal {
                     crate::Lethal::ThrowingKnife => {

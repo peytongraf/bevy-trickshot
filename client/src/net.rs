@@ -119,6 +119,13 @@ impl Plugin for ClientNetPlugin {
         app.init_resource::<PendingMatchEnd>();
         app.init_resource::<PendingRespawn>();
         app.add_event::<LocalPlayerRespawned>();
+        // Not gated on `InGame`: the server sends our match-start spot the
+        // moment the game starts, which can land a frame before we've
+        // switched into it — and lightyear drops any message left unread
+        // at the end of a frame. Held in `PendingRespawn` until we're in,
+        // and forgotten when we leave.
+        app.add_systems(Update, receive_respawn);
+        app.add_systems(OnExit(AppState::InGame), forget_pending_respawn);
         app.add_systems(Startup, connect);
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
@@ -166,7 +173,6 @@ impl Plugin for ClientNetPlugin {
                 receive_trick_scores,
                 receive_match_over,
                 receive_killcam,
-                receive_respawn,
                 // Must see this frame's `receive_killcam` (if the server's
                 // "best play" `KillCam` and `MatchOver` land in the same
                 // frame) before deciding whether a kill cam is holding the
@@ -176,7 +182,7 @@ impl Plugin for ClientNetPlugin {
                 // Same reasoning: don't decide a `FreeForAll` kill cam isn't
                 // coming until this frame's `receive_killcam` has had a
                 // chance to start one.
-                flush_pending_respawn.after(receive_killcam),
+                flush_pending_respawn.after(receive_killcam).after(receive_respawn),
                 dev_auto_fire.run_if(|| std::env::var_os("TRICKSHOT_AUTO_FIRE").is_some()),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -579,6 +585,11 @@ fn receive_respawn(
             pending.waited_secs = 0.0;
         }
     }
+}
+
+/// Out of the game: no respawn (or start spot) still waiting.
+fn forget_pending_respawn(mut pending: ResMut<PendingRespawn>) {
+    *pending = PendingRespawn::default();
 }
 
 /// Fired the moment the local player's rig is actually teleported back to

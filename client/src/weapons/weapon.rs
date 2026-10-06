@@ -496,18 +496,34 @@ impl Weapon {
         starting_reserve(mode, self.primary) + packed
     }
 
-    /// Top the sniper up to every round it can hold in `mode` (the ammo
-    /// crate). The extra goes into the reserve — the mag and chamber are
-    /// left alone, so a reload loads it like any other.
-    pub(crate) fn fill_ammo(&mut self, mode: shared::GameMode) {
-        self.reserve = (self.mag_size() + self.max_reserve(mode)).saturating_sub(self.mag);
-    }
-
     /// Top the sniper right up — a full mag *and* a full reserve for its
     /// capacity in `mode` (a Pack-a-Punch, Cold War style).
     pub(crate) fn fill_mag_and_reserve(&mut self, mode: shared::GameMode) {
         self.mag = self.mag_size();
         self.reserve = self.max_reserve(mode);
+    }
+
+    /// Max Ammo (a `Zombies` power-up): every gun carried — the one in hand
+    /// and the stowed one — gets a full mag *and* a full reserve for its
+    /// capacity at its Pack-a-Punch level (`levels`), so neither needs
+    /// reloading. A reload waiting to be replayed is dropped, as there's
+    /// nothing left for it to load.
+    pub(crate) fn max_ammo(&mut self, levels: shared::pap::PapLevels) {
+        self.fill_mag_and_reserve(shared::GameMode::Zombies);
+        if let Some(other) = self.slots.iter().filter_map(|w| w.gun()).find(|g| *g != self.primary) {
+            let level = levels.get(shared::pap::PapWeapon::gun(other)) as u32;
+            let mag = mag_size(other);
+            let reserve = starting_reserve(shared::GameMode::Zombies, other) + mag * PAP_EXTRA_MAGS_PER_LEVEL * level;
+            self.other_ammo = (mag, reserve);
+        }
+        if self
+            .interrupted
+            .as_ref()
+            .and_then(|b| b.remaining.first())
+            .is_some_and(|seg| matches!(seg.act, SegAct::Reload | SegAct::ReloadEmpty))
+        {
+            self.interrupted = None;
+        }
     }
 
     /// How many of the current lethal are left.
