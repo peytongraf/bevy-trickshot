@@ -24,7 +24,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
-- With current wall buy placements on break point, player can jump inbetween wall and wooden sign and get stuck
+- Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
+- With current wall buy placements on break point, player can jump in between wall and wooden sign and get stuck
 - Make all maps have a day and night setting with just different fog / sky settings
 - Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup
 

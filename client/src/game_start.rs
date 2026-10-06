@@ -22,12 +22,20 @@
 //! the pause menu does, but this module owns the actual overlay content
 //! (map/mode header + a per-member loading/ready row) since it needs live
 //! [`shared::Lobby`] data `menu.rs` doesn't otherwise touch.
+//!
+//! A `Zombies` game gets a Call of Duty Zombies style intro instead: the
+//! zombies backdrop (`menu_backdrop::zombies_background`), the map's name
+//! over three boxes telling the player what they're there to do
+//! ([`ZOMBIES_OBJECTIVES`]), and the party's loading rows tucked into the
+//! bottom-right corner.
 
+use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 use lightyear::prelude::*;
 
 use crate::menu::{Menu, Screen};
+use crate::menu_backdrop::zombies_background;
 use crate::net::GameClient;
 use crate::ui::{label, label_hud, overlay_root, ACCENT, PANEL_SOLID, TEXT, TEXT_DIM, TRACK};
 use crate::{map_ready, AppState, CurrentMap, MapLoadState, MapModel, Player, PlayerPhysics, EYE_HEIGHT};
@@ -37,6 +45,24 @@ const FLOOR_SEARCH_UP: f32 = 15.0;
 const FLOOR_SEARCH_DOWN: f32 = 40.0;
 /// Most surfaces looked at along that line.
 const FLOOR_SEARCH_HITS: usize = 16;
+
+/// The `Zombies` intro's three boxes: a title and a line on each.
+const ZOMBIES_OBJECTIVES: [(&str, &str); 3] = [
+    (
+        "SURVIVE",
+        "Hold out round after round. Revive your downed teammates — if everyone goes down, it's over.",
+    ),
+    (
+        "TURN ON THE POWER",
+        "Find the power switch — nothing sells until it's on: no perks, no Pack-a-Punch.",
+    ),
+    (
+        "PACK-A-PUNCH",
+        "Earn points from kills, then feed your weapon to the machine for something far deadlier.",
+    ),
+];
+/// Their accent: blood red.
+const ZOMBIES_RED: Color = Color::srgb(0.78, 0.08, 0.06);
 
 /// How long (s) after the map's in to keep waiting for ground under our
 /// spawn before reporting ready anyway (a spawn over nothing — no point
@@ -252,6 +278,44 @@ fn rebuild(
         commands.entity(e).despawn();
     }
 
+    if lobby.mode == shared::GameMode::Zombies {
+        build_zombies_intro(&mut commands, &asset_server, lobby, me);
+    } else {
+        build_party_card(&mut commands, &asset_server, lobby, me);
+    }
+}
+
+/// One row per party member: their name, and whether they're loaded yet.
+fn member_rows(panel: &mut ChildSpawnerCommands, lobby: &shared::Lobby, me: PeerId) {
+    for member in &lobby.members {
+        let (status, color) = if member.loaded {
+            ("READY", ACCENT)
+        } else {
+            ("LOADING…", TEXT_DIM)
+        };
+        let name_color = if member.peer == me { ACCENT } else { TEXT };
+        panel
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::SpaceBetween,
+                    column_gap: Val::Px(16.0),
+                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                    ..default()
+                },
+                BackgroundColor(TRACK),
+                BorderRadius::all(Val::Px(6.0)),
+            ))
+            .with_children(|row| {
+                row.spawn(label(member.name.clone(), 16.0, name_color));
+                row.spawn(label(status, 14.0, color));
+            });
+    }
+}
+
+/// Every mode but `Zombies`: the map and mode over the party's rows, centred.
+fn build_party_card(commands: &mut Commands, asset_server: &AssetServer, lobby: &shared::Lobby, me: PeerId) {
     commands
         .spawn((
             LoadingGateUi,
@@ -269,7 +333,7 @@ fn rebuild(
                 ..default()
             })
             .with_children(|card| {
-                card.spawn(label_hud(&asset_server, lobby.map.label(), 32.0, TEXT));
+                card.spawn(label_hud(asset_server, lobby.map.label(), 32.0, TEXT));
                 card.spawn(label(lobby.mode.label(), 15.0, TEXT_DIM));
                 card.spawn((
                     Node {
@@ -293,32 +357,86 @@ fn rebuild(
                     BackgroundColor(PANEL_SOLID),
                     BorderRadius::all(Val::Px(8.0)),
                 ))
-                .with_children(|panel| {
-                    for member in &lobby.members {
-                        let (status, color) = if member.loaded {
-                            ("READY", ACCENT)
-                        } else {
-                            ("LOADING…", TEXT_DIM)
-                        };
-                        let name_color = if member.peer == me { ACCENT } else { TEXT };
-                        panel
-                            .spawn((
-                                Node {
-                                    width: Val::Percent(100.0),
-                                    flex_direction: FlexDirection::Row,
-                                    justify_content: JustifyContent::SpaceBetween,
-                                    padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-                                    ..default()
-                                },
-                                BackgroundColor(TRACK),
-                                BorderRadius::all(Val::Px(6.0)),
-                            ))
-                            .with_children(|row| {
-                                row.spawn(label(member.name.clone(), 16.0, name_color));
-                                row.spawn(label(status, 14.0, color));
-                            });
-                    }
-                });
+                .with_children(|panel| member_rows(panel, lobby, me));
+            });
+        });
+}
+
+/// `Zombies`: the scary backdrop, the map's name over the three objective
+/// boxes in the middle, and the party's rows in the bottom-right corner.
+fn build_zombies_intro(commands: &mut Commands, asset_server: &AssetServer, lobby: &shared::Lobby, me: PeerId) {
+    commands
+        .spawn((
+            LoadingGateUi,
+            GlobalZIndex(50),
+            StateScoped(AppState::InGame),
+            overlay_root(true),
+        ))
+        .with_children(|root| {
+            zombies_background(root, asset_server);
+
+            root.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(10.0),
+                ..default()
+            })
+            .with_children(|center| {
+                center.spawn(label_hud(asset_server, lobby.map.label(), 64.0, TEXT));
+                center.spawn(label_hud(asset_server, lobby.mode.label(), 20.0, ZOMBIES_RED));
+                center
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(24.0),
+                        margin: UiRect::top(Val::Px(36.0)),
+                        ..default()
+                    })
+                    .with_children(|boxes| {
+                        for (n, (title, line)) in ZOMBIES_OBJECTIVES.iter().enumerate() {
+                            boxes
+                                .spawn((
+                                    Node {
+                                        width: Val::Px(300.0),
+                                        min_height: Val::Px(190.0),
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(12.0),
+                                        padding: UiRect::all(Val::Px(22.0)),
+                                        border: UiRect {
+                                            top: Val::Px(3.0),
+                                            ..UiRect::all(Val::Px(1.0))
+                                        },
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgba(0.02, 0.0, 0.0, 0.72)),
+                                    BorderColor(ZOMBIES_RED.with_alpha(0.55)),
+                                    BorderRadius::all(Val::Px(4.0)),
+                                ))
+                                .with_children(|card| {
+                                    card.spawn(label_hud(asset_server, format!("{:02}", n + 1), 16.0, ZOMBIES_RED));
+                                    card.spawn(label_hud(asset_server, *title, 28.0, TEXT));
+                                    card.spawn(label(*line, 15.0, TEXT_DIM));
+                                });
+                        }
+                    });
+            });
+
+            root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(32.0),
+                    bottom: Val::Px(32.0),
+                    min_width: Val::Px(280.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(12.0)),
+                    row_gap: Val::Px(6.0),
+                    ..default()
+                },
+                BackgroundColor(Color::BLACK.with_alpha(0.6)),
+                BorderRadius::all(Val::Px(8.0)),
+            ))
+            .with_children(|panel| {
+                panel.spawn(label("LOADING…", 13.0, TEXT_DIM));
+                member_rows(panel, lobby, me);
             });
         });
 }

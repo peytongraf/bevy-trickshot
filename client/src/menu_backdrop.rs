@@ -9,6 +9,12 @@
 //! * embers — and the odd fleck of grey ash — float up through it, glowing,
 //! * and a vignette pulls the corners in.
 //!
+//! [`zombies_background`] is the same backdrop over the `Zombies` intro art
+//! (shown while a zombies game loads — `game_start`), tuned to be scarier:
+//! the lights flicker and brown out far more, the fog's colder and thicker,
+//! more of what floats up is ash, a red glow throbs in from the edges like
+//! a heartbeat, and now and then the storm flashes cold light across it.
+//!
 //! Every layer is worked out from the clock alone each frame (per-ember
 //! randomness is a hash of its index and its current lifetime), with no
 //! state of its own: the pages rebuild on every click, and a rebuilt
@@ -25,9 +31,12 @@ use bevy::window::PrimaryWindow;
 use crate::util::rand01;
 
 /// The menu art, and its size in pixels (to cover the screen without
-/// stretching).
+/// stretching)...
 pub(crate) const ART: &str = "textures/menu/main_menu_bg.png";
 const ART_SIZE: Vec2 = Vec2::new(1672.0, 940.0);
+/// ...and the `Zombies` intro's.
+const ZOMBIES_ART: &str = "textures/menu/zombies_loading_bg.png";
+const ZOMBIES_ART_SIZE: Vec2 = Vec2::new(1672.0, 941.0);
 /// The art's scale past just covering the screen, so its drift never shows
 /// an edge...
 const ART_OVERSCAN: f32 = 1.18;
@@ -54,8 +63,18 @@ const EMBERS: usize = 56;
 /// One in this many is grey ash rather than a glowing ember.
 const ASH_EVERY: usize = 4;
 
-/// Generated once at startup: the vignette's soft dark ring.
+/// Generated once at startup: the vignette's soft dark ring, and the same
+/// ring in white (tinted for the `Zombies` heartbeat).
 const VIGNETTE_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310001");
+const GLOW_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310002");
+
+/// The `Zombies` heartbeat: seconds per beat, and how strong its red gets.
+const HEARTBEAT_SECS: f32 = 1.5;
+const HEARTBEAT_ALPHA: f32 = 0.32;
+/// The `Zombies` storm: the chance of a lightning flash in any given
+/// second, and how bright it gets.
+const LIGHTNING_CHANCE: f32 = 0.045;
+const LIGHTNING_ALPHA: f32 = 0.16;
 
 pub(crate) struct MenuBackdropPlugin;
 
@@ -76,13 +95,89 @@ enum Backdrop {
     /// Layer, and which of its two sprites.
     Fog(usize, usize),
     Ember(usize),
+    /// `Zombies` only: the red heartbeat in from the edges...
+    Heartbeat,
+    /// ...and the lightning.
+    Lightning,
 }
+
+/// Which backdrop a layer belongs to.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Theme {
+    Menu,
+    Zombies,
+}
+
+/// How a [`Theme`] tunes the shared layers.
+struct Look {
+    art_size: Vec2,
+    art_zoom: f32,
+    shade: f32,
+    shade_flicker: f32,
+    brownout_depth: f32,
+    brownout_chance: f32,
+    fog_alpha: f32,
+    fog_cold: Color,
+    fog_glow: Color,
+    ash_every: usize,
+}
+
+impl Theme {
+    fn look(self) -> Look {
+        match self {
+            Theme::Menu => Look {
+                art_size: ART_SIZE,
+                art_zoom: ART_ZOOM,
+                shade: SHADE,
+                shade_flicker: SHADE_FLICKER,
+                brownout_depth: BROWNOUT_DEPTH,
+                brownout_chance: BROWNOUT_CHANCE,
+                fog_alpha: 1.0,
+                fog_cold: Color::srgb(0.72, 0.76, 0.84),
+                fog_glow: Color::srgb(0.85, 0.55, 0.52),
+                ash_every: ASH_EVERY,
+            },
+            Theme::Zombies => Look {
+                art_size: ZOMBIES_ART_SIZE,
+                art_zoom: ART_ZOOM * 1.4,
+                shade: 0.4,
+                shade_flicker: 0.05,
+                brownout_depth: 0.3,
+                brownout_chance: 0.2,
+                fog_alpha: 1.5,
+                fog_cold: Color::srgb(0.55, 0.62, 0.72),
+                fog_glow: Color::srgb(0.6, 0.18, 0.14),
+                ash_every: 2,
+            },
+        }
+    }
+}
+
+/// Keeps the `Zombies` intro art loaded from launch, so it's there the
+/// moment a zombies game starts loading rather than popping in.
+#[derive(Resource)]
+#[allow(dead_code)]
+struct KeepZombiesArt(Handle<Image>);
 
 /// Fill an out-of-game page root with the backdrop: the page's first
 /// children (so everything spawned after draws on top), pinned to its edges
 /// — padding included — whatever its layout. [`animate_menu_backdrop`] does
 /// the rest.
 pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
+    spawn_backdrop(parent, asset_server, Theme::Menu);
+}
+
+/// [`menu_background`], over the `Zombies` intro art and with its scarier
+/// layers (see the module docs).
+pub fn zombies_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
+    spawn_backdrop(parent, asset_server, Theme::Zombies);
+}
+
+fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, theme: Theme) {
+    let art = match theme {
+        Theme::Menu => ART,
+        Theme::Zombies => ZOMBIES_ART,
+    };
     let full = || Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
@@ -104,13 +199,19 @@ pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetSe
             ..default()
         })
         .with_children(|frame| {
-            frame.spawn((Backdrop::Art, ImageNode::new(asset_server.load(ART)), placed()));
-            frame.spawn((Backdrop::Shade, full(), BackgroundColor(Color::BLACK.with_alpha(SHADE))));
+            frame.spawn((Backdrop::Art, theme, ImageNode::new(asset_server.load(art)), placed()));
+            frame.spawn((
+                Backdrop::Shade,
+                theme,
+                full(),
+                BackgroundColor(Color::BLACK.with_alpha(theme.look().shade)),
+            ));
             let smoke = asset_server.load(SMOKE);
             for layer in 0..FOG_LAYERS {
                 for half in 0..2 {
                     frame.spawn((
                         Backdrop::Fog(layer, half),
+                        theme,
                         ImageNode {
                             image: smoke.clone(),
                             color: Color::NONE,
@@ -127,6 +228,7 @@ pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetSe
             for i in 0..EMBERS {
                 frame.spawn((
                     Backdrop::Ember(i),
+                    theme,
                     Node {
                         position_type: PositionType::Absolute,
                         ..default()
@@ -136,32 +238,61 @@ pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetSe
                     BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
                 ));
             }
+            if theme == Theme::Zombies {
+                frame.spawn((
+                    Backdrop::Lightning,
+                    theme,
+                    full(),
+                    BackgroundColor(Color::NONE),
+                ));
+            }
             frame.spawn((ImageNode::new(VIGNETTE_IMAGE).with_mode(NodeImageMode::Stretch), full()));
+            if theme == Theme::Zombies {
+                frame.spawn((
+                    Backdrop::Heartbeat,
+                    theme,
+                    ImageNode {
+                        image: GLOW_IMAGE,
+                        color: Color::NONE,
+                        image_mode: NodeImageMode::Stretch,
+                        ..default()
+                    },
+                    full(),
+                ));
+            }
         });
 }
 
-/// The vignette: black, clear in the middle, darkening toward the edges.
-fn make_backdrop_images(mut images: ResMut<Assets<Image>>) {
+/// The vignette: black, clear in the middle, darkening toward the edges —
+/// and its white twin. Also starts the `Zombies` art loading.
+fn make_backdrop_images(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    commands.insert_resource(KeepZombiesArt(asset_server.load(ZOMBIES_ART)));
     let n = 128u32;
-    let mut vignette = Vec::with_capacity((n * n * 4) as usize);
-    for y in 0..n {
-        for x in 0..n {
-            let p = (Vec2::new(x as f32, y as f32) + 0.5) / n as f32 * 2.0 - 1.0;
-            let t = ((p.length() - 0.35) / 0.75).clamp(0.0, 1.0);
-            let a = t * t * (3.0 - 2.0 * t) * 0.9;
-            vignette.extend_from_slice(&[0, 0, 0, (a * 255.0) as u8]);
+    for (handle, rgb) in [(VIGNETTE_IMAGE, 0u8), (GLOW_IMAGE, 255u8)] {
+        let mut ring = Vec::with_capacity((n * n * 4) as usize);
+        for y in 0..n {
+            for x in 0..n {
+                let p = (Vec2::new(x as f32, y as f32) + 0.5) / n as f32 * 2.0 - 1.0;
+                let t = ((p.length() - 0.35) / 0.75).clamp(0.0, 1.0);
+                let a = t * t * (3.0 - 2.0 * t) * 0.9;
+                ring.extend_from_slice(&[rgb, rgb, rgb, (a * 255.0) as u8]);
+            }
         }
+        let _ = images.insert(
+            &handle,
+            Image::new(
+                Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+                TextureDimension::D2,
+                ring,
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::RENDER_WORLD,
+            ),
+        );
     }
-    let _ = images.insert(
-        &VIGNETTE_IMAGE,
-        Image::new(
-            Extent3d { width: n, height: n, depth_or_array_layers: 1 },
-            TextureDimension::D2,
-            vignette,
-            TextureFormat::Rgba8UnormSrgb,
-            RenderAssetUsages::RENDER_WORLD,
-        ),
-    );
 }
 
 /// Smooth value noise over time: a random value per whole step of `t`,
@@ -187,6 +318,7 @@ fn animate_menu_backdrop(
     ui_scale: Res<UiScale>,
     mut layers: Query<(
         &Backdrop,
+        &Theme,
         &mut Node,
         Option<&mut BackgroundColor>,
         Option<&mut ImageNode>,
@@ -203,32 +335,63 @@ fn animate_menu_backdrop(
     let unit = screen.y / 1080.0;
     let t = time.elapsed_secs();
 
-    // The art: covering, over-scanned, pushing in and out and panning.
-    let zoom = ART_OVERSCAN + ART_ZOOM * (t * 0.05).sin();
-    let art_size = ART_SIZE * (screen.x / ART_SIZE.x).max(screen.y / ART_SIZE.y) * zoom;
-    let spare = (art_size - screen) * 0.5;
-    let pan = Vec2::new((t * 0.037).sin(), (t * 0.029 + 1.3).sin()) * ART_PAN;
-    let art_at = -spare + spare * pan;
-
-    // The shade: a breath of flicker, and the odd brown-out — a quick
-    // double stutter darker, somewhere in a second picked at random.
     let second = t.floor() as i64;
     let in_second = t.fract();
-    let brownout = rand01(seed(0, second, 0xb20)) < BROWNOUT_CHANCE && {
-        let at = 0.1 + rand01(seed(1, second, 0xb20)) * 0.6;
-        let d = in_second - at;
-        (0.0..0.07).contains(&d) || (0.13..0.17).contains(&d)
-    };
-    let shade = SHADE
-        + SHADE_FLICKER * (noise(t * 6.0, 0x5ade) * 2.0 - 1.0)
-        + if brownout { BROWNOUT_DEPTH } else { 0.0 };
 
-    for (layer, mut node, bg, image, shadow) in &mut layers {
+    for (layer, theme, mut node, bg, image, shadow) in &mut layers {
+        let look = theme.look();
         match *layer {
-            Backdrop::Art => place(&mut node, art_at, art_size),
+            // The art: covering, over-scanned, pushing in and out and panning.
+            Backdrop::Art => {
+                let zoom = ART_OVERSCAN + look.art_zoom * (t * 0.05).sin();
+                let art_size = look.art_size
+                    * (screen.x / look.art_size.x).max(screen.y / look.art_size.y)
+                    * zoom;
+                let spare = (art_size - screen) * 0.5;
+                let pan = Vec2::new((t * 0.037).sin(), (t * 0.029 + 1.3).sin()) * ART_PAN;
+                place(&mut node, -spare + spare * pan, art_size);
+            }
+            // The shade: a breath of flicker, and the odd brown-out — a
+            // quick double stutter darker, somewhere in a second picked at
+            // random.
             Backdrop::Shade => {
+                let brownout = rand01(seed(0, second, 0xb20)) < look.brownout_chance && {
+                    let at = 0.1 + rand01(seed(1, second, 0xb20)) * 0.6;
+                    let d = in_second - at;
+                    (0.0..0.07).contains(&d) || (0.13..0.17).contains(&d)
+                };
+                let shade = look.shade
+                    + look.shade_flicker * (noise(t * 6.0, 0x5ade) * 2.0 - 1.0)
+                    + if brownout { look.brownout_depth } else { 0.0 };
                 if let Some(mut bg) = bg {
                     bg.0 = Color::BLACK.with_alpha(shade.clamp(0.0, 1.0));
+                }
+            }
+            // A heartbeat: a strong thump and a softer one just after, then
+            // a rest, swelling red in from the edges.
+            Backdrop::Heartbeat => {
+                let p = (t / HEARTBEAT_SECS).fract() * HEARTBEAT_SECS;
+                let thump = |at: f32| (-((p - at) / 0.07).powi(2)).exp();
+                let beat = 0.3 + 0.7 * (thump(0.0) + thump(HEARTBEAT_SECS) + 0.65 * thump(0.24));
+                if let Some(mut image) = image {
+                    image.color = Color::srgba(0.6, 0.0, 0.02, HEARTBEAT_ALPHA * beat);
+                }
+            }
+            // Lightning: in the odd second, a bright flash and a fainter
+            // flicker after it, each fading fast.
+            Backdrop::Lightning => {
+                let a = if rand01(seed(2, second, 0x11e)) < LIGHTNING_CHANCE {
+                    let d = in_second - rand01(seed(3, second, 0x11e)) * 0.5;
+                    let flash = |at: f32, len: f32| {
+                        let d = d - at;
+                        if (0.0..len).contains(&d) { 1.0 - d / len } else { 0.0 }
+                    };
+                    flash(0.0, 0.12).max(0.6 * flash(0.18, 0.3))
+                } else {
+                    0.0
+                };
+                if let Some(mut bg) = bg {
+                    bg.0 = Color::srgba(0.75, 0.85, 1.0, LIGHTNING_ALPHA * a);
                 }
             }
             Backdrop::Fog(i, half) => {
@@ -242,14 +405,12 @@ fn animate_menu_backdrop(
                 let y = screen.y * (0.3 + 0.13 * l) + bob;
                 place(&mut node, Vec2::new(x, y), size);
                 if let Some(mut image) = image {
-                    let alpha = (0.05 + 0.02 * l) * (0.7 + 0.6 * noise(t * 0.15, 0xf00 + i as u32));
-                    // The deepest band catches the red glow off the forge.
-                    let c = if i == FOG_LAYERS - 1 {
-                        Color::srgba(0.85, 0.55, 0.52, alpha)
-                    } else {
-                        Color::srgba(0.72, 0.76, 0.84, alpha)
-                    };
-                    image.color = c;
+                    let alpha = (0.05 + 0.02 * l)
+                        * (0.7 + 0.6 * noise(t * 0.15, 0xf00 + i as u32))
+                        * look.fog_alpha;
+                    // The deepest band catches the red glow off the fires.
+                    let c = if i == FOG_LAYERS - 1 { look.fog_glow } else { look.fog_cold };
+                    image.color = c.with_alpha(alpha);
                 }
             }
             Backdrop::Ember(i) => {
@@ -260,7 +421,7 @@ fn animate_menu_backdrop(
                 let cycle = (tt / life).floor() as i64;
                 let f = (tt / life).fract();
                 let r = |salt: u32| rand01(seed(i, cycle, salt));
-                let ash = i % ASH_EVERY == 0;
+                let ash = i % look.ash_every == 0;
                 let rise = screen.y * (0.45 + 0.6 * r(1));
                 let sway = (f * core::f32::consts::TAU * (1.0 + 2.0 * r(2)) + r(3) * 6.3).sin()
                     * (10.0 + 25.0 * r(4))
