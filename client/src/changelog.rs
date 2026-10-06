@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: damage numbers show only the health the hit took.",
+        "Weapon name under its icon — coloured by its Pack-a-Punch level.",
         "Fixed sometimes falling through the map as a game starts.",
         "Zombies: new Pack-a-Punch machine — it glows and vents fog once the power's on.",
         "Zombies: the Aether Shroud field upgrade (X) — vanish from zombies.",

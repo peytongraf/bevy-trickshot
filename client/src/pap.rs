@@ -37,6 +37,16 @@ const PAP_MODEL_BASE_CENTER: Vec3 = Vec3::new(0.864, 0.0, -0.396);
 /// The machine's glow.
 pub(crate) const PAP_BLUE: Color = Color::srgb(0.25, 0.55, 1.0);
 
+/// Each level's camo's main colour (its highlights' hue at full strength:
+/// amber, crimson, violet) — the HUD's weapon name plate wears it.
+pub(crate) fn level_color(level: u8) -> Color {
+    match level {
+        1 => Color::srgb_u8(200, 110, 8),
+        2 => Color::srgb_u8(200, 6, 99),
+        _ => Color::srgb_u8(116, 72, 200),
+    }
+}
+
 /// The parts of `models/weapons/sniper.glb` that are the gun (not the arms) and
 /// wear the camo — matched against glTF node / mesh names.
 const SNIPER_CAMO_PARTS: [&str; 3] = ["scope_sniper_0", "base_sniper_0", "mag_sniper_0"];

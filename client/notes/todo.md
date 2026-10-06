@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Weapon name plate, PaP colours
 - New Pack-a-Punch model, fog and glow
 - Aether Shroud field upgrade
 
@@ -22,7 +23,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
-- Add different color bg for name of weapon when pack a punched depending on level
 - With current wall buy placements on break point, player can jump inbetween wall and wooden sign and get stuck
 - Make all maps have a day and night setting with just different fog / sky settings
 - Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup

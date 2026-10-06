@@ -1,5 +1,6 @@
 //! The bottom-right ammo HUD, Call-of-Duty style, left to right: the current
-//! weapon's icon; the rounds in the mag (big) with the reserve count (small)
+//! weapon's icon, its name under it on a plate (black, or its Pack-a-Punch
+//! level's camo colour once packed); the rounds in the mag (big) with the reserve count (small)
 //! and a bullet icon stacked beside it; a thin divider; then the throwing
 //! knife — its count above its icon, its keybind in a key cap below; and in
 //! `Zombies`, after another divider, the field upgrade (`aether_shroud`).
@@ -53,6 +54,19 @@ pub(crate) struct AmmoGroup;
 /// both textures to match `Weapon::slot`.
 #[derive(Component, Clone)]
 pub(crate) struct WeaponIcon;
+
+/// The plate under [`WeaponIcon`] and the weapon's name on it —
+/// [`update_weapon_name`] keeps both in step with the weapon in hand.
+#[derive(Component)]
+pub(crate) struct WeaponNamePlate;
+
+#[derive(Component)]
+pub(crate) struct WeaponNameText;
+
+/// The name plate's background opacity...
+const NAME_PLATE_ALPHA: f32 = 0.75;
+/// ...and its padding (px) around the name — the same on every side.
+const NAME_PLATE_PADDING: f32 = 3.0;
 
 /// The lethal's icon (and its drop-shadow copy) — [`update_lethal_icon`]
 /// swaps both between the throwing knife and the molotov.
@@ -202,12 +216,39 @@ pub(crate) fn setup_ammo_ui(
             },
         ))
         .with_children(|row| {
-            spawn_shadowed_icon(
-                row,
-                asset_server.load(weapon_icon_path(WeaponSlot::Primary, shared::weapon::WeaponId::Sniper)),
-                WEAPON_ICON_SIZE,
-                WeaponIcon,
-            );
+            // The weapon's icon, its name on a plate right under it.
+            row.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                ..default()
+            })
+            .with_children(|col| {
+                spawn_shadowed_icon(
+                    col,
+                    asset_server.load(weapon_icon_path(WeaponSlot::Primary, shared::weapon::WeaponId::Sniper)),
+                    WEAPON_ICON_SIZE,
+                    WeaponIcon,
+                );
+                col.spawn((
+                    WeaponNamePlate,
+                    Node {
+                        width: Val::Px(WEAPON_ICON_SIZE.0),
+                        padding: UiRect::all(Val::Px(NAME_PLATE_PADDING)),
+                        justify_content: JustifyContent::FlexEnd,
+                        ..default()
+                    },
+                    BackgroundColor(Color::BLACK.with_alpha(NAME_PLATE_ALPHA)),
+                ))
+                .with_child((
+                    WeaponNameText,
+                    Text::new(""),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 13.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
 
             // Mag (big) | reserve over a bullet (small).
             row.spawn((
@@ -409,6 +450,26 @@ pub(crate) fn update_lethal_icon(
     for mut icon in &mut icons {
         icon.image = image.clone();
     }
+}
+
+/// Keep the name plate under the weapon icon in step with the weapon in
+/// hand: its name in capitals, on black — or, once it's Pack-a-Punched, on
+/// that level's camo colour.
+pub(crate) fn update_weapon_name(
+    weapon: Res<Weapon>,
+    local: Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut plate: Single<&mut BackgroundColor, With<WeaponNamePlate>>,
+    mut name: Single<&mut Text, With<WeaponNameText>>,
+) {
+    let held = match weapon.slot {
+        WeaponSlot::Primary => shared::pap::PapWeapon::gun(weapon.primary),
+        WeaponSlot::Secondary => shared::pap::PapWeapon::Knife,
+    };
+    set_text(&mut name, held.label().to_uppercase());
+    let level = crate::pap::my_pap_levels(&local, &lobbies).get(held);
+    let color = if level == 0 { Color::BLACK } else { crate::pap::level_color(level) };
+    plate.set_if_neq(BackgroundColor(color.with_alpha(NAME_PLATE_ALPHA)));
 }
 
 /// Swap [`WeaponIcon`]'s texture (both it and its shadow) to match

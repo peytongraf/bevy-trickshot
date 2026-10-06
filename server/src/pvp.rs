@@ -327,7 +327,9 @@ pub(crate) fn apply_player_hits(
                     pose.translation - Vec3::Y * (crate::sim::EYE_HEIGHT - ZOMBIE_DAMAGE_CENTER_Y)
                 })
             });
-            let damage = if insta { health_before } else { ev.damage };
+            // What the hit really took: never more than the health it had
+            // left (and an Insta-Kill's, all of it).
+            let damage = if insta { health_before } else { ev.damage.min(health_before) };
             if let Some(point) = point {
                 if let Err(e) = sender.send::<_, GameChannel>(
                     &ZombieDamaged {

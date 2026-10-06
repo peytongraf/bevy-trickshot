@@ -578,7 +578,16 @@ fn main() {
                 )
                     .after(look_around),
                 (spawn_tracers, update_tracers),
-                (apply_loadout, update_ammo_ui, update_knife_hud, update_weapon_icon, update_lethal_icon, scale_ammo_hud).chain(),
+                (
+                    apply_loadout,
+                    update_ammo_ui,
+                    update_knife_hud,
+                    update_weapon_icon,
+                    update_weapon_name,
+                    update_lethal_icon,
+                    scale_ammo_hud,
+                )
+                    .chain(),
                 (update_fps_ui, update_debug_readout),
                 (apply_scene_tuning, sync_scope_fog).chain(),
                 (apply_shadow_quality, apply_crosshair_texture),
