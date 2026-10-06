@@ -319,7 +319,14 @@ fn animate_zombie_avatars(
                 ZombieAnim::Run => ZombieAnimState::Run,
                 ZombieAnim::Attack => ZombieAnimState::Attack,
                 // (A hellhound gets its own avatar — `dogs`.)
-                ZombieAnim::Idle | ZombieAnim::Rising | ZombieAnim::None | ZombieAnim::Dog => {
+                ZombieAnim::Idle
+                | ZombieAnim::Rising
+                | ZombieAnim::None
+                | ZombieAnim::Dog
+                | ZombieAnim::BossIdle
+                | ZombieAnim::BossWalk
+                | ZombieAnim::BossSmash
+                | ZombieAnim::BossBlast => {
                     ZombieAnimState::Idle
                 }
             };

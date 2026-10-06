@@ -16,7 +16,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
-use shared::hitbox::{ray_capsule, Capsule};
+use shared::hitbox::ray_capsule;
 use shared::weapon::{raygun_splash_damage, WeaponId, RAYGUN_BOLT_SPEED, RAYGUN_STUN_SECS};
 use shared::{GameChannel, Lobby, PlayerId, PlayerPose, RayGunFired, ShotOutcome, ShotResolved};
 
@@ -122,8 +122,10 @@ pub(crate) fn fly_bolts(
                 continue;
             }
             let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-            let body = ray_capsule(bolt.pos, bolt.dir, &Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS));
-            let head = ray_capsule(bolt.pos, bolt.dir, &Capsule::head(feet, PLAYER_HEIGHT, HEAD_RADIUS));
+            let (body, head) =
+                shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
+            let body = ray_capsule(bolt.pos, bolt.dir, &body);
+            let head = ray_capsule(bolt.pos, bolt.dir, &head);
             let (t, headshot) = match (body, head) {
                 (Some(b), Some(h)) => (b.min(h), h <= b),
                 (Some(b), None) => (b, false),

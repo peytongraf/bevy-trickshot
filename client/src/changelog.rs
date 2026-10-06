@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: a boss joins every 7th round — smashes up close, hurls fireballs from afar.",
         "Zombies: Max Ammo fills both guns, mags included — no reload needed.",
         "Fixed a doubled or huge gun when a game starts right after launching.",
         "Zombies: damage numbers show only the health the hit took.",

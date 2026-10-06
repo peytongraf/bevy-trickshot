@@ -41,6 +41,10 @@ pub(crate) struct Explosion {
     /// A hellhound's (`dogs`): the same blast at
     /// [`ExplosionSettings::dog_scale`], with the dog explosion sound.
     pub(crate) dog: bool,
+    /// A boss's blast going off (`boss`): the same blast at
+    /// [`ExplosionSettings::boss_scale`], centred on `feet` itself (it can
+    /// go off against a wall, mid-air), with the blast hit sound.
+    pub(crate) boss: bool,
 }
 
 /// On a PhD Flopper explosion's sprites: its fire, flash and sparks burn
@@ -114,8 +118,10 @@ pub(crate) struct ExplosionSettings {
     /// Distance (m) at which the explosion sound has faded to silence —
     /// much further than other players' sounds, it's a bomb.
     pub(crate) sound_max_distance: f32,
-    /// A hellhound's explosion's size, as a multiple of the whole thing's.
+    /// A hellhound's explosion's size, as a multiple of the whole thing's...
     pub(crate) dog_scale: f32,
+    /// ...and a boss blast's.
+    pub(crate) boss_scale: f32,
 }
 
 impl Default for ExplosionSettings {
@@ -123,6 +129,7 @@ impl Default for ExplosionSettings {
         Self {
             preview_requested: false,
             dog_scale: 0.6,
+            boss_scale: 0.75,
             scale: 1.0,
             height: 0.9,
 
@@ -179,7 +186,7 @@ impl Default for ExplosionSettings {
 pub(crate) struct ExplosionAssets {
     /// (Shared with PhD Flopper's slide trail, `phd_trail`.)
     pub(crate) quad: Handle<Mesh>,
-    glow: Handle<Image>,
+    pub(crate) glow: Handle<Image>,
     pub(crate) fire: [Handle<Image>; 2],
     smoke: Handle<Image>,
     dust: Handle<Image>,
@@ -386,6 +393,7 @@ fn receive_bomb_explosions(
                 variant: msg.variant,
                 phd: msg.phd,
                 dog: false,
+                boss: false,
             });
         }
     }
@@ -413,6 +421,7 @@ fn fire_preview(
         variant: *count,
         phd: false,
         dog: false,
+        boss: false,
     });
 }
 
@@ -434,20 +443,29 @@ fn spawn_explosions(
 
     for ev in events.read() {
         // A hellhound's is the same blast, smaller.
-        let k = if ev.dog { k * s.dog_scale.max(0.05) } else { k };
+        let size = if ev.dog {
+            s.dog_scale
+        } else if ev.boss {
+            s.boss_scale
+        } else {
+            1.0
+        };
+        let k = k * size.max(0.05);
         *seq = seq.wrapping_add(1);
         let base = seq.wrapping_mul(2_654_435_761);
-        let center = ev.feet + Vec3::Y * s.height * k;
+        let center = if ev.boss { ev.feet } else { ev.feet + Vec3::Y * s.height * k };
 
         // Camera shake, falling off with distance.
         let dist = player.translation.distance(center);
         let falloff = (1.0 - dist / s.shake_radius.max(0.1)).clamp(0.0, 1.0);
-        let jolt = if ev.dog { s.shake * s.dog_scale } else { s.shake };
+        let jolt = s.shake * size;
         shake.trauma = (shake.trauma + jolt * falloff * falloff).min(1.0);
 
         // The boom, from the blast (positional), fading with distance.
         let clip = if ev.dog {
             sounds.as_ref().map(|snd| snd.dog_explosion.clone())
+        } else if ev.boss {
+            sounds.as_ref().map(|snd| snd.boss_blast_hit.clone())
         } else {
             sounds
                 .as_ref()
@@ -457,7 +475,13 @@ fn spawn_explosions(
                 })
         };
         let fade = (1.0 - dist / s.sound_max_distance.max(1.0)).clamp(0.0, 1.0);
-        let volume = if ev.dog { volumes.dog_explosion } else { volumes.bomb_shot_explosion };
+        let volume = if ev.dog {
+            volumes.dog_explosion
+        } else if ev.boss {
+            volumes.boss_blast_hit
+        } else {
+            volumes.bomb_shot_explosion
+        };
         let loudness = volume * fade * fade;
         if let (Some(clip), true) = (clip, loudness > 0.0) {
             commands.spawn((
@@ -866,6 +890,7 @@ pub(crate) fn explosion_section(ui: &mut egui::Ui, s: &mut ExplosionSettings) {
     ui.separator();
     ui.add(egui::Slider::new(&mut s.scale, 0.2f32..=3.0).text("overall scale"));
     ui.add(egui::Slider::new(&mut s.dog_scale, 0.1f32..=2.0).text("hellhound's size (× overall)"));
+    ui.add(egui::Slider::new(&mut s.boss_scale, 0.1f32..=2.0).text("boss blast's size (× overall)"));
     ui.add(egui::Slider::new(&mut s.height, 0.0f32..=3.0).text("height above feet (m)"));
     ui.collapsing("Flash + light", |ui| {
         ui.add(egui::Slider::new(&mut s.flash_size, 0.0f32..=20.0).text("flash size (m)"));

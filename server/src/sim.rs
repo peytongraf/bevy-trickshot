@@ -190,11 +190,10 @@ fn resolve_shots(
             let key = id.0.to_bits();
             kind.insert(key, HitKind::Player(id.0));
             let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-            targets.push(Target {
-                id: key,
-                body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
-                head: Capsule::head(feet, PLAYER_HEIGHT, HEAD_RADIUS),
-            });
+            // (A boss is a much bigger target.)
+            let (body, head) =
+                shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
+            targets.push(Target { id: key, body, head });
         }
         // No bots in `FreeForAll` — it's pure PvP.
         if lobby.mode == GameMode::Freestyle {

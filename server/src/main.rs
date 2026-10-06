@@ -18,6 +18,7 @@
 
 mod ai;
 mod armor;
+mod boss;
 mod bots;
 mod collision;
 mod dogs;
@@ -78,6 +79,7 @@ fn main() {
         .add_plugins(ai::BotAiPlugin)
         .add_plugins(zombies::ZombiesPlugin)
         .add_plugins(dogs::DogsPlugin)
+        .add_plugins(boss::BossPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)

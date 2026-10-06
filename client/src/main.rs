@@ -61,6 +61,7 @@ mod settings;
 mod aether_shroud;
 mod ammo_crate;
 mod armor;
+mod boss;
 mod knife_pickup;
 mod molotov;
 mod monkey_bomb;
@@ -215,6 +216,7 @@ fn main() {
         .add_plugins(hud::DamageNumbersPlugin)
         .add_plugins(vfx::MachineFogPlugin)
         .add_plugins(dogs::DogsPlugin)
+        .add_plugins(boss::BossPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)

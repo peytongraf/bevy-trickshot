@@ -46,8 +46,11 @@ const BACK_BONE: &str = "spine mid_35";
 const BOLT_SEGMENTS: usize = 22;
 const BRANCHES: usize = 3;
 const BRANCH_SEGMENTS: usize = 6;
-/// Lightning / the spawn flash's colour (linear): a cold electric blue-white.
+/// Lightning / the spawn flash's colour (linear): a cold electric blue-white
+/// for a hellhound...
 const STRIKE_COLOR: [f32; 3] = [0.62, 0.76, 1.0];
+/// ...and a fiery orange for a boss (`crate::boss`).
+pub(crate) const BOSS_STRIKE_COLOR: [f32; 3] = [1.0, 0.45, 0.08];
 
 /// Panel-tunable hellhounds ("Dogs (Zombies)" debug-panel section).
 #[derive(Resource, Clone)]
@@ -160,13 +163,16 @@ pub(crate) struct DogPreview {
     explosion: bool,
 }
 
-/// Shared handles, built once.
+/// Shared handles, built once. (`crate::boss` strikes its lightning with
+/// them too.)
 #[derive(Resource)]
-struct DogAssets {
+pub(crate) struct DogAssets {
     graph: Handle<AnimationGraph>,
     run: AnimationNodeIndex,
     bolt_mesh: Handle<Mesh>,
     bolt_material: Handle<StandardMaterial>,
+    /// A boss's orange bolts.
+    boss_bolt_material: Handle<StandardMaterial>,
     flash_mesh: Handle<Mesh>,
 }
 
@@ -248,6 +254,9 @@ struct LightningLight;
 struct SpawnFlash {
     age: f32,
     material: Handle<StandardMaterial>,
+    color: [f32; 3],
+    /// × [`DogSettings::flash_size`].
+    size: f32,
 }
 
 #[derive(Component)]
@@ -292,22 +301,19 @@ fn setup_dog_assets(
         graph: graphs.add(graph),
         run,
         bolt_mesh: meshes.add(Cylinder::new(0.5, 1.0)),
-        bolt_material: materials.add(bolt_material(settings.lightning_brightness)),
+        bolt_material: materials.add(bolt_material(STRIKE_COLOR, settings.lightning_brightness)),
+        boss_bolt_material: materials.add(bolt_material(BOSS_STRIKE_COLOR, settings.lightning_brightness)),
         flash_mesh: meshes.add(Sphere::new(1.0)),
     });
 }
 
-fn strike(brightness: f32) -> LinearRgba {
-    LinearRgba::rgb(
-        STRIKE_COLOR[0] * brightness,
-        STRIKE_COLOR[1] * brightness,
-        STRIKE_COLOR[2] * brightness,
-    )
+fn strike(color: [f32; 3], brightness: f32) -> LinearRgba {
+    LinearRgba::rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness)
 }
 
-fn bolt_material(brightness: f32) -> StandardMaterial {
+fn bolt_material(color: [f32; 3], brightness: f32) -> StandardMaterial {
     StandardMaterial {
-        base_color: strike(brightness).into(),
+        base_color: strike(color, brightness).into(),
         unlit: true,
         alpha_mode: AlphaMode::Add,
         ..default()
@@ -386,14 +392,25 @@ fn dog_sound(clip: Handle<AudioSource>, loudness: f32, at: Vec3, looped: bool) -
     )
 }
 
-fn spawn_lightning(commands: &mut Commands, assets: &DogAssets, settings: &DogSettings, at: Vec3, seq: u32) {
-    let c = STRIKE_COLOR;
+/// Lightning striking at `at` for `secs` — a hellhound's blue-white, or a
+/// boss's orange (`boss`).
+pub(crate) fn spawn_lightning(
+    commands: &mut Commands,
+    assets: &DogAssets,
+    settings: &DogSettings,
+    at: Vec3,
+    seq: u32,
+    secs: f32,
+    boss: bool,
+) {
+    let c = if boss { BOSS_STRIKE_COLOR } else { STRIKE_COLOR };
+    let material = if boss { &assets.boss_bolt_material } else { &assets.bolt_material };
     commands
         .spawn((
             StateScoped(AppState::InGame),
             Lightning {
                 age: 0.0,
-                secs: shared::dogs::DOG_PRE_SPAWN_SECS,
+                secs,
                 next_fork: 0.0,
                 seq,
             },
@@ -405,7 +422,7 @@ fn spawn_lightning(commands: &mut Commands, assets: &DogAssets, settings: &DogSe
                 l.spawn((
                     BoltSegment(i),
                     Mesh3d(assets.bolt_mesh.clone()),
-                    MeshMaterial3d(assets.bolt_material.clone()),
+                    MeshMaterial3d(material.clone()),
                     Transform::from_scale(Vec3::ZERO),
                     NotShadowCaster,
                     NoFrustumCulling,
@@ -425,16 +442,20 @@ fn spawn_lightning(commands: &mut Commands, assets: &DogAssets, settings: &DogSe
         });
 }
 
-fn spawn_flash(
+/// The flash something appears in at `at` — a hellhound's blue-white, or a
+/// boss's orange (`boss`, `size` × the usual).
+pub(crate) fn spawn_flash(
     commands: &mut Commands,
     assets: &DogAssets,
     settings: &DogSettings,
     materials: &mut Assets<StandardMaterial>,
     at: Vec3,
+    boss: bool,
+    size: f32,
 ) {
-    let c = STRIKE_COLOR;
+    let c = if boss { BOSS_STRIKE_COLOR } else { STRIKE_COLOR };
     let material = materials.add(StandardMaterial {
-        base_color: strike(settings.flash_brightness).into(),
+        base_color: strike(c, settings.flash_brightness).into(),
         unlit: true,
         alpha_mode: AlphaMode::Add,
         ..default()
@@ -445,6 +466,8 @@ fn spawn_flash(
             SpawnFlash {
                 age: 0.0,
                 material: material.clone(),
+                color: c,
+                size,
             },
             Mesh3d(assets.flash_mesh.clone()),
             MeshMaterial3d(material),
@@ -485,14 +508,14 @@ fn receive_dog_messages(
         for msg in rx.receive() {
             let at = Vec3::from_array(msg.at);
             *seq = seq.wrapping_add(1);
-            spawn_lightning(&mut commands, &assets, &settings, at, *seq);
+            spawn_lightning(&mut commands, &assets, &settings, at, *seq, shared::dogs::DOG_PRE_SPAWN_SECS, false);
             commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), vols.dog_pre_spawn, at + Vec3::Y, false));
         }
     }
     for mut rx in &mut spawned {
         for msg in rx.receive() {
             let at = Vec3::from_array(msg.at);
-            spawn_flash(&mut commands, &assets, &settings, &mut materials, at);
+            spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
             commands.spawn(dog_sound(sounds.dog_spawn.clone(), vols.dog_spawn, at + Vec3::Y * 0.5, false));
         }
     }
@@ -514,6 +537,7 @@ fn receive_dog_messages(
                 variant: 0,
                 phd: false,
                 dog: true,
+                boss: false,
             });
         }
     }
@@ -737,7 +761,10 @@ fn update_lightning(
     if let Some(assets) = &assets {
         if settings.is_changed() {
             if let Some(m) = materials.get_mut(&assets.bolt_material) {
-                m.base_color = strike(settings.lightning_brightness).into();
+                m.base_color = strike(STRIKE_COLOR, settings.lightning_brightness).into();
+            }
+            if let Some(m) = materials.get_mut(&assets.boss_bolt_material) {
+                m.base_color = strike(BOSS_STRIKE_COLOR, settings.lightning_brightness).into();
             }
         }
     }
@@ -841,9 +868,9 @@ fn update_flashes(
             continue;
         }
         let fade = (1.0 - k) * (1.0 - k);
-        tf.scale = Vec3::splat(s.flash_size * (0.3 + 0.7 * k.sqrt()) * 0.5);
+        tf.scale = Vec3::splat(s.flash_size * flash.size * (0.3 + 0.7 * k.sqrt()) * 0.5);
         if let Some(m) = materials.get_mut(&flash.material) {
-            m.base_color = strike(s.flash_brightness * fade).into();
+            m.base_color = strike(flash.color, s.flash_brightness * fade).into();
         }
         for child in children.iter() {
             if let Ok(mut light) = lights.get_mut(child) {
@@ -891,11 +918,11 @@ fn run_previews(
     let fwd = (player.rotation * Vec3::NEG_Z).with_y(0.0).normalize_or(Vec3::NEG_Z);
     let at = player.translation - Vec3::Y * crate::EYE_HEIGHT + fwd * 8.0;
     if std::mem::take(&mut preview.lightning) {
-        spawn_lightning(&mut commands, &assets, &settings, at, 0);
+        spawn_lightning(&mut commands, &assets, &settings, at, 0, shared::dogs::DOG_PRE_SPAWN_SECS, false);
         commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), vols.dog_pre_spawn, at + Vec3::Y, false));
     }
     if std::mem::take(&mut preview.flash) {
-        spawn_flash(&mut commands, &assets, &settings, &mut materials, at);
+        spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
         commands.spawn(dog_sound(sounds.dog_spawn.clone(), vols.dog_spawn, at + Vec3::Y * 0.5, false));
     }
     if std::mem::take(&mut preview.explosion) {
@@ -904,6 +931,7 @@ fn run_previews(
             variant: 0,
             phd: false,
             dog: true,
+            boss: false,
         });
     }
 }

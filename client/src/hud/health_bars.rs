@@ -106,7 +106,7 @@ fn spawn_health_bars(
         Entity,
         (
             With<RemoteAvatar>,
-            Or<(With<ZombieVisual>, With<crate::dogs::DogVisual>)>,
+            Or<(With<ZombieVisual>, With<crate::dogs::DogVisual>, With<crate::boss::BossVisual>)>,
             Without<killcam::KillCamPlayerGhost>,
         ),
     >,
@@ -249,8 +249,10 @@ fn update_health_bars(
             let cam_gt = cam_gt?;
             let cam_pos = cam_gt.translation();
             // (A hellhound's back is well under a zombie's head.)
+            // (...and a boss's is well over it.)
             let dog_drop = if dog { DOG_BAR_DROP } else { 0.0 };
-            let anchor = pose.translation + Vec3::Y * (settings.height - dog_drop);
+            let boss_rise = if pose.zombie.is_boss() { shared::boss::BOSS_HEIGHT - 1.8 } else { 0.0 };
+            let anchor = pose.translation + Vec3::Y * (settings.height - dog_drop + boss_rise);
             // `world_to_viewport` fails for points behind the camera.
             let screen = cam.world_to_viewport(&cam_gt, anchor).ok()?;
             let size = window.size();

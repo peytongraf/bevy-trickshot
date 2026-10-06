@@ -15,6 +15,7 @@
 
 pub mod ammo;
 pub mod armor;
+pub mod boss;
 pub mod dogs;
 pub mod field_upgrade;
 pub mod ballistics;
@@ -57,6 +58,7 @@ pub use protocol::{
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
     SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor, UseFieldUpgrade, FillFieldUpgrade,
+    BossLightning, BossSpawned, BossBlastLaunched, BossBlastExploded, SpawnBoss,
     ThrownMonkey, MonkeyDrop, ThrowMonkey, PickUpMonkey, MonkeyPickedUp, SetMonkeyFuse,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};

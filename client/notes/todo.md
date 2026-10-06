@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Boss
 - Weapon name plate, PaP colours
 - New Pack-a-Punch model, fog and glow
 - Aether Shroud field upgrade
@@ -34,7 +35,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add crafting table
 - Add rampage inducer
 - Add quotes
-- Add boss
 - Add exfil
 - Add killchains
 - Add minimap top left

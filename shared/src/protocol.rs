@@ -269,6 +269,15 @@ pub enum ZombieAnim {
     /// A dog-round hellhound (`crate::dogs`) — always running; the client
     /// matches its legs to how fast it's really going.
     Dog,
+    /// A boss (`crate::boss`), standing...
+    BossIdle,
+    /// ...walking (the client matches its legs to its real speed)...
+    BossWalk,
+    /// ...smashing someone close ([`crate::boss::ATTACK_SECS`] long)...
+    BossSmash,
+    /// ...or winding up a blast — the same clip, with a ball of energy
+    /// forming overhead until it's hurled.
+    BossBlast,
 }
 
 impl ZombieAnim {
@@ -280,6 +289,13 @@ impl ZombieAnim {
 
     pub fn is_dog(self) -> bool {
         self == ZombieAnim::Dog
+    }
+
+    pub fn is_boss(self) -> bool {
+        matches!(
+            self,
+            ZombieAnim::BossIdle | ZombieAnim::BossWalk | ZombieAnim::BossSmash | ZombieAnim::BossBlast
+        )
     }
 }
 
@@ -1516,6 +1532,46 @@ pub struct DogExploded {
     pub at: [f32; 3],
 }
 
+/// Server → every member of a `Zombies` lobby: a boss is about to appear at
+/// `at` (the ground) — orange lightning strikes there, with its spawn sound,
+/// for [`crate::boss::BOSS_PRE_SPAWN_SECS`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BossLightning {
+    pub at: [f32; 3],
+}
+
+/// Server → every member of a `Zombies` lobby: a boss just appeared at `at`
+/// (its feet) — a flash there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BossSpawned {
+    pub at: [f32; 3],
+}
+
+/// Server → every member of a `Zombies` lobby: boss `boss` (its bot peer id)
+/// just hurled blast `id` from `from`, flying along `dir` (unit) at `speed`
+/// (m/s) until it blows up ([`BossBlastExploded`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BossBlastLaunched {
+    pub id: u32,
+    pub boss: PeerId,
+    pub from: [f32; 3],
+    pub dir: [f32; 3],
+    pub speed: f32,
+}
+
+/// Server → every member of a `Zombies` lobby: blast `id` blew up at `at`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BossBlastExploded {
+    pub id: u32,
+    pub at: [f32; 3],
+}
+
+/// Client (debug) → server: the party leader strikes a boss in 15 m in
+/// front of them, as a boss round would. Only in a running `Zombies` game;
+/// ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SpawnBoss;
+
 /// Client (party leader) → server: which perks the `Zombies` machines sell
 /// ([`Lobby::perk_set`]) — before starting only.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
@@ -1886,6 +1942,14 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<DogExploded>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BossLightning>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BossSpawned>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BossBlastLaunched>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BossBlastExploded>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieSwipeLanded>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<FallDeath>()
@@ -1946,6 +2010,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPowerUpTest>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<DropPowerUp>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SpawnBoss>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetBombTest>()
             .add_direction(NetworkDirection::ClientToServer);

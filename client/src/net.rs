@@ -877,6 +877,7 @@ fn spawn_remote_avatars(
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     zombie_settings: Res<crate::ZombieAvatarSettings>,
     dog_settings: Res<crate::dogs::DogSettings>,
+    boss_settings: Res<crate::boss::BossSettings>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
@@ -889,6 +890,10 @@ fn spawn_remote_avatars(
             if pose.alive {
                 crate::dogs::spawn_dog_avatar(&mut commands, &asset_server, &dog_settings, src);
             }
+            continue;
+        }
+        if pose.zombie.is_boss() {
+            crate::boss::spawn_boss_avatar(&mut commands, &asset_server, &boss_settings, src);
             continue;
         }
         if pose.zombie.is_zombie() {
@@ -926,16 +931,18 @@ fn follow_remote_avatars(
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     zombie_settings: Res<crate::ZombieAvatarSettings>,
     dog_settings: Res<crate::dogs::DogSettings>,
+    boss_settings: Res<crate::boss::BossSettings>,
     mut avatars: Query<(
         Entity,
         &RemoteAvatar,
         &mut Transform,
         Has<crate::ZombieVisual>,
         Has<crate::dogs::DogVisual>,
+        Has<crate::boss::BossVisual>,
     )>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, mut tf, zombie, dog) in &mut avatars {
+    for (entity, avatar, mut tf, zombie, dog, boss) in &mut avatars {
         match poses.get(avatar.src) {
             Ok(pose) => {
                 // The replicated pose is at eye level; the model's origin is
@@ -944,6 +951,11 @@ fn follow_remote_avatars(
                 tf.translation = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
                 // `soldier.glb`'s forward faces +Z, opposite the local rig's
                 // -Z convention that `pose.yaw` is authored in, so flip it.
+                if boss {
+                    tf.rotation = Quat::from_rotation_y(pose.yaw + boss_settings.yaw_offset_deg.to_radians());
+                    tf.scale = Vec3::splat(boss_settings.scale.max(0.001));
+                    continue;
+                }
                 if dog {
                     tf.rotation = Quat::from_rotation_y(pose.yaw + dog_settings.yaw_offset_deg.to_radians());
                     tf.scale = Vec3::splat(dog_settings.scale.max(0.001));
@@ -973,7 +985,12 @@ fn follow_remote_avatars(
 fn mark_bot_avatars(
     avatars: Query<
         (Entity, &RemoteAvatar),
-        (Without<crate::BotLook>, Without<crate::ZombieVisual>, Without<crate::dogs::DogVisual>),
+        (
+            Without<crate::BotLook>,
+            Without<crate::ZombieVisual>,
+            Without<crate::dogs::DogVisual>,
+            Without<crate::boss::BossVisual>,
+        ),
     >,
     sources: Query<(Option<&PlayerId>, Has<BotPose>)>,
     mut commands: Commands,
@@ -996,7 +1013,10 @@ fn mark_bot_avatars(
 /// `vfx::impacts`).
 fn spawn_sniper_glints(
     // (A zombie — or hellhound — has no gun.)
-    avatars: Query<(Entity, &RemoteAvatar), (Without<crate::ZombieVisual>, Without<crate::dogs::DogVisual>)>,
+    avatars: Query<
+        (Entity, &RemoteAvatar),
+        (Without<crate::ZombieVisual>, Without<crate::dogs::DogVisual>, Without<crate::boss::BossVisual>),
+    >,
     glints: Query<&SniperGlint>,
     assets: Res<SniperGlintAssets>,
     mut materials: ResMut<Assets<StandardMaterial>>,

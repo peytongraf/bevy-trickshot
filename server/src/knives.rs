@@ -331,11 +331,9 @@ fn step_knives(
                             radius: PLAYER_RADIUS,
                         },
                     );
-                    targets.push(Target {
-                        id: key,
-                        body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
-                        head: Capsule::head(feet, PLAYER_HEIGHT, 0.12),
-                    });
+                    let (body, head) =
+                        shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, 0.12);
+                    targets.push(Target { id: key, body, head });
                 }
             }
             GameMode::Freestyle => {

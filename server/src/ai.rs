@@ -103,6 +103,34 @@ pub struct ZombieSwipeLanded {
     pub at: Vec3,
 }
 
+/// A boss let go of a blast (`shared::boss`) from `from`, flying along `dir`
+/// — written by [`drive_bots`], flown by `boss::run_blasts`.
+#[derive(Event)]
+pub struct BossBlastFired {
+    pub lobby: Entity,
+    pub boss: PeerId,
+    pub from: Vec3,
+    pub dir: Vec3,
+}
+
+/// Which of a boss's two attacks it's in the middle of.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BossAttackKind {
+    /// Arms back, then slammed forward onto someone close.
+    Smash,
+    /// The same wind-up, hurling a ball of energy at someone far off.
+    Blast,
+}
+
+/// A boss's attack in progress: when it started, and whether its hit has
+/// landed (or missed) / its ball's left its hands yet.
+#[derive(Clone, Copy, Debug)]
+struct BossAttack {
+    kind: BossAttackKind,
+    start: f32,
+    done: bool,
+}
+
 /// Counter for handing out fake peer ids.
 #[derive(Resource, Default)]
 pub struct NextBotId(pub u64);
@@ -190,6 +218,13 @@ struct ZombieBody {
     dog: bool,
     /// ...once (it's dead from then on).
     exploded: bool,
+    /// A boss ([`BotBrain::boss`]): smashes or hurls blasts instead of
+    /// swiping (`shared::boss`)...
+    boss: bool,
+    /// ...the attack it's in the middle of...
+    boss_attack: Option<BossAttack>,
+    /// ...and when (`Time::elapsed_secs`) it may next hurl a blast.
+    blast_ready_at: f32,
 }
 
 impl ZombieBody {
@@ -212,7 +247,10 @@ impl ZombieBody {
     fn speed_now(&self, now: f32) -> f32 {
         let speed = self.speed
             * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin());
-        if self.dog {
+        if self.boss {
+            // A steady, heavy stride.
+            self.speed
+        } else if self.dog {
             speed.clamp(shared::dogs::DOG_MIN_SPEED, shared::dogs::DOG_MAX_SPEED)
         } else {
             shared::zombies::clamp_speed(speed)
@@ -357,8 +395,28 @@ impl BotBrain {
             stunned_until: f32::NEG_INFINITY,
             dog: false,
             exploded: false,
+            boss: false,
+            boss_attack: None,
+            blast_ready_at: 0.0,
         });
         self
+    }
+
+    /// Make it a boss (`shared::boss`), appearing at `now`: a zombie that
+    /// walks at [`shared::boss::BOSS_SPEED`] and smashes or hurls blasts
+    /// instead of swiping.
+    pub fn boss(self, now: f32) -> Self {
+        let mut brain = self.zombie(false, shared::boss::BOSS_SPEED);
+        if let Some(z) = brain.zombie.as_mut() {
+            z.boss = true;
+            z.anim = ZombieAnim::BossIdle;
+            z.blast_ready_at = now + shared::boss::BLAST_FIRST_DELAY_SECS;
+            // Comes straight on, no stagger.
+            z.weave_amp *= 0.3;
+            z.flank *= 0.3;
+            z.surge = 0.0;
+        }
+        brain
     }
 
     /// Make it a dog-round hellhound: a zombie that always runs, at `speed`
@@ -418,6 +476,7 @@ impl Plugin for BotAiPlugin {
         app.insert_resource(navs)
             .init_resource::<NextBotId>()
             .add_event::<ZombieSwipeLanded>()
+            .add_event::<BossBlastFired>()
             .add_systems(
                 FixedUpdate,
                 drive_bots.before(crate::sim::apply_client_pose),
@@ -570,6 +629,7 @@ pub(crate) fn drive_bots(
     mut hits: EventWriter<crate::pvp::PlayerHit>,
     mut swipes: EventWriter<ZombieSwipeLanded>,
     lures: Res<crate::monkey_bombs::MonkeyLures>,
+    mut blasts: EventWriter<BossBlastFired>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -759,7 +819,7 @@ pub(crate) fn drive_bots(
         // (`monkey_bombs`).
         let lure = brain
             .zombie
-            .filter(|z| !z.dog)
+            .filter(|z| !z.dog && !z.boss)
             .and_then(|_| lures.nearest(lp.lobby, brain.feet));
         let target_pose = match lure {
             Some(at) => Some(at + Vec3::Y * EYE_HEIGHT),
@@ -838,6 +898,91 @@ pub(crate) fn drive_bots(
                 });
             }
             if z.exploded || (flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT) {
+                hold = true;
+            }
+        } else if let Some(z) = brain.zombie.as_mut().filter(|z| z.boss) {
+            // A boss (`shared::boss`): a smash on someone close, or a blast
+            // hurled at someone farther off — both the same wind-up, holding
+            // still and facing them throughout. (Stunned, any attack's
+            // dropped and none starts.)
+            let stunned = z.stunned_until > now;
+            if stunned {
+                z.boss_attack = None;
+            }
+            if let Some(mut attack) = z.boss_attack {
+                hold = true;
+                let t = now - attack.start;
+                match attack.kind {
+                    // The arms come all the way forward: whoever's still in
+                    // reach takes it.
+                    BossAttackKind::Smash if !attack.done && t >= shared::boss::MELEE_HIT_SECS => {
+                        attack.done = true;
+                        if let Some(victim) = brain.target.filter(|_| {
+                            visible && flat_dist <= shared::boss::MELEE_REACH && height_diff <= shared::boss::MELEE_HEIGHT
+                        }) {
+                            hits.write(crate::pvp::PlayerHit {
+                                victim,
+                                killer: id.0,
+                                damage: shared::boss::MELEE_DAMAGE,
+                                bomb_shot: false,
+                                blast: false,
+                                critical: false,
+                                point: None,
+                            });
+                            if let Some(t_eye) = target_pose {
+                                swipes.write(ZombieSwipeLanded {
+                                    lobby: lp.lobby,
+                                    at: t_eye - Vec3::Y * EYE_HEIGHT,
+                                });
+                            }
+                        }
+                    }
+                    // The ball leaves its hands: straight at their chest as
+                    // they are now (or the way it's facing, if they're gone).
+                    BossAttackKind::Blast if !attack.done && t >= shared::boss::BLAST_RELEASE_SECS => {
+                        attack.done = true;
+                        let facing = Vec3::new(-brain.yaw.sin(), 0.0, -brain.yaw.cos());
+                        let from = shared::boss::blast_origin(brain.feet, facing);
+                        let dir = brain
+                            .target
+                            .and(target_pose)
+                            .map(|t_eye| (t_eye - Vec3::Y * 0.45 - from).normalize_or(facing))
+                            .unwrap_or(facing);
+                        blasts.write(BossBlastFired {
+                            lobby: lp.lobby,
+                            boss: id.0,
+                            from,
+                            dir,
+                        });
+                    }
+                    _ => {}
+                }
+                z.boss_attack = (t < shared::boss::ATTACK_SECS).then_some(attack);
+            } else if !stunned && !lobby.bots_passive && visible && brain.target.is_some() {
+                if flat_dist <= shared::boss::MELEE_RANGE && height_diff <= shared::boss::MELEE_HEIGHT {
+                    z.boss_attack = Some(BossAttack {
+                        kind: BossAttackKind::Smash,
+                        start: now,
+                        done: false,
+                    });
+                    hold = true;
+                } else if (shared::boss::BLAST_MIN_RANGE..=shared::boss::BLAST_MAX_RANGE).contains(&distance)
+                    && now >= z.blast_ready_at
+                {
+                    z.boss_attack = Some(BossAttack {
+                        kind: BossAttackKind::Blast,
+                        start: now,
+                        done: false,
+                    });
+                    // (A jitter off the clock, so two bosses drift apart.)
+                    let jitter = (now * 7.31 + id.0.to_bits() as f32 * 0.013).fract().abs();
+                    z.blast_ready_at = now
+                        + shared::boss::BLAST_COOLDOWN_SECS
+                        + shared::boss::BLAST_COOLDOWN_JITTER * jitter;
+                    hold = true;
+                }
+            }
+            if flat_dist <= shared::boss::STOP_DIST && height_diff <= shared::boss::MELEE_HEIGHT {
                 hold = true;
             }
         } else if let Some(z) = brain.zombie.as_mut() {
@@ -1098,7 +1243,14 @@ pub(crate) fn drive_bots(
                 brain.stall_secs = 0.0;
             }
         }
-        if let Some(z) = brain.zombie.as_mut() {
+        if let Some(z) = brain.zombie.as_mut().filter(|z| z.boss) {
+            z.anim = match z.boss_attack {
+                Some(BossAttack { kind: BossAttackKind::Smash, .. }) => ZombieAnim::BossSmash,
+                Some(BossAttack { kind: BossAttackKind::Blast, .. }) => ZombieAnim::BossBlast,
+                None if wish == Vec3::ZERO => ZombieAnim::BossIdle,
+                None => ZombieAnim::BossWalk,
+            };
+        } else if let Some(z) = brain.zombie.as_mut() {
             z.anim = if z.swing.is_some() {
                 ZombieAnim::Attack
             } else if wish == Vec3::ZERO {
@@ -1336,6 +1488,7 @@ mod tests {
         app.init_resource::<crate::monkey_bombs::MonkeyLures>();
         app.add_event::<crate::pvp::PlayerHit>();
         app.add_event::<ZombieSwipeLanded>();
+        app.add_event::<BossBlastFired>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -1580,6 +1733,71 @@ mod tests {
             }
         });
         assert!(landed.is_empty(), "swipes landed at {landed:?}");
+    }
+
+    /// A boss (`shared::boss`) in a one-lobby world, its target standing at
+    /// `target_feet`: hits on the target over `secs` (when, s, and how
+    /// much) and the blasts it hurled.
+    fn boss_run(
+        target_feet: Vec3,
+        secs: f32,
+        mut each_tick: impl FnMut(&mut App, usize),
+    ) -> (Vec<(f32, f32)>, Vec<BossBlastFired>) {
+        let feet = Vec3::new(-30.0, 0.0, -40.0);
+        let (mut app, bot) = world(BotDifficulty::Veteran, feet, target_feet);
+        app.world_mut()
+            .entity_mut(bot)
+            .insert(BotBrain::new(BotDifficulty::Veteran, feet, 7).boss(0.0));
+        app.update(); // (the first update has no time delta)
+        let mut hits = Vec::new();
+        let mut blasts = Vec::new();
+        for tick in 0..(secs * 64.0) as usize {
+            each_tick(&mut app, tick);
+            app.update();
+            assert!(!input(&app, bot).fire, "a boss fired a gun");
+            for hit in app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().drain() {
+                hits.push((tick as f32 / 64.0, hit.damage));
+            }
+            blasts.extend(app.world_mut().resource_mut::<Events<BossBlastFired>>().drain());
+        }
+        (hits, blasts)
+    }
+
+    #[test]
+    fn a_boss_next_to_its_target_smashes_only_once_its_arms_come_forward() {
+        let (hits, blasts) = boss_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, |_, _| {});
+        assert!(blasts.is_empty(), "it threw a blast point blank");
+        assert_eq!(hits.len(), 1, "hits: {hits:?}");
+        let (at, damage) = hits[0];
+        assert_eq!(damage, shared::boss::MELEE_DAMAGE);
+        assert!(at >= shared::boss::MELEE_HIT_SECS - 0.05, "the smash landed at {at} s, before the arms came forward");
+    }
+
+    #[test]
+    fn stepping_away_before_a_bosss_arms_come_forward_dodges_the_smash() {
+        let (hits, _) = boss_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, |app, tick| {
+            // Half a second in — arms still going back — they back right off.
+            if tick == 32 {
+                let mut q = app.world_mut().query::<(&PlayerId, &mut PlayerPose)>();
+                for (id, mut pose) in q.iter_mut(app.world_mut()) {
+                    if id.0 == bot_peer(1) {
+                        pose.translation.x += 5.0;
+                    }
+                }
+            }
+        });
+        assert!(hits.is_empty(), "the smash landed anyway: {hits:?}");
+    }
+
+    #[test]
+    fn a_boss_hurls_a_blast_straight_at_a_target_it_sees_far_off() {
+        // Open yard, target 20 m due east (+X).
+        let (hits, blasts) = boss_run(Vec3::new(-10.0, 0.0, -40.0), 6.0, |_, _| {});
+        assert!(hits.is_empty(), "it hit them from 20 m without a blast: {hits:?}");
+        assert!(!blasts.is_empty(), "it never threw a blast");
+        let b = &blasts[0];
+        assert!(b.dir.x > 0.95, "the blast went {:?}", b.dir);
+        assert!(b.from.y > 1.5, "the blast left from {:?}, not overhead", b.from);
     }
 
     #[test]

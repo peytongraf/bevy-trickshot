@@ -24,7 +24,6 @@ use lightyear::prelude::*;
 
 use shared::ballistics::Target;
 use shared::bot_players::is_bot_peer;
-use shared::hitbox::Capsule;
 use shared::molotov::{
     drop_spot, fire_spots, in_fire, MolotovBody, DROP_CHANCE, DROP_LINGER_SECS, FIRE_SECS,
     FIRE_TICK_SECS, SELF_TICK_DAMAGE, ZOMBIE_TICK_DAMAGE,
@@ -194,11 +193,8 @@ fn step_molotovs(
             .filter(|(id, _, lp, c)| is_bot_peer(id.0) && c.alive && lp.lobby == sim.lobby)
             .map(|(id, pose, ..)| {
                 let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-                Target {
-                    id: id.0.to_bits(),
-                    body: Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS),
-                    head: Capsule::head(feet, PLAYER_HEIGHT, 0.12),
-                }
+                let (body, head) = shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, 0.12);
+                Target { id: id.0.to_bits(), body, head }
             })
             .collect();
         let world = &colliders.for_lobby(lobby);

@@ -295,8 +295,10 @@ pub(crate) fn apply_player_hits(
             .map_or(&[], |m| m.perks.as_slice());
         // Insta-Kill (a `Zombies` power-up): a player's hit on a zombie
         // always kills.
+        // (Not on a boss, `shared::boss`: it has to be worn down.)
         let insta = is_bot_peer(ev.victim)
             && !is_bot_peer(ev.killer)
+            && !poses.iter().any(|(id, p)| id.0 == ev.victim && p.zombie.is_boss())
             && lobbies.iter().any(|(_, l)| {
                 in_lobby(l)
                     && l.mode == GameMode::Zombies

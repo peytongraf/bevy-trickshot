@@ -173,7 +173,8 @@ fn run_power_ups(
     mut clocks: ResMut<PowerUpClocks>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
-    zombies: Query<(Entity, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>), With<Zombie>>,
+    // (A boss, `shared::boss`, shrugs a Nuke off.)
+    zombies: Query<(Entity, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>), (With<Zombie>, Without<crate::boss::Boss>)>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
 ) {

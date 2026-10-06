@@ -16,6 +16,11 @@
 //! — this queues them ([`PendingDog`]); `crate::dogs` strikes the lightning,
 //! brings each one in when it's due and turns their deaths into explosions.
 //!
+//! Some rounds bring a boss along too (`shared::boss`): this queues it
+//! ([`crate::boss::PendingBoss`]) a little way into the round, and
+//! `crate::boss` strikes it in and runs its blasts. The round isn't over
+//! until it's dead.
+//!
 //! Scoring and the game ending (any member dying) live in `pvp`; the round
 //! number is replicated as `Lobby::round` for the HUD and results screen.
 
@@ -128,6 +133,13 @@ pub(crate) struct ZombieRounds {
     /// Where this round's last hellhound died (`crate::dogs`) — a Max Ammo
     /// drops there once the dog round's over.
     pub(crate) last_dog_at: Option<Vec3>,
+    /// A boss round's bosses still to strike in, and when the next one's
+    /// due ([`shared::boss::BOSS_ROUND_DELAY_SECS`] into the round)...
+    bosses_to_spawn: u32,
+    boss_due_at: f32,
+    /// ...and the ones struck in but not here yet (`crate::boss`; the
+    /// leader's debug button queues them here too).
+    pub(crate) pending_bosses: Vec<crate::boss::PendingBoss>,
     /// Seconds of the pre-game countdown still to go (`Lobby::countdown_secs`
     /// at the start): the party roams, buys and turns the power on, and no
     /// zombie comes until it's out.
@@ -203,6 +215,10 @@ pub(crate) fn run_rounds(
                 for dog in &mut rounds.pending_dogs {
                     dog.spawn_at += time.delta_secs();
                 }
+                rounds.boss_due_at += time.delta_secs();
+                for boss in &mut rounds.pending_bosses {
+                    boss.spawn_at += time.delta_secs();
+                }
             }
             continue;
         }
@@ -215,6 +231,9 @@ pub(crate) fn run_rounds(
                 round: 0,
                 pending_dogs: Vec::new(),
                 last_dog_at: None,
+                bosses_to_spawn: 0,
+                boss_due_at: now,
+                pending_bosses: Vec::new(),
                 countdown_left: countdown as f32,
                 to_spawn: 0,
                 next_spawn_at: now,
@@ -241,8 +260,9 @@ pub(crate) fn run_rounds(
             rounds.round = first;
             rounds.to_spawn = enemies_in_round(first, members);
             rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
+            queue_round_bosses(&mut rounds, members);
             lobby.round = first;
-            lobby.enemies_left = rounds.to_spawn;
+            lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
         }
@@ -254,8 +274,9 @@ pub(crate) fn run_rounds(
             .iter()
             .filter(|(lp, c)| lp.lobby == lobby_e && c.alive)
             .count();
-        // A dog round's hellhounds struck in but not here yet.
-        let coming = rounds.pending_dogs.len();
+        // A dog round's hellhounds struck in but not here yet, and a boss
+        // round's bosses still to come.
+        let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
         // For the HUD's "enemies left": still to come plus still standing.
         let left = rounds.to_spawn + (alive + coming) as u32;
         if lobby.enemies_left != left {
@@ -283,32 +304,53 @@ pub(crate) fn run_rounds(
             rounds.to_spawn = enemies_in_round(rounds.round, members);
             rounds.break_until = now + ROUND_BREAK_SECS;
             rounds.next_spawn_at = rounds.break_until;
+            queue_round_bosses(&mut rounds, members);
             lobby.round = rounds.round;
-            lobby.enemies_left = rounds.to_spawn;
+            lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
             info!("lobby {lobby_e:?}: zombies round {}", rounds.round);
             continue;
+        }
+
+        // Somewhere near a random living member, as far off as a zombie
+        // comes up.
+        let living: Vec<Vec3> = players
+            .iter()
+            .filter(|(id, _, lp, c)| lp.lobby == lobby_e && !is_bot_peer(id.0) && c.alive)
+            .map(|(_, pose, ..)| pose.translation - Vec3::Y * EYE_HEIGHT)
+            .collect();
+        let nav = navs.graph(lobby.map);
+        let pick_spot = |seed: u64| -> Option<(Vec3, Vec3)> {
+            if living.is_empty() {
+                return None;
+            }
+            let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
+            nav.random_spot_near(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed)
+                .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS))
+                .map(|feet| (feet, near))
+        };
+
+        // A boss round's boss, once it's due: struck in by lightning
+        // (`crate::boss`), on top of the round's zombies.
+        if rounds.bosses_to_spawn > 0 && now >= rounds.boss_due_at {
+            let seed = (now.to_bits() as u64) << 24 ^ 0xb055 ^ lobby_e.to_bits();
+            match pick_spot(seed) {
+                Some((feet, near)) => {
+                    rounds.pending_bosses.push(crate::boss::PendingBoss::new(feet, near, now));
+                    rounds.bosses_to_spawn -= 1;
+                    // (Several a few seconds apart.)
+                    rounds.boss_due_at = now + 4.0;
+                    info!("lobby {lobby_e:?}: a boss is coming");
+                }
+                None => rounds.boss_due_at = now + SPAWN_RETRY_SECS,
+            }
         }
 
         if rounds.to_spawn == 0 || alive + coming >= MAX_ALIVE || now < rounds.next_spawn_at {
             continue;
         }
 
-        // Somewhere near a random living member.
-        let living: Vec<Vec3> = players
-            .iter()
-            .filter(|(id, _, lp, c)| lp.lobby == lobby_e && !is_bot_peer(id.0) && c.alive)
-            .map(|(_, pose, ..)| pose.translation - Vec3::Y * EYE_HEIGHT)
-            .collect();
-        if living.is_empty() {
-            continue;
-        }
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
-        let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
-        let nav = navs.graph(lobby.map);
-        let spot = nav
-            .random_spot_near(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed)
-            .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS));
-        let Some(feet) = spot else {
+        let Some((feet, near)) = pick_spot(seed) else {
             rounds.next_spawn_at = now + SPAWN_RETRY_SECS;
             continue;
         };
@@ -363,6 +405,17 @@ pub(crate) fn run_rounds(
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + spawn_interval(rounds.round);
     }
+}
+
+/// Set up `rounds`' (just started) round's bosses, for `members` players:
+/// none, or a boss round's, due [`shared::boss::BOSS_ROUND_DELAY_SECS`] in.
+fn queue_round_bosses(rounds: &mut ZombieRounds, members: usize) {
+    rounds.bosses_to_spawn = if shared::boss::is_boss_round(rounds.round) {
+        shared::boss::bosses_in_round(rounds.round, members)
+    } else {
+        0
+    };
+    rounds.boss_due_at = rounds.break_until + shared::boss::BOSS_ROUND_DELAY_SECS;
 }
 
 /// Tell every member of the lobby where a zombie's swipe just landed, for
