@@ -128,8 +128,8 @@ pub fn machine_yaw_deg(map: MapId) -> f32 {
 }
 
 /// Half the machine's width, height and depth (m) — the client's model at
-/// its scale (0.5 of the 2.5 × 4 × 1.2 m model).
-pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.625, 1.0, 0.3);
+/// its scale (1: the 1.728 × 1.861 × 0.792 m model as made).
+pub const MACHINE_HALF_EXTENTS: Vec3 = Vec3::new(0.864, 0.9305, 0.396);
 
 /// The machine's solid box on `map`, if it has one (only there in
 /// `Zombies`): `(centre, rotation, half extents)`.

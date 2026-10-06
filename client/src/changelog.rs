@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Fixed sometimes falling through the map as a game starts.",
+        "Zombies: new Pack-a-Punch machine — it glows and vents fog once the power's on.",
         "Zombies: the Aether Shroud field upgrade (X) — vanish from zombies.",
         "Playing alone? The pause menu just has LEAVE GAME.",
         "Zombies: the Monkey Bomb — lure zombies in, then boom.",

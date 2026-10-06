@@ -1916,61 +1916,9 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.add(egui::Slider::new(&mut m.scale, 0.1f32..=2.0).text("scale (all machines)"));
                     ui.label("Light (all machines; colour is each perk's own)");
-                    let l = &mut m.light;
-                    ui.add(egui::Slider::new(&mut l.offset.x, -3.0f32..=3.0).text("x — across (m)"));
-                    ui.add(egui::Slider::new(&mut l.offset.y, -1.0f32..=6.0).text("y — up from the ground (m)"));
-                    ui.add(egui::Slider::new(&mut l.offset.z, -3.0f32..=3.0).text("z — out the depth (m)"));
-                    ui.add(
-                        egui::Slider::new(&mut l.intensity, 0.0f32..=500_000.0)
-                            .logarithmic(true)
-                            .text("intensity (lm)"),
-                    );
-                    ui.add(egui::Slider::new(&mut l.range, 0.5f32..=30.0).text("range (m)"));
-                    ui.add(egui::Slider::new(&mut l.radius, 0.0f32..=2.0).text("radius (m)"));
-                    ui.checkbox(&mut l.shadows, "shadows");
-                    if ui.button("Copy perk machine light to console").clicked() {
-                        info!(
-                            "perk machine light: offset: ({:.2}, {:.2}, {:.2}), intensity: {:.0}, range: {:.2}, \
-                             radius: {:.2}, shadows: {}",
-                            l.offset.x, l.offset.y, l.offset.z, l.intensity, l.range, l.radius, l.shadows,
-                        );
-                    }
+                    machine_light_ui(ui, &mut m.light, "perk machine light");
                     ui.collapsing("Fog (vented once the power's on)", |ui| {
-                        let f = &mut m.fog;
-                        ui.checkbox(&mut f.enabled, "on");
-                        ui.add(egui::Slider::new(&mut f.rate, 0.0f32..=20.0).text("puffs / s per vent"));
-                        ui.add(egui::Slider::new(&mut f.life_secs, 0.2f32..=10.0).text("puff life (s)"));
-                        ui.add(egui::Slider::new(&mut f.fade_in_secs, 0.0f32..=3.0).text("fade in (s)"));
-                        ui.add(egui::Slider::new(&mut f.front_height, 0.0f32..=2.5).text("front vent height (m)"));
-                        ui.add(egui::Slider::new(&mut f.side_height, 0.0f32..=2.5).text("side vents height (m)"));
-                        ui.add(
-                            egui::Slider::new(&mut f.front_yaw_deg, -180.0f32..=180.0)
-                                .text("which way is the front (°)"),
-                        );
-                        ui.add(egui::Slider::new(&mut f.out_speed, 0.0f32..=3.0).text("out speed (m/s)"));
-                        ui.add(egui::Slider::new(&mut f.fall_speed, 0.0f32..=3.0).text("sink speed (m/s)"));
-                        ui.add(egui::Slider::new(&mut f.gravity, 0.0f32..=5.0).text("heaviness (m/s²)"));
-                        ui.add(egui::Slider::new(&mut f.floor_spread, 0.0f32..=3.0).text("floor spread (m/s²)"));
-                        ui.add(egui::Slider::new(&mut f.drag, 0.0f32..=5.0).text("drag"));
-                        ui.add(egui::Slider::new(&mut f.start_size, 0.05f32..=2.0).text("start size (m)"));
-                        ui.add(egui::Slider::new(&mut f.end_size, 0.05f32..=5.0).text("end size (m)"));
-                        ui.add(egui::Slider::new(&mut f.opacity, 0.0f32..=1.0).text("opacity"));
-                        ui.add(egui::Slider::new(&mut f.glow, 0.0f32..=1.0).text("glow"));
-                        ui.add(egui::Slider::new(&mut f.max_distance, 5.0f32..=150.0).text("vents within (m)"));
-                        if ui.button("Copy fog settings to console").clicked() {
-                            info!(
-                                "perk machine fog: rate: {:.2}, life_secs: {:.2}, fade_in_secs: {:.2}, \
-                                 front_height: {:.2}, side_height: {:.2}, front_yaw_deg: {:.1}, out_speed: {:.2}, \
-                                 fall_speed: {:.2}, gravity: {:.2}, floor_spread: {:.2}, drag: {:.2}, \
-                                 start_size: {:.2}, end_size: {:.2}, opacity: {:.3}, glow: {:.3}, max_distance: {:.1}",
-                                f.rate, f.life_secs, f.fade_in_secs, f.front_height, f.side_height,
-                                f.front_yaw_deg, f.out_speed, f.fall_speed, f.gravity, f.floor_spread, f.drag,
-                                f.start_size, f.end_size, f.opacity, f.glow, f.max_distance,
-                            );
-                        }
-                        if ui.button("Reset fog").clicked() {
-                            *f = crate::vfx::MachineFog::default();
-                        }
+                        machine_fog_ui(ui, &mut m.fog, "perk machine fog");
                     });
                     ui.label("Where each machine stands is placed in the level editor (main menu).");
                     for perk in shared::perks::Perk::ALL {
@@ -2019,12 +1967,18 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(
                         egui::Slider::new(&mut p.scale, 0.05f32..=3.0)
                             .logarithmic(true)
-                            .text("scale (1 = 4 m tall)"),
+                            .text("scale (1 = as made, 1.86 m tall)"),
                     );
-                    ui.label("Light (m from the ground under its middle, in its own frame)");
-                    ui.add(egui::Slider::new(&mut p.light_offset.x, -3.0f32..=3.0).text("x — across (m)"));
-                    ui.add(egui::Slider::new(&mut p.light_offset.y, -1.0f32..=6.0).text("y — up (m)"));
-                    ui.add(egui::Slider::new(&mut p.light_offset.z, -3.0f32..=3.0).text("z — out the front (m)"));
+                    ui.add(
+                        egui::Slider::new(&mut p.model_yaw_deg, -180.0f32..=180.0)
+                            .text("model turn inside its box (deg)"),
+                    );
+                    ui.collapsing("Light (blue, once the power's on)", |ui| {
+                        machine_light_ui(ui, &mut p.light, "pap machine light");
+                    });
+                    ui.collapsing("Fog (vented once the power's on)", |ui| {
+                        machine_fog_ui(ui, &mut p.fog, "pap machine fog");
+                    });
                     ui.label("Camo (packed weapons)");
                     ui.add(egui::Slider::new(&mut p.camo_scroll.x, -1.0f32..=1.0).text("scroll u (/s)"));
                     ui.add(egui::Slider::new(&mut p.camo_scroll.y, -1.0f32..=1.0).text("scroll v (/s)"));
@@ -2032,13 +1986,10 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut p.camo_glow, 0.0f32..=10.0).text("glow"));
                     if ui.button("Copy Pack-a-Punch settings to console").clicked() {
                         info!(
-                            "pap machine: scale: {:.3}, \
-                             light_offset: ({:.2}, {:.2}, {:.2}), camo_scroll: ({:.3}, {:.3}), camo_tiling: {:.2}, \
-                             camo_glow: {:.2}",
+                            "pap machine: scale: {:.3}, model_yaw_deg: {:.1}, camo_scroll: ({:.3}, {:.3}), \
+                             camo_tiling: {:.2}, camo_glow: {:.2}",
                             p.scale,
-                            p.light_offset.x,
-                            p.light_offset.y,
-                            p.light_offset.z,
+                            p.model_yaw_deg,
                             p.camo_scroll.x,
                             p.camo_scroll.y,
                             p.camo_tiling,
@@ -2804,5 +2755,66 @@ pub(crate) fn debug_cursor_toggle(
     }
     if binds.cursor_toggle.just_pressed(&keys, &mouse) {
         set_cursor_grabbed(&mut window, loose);
+    }
+}
+
+/// A machine light's sliders (the perk machines' and the Pack-a-Punch's),
+/// and a button printing them to the console as `name`.
+fn machine_light_ui(ui: &mut egui::Ui, l: &mut crate::zombies_hud::MachineLight, name: &str) {
+    ui.add(egui::Slider::new(&mut l.offset.x, -3.0f32..=3.0).text("x — across (m)"));
+    ui.add(egui::Slider::new(&mut l.offset.y, -1.0f32..=6.0).text("y — up from the ground (m)"));
+    ui.add(egui::Slider::new(&mut l.offset.z, -3.0f32..=3.0).text("z — out the front (m)"));
+    ui.add(
+        egui::Slider::new(&mut l.intensity, 0.0f32..=500_000.0)
+            .logarithmic(true)
+            .text("intensity (lm)"),
+    );
+    ui.add(egui::Slider::new(&mut l.range, 0.5f32..=30.0).text("range (m)"));
+    ui.add(egui::Slider::new(&mut l.radius, 0.0f32..=2.0).text("radius (m)"));
+    ui.checkbox(&mut l.shadows, "shadows");
+    if ui.button(format!("Copy {name} to console")).clicked() {
+        info!(
+            "{name}: offset: ({:.2}, {:.2}, {:.2}), intensity: {:.0}, range: {:.2}, radius: {:.2}, shadows: {}",
+            l.offset.x, l.offset.y, l.offset.z, l.intensity, l.range, l.radius, l.shadows,
+        );
+    }
+    if ui.button("Reset light").clicked() {
+        *l = default();
+    }
+}
+
+/// A machine's fog sliders (the perk machines' and the Pack-a-Punch's), and
+/// a button printing them to the console as `name`.
+fn machine_fog_ui(ui: &mut egui::Ui, f: &mut crate::vfx::MachineFog, name: &str) {
+    ui.checkbox(&mut f.enabled, "on");
+    ui.add(egui::Slider::new(&mut f.rate, 0.0f32..=20.0).text("puffs / s per vent"));
+    ui.add(egui::Slider::new(&mut f.life_secs, 0.2f32..=10.0).text("puff life (s)"));
+    ui.add(egui::Slider::new(&mut f.fade_in_secs, 0.0f32..=3.0).text("fade in (s)"));
+    ui.add(egui::Slider::new(&mut f.front_height, 0.0f32..=2.5).text("front vent height (m)"));
+    ui.add(egui::Slider::new(&mut f.side_height, 0.0f32..=2.5).text("side vents height (m)"));
+    ui.add(egui::Slider::new(&mut f.front_yaw_deg, -180.0f32..=180.0).text("which way is the front (°)"));
+    ui.add(egui::Slider::new(&mut f.out_speed, 0.0f32..=3.0).text("out speed (m/s)"));
+    ui.add(egui::Slider::new(&mut f.fall_speed, 0.0f32..=3.0).text("sink speed (m/s)"));
+    ui.add(egui::Slider::new(&mut f.gravity, 0.0f32..=5.0).text("heaviness (m/s²)"));
+    ui.add(egui::Slider::new(&mut f.floor_spread, 0.0f32..=3.0).text("floor spread (m/s²)"));
+    ui.add(egui::Slider::new(&mut f.drag, 0.0f32..=5.0).text("drag"));
+    ui.add(egui::Slider::new(&mut f.start_size, 0.05f32..=2.0).text("start size (m)"));
+    ui.add(egui::Slider::new(&mut f.end_size, 0.05f32..=5.0).text("end size (m)"));
+    ui.add(egui::Slider::new(&mut f.opacity, 0.0f32..=1.0).text("opacity"));
+    ui.add(egui::Slider::new(&mut f.glow, 0.0f32..=1.0).text("glow"));
+    ui.add(egui::Slider::new(&mut f.max_distance, 5.0f32..=150.0).text("vents within (m)"));
+    if ui.button(format!("Copy {name} to console")).clicked() {
+        info!(
+            "{name}: rate: {:.2}, life_secs: {:.2}, fade_in_secs: {:.2}, front_height: {:.2}, \
+             side_height: {:.2}, front_yaw_deg: {:.1}, out_speed: {:.2}, fall_speed: {:.2}, gravity: {:.2}, \
+             floor_spread: {:.2}, drag: {:.2}, start_size: {:.2}, end_size: {:.2}, opacity: {:.3}, glow: {:.3}, \
+             max_distance: {:.1}",
+            f.rate, f.life_secs, f.fade_in_secs, f.front_height, f.side_height, f.front_yaw_deg, f.out_speed,
+            f.fall_speed, f.gravity, f.floor_spread, f.drag, f.start_size, f.end_size, f.opacity, f.glow,
+            f.max_distance,
+        );
+    }
+    if ui.button("Reset fog").clicked() {
+        *f = default();
     }
 }

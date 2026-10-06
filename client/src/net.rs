@@ -539,6 +539,24 @@ pub(crate) struct PendingRespawn {
     /// in time (the recorded window can be too short to send at all), stop
     /// waiting and just respawn.
     waited_secs: f32,
+    /// `to` is a match-start spot (`PlayerRespawn::immediate`)...
+    start: bool,
+    /// ...and one has been applied this game (`game_start` waits for it;
+    /// cleared as each game starts, [`PendingRespawn::new_game`]).
+    start_applied: bool,
+}
+
+impl PendingRespawn {
+    /// Whether this game's match-start spot has been applied — we're
+    /// standing where the server put us.
+    pub(crate) fn start_applied(&self) -> bool {
+        self.start_applied && self.to.is_none()
+    }
+
+    /// A new game: no start spot applied yet.
+    pub(crate) fn new_game(&mut self) {
+        self.start_applied = false;
+    }
 }
 
 /// However long to wait for the paired kill cam to *start* before giving up
@@ -557,6 +575,7 @@ fn receive_respawn(
             pending.to = Some((Vec3::from_array(msg.pos), msg.yaw));
             // A match-start spawn has no kill cam to wait for.
             pending.seen_killcam = msg.immediate;
+            pending.start = msg.immediate;
             pending.waited_secs = 0.0;
         }
     }
@@ -611,6 +630,9 @@ pub(crate) fn flush_pending_respawn(
     *physics = PlayerPhysics::default();
     weapon.refill_ammo();
     pending.to = None;
+    if pending.start {
+        pending.start_applied = true;
+    }
     respawned.write(LocalPlayerRespawned);
     // Tell the server: it brings us back to life now (full health, targetable)
     // rather than when its own timer runs out — which a skipped kill cam beats.

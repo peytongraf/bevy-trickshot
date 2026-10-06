@@ -6,7 +6,7 @@ use bevy::math::Vec3;
 
 use crate::bots::rand01;
 use crate::map;
-use crate::protocol::MapId;
+use crate::protocol::{GameMode, MapId};
 
 /// Spawns land on a ring this far from the map centre — far enough apart
 /// that two players rarely start right on top of each other, comfortably
@@ -89,6 +89,15 @@ const SHIPMENT_SPAWNS: [SpawnPoint; 11] = [
 /// there — at the start of a match or on every respawn, players and bots
 /// alike — uses one of these (see [`spawn_point`]); maps without them fall back
 /// to a random spot on a ring around the map's centre.
+/// Whether a game of `mode` on `map` puts each player on a start spot the
+/// server picks (and sends them, `crate::PlayerRespawn` with `immediate`):
+/// always on a map with hand-placed spawns, and in every mode but
+/// `Freestyle` — which otherwise leaves a player where their client already
+/// is.
+pub fn has_start_spawn(mode: GameMode, map: MapId) -> bool {
+    designated_spawns(map).is_some() || mode != GameMode::Freestyle
+}
+
 pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
     match map {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),

@@ -372,8 +372,7 @@ fn on_start(
         // *everyone* — players and bots, either mode — on one of them, facing the
         // way it says; otherwise `FreeForAll` spreads them over a ring, and
         // `Freestyle` leaves a real player where their client already is.
-        let designated = shared::spawns::designated_spawns(lobby.map).is_some();
-        let spawn = (designated || mode != GameMode::Freestyle).then(|| {
+        let spawn = shared::spawns::has_start_spawn(mode, lobby.map).then(|| {
             let seed = time.elapsed().as_nanos() as u64
                 ^ member.peer.to_bits()
                 ^ lobby_entity.to_bits();
@@ -391,8 +390,10 @@ fn on_start(
             None => PlayerPose::default(),
         };
         // Real clients move their own rig, so tell them where to stand — now,
-        // not after the usual respawn delay.
-        if let (Some((pos, yaw)), true) = (spawn, designated && member.bot.is_none()) {
+        // not after the usual respawn delay. (Every start spot, not just a
+        // hand-placed one: otherwise the client stays wherever its rig last
+        // was, which on another map can be under the floor or over nothing.)
+        if let (Some((pos, yaw)), true) = (spawn, member.bot.is_none()) {
             let msg = shared::PlayerRespawn {
                 pos: pos.to_array(),
                 yaw,

@@ -1,6 +1,8 @@
 //! The `Zombies` Pack-a-Punch machine (`models/props/pap_machine.glb`) on a map
 //! that has one (`shared::pap::machine_pos`, from its level layout), glowing
-//! blue once the power's on (and solid, like the perk machines), and what
+//! blue and venting fog once the power's on (and solid, like the perk
+//! machines — its light and fog have their own settings, [`PapSettings`]),
+//! and what
 //! being packed looks like: each packed weapon's body — ours, and the gun in
 //! other players' hands — wears that level's camo
 //! (`textures/camos/pap_<level>.webp`), scrolling across it. Buying happens
@@ -22,12 +24,16 @@ use shared::{GameMode, Lobby};
 
 use crate::net::GameClient;
 use crate::weapons::{KnifeViewModel, ViewModel, Weapon};
-use crate::zombies_hud::{zombies_game, PerkMachineSettings};
+use crate::zombies_hud::zombies_game;
 use crate::AppState;
 
 pub(crate) const PAP_MODEL: &str = "models/props/pap_machine.glb";
-/// Half the model's height (m) at scale 1 — its origin is at its middle.
-const PAP_HALF_HEIGHT: f32 = 2.0;
+/// The model's size (m) at scale 1, as made: width (x), height (y) and depth
+/// (z), its front facing +z...
+const PAP_MODEL_SIZE: Vec3 = Vec3::new(1.728, 1.861, 0.792);
+/// ...and the middle of its base, from its origin (which is at a back
+/// corner of its base, not its middle).
+const PAP_MODEL_BASE_CENTER: Vec3 = Vec3::new(0.864, 0.0, -0.396);
 /// The machine's glow.
 pub(crate) const PAP_BLUE: Color = Color::srgb(0.25, 0.55, 1.0);
 
@@ -59,12 +65,16 @@ impl Plugin for PapPlugin {
 /// (`shared::pap::machine_pos`).
 #[derive(Resource, Clone)]
 pub(crate) struct PapSettings {
-    /// 1 = the model as it comes: 2.5 m wide, 4 m tall, 1.2 m deep.
+    /// 1 = the model as it comes: 1.73 m wide, 1.86 m tall, 0.79 m deep.
     pub(crate) scale: f32,
-    /// Where its blue light sits (m) from the ground under its middle, in
-    /// the machine's own frame. Intensity / range / softness are the perk
-    /// machines' ("Perk machines" → Light).
-    pub(crate) light_offset: Vec3,
+    /// The model's turn (degrees) inside its box, should its front not face
+    /// the machine's front (the way its fog vents).
+    pub(crate) model_yaw_deg: f32,
+    /// Its blue light once the power's on (the offset in the machine's own
+    /// frame, from the ground under its middle).
+    pub(crate) light: crate::zombies_hud::MachineLight,
+    /// The fog it vents once the power's on (`vfx::machine_fog`).
+    pub(crate) fog: crate::vfx::MachineFog,
     /// Camo scroll (texture widths per second, along u and v).
     pub(crate) camo_scroll: Vec2,
     /// How many times the camo repeats across the weapon's texture space.
@@ -76,9 +86,18 @@ pub(crate) struct PapSettings {
 impl Default for PapSettings {
     fn default() -> Self {
         Self {
-            // A 2 m tall machine.
-            scale: 0.5,
-            light_offset: Vec3::new(0.0, 1.6, 0.9),
+            // As made: about 1.9 m tall.
+            scale: 1.0,
+            model_yaw_deg: 0.0,
+            light: crate::zombies_hud::MachineLight {
+                offset: Vec3::new(0.0, 1.2, 0.8),
+                ..default()
+            },
+            fog: crate::vfx::MachineFog {
+                front_height: 0.5,
+                side_height: 0.8,
+                ..default()
+            },
             camo_scroll: Vec2::new(0.08, 0.03),
             camo_tiling: 2.0,
             camo_glow: 1.5,
@@ -90,14 +109,18 @@ impl PapSettings {
 
     /// Half the solid box's width, height and depth (m) at this scale — at
     /// the default it's `shared::pap::MACHINE_HALF_EXTENTS`, the server's.
-    fn half_extents(&self) -> Vec3 {
-        Vec3::new(1.25, PAP_HALF_HEIGHT, 0.6) * self.scale.max(1e-4)
+    pub(crate) fn half_extents(&self) -> Vec3 {
+        PAP_MODEL_SIZE * 0.5 * self.scale.max(1e-4)
     }
 
-    /// The model, from the machine's root (the ground under its middle).
+    /// The model, from the machine's root (the ground under its middle):
+    /// the middle of its base on the root, turned by `model_yaw_deg`.
     pub(crate) fn model_transform(&self) -> Transform {
         let scale = self.scale.max(1e-4);
-        Transform::from_translation(Vec3::Y * PAP_HALF_HEIGHT * scale).with_scale(Vec3::splat(scale))
+        let rotation = Quat::from_rotation_y(self.model_yaw_deg.to_radians());
+        Transform::from_translation(rotation * -PAP_MODEL_BASE_CENTER * scale)
+            .with_rotation(rotation)
+            .with_scale(Vec3::splat(scale))
     }
 }
 
@@ -126,7 +149,6 @@ fn sync_pap_machine(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     settings: Res<PapSettings>,
-    machines_cfg: Res<PerkMachineSettings>,
     map_lights: Res<crate::power::MapLightSettings>,
     time: Res<Time>,
     asset_server: Res<AssetServer>,
@@ -162,6 +184,7 @@ fn sync_pap_machine(
                 StateScoped(AppState::InGame),
                 PapMachine,
                 crate::power::PoweredHum(Vec3::Y * 1.0),
+                crate::vfx::MachineFogEmitter::pap(),
                 root_transform(at),
                 Visibility::default(),
             ))
@@ -183,9 +206,9 @@ fn sync_pap_machine(
                     PointLight {
                         intensity: 0.0,
                         shadows_enabled: false,
-                        ..machines_cfg.light.point_light(PAP_BLUE)
+                        ..settings.light.point_light(PAP_BLUE)
                     },
-                    Transform::from_translation(settings.light_offset),
+                    Transform::from_translation(settings.light.offset),
                 ));
             });
         return;
@@ -218,8 +241,8 @@ fn sync_pap_machine(
         }
     }
     for (mut t, mut l) in &mut lights {
-        t.set_if_neq(Transform::from_translation(settings.light_offset));
-        let mut lit = machines_cfg.light.point_light(PAP_BLUE);
+        t.set_if_neq(Transform::from_translation(settings.light.offset));
+        let mut lit = settings.light.point_light(PAP_BLUE);
         lit.intensity *= fade;
         lit.shadows_enabled &= fade > 0.0;
         if l.intensity != lit.intensity

@@ -8,7 +8,9 @@
 //! barrel smoke's) in world space, lit — so the machine's own light tints
 //! the fog in its perk's colour — with a faint glow of its own so it never
 //! goes black in the dark. Tuned in the debug panel ("Zombies perks" →
-//! "Perk machines" → "Fog"), via [`crate::zombies_hud::PerkMachineSettings`].
+//! "Perk machines" → "Fog"), via [`crate::zombies_hud::PerkMachineSettings`]
+//! — and the Pack-a-Punch's, which vents the same way, separately
+//! ("Pack-a-Punch machine" → "Fog", [`crate::pap::PapSettings`]).
 //!
 //! Puffs are `StateScoped(InGame)` and cleared the moment we're not in a
 //! `Zombies` game, so nothing carries into the next one.
@@ -29,7 +31,7 @@ const MAX_PUFFS: usize = 700;
 /// Most puffs one vent can owe at once (a long frame doesn't dump a pile).
 const MAX_BACKLOG: f32 = 3.0;
 
-/// The fog's look — every perk machine's.
+/// The fog's look — every perk machine's (and, its own, the Pack-a-Punch's).
 #[derive(Clone, Copy)]
 pub(crate) struct MachineFog {
     pub(crate) enabled: bool,
@@ -96,6 +98,26 @@ impl Default for MachineFog {
 #[derive(Component, Default)]
 pub(crate) struct MachineFogEmitter {
     owed: f32,
+    /// The Pack-a-Punch's (its own fog settings and size), not a perk
+    /// machine's.
+    pap: bool,
+}
+
+impl MachineFogEmitter {
+    /// The Pack-a-Punch's.
+    pub(crate) fn pap() -> Self {
+        Self { owed: 0.0, pap: true }
+    }
+}
+
+/// The fog settings and half-size of the machine an emitter (or a puff) is
+/// the Pack-a-Punch's or a perk machine's.
+fn fog_for(pap: bool, perks: &PerkMachineSettings, pap_cfg: &crate::pap::PapSettings) -> (MachineFog, Vec3) {
+    if pap {
+        (pap_cfg.fog, pap_cfg.half_extents())
+    } else {
+        (perks.fog, perks.half_extents())
+    }
 }
 
 /// One drifting fog puff.
@@ -109,6 +131,8 @@ struct FogPuff {
     age: f32,
     roll: f32,
     spin: f32,
+    /// A Pack-a-Punch puff (its settings, not the perk machines').
+    pap: bool,
 }
 
 pub(crate) struct MachineFogPlugin;
@@ -131,6 +155,7 @@ fn emit_machine_fog(
     lobbies: Query<&shared::Lobby>,
     map_lights: Res<crate::power::MapLightSettings>,
     settings: Res<PerkMachineSettings>,
+    pap_cfg: Res<crate::pap::PapSettings>,
     assets: Option<Res<SmokeAssets>>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     mut emitters: Query<(&GlobalTransform, &mut MachineFogEmitter)>,
@@ -141,7 +166,6 @@ fn emit_machine_fog(
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
-    let fog = settings.fog;
     let lobby = zombies_game(&local, &lobbies);
     let Some(lobby) = lobby else {
         for e in &puffs {
@@ -155,25 +179,22 @@ fn emit_machine_fog(
     let dt = time.delta_secs();
     // Swells in over a couple of seconds once the power's on.
     *power = (*power + if powered { dt / 2.0 } else { -dt }).clamp(0.0, 1.0);
-    if !fog.enabled || *power <= 0.0 || fog.rate <= 0.0 {
-        for (_, mut e) in &mut emitters {
-            e.owed = 0.0;
-        }
-        return;
-    }
-
-    let half = settings.half_extents();
-    let front = Quat::from_rotation_y(fog.front_yaw_deg.to_radians());
-    // (local position, local direction out of the vent)
-    let vents = [
-        (front * Vec3::new(0.0, fog.front_height, half.z + 0.03), front * Vec3::Z),
-        (front * Vec3::new(-half.x - 0.03, fog.side_height, 0.0), front * Vec3::NEG_X),
-        (front * Vec3::new(half.x + 0.03, fog.side_height, 0.0), front * Vec3::X),
-    ];
     let cam = camera.translation();
     let mut budget = MAX_PUFFS.saturating_sub(puffs.iter().count());
 
     for (gt, mut emitter) in &mut emitters {
+        let (fog, half) = fog_for(emitter.pap, &settings, &pap_cfg);
+        if !fog.enabled || *power <= 0.0 || fog.rate <= 0.0 {
+            emitter.owed = 0.0;
+            continue;
+        }
+        let front = Quat::from_rotation_y(fog.front_yaw_deg.to_radians());
+        // (local position, local direction out of the vent)
+        let vents = [
+            (front * Vec3::new(0.0, fog.front_height, half.z + 0.03), front * Vec3::Z),
+            (front * Vec3::new(-half.x - 0.03, fog.side_height, 0.0), front * Vec3::NEG_X),
+            (front * Vec3::new(half.x + 0.03, fog.side_height, 0.0), front * Vec3::X),
+        ];
         let base = gt.translation();
         if base.distance(cam) > fog.max_distance {
             emitter.owed = 0.0;
@@ -217,6 +238,7 @@ fn emit_machine_fog(
                         age: 0.0,
                         roll,
                         spin: (rand01(s ^ 0x5) - 0.5) * 0.6,
+                        pap: emitter.pap,
                     },
                     Mesh3d(assets.mesh.clone()),
                     MeshMaterial3d(material),
@@ -232,19 +254,20 @@ fn emit_machine_fog(
 fn update_machine_fog(
     time: Res<Time>,
     settings: Res<PerkMachineSettings>,
+    pap_cfg: Res<crate::pap::PapSettings>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     mut puffs: Query<(Entity, &mut Transform, &mut FogPuff, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let fog = settings.fog;
     let dt = time.delta_secs();
     let cam_pos = camera.translation();
     let cam_up = camera.up().as_vec3();
     let cam_right = camera.right().as_vec3();
-    let life = fog.life_secs.max(0.1);
 
     for (entity, mut t, mut puff, material) in &mut puffs {
+        let (fog, _) = fog_for(puff.pap, &settings, &pap_cfg);
+        let life = fog.life_secs.max(0.1);
         puff.age += dt;
         let k = puff.age / life;
         if k >= 1.0 {

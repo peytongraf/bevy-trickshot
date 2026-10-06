@@ -2,4 +2,5 @@
 // made) — written by the client's level editor. See shared/src/level.rs.
 {
     "mystery_box": 1.5,
+    "pack_a_punch": 1.2,
 }
