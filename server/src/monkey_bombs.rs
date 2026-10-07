@@ -233,6 +233,7 @@ fn step_monkeys(
                         feet: sim.body.pos,
                         by: sim.owner,
                         phd: false,
+                        frag: false,
                     });
                     info!("{:?}'s monkey bomb went off", sim.owner);
                     continue;

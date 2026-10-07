@@ -623,6 +623,7 @@ fn receive_grabs(
                     }
                     crate::Lethal::Molotov => weapon.molotovs = shared::molotov::MAX_MOLOTOVS,
                     crate::Lethal::MonkeyBomb => weapon.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
+                    crate::Lethal::Frag => weapon.frags = shared::frag::MAX_FRAGS,
                 }
             }
         }

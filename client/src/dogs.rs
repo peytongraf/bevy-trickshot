@@ -538,6 +538,7 @@ fn receive_dog_messages(
                 phd: false,
                 dog: true,
                 boss: false,
+                frag: false,
             });
         }
     }
@@ -932,6 +933,7 @@ fn run_previews(
             phd: false,
             dog: true,
             boss: false,
+            frag: false,
         });
     }
 }

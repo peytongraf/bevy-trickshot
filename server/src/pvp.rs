@@ -198,6 +198,9 @@ pub struct BombBlast {
     pub feet: Vec3,
     pub by: PeerId,
     pub phd: bool,
+    /// A frag's (`crate::frags`): its own damage ([`shared::frag`]) — to
+    /// zombies and its thrower, never another player — and its own sound.
+    pub frag: bool,
 }
 
 /// A player killed a `Zombies` zombie standing at `feet` in `lobby` —
@@ -407,6 +410,7 @@ pub(crate) fn apply_player_hits(
                         feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
                         by: ev.killer,
                         phd: false,
+                        frag: false,
                     });
                 }
             }
@@ -559,6 +563,7 @@ fn apply_bomb_blasts(
             feet: blast.feet.to_array(),
             variant: variant as u8,
             phd: blast.phd,
+            frag: blast.frag,
         };
         if let Err(e) =
             sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))
@@ -566,6 +571,46 @@ fn apply_bomb_blasts(
             error!("failed to send bomb explosion: {e:?}");
         }
         let mut n = 0;
+        // A frag (`shared::frag`): its own damage, by distance to each one's
+        // middle — every zombie in reach, and its thrower (PhD Flopper
+        // shrugs off their own blast, as in Call of Duty), never another
+        // player.
+        if blast.frag {
+            let phd = lobby
+                .members
+                .iter()
+                .find(|m| m.peer == blast.by)
+                .is_some_and(|m| m.perks.contains(&shared::perks::Perk::PhdFlopper));
+            for (id, pose, combat, lp, _) in &zombies {
+                if !combat.alive || lp.lobby != blast.lobby {
+                    continue;
+                }
+                let middle = pose.translation - Vec3::Y * (crate::sim::EYE_HEIGHT - ZOMBIE_DAMAGE_CENTER_Y);
+                let distance = middle.distance(blast.feet);
+                let damage = if is_bot_peer(id.0) {
+                    shared::frag::zombie_damage(distance)
+                } else if id.0 == blast.by && !phd {
+                    shared::frag::self_damage(distance)
+                } else {
+                    0.0
+                };
+                if damage <= 0.0 {
+                    continue;
+                }
+                n += 1;
+                hits.write(PlayerHit {
+                    victim: id.0,
+                    killer: blast.by,
+                    damage,
+                    bomb_shot: false,
+                    blast: true,
+                    critical: false,
+                    point: None,
+                });
+            }
+            info!("{:?}'s frag went off, catching {n}", blast.by);
+            continue;
+        }
         for (id, pose, combat, lp, brain) in &mut zombies {
             if !is_bot_peer(id.0) || !combat.alive || lp.lobby != blast.lobby {
                 continue;
@@ -672,6 +717,7 @@ fn on_fall_landed(
                     feet,
                     by: peer,
                     phd: true,
+                    frag: false,
                 });
             }
         }
@@ -767,6 +813,7 @@ fn on_phd_slam(
             feet,
             by: peer,
             phd: true,
+            frag: false,
         });
     }
 }

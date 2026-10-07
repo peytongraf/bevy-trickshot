@@ -52,7 +52,7 @@ fn on_spin(
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
 ) {
     let peer = trigger.from;
-    let SpinMysteryBox { knives_full, molotovs_full, monkeys_full } = trigger.trigger;
+    let SpinMysteryBox { knives_full, molotovs_full, monkeys_full, frags_full } = trigger.trigger;
     let Some((lobby_e, feet, _)) = standing_in_game(peer, &endings, &lobbies, &players) else {
         return;
     };
@@ -73,6 +73,7 @@ fn on_spin(
         BoxPrize::ThrowingKnife => knives_full,
         BoxPrize::Molotov => molotovs_full,
         BoxPrize::MonkeyBomb => monkeys_full,
+        BoxPrize::Frag => frags_full,
         gun => gun.gun().is_some_and(|g| carried.contains(&SlotWeapon::Gun(g))),
     };
     let seed = time.elapsed().as_nanos() as u64 ^ peer.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);

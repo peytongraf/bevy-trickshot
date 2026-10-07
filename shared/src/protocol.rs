@@ -1280,6 +1280,34 @@ impl Ease for ThrownMonkey {
     }
 }
 
+/// A frag in a `Zombies` lobby, flying, rolling or at rest until its fuse
+/// runs out. The server owns it (`server::frags`, [`crate::frag`]); clients
+/// draw it.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrownFrag {
+    pub owner: PeerId,
+    pub pos: Vec3,
+    pub rot: Quat,
+}
+
+impl Ease for ThrownFrag {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| ThrownFrag {
+            owner: end.owner,
+            pos: Vec3::lerp(start.pos, end.pos, t),
+            rot: Quat::slerp(start.rot, end.rot, t),
+        })
+    }
+}
+
+/// A frag a zombie dropped (or a player swapped away), lying at `pos`
+/// turned `yaw` radians, for any player to pick up ([`PickUpFrag`]).
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct FragDrop {
+    pub pos: Vec3,
+    pub yaw: f32,
+}
+
 /// A monkey bomb a zombie dropped (or a player swapped away), lying at
 /// `pos` turned `yaw` radians, for any player to pick up ([`PickUpMonkey`]).
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -1379,6 +1407,8 @@ pub struct SpinMysteryBox {
     pub knives_full: bool,
     pub molotovs_full: bool,
     pub monkeys_full: bool,
+    #[serde(default)]
+    pub frags_full: bool,
 }
 
 /// Client → server: take the Mystery Box's prize this player spun for,
@@ -1518,6 +1548,10 @@ pub struct BombExplosion {
     pub feet: [f32; 3],
     pub variant: u8,
     pub phd: bool,
+    /// A frag going off ([`crate::frag`]): the same blast, with the frag's
+    /// own explosion sound.
+    #[serde(default)]
+    pub frag: bool,
 }
 
 /// Server → every member of a `Zombies` lobby: a hellhound is about to
@@ -1675,6 +1709,31 @@ pub struct PickUpMonkey {
 pub struct SetMonkeyFuse {
     pub secs: f32,
 }
+
+/// Client → server: a frag leaves the player's hand (`Zombies` only, see
+/// [`crate::frag`]) — thrown from `origin` along `dir` with `fuse` seconds
+/// of its fuse left (the pin came out at the lethal key's press), or, with
+/// `in_hand`, cooked off before it could be: it goes off at `origin`.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ThrowFrag {
+    pub origin: [f32; 3],
+    pub dir: [f32; 3],
+    pub fuse: f32,
+    pub in_hand: bool,
+}
+
+/// Client → server: pick up the dropped frag nearest this player, dropping
+/// what's carried of another kind (see [`PickUpKnife`]). Answered with
+/// [`FragPickedUp`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct PickUpFrag {
+    pub dropping: crate::lethal::Carried,
+}
+
+/// Server → the picker only: their [`PickUpFrag`] worked — one more frag,
+/// and it's now their only lethal.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct FragPickedUp;
 
 /// Server → the picker only: their [`PickUpMonkey`] worked — one more
 /// monkey bomb, and it's now their only lethal.
@@ -1984,6 +2043,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MonkeyPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<FragPickedUp>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MolotovBurst>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<AmmoBought>()
@@ -2064,6 +2125,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<PickUpMonkey>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetMonkeyFuse>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ThrowFrag>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<PickUpFrag>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
@@ -2154,6 +2219,10 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
         app.register_component::<MonkeyDrop>();
+        app.register_component::<ThrownFrag>()
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
+        app.register_component::<FragDrop>();
 
         // Static once spawned, so no interpolation.
         app.register_component::<MolotovFire>();

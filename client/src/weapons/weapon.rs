@@ -269,6 +269,8 @@ pub(crate) struct Weapon {
     pub(crate) molotovs: u32,
     /// Monkey bombs carried (`Zombies` only).
     pub(crate) monkey_bombs: u32,
+    /// Frags carried (`Zombies` only).
+    pub(crate) frags: u32,
     /// Which lethal the lethal key throws — the only kind carried: picking up
     /// the other kind swaps to it (the old ones are dropped, see
     /// `knife_pickup`). Stays put when it runs out.
@@ -427,6 +429,7 @@ impl Default for Weapon {
             throwing_knives: 0,
             molotovs: 0,
             monkey_bombs: 0,
+            frags: 0,
             lethal: Lethal::ThrowingKnife,
             loadout_pending: true,
             busy: None,
@@ -537,6 +540,7 @@ impl Weapon {
             Lethal::ThrowingKnife => self.throwing_knives,
             Lethal::Molotov => self.molotovs,
             Lethal::MonkeyBomb => self.monkey_bombs,
+            Lethal::Frag => self.frags,
         }
     }
 
@@ -559,6 +563,9 @@ impl Weapon {
         if kind != Lethal::MonkeyBomb {
             self.monkey_bombs = 0;
         }
+        if kind != Lethal::Frag {
+            self.frags = 0;
+        }
         self.lethal = kind;
     }
 
@@ -568,6 +575,7 @@ impl Weapon {
             Lethal::ThrowingKnife => self.throwing_knives = self.throwing_knives.saturating_sub(1),
             Lethal::Molotov => self.molotovs = self.molotovs.saturating_sub(1),
             Lethal::MonkeyBomb => self.monkey_bombs = self.monkey_bombs.saturating_sub(1),
+            Lethal::Frag => self.frags = self.frags.saturating_sub(1),
         }
     }
 
@@ -584,6 +592,7 @@ impl Weapon {
             Lethal::ThrowingKnife => self.throwing_knives >= shared::throwing_knife::MAX_CARRIED,
             Lethal::Molotov => self.molotovs >= shared::molotov::MAX_MOLOTOVS,
             Lethal::MonkeyBomb => self.monkey_bombs >= shared::monkey_bomb::MAX_MONKEYS,
+            Lethal::Frag => self.frags >= shared::frag::MAX_FRAGS,
         }
     }
 
@@ -601,6 +610,13 @@ impl Weapon {
         self.monkey_bombs = (self.monkey_bombs + 1).min(shared::monkey_bomb::MAX_MONKEYS);
     }
 
+    /// A frag was picked up: one more (up to the most that can be carried),
+    /// and it's now the only lethal — any other kind was dropped.
+    pub(crate) fn add_frag(&mut self) {
+        self.only(Lethal::Frag);
+        self.frags = (self.frags + 1).min(shared::frag::MAX_FRAGS);
+    }
+
     /// A full load of `kind` from the Mystery Box: it's now the only
     /// lethal, as many as can be carried (any of the other kind were
     /// dropped).
@@ -610,6 +626,7 @@ impl Weapon {
             Lethal::ThrowingKnife => self.throwing_knives = shared::throwing_knife::MAX_CARRIED,
             Lethal::Molotov => self.molotovs = shared::molotov::MAX_MOLOTOVS,
             Lethal::MonkeyBomb => self.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
+            Lethal::Frag => self.frags = shared::frag::MAX_FRAGS,
         }
     }
 
@@ -780,6 +797,7 @@ pub(crate) fn apply_loadout(
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
     weapon.molotovs = 0;
     weapon.monkey_bombs = 0;
+    weapon.frags = 0;
     weapon.lethal = Lethal::ThrowingKnife;
     weapon.loadout_pending = false;
 }
@@ -791,6 +809,7 @@ pub(crate) enum Lethal {
     ThrowingKnife,
     Molotov,
     MonkeyBomb,
+    Frag,
 }
 
 impl Lethal {
@@ -800,6 +819,7 @@ impl Lethal {
             Lethal::ThrowingKnife => shared::lethal::LethalKind::ThrowingKnife,
             Lethal::Molotov => shared::lethal::LethalKind::Molotov,
             Lethal::MonkeyBomb => shared::lethal::LethalKind::MonkeyBomb,
+            Lethal::Frag => shared::lethal::LethalKind::Frag,
         }
     }
 }
@@ -861,6 +881,17 @@ pub(crate) struct ThrowingKnife {
     pub(crate) slide: f32,
     /// Seconds of a monkey bomb's prime left ([`ThrowPhase::Priming`]).
     prime_left: f32,
+    /// A frag's fuse: seconds left since its pin came out at the press —
+    /// it's thrown with what's left, or goes off in the hand at 0.
+    fuse_left: f32,
+    /// This frag went off in the hand (the filed request says so).
+    cooked_off: bool,
+    /// A debug pose ([`crate::frag::FragSettings::debug_arms_out`]): the
+    /// arms come up as if the lethal key were held, but nothing's pulled,
+    /// cooked or thrown — letting go just puts them away.
+    dry: bool,
+    /// Last frame's `debug_arms_out`, so turning it on is one press.
+    pose_prev: bool,
 }
 
 impl ThrowingKnife {
@@ -897,6 +928,26 @@ impl ThrowingKnife {
     /// (through its prime) until it's thrown.
     pub(crate) fn monkey_in_hand(&self) -> bool {
         self.kind == Lethal::MonkeyBomb && self.phase != ThrowPhase::Idle && !self.thrown
+    }
+
+    /// Whether a frag throw request is waiting to be sent
+    /// (`frag::send_throw_requests`).
+    pub(crate) fn has_frag_request(&self) -> bool {
+        self.pending_throw.is_some() && self.kind == Lethal::Frag
+    }
+
+    /// Take the filed frag request: `(eye, aim, fuse left, went off in the
+    /// hand)`.
+    pub(crate) fn take_frag_request(&mut self) -> Option<(Vec3, Vec3, f32, bool)> {
+        let (origin, dir) = self.pending_throw.take()?;
+        Some((origin, dir, self.fuse_left.max(0.0), self.cooked_off))
+    }
+
+    /// Whether a frag should be in the arms' hand: from the pin coming out
+    /// until it's thrown (or goes off). Never in a debug pose — the debug
+    /// panel's own toggle shows one then.
+    pub(crate) fn frag_in_hand(&self) -> bool {
+        self.kind == Lethal::Frag && self.phase != ThrowPhase::Idle && !self.thrown && !self.dry
     }
 
     /// Whether a throwing-knife throw request is waiting to be sent.
@@ -1326,12 +1377,12 @@ pub(crate) fn weapon_system(
         ResMut<PerkDrink>,
         ResMut<QuickMelee>,
     ),
-    (mut pending_shot, mut shake, mut muzzle, mut smoke, monkey_cfg): (
+    (mut pending_shot, mut shake, mut muzzle, mut smoke, (monkey_cfg, frag_cfg)): (
         ResMut<PendingShot>,
         ResMut<Shake>,
         ResMut<MuzzleFlashState>,
         ResMut<SmokeEmission>,
-        Res<crate::monkey_bomb::MonkeyBombSettings>,
+        (Res<crate::monkey_bomb::MonkeyBombSettings>, Res<crate::frag::FragSettings>),
     ),
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -1416,7 +1467,18 @@ pub(crate) fn weapon_system(
     if knife.debug_hold_prev != debug_hold {
         knife.debug_hold_prev = debug_hold;
     }
-    let key_held = debug_hold || binds.lethal.pressed(&keys, &mouse);
+    // The frag panel's pose toggle: the arms up as if the key were held,
+    // nothing pulled or thrown (`ThrowingKnife::dry`).
+    let pose_hold = frag_cfg.debug_arms_out;
+    let pose_press = pose_hold && !knife.pose_prev;
+    if knife.pose_prev != pose_hold {
+        knife.pose_prev = pose_hold;
+    }
+    let key_held = if knife.dry {
+        pose_hold
+    } else {
+        debug_hold || binds.lethal.pressed(&keys, &mouse)
+    };
     let melee_pressed = locked && binds.melee.just_pressed(&keys, &mouse);
     let melee_idle = melee.phase == MeleePhase::Idle;
 
@@ -1569,14 +1631,25 @@ pub(crate) fn weapon_system(
         return;
     }
 
-    if (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse)))
+    let real_press = (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse))) && weapon.lethal_count() > 0;
+    if (real_press || pose_press)
         && knife.phase == ThrowPhase::Idle
         && drink.requested.is_none()
         && melee_idle
-        && weapon.lethal_count() > 0
     {
         knife.active = true;
-        knife.kind = weapon.lethal;
+        knife.dry = !real_press;
+        knife.kind = if knife.dry { Lethal::Frag } else { weapon.lethal };
+        knife.cooked_off = false;
+        // A frag: the pin's out — its fuse is running, and only we hear it.
+        if knife.kind == Lethal::Frag && !knife.dry {
+            knife.fuse_left = shared::frag::FUSE_SECS;
+            commands.spawn((
+                StateScoped(crate::AppState::InGame),
+                AudioPlayer::new(sounds.frag_pin_pull.clone()),
+                PlaybackSettings::DESPAWN,
+            ));
+        }
         knife.thrown = false;
         knife.throw_sent = false;
         knife.pending_throw = None;
@@ -1603,6 +1676,32 @@ pub(crate) fn weapon_system(
         };
         return;
     }
+    // A live frag cooks from the pin-pull until it leaves the hand; held too
+    // long, it goes off in it (the server sets it off where we stand).
+    if knife.kind == Lethal::Frag
+        && !knife.dry
+        && !knife.throw_sent
+        && matches!(knife.phase, ThrowPhase::Stowing | ThrowPhase::Held | ThrowPhase::Throwing)
+    {
+        knife.fuse_left -= time.delta_secs();
+        if knife.fuse_left <= 0.0 {
+            knife.fuse_left = 0.0;
+            knife.cooked_off = true;
+            knife.thrown = true;
+            knife.throw_sent = true;
+            weapon.use_lethal(Lethal::Frag);
+            if let Ok(cam) = cam.single() {
+                knife.pending_throw = Some((cam.translation(), cam.forward().as_vec3()));
+            }
+            knife.active = false;
+            // (Still putting the weapon away: let that finish — `Held` then
+            // sends the empty arms straight back.)
+            if knife.phase != ThrowPhase::Stowing {
+                knife.phase = ThrowPhase::Returning;
+                return;
+            }
+        }
+    }
     match knife.phase {
         ThrowPhase::Idle => {}
         ThrowPhase::Stowing => {
@@ -1624,7 +1723,23 @@ pub(crate) fn weapon_system(
             return;
         }
         ThrowPhase::Held => {
-            if binds.swap_weapon.just_pressed(&keys, &mouse) {
+            // (A frag gone off in the hand while the weapon was still being
+            // put away: nothing left to throw.)
+            if knife.cooked_off {
+                knife.phase = ThrowPhase::Returning;
+                return;
+            }
+            // A debug pose: up until the toggle's off, then away — nothing
+            // thrown.
+            if knife.dry {
+                if !key_held {
+                    knife.active = false;
+                    knife.phase = ThrowPhase::Returning;
+                }
+                return;
+            }
+            // (A frag can't be cancelled: its pin's already out.)
+            if binds.swap_weapon.just_pressed(&keys, &mouse) && knife.kind != Lethal::Frag {
                 // Cancelled: no throw animation.
                 knife.active = false;
                 knife.phase = ThrowPhase::Returning;
@@ -1703,6 +1818,7 @@ pub(crate) fn weapon_system(
             // back.
             if knife.slide <= 0.0 {
                 knife.phase = ThrowPhase::Idle;
+                knife.dry = false;
                 redraw_active_weapon(
                     &mut weapon,
                     &mut knife_state,

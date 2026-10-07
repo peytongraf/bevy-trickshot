@@ -24,6 +24,7 @@ mod collision;
 mod dogs;
 mod exfil;
 mod field_upgrades;
+mod frags;
 mod health;
 mod killcam;
 mod knives;
@@ -88,5 +89,6 @@ fn main() {
         .add_plugins(armor::ArmorPlugin)
         .add_plugins(field_upgrades::FieldUpgradesPlugin)
         .add_plugins(monkey_bombs::MonkeyBombsPlugin)
+        .add_plugins(frags::FragsPlugin)
         .run();
 }

@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Frag
 - Exfil
 - Boss
 - Weapon name plate, PaP colours
@@ -37,8 +38,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Big features
 
+- Add flash
 - Add semtex
-- Add frag
 - Add crafting table
 - Add rampage inducer
 - Add quotes

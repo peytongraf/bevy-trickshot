@@ -691,6 +691,7 @@ fn receive_boss_messages(
                 phd: false,
                 dog: false,
                 boss: true,
+                frag: false,
             });
         }
     }

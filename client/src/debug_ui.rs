@@ -1452,6 +1452,8 @@ pub(crate) fn ads_tuning_ui(
                         ("monkey bomb: land", &mut v.monkey_bomb_land),
                         ("monkey bomb: song", &mut v.monkey_bomb_song),
                         ("monkey bomb: bye bye", &mut v.monkey_bomb_explode_vox),
+                        ("frag: pin pull", &mut v.frag_pin_pull),
+                        ("frag: explosion", &mut v.frag_explosion),
                         ("throwing knife: pick up", &mut v.pick_up_equipment),
                         ("sniper: equip", &mut v.sniper_equip),
                         ("heartbeat (at zero health)", &mut v.heartbeat),
@@ -1909,6 +1911,12 @@ pub(crate) fn ads_tuning_ui(
                     &mut arms_view.debug_hold_key,
                     &mut d.monkey_fuse_tx,
                 );
+            });
+
+            ui.separator();
+            ui.collapsing("Frag (Zombies)", |ui| {
+                let d = &mut molotov_dbg;
+                crate::frag::frag_section(ui, &mut d.frag, &mut d.weapon);
             });
 
             ui.separator();

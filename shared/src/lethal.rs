@@ -10,6 +10,7 @@ pub enum LethalKind {
     ThrowingKnife,
     Molotov,
     MonkeyBomb,
+    Frag,
 }
 
 impl LethalKind {
@@ -19,6 +20,7 @@ impl LethalKind {
             LethalKind::ThrowingKnife => crate::throwing_knife::MAX_CARRIED,
             LethalKind::Molotov => crate::molotov::MAX_MOLOTOVS,
             LethalKind::MonkeyBomb => crate::monkey_bomb::MAX_MONKEYS,
+            LethalKind::Frag => crate::frag::MAX_FRAGS,
         }
     }
 }

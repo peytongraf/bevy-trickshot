@@ -73,6 +73,11 @@ pub(crate) struct GameSounds {
     pub(crate) monkey_bomb_land: Handle<AudioSource>,
     pub(crate) monkey_bomb_song: Handle<AudioSource>,
     pub(crate) monkey_bomb_explode_vox: Handle<AudioSource>,
+    /// `audio/weapons/frag/` — a frag's pin coming out (the thrower's alone,
+    /// not positional) and its explosion (from where it went off, for the
+    /// whole lobby — `vfx::explosion`).
+    pub(crate) frag_pin_pull: Handle<AudioSource>,
+    pub(crate) frag_explosion: Handle<AudioSource>,
     /// `audio/weapons/pick_up_equipment.mp3` — picking up a thrown knife
     /// (only the picker hears it).
     pub(crate) pick_up_equipment: Handle<AudioSource>,
@@ -365,6 +370,8 @@ pub(crate) struct SoundVolumes {
     pub(crate) monkey_bomb_land: f32,
     pub(crate) monkey_bomb_song: f32,
     pub(crate) monkey_bomb_explode_vox: f32,
+    pub(crate) frag_pin_pull: f32,
+    pub(crate) frag_explosion: f32,
     pub(crate) pick_up_equipment: f32,
     pub(crate) sniper_equip: f32,
     /// Loudness of the heartbeat at zero health (it fades toward silence as
@@ -458,6 +465,8 @@ impl Default for SoundVolumes {
             monkey_bomb_land: 1.0,
             monkey_bomb_song: 1.0,
             monkey_bomb_explode_vox: 1.0,
+            frag_pin_pull: 1.0,
+            frag_explosion: 1.0,
             pick_up_equipment: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
@@ -539,6 +548,7 @@ impl SoundVolumes {
             (sounds.knife_equip.id(), self.knife_equip),
             (sounds.molotov_light.id(), self.molotov_light),
             (sounds.monkey_bomb_prime.id(), self.monkey_bomb_prime),
+            (sounds.frag_pin_pull.id(), self.frag_pin_pull),
             (sounds.pick_up_equipment.id(), self.pick_up_equipment),
             (sounds.sniper_equip.id(), self.sniper_equip),
             (sounds.hit_marker.id(), self.hit_marker),
@@ -731,6 +741,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         monkey_bomb_land: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_land.mp3"),
         monkey_bomb_song: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_song.mp3"),
         monkey_bomb_explode_vox: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_explode_vox.mp3"),
+        frag_pin_pull: asset_server.load("audio/weapons/frag/frag_pin_pull.mp3"),
+        frag_explosion: asset_server.load("audio/weapons/frag/frag_explosion.mp3"),
         pick_up_equipment: asset_server.load("audio/weapons/pick_up_equipment.mp3"),
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),

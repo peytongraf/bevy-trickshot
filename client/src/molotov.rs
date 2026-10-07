@@ -1188,6 +1188,8 @@ pub(crate) struct MolotovDebug<'w, 's> {
     /// (The monkey bomb's section shares this bundle — it needs `weapon` too.)
     pub(crate) monkey: ResMut<'w, crate::monkey_bomb::MonkeyBombSettings>,
     pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMonkeyFuse>, With<GameClient>>,
+    /// (And the frag's.)
+    pub(crate) frag: ResMut<'w, crate::frag::FragSettings>,
     local_id: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
     test_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMolotovTest>, With<GameClient>>,

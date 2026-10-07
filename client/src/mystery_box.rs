@@ -284,6 +284,7 @@ fn sync_mystery_box(
                     None => {
                         let (path, length) = match prize {
                             BoxPrize::Molotov => ("models/weapons/molotov_1k.glb", MOLOTOV_LENGTH),
+                            BoxPrize::Frag => (crate::frag::WORLD_MODEL, crate::frag::BOX_LENGTH),
                             _ => ("models/weapons/throwing_knife.glb", KNIFE_LENGTH),
                         };
                         holder.with_child((
@@ -705,6 +706,7 @@ fn use_mystery_box(
                     knives_full: weapon.lethal_full(Lethal::ThrowingKnife),
                     molotovs_full: weapon.lethal_full(Lethal::Molotov),
                     monkeys_full: weapon.lethal_full(Lethal::MonkeyBomb),
+                    frags_full: weapon.lethal_full(Lethal::Frag),
                 });
                 *last_press = Some(now);
             }
@@ -720,6 +722,7 @@ fn use_mystery_box(
                         BoxPrize::ThrowingKnife => weapon.carried_other_than(Lethal::ThrowingKnife),
                         BoxPrize::Molotov => weapon.carried_other_than(Lethal::Molotov),
                         BoxPrize::MonkeyBomb => weapon.carried_other_than(Lethal::MonkeyBomb),
+                        BoxPrize::Frag => weapon.carried_other_than(Lethal::Frag),
                         _ => None,
                     },
                 });
@@ -744,6 +747,7 @@ fn receive_prizes(
                 BoxPrize::ThrowingKnife => weapon.fill_lethal(Lethal::ThrowingKnife),
                 BoxPrize::Molotov => weapon.fill_lethal(Lethal::Molotov),
                 BoxPrize::MonkeyBomb => weapon.fill_lethal(Lethal::MonkeyBomb),
+                BoxPrize::Frag => weapon.fill_lethal(Lethal::Frag),
                 gun => {
                     if let Some(gun) = gun.gun() {
                         weapon.take_into_slot(got.slot as usize, SlotWeapon::Gun(gun), None);

@@ -45,6 +45,8 @@ pub(crate) struct Explosion {
     /// [`ExplosionSettings::boss_scale`], centred on `feet` itself (it can
     /// go off against a wall, mid-air), with the blast hit sound.
     pub(crate) boss: bool,
+    /// A frag's (`frag`): the same blast, with the frag explosion sound.
+    pub(crate) frag: bool,
 }
 
 /// On a PhD Flopper explosion's sprites: its fire, flash and sparks burn
@@ -394,6 +396,7 @@ fn receive_bomb_explosions(
                 phd: msg.phd,
                 dog: false,
                 boss: false,
+                frag: msg.frag,
             });
         }
     }
@@ -422,6 +425,7 @@ fn fire_preview(
         phd: false,
         dog: false,
         boss: false,
+        frag: false,
     });
 }
 
@@ -466,6 +470,8 @@ fn spawn_explosions(
             sounds.as_ref().map(|snd| snd.dog_explosion.clone())
         } else if ev.boss {
             sounds.as_ref().map(|snd| snd.boss_blast_hit.clone())
+        } else if ev.frag {
+            sounds.as_ref().map(|snd| snd.frag_explosion.clone())
         } else {
             sounds
                 .as_ref()
@@ -479,6 +485,8 @@ fn spawn_explosions(
             volumes.dog_explosion
         } else if ev.boss {
             volumes.boss_blast_hit
+        } else if ev.frag {
+            volumes.frag_explosion
         } else {
             volumes.bomb_shot_explosion
         };

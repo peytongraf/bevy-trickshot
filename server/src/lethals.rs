@@ -31,5 +31,6 @@ pub(crate) fn drop_carried(
         LethalKind::ThrowingKnife => crate::knives::drop_knives_around(commands, lobby_e, lobby, peer, feet, count, world),
         LethalKind::Molotov => crate::molotovs::drop_around(commands, lobby_e, lobby, feet, count, world),
         LethalKind::MonkeyBomb => crate::monkey_bombs::drop_around(commands, lobby_e, lobby, feet, count, world),
+        LethalKind::Frag => crate::frags::drop_around(commands, lobby_e, lobby, feet, count, world),
     }
 }

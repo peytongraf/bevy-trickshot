@@ -305,9 +305,13 @@ fn outline_resting_knives(
     }
 }
 
-/// Every dropped lethal lying about (molotovs and monkey bombs): its kind
-/// and where.
-type DroppedLethals<'w, 's> = (Query<'w, 's, &'static MolotovDrop>, Query<'w, 's, &'static shared::MonkeyDrop>);
+/// Every dropped lethal lying about (molotovs, monkey bombs and frags): its
+/// kind and where.
+type DroppedLethals<'w, 's> = (
+    Query<'w, 's, &'static MolotovDrop>,
+    Query<'w, 's, &'static shared::MonkeyDrop>,
+    Query<'w, 's, &'static shared::FragDrop>,
+);
 
 fn dropped<'a>(drops: &'a DroppedLethals) -> impl Iterator<Item = (Lethal, Vec3)> + 'a {
     drops
@@ -315,6 +319,7 @@ fn dropped<'a>(drops: &'a DroppedLethals) -> impl Iterator<Item = (Lethal, Vec3)
         .iter()
         .map(|d| (Lethal::Molotov, d.pos))
         .chain(drops.1.iter().map(|d| (Lethal::MonkeyBomb, d.pos)))
+        .chain(drops.2.iter().map(|d| (Lethal::Frag, d.pos)))
 }
 
 /// The kind of the nearest stopped knife or dropped lethal in pickup range
@@ -388,6 +393,7 @@ type PickupSenders<'w, 's> = (
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpMonkey>, With<GameClient>>,
+    Query<'w, 's, &'static mut TriggerSender<shared::PickUpFrag>, With<GameClient>>,
 );
 
 /// Ask the server for the nearest `kind` in reach, dropping what's
@@ -407,6 +413,11 @@ fn request_pickup(kind: Lethal, dropping: shared::lethal::Carried, senders: &mut
         Lethal::MonkeyBomb => {
             if let Ok(mut s) = senders.2.single_mut() {
                 s.trigger::<shared::LobbyChannel>(shared::PickUpMonkey { dropping });
+            }
+        }
+        Lethal::Frag => {
+            if let Ok(mut s) = senders.3.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpFrag { dropping });
             }
         }
     }
@@ -516,6 +527,7 @@ fn update_pickup_card(
                 Lethal::ThrowingKnife => "THROWING KNIFE".to_string(),
                 Lethal::Molotov => "MOLOTOV".to_string(),
                 Lethal::MonkeyBomb => "MONKEY BOMB".to_string(),
+                Lethal::Frag => "FRAG".to_string(),
             },
             if auto_kind(&weapon, kind) { "CARRYING THE MOST".to_string() } else { press },
             OUTLINE_BLUE,

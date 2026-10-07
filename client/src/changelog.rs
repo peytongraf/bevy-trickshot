@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: frag grenades — cook them, but don't hold on too long.",
         "Fixed the results screen coming back in the next game.",
         "Zombies: a short pause before the results screen.",
         "Zombies: exfil — every 10th round, call it in at the radio and escape.",
