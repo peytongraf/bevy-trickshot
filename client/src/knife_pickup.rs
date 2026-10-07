@@ -311,6 +311,7 @@ type DroppedLethals<'w, 's> = (
     Query<'w, 's, &'static MolotovDrop>,
     Query<'w, 's, &'static shared::MonkeyDrop>,
     Query<'w, 's, &'static shared::FragDrop>,
+    Query<'w, 's, &'static shared::FlashBangDrop>,
 );
 
 fn dropped<'a>(drops: &'a DroppedLethals) -> impl Iterator<Item = (Lethal, Vec3)> + 'a {
@@ -320,6 +321,7 @@ fn dropped<'a>(drops: &'a DroppedLethals) -> impl Iterator<Item = (Lethal, Vec3)
         .map(|d| (Lethal::Molotov, d.pos))
         .chain(drops.1.iter().map(|d| (Lethal::MonkeyBomb, d.pos)))
         .chain(drops.2.iter().map(|d| (Lethal::Frag, d.pos)))
+        .chain(drops.3.iter().map(|d| (Lethal::FlashBang, d.pos)))
 }
 
 /// The kind of the nearest stopped knife or dropped lethal in pickup range
@@ -385,7 +387,8 @@ fn offer(lethal: Option<(Lethal, f32)>, weapon: Option<(WeaponDrop, f32)>, wall_
 /// Whether walking into a `kind` picks it up without the interact key: it's
 /// the kind carried, or none is.
 fn auto_kind(weapon: &Weapon, kind: Lethal) -> bool {
-    weapon.carried_lethal().is_none_or(|c| c == kind)
+    // (The tactical's carried beside the lethal: never a swap.)
+    kind == Lethal::FlashBang || weapon.carried_lethal().is_none_or(|c| c == kind)
 }
 
 /// The pickup requests, one per kind of lethal.
@@ -394,6 +397,7 @@ type PickupSenders<'w, 's> = (
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpMonkey>, With<GameClient>>,
     Query<'w, 's, &'static mut TriggerSender<shared::PickUpFrag>, With<GameClient>>,
+    Query<'w, 's, &'static mut TriggerSender<shared::PickUpFlashBang>, With<GameClient>>,
 );
 
 /// Ask the server for the nearest `kind` in reach, dropping what's
@@ -418,6 +422,12 @@ fn request_pickup(kind: Lethal, dropping: shared::lethal::Carried, senders: &mut
         Lethal::Frag => {
             if let Ok(mut s) = senders.3.single_mut() {
                 s.trigger::<shared::LobbyChannel>(shared::PickUpFrag { dropping });
+            }
+        }
+        // (A tactical: nothing to drop.)
+        Lethal::FlashBang => {
+            if let Ok(mut s) = senders.4.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::PickUpFlashBang);
             }
         }
     }
@@ -528,6 +538,7 @@ fn update_pickup_card(
                 Lethal::Molotov => "MOLOTOV".to_string(),
                 Lethal::MonkeyBomb => "MONKEY BOMB".to_string(),
                 Lethal::Frag => "FRAG".to_string(),
+                Lethal::FlashBang => "FLASH BANG".to_string(),
             },
             if auto_kind(&weapon, kind) { "CARRYING THE MOST".to_string() } else { press },
             OUTLINE_BLUE,

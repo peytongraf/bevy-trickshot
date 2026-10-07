@@ -78,6 +78,9 @@ pub(crate) struct GameSounds {
     /// whole lobby — `vfx::explosion`).
     pub(crate) frag_pin_pull: Handle<AudioSource>,
     pub(crate) frag_explosion: Handle<AudioSource>,
+    /// `audio/weapons/flash_bang/flash_bang_detonate.mp3` — a flash bang
+    /// going off, from there, for the whole lobby (`flash_bang`).
+    pub(crate) flash_bang_detonate: Handle<AudioSource>,
     /// `audio/weapons/pick_up_equipment.mp3` — picking up a thrown knife
     /// (only the picker hears it).
     pub(crate) pick_up_equipment: Handle<AudioSource>,
@@ -372,6 +375,7 @@ pub(crate) struct SoundVolumes {
     pub(crate) monkey_bomb_explode_vox: f32,
     pub(crate) frag_pin_pull: f32,
     pub(crate) frag_explosion: f32,
+    pub(crate) flash_bang_detonate: f32,
     pub(crate) pick_up_equipment: f32,
     pub(crate) sniper_equip: f32,
     /// Loudness of the heartbeat at zero health (it fades toward silence as
@@ -467,6 +471,7 @@ impl Default for SoundVolumes {
             monkey_bomb_explode_vox: 1.0,
             frag_pin_pull: 1.0,
             frag_explosion: 1.0,
+            flash_bang_detonate: 1.0,
             pick_up_equipment: 1.0,
             sniper_equip: 1.0,
             heartbeat: 1.0,
@@ -743,6 +748,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         monkey_bomb_explode_vox: asset_server.load("audio/weapons/monkey_bomb/monkey_bomb_explode_vox.mp3"),
         frag_pin_pull: asset_server.load("audio/weapons/frag/frag_pin_pull.mp3"),
         frag_explosion: asset_server.load("audio/weapons/frag/frag_explosion.mp3"),
+        flash_bang_detonate: asset_server.load("audio/weapons/flash_bang/flash_bang_detonate.mp3"),
         pick_up_equipment: asset_server.load("audio/weapons/pick_up_equipment.mp3"),
         sniper_equip: asset_server.load("audio/weapons/sniper/equip.mp3"),
         heartbeat: asset_server.load("audio/combat/heartbeat.mp3"),

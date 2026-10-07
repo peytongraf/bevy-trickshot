@@ -89,6 +89,24 @@ pub(crate) struct KnifeKeyCap;
 #[derive(Component)]
 pub(crate) struct KnifeGroup;
 
+/// The tactical's group, left of the lethal's — its count, icon and key
+/// cap. Only shown once a tactical's carried ([`Weapon::tactical`]), and
+/// dimmed once there are none left.
+#[derive(Component)]
+pub(crate) struct TacticalGroup;
+
+#[derive(Component)]
+pub(crate) struct TacticalCountText;
+
+#[derive(Component, Clone)]
+pub(crate) struct TacticalIcon;
+
+#[derive(Component)]
+pub(crate) struct TacticalKeyText;
+
+#[derive(Component)]
+pub(crate) struct TacticalKeyCap;
+
 /// Fixed on-screen size of [`WeaponIcon`], regardless of which texture is
 /// showing — both `icons/weapons/sniper.png` and `icons/weapons/knife.png` are drawn to this
 /// same 1774×887 (2:1) canvas specifically so a weapon swap can never resize
@@ -132,6 +150,7 @@ fn lethal_icon_path(lethal: Lethal) -> &'static str {
         Lethal::Molotov => "textures/icons/weapons/molotov.png",
         Lethal::MonkeyBomb => "textures/icons/weapons/monkey_bomb.png",
         Lethal::Frag => "textures/icons/weapons/frag.png",
+        Lethal::FlashBang => "textures/icons/weapons/flash_bang.png",
     }
 }
 
@@ -297,6 +316,57 @@ pub(crate) fn setup_ammo_ui(
                 ),
             ));
 
+            // The tactical: count, icon, key cap — as the lethal's, to its
+            // left (hidden until one's carried).
+            row.spawn((
+                TacticalGroup,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(4.0),
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .with_children(|tactical| {
+                tactical.spawn((TacticalCountText, Text::new(""), text(18.0)));
+                spawn_shadowed_icon(
+                    tactical,
+                    asset_server.load(lethal_icon_path(Lethal::FlashBang)),
+                    KNIFE_ICON_SIZE,
+                    TacticalIcon,
+                );
+                tactical
+                    .spawn((
+                        TacticalKeyCap,
+                        Node {
+                            padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
+                            min_width: Val::Px(24.0),
+                            justify_content: JustifyContent::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::WHITE),
+                        BorderRadius::all(Val::Px(3.0)),
+                        BoxShadow::new(
+                            SHADOW_COLOR,
+                            Val::Px(SHADOW_OFFSET),
+                            Val::Px(SHADOW_OFFSET),
+                            Val::ZERO,
+                            Val::Px(1.0),
+                        ),
+                    ))
+                    .with_child((
+                        TacticalKeyText,
+                        Text::new(binds.tactical.label().to_uppercase()),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 14.0,
+                            ..default()
+                        },
+                        TextColor(Color::BLACK),
+                    ));
+            });
+
             // Throwing knife: count, icon, key cap.
             row.spawn((
                 KnifeGroup,
@@ -435,6 +505,57 @@ pub(crate) fn update_knife_hud(
     }
 }
 
+/// Show the tactical's group once one's carried, keep its count and key cap
+/// current, and dim it once there are none left.
+#[allow(clippy::type_complexity)]
+pub(crate) fn update_tactical_hud(
+    weapon: Res<Weapon>,
+    binds: Res<KeyBindings>,
+    group: Single<(Entity, &mut Node), With<TacticalGroup>>,
+    children: Query<&Children>,
+    mut texts: ParamSet<(
+        Single<&mut Text, With<TacticalCountText>>,
+        Single<&mut Text, With<TacticalKeyText>>,
+    )>,
+    mut colors: ParamSet<(
+        Query<(&mut TextColor, Option<&mut TextShadow>)>,
+        Query<&mut ImageNode>,
+        Query<&mut BackgroundColor, With<TacticalKeyCap>>,
+    )>,
+    mut last_empty: Local<Option<bool>>,
+) {
+    let (group, mut node) = group.into_inner();
+    let display = if weapon.tactical.is_some() { Display::Flex } else { Display::None };
+    if node.display != display {
+        node.display = display;
+    }
+    set_text(&mut texts.p0(), weapon.flash_bangs.to_string());
+    if binds.is_changed() {
+        set_text(&mut texts.p1(), binds.tactical.label().to_uppercase());
+    }
+    let empty = weapon.flash_bangs == 0;
+    if *last_empty == Some(empty) {
+        return;
+    }
+    *last_empty = Some(empty);
+    let alpha = if empty { EMPTY_ALPHA } else { 1.0 };
+    for e in children.iter_descendants(group) {
+        if let Ok((mut c, shadow)) = colors.p0().get_mut(e) {
+            c.0.set_alpha(alpha);
+            if let Some(mut shadow) = shadow {
+                shadow.color.set_alpha(SHADOW_COLOR.alpha() * alpha);
+            }
+        }
+        if let Ok(mut i) = colors.p1().get_mut(e) {
+            let base = if i.color.to_srgba().red < 0.5 { SHADOW_COLOR.alpha() } else { 1.0 };
+            i.color.set_alpha(base * alpha);
+        }
+        if let Ok(mut b) = colors.p2().get_mut(e) {
+            b.0.set_alpha(alpha);
+        }
+    }
+}
+
 /// Swap [`LethalIcon`]'s texture (both it and its shadow) to match
 /// `Weapon::lethal` whenever it changes.
 pub(crate) fn update_lethal_icon(
@@ -523,7 +644,7 @@ pub(crate) fn scale_ammo_hud(
     mut box_shadows: Query<&mut BoxShadow, With<HudBase>>,
     mut radii: Query<
         &mut BorderRadius,
-        Or<(With<KnifeKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>,
+        Or<(With<KnifeKeyCap>, With<TacticalKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>,
     >,
     mut applied: Local<f32>,
 ) {

@@ -271,6 +271,12 @@ pub(crate) struct Weapon {
     pub(crate) monkey_bombs: u32,
     /// Frags carried (`Zombies` only).
     pub(crate) frags: u32,
+    /// The tactical carried, on its own key beside the lethal — once one's
+    /// been picked up this game (it stays, empty or not, like the lethal).
+    /// `Zombies` only.
+    pub(crate) tactical: Option<Tactical>,
+    /// Flash bangs carried.
+    pub(crate) flash_bangs: u32,
     /// Which lethal the lethal key throws — the only kind carried: picking up
     /// the other kind swaps to it (the old ones are dropped, see
     /// `knife_pickup`). Stays put when it runs out.
@@ -430,6 +436,8 @@ impl Default for Weapon {
             molotovs: 0,
             monkey_bombs: 0,
             frags: 0,
+            tactical: None,
+            flash_bangs: 0,
             lethal: Lethal::ThrowingKnife,
             loadout_pending: true,
             busy: None,
@@ -541,6 +549,7 @@ impl Weapon {
             Lethal::Molotov => self.molotovs,
             Lethal::MonkeyBomb => self.monkey_bombs,
             Lethal::Frag => self.frags,
+            Lethal::FlashBang => self.flash_bangs,
         }
     }
 
@@ -549,7 +558,7 @@ impl Weapon {
     pub(crate) fn carried_other_than(&self, taking: Lethal) -> shared::lethal::Carried {
         self.carried_lethal()
             .filter(|kind| *kind != taking)
-            .map(|kind| (kind.kind(), self.count_of(kind)))
+            .and_then(|kind| Some((kind.kind()?, self.count_of(kind))))
     }
 
     /// `kind` is the only lethal now: every other kind's gone.
@@ -576,6 +585,7 @@ impl Weapon {
             Lethal::Molotov => self.molotovs = self.molotovs.saturating_sub(1),
             Lethal::MonkeyBomb => self.monkey_bombs = self.monkey_bombs.saturating_sub(1),
             Lethal::Frag => self.frags = self.frags.saturating_sub(1),
+            Lethal::FlashBang => self.flash_bangs = self.flash_bangs.saturating_sub(1),
         }
     }
 
@@ -593,6 +603,7 @@ impl Weapon {
             Lethal::Molotov => self.molotovs >= shared::molotov::MAX_MOLOTOVS,
             Lethal::MonkeyBomb => self.monkey_bombs >= shared::monkey_bomb::MAX_MONKEYS,
             Lethal::Frag => self.frags >= shared::frag::MAX_FRAGS,
+            Lethal::FlashBang => self.flash_bangs >= shared::flash_bang::MAX_FLASH_BANGS,
         }
     }
 
@@ -617,16 +628,29 @@ impl Weapon {
         self.frags = (self.frags + 1).min(shared::frag::MAX_FRAGS);
     }
 
+    /// A flash bang was picked up: one more (up to the most that can be
+    /// carried) — the tactical, beside whatever lethal's carried.
+    pub(crate) fn add_flash_bang(&mut self) {
+        self.tactical = Some(Tactical::FlashBang);
+        self.flash_bangs = (self.flash_bangs + 1).min(shared::flash_bang::MAX_FLASH_BANGS);
+    }
+
     /// A full load of `kind` from the Mystery Box: it's now the only
     /// lethal, as many as can be carried (any of the other kind were
-    /// dropped).
+    /// dropped) — or, the tactical, full beside the lethal.
     pub(crate) fn fill_lethal(&mut self, kind: Lethal) {
+        if kind == Lethal::FlashBang {
+            self.tactical = Some(Tactical::FlashBang);
+            self.flash_bangs = shared::flash_bang::MAX_FLASH_BANGS;
+            return;
+        }
         self.only(kind);
         match kind {
             Lethal::ThrowingKnife => self.throwing_knives = shared::throwing_knife::MAX_CARRIED,
             Lethal::Molotov => self.molotovs = shared::molotov::MAX_MOLOTOVS,
             Lethal::MonkeyBomb => self.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
             Lethal::Frag => self.frags = shared::frag::MAX_FRAGS,
+            Lethal::FlashBang => {}
         }
     }
 
@@ -798,11 +822,15 @@ pub(crate) fn apply_loadout(
     weapon.molotovs = 0;
     weapon.monkey_bombs = 0;
     weapon.frags = 0;
+    weapon.tactical = None;
+    weapon.flash_bangs = 0;
     weapon.lethal = Lethal::ThrowingKnife;
     weapon.loadout_pending = false;
 }
 
-/// The lethal equipment the lethal key throws — see [`Weapon::lethal`].
+/// What the throwing arms throw: the lethal equipment the lethal key
+/// throws — see [`Weapon::lethal`] — or the tactical (`FlashBang`, the
+/// tactical key's, [`Weapon::tactical`]; never `Weapon::lethal`).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(crate) enum Lethal {
     #[default]
@@ -810,17 +838,27 @@ pub(crate) enum Lethal {
     Molotov,
     MonkeyBomb,
     Frag,
+    FlashBang,
+}
+
+/// The tactical equipment the tactical key throws — see
+/// [`Weapon::tactical`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Tactical {
+    FlashBang,
 }
 
 impl Lethal {
-    /// The shared kind it is (what the server's told about).
-    pub(crate) fn kind(self) -> shared::lethal::LethalKind {
-        match self {
+    /// The shared lethal kind it is (what the server's told about) — not
+    /// the tactical.
+    pub(crate) fn kind(self) -> Option<shared::lethal::LethalKind> {
+        Some(match self {
             Lethal::ThrowingKnife => shared::lethal::LethalKind::ThrowingKnife,
             Lethal::Molotov => shared::lethal::LethalKind::Molotov,
             Lethal::MonkeyBomb => shared::lethal::LethalKind::MonkeyBomb,
             Lethal::Frag => shared::lethal::LethalKind::Frag,
-        }
+            Lethal::FlashBang => return None,
+        })
     }
 }
 
@@ -948,6 +986,18 @@ impl ThrowingKnife {
     /// panel's own toggle shows one then.
     pub(crate) fn frag_in_hand(&self) -> bool {
         self.kind == Lethal::Frag && self.phase != ThrowPhase::Idle && !self.thrown && !self.dry
+    }
+
+    /// Whether a flash bang throw request is waiting to be sent
+    /// (`flash_bang::send_throw_requests`).
+    pub(crate) fn has_flash_request(&self) -> bool {
+        self.pending_throw.is_some() && self.kind == Lethal::FlashBang
+    }
+
+    /// Whether a flash bang should be in the arms' hand: from the press
+    /// until it's thrown (a cancelled throw keeps it as the arms go away).
+    pub(crate) fn flash_in_hand(&self) -> bool {
+        self.kind == Lethal::FlashBang && self.phase != ThrowPhase::Idle && !self.thrown && !self.dry
     }
 
     /// Whether a throwing-knife throw request is waiting to be sent.
@@ -1377,12 +1427,16 @@ pub(crate) fn weapon_system(
         ResMut<PerkDrink>,
         ResMut<QuickMelee>,
     ),
-    (mut pending_shot, mut shake, mut muzzle, mut smoke, (monkey_cfg, frag_cfg)): (
+    (mut pending_shot, mut shake, mut muzzle, mut smoke, (monkey_cfg, frag_cfg, flash_cfg)): (
         ResMut<PendingShot>,
         ResMut<Shake>,
         ResMut<MuzzleFlashState>,
         ResMut<SmokeEmission>,
-        (Res<crate::monkey_bomb::MonkeyBombSettings>, Res<crate::frag::FragSettings>),
+        (
+            Res<crate::monkey_bomb::MonkeyBombSettings>,
+            Res<crate::frag::FragSettings>,
+            Res<crate::flash_bang::FlashBangSettings>,
+        ),
     ),
     mut shots: EventWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -1469,13 +1523,16 @@ pub(crate) fn weapon_system(
     }
     // The frag panel's pose toggle: the arms up as if the key were held,
     // nothing pulled or thrown (`ThrowingKnife::dry`).
-    let pose_hold = frag_cfg.debug_arms_out;
+    let pose_hold = frag_cfg.debug_arms_out || flash_cfg.debug_arms_out;
     let pose_press = pose_hold && !knife.pose_prev;
     if knife.pose_prev != pose_hold {
         knife.pose_prev = pose_hold;
     }
+    // (The tactical's on its own key.)
     let key_held = if knife.dry {
         pose_hold
+    } else if knife.kind == Lethal::FlashBang {
+        binds.tactical.pressed(&keys, &mouse)
     } else {
         debug_hold || binds.lethal.pressed(&keys, &mouse)
     };
@@ -1631,7 +1688,14 @@ pub(crate) fn weapon_system(
         return;
     }
 
-    let real_press = (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse))) && weapon.lethal_count() > 0;
+    let lethal_press = (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse))) && weapon.lethal_count() > 0;
+    // The tactical key, with one carried.
+    let tactical_press = !lethal_press
+        && locked
+        && binds.tactical.just_pressed(&keys, &mouse)
+        && weapon.tactical.is_some()
+        && weapon.flash_bangs > 0;
+    let real_press = lethal_press || tactical_press;
     if (real_press || pose_press)
         && knife.phase == ThrowPhase::Idle
         && drink.requested.is_none()
@@ -1639,7 +1703,13 @@ pub(crate) fn weapon_system(
     {
         knife.active = true;
         knife.dry = !real_press;
-        knife.kind = if knife.dry { Lethal::Frag } else { weapon.lethal };
+        knife.kind = if knife.dry {
+            Lethal::Frag
+        } else if tactical_press {
+            Lethal::FlashBang
+        } else {
+            weapon.lethal
+        };
         knife.cooked_off = false;
         // A frag: the pin's out — its fuse is running, and only we hear it.
         if knife.kind == Lethal::Frag && !knife.dry {

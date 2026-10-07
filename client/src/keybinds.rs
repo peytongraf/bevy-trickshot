@@ -85,6 +85,9 @@ pub struct KeyBindings {
     /// (Saved as `throwing_knife` before molotovs existed.)
     #[serde(alias = "throwing_knife")]
     pub lethal: Binding,
+    /// The tactical equipment (the flash bang): like the lethal key — hold
+    /// to bring up the throwing arms, release to throw.
+    pub tactical: Binding,
     /// Quick melee: with the sniper out, snap it away, draw the knife fast,
     /// stab, and bring the sniper back; with the knife out, a normal stab.
     pub melee: Binding,
@@ -122,8 +125,10 @@ impl Default for KeyBindings {
             fire: Mouse(MouseButton::Left),
             aim: Mouse(MouseButton::Right),
             reload: Key(KeyCode::KeyR),
-            swap_weapon: Key(KeyCode::KeyQ),
+            // (1, so Q's free for the tactical, Call of Duty style.)
+            swap_weapon: Key(KeyCode::Digit1),
             lethal: Key(KeyCode::KeyV),
+            tactical: Key(KeyCode::KeyQ),
             melee: Key(KeyCode::KeyE),
             teleport_home: Key(KeyCode::KeyT),
             save_teleport_point: Key(KeyCode::KeyG),
@@ -153,6 +158,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Reload", |b| &mut b.reload),
     ("Swap Weapon", |b| &mut b.swap_weapon),
     ("Lethal", |b| &mut b.lethal),
+    ("Tactical", |b| &mut b.tactical),
     ("Melee", |b| &mut b.melee),
     ("Teleport to Point", |b| &mut b.teleport_home),
     ("Save Teleport Point", |b| &mut b.save_teleport_point),
@@ -164,6 +170,15 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
 ];
 
 impl KeyBindings {
+    /// Settings saved before the tactical key existed have Swap Weapon on
+    /// Q — the tactical's new default: move Swap Weapon to its new default
+    /// (1), so the two never share a key.
+    pub fn migrate(&mut self) {
+        if self.swap_weapon == self.tactical {
+            self.swap_weapon = Binding::Key(KeyCode::Digit1);
+        }
+    }
+
     pub fn slot(&self, i: usize) -> Binding {
         // The accessors take `&mut`; clone through a throwaway copy for reads.
         let mut tmp = self.clone();

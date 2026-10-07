@@ -67,6 +67,7 @@ mod knife_pickup;
 mod molotov;
 mod monkey_bomb;
 mod frag;
+mod flash_bang;
 mod mystery_box;
 mod zombies_audio;
 mod thrown_knife;
@@ -230,6 +231,7 @@ fn main() {
         .add_plugins(molotov::MolotovPlugin)
         .add_plugins(monkey_bomb::MonkeyBombPlugin)
         .add_plugins(frag::FragPlugin)
+        .add_plugins(flash_bang::FlashBangPlugin)
         .add_plugins(ammo_crate::AmmoCratePlugin)
         .add_plugins(armor::ArmorPlugin)
         .add_plugins(exfil::ExfilPlugin)
@@ -588,6 +590,7 @@ fn main() {
                     apply_loadout,
                     update_ammo_ui,
                     update_knife_hud,
+                    update_tactical_hud,
                     update_weapon_icon,
                     update_weapon_name,
                     update_lethal_icon,

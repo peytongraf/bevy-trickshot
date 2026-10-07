@@ -51,6 +51,8 @@ pub enum BoxPrize {
     ThrowingKnife,
     Molotov,
     Frag,
+    /// A tactical ([`crate::flash_bang`]) — not a lethal.
+    FlashBang,
     MonkeyBomb,
     Ak74,
     Sniper,
@@ -60,10 +62,11 @@ pub enum BoxPrize {
 impl BoxPrize {
     /// Every prize, worst to best — all of them cycle through a spin,
     /// whatever it can land on.
-    pub const ALL: [BoxPrize; 7] = [
+    pub const ALL: [BoxPrize; 8] = [
         BoxPrize::ThrowingKnife,
         BoxPrize::Molotov,
         BoxPrize::Frag,
+        BoxPrize::FlashBang,
         BoxPrize::MonkeyBomb,
         BoxPrize::Ak74,
         BoxPrize::Sniper,
@@ -76,7 +79,11 @@ impl BoxPrize {
             BoxPrize::Ak74 => Some(WeaponId::Ak74),
             BoxPrize::Sniper => Some(WeaponId::Sniper),
             BoxPrize::RayGun => Some(WeaponId::RayGun),
-            BoxPrize::ThrowingKnife | BoxPrize::Molotov | BoxPrize::Frag | BoxPrize::MonkeyBomb => None,
+            BoxPrize::ThrowingKnife
+            | BoxPrize::Molotov
+            | BoxPrize::Frag
+            | BoxPrize::FlashBang
+            | BoxPrize::MonkeyBomb => None,
         }
     }
 
@@ -97,6 +104,7 @@ impl BoxPrize {
             BoxPrize::Molotov => "MOLOTOV",
             BoxPrize::MonkeyBomb => "MONKEY BOMB",
             BoxPrize::Frag => "FRAG",
+            BoxPrize::FlashBang => "FLASH BANG",
             BoxPrize::Ak74 => WeaponId::Ak74.label(),
             BoxPrize::Sniper => WeaponId::Sniper.label(),
             BoxPrize::RayGun => WeaponId::RayGun.label(),
@@ -109,15 +117,15 @@ impl BoxPrize {
 }
 
 /// Each prize's weight ([`BoxPrize::ALL`]'s order) on round 1...
-const EARLY_WEIGHTS: [f32; 7] = [32.0, 22.0, 17.0, 13.0, 9.0, 5.0, 2.0];
+const EARLY_WEIGHTS: [f32; 8] = [30.0, 21.0, 16.0, 12.0, 9.0, 6.0, 4.0, 2.0];
 /// ...leaning, round by round, to these by [`LATE_ROUND`] (and on after).
-const LATE_WEIGHTS: [f32; 7] = [2.0, 3.0, 3.0, 4.0, 5.0, 7.0, 76.0];
+const LATE_WEIGHTS: [f32; 8] = [2.0, 2.0, 3.0, 3.0, 4.0, 5.0, 7.0, 74.0];
 pub const LATE_ROUND: u32 = 55;
 
 /// Each prize's weight on `round` — the throwing knife's the most likely
 /// early on and the Ray Gun the least, until by [`LATE_ROUND`] the Ray Gun's
 /// by far the likeliest.
-pub fn weights(round: u32) -> [f32; 7] {
+pub fn weights(round: u32) -> [f32; 8] {
     let t = (round.max(1) - 1) as f32 / (LATE_ROUND - 1) as f32;
     let t = t.clamp(0.0, 1.0);
     std::array::from_fn(|i| EARLY_WEIGHTS[i] + (LATE_WEIGHTS[i] - EARLY_WEIGHTS[i]) * t)
@@ -125,7 +133,7 @@ pub fn weights(round: u32) -> [f32; 7] {
 
 /// The chance of each prize on `round`, leaving out what `excluded` says
 /// can't be given (all zero if nothing can).
-pub fn chances(round: u32, excluded: impl Fn(BoxPrize) -> bool) -> [f32; 7] {
+pub fn chances(round: u32, excluded: impl Fn(BoxPrize) -> bool) -> [f32; 8] {
     let mut w = weights(round);
     for p in BoxPrize::ALL {
         if excluded(p) {
@@ -134,7 +142,7 @@ pub fn chances(round: u32, excluded: impl Fn(BoxPrize) -> bool) -> [f32; 7] {
     }
     let total: f32 = w.iter().sum();
     if total <= 0.0 {
-        return [0.0; 7];
+        return [0.0; 8];
     }
     w.map(|x| x / total)
 }

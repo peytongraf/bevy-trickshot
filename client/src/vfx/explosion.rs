@@ -190,7 +190,7 @@ pub(crate) struct ExplosionAssets {
     pub(crate) quad: Handle<Mesh>,
     pub(crate) glow: Handle<Image>,
     pub(crate) fire: [Handle<Image>; 2],
-    smoke: Handle<Image>,
+    pub(crate) smoke: Handle<Image>,
     dust: Handle<Image>,
     rocks: Handle<Image>,
 }

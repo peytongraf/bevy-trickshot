@@ -24,6 +24,7 @@ mod collision;
 mod dogs;
 mod exfil;
 mod field_upgrades;
+mod flash_bangs;
 mod frags;
 mod health;
 mod killcam;
@@ -90,5 +91,6 @@ fn main() {
         .add_plugins(field_upgrades::FieldUpgradesPlugin)
         .add_plugins(monkey_bombs::MonkeyBombsPlugin)
         .add_plugins(frags::FragsPlugin)
+        .add_plugins(flash_bangs::FlashBangsPlugin)
         .run();
 }

@@ -278,10 +278,14 @@ fn load_file() -> SettingsFile {
         return SettingsFile::default();
     };
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            eprintln!("[settings] {} is invalid ({e}); using defaults", path.display());
-            SettingsFile::default()
-        }),
+        Ok(text) => {
+            let mut file: SettingsFile = serde_json::from_str(&text).unwrap_or_else(|e| {
+                eprintln!("[settings] {} is invalid ({e}); using defaults", path.display());
+                SettingsFile::default()
+            });
+            file.keybinds.migrate();
+            file
+        }
         Err(_) => SettingsFile::default(), // no file yet — first run
     }
 }

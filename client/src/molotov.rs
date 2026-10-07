@@ -1190,6 +1190,8 @@ pub(crate) struct MolotovDebug<'w, 's> {
     pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMonkeyFuse>, With<GameClient>>,
     /// (And the frag's.)
     pub(crate) frag: ResMut<'w, crate::frag::FragSettings>,
+    /// (And the flash bang's.)
+    pub(crate) flash: ResMut<'w, crate::flash_bang::FlashBangSettings>,
     local_id: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
     test_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMolotovTest>, With<GameClient>>,

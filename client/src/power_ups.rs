@@ -624,6 +624,11 @@ fn receive_grabs(
                     crate::Lethal::Molotov => weapon.molotovs = shared::molotov::MAX_MOLOTOVS,
                     crate::Lethal::MonkeyBomb => weapon.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
                     crate::Lethal::Frag => weapon.frags = shared::frag::MAX_FRAGS,
+                    crate::Lethal::FlashBang => {}
+                }
+                // ...and the tactical, if one's carried.
+                if weapon.tactical.is_some() {
+                    weapon.flash_bangs = shared::flash_bang::MAX_FLASH_BANGS;
                 }
             }
         }
