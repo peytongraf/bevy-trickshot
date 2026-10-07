@@ -72,7 +72,7 @@ pub(crate) struct WallBuyAssets {
 fn outline_texture(gun: WeaponId) -> (&'static str, f32) {
     // (Path, and height / width of the baked image.)
     match gun {
-        WeaponId::Ak74 => ("textures/wall_buys/ak_74_outline.png", 313.0 / 1024.0),
+        WeaponId::Ak74 => ("textures/wall_buys/ak_74_outline.png", 331.0 / 1024.0),
         _ => ("textures/wall_buys/sniper_outline.png", 406.0 / 1024.0),
     }
 }

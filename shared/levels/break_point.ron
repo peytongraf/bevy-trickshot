@@ -25,7 +25,7 @@
     ],
     mystery_box: Some((pos: (-17.3, 6.0, 21.15), yaw_deg: -90.0)),
     armor_station: Some((pos: (8.4, 0.0, -59.15), yaw_deg: 0.0)),
-    crafting_table: Some((pos: (-20.2, 0.0, -47.35), yaw_deg: 0.0)),
+    crafting_table: Some((pos: (-20.2, 0.0, -47.3), yaw_deg: 0.0)),
     exfil_radio: Some((pos: (-8.0, 0.0, -47.2), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
     player_spawns: [

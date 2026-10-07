@@ -90,8 +90,7 @@ pub(crate) struct KnifeKeyCap;
 pub(crate) struct KnifeGroup;
 
 /// The tactical's group, left of the lethal's — its count, icon and key
-/// cap. Only shown once a tactical's carried ([`Weapon::tactical`]), and
-/// dimmed once there are none left.
+/// cap. Always shown, like the lethal's: `0` and dimmed with none carried.
 #[derive(Component)]
 pub(crate) struct TacticalGroup;
 
@@ -114,8 +113,13 @@ pub(crate) struct TacticalKeyCap;
 const WEAPON_ICON_SIZE: (f32, f32) = (128.0, 64.0);
 /// `icons/weapons/bullet.png` is 1402×1122.
 const BULLET_ICON_SIZE: (f32, f32) = (25.0, 20.0);
-/// `icons/weapons/throwing_knife.png` is 1536×1024.
+/// Every lethal and tactical icon (`icons/weapons/throwing_knife.png`,
+/// `molotov.png`, `frag.png`, `flash_bang.png`, `monkey_bomb.png`) is drawn
+/// to the same 1536×1024 (3:2) canvas, so this box never stretches one.
 const KNIFE_ICON_SIZE: (f32, f32) = (42.0, 28.0);
+/// The lethal's and the tactical's groups are this wide whatever they hold
+/// (or don't), so the HUD never shifts.
+const EQUIPMENT_GROUP_WIDTH: f32 = 54.0;
 
 /// Drop shadow behind the white HUD text and icons.
 const SHADOW_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.7);
@@ -317,14 +321,14 @@ pub(crate) fn setup_ammo_ui(
             ));
 
             // The tactical: count, icon, key cap — as the lethal's, to its
-            // left (hidden until one's carried).
+            // left, the same width.
             row.spawn((
                 TacticalGroup,
                 Node {
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     row_gap: Val::Px(4.0),
-                    display: Display::None,
+                    width: Val::Px(EQUIPMENT_GROUP_WIDTH),
                     ..default()
                 },
             ))
@@ -367,13 +371,14 @@ pub(crate) fn setup_ammo_ui(
                     ));
             });
 
-            // Throwing knife: count, icon, key cap.
+            // The lethal: count, icon, key cap.
             row.spawn((
                 KnifeGroup,
                 Node {
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     row_gap: Val::Px(4.0),
+                    width: Val::Px(EQUIPMENT_GROUP_WIDTH),
                     ..default()
                 },
             ))
@@ -505,13 +510,13 @@ pub(crate) fn update_knife_hud(
     }
 }
 
-/// Show the tactical's group once one's carried, keep its count and key cap
-/// current, and dim it once there are none left.
+/// Keep the tactical's count and key cap current, and dim it while there
+/// are none.
 #[allow(clippy::type_complexity)]
 pub(crate) fn update_tactical_hud(
     weapon: Res<Weapon>,
     binds: Res<KeyBindings>,
-    group: Single<(Entity, &mut Node), With<TacticalGroup>>,
+    group: Single<Entity, With<TacticalGroup>>,
     children: Query<&Children>,
     mut texts: ParamSet<(
         Single<&mut Text, With<TacticalCountText>>,
@@ -524,11 +529,7 @@ pub(crate) fn update_tactical_hud(
     )>,
     mut last_empty: Local<Option<bool>>,
 ) {
-    let (group, mut node) = group.into_inner();
-    let display = if weapon.tactical.is_some() { Display::Flex } else { Display::None };
-    if node.display != display {
-        node.display = display;
-    }
+    let group = *group;
     set_text(&mut texts.p0(), weapon.tactical_count().to_string());
     if binds.is_changed() {
         set_text(&mut texts.p1(), binds.tactical.label().to_uppercase());
@@ -557,14 +558,15 @@ pub(crate) fn update_tactical_hud(
 }
 
 /// Swap [`TacticalIcon`]'s texture (both it and its shadow) to match
-/// `Weapon::tactical` whenever it changes.
+/// `Weapon::tactical` whenever it changes — the flash bang's while there's
+/// never been one.
 pub(crate) fn update_tactical_icon(
     weapon: Res<Weapon>,
     asset_server: Res<AssetServer>,
     mut icons: Query<&mut ImageNode, With<TacticalIcon>>,
     mut applied: Local<Option<Lethal>>,
 ) {
-    let Some(tactical) = weapon.tactical else { return };
+    let tactical = weapon.tactical.unwrap_or(Lethal::FlashBang);
     if *applied == Some(tactical) {
         return;
     }

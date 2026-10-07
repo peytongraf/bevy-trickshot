@@ -3,8 +3,8 @@
 //! prompt shown at it, and the menu the interact key opens there — a
 //! TACTICAL and a LETHAL tab, the selected item's name and cost in the
 //! header, what it does under that, a tile for each item the tab sells
-//! (its icon, and how many we carry of the most we can), then PURCHASE,
-//! EXIT and our points. Hover or click a tile to pick it; PURCHASE crafts
+//! (its icon, and how many we carry of the most we can), then EXIT and our
+//! points. Hovering a tile shows it in the header; clicking it crafts
 //! one — the pickup sound, and the server takes the points
 //! ([`shared::BuyEquipment`]) — and the menu stays open for more. It shows
 //! whether the picked item can be bought, is too expensive, or is already
@@ -290,7 +290,7 @@ fn open_crafting_menu(
 #[derive(Resource)]
 struct CraftingMenu {
     tab: Tab,
-    /// The item the header shows and PURCHASE crafts.
+    /// The item the header shows (the one hovered last).
     selected: LethalKind,
     /// EXIT clicked: close once the mouse button's up again, so the click
     /// can't carry on into a shot the moment gameplay input is back.
@@ -354,7 +354,7 @@ fn description(weapon: &Weapon, kind: LethalKind) -> String {
         LethalKind::Molotov => "Explodes on impact, spreading flames over a small area.",
         LethalKind::FlashBang => "Blinds and stuns nearby zombies for a short time.",
         LethalKind::MonkeyBomb => "Attracts normal zombies for a short duration before detonating.",
-        LethalKind::ThrowingKnife => "A knife to throw.",
+        LethalKind::ThrowingKnife => "Retrievable knife that kills normal zombies instantly on impact.",
     };
     let k = Lethal::of(kind);
     let other = if k.is_tactical() { weapon.carried_tactical() } else { weapon.carried_lethal() };
@@ -402,13 +402,8 @@ enum CraftText {
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum CraftButton {
-    Purchase,
     Exit,
 }
-
-/// The PURCHASE control's chip and label, dimmed when there's nothing to buy.
-#[derive(Component)]
-struct PurchaseLabel;
 
 const PANEL_W: f32 = 860.0;
 const TILE: f32 = 130.0;
@@ -438,9 +433,8 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
     if which == CraftButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
     }
-    let purchase = which == CraftButton::Purchase;
     button.with_children(|b| {
-        let mut chip = b.spawn((
+        b.spawn((
             Node {
                 min_width: Val::Px(44.0),
                 height: Val::Px(36.0),
@@ -452,11 +446,8 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
             },
             BorderColor(LIGHT_TEXT),
             BorderRadius::all(Val::Px(18.0)),
-        ));
-        if purchase {
-            chip.insert(PurchaseLabel);
-        }
-        chip.with_child((
+        ))
+        .with_child((
             Text::new(key),
             TextFont {
                 font: heading.clone(),
@@ -465,7 +456,7 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
             },
             TextColor(LIGHT_TEXT),
         ));
-        let mut label = b.spawn((
+        b.spawn((
             Text::new(text),
             TextFont {
                 font: heading.clone(),
@@ -474,9 +465,6 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
             },
             TextColor(LIGHT_TEXT),
         ));
-        if purchase {
-            label.insert(PurchaseLabel);
-        }
     });
 }
 
@@ -725,7 +713,6 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
                                 ..default()
                             })
                             .with_children(|c| {
-                                spawn_control(c, CraftButton::Purchase, "LMB", "PURCHASE", &heading);
                                 spawn_control(c, CraftButton::Exit, "ESC", "EXIT", &heading);
                             });
                             f.spawn((CraftText::Points, Text::new(""), hfont(48.0), TextColor(MONEY_YELLOW)));
@@ -782,8 +769,8 @@ fn crafting_menu_lifecycle(
     }
 }
 
-/// Clicking a tab switches to it; hovering or clicking a tile picks it;
-/// PURCHASE crafts the picked item if we can — the pickup sound and the
+/// Clicking a tab switches to it; hovering a tile picks it (the header
+/// shows it); clicking one crafts it if we can — the pickup sound and the
 /// request, the menu staying open — or plays the denied sound if we can't.
 /// EXIT closes it.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -841,30 +828,26 @@ fn crafting_menu_input(
             hover_sound(&mut commands);
         }
     }
+    // Clicking a tile crafts it.
+    let mut buy = None;
     for (tile, interaction) in &pressed_tiles {
-        if *interaction == Interaction::Pressed && tile.0 != state.selected {
+        if *interaction == Interaction::Pressed {
             state.selected = tile.0;
-            hover_sound(&mut commands);
+            buy = Some(tile.0);
         }
     }
-    let mut buy = false;
     for (button, interaction) in &buttons {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        match button {
-            CraftButton::Purchase => buy = true,
-            CraftButton::Exit => state.close_pending = true,
+        if *interaction == Interaction::Pressed && *button == CraftButton::Exit {
+            state.close_pending = true;
         }
     }
-    if !buy {
+    let Some(kind) = buy else {
         return;
-    }
+    };
     let me = local.iter().next().map(|l| l.0);
     let points = zombies_game(&local, &lobbies)
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
         .map_or(0, |m| m.score);
-    let kind = state.selected;
     let k = Lethal::of(kind);
     let sent = status(&weapon, &state, kind, points) == Status::Buyable
         && sender.single_mut().is_ok_and(|mut s| {
@@ -889,7 +872,7 @@ fn crafting_menu_input(
     }
 }
 
-/// Keep the open menu's tabs, tiles, header, PURCHASE and points matching
+/// Keep the open menu's tabs, tiles, header and points matching
 /// where we stand.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn refresh_crafting_menu(
@@ -901,11 +884,10 @@ fn refresh_crafting_menu(
     mut tabs: Query<(&CraftTab, &Interaction, &mut BackgroundColor, &Children), (Without<CraftTile>, Without<CraftButton>)>,
     mut tiles: Query<(&CraftTile, &Interaction, &mut BackgroundColor, &mut BorderColor), (Without<CraftButton>, Without<CraftTab>)>,
     mut icons: Query<(&CraftTileIcon, &mut ImageNode)>,
-    mut counts: Query<(&CraftTileCount, &mut Text, &mut TextColor), (Without<CraftText>, Without<PurchaseLabel>)>,
+    mut counts: Query<(&CraftTileCount, &mut Text, &mut TextColor), Without<CraftText>>,
     mut frames: Query<(&CraftTileFrame, &mut Visibility)>,
-    mut texts: Query<(&CraftText, &mut Text, &mut TextColor), (Without<CraftTileCount>, Without<PurchaseLabel>)>,
-    mut tab_texts: Query<&mut TextColor, (Without<CraftText>, Without<CraftTileCount>, Without<PurchaseLabel>)>,
-    mut purchase: Query<(Option<&mut TextColor>, Option<&mut BorderColor>), (With<PurchaseLabel>, Without<CraftTile>)>,
+    mut texts: Query<(&CraftText, &mut Text, &mut TextColor), Without<CraftTileCount>>,
+    mut tab_texts: Query<&mut TextColor, (Without<CraftText>, Without<CraftTileCount>)>,
     mut buttons: Query<(&CraftButton, &Interaction, &mut BackgroundColor), (Without<CraftTile>, Without<CraftTab>)>,
 ) {
     if menu.screen != Screen::Crafting {
@@ -987,20 +969,8 @@ fn refresh_crafting_menu(
         }
         color.set_if_neq(TextColor(c));
     }
-    // PURCHASE only lights up when there's something to buy.
-    let live = selected == Status::Buyable;
-    let dim = if live { LIGHT_TEXT } else { LIGHT_TEXT.with_alpha(0.3) };
-    for (text, border) in &mut purchase {
-        if let Some(mut c) = text {
-            c.set_if_neq(TextColor(dim));
-        }
-        if let Some(mut b) = border {
-            b.set_if_neq(BorderColor(dim));
-        }
-    }
-    for (button, interaction, mut bg) in &mut buttons {
-        let on = *button == CraftButton::Exit || live;
-        let c = if on && *interaction != Interaction::None {
+    for (_, interaction, mut bg) in &mut buttons {
+        let c = if *interaction != Interaction::None {
             Color::srgba(1.0, 1.0, 1.0, 0.12)
         } else {
             Color::NONE

@@ -23,7 +23,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Bugs
 
 - When zombies spawn, their body is visible in the center of the map for a split second
-- Game over screen still shows after ending a game and starting another
 
 # Improve
 
@@ -32,6 +31,13 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
+- Perk icons should appear smaller. About 75 percent the size they do now.
+- Exfil round should be on different rounds
+- Dog rounds should give out any random power ups except the ending max ammo
+- When only bosses are left on a round it should go to the next round.
+- Perk drink bottles shouldn't glow and be as bright as they are and should look more realistic. Instead of a glowing green it should look like a normal green bottle.
+- Exfil radio model size should be increased by about 1.3 times
+- Current player damage effect should be dramatic showing more red and blood and the effect should start quicker ( less damage).
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
 - With current wall buy placements on break point, player can jump in between wall and wooden sign and get stuck
 - Make all maps have a day and night setting with just different fog / sky settings
@@ -86,6 +92,7 @@ Everything below is ordered easiest → hardest, within each section.
 - Add footstep sounds for other players
 - Possibly convert audio to wav files.
 - Add pap shot sounds
+- When player is downed a breathing sound should play
 
 ## UI / HUD
 

@@ -1,6 +1,7 @@
 // How big each kind of thing in a Zombies layout is, on every map (1 = as
 // made) — written by the client's level editor. See shared/src/level.rs.
 {
+    "crafting_table": 1.2,
     "mystery_box": 1.5,
     "pack_a_punch": 1.2,
 }

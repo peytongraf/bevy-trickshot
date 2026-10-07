@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "New equipment and AK-74 icons; the tactical slot is always shown.",
         "Zombies: crafting table — buy lethals and tacticals.",
         "Zombies: the monkey bomb is now a tactical (Q).",
         "Zombies: flash bangs — a new tactical (Q) that stuns zombies.",

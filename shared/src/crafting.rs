@@ -1,7 +1,8 @@
 //! The `Zombies` crafting table, Cold War's: placed in the level editor
 //! ([`crate::level::ZombiesLayout::crafting_table`]), it sells equipment one
-//! at a time for points — the lethals (frag, molotov) and the tacticals
-//! (flash bang, monkey bomb) — at Cold War's crafting prices ([`cost`]).
+//! at a time for points — the lethals (throwing knife, frag, molotov) and
+//! the tacticals (flash bang, monkey bomb) — at Cold War's crafting prices
+//! ([`cost`]).
 //! Crafting a kind other than the one carried of its sort swaps to it, the
 //! old ones dropped (`crate::lethal`).
 //!
@@ -32,7 +33,7 @@ pub enum Tab {
 
 /// What the table sells, tab by tab, in the order its tiles show.
 pub const TACTICALS: [LethalKind; 2] = [LethalKind::FlashBang, LethalKind::MonkeyBomb];
-pub const LETHALS: [LethalKind; 2] = [LethalKind::Frag, LethalKind::Molotov];
+pub const LETHALS: [LethalKind; 3] = [LethalKind::ThrowingKnife, LethalKind::Frag, LethalKind::Molotov];
 
 /// What `tab` sells.
 pub fn items(tab: Tab) -> &'static [LethalKind] {
@@ -50,7 +51,8 @@ pub fn cost(kind: LethalKind) -> Option<u32> {
         // (Cold War's stun grenade — its flash.)
         LethalKind::FlashBang => Some(250),
         LethalKind::MonkeyBomb => Some(1000),
-        LethalKind::ThrowingKnife => None,
+        // (Cold War has none — priced like its other common lethals.)
+        LethalKind::ThrowingKnife => Some(250),
     }
 }
 
@@ -96,7 +98,7 @@ mod tests {
         }
         assert_eq!(cost(LethalKind::Frag), Some(250));
         assert_eq!(cost(LethalKind::MonkeyBomb), Some(1000));
-        assert_eq!(cost(LethalKind::ThrowingKnife), None);
+        assert_eq!(cost(LethalKind::ThrowingKnife), Some(250));
         for kind in TACTICALS.into_iter().chain(LETHALS) {
             assert!(cost(kind).is_some());
         }
