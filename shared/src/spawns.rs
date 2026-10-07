@@ -98,6 +98,28 @@ pub fn has_start_spawn(mode: GameMode, map: MapId) -> bool {
     designated_spawns(map).is_some() || mode != GameMode::Freestyle
 }
 
+/// A `Zombies` player's start spot on `map`, from the spots its layout has
+/// (`crate::level::ZombiesLayout::player_spawns`, placed in the level
+/// editor): a random one nobody in `taken` is on yet (any of them, once
+/// they're all taken), facing the way it's turned. `None` if it has none.
+pub fn zombies_start(map: MapId, seed: u64, taken: &[Vec3]) -> Option<(Vec3, f32)> {
+    let spots = &crate::level::layout(map).player_spawns;
+    if spots.is_empty() {
+        return None;
+    }
+    let free: Vec<_> = spots
+        .iter()
+        .filter(|s| taken.iter().all(|t| t.distance(s.pos) > 0.5))
+        .collect();
+    let pick = if free.is_empty() {
+        &spots[(rand01(seed) * spots.len() as f32) as usize % spots.len()]
+    } else {
+        free[(rand01(seed) * free.len() as f32) as usize % free.len()]
+    };
+    // (A placement's turn faces +Z at 0; a player's yaw faces -Z.)
+    Some((pick.pos, (pick.yaw_deg + 180.0).to_radians()))
+}
+
 pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
     match map {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),

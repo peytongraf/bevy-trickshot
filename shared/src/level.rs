@@ -1,7 +1,7 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
 //! crate, the power switch, the wall buys, the Mystery Box, the armor
-//! station and the exfil (its radio and area).
+//! station, the exfil (its radio and area) and where the players start.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -236,7 +236,17 @@ pub struct ZombiesLayout {
     /// The area the party has to hold during an exfil.
     #[serde(default)]
     pub exfil_area: Option<ExfilArea>,
+    /// Where the players start a game: each is put on a different one, at
+    /// random (`crate::spawns::zombies_start`) — up to
+    /// [`MAX_PLAYER_SPAWNS`], one per player a lobby can hold. None, and
+    /// they start where the other modes would put them.
+    #[serde(default)]
+    pub player_spawns: Vec<Placement>,
 }
+
+/// Most player start spots a layout keeps — as many players as a lobby
+/// holds.
+pub const MAX_PLAYER_SPAWNS: usize = 8;
 
 impl ZombiesLayout {
     /// Where `perk`'s machine stands. (A perk missing from the file stands
@@ -340,6 +350,11 @@ impl ZombiesLayout {
             "    exfil_area: {},\n",
             self.exfil_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
         );
+        out += "    player_spawns: [\n";
+        for at in &self.player_spawns {
+            out += &format!("        {},\n", at.with_scale(1.0).to_ron());
+        }
+        out += "    ],\n";
         out += ")\n";
         out
     }

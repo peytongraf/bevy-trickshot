@@ -1,7 +1,8 @@
 //! The `Zombies` level editor — main menu → LEVEL EDITOR
 //! ([`AppState::LevelEditor`]). It places everything a `Zombies` game puts on
 //! a map (the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo crate,
-//! the power switch, the wall buys, the exfil radio and area) and saves each map's layout to its file in
+//! the power switch, the wall buys, the exfil radio and area, the players'
+//! start spots) and saves each map's layout to its file in
 //! `shared/levels/` (`shared::level`), which the client and the server both
 //! build in — rebuild them to play the new layout.
 //!
@@ -122,6 +123,9 @@ pub(crate) enum ObjectId {
     ExfilArea,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
+    /// A players' start spot (`ZombiesLayout::player_spawns`, by index) —
+    /// as many as players a lobby holds, each player dealt a different one.
+    PlayerSpawn(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -154,6 +158,18 @@ impl ObjectId {
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
 
+    /// Names for the start spots ([`ObjectId::PlayerSpawn`]).
+    const SPAWN_LABELS: [&'static str; shared::level::MAX_PLAYER_SPAWNS] = [
+        "Player spawn 1",
+        "Player spawn 2",
+        "Player spawn 3",
+        "Player spawn 4",
+        "Player spawn 5",
+        "Player spawn 6",
+        "Player spawn 7",
+        "Player spawn 8",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -171,6 +187,7 @@ impl ObjectId {
             ObjectId::ExfilArea => "Exfil area",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
+            ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -180,7 +197,10 @@ impl ObjectId {
     /// the wall buys (every sign's one size, `shared::wall_buy::SIGN_SCALE`)
     /// or the exfil area (its width and depth are its own).
     pub(crate) fn scalable(self) -> bool {
-        !matches!(self, ObjectId::Reference(_) | ObjectId::WallBuy(_) | ObjectId::ExfilArea)
+        !matches!(
+            self,
+            ObjectId::Reference(_) | ObjectId::WallBuy(_) | ObjectId::ExfilArea | ObjectId::PlayerSpawn(_)
+        )
     }
 
     /// Its kind's key in the sizes every map shares
@@ -196,7 +216,7 @@ impl ObjectId {
             ObjectId::MysteryBox => Some("mystery_box".into()),
             ObjectId::ArmorStation => Some("armor_station".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
-            ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) => None,
+            ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => None,
         }
     }
 
@@ -207,7 +227,7 @@ impl ObjectId {
 
     /// Whether it can be added and removed (everything but the machines).
     pub(crate) fn is_optional(self) -> bool {
-        Self::OPTIONAL.contains(&self) || self.is_reference()
+        Self::OPTIONAL.contains(&self) || self.is_reference() || matches!(self, ObjectId::PlayerSpawn(_))
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
@@ -259,6 +279,7 @@ impl ObjectId {
             ObjectId::ExfilRadio => layout.exfil_radio,
             ObjectId::ExfilArea => layout.exfil_area.map(|a| a.at),
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
+            ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
         }
     }
 
@@ -270,6 +291,16 @@ impl ObjectId {
             ObjectId::Wunderfizz => layout.wunderfizz = at,
             ObjectId::WallBuy(gun) => layout.set_wall_buy(gun, at),
             // (Keeping its size; a new one's the default size.)
+            // (A new one goes on the end.)
+            ObjectId::PlayerSpawn(i) => {
+                let at = at.with_scale(1.0);
+                let spots = &mut layout.player_spawns;
+                if let Some(spot) = spots.get_mut(i as usize) {
+                    *spot = at;
+                } else if spots.len() < shared::level::MAX_PLAYER_SPAWNS {
+                    spots.push(at);
+                }
+            }
             ObjectId::ExfilArea => match layout.exfil_area.as_mut() {
                 Some(area) => area.at = at.with_scale(1.0),
                 None => layout.exfil_area = Some(ExfilArea::new(at)),
@@ -285,6 +316,10 @@ impl ObjectId {
     fn remove_in(self, layout: &mut ZombiesLayout) -> bool {
         if self == ObjectId::ExfilArea {
             return layout.exfil_area.take().is_some();
+        }
+        if let ObjectId::PlayerSpawn(i) = self {
+            let i = i as usize;
+            return (i < layout.player_spawns.len()).then(|| layout.player_spawns.remove(i)).is_some();
         }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
@@ -311,6 +346,7 @@ impl ObjectId {
             ObjectId::ExfilArea => crate::exfil::EXFIL_ORANGE,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
+            ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
         }
     }
 
@@ -324,6 +360,8 @@ impl ObjectId {
             ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
             // (Not used — stood in. See `draw_gizmos`' rectangle.)
             ObjectId::ExfilArea => 0.0,
+            // (Not used — stood on. Its circle's about a body's width.)
+            ObjectId::PlayerSpawn(_) => 0.4,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -364,7 +402,9 @@ impl ObjectId {
             // The sign: post and board.
             ObjectId::WallBuy(_) => (Vec3::new(-0.02, 1.3, 0.0), Vec3::new(1.0, 1.5, 0.15)),
             // A person: the in-game body's height.
-            ObjectId::Reference(_) => standing(Vec3::new(0.35, crate::EYE_HEIGHT * 0.5 + 0.1, 0.25)),
+            ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => {
+                standing(Vec3::new(0.35, crate::EYE_HEIGHT * 0.5 + 0.1, 0.25))
+            }
             ObjectId::PowerSwitch => {
                 let top = lever.offset.y + 0.4;
                 (Vec3::new(lever.offset.x, top * 0.5, lever.offset.z), Vec3::new(0.35, top * 0.5, 0.25))
@@ -379,12 +419,9 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     if set == PerkSet::Classic {
         out.push(ObjectId::Wunderfizz);
     }
-    out.extend(
-        ObjectId::OPTIONAL
-            .into_iter()
-            .chain(ObjectId::REFERENCES)
-            .filter(|o| o.get(doc).is_some()),
-    );
+    out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(doc).is_some()));
+    out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
+    out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
 
@@ -885,7 +922,8 @@ fn model_of(
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).
-        ObjectId::Reference(RefKind::Player) => (
+        // (A start spot shows who'll stand there.)
+        ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) => (
             "models/characters/soldier.glb",
             Transform::from_scale(Vec3::splat(avatars.0.scale)),
         ),
@@ -946,7 +984,7 @@ fn sync_objects(
         let scene = SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
         // The stand-ins stand idling, as in game.
         match id {
-            ObjectId::Reference(RefKind::Player) => {
+            ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) => {
                 object.with_children(|o| {
                     o.spawn((crate::SoldierVisual, scene, offset)).observe(crate::start_soldier_animation);
                 });

@@ -604,7 +604,7 @@ pub(crate) fn player_view(
     let at = id.get(editor.doc())?;
     let (center, rot, half) = id.world_box(at, lever);
     let (eye, target) = match id {
-        ObjectId::Reference(super::RefKind::Player) => {
+        ObjectId::Reference(super::RefKind::Player) | ObjectId::PlayerSpawn(_) => {
             let eye = at.pos + Vec3::Y * crate::EYE_HEIGHT;
             (eye, eye + rot * Vec3::Z * 5.0)
         }
@@ -657,7 +657,11 @@ pub(crate) fn drop_to_ground(editor: &mut Editor, rapier: &ReadRapierContext, no
 pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     let before = editor.doc().layout.clone();
     let mut kept = false;
-    for id in editor.selected.clone() {
+    // (Start spots last-first, so taking one out doesn't shift the rest
+    // before they go.)
+    let mut ids = editor.selected.clone();
+    ids.sort_by_key(|id| std::cmp::Reverse(if let ObjectId::PlayerSpawn(i) = id { *i as i32 } else { -1 }));
+    for id in ids {
         if !id.remove(editor.doc_mut()) {
             kept = true;
         }

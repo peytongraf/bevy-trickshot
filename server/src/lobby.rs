@@ -378,7 +378,13 @@ fn on_start(
             let seed = time.elapsed().as_nanos() as u64
                 ^ member.peer.to_bits()
                 ^ lobby_entity.to_bits();
-            let (pos, yaw) = shared::spawns::spawn_point(seed, &taken_spawns, lobby.map);
+            // (`Zombies`: one of the map's own start spots, if the level
+            // editor's given it some — each player a different one.)
+            let zombies = (mode == GameMode::Zombies)
+                .then(|| shared::spawns::zombies_start(lobby.map, seed, &taken_spawns))
+                .flatten();
+            let (pos, yaw) =
+                zombies.unwrap_or_else(|| shared::spawns::spawn_point(seed, &taken_spawns, lobby.map));
             taken_spawns.push(pos);
             (pos, yaw)
         });

@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: players start on each map's own spawn spots.",
         "Zombies: frag grenades — cook them, but don't hold on too long.",
         "Fixed the results screen coming back in the next game.",
         "Zombies: a short pause before the results screen.",

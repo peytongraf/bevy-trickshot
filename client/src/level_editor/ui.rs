@@ -145,8 +145,19 @@ fn menu_bar(
                     .chain(ObjectId::REFERENCES)
                     .filter(|o| o.get(ed.doc()).is_none())
                     .collect();
+                // (Start spots: as many as a lobby holds players.)
+                let spawns = ed.doc().layout.player_spawns.len();
+                let max = shared::level::MAX_PLAYER_SPAWNS;
+                if ui
+                    .add_enabled(spawns < max, egui::Button::new(format!("Player spawn  ({spawns}/{max})")))
+                    .on_hover_text("Where players start a Zombies game — each is put on a different one, at random")
+                    .clicked()
+                {
+                    input::add_at_view(ed, ObjectId::PlayerSpawn(spawns as u8), rapier);
+                    ui.close();
+                }
                 if missing.is_empty() {
-                    ui.label("Everything's on this map — perk machines can only be moved.");
+                    ui.label("Everything else is on this map — perk machines can only be moved.");
                 }
                 for id in missing {
                     if ui.button(id.label()).clicked() {
@@ -449,6 +460,15 @@ fn properties(
             ui.add_space(6.0);
             if id == ObjectId::ExfilArea {
                 ui.colored_label(DIM, "During an exfil, only kills from inside it count");
+            } else if let ObjectId::PlayerSpawn(_) = id {
+                ui.colored_label(
+                    DIM,
+                    format!(
+                        "A player starts here, facing its arrow ({} of {} placed — each player gets a different one, at random)",
+                        ed.doc().layout.player_spawns.len(),
+                        shared::level::MAX_PLAYER_SPAWNS
+                    ),
+                );
             } else {
                 ui.colored_label(DIM, format!("Used from within {:.1} m", id.use_radius()));
             }

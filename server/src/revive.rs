@@ -260,7 +260,8 @@ fn run_last_stands(
                     let to = near - pos;
                     (pos, f32::atan2(-to.x, -to.z))
                 }
-                None => shared::spawns::spawn_point(seed, &[], lobby.map),
+                None => shared::spawns::zombies_start(lobby.map, seed, &[])
+                    .unwrap_or_else(|| shared::spawns::spawn_point(seed, &[], lobby.map)),
             };
             if let Some((.., mut combat, _)) = players.iter_mut().find(|(id, ..)| id.0 == peer) {
                 combat.respawn(now);

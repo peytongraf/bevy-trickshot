@@ -27,4 +27,14 @@
     armor_station: Some((pos: (8.4, 0.0, -59.15), yaw_deg: 0.0)),
     exfil_radio: Some((pos: (-8.0, 0.0, -47.2), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
+    player_spawns: [
+        (pos: (-10.95, 0.0, -41.3), yaw_deg: 98.3),
+        (pos: (-10.6, 0.0, -37.821), yaw_deg: 75.5),
+        (pos: (-12.5, 0.0, -38.85), yaw_deg: 90.0),
+        (pos: (-12.2, 0.0, -40.4), yaw_deg: 98.0),
+        (pos: (-10.4, 0.0, -39.1), yaw_deg: 89.0),
+        (pos: (-11.35, 0.0, -36.2), yaw_deg: 68.5),
+        (pos: (-12.75, 0.0, -36.8), yaw_deg: 80.0),
+        (pos: (-11.9, 0.0, -42.05), yaw_deg: 82.5),
+    ],
 )
