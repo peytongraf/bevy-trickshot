@@ -207,6 +207,10 @@ pub struct BombBlast {
 pub struct ZombieKilled {
     pub lobby: Entity,
     pub feet: Vec3,
+    /// Who killed it (for an exfil: were they in its area?), and which
+    /// zombie it was.
+    pub killer: PeerId,
+    pub victim: PeerId,
 }
 
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
@@ -430,6 +434,8 @@ pub(crate) fn apply_player_hits(
                         zombie_kills.write(ZombieKilled {
                             lobby: lobby_e,
                             feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
+                            killer: ev.killer,
+                            victim: ev.victim,
                         });
                     }
                 }

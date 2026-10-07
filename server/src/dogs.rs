@@ -70,7 +70,8 @@ fn bring_in_dogs(
         if lobby.paused {
             continue;
         }
-        let round = rounds.round;
+        // (An exfil's are tougher.)
+        let round = rounds.enemy_round();
         let mut i = 0;
         while i < rounds.pending_dogs.len() {
             let dog = &mut rounds.pending_dogs[i];

@@ -1151,6 +1151,12 @@ fn results_screen(
     };
     commands
         .spawn((
+            // (`MenuRoot`, so CONTINUE's rebuild takes it down — without it,
+            // it lingered under the lobby room and came back in the next game.)
+            MenuRoot,
+            GlobalZIndex(50),
+            // (And never outlives the game it's the results of.)
+            StateScoped(AppState::InGame),
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -1299,6 +1305,16 @@ fn grouped(n: u32) -> String {
     out
 }
 
+/// Rounds a finished `Zombies` game survived: every one before the round
+/// it ended on — that one too, if the party exfilled out of it.
+pub(crate) fn survived_rounds(lobby: &shared::Lobby) -> u32 {
+    if lobby.exfil == shared::exfil::Exfil::Escaped {
+        lobby.round
+    } else {
+        lobby.round.saturating_sub(1)
+    }
+}
+
 fn build_match_results(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -1316,8 +1332,14 @@ fn build_match_results(
     let is_me = |m: &shared::LobbyMember| Some(m.peer) == me;
 
     if lobby.mode == shared::GameMode::Zombies {
-        // Down during round N: N - 1 rounds fully survived.
-        let survived = lobby.round.saturating_sub(1);
+        // Down during round N: N - 1 rounds fully survived — and the same
+        // when an exfil ran out of time. An exfil escaped counts its round.
+        let survived = survived_rounds(lobby);
+        let headline = match lobby.exfil {
+            shared::exfil::Exfil::Escaped => ("SUCCESSFUL EXFIL", VICTORY),
+            shared::exfil::Exfil::Failed => ("EXFIL FAILED", DEFEAT),
+            _ => ("GAME OVER", RESULTS_TITLE),
+        };
         let rows: Vec<ResultRow> = members
             .iter()
             .map(|m| ResultRow {
@@ -1335,7 +1357,7 @@ fn build_match_results(
         results_screen(
             commands,
             asset_server,
-            ("GAME OVER", RESULTS_TITLE),
+            headline,
             &format!("YOU SURVIVED {survived} ROUND{}", if survived == 1 { "" } else { "S" }),
             &["SCORE", "KILLS", "CRITICAL KILLS", "REVIVES", "DOWNS"],
             &rows,

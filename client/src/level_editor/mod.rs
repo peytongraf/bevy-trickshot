@@ -1,7 +1,7 @@
 //! The `Zombies` level editor — main menu → LEVEL EDITOR
 //! ([`AppState::LevelEditor`]). It places everything a `Zombies` game puts on
 //! a map (the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo crate,
-//! the power switch, the wall buys) and saves each map's layout to its file in
+//! the power switch, the wall buys, the exfil radio and area) and saves each map's layout to its file in
 //! `shared/levels/` (`shared::level`), which the client and the server both
 //! build in — rebuild them to play the new layout.
 //!
@@ -39,7 +39,7 @@ use bevy::pbr::FogFalloff;
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_egui::EguiPrimaryContextPass;
-use shared::level::{ObjectSizes, Placement, ZombiesLayout};
+use shared::level::{ExfilArea, ObjectSizes, Placement, ZombiesLayout};
 use shared::perks::{Perk, PerkSet};
 use shared::weapon::WeaponId;
 use shared::MapId;
@@ -115,6 +115,11 @@ pub(crate) enum ObjectId {
     PowerSwitch,
     MysteryBox,
     ArmorStation,
+    /// The exfil's radio...
+    ExfilRadio,
+    /// ...and the area the party has to hold (a rectangle: its middle and
+    /// turn are its placement, its width and depth the properties panel's).
+    ExfilArea,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
     /// A stand-in model, just to judge sizes against — never saved.
@@ -137,12 +142,14 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 7] = [
+    pub(crate) const OPTIONAL: [ObjectId; 9] = [
         ObjectId::PackAPunch,
         ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
         ObjectId::MysteryBox,
         ObjectId::ArmorStation,
+        ObjectId::ExfilRadio,
+        ObjectId::ExfilArea,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
@@ -160,6 +167,8 @@ impl ObjectId {
             ObjectId::PowerSwitch => "Power switch",
             ObjectId::MysteryBox => "Mystery Box",
             ObjectId::ArmorStation => "Armor station",
+            ObjectId::ExfilRadio => "Exfil radio",
+            ObjectId::ExfilArea => "Exfil area",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
@@ -167,10 +176,11 @@ impl ObjectId {
         }
     }
 
-    /// Whether its size can be changed — not the stand-ins (the yardstick)
-    /// or the wall buys (every sign's one size, `shared::wall_buy::SIGN_SCALE`).
+    /// Whether its size can be changed — not the stand-ins (the yardstick),
+    /// the wall buys (every sign's one size, `shared::wall_buy::SIGN_SCALE`)
+    /// or the exfil area (its width and depth are its own).
     pub(crate) fn scalable(self) -> bool {
-        !matches!(self, ObjectId::Reference(_) | ObjectId::WallBuy(_))
+        !matches!(self, ObjectId::Reference(_) | ObjectId::WallBuy(_) | ObjectId::ExfilArea)
     }
 
     /// Its kind's key in the sizes every map shares
@@ -185,7 +195,8 @@ impl ObjectId {
             ObjectId::PowerSwitch => Some("power_switch".into()),
             ObjectId::MysteryBox => Some("mystery_box".into()),
             ObjectId::ArmorStation => Some("armor_station".into()),
-            ObjectId::WallBuy(_) | ObjectId::Reference(_) => None,
+            ObjectId::ExfilRadio => Some("exfil_radio".into()),
+            ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) => None,
         }
     }
 
@@ -206,6 +217,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
             ObjectId::MysteryBox => Some(&mut layout.mystery_box),
             ObjectId::ArmorStation => Some(&mut layout.armor_station),
+            ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
             _ => None,
         }
     }
@@ -244,6 +256,8 @@ impl ObjectId {
             ObjectId::PowerSwitch => layout.power_switch,
             ObjectId::MysteryBox => layout.mystery_box,
             ObjectId::ArmorStation => layout.armor_station,
+            ObjectId::ExfilRadio => layout.exfil_radio,
+            ObjectId::ExfilArea => layout.exfil_area.map(|a| a.at),
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
         }
     }
@@ -255,6 +269,11 @@ impl ObjectId {
             }
             ObjectId::Wunderfizz => layout.wunderfizz = at,
             ObjectId::WallBuy(gun) => layout.set_wall_buy(gun, at),
+            // (Keeping its size; a new one's the default size.)
+            ObjectId::ExfilArea => match layout.exfil_area.as_mut() {
+                Some(area) => area.at = at.with_scale(1.0),
+                None => layout.exfil_area = Some(ExfilArea::new(at)),
+            },
             other => {
                 if let Some(slot) = other.slot(layout) {
                     *slot = Some(at);
@@ -264,6 +283,9 @@ impl ObjectId {
     }
 
     fn remove_in(self, layout: &mut ZombiesLayout) -> bool {
+        if self == ObjectId::ExfilArea {
+            return layout.exfil_area.take().is_some();
+        }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
             layout.wall_buys.retain(|w| w.weapon != gun);
@@ -285,6 +307,8 @@ impl ObjectId {
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
             ObjectId::MysteryBox => crate::mystery_box::AMBER,
             ObjectId::ArmorStation => crate::armor::ARMOR_BLUE,
+            ObjectId::ExfilRadio => crate::exfil::EXFIL_BLUE,
+            ObjectId::ExfilArea => crate::exfil::EXFIL_ORANGE,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
         }
@@ -297,6 +321,9 @@ impl ObjectId {
             ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
             ObjectId::MysteryBox => shared::mystery_box::USE_RADIUS,
             ObjectId::ArmorStation => shared::armor::USE_RADIUS,
+            ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
+            // (Not used — stood in. See `draw_gizmos`' rectangle.)
+            ObjectId::ExfilArea => 0.0,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -328,6 +355,10 @@ impl ObjectId {
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
             ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
             ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
+            ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
+            // The area's middle: a marker to grab it by (its rectangle's
+            // drawn round it, `input::draw_gizmos`).
+            ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
             // The sign: post and board.
@@ -839,8 +870,8 @@ fn model_of(
     ammo: &AmmoCrateSettings,
     lever: &PowerLeverSettings,
     avatars: &(Res<crate::RemoteAvatarSettings>, Res<crate::ZombieAvatarSettings>),
-) -> (&'static str, Transform) {
-    match id {
+) -> Option<(&'static str, Transform)> {
+    Some(match id {
         ObjectId::Perk(p) => (machine_model(p).0, machines.model_transform(p)),
         ObjectId::Wunderfizz => (WUNDERFIZZ_MODEL, machines.wunderfizz_model_transform()),
         ObjectId::PackAPunch => (PAP_MODEL, pap.model_transform()),
@@ -848,6 +879,9 @@ fn model_of(
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
         ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
         ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),
+        ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
+        // (No model — just its marker and rectangle.)
+        ObjectId::ExfilArea => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).
@@ -860,7 +894,7 @@ fn model_of(
             Transform::from_scale(Vec3::splat(avatars.1.scale.max(0.001)))
                 .with_rotation(Quat::from_rotation_y((avatars.1.yaw_offset_deg - 180.0).to_radians())),
         ),
-    }
+    })
 }
 
 fn root_transform(at: Placement) -> Transform {
@@ -900,13 +934,15 @@ fn sync_objects(
             continue;
         }
         let Some(at) = id.get(doc) else { continue };
-        let (model, offset) = model_of(id, &machines, &pap, &ammo, &lever, &avatars);
         let mut object = commands.spawn((
             StateScoped(AppState::LevelEditor),
             EditorObject(id),
             root_transform(at),
             Visibility::default(),
         ));
+        let Some((model, offset)) = model_of(id, &machines, &pap, &ammo, &lever, &avatars) else {
+            continue;
+        };
         let scene = SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
         // The stand-ins stand idling, as in game.
         match id {

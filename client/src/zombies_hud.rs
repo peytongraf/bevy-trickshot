@@ -333,7 +333,7 @@ fn spawn_counter_panel(
             padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+        BackgroundColor(COUNTER_BG),
         BorderRadius::all(Val::Px(6.0)),
         Visibility::Hidden,
     ))
@@ -518,16 +518,24 @@ fn update_pregame_countdown(
     color.set_if_neq(TextColor(c));
 }
 
+/// The counter panel's own look...
+const COUNTER_BG: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
+/// ...and "enemies left"'s during an exfil (`crate::exfil`): white at the
+/// same opacity, its text dark red.
+const EXFIL_COUNTER_BG: Color = Color::srgba(1.0, 1.0, 1.0, 0.45);
+const EXFIL_COUNTER_TEXT: Color = Color::srgb(0.45, 0.02, 0.02);
+
 fn update_enemies_left(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut root: Single<&mut Visibility, With<EnemiesLeftRoot>>,
+    root: Single<(&mut Visibility, &mut BackgroundColor, &Children), With<EnemiesLeftRoot>>,
     mut count: Single<&mut Text, With<EnemiesLeftCount>>,
+    mut colors: Query<&mut TextColor>,
 ) {
-    let left = zombies_game(&local, &lobbies)
-        .filter(|l| l.round > 0)
-        .map(|l| l.enemies_left);
-    root.set_if_neq(if left.is_some() {
+    let lobby = zombies_game(&local, &lobbies).filter(|l| l.round > 0);
+    let left = lobby.map(|l| l.enemies_left);
+    let (mut vis, mut bg, children) = root.into_inner();
+    vis.set_if_neq(if left.is_some() {
         Visibility::Inherited
     } else {
         Visibility::Hidden
@@ -535,6 +543,20 @@ fn update_enemies_left(
     let wanted = left.map(|n| n.to_string()).unwrap_or_default();
     if count.0 != wanted {
         count.0 = wanted;
+    }
+    // Its exfil look while the exfil's running.
+    let exfil = lobby.is_some_and(|l| l.exfil.running());
+    let (back, label, number) = if exfil {
+        (EXFIL_COUNTER_BG, EXFIL_COUNTER_TEXT, EXFIL_COUNTER_TEXT)
+    } else {
+        (COUNTER_BG, Color::srgba(1.0, 1.0, 1.0, 0.7), Color::WHITE)
+    };
+    bg.set_if_neq(BackgroundColor(back));
+    // (The label's the first child, the number the second.)
+    for (i, child) in children.iter().enumerate() {
+        if let Ok(mut c) = colors.get_mut(child) {
+            c.set_if_neq(TextColor(if i == 0 { label } else { number }));
+        }
     }
 }
 

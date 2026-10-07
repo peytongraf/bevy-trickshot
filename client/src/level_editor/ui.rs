@@ -375,6 +375,11 @@ fn properties(
             let before = ed.doc().layout.clone();
             let mut edited = at;
             let mut editing = false;
+            // The exfil area's size (its own, not a kind's).
+            let area_size = (id == ObjectId::ExfilArea)
+                .then(|| ed.doc().layout.exfil_area.map(|a| (a.width, a.depth)))
+                .flatten();
+            let mut size = area_size.unwrap_or_default();
             egui::Grid::new("level_editor_fields").num_columns(2).show(ui, |ui| {
                 for (label, v) in [("X", &mut edited.pos.x), ("Y", &mut edited.pos.y), ("Z", &mut edited.pos.z)] {
                     ui.label(label);
@@ -414,8 +419,25 @@ fn properties(
                     });
                     ui.end_row();
                 }
+                if area_size.is_some() {
+                    for (label, v) in [("Width", &mut size.0), ("Depth", &mut size.1)] {
+                        ui.label(label);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(0.1).range(1.0..=200.0).suffix(" m").max_decimals(2),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                }
             });
-            if edited != at {
+            let resized = area_size.is_some_and(|s| s != size);
+            if resized {
+                if let Some(area) = ed.doc_mut().layout.exfil_area.as_mut() {
+                    (area.width, area.depth) = size;
+                }
+            }
+            if edited != at || resized {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -425,7 +447,11 @@ fn properties(
             ed.inspector_editing = editing;
 
             ui.add_space(6.0);
-            ui.colored_label(DIM, format!("Used from within {:.1} m", id.use_radius()));
+            if id == ObjectId::ExfilArea {
+                ui.colored_label(DIM, "During an exfil, only kills from inside it count");
+            } else {
+                ui.colored_label(DIM, format!("Used from within {:.1} m", id.use_radius()));
+            }
             ui.add_space(6.0);
             ui.add_enabled_ui(!busy, |ui| {
                 if ui.button("View as a player  (0)").clicked() {

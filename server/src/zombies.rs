@@ -21,6 +21,10 @@
 //! `crate::boss` strikes it in and runs its blasts. The round isn't over
 //! until it's dead.
 //!
+//! Every tenth round the party can call the exfil instead (`crate::exfil`):
+//! the round's enemies are cleared away and its wave is sent from here, kept
+//! topped up to exactly the kills still needed.
+//!
 //! Scoring and the game ending (any member dying) live in `pvp`; the round
 //! number is replicated as `Lobby::round` for the HUD and results screen.
 
@@ -31,6 +35,7 @@ use lightyear::prelude::*;
 
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
+use shared::exfil::Exfil;
 use shared::{
     AmmoBought, BuyAmmo, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
     PlayerName, PlayerPose, ProneAtPerk, ProneBonus,
@@ -137,6 +142,8 @@ pub(crate) struct ZombieRounds {
     /// due ([`shared::boss::BOSS_ROUND_DELAY_SECS`] into the round)...
     bosses_to_spawn: u32,
     boss_due_at: f32,
+    /// The exfil, once it's called (`crate::exfil`) — this round's last.
+    pub(crate) exfil: Option<crate::exfil::ExfilRun>,
     /// ...and the ones struck in but not here yet (`crate::boss`; the
     /// leader's debug button queues them here too).
     pub(crate) pending_bosses: Vec<crate::boss::PendingBoss>,
@@ -153,6 +160,14 @@ pub(crate) struct ZombieRounds {
     /// Perk machines whose prone bonus has been claimed this game
     /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
     prone_claimed: Vec<shared::perks::Perk>,
+}
+
+impl ZombieRounds {
+    /// The round its zombies and dogs are as tough as: the round's own, or
+    /// a few above it for an exfil's wave.
+    pub(crate) fn enemy_round(&self) -> u32 {
+        self.round + if self.exfil.is_some() { shared::exfil::ROUND_BOOST } else { 0 }
+    }
 }
 
 pub struct ZombiesPlugin;
@@ -183,14 +198,19 @@ impl Plugin for ZombiesPlugin {
 pub(crate) fn run_rounds(
     time: Res<Time>,
     navs: Res<NavGraphs>,
-    endings: Res<crate::killcam::EndingLobbies>,
+    clock: Res<crate::killcam::ReplayClock>,
+    mut endings: ResMut<crate::killcam::EndingLobbies>,
     mut next_id: ResMut<NextBotId>,
+    mut kills: EventReader<crate::pvp::ZombieKilled>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
-    zombies: Query<(&LobbyPlayer, &PlayerCombat), With<Zombie>>,
+    zombies: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<crate::boss::Boss>), With<Zombie>>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
+    // This tick's kills, for an exfil to count (read here, with the deaths
+    // they go with, so the two always agree).
+    let kills: Vec<(Entity, PeerId, PeerId)> = kills.read().map(|k| (k.lobby, k.killer, k.victim)).collect();
     for (lobby_e, mut lobby, rounds) in &mut lobbies {
         if !lobby.started || lobby.mode != GameMode::Zombies {
             if rounds.is_some() {
@@ -219,6 +239,9 @@ pub(crate) fn run_rounds(
                 for boss in &mut rounds.pending_bosses {
                     boss.spawn_at += time.delta_secs();
                 }
+                if let Some(exfil) = rounds.exfil.as_mut() {
+                    exfil.pause(time.delta_secs());
+                }
             }
             continue;
         }
@@ -234,6 +257,7 @@ pub(crate) fn run_rounds(
                 bosses_to_spawn: 0,
                 boss_due_at: now,
                 pending_bosses: Vec::new(),
+                exfil: None,
                 countdown_left: countdown as f32,
                 to_spawn: 0,
                 next_spawn_at: now,
@@ -266,50 +290,129 @@ pub(crate) fn run_rounds(
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
         }
-        if now < rounds.break_until {
-            continue;
-        }
+        // (Its fields borrowed apart below.)
+        let rounds: &mut ZombieRounds = &mut rounds;
+        // An exfil called: its own wave instead of the round's (see
+        // `crate::exfil`).
+        if let Some(exfil) = rounds.exfil.as_mut() {
+            // The kills from inside the area count.
+            if let Some((_, area)) = shared::exfil::layout(lobby.map) {
+                for &(_, killer, victim) in kills.iter().filter(|(l, ..)| *l == lobby_e) {
+                    let inside = players
+                        .iter()
+                        .find(|(id, ..)| id.0 == killer)
+                        .is_some_and(|(_, pose, ..)| area.contains(pose.translation - Vec3::Y * EYE_HEIGHT));
+                    let boss = zombies.iter().any(|(_, id, _, _, boss)| id.0 == victim && boss);
+                    exfil.count_kill(inside, boss);
+                }
+            }
+            // Half-way into the white-out: the round's enemies go.
+            if exfil.wants_clear(now) {
+                for (e, _, lp, ..) in &zombies {
+                    if lp.lobby == lobby_e {
+                        commands.entity(e).try_despawn();
+                    }
+                }
+                exfil.clear_round(&mut rounds.to_spawn);
+                rounds.pending_dogs.clear();
+                rounds.pending_bosses.clear();
+                rounds.bosses_to_spawn = 0;
+                rounds.last_dog_at = None;
+                lobby.enemies_left = 0;
+                lobby.enemies_active = 0;
+                continue;
+            }
+            let exfil = rounds.exfil.as_mut().expect("checked above");
+            if exfil.begin_if_due(now).is_some() {
+                rounds.next_spawn_at = now;
+                rounds.boss_due_at = now;
+                rounds.break_until = now;
+                info!("lobby {lobby_e:?}: the exfil wave is on");
+            }
+            if !exfil.begun() {
+                continue;
+            }
+            let exfil = rounds.exfil.as_ref().expect("checked above");
+            let state = if exfil.kills_left == 0 {
+                Exfil::Escaped
+            } else if exfil.timed_out(now) {
+                Exfil::Failed
+            } else {
+                Exfil::Active { secs_left: exfil.secs_left(now) }
+            };
+            if lobby.exfil != state {
+                lobby.exfil = state;
+            }
+            if lobby.enemies_left != exfil.kills_left {
+                lobby.enemies_left = exfil.kills_left;
+            }
+            if matches!(state, Exfil::Escaped | Exfil::Failed) {
+                info!("lobby {lobby_e:?}: exfil {state:?} on round {}", rounds.round);
+                endings.begin(lobby_e, clock.0, false);
+                continue;
+            }
+            // Exactly as many on their way as kills still needed.
+            let mine = || zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive);
+            let alive_bosses = mine().filter(|z| z.4).count();
+            let alive = mine().count();
+            let bosses_there = (alive_bosses + rounds.pending_bosses.len()) as u32;
+            let others_there = (alive - alive_bosses + rounds.pending_dogs.len()) as u32;
+            let (bosses, others) = exfil.top_up(bosses_there, others_there);
+            rounds.bosses_to_spawn = bosses;
+            rounds.to_spawn = others;
+            if lobby.enemies_active != alive as u32 {
+                lobby.enemies_active = alive as u32;
+            }
+        } else {
+            if now < rounds.break_until {
+                continue;
+            }
+            let alive = zombies
+                .iter()
+                .filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive)
+                .count();
+            // A dog round's hellhounds struck in but not here yet, and a boss
+            // round's bosses still to come.
+            let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
+            // For the HUD's "enemies left": still to come plus still standing.
+            let left = rounds.to_spawn + (alive + coming) as u32;
+            if lobby.enemies_left != left {
+                lobby.enemies_left = left;
+            }
+            // ...and the HUD's "active enemies": just the ones standing.
+            if lobby.enemies_active != alive as u32 {
+                lobby.enemies_active = alive as u32;
+            }
 
+            // Round cleared: a breather, then the next one.
+            if rounds.to_spawn == 0 && alive == 0 && coming == 0 {
+                // A dog round over: its last dog leaves a Max Ammo behind.
+                if let Some(at) = rounds.last_dog_at.take().filter(|_| shared::dogs::is_dog_round(rounds.round)) {
+                    crate::power_ups::spawn_drop(
+                        &mut commands,
+                        lobby_e,
+                        lobby.real_peers(),
+                        shared::power_ups::PowerUp::MaxAmmo,
+                        at,
+                    );
+                    info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
+                }
+                rounds.round += 1;
+                rounds.to_spawn = enemies_in_round(rounds.round, members);
+                rounds.break_until = now + ROUND_BREAK_SECS;
+                rounds.next_spawn_at = rounds.break_until;
+                queue_round_bosses(rounds, members);
+                lobby.round = rounds.round;
+                lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
+                info!("lobby {lobby_e:?}: zombies round {}", rounds.round);
+                continue;
+            }
+        }
         let alive = zombies
             .iter()
-            .filter(|(lp, c)| lp.lobby == lobby_e && c.alive)
+            .filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive)
             .count();
-        // A dog round's hellhounds struck in but not here yet, and a boss
-        // round's bosses still to come.
         let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
-        // For the HUD's "enemies left": still to come plus still standing.
-        let left = rounds.to_spawn + (alive + coming) as u32;
-        if lobby.enemies_left != left {
-            lobby.enemies_left = left;
-        }
-        // ...and the HUD's "active enemies": just the ones standing.
-        if lobby.enemies_active != alive as u32 {
-            lobby.enemies_active = alive as u32;
-        }
-
-        // Round cleared: a breather, then the next one.
-        if rounds.to_spawn == 0 && alive == 0 && coming == 0 {
-            // A dog round over: its last dog leaves a Max Ammo behind.
-            if let Some(at) = rounds.last_dog_at.take().filter(|_| shared::dogs::is_dog_round(rounds.round)) {
-                crate::power_ups::spawn_drop(
-                    &mut commands,
-                    lobby_e,
-                    lobby.real_peers(),
-                    shared::power_ups::PowerUp::MaxAmmo,
-                    at,
-                );
-                info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
-            }
-            rounds.round += 1;
-            rounds.to_spawn = enemies_in_round(rounds.round, members);
-            rounds.break_until = now + ROUND_BREAK_SECS;
-            rounds.next_spawn_at = rounds.break_until;
-            queue_round_bosses(&mut rounds, members);
-            lobby.round = rounds.round;
-            lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
-            info!("lobby {lobby_e:?}: zombies round {}", rounds.round);
-            continue;
-        }
 
         // Somewhere near a random living member, as far off as a zombie
         // comes up.
@@ -338,7 +441,7 @@ pub(crate) fn run_rounds(
                     rounds.pending_bosses.push(crate::boss::PendingBoss::new(feet, near, now));
                     rounds.bosses_to_spawn -= 1;
                     // (Several a few seconds apart.)
-                    rounds.boss_due_at = now + 4.0;
+                    rounds.boss_due_at = now + if rounds.exfil.is_some() { 1.5 } else { 4.0 };
                     info!("lobby {lobby_e:?}: a boss is coming");
                 }
                 None => rounds.boss_due_at = now + SPAWN_RETRY_SECS,
@@ -355,9 +458,20 @@ pub(crate) fn run_rounds(
             continue;
         };
 
+        // The exfil's wave comes quick, and on top of the stronger zombies
+        // (`ZombieRounds::enemy_round`), part of it's hellhounds.
+        let interval = if rounds.exfil.is_some() {
+            crate::exfil::SPAWN_INTERVAL_SECS
+        } else {
+            spawn_interval(rounds.round)
+        };
+        let dog = match rounds.exfil {
+            Some(_) => rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
+            None => shared::dogs::is_dog_round(rounds.round),
+        };
         // A dog round: lightning strikes there first, and the hellhound
         // follows once it's done (`crate::dogs`).
-        if shared::dogs::is_dog_round(rounds.round) {
+        if dog {
             let to_player = near - feet;
             rounds.pending_dogs.push(PendingDog {
                 feet,
@@ -366,7 +480,7 @@ pub(crate) fn run_rounds(
                 announced: false,
             });
             rounds.to_spawn -= 1;
-            rounds.next_spawn_at = now + spawn_interval(rounds.round);
+            rounds.next_spawn_at = now + interval;
             continue;
         }
 
@@ -374,7 +488,8 @@ pub(crate) fn run_rounds(
         next_id.0 += 1;
         // How fast (the round's speed, give or take a little), and so
         // whether it walks or runs.
-        let (runner, speed) = shared::zombies::zombie_speed(rounds.round, rand01(seed ^ 0x2a2a));
+        let round = rounds.enemy_round();
+        let (runner, speed) = shared::zombies::zombie_speed(round, rand01(seed ^ 0x2a2a));
         let to_player = near - feet;
         let yaw = f32::atan2(-to_player.x, -to_player.z);
         let real = lobby.real_peers();
@@ -393,17 +508,17 @@ pub(crate) fn run_rounds(
             ActionState::<PlayerInput>::default(),
             BotBrain::new(BotDifficulty::Recruit, feet, seed)
                 .facing(yaw)
-                .with_skill(zombie_skill(rounds.round))
+                .with_skill(zombie_skill(round))
                 .rising(now, RISE_SECS)
                 .zombie(runner, speed),
             // Tougher every round (`shared::zombies::zombie_health`).
-            PlayerCombat::zombie(shared::zombies::zombie_health(rounds.round)),
-            shared::PlayerHealth(shared::zombies::zombie_health(rounds.round)),
+            PlayerCombat::zombie(shared::zombies::zombie_health(round)),
+            shared::PlayerHealth(shared::zombies::zombie_health(round)),
             Replicate::to_clients(NetworkTarget::Only(real.clone())),
             InterpolationTarget::to_clients(NetworkTarget::Only(real)),
         ));
         rounds.to_spawn -= 1;
-        rounds.next_spawn_at = now + spawn_interval(rounds.round);
+        rounds.next_spawn_at = now + interval;
     }
 }
 
@@ -737,6 +852,8 @@ mod tests {
         let (colliders, _) = crate::nav::tests::built();
         app.insert_resource(NavGraphs::build(colliders));
         app.init_resource::<crate::killcam::EndingLobbies>();
+        app.init_resource::<crate::killcam::ReplayClock>();
+        app.add_event::<crate::pvp::ZombieKilled>();
         app.init_resource::<NextBotId>();
         app.add_systems(Update, (run_rounds, clear_dead_zombies, cull_zombies).chain());
         let me = PeerId::Netcode(1);
@@ -758,6 +875,7 @@ mod tests {
                 paused: false,
                 bots_passive: false,
                 bots_frozen: false,
+                exfil: Default::default(),
                 power_up_test: false,
                 molotov_test: false,
                 active_power_ups: Vec::new(),

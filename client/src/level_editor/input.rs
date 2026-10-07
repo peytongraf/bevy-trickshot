@@ -926,6 +926,17 @@ pub(crate) fn draw_gizmos(
         // Which way it faces (its front, +Z), along the ground.
         let base = at.pos + Vec3::Y * 0.05;
         gizmos.arrow(base, base + rot * Vec3::Z * (half.z + 1.0), color);
+        // The exfil area: its rectangle, always.
+        if id == ObjectId::ExfilArea {
+            if let Some(area) = doc.layout.exfil_area {
+                let c = area.corners().map(|p| p + Vec3::Y * 0.05);
+                let line = if selected { color } else { id.color() };
+                for i in 0..4 {
+                    gizmos.line(c[i], c[(i + 1) % 4], line);
+                }
+            }
+            continue;
+        }
         if selected || editor.view.ranges {
             gizmos.circle(
                 Isometry3d::new(id.use_center(at) + Vec3::Y * 0.05, flat),

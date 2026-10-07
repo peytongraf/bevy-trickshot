@@ -175,6 +175,7 @@ fn on_create(
                 paused: false,
                 bots_passive: false,
                 bots_frozen: false,
+                exfil: Default::default(),
                 power_up_test: false,
                 molotov_test: false,
                 active_power_ups: Vec::new(),
@@ -298,6 +299,7 @@ fn on_start(
     lobby.started = true;
     lobby.paused = false;
     lobby.power_on = false;
+    lobby.exfil = Default::default();
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
     lobby.time_left_secs = lobby.time_limit_secs;
@@ -920,6 +922,7 @@ mod tests {
             paused: false,
             bots_passive: false,
             bots_frozen: false,
+            exfil: Default::default(),
             power_up_test: false,
             molotov_test: false,
             active_power_ups: Vec::new(),

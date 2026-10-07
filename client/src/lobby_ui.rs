@@ -1299,10 +1299,17 @@ fn build_room(
             ))
             .with_children(|b| {
                 let (title, text) = if is_zombies && lobby.round > 0 {
-                    let survived = lobby.round.saturating_sub(lobby.start_round.max(1));
+                    // (An exfil escaped counts the round it was called on.)
+                    let escaped = lobby.exfil == shared::exfil::Exfil::Escaped;
+                    let survived = (lobby.round + escaped as u32).saturating_sub(lobby.start_round.max(1));
+                    let plural = if survived == 1 { "" } else { "s" };
                     (
                         "LAST GAME",
-                        format!("Survived {survived} round{}", if survived == 1 { "" } else { "s" }),
+                        if escaped {
+                            format!("Exfilled after {survived} round{plural}")
+                        } else {
+                            format!("Survived {survived} round{plural}")
+                        },
                     )
                 } else {
                     ("LAST MATCH", format!("{winner} won with {score}"))

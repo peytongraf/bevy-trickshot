@@ -61,6 +61,7 @@ mod settings;
 mod aether_shroud;
 mod ammo_crate;
 mod armor;
+mod exfil;
 mod boss;
 mod knife_pickup;
 mod molotov;
@@ -229,6 +230,7 @@ fn main() {
         .add_plugins(monkey_bomb::MonkeyBombPlugin)
         .add_plugins(ammo_crate::AmmoCratePlugin)
         .add_plugins(armor::ArmorPlugin)
+        .add_plugins(exfil::ExfilPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)

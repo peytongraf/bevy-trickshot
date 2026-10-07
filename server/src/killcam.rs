@@ -149,6 +149,10 @@ impl BestPlays {
 
 /// Ticks an ending waits before it can conclude there's nothing pending.
 const END_SETTLE_TICKS: u64 = 4;
+/// A `Zombies` game's end (the last exfil kill, the exfil's clock running
+/// out, everyone down) holds this long before the results screen, so the
+/// moment it ended is seen first.
+const ZOMBIES_END_HOLD_TICKS: u64 = (2.0 * shared::TICK_HZ) as u64;
 
 /// One `FreeForAll` lobby's kills this match, for its end-of-match replay.
 #[derive(Default)]
@@ -681,6 +685,10 @@ fn finish_endings(
             let waited = now.wrapping_sub(ending.began);
             if ending.freeze {
                 return waited >= FREEZE_TICKS;
+            }
+            let zombies = lobbies.get(**lobby).is_ok_and(|(_, l)| l.mode == shared::GameMode::Zombies);
+            if zombies {
+                return waited >= ZOMBIES_END_HOLD_TICKS;
             }
             waited >= END_SETTLE_TICKS && !pending.0.iter().any(|c| c.lobby == **lobby)
                 || waited >= POST + 32

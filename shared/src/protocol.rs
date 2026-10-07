@@ -1096,12 +1096,24 @@ pub struct Lobby {
     /// or ends.
     #[serde(default)]
     pub mystery_box: Option<crate::mystery_box::MysteryBoxSpin>,
+    /// [`GameMode::Zombies`]: the exfil ([`crate::exfil`]) — server-owned
+    /// (`server::exfil`). Reset whenever a game starts; kept after one ends,
+    /// for the results screen.
+    #[serde(default)]
+    pub exfil: crate::exfil::Exfil,
     pub members: Vec<LobbyMember>,
 }
 
 impl Lobby {
     pub fn has(&self, peer: PeerId) -> bool {
         self.members.iter().any(|m| m.peer == peer)
+    }
+
+    /// Whether this lobby's bots and zombies hold off attacking right now:
+    /// the leader's debug "bots don't attack" ([`Self::bots_passive`]), or
+    /// an exfil being called ([`crate::exfil::Exfil::Calling`]).
+    pub fn bots_hold_fire(&self) -> bool {
+        self.bots_passive || self.exfil == crate::exfil::Exfil::Calling
     }
 
     /// Whether the timed power-up `p` is running in this lobby's game.
@@ -1841,6 +1853,12 @@ pub struct BuyPap {
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct TurnOnPower;
 
+/// Client → server: call the exfil — sent once interact's been held at the
+/// radio for [`crate::exfil::HOLD_SECS`]. The server checks the sender is at
+/// the radio, alive, and that it can be called ([`crate::exfil::available`]).
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct CallExfil;
+
 /// Client → server: leave whatever lobby the sender is in (server derives it).
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct LeaveLobby;
@@ -2076,6 +2094,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyPap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TurnOnPower>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<CallExfil>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyAmmo>()
             .add_direction(NetworkDirection::ClientToServer);

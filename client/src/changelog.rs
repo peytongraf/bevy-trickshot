@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Fixed the results screen coming back in the next game.",
+        "Zombies: a short pause before the results screen.",
+        "Zombies: exfil — every 10th round, call it in at the radio and escape.",
         "Zombies: new intro screen while the game loads.",
         "Zombies: a boss joins every 7th round — smashes up close, hurls fireballs from afar.",
         "Zombies: Max Ammo fills both guns, mags included — no reload needed.",

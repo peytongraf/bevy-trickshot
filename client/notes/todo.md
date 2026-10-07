@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Exfil
 - Boss
 - Weapon name plate, PaP colours
 - New Pack-a-Punch model, fog and glow
@@ -16,6 +17,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
+
+# Bugs
+
+- When zombies spawn, their body is visible in the center of the map for a split second
+- Game over screen still shows after ending a game and starting another
 
 # Improve
 
@@ -36,7 +42,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add crafting table
 - Add rampage inducer
 - Add quotes
-- Add exfil
 - Add killchains
 - Add minimap top left
 

@@ -13,7 +13,7 @@
         SpeedCola: (pos: (28.92, 6.0, 59.62), yaw_deg: 180.0),
         StaminUp: (pos: (-30.7, 0.0, -2.03), yaw_deg: 0.0),
         DoubleTap: (pos: (20.75, 0.0, 6.4), yaw_deg: -90.0),
-        DeadshotDaiquiri: (pos: (-2.76, 4.8, -54.23), yaw_deg: -90.0),
+        DeadshotDaiquiri: (pos: (28.3, 0.0, 59.55), yaw_deg: 180.0),
     },
     wunderfizz: (pos: (-35.25, 15.6, -19.65), yaw_deg: 90.0),
     pack_a_punch: Some((pos: (25.0, 0.0, -59.6), yaw_deg: 0.0)),
@@ -25,4 +25,6 @@
     ],
     mystery_box: Some((pos: (-17.3, 6.0, 21.15), yaw_deg: -90.0)),
     armor_station: Some((pos: (8.4, 0.0, -59.15), yaw_deg: 0.0)),
+    exfil_radio: Some((pos: (-8.0, 0.0, -47.2), yaw_deg: 0.0)),
+    exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
 )

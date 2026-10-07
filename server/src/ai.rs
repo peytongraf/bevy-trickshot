@@ -861,7 +861,7 @@ pub(crate) fn drive_bots(
             let stunned = z.stunned_until > now;
             if !z.exploded
                 && !stunned
-                && !lobby.bots_passive
+                && !lobby.bots_hold_fire()
                 && brain.target.is_some()
                 && flat_dist <= shared::dogs::DOG_EXPLODE_RANGE
                 && height_diff <= shared::dogs::DOG_EXPLODE_HEIGHT
@@ -918,7 +918,10 @@ pub(crate) fn drive_bots(
                     BossAttackKind::Smash if !attack.done && t >= shared::boss::MELEE_HIT_SECS => {
                         attack.done = true;
                         if let Some(victim) = brain.target.filter(|_| {
-                            visible && flat_dist <= shared::boss::MELEE_REACH && height_diff <= shared::boss::MELEE_HEIGHT
+                            visible
+                                && !lobby.bots_hold_fire()
+                                && flat_dist <= shared::boss::MELEE_REACH
+                                && height_diff <= shared::boss::MELEE_HEIGHT
                         }) {
                             hits.write(crate::pvp::PlayerHit {
                                 victim,
@@ -958,7 +961,7 @@ pub(crate) fn drive_bots(
                     _ => {}
                 }
                 z.boss_attack = (t < shared::boss::ATTACK_SECS).then_some(attack);
-            } else if !stunned && !lobby.bots_passive && visible && brain.target.is_some() {
+            } else if !stunned && !lobby.bots_hold_fire() && visible && brain.target.is_some() {
                 if flat_dist <= shared::boss::MELEE_RANGE && height_diff <= shared::boss::MELEE_HEIGHT {
                     z.boss_attack = Some(BossAttack {
                         kind: BossAttackKind::Smash,
@@ -996,7 +999,11 @@ pub(crate) fn drive_bots(
                 if !landed && now - start >= ZOMBIE_ATTACK_HIT_SECS {
                     z.swing = Some((start, true));
                     if let Some(victim) = brain.target.filter(|_| {
-                        visible && flat_dist <= ZOMBIE_ATTACK_REACH && height_diff <= ZOMBIE_ATTACK_HEIGHT
+                        // (Not once an exfil's being called — nothing lands then.)
+                        visible
+                            && !lobby.bots_hold_fire()
+                            && flat_dist <= ZOMBIE_ATTACK_REACH
+                            && height_diff <= ZOMBIE_ATTACK_HEIGHT
                     }) {
                         hits.write(crate::pvp::PlayerHit {
                             victim,
@@ -1022,7 +1029,7 @@ pub(crate) fn drive_bots(
             // (The leader's debug "bots don't attack" stops the swipes too.)
             if z.swing.is_none()
                 && !stunned
-                && !lobby.bots_passive
+                && !lobby.bots_hold_fire()
                 && visible
                 && flat_dist <= ZOMBIE_ATTACK_RANGE
                 && height_diff <= ZOMBIE_ATTACK_HEIGHT
@@ -1276,7 +1283,7 @@ pub(crate) fn drive_bots(
         let aim_error = shortest_angle(brain.yaw, want_yaw)
             .abs()
             .max((brain.pitch - want_pitch).abs());
-        if !lobby.bots_passive
+        if !lobby.bots_hold_fire()
             && engaged
             && now >= brain.next_fire_at
             && aim_error <= AIM_TOLERANCE_DEG.to_radians()
@@ -1459,6 +1466,7 @@ mod tests {
             paused: false,
             bots_passive: false,
             bots_frozen: false,
+            exfil: Default::default(),
             power_up_test: false,
             molotov_test: false,
             active_power_ups: Vec::new(),

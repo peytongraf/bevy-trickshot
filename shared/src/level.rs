@@ -1,7 +1,7 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
-//! crate, the power switch, the wall buys, the Mystery Box and the armor
-//! station.
+//! crate, the power switch, the wall buys, the Mystery Box, the armor
+//! station and the exfil (its radio and area).
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -103,6 +103,39 @@ pub struct WallBuy {
     pub at: Placement,
 }
 
+/// The exfil area (`crate::exfil`): a rectangle on the ground, `width` (m,
+/// along its own x) by `depth` (along its own z), its middle and turn
+/// `at`. Its size is the map's own — not [`ObjectSizes`]'.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ExfilArea {
+    pub at: Placement,
+    pub width: f32,
+    pub depth: f32,
+}
+
+impl ExfilArea {
+    /// A fresh one at `at`, [`crate::exfil::DEFAULT_AREA_SIZE`].
+    pub fn new(at: Placement) -> Self {
+        let size = crate::exfil::DEFAULT_AREA_SIZE;
+        Self {
+            at: at.with_scale(1.0),
+            width: size.x,
+            depth: size.y,
+        }
+    }
+
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32| ((v as f64 * 1000.0).round() / 1000.0) as f32;
+        format!(
+            "(at: {}, width: {:?}, depth: {:?})",
+            self.at.with_scale(1.0).to_ron(),
+            r(self.width),
+            r(self.depth)
+        )
+    }
+}
+
 /// How big each kind of thing a layout places is (`1` = as made, the
 /// default) — the same on every map. Keyed by [`ZombiesLayout`]'s slot
 /// names (`"mystery_box"`, `"armor_station"`, ...) and each perk machine's
@@ -196,6 +229,13 @@ pub struct ZombiesLayout {
     /// The armor station ([`crate::armor`]), if the place has one.
     #[serde(default)]
     pub armor_station: Option<Placement>,
+    /// The exfil radio (`crate::exfil`), if the place has one — exfil can
+    /// only be called on a place with both it and [`Self::exfil_area`].
+    #[serde(default)]
+    pub exfil_radio: Option<Placement>,
+    /// The area the party has to hold during an exfil.
+    #[serde(default)]
+    pub exfil_area: Option<ExfilArea>,
 }
 
 impl ZombiesLayout {
@@ -240,6 +280,7 @@ impl ZombiesLayout {
             ("power_switch", &mut self.power_switch),
             ("mystery_box", &mut self.mystery_box),
             ("armor_station", &mut self.armor_station),
+            ("exfil_radio", &mut self.exfil_radio),
         ] {
             if let Some(at) = slot.as_mut() {
                 out.push((key.into(), at));
@@ -294,6 +335,11 @@ impl ZombiesLayout {
         out += "    ],\n";
         out += &format!("    mystery_box: {},\n", optional(self.mystery_box));
         out += &format!("    armor_station: {},\n", optional(self.armor_station));
+        out += &format!("    exfil_radio: {},\n", optional(self.exfil_radio));
+        out += &format!(
+            "    exfil_area: {},\n",
+            self.exfil_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
+        );
         out += ")\n";
         out
     }

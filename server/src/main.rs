@@ -22,6 +22,7 @@ mod boss;
 mod bots;
 mod collision;
 mod dogs;
+mod exfil;
 mod field_upgrades;
 mod health;
 mod killcam;
@@ -80,6 +81,7 @@ fn main() {
         .add_plugins(zombies::ZombiesPlugin)
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(boss::BossPlugin)
+        .add_plugins(exfil::ExfilPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)
