@@ -6,86 +6,56 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Crafting table
-- Frag
-- Exfil
-- Boss
-- Weapon name plate, PaP colours
-- New Pack-a-Punch model, fog and glow
-- Aether Shroud field upgrade
+- No random power-ups on dog rounds
+- Smaller perk icons
+- Fixed zombie spawn flash at map centre
 
 # Current todo
 
-- Perk quote volume should be higher
-- Level out perk jingle sound volumes
-- When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
 
 # Bugs
 
-- When zombies spawn, their body is visible in the center of the map for a split second
+- When walking over dropped equipment of the kind the player already has most of the time it doesn't pick it up
+- On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
+- If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
+- Only one light is coming on when turning on the power
+- Knife won't stab when enemies are totally point blank
+- It doesn't show to update anywhere on the client after it is launched and a new release is out.
 
 # Improve
 
 - Improve molotov fire look
 - Dial in phd slider effect look ( trail and explosion )
+- Night shipment is a little too dark in shaded areas and can't see remote player model that well
+
+# Adjust
+
+- Increase aim sway
+- Exfil round should be on different rounds
 
 # New
 
-- Perk icons should appear smaller. About 75 percent the size they do now.
-- Exfil round should be on different rounds
-- Dog rounds should give out any random power ups except the ending max ammo
+- Add tab to show leaderboard
 - When only bosses are left on a round it should go to the next round.
 - Perk drink bottles shouldn't glow and be as bright as they are and should look more realistic. Instead of a glowing green it should look like a normal green bottle.
 - Exfil radio model size should be increased by about 1.3 times
 - Current player damage effect should be dramatic showing more red and blood and the effect should start quicker ( less damage).
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
 - With current wall buy placements on break point, player can jump in between wall and wooden sign and get stuck
-- Make all maps have a day and night setting with just different fog / sky settings
-- Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup
+- When leaving with party the lobby should still be together
 
 # Big features
 
-- Add flash
+- Add minimap top left
 - Add semtex
 - Add rampage inducer
 - Add quotes
 - Add killchains
-- Add minimap top left
-
-# Bugs
-
-- On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
-- If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
-- Only one light is coming on when turning on the power
-
-# Today
-
-- Knife won't stab when enemies are totally point blank
-- On basic map bots sometimes walk off the edge and fall ( there is no where to land they should die and respawn )
-- Add tdm
-
-# Added
-
-Everything below is ordered easiest → hardest, within each section.
-
-- Increase aim sway
-- On windows terminal pops up to play prod client
-- Night shipment is a little too dark in shaded areas and can't see remote player model that well
-- Add spawn points for all maps
-- Clear all client runtime errors
-- Many lines on score aren't correct. For instance a long shot will be awarded when the shot isn't long or a 720 awarded when a 360 is done.
-- Ensure state is fully reset when leaving a match / starting a new game, and everything works properly when joining a new match
-- When leaving with party the lobby should still be together
-- On throwing knife killcam, once the player throws the knife, the camera should follow the throwing knife
-- Add jumpshot points. There can be an icon the player can aim at and when their aim is near it it will highlight. They can then press a keybind to teleport to that point.
-- Use Large file storage, r2, etc to store assets so that a map can be used that is over 100mb. Use whatever makes the most sense and is cheap. Only a few friends will be playing occasionally in production.
-
-## Bugs
-
-- It doesn't show to update anywhere on the client after it is launched and a new release is out.
 
 ## Sound
 
+- Perk quote volume should be higher
+- Level out perk jingle sound volumes
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound
 - Add mantle sound
@@ -93,7 +63,3 @@ Everything below is ordered easiest → hardest, within each section.
 - Possibly convert audio to wav files.
 - Add pap shot sounds
 - When player is downed a breathing sound should play
-
-## UI / HUD
-
-- Add tab to show leaderboard

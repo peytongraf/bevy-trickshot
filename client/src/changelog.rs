@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: fixed zombies flashing in the middle of the map on spawn.",
+        "Zombies: smaller perk icons.",
+        "Zombies: dog rounds only drop their Max Ammo.",
         "New equipment and AK-74 icons; the tactical slot is always shown.",
         "Zombies: crafting table — buy lethals and tacticals.",
         "Zombies: the monkey bomb is now a tactical (Q).",

@@ -90,7 +90,8 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
     ));
 }
 
-/// Maybe drop a power-up where each zombie a player killed fell.
+/// Maybe drop a power-up where each zombie a player killed fell (never on
+/// a dog round).
 fn roll_drops(
     time: Res<Time>,
     mut kills: EventReader<ZombieKilled>,

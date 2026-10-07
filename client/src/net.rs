@@ -161,7 +161,11 @@ impl Plugin for ClientNetPlugin {
                 spawn_remote_avatars,
                 mark_bot_avatars,
                 crate::tint_bot_avatars,
-                follow_remote_avatars,
+                // Same frame as the spawn (the ordering adds a sync point),
+                // so a new avatar never renders a frame at its default
+                // `Transform` — the middle of the map — before snapping to
+                // its pose.
+                follow_remote_avatars.after(spawn_remote_avatars),
                 animate_remote_avatars,
                 hide_remote_avatars_during_killcam,
                 spawn_sniper_glints,
