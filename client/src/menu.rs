@@ -79,6 +79,10 @@ pub enum Screen {
     /// station. Owned and built by `armor`, like [`Screen::PackAPunch`].
     /// `Esc` closes it.
     Armor,
+    /// The `Zombies` crafting table menu, opened with the interact key at
+    /// the table. Owned and built by `crafting`, like [`Screen::Armor`].
+    /// `Esc` closes it.
+    Crafting,
     /// PAST UPDATES: every older version's patch notes
     /// ([`crate::changelog::history`]) — the main menu's "WHAT'S NEW" panel
     /// only shows the current version's. Opened from that panel
@@ -276,7 +280,10 @@ pub(crate) fn menu_toggle(
     // `wunderfizz`, `armor`.)
     if mouse.just_pressed(MouseButton::Back)
         && menu.rebinding.is_none()
-        && !matches!(menu.screen, Screen::None | Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor)
+        && !matches!(
+            menu.screen,
+            Screen::None | Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor | Screen::Crafting
+        )
     {
         go_back(&mut menu, &settings);
         return;
@@ -327,7 +334,7 @@ fn go_back(menu: &mut Menu, settings: &Settings) {
         // Dismissed only once every party member's client reports ready.
         Screen::LoadingGame => {}
         Screen::Loadout => menu.back_from_loadout(),
-        Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor | Screen::Changelog => {
+        Screen::PackAPunch | Screen::Wunderfizz | Screen::Armor | Screen::Crafting | Screen::Changelog => {
             menu.screen = Screen::None;
             menu.dirty = true;
         }
@@ -896,6 +903,8 @@ fn rebuild_menu(
         Screen::Wunderfizz => {}
         // Built by `armor`, likewise.
         Screen::Armor => {}
+        // Built by `crafting`, likewise.
+        Screen::Crafting => {}
         Screen::Changelog => build_changelog(&mut commands, &asset_server, solid),
     }
 }

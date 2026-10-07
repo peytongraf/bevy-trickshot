@@ -81,6 +81,8 @@ pub(crate) struct ThrowArmsSettings {
     /// press; turning it off is a release. Never saved; not reset by the
     /// panel's reset buttons.
     pub(crate) debug_hold_key: bool,
+    /// The same for the tactical key (the monkey bomb's panel section).
+    pub(crate) debug_hold_tactical: bool,
 }
 
 impl Default for ThrowArmsSettings {
@@ -97,6 +99,7 @@ impl Default for ThrowArmsSettings {
             weapon_hide_speed: 6.0,
             throw_release_secs: 0.25,
             debug_hold_key: false,
+            debug_hold_tactical: false,
         }
     }
 }

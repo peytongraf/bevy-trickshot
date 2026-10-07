@@ -8,8 +8,8 @@
 //!   `ai::BotBrain::stun`), and the lobby's told ([`FlashBangDetonated`]) for
 //!   the flash, its sound and its thrower's white-out. It hurts nobody.
 //! * A zombie a player kills sometimes drops one ([`FlashBangDrop`]); any
-//!   living player in reach can pick it up ([`PickUpFlashBang`]) — a
-//!   tactical, so nothing's dropped in its place.
+//!   living player in reach can pick it up ([`PickUpFlashBang`]) — dropping
+//!   the other tactical they carried, if any.
 //!
 //! Everything is removed once its lobby's game isn't running.
 
@@ -208,6 +208,30 @@ fn step_flash_bangs(
     }
 }
 
+/// Leave `count` dropped flash bangs spread around `feet` — the ones a
+/// player carried when they swapped to another tactical.
+pub(crate) fn drop_around(
+    commands: &mut Commands,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    feet: Vec3,
+    count: u32,
+    world: &dyn shared::map::CollisionWorld,
+) {
+    for i in 0..count {
+        let seed = (i as f32 + 0.5) / count as f32;
+        commands.spawn((
+            Name::from("FlashBangDrop"),
+            FlashBangDrop {
+                pos: drop_spot(feet, seed, world),
+                yaw: seed * std::f32::consts::TAU,
+            },
+            DropSim { lobby: lobby_e, age: 0.0 },
+            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+        ));
+    }
+}
+
 /// A zombie a player killed sometimes drops a flash bang beside its body.
 fn roll_drops(
     mut kills: EventReader<ZombieKilled>,
@@ -237,10 +261,12 @@ fn roll_drops(
     }
 }
 
-/// A client asked to pick up the dropped flash bang nearest them.
+/// A client asked to pick up the dropped flash bang nearest them —
+/// dropping the other tactical they carried.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_flash_bang(
     trigger: Trigger<RemoteTrigger<PickUpFlashBang>>,
+    colliders: Res<MapColliders>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
@@ -250,7 +276,7 @@ fn on_pick_up_flash_bang(
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let Some((lobby_e, _)) = zombies_lobby(&lobbies, peer) else {
+    let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
         return;
     };
     if combats.iter().any(|(id, c)| id.0 == peer && !c.alive) {
@@ -269,6 +295,16 @@ fn on_pick_up_flash_bang(
         return;
     };
     commands.entity(entity).try_despawn();
+    crate::lethals::drop_carried(
+        &mut commands,
+        lobby_e,
+        lobby,
+        peer,
+        feet,
+        trigger.trigger.dropping,
+        shared::lethal::LethalKind::FlashBang,
+        &colliders.for_lobby(lobby),
+    );
     if let Err(e) = sender.send::<_, GameChannel>(&FlashBangPickedUp, server.into_inner(), &NetworkTarget::Single(peer))
     {
         error!("failed to send flash bang pickup: {e:?}");

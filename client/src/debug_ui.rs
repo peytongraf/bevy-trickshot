@@ -1909,7 +1909,7 @@ pub(crate) fn ads_tuning_ui(
                     ui,
                     &mut d.monkey,
                     &mut d.weapon,
-                    &mut arms_view.debug_hold_key,
+                    &mut arms_view.debug_hold_tactical,
                     &mut d.monkey_fuse_tx,
                 );
             });

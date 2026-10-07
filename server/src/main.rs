@@ -21,6 +21,7 @@ mod armor;
 mod boss;
 mod bots;
 mod collision;
+mod crafting;
 mod dogs;
 mod exfil;
 mod field_upgrades;
@@ -92,5 +93,6 @@ fn main() {
         .add_plugins(monkey_bombs::MonkeyBombsPlugin)
         .add_plugins(frags::FragsPlugin)
         .add_plugins(flash_bangs::FlashBangsPlugin)
+        .add_plugins(crafting::CraftingPlugin)
         .run();
 }

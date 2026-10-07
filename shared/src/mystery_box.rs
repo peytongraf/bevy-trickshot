@@ -51,7 +51,7 @@ pub enum BoxPrize {
     ThrowingKnife,
     Molotov,
     Frag,
-    /// A tactical ([`crate::flash_bang`]) — not a lethal.
+    /// A tactical ([`crate::flash_bang`]).
     FlashBang,
     MonkeyBomb,
     Ak74,
@@ -94,6 +94,7 @@ impl BoxPrize {
             BoxPrize::Molotov => Some(crate::lethal::LethalKind::Molotov),
             BoxPrize::MonkeyBomb => Some(crate::lethal::LethalKind::MonkeyBomb),
             BoxPrize::Frag => Some(crate::lethal::LethalKind::Frag),
+            BoxPrize::FlashBang => Some(crate::lethal::LethalKind::FlashBang),
             _ => None,
         }
     }

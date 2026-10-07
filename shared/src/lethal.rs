@@ -1,5 +1,7 @@
-//! The lethals a player can carry — one kind at a time. Picking up (or
-//! taking from the Mystery Box) another kind swaps to it: the client says
+//! The equipment a player can carry: one lethal kind and one tactical kind
+//! at a time ([`LethalKind::is_tactical`] — the monkey bomb and the flash
+//! bang, as in Cold War). Picking up (or taking from the Mystery Box, or
+//! crafting) another kind of the same sort swaps to it: the client says
 //! what it's carrying of the old kind ([`Carried`]) and the server drops
 //! that many around them.
 
@@ -11,6 +13,7 @@ pub enum LethalKind {
     Molotov,
     MonkeyBomb,
     Frag,
+    FlashBang,
 }
 
 impl LethalKind {
@@ -21,7 +24,14 @@ impl LethalKind {
             LethalKind::Molotov => crate::molotov::MAX_MOLOTOVS,
             LethalKind::MonkeyBomb => crate::monkey_bomb::MAX_MONKEYS,
             LethalKind::Frag => crate::frag::MAX_FRAGS,
+            LethalKind::FlashBang => crate::flash_bang::MAX_FLASH_BANGS,
         }
+    }
+
+    /// A tactical (carried beside the lethal, on its own key) rather than a
+    /// lethal.
+    pub const fn is_tactical(self) -> bool {
+        matches!(self, LethalKind::MonkeyBomb | LethalKind::FlashBang)
     }
 }
 

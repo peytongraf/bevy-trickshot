@@ -2,8 +2,8 @@
 //! the fuse, the lure and the drops; see `server::monkey_bombs` and
 //! `shared::monkey_bomb`):
 //!
-//! * **Held** — with the monkey bomb as the lethal (`Weapon::lethal`),
-//!   holding the lethal key brings up the throwing arms holding
+//! * **Held** — with the monkey bomb as the tactical (`Weapon::tactical`),
+//!   holding the tactical key brings up the throwing arms holding
 //!   `models/weapons/monkey_bomb.glb` ([`HeldMonkey`], a child of the arms),
 //!   still — its clip doesn't play in the hand. Releasing primes it: the
 //!   prime sound plays for us alone and we keep hold of it until that's done
@@ -106,7 +106,7 @@ pub(crate) struct MonkeyBombSettings {
     pub(crate) anim_speed: f32,
 
     // --- timing ---
-    /// How long (s) it's held, primed, after the lethal key's released,
+    /// How long (s) it's held, primed, after the tactical key's released,
     /// before it's thrown (`weapon.rs`' `ThrowPhase::Priming`).
     pub(crate) prime_secs: f32,
     /// How long (s) after it lands its song starts (its land sound plays at
@@ -472,7 +472,7 @@ fn sync_drop_avatars(
 }
 
 /// The server handed us a monkey bomb we picked up: it's now the only
-/// lethal, and the pickup sound plays — just for us.
+/// tactical, and the pickup sound plays — just for us.
 fn receive_pickups(
     mut receivers: Query<&mut MessageReceiver<shared::MonkeyPickedUp>>,
     mut weapon: ResMut<Weapon>,
@@ -492,9 +492,9 @@ fn receive_pickups(
 // --- debug panel -------------------------------------------------------------------
 
 /// The debug panel's "Monkey bomb (Zombies)" section: give yourself some,
-/// hold the lethal key without holding it (to pose the one in hand), and
+/// hold the tactical key without holding it (to pose the one in hand), and
 /// its look in the hand and in the world. `hold_key` is
-/// `ThrowArmsSettings::debug_hold_key`.
+/// `ThrowArmsSettings::debug_hold_tactical` (it's a tactical, on that key).
 pub(crate) fn monkey_section(
     ui: &mut egui::Ui,
     s: &mut MonkeyBombSettings,
@@ -508,12 +508,12 @@ pub(crate) fn monkey_section(
         }
         ui.label(format!("carrying {}", weapon.monkey_bombs));
     });
-    ui.checkbox(hold_key, "Hold lethal key (as if held — untick to throw)");
+    ui.checkbox(hold_key, "Hold tactical key (as if held — untick to throw)");
     ui.collapsing("Held monkey bomb", |ui| {
         ui.label(
             "Positioned in the throwing arms' local space, like the molotov: one unit = the \
-             arms' scale in metres (~cm by default). Tick \"Hold lethal key\" with it as your \
-             lethal to see it in the hand.",
+             arms' scale in metres (~cm by default). Tick \"Hold tactical key\" with it as your \
+             tactical to see it in the hand.",
         );
         ui.add(egui::Slider::new(&mut s.held_translation.x, -100.0f32..=100.0).text("x"));
         ui.add(egui::Slider::new(&mut s.held_translation.y, -100.0f32..=100.0).text("y"));

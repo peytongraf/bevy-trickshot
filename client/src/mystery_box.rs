@@ -725,6 +725,7 @@ fn use_mystery_box(
                         BoxPrize::Molotov => weapon.carried_other_than(Lethal::Molotov),
                         BoxPrize::MonkeyBomb => weapon.carried_other_than(Lethal::MonkeyBomb),
                         BoxPrize::Frag => weapon.carried_other_than(Lethal::Frag),
+                        BoxPrize::FlashBang => weapon.carried_other_than(Lethal::FlashBang),
                         _ => None,
                     },
                 });

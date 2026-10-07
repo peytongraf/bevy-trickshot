@@ -271,10 +271,10 @@ pub(crate) struct Weapon {
     pub(crate) monkey_bombs: u32,
     /// Frags carried (`Zombies` only).
     pub(crate) frags: u32,
-    /// The tactical carried, on its own key beside the lethal — once one's
-    /// been picked up this game (it stays, empty or not, like the lethal).
-    /// `Zombies` only.
-    pub(crate) tactical: Option<Tactical>,
+    /// The tactical carried (the monkey bomb or the flash bang), on its own
+    /// key beside the lethal — once one's been picked up this game (it
+    /// stays, empty or not, like the lethal). `Zombies` only.
+    pub(crate) tactical: Option<Lethal>,
     /// Flash bangs carried.
     pub(crate) flash_bangs: u32,
     /// Which lethal the lethal key throws — the only kind carried: picking up
@@ -553,29 +553,57 @@ impl Weapon {
         }
     }
 
-    /// What's carried of a kind other than `taking` — handed to the server
-    /// with a pickup of `taking`, to drop.
+    /// What's carried of another kind of `taking`'s sort (lethal or
+    /// tactical) — handed to the server with a pickup of `taking`, to drop.
     pub(crate) fn carried_other_than(&self, taking: Lethal) -> shared::lethal::Carried {
-        self.carried_lethal()
+        let carried = if taking.is_tactical() { self.carried_tactical() } else { self.carried_lethal() };
+        carried
             .filter(|kind| *kind != taking)
             .and_then(|kind| Some((kind.kind()?, self.count_of(kind))))
     }
 
-    /// `kind` is the only lethal now: every other kind's gone.
+    /// `kind` is the only one of its sort now (the lethal, or the tactical):
+    /// every other kind of that sort's gone.
     fn only(&mut self, kind: Lethal) {
-        if kind != Lethal::ThrowingKnife {
-            self.throwing_knives = 0;
+        let same_sort = |k: Lethal| k.is_tactical() == kind.is_tactical();
+        for other in Lethal::ALL.into_iter().filter(|&k| k != kind && same_sort(k)) {
+            *self.count_mut(other) = 0;
         }
-        if kind != Lethal::Molotov {
-            self.molotovs = 0;
+        if kind.is_tactical() {
+            self.tactical = Some(kind);
+        } else {
+            self.lethal = kind;
         }
-        if kind != Lethal::MonkeyBomb {
-            self.monkey_bombs = 0;
+    }
+
+    fn count_mut(&mut self, kind: Lethal) -> &mut u32 {
+        match kind {
+            Lethal::ThrowingKnife => &mut self.throwing_knives,
+            Lethal::Molotov => &mut self.molotovs,
+            Lethal::MonkeyBomb => &mut self.monkey_bombs,
+            Lethal::Frag => &mut self.frags,
+            Lethal::FlashBang => &mut self.flash_bangs,
         }
-        if kind != Lethal::Frag {
-            self.frags = 0;
-        }
-        self.lethal = kind;
+    }
+
+    /// One more `kind` (up to the most that can be carried) — picked up or
+    /// crafted — and it's now the only one of its sort carried.
+    pub(crate) fn add_one(&mut self, kind: Lethal) {
+        self.only(kind);
+        let max = kind.max_carried();
+        let n = self.count_mut(kind);
+        *n = (*n + 1).min(max);
+    }
+
+    /// The kind of tactical actually carried — `None` once it's run out (or
+    /// there's never been one).
+    pub(crate) fn carried_tactical(&self) -> Option<Lethal> {
+        self.tactical.filter(|&t| self.count_of(t) > 0)
+    }
+
+    /// How many of the tactical are left.
+    pub(crate) fn tactical_count(&self) -> u32 {
+        self.tactical.map_or(0, |t| self.count_of(t))
     }
 
     /// One `kind` just left the hand.
@@ -598,60 +626,36 @@ impl Weapon {
     /// Whether as many of `kind` are carried as can be (Freestyle's
     /// bottomless knives count as full).
     pub(crate) fn lethal_full(&self, kind: Lethal) -> bool {
-        match kind {
-            Lethal::ThrowingKnife => self.throwing_knives >= shared::throwing_knife::MAX_CARRIED,
-            Lethal::Molotov => self.molotovs >= shared::molotov::MAX_MOLOTOVS,
-            Lethal::MonkeyBomb => self.monkey_bombs >= shared::monkey_bomb::MAX_MONKEYS,
-            Lethal::Frag => self.frags >= shared::frag::MAX_FRAGS,
-            Lethal::FlashBang => self.flash_bangs >= shared::flash_bang::MAX_FLASH_BANGS,
-        }
+        self.count_of(kind) >= kind.max_carried()
     }
 
-    /// A molotov was picked up: one more (up to the most that can be
-    /// carried), and it's now the only lethal — any knives were dropped.
+    /// A molotov was picked up: one more, and it's now the only lethal.
     pub(crate) fn add_molotov(&mut self) {
-        self.only(Lethal::Molotov);
-        self.molotovs = (self.molotovs + 1).min(shared::molotov::MAX_MOLOTOVS);
+        self.add_one(Lethal::Molotov);
     }
 
-    /// A monkey bomb was picked up: one more (up to the most that can be
-    /// carried), and it's now the only lethal — any other kind was dropped.
+    /// A monkey bomb was picked up: one more, and it's now the only
+    /// tactical — beside whatever lethal's carried.
     pub(crate) fn add_monkey_bomb(&mut self) {
-        self.only(Lethal::MonkeyBomb);
-        self.monkey_bombs = (self.monkey_bombs + 1).min(shared::monkey_bomb::MAX_MONKEYS);
+        self.add_one(Lethal::MonkeyBomb);
     }
 
-    /// A frag was picked up: one more (up to the most that can be carried),
-    /// and it's now the only lethal — any other kind was dropped.
+    /// A frag was picked up: one more, and it's now the only lethal.
     pub(crate) fn add_frag(&mut self) {
-        self.only(Lethal::Frag);
-        self.frags = (self.frags + 1).min(shared::frag::MAX_FRAGS);
+        self.add_one(Lethal::Frag);
     }
 
-    /// A flash bang was picked up: one more (up to the most that can be
-    /// carried) — the tactical, beside whatever lethal's carried.
+    /// A flash bang was picked up: one more, and it's now the only
+    /// tactical — beside whatever lethal's carried.
     pub(crate) fn add_flash_bang(&mut self) {
-        self.tactical = Some(Tactical::FlashBang);
-        self.flash_bangs = (self.flash_bangs + 1).min(shared::flash_bang::MAX_FLASH_BANGS);
+        self.add_one(Lethal::FlashBang);
     }
 
-    /// A full load of `kind` from the Mystery Box: it's now the only
-    /// lethal, as many as can be carried (any of the other kind were
-    /// dropped) — or, the tactical, full beside the lethal.
+    /// A full load of `kind` from the Mystery Box: it's now the only one of
+    /// its sort (lethal / tactical), as many as can be carried.
     pub(crate) fn fill_lethal(&mut self, kind: Lethal) {
-        if kind == Lethal::FlashBang {
-            self.tactical = Some(Tactical::FlashBang);
-            self.flash_bangs = shared::flash_bang::MAX_FLASH_BANGS;
-            return;
-        }
         self.only(kind);
-        match kind {
-            Lethal::ThrowingKnife => self.throwing_knives = shared::throwing_knife::MAX_CARRIED,
-            Lethal::Molotov => self.molotovs = shared::molotov::MAX_MOLOTOVS,
-            Lethal::MonkeyBomb => self.monkey_bombs = shared::monkey_bomb::MAX_MONKEYS,
-            Lethal::Frag => self.frags = shared::frag::MAX_FRAGS,
-            Lethal::FlashBang => {}
-        }
+        *self.count_mut(kind) = kind.max_carried();
     }
 
     /// A throwing knife was picked up: one more (up to the most that can be
@@ -829,8 +833,9 @@ pub(crate) fn apply_loadout(
 }
 
 /// What the throwing arms throw: the lethal equipment the lethal key
-/// throws — see [`Weapon::lethal`] — or the tactical (`FlashBang`, the
-/// tactical key's, [`Weapon::tactical`]; never `Weapon::lethal`).
+/// throws — see [`Weapon::lethal`] — or a tactical (the monkey bomb and the
+/// flash bang, [`Lethal::is_tactical`]), the tactical key's —
+/// [`Weapon::tactical`].
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(crate) enum Lethal {
     #[default]
@@ -841,23 +846,46 @@ pub(crate) enum Lethal {
     FlashBang,
 }
 
-/// The tactical equipment the tactical key throws — see
-/// [`Weapon::tactical`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Tactical {
-    FlashBang,
-}
-
 impl Lethal {
-    /// The shared lethal kind it is (what the server's told about) — not
-    /// the tactical.
+    pub(crate) const ALL: [Lethal; 5] =
+        [Lethal::ThrowingKnife, Lethal::Molotov, Lethal::MonkeyBomb, Lethal::Frag, Lethal::FlashBang];
+
+    /// A tactical (carried beside the lethal, on the tactical key).
+    pub(crate) fn is_tactical(self) -> bool {
+        matches!(self, Lethal::MonkeyBomb | Lethal::FlashBang)
+    }
+
+    /// The most of it that can be carried.
+    pub(crate) fn max_carried(self) -> u32 {
+        match self {
+            Lethal::ThrowingKnife => shared::throwing_knife::MAX_CARRIED,
+            Lethal::Molotov => shared::molotov::MAX_MOLOTOVS,
+            Lethal::MonkeyBomb => shared::monkey_bomb::MAX_MONKEYS,
+            Lethal::Frag => shared::frag::MAX_FRAGS,
+            Lethal::FlashBang => shared::flash_bang::MAX_FLASH_BANGS,
+        }
+    }
+
+    /// The client's kind for a shared one.
+    pub(crate) fn of(kind: shared::lethal::LethalKind) -> Self {
+        use shared::lethal::LethalKind as K;
+        match kind {
+            K::ThrowingKnife => Lethal::ThrowingKnife,
+            K::Molotov => Lethal::Molotov,
+            K::MonkeyBomb => Lethal::MonkeyBomb,
+            K::Frag => Lethal::Frag,
+            K::FlashBang => Lethal::FlashBang,
+        }
+    }
+
+    /// The shared kind it is (what the server's told about).
     pub(crate) fn kind(self) -> Option<shared::lethal::LethalKind> {
         Some(match self {
             Lethal::ThrowingKnife => shared::lethal::LethalKind::ThrowingKnife,
             Lethal::Molotov => shared::lethal::LethalKind::Molotov,
             Lethal::MonkeyBomb => shared::lethal::LethalKind::MonkeyBomb,
             Lethal::Frag => shared::lethal::LethalKind::Frag,
-            Lethal::FlashBang => return None,
+            Lethal::FlashBang => shared::lethal::LethalKind::FlashBang,
         })
     }
 }
@@ -905,6 +933,8 @@ pub(crate) struct ThrowingKnife {
     /// counts as a single key *press* (not a re-press every time the sequence
     /// returns to idle while it's still on).
     debug_hold_prev: bool,
+    /// Likewise `ThrowArmsSettings::debug_hold_tactical`.
+    debug_tactical_prev: bool,
     /// The throw request for the server has been filed this round (at
     /// `ThrowArmsSettings::throw_release_secs` into the throw clip).
     throw_sent: bool,
@@ -1521,6 +1551,11 @@ pub(crate) fn weapon_system(
     if knife.debug_hold_prev != debug_hold {
         knife.debug_hold_prev = debug_hold;
     }
+    let debug_tactical = arms_settings.debug_hold_tactical;
+    let debug_tactical_press = debug_tactical && !knife.debug_tactical_prev;
+    if knife.debug_tactical_prev != debug_tactical {
+        knife.debug_tactical_prev = debug_tactical;
+    }
     // The frag panel's pose toggle: the arms up as if the key were held,
     // nothing pulled or thrown (`ThrowingKnife::dry`).
     let pose_hold = frag_cfg.debug_arms_out || flash_cfg.debug_arms_out;
@@ -1531,8 +1566,8 @@ pub(crate) fn weapon_system(
     // (The tactical's on its own key.)
     let key_held = if knife.dry {
         pose_hold
-    } else if knife.kind == Lethal::FlashBang {
-        binds.tactical.pressed(&keys, &mouse)
+    } else if knife.kind.is_tactical() {
+        debug_tactical || binds.tactical.pressed(&keys, &mouse)
     } else {
         debug_hold || binds.lethal.pressed(&keys, &mouse)
     };
@@ -1691,10 +1726,8 @@ pub(crate) fn weapon_system(
     let lethal_press = (debug_press || (locked && binds.lethal.just_pressed(&keys, &mouse))) && weapon.lethal_count() > 0;
     // The tactical key, with one carried.
     let tactical_press = !lethal_press
-        && locked
-        && binds.tactical.just_pressed(&keys, &mouse)
-        && weapon.tactical.is_some()
-        && weapon.flash_bangs > 0;
+        && (debug_tactical_press || (locked && binds.tactical.just_pressed(&keys, &mouse)))
+        && weapon.tactical_count() > 0;
     let real_press = lethal_press || tactical_press;
     if (real_press || pose_press)
         && knife.phase == ThrowPhase::Idle
@@ -1706,7 +1739,7 @@ pub(crate) fn weapon_system(
         knife.kind = if knife.dry {
             Lethal::Frag
         } else if tactical_press {
-            Lethal::FlashBang
+            weapon.tactical.unwrap_or(Lethal::FlashBang)
         } else {
             weapon.lethal
         };

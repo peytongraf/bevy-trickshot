@@ -1773,11 +1773,32 @@ pub struct ThrowFlashBang {
     pub dir: [f32; 3],
 }
 
-/// Client → server: pick up the dropped flash bang nearest this player (a
-/// tactical — nothing's dropped in its place). Answered with
-/// [`FlashBangPickedUp`].
+/// Client → server: pick up the dropped flash bang nearest this player,
+/// dropping the other tactical it carries, if any (see [`PickUpKnife`]).
+/// Answered with [`FlashBangPickedUp`].
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
-pub struct PickUpFlashBang;
+pub struct PickUpFlashBang {
+    pub dropping: crate::lethal::Carried,
+}
+
+/// Client → server: craft one `kind` at the crafting table
+/// ([`crate::crafting`]), dropping what's carried of another kind of the
+/// same sort (lethal / tactical — see [`PickUpKnife`]). How many are carried
+/// is client-side, so the client only asks when it isn't full; the server
+/// checks the player's at the table, alive, and has the points
+/// ([`crate::crafting::cost`]), then answers with [`EquipmentBought`].
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyEquipment {
+    pub kind: crate::lethal::LethalKind,
+    pub dropping: crate::lethal::Carried,
+}
+
+/// Server → the buyer only: their [`BuyEquipment`] went through — one more
+/// `kind`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct EquipmentBought {
+    pub kind: crate::lethal::LethalKind,
+}
 
 /// Server → the picker only: their [`PickUpFlashBang`] worked — one more
 /// flash bang.
@@ -2107,6 +2128,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<FlashBangDetonated>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<EquipmentBought>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<MolotovBurst>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<AmmoBought>()
@@ -2195,6 +2218,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<ThrowFlashBang>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PickUpFlashBang>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyEquipment>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);

@@ -387,8 +387,9 @@ fn offer(lethal: Option<(Lethal, f32)>, weapon: Option<(WeaponDrop, f32)>, wall_
 /// Whether walking into a `kind` picks it up without the interact key: it's
 /// the kind carried, or none is.
 fn auto_kind(weapon: &Weapon, kind: Lethal) -> bool {
-    // (The tactical's carried beside the lethal: never a swap.)
-    kind == Lethal::FlashBang || weapon.carried_lethal().is_none_or(|c| c == kind)
+    // (A tactical's against the tactical carried, a lethal the lethal.)
+    let carried = if kind.is_tactical() { weapon.carried_tactical() } else { weapon.carried_lethal() };
+    carried.is_none_or(|c| c == kind)
 }
 
 /// The pickup requests, one per kind of lethal.
@@ -424,10 +425,9 @@ fn request_pickup(kind: Lethal, dropping: shared::lethal::Carried, senders: &mut
                 s.trigger::<shared::LobbyChannel>(shared::PickUpFrag { dropping });
             }
         }
-        // (A tactical: nothing to drop.)
         Lethal::FlashBang => {
             if let Ok(mut s) = senders.4.single_mut() {
-                s.trigger::<shared::LobbyChannel>(shared::PickUpFlashBang);
+                s.trigger::<shared::LobbyChannel>(shared::PickUpFlashBang { dropping });
             }
         }
     }

@@ -1,7 +1,8 @@
 //! `Zombies` level layouts: where everything a `Zombies` game puts on a map
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
 //! crate, the power switch, the wall buys, the Mystery Box, the armor
-//! station, the exfil (its radio and area) and where the players start.
+//! station, the crafting table, the exfil (its radio and area) and where the
+//! players start.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -229,6 +230,9 @@ pub struct ZombiesLayout {
     /// The armor station ([`crate::armor`]), if the place has one.
     #[serde(default)]
     pub armor_station: Option<Placement>,
+    /// The crafting table ([`crate::crafting`]), if the place has one.
+    #[serde(default)]
+    pub crafting_table: Option<Placement>,
     /// The exfil radio (`crate::exfil`), if the place has one — exfil can
     /// only be called on a place with both it and [`Self::exfil_area`].
     #[serde(default)]
@@ -291,6 +295,7 @@ impl ZombiesLayout {
             ("mystery_box", &mut self.mystery_box),
             ("armor_station", &mut self.armor_station),
             ("exfil_radio", &mut self.exfil_radio),
+            ("crafting_table", &mut self.crafting_table),
         ] {
             if let Some(at) = slot.as_mut() {
                 out.push((key.into(), at));
@@ -345,6 +350,7 @@ impl ZombiesLayout {
         out += "    ],\n";
         out += &format!("    mystery_box: {},\n", optional(self.mystery_box));
         out += &format!("    armor_station: {},\n", optional(self.armor_station));
+        out += &format!("    crafting_table: {},\n", optional(self.crafting_table));
         out += &format!("    exfil_radio: {},\n", optional(self.exfil_radio));
         out += &format!(
             "    exfil_area: {},\n",

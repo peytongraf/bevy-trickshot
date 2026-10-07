@@ -16,6 +16,7 @@
 pub mod ammo;
 pub mod armor;
 pub mod boss;
+pub mod crafting;
 pub mod dogs;
 pub mod exfil;
 pub mod field_upgrade;
@@ -65,6 +66,7 @@ pub use protocol::{
     ThrownMonkey, MonkeyDrop, ThrowMonkey, PickUpMonkey, MonkeyPickedUp, SetMonkeyFuse,
     ThrownFrag, FragDrop, ThrowFrag, PickUpFrag, FragPickedUp,
     ThrownFlashBang, FlashBangDrop, ThrowFlashBang, PickUpFlashBang, FlashBangPickedUp, FlashBangDetonated,
+    BuyEquipment, EquipmentBought,
 };
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
@@ -76,7 +78,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0025;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_0026;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

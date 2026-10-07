@@ -1,6 +1,7 @@
-//! Swapping lethals: a player carries one kind at a time, so picking up (or
-//! taking from the Mystery Box) another kind drops what they carried of the
-//! old one around them ([`drop_carried`]), for anyone to pick up again.
+//! Swapping equipment: a player carries one lethal kind and one tactical
+//! kind at a time, so picking up (or taking from the Mystery Box, or
+//! crafting) another of the same sort drops what they carried of the old one
+//! around them ([`drop_carried`]), for anyone to pick up again.
 
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -32,5 +33,6 @@ pub(crate) fn drop_carried(
         LethalKind::Molotov => crate::molotovs::drop_around(commands, lobby_e, lobby, feet, count, world),
         LethalKind::MonkeyBomb => crate::monkey_bombs::drop_around(commands, lobby_e, lobby, feet, count, world),
         LethalKind::Frag => crate::frags::drop_around(commands, lobby_e, lobby, feet, count, world),
+        LethalKind::FlashBang => crate::flash_bangs::drop_around(commands, lobby_e, lobby, feet, count, world),
     }
 }

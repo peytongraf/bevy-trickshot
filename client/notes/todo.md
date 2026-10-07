@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Crafting table
 - Frag
 - Exfil
 - Boss
@@ -40,7 +41,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Add flash
 - Add semtex
-- Add crafting table
 - Add rampage inducer
 - Add quotes
 - Add killchains

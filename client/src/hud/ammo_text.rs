@@ -144,7 +144,7 @@ pub(crate) fn primary_icon_path(primary: shared::weapon::WeaponId) -> &'static s
 
 /// `Weapon::lethal` → its HUD icon path. Both are drawn to the same 3:2
 /// canvas, so swapping never resizes the group.
-fn lethal_icon_path(lethal: Lethal) -> &'static str {
+pub(crate) fn lethal_icon_path(lethal: Lethal) -> &'static str {
     match lethal {
         Lethal::ThrowingKnife => "textures/icons/weapons/throwing_knife.png",
         Lethal::Molotov => "textures/icons/weapons/molotov.png",
@@ -529,11 +529,11 @@ pub(crate) fn update_tactical_hud(
     if node.display != display {
         node.display = display;
     }
-    set_text(&mut texts.p0(), weapon.flash_bangs.to_string());
+    set_text(&mut texts.p0(), weapon.tactical_count().to_string());
     if binds.is_changed() {
         set_text(&mut texts.p1(), binds.tactical.label().to_uppercase());
     }
-    let empty = weapon.flash_bangs == 0;
+    let empty = weapon.tactical_count() == 0;
     if *last_empty == Some(empty) {
         return;
     }
@@ -553,6 +553,25 @@ pub(crate) fn update_tactical_hud(
         if let Ok(mut b) = colors.p2().get_mut(e) {
             b.0.set_alpha(alpha);
         }
+    }
+}
+
+/// Swap [`TacticalIcon`]'s texture (both it and its shadow) to match
+/// `Weapon::tactical` whenever it changes.
+pub(crate) fn update_tactical_icon(
+    weapon: Res<Weapon>,
+    asset_server: Res<AssetServer>,
+    mut icons: Query<&mut ImageNode, With<TacticalIcon>>,
+    mut applied: Local<Option<Lethal>>,
+) {
+    let Some(tactical) = weapon.tactical else { return };
+    if *applied == Some(tactical) {
+        return;
+    }
+    *applied = Some(tactical);
+    let image = asset_server.load(lethal_icon_path(tactical));
+    for mut icon in &mut icons {
+        icon.image = image.clone();
     }
 }
 

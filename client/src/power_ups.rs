@@ -627,8 +627,8 @@ fn receive_grabs(
                     crate::Lethal::FlashBang => {}
                 }
                 // ...and the tactical, if one's carried.
-                if weapon.tactical.is_some() {
-                    weapon.flash_bangs = shared::flash_bang::MAX_FLASH_BANGS;
+                if let Some(tactical) = weapon.tactical {
+                    weapon.fill_lethal(tactical);
                 }
             }
         }

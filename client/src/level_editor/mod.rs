@@ -116,6 +116,8 @@ pub(crate) enum ObjectId {
     PowerSwitch,
     MysteryBox,
     ArmorStation,
+    /// The crafting table.
+    CraftingTable,
     /// The exfil's radio...
     ExfilRadio,
     /// ...and the area the party has to hold (a rectangle: its middle and
@@ -146,12 +148,13 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 9] = [
+    pub(crate) const OPTIONAL: [ObjectId; 10] = [
         ObjectId::PackAPunch,
         ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
         ObjectId::MysteryBox,
         ObjectId::ArmorStation,
+        ObjectId::CraftingTable,
         ObjectId::ExfilRadio,
         ObjectId::ExfilArea,
         ObjectId::WallBuy(WeaponId::Sniper),
@@ -183,6 +186,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => "Power switch",
             ObjectId::MysteryBox => "Mystery Box",
             ObjectId::ArmorStation => "Armor station",
+            ObjectId::CraftingTable => "Crafting table",
             ObjectId::ExfilRadio => "Exfil radio",
             ObjectId::ExfilArea => "Exfil area",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
@@ -215,6 +219,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => Some("power_switch".into()),
             ObjectId::MysteryBox => Some("mystery_box".into()),
             ObjectId::ArmorStation => Some("armor_station".into()),
+            ObjectId::CraftingTable => Some("crafting_table".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
             ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => None,
         }
@@ -237,6 +242,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
             ObjectId::MysteryBox => Some(&mut layout.mystery_box),
             ObjectId::ArmorStation => Some(&mut layout.armor_station),
+            ObjectId::CraftingTable => Some(&mut layout.crafting_table),
             ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
             _ => None,
         }
@@ -276,6 +282,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => layout.power_switch,
             ObjectId::MysteryBox => layout.mystery_box,
             ObjectId::ArmorStation => layout.armor_station,
+            ObjectId::CraftingTable => layout.crafting_table,
             ObjectId::ExfilRadio => layout.exfil_radio,
             ObjectId::ExfilArea => layout.exfil_area.map(|a| a.at),
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
@@ -342,6 +349,7 @@ impl ObjectId {
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
             ObjectId::MysteryBox => crate::mystery_box::AMBER,
             ObjectId::ArmorStation => crate::armor::ARMOR_BLUE,
+            ObjectId::CraftingTable => Color::srgb(0.85, 0.6, 0.3),
             ObjectId::ExfilRadio => crate::exfil::EXFIL_BLUE,
             ObjectId::ExfilArea => crate::exfil::EXFIL_ORANGE,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
@@ -357,6 +365,7 @@ impl ObjectId {
             ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
             ObjectId::MysteryBox => shared::mystery_box::USE_RADIUS,
             ObjectId::ArmorStation => shared::armor::USE_RADIUS,
+            ObjectId::CraftingTable => shared::crafting::USE_RADIUS,
             ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
             // (Not used — stood in. See `draw_gizmos`' rectangle.)
             ObjectId::ExfilArea => 0.0,
@@ -393,6 +402,7 @@ impl ObjectId {
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
             ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
             ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
+            ObjectId::CraftingTable => standing(shared::crafting::HALF_EXTENTS),
             ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
@@ -916,6 +926,7 @@ fn model_of(
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
         ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
         ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),
+        ObjectId::CraftingTable => (crate::crafting::CRAFTING_TABLE_MODEL, crate::crafting::model_transform()),
         ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
         // (No model — just its marker and rectangle.)
         ObjectId::ExfilArea => return None,
