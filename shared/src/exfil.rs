@@ -1,5 +1,6 @@
-//! `Zombies` exfil, Call of Duty: Cold War's: every [`EXFIL_ROUND_EVERY`]th
-//! round, the radio (placed in the level editor,
+//! `Zombies` exfil, Call of Duty: Cold War's: from round
+//! [`EXFIL_FIRST_ROUND`] and every [`EXFIL_ROUND_EVERY`] rounds after (11,
+//! 21, 31, ...), the radio (placed in the level editor,
 //! [`crate::level::ZombiesLayout::exfil_radio`]) can be used to call in an
 //! extraction. Holding interact at it for [`HOLD_SECS`] calls it
 //! ([`crate::CallExfil`]): for [`CALLING_SECS`] every screen whites out and
@@ -24,7 +25,9 @@ use crate::level::{ExfilArea, Placement};
 use crate::perks::PERK_USE_HEIGHT;
 use crate::{Lobby, MapId};
 
-/// Exfil can be called on every this-many rounds.
+/// Exfil can first be called on this round, then every this-many rounds
+/// after — 11, 21, 31, ...
+pub const EXFIL_FIRST_ROUND: u32 = 11;
 pub const EXFIL_ROUND_EVERY: u32 = 10;
 /// Seconds interact has to be held at the radio to call it.
 pub const HOLD_SECS: f32 = 1.0;
@@ -70,13 +73,13 @@ impl Exfil {
 
 /// Whether `round` is an exfil round.
 pub fn is_exfil_round(round: u32) -> bool {
-    round > 0 && round % EXFIL_ROUND_EVERY == 0
+    round >= EXFIL_FIRST_ROUND && (round - EXFIL_FIRST_ROUND) % EXFIL_ROUND_EVERY == 0
 }
 
 /// How many bosses the exfil wave called on `round` brings: a tenth of the
-/// round, plus one (2 on round 10, 3 on round 20, ...).
+/// round, plus one (2 on round 11, 3 on round 21, ...).
 pub fn bosses(round: u32) -> u32 {
-    round / EXFIL_ROUND_EVERY + 1
+    round / 10 + 1
 }
 
 /// `map`'s exfil — its radio and its area — if it has both.
@@ -137,11 +140,12 @@ mod tests {
     #[test]
     fn exfil_rounds_and_their_bosses() {
         assert!(!is_exfil_round(0));
-        assert!(!is_exfil_round(9));
-        assert!(is_exfil_round(10) && is_exfil_round(20));
-        assert_eq!(bosses(10), 2);
-        assert_eq!(bosses(20), 3);
-        assert_eq!(bosses(30), 4);
+        assert!(!is_exfil_round(1) && !is_exfil_round(10));
+        assert!(is_exfil_round(11) && is_exfil_round(21) && is_exfil_round(31));
+        assert!(!is_exfil_round(15) && !is_exfil_round(20) && !is_exfil_round(22));
+        assert_eq!(bosses(11), 2);
+        assert_eq!(bosses(21), 3);
+        assert_eq!(bosses(31), 4);
     }
 
     #[test]

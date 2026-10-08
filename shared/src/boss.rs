@@ -32,9 +32,13 @@ use crate::ZombieAnim;
 pub const BOSS_ROUND_EVERY: u32 = 7;
 
 /// Whether `round` brings a boss along with its zombies: every seventh
-/// round — never a dog round (those are hellhounds only).
+/// round — never a dog round (those are hellhounds only) or an exfil round
+/// (whose exfil wave brings bosses of its own).
 pub fn is_boss_round(round: u32) -> bool {
-    round > 0 && round % BOSS_ROUND_EVERY == 0 && !crate::dogs::is_dog_round(round)
+    round > 0
+        && round % BOSS_ROUND_EVERY == 0
+        && !crate::dogs::is_dog_round(round)
+        && !crate::exfil::is_exfil_round(round)
 }
 
 /// How many bosses boss round `round` brings for `players` members: one, a
@@ -56,6 +60,14 @@ pub const BOSS_PRE_SPAWN_SECS: f32 = 5.6;
 /// more for every extra player.
 pub fn boss_health(round: u32, players: usize) -> f32 {
     zombie_health(round) * (30.0 + 10.0 * (players.max(1) - 1) as f32)
+}
+
+/// What a thrown knife does to a boss in `round` — one of that round's
+/// zombies' worth (a knife kills any zombie or hellhound outright,
+/// [`crate::zombies::ZOMBIE_THROWING_KNIFE_DAMAGE`]): a scratch on something
+/// as tough as a crowd of them.
+pub fn throwing_knife_damage(round: u32) -> f32 {
+    zombie_health(round)
 }
 
 /// Walking speed (m/s) — a slow, heavy stride.
@@ -155,6 +167,11 @@ mod tests {
         assert!(is_boss_round(7));
         assert!(is_boss_round(14));
         assert!(!is_boss_round(35), "35 is a dog round");
+        for round in 1..500 {
+            if is_boss_round(round) {
+                assert!(!crate::dogs::is_dog_round(round) && !crate::exfil::is_exfil_round(round), "round {round}");
+            }
+        }
         assert_eq!(bosses_in_round(7, 1), 1);
         assert!(bosses_in_round(7, 4) > 1);
         assert!(bosses_in_round(500, 8) <= 4);
@@ -175,6 +192,21 @@ mod tests {
         assert!(BLAST_RELEASE_SECS < ATTACK_SECS);
         assert!(MELEE_REACH > MELEE_RANGE && MELEE_RANGE > STOP_DIST);
         assert!(BLAST_MIN_RANGE > MELEE_REACH);
+    }
+
+    #[test]
+    fn a_thrown_knife_kills_any_zombie_or_hellhound_but_only_scratches_a_boss() {
+        use crate::zombies::ZOMBIE_THROWING_KNIFE_DAMAGE;
+        for round in [1, 5, 20, 50, 200, 1000] {
+            assert!(ZOMBIE_THROWING_KNIFE_DAMAGE >= zombie_health(round), "a zombie lived, round {round}");
+            assert!(
+                ZOMBIE_THROWING_KNIFE_DAMAGE >= crate::dogs::dog_health(round),
+                "a hellhound lived, round {round}"
+            );
+            let boss = boss_health(round, 1);
+            let knife = throwing_knife_damage(round);
+            assert!(knife > 0.0 && knife <= boss / 20.0, "round {round}: {knife} of {boss}");
+        }
     }
 
     #[test]

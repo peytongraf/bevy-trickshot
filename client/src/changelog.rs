@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: exfil can now be called on rounds 11, 21, 31, and so on.",
+        "Fixed walking over equipment not picking it up.",
+        "Zombies: thrown knives only scratch bosses.",
         "Ray Gun rings keep their shape when you fire on the move.",
         "Ray Gun blasts go off the instant they land.",
         "Ray Gun bolts and thrown knives now hit the real model too.",

@@ -21,7 +21,7 @@
 //! `crate::boss` strikes it in and runs its blasts. The round isn't over
 //! until it's dead.
 //!
-//! Every tenth round the party can call the exfil instead (`crate::exfil`):
+//! On rounds 11, 21, 31, ... the party can call the exfil instead (`crate::exfil`):
 //! the round's enemies are cleared away and its wave is sent from here, kept
 //! topped up to exactly the kills still needed.
 //!

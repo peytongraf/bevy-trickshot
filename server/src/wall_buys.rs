@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use shared::pap::PapWeapon;
-use shared::throwing_knife::in_pickup_range;
+use shared::throwing_knife::in_server_pickup_range;
 use shared::weapon::SlotWeapon;
 use shared::{
     BuyWallWeapon, GameChannel, GiveWeapon, GameMode, Lobby, PickUpWeapon, PlayerId, PlayerPose, WallWeaponBought,
@@ -227,7 +227,7 @@ fn on_pick_up_weapon(
     let nearest = drops
         .iter()
         .filter(|(_, sim, d)| {
-            sim.lobby == lobby_e && in_pickup_range(feet, eye, d.pos) && !carried.contains(&d.weapon)
+            sim.lobby == lobby_e && in_server_pickup_range(feet, eye, d.pos) && !carried.contains(&d.weapon)
         })
         .min_by(|a, b| a.2.pos.distance_squared(eye).total_cmp(&b.2.pos.distance_squared(eye)));
     let Some((entity, _, drop)) = nearest else {

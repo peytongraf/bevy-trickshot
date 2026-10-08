@@ -150,8 +150,10 @@ struct PickupCardColor;
 #[derive(Resource, Default)]
 pub(crate) struct PendingPickup(pub(crate) Option<f32>);
 
-/// A pickup request unanswered this long (s) is given up on.
-const PICKUP_TIMEOUT_SECS: f32 = 1.0;
+/// A pickup request unanswered this long (s) is given up on — and, still in
+/// reach, asked again (about a round trip: one the server turned down,
+/// or that got lost, is retried before we've walked past).
+const PICKUP_TIMEOUT_SECS: f32 = 0.4;
 
 impl PendingPickup {
     fn waiting(&self, now: f32) -> bool {

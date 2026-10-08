@@ -21,7 +21,7 @@ use lightyear::prelude::*;
 
 use shared::frag::{FragBody, DROP_CHANCE, FUSE_SECS};
 use shared::molotov::{drop_spot, DROP_LINGER_SECS};
-use shared::throwing_knife::in_pickup_range;
+use shared::throwing_knife::in_server_pickup_range;
 use shared::{FragDrop, FragPickedUp, GameChannel, GameMode, Lobby, PickUpFrag, PlayerId, PlayerPose, ThrowFrag, ThrownFrag};
 
 use crate::collision::MapColliders;
@@ -275,7 +275,7 @@ fn on_pick_up_frag(
     let feet = eye - Vec3::Y * EYE_HEIGHT;
     let nearest = drops
         .iter()
-        .filter(|(_, sim, d)| sim.lobby == lobby_e && in_pickup_range(feet, eye, d.pos))
+        .filter(|(_, sim, d)| sim.lobby == lobby_e && in_server_pickup_range(feet, eye, d.pos))
         .min_by(|a, b| a.2.pos.distance_squared(eye).total_cmp(&b.2.pos.distance_squared(eye)));
     let Some((entity, ..)) = nearest else {
         return;

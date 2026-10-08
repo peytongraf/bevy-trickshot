@@ -44,7 +44,7 @@ use lightyear::prelude::*;
 use shared::ballistics::{along_path, near_target, Target, CLAIM_PATH_SLACK_M};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
-use shared::throwing_knife::{in_pickup_range, lethal_path, KnifeBody, KnifeHit, MAX_CARRIED, MAX_KNIVES_PER_PLAYER};
+use shared::throwing_knife::{in_server_pickup_range, lethal_path, KnifeBody, KnifeHit, MAX_CARRIED, MAX_KNIVES_PER_PLAYER};
 use shared::{
     Bot, ClaimTarget, GameChannel, GameMode, KnifeFlight, KnifePickedUp, Lobby, PickUpKnife, PlayerId, PlayerPose,
     Projectile, ProjectileClaim, ShotClaim, ThrowKnife, ThrowingKnifeHit, ThrowingKnifeImpact, ThrownKnife,
@@ -252,7 +252,7 @@ fn on_pick_up_knife(
     let nearest = knives
         .iter()
         .filter(|(_, k)| {
-            k.lobby == lobby_e && k.body.resting && in_pickup_range(feet, eye, k.body.pos)
+            k.lobby == lobby_e && k.body.resting && in_server_pickup_range(feet, eye, k.body.pos)
         })
         .min_by(|a, b| {
             a.1.body.pos.distance_squared(eye).total_cmp(&b.1.body.pos.distance_squared(eye))
@@ -379,7 +379,9 @@ fn step_knives(
                         VictimAt {
                             who: Victim::Player(id.0),
                             feet,
-                            radius: PLAYER_RADIUS,
+                            // (A knife that bounces off a boss drops clear of
+                            // its bulk.)
+                            radius: if pose.zombie.is_boss() { shared::boss::BOSS_RADIUS } else { PLAYER_RADIUS },
                         },
                     );
                     let (body, head) =
@@ -457,7 +459,12 @@ fn step_knives(
                     info!("{owner:?} killed a bot with a throwing knife for {points} pts");
                 }
                 Some(Victim::Player(victim)) => {
-                    let damage = if lobby.mode == GameMode::Zombies {
+                    // Kills any zombie or hellhound outright; only scratches
+                    // a boss.
+                    let boss = poses.iter().any(|(id, pose, _)| id.0 == *victim && pose.zombie.is_boss());
+                    let damage = if lobby.mode == GameMode::Zombies && boss {
+                        shared::boss::throwing_knife_damage(lobby.round)
+                    } else if lobby.mode == GameMode::Zombies {
                         shared::zombies::ZOMBIE_THROWING_KNIFE_DAMAGE
                     } else {
                         shared::melee::KNIFE_DAMAGE

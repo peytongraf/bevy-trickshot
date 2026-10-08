@@ -59,8 +59,14 @@ pub const LETHAL_SPEED: f32 = 4.0;
 /// How long (s) a stopped knife lies there (outlined, for anyone to pick
 /// up) before it's removed.
 pub const REST_LINGER_SECS: f32 = 60.0;
-/// How close (m) a player's body must be to a stopped knife to pick it up.
-pub const PICKUP_RANGE: f32 = 1.5;
+/// How close (m) a player's body must be to a stopped knife (or any dropped
+/// equipment or weapon) to pick it up.
+pub const PICKUP_RANGE: f32 = 2.0;
+/// How much further (m) the server lets it be when the request comes in: it
+/// has the player where they were a moment ago, so one walking over a drop
+/// can already be past where it sees them — and would otherwise be refused
+/// the pickup their own client saw was in reach.
+pub const PICKUP_LAG_SLACK: f32 = 1.5;
 /// A knife that kills someone drops this far (m) beyond the edge of their
 /// body — clear of the model still standing / falling there, so it can be
 /// seen and picked up.
@@ -327,13 +333,24 @@ pub fn lethal_path(mut body: KnifeBody, dt: f32, world: &dyn CollisionWorld) -> 
 /// that segment, so a knife on the floor and one on a crate at chest height
 /// both count. The client (for the prompt) and server (to allow it) agree.
 pub fn in_pickup_range(feet: Vec3, eye: Vec3, knife: Vec3) -> bool {
+    body_distance(feet, eye, knife) <= PICKUP_RANGE
+}
+
+/// [`in_pickup_range`] as the server checks a pickup request: with
+/// [`PICKUP_LAG_SLACK`] for where it has the player lagging behind.
+pub fn in_server_pickup_range(feet: Vec3, eye: Vec3, at: Vec3) -> bool {
+    body_distance(feet, eye, at) <= PICKUP_RANGE + PICKUP_LAG_SLACK
+}
+
+/// How far `at` is from the nearest point of a body running `feet`..`eye`.
+fn body_distance(feet: Vec3, eye: Vec3, at: Vec3) -> f32 {
     let seg = eye - feet;
     let t = if seg.length_squared() > 1e-6 {
-        ((knife - feet).dot(seg) / seg.length_squared()).clamp(0.0, 1.0)
+        ((at - feet).dot(seg) / seg.length_squared()).clamp(0.0, 1.0)
     } else {
         0.0
     };
-    (feet + seg * t).distance(knife) <= PICKUP_RANGE
+    (feet + seg * t).distance(at)
 }
 
 /// The orientation with the blade tip along `dir` and the flat face
@@ -561,8 +578,12 @@ mod tests {
         let eye = Vec3::new(0.0, 1.7, 0.0);
         assert!(in_pickup_range(feet, eye, Vec3::new(1.0, 0.0, 0.0)));
         assert!(in_pickup_range(feet, eye, Vec3::new(1.2, 1.0, 0.0)));
-        assert!(!in_pickup_range(feet, eye, Vec3::new(2.0, 0.0, 0.0)));
-        assert!(!in_pickup_range(feet, eye, Vec3::new(0.0, 3.5, 0.0)));
+        assert!(in_pickup_range(feet, eye, Vec3::new(1.9, 0.0, 0.0)));
+        assert!(!in_pickup_range(feet, eye, Vec3::new(2.2, 0.0, 0.0)));
+        // The server's a little more forgiving, for its lagging view of them.
+        assert!(in_server_pickup_range(feet, eye, Vec3::new(2.2, 0.0, 0.0)));
+        assert!(!in_server_pickup_range(feet, eye, Vec3::new(4.0, 0.0, 0.0)));
+        assert!(!in_pickup_range(feet, eye, Vec3::new(0.0, 4.0, 0.0)));
     }
 
     #[test]
