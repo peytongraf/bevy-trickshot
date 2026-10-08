@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Realistic perk drink bottles
 - Thrown knives only scratch bosses
 - Fixed equipment pickups failing
 - Exfil on rounds 11, 21, 31...
@@ -14,6 +15,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Fixed zombie spawn flash at map centre
 
 # Current todo
+
 
 # Bugs
 
@@ -38,7 +40,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add boss regular attack push player back some without pushing them through a wall
 - Add tab to show leaderboard
 - When only bosses are left on a round it should go to the next round.
-- Perk drink bottles shouldn't glow and be as bright as they are and should look more realistic. Instead of a glowing green it should look like a normal green bottle.
 - Exfil radio model size should be increased by about 1.3 times
 - Current player damage effect should be dramatic showing more red and blood and the effect should start quicker ( less damage).
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.

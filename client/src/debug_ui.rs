@@ -621,13 +621,16 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.add(egui::Slider::new(&mut d.speed, 0.0f32..=10.0).text("animation speed"));
                     ui.add(egui::Slider::new(&mut d.glow, 0.0f32..=5.0).text("bottle glow"));
+                    ui.add(egui::Slider::new(&mut d.bottle_shade, 0.0f32..=1.5).text("bottle colour (× perk's)"));
+                    ui.add(egui::Slider::new(&mut d.bottle_roughness, 0.0f32..=1.0).text("bottle roughness"));
 
                     if ui.button("Copy drinking arms pose to console").clicked() {
                         info!(
                             "drinking arms: translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.1}, \
-                             pitch: {:.1}, roll: {:.1}, scale: {:.5}, speed: {:.2}, glow: {:.2}",
+                             pitch: {:.1}, roll: {:.1}, scale: {:.5}, speed: {:.2}, glow: {:.2}, \
+                             bottle_shade: {:.2}, bottle_roughness: {:.2}",
                             d.translation.x, d.translation.y, d.translation.z, d.yaw, d.pitch, d.roll,
-                            d.scale, d.speed, d.glow,
+                            d.scale, d.speed, d.glow, d.bottle_shade, d.bottle_roughness,
                         );
                     }
                     if ui.button("Reset drinking arms pose to default").clicked() {

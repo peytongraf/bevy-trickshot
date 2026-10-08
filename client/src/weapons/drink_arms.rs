@@ -13,7 +13,9 @@
 //! time scale of 5), so the lead-in and wind-down never play.
 //!
 //! The bottle (`Object_15`) is tinted the perk's colour
-//! (`zombies_hud::perk_color`), with a glow of the same colour; the label
+//! (`zombies_hud::perk_color`) — darkened to an ordinary coloured-glass
+//! bottle's ([`DrinkArmsSettings::bottle_shade`]), glossy like glass, and
+//! not glowing unless [`DrinkArmsSettings::glow`] is turned up; the label
 //! (`Object_16`) is left alone.
 
 use std::f32::consts::PI;
@@ -122,8 +124,15 @@ pub(crate) struct DrinkArmsSettings {
     /// Playback speed of the trimmed clip (5 = the three.js version's).
     pub(crate) speed: f32,
     /// Strength of the bottle's glow in its own colour (three.js'
-    /// `emissiveIntensity`).
+    /// `emissiveIntensity`) — just a faint one, for a glass bottle.
     pub(crate) glow: f32,
+    /// How much of the perk's (bright, HUD) colour the bottle's glass takes
+    /// (×) — under 1 darkens it to a real bottle's: Speed Cola a bottle
+    /// green, not a neon one.
+    pub(crate) bottle_shade: f32,
+    /// The glass's roughness (0 mirror-glossy … 1 matte), over the model's
+    /// own roughness map.
+    pub(crate) bottle_roughness: f32,
     /// Debug: show the arms, looping the drink (when not drinking for real).
     pub(crate) show: bool,
 }
@@ -137,7 +146,9 @@ impl Default for DrinkArmsSettings {
             roll: 0.0,
             scale: 1.2,
             speed: 5.0,
-            glow: 4.0,
+            glow: 0.5,
+            bottle_shade: 0.35,
+            bottle_roughness: 0.0,
             show: false,
         }
     }
@@ -279,7 +290,8 @@ pub(crate) fn play_perk_drink(
 }
 
 /// Keep the bottle the colour of the perk being drunk (Shroom Tea's when
-/// none is, for the debug loop), with a glow of the same colour.
+/// none is, for the debug loop) — as glass of that colour, glowing only as
+/// much as [`DrinkArmsSettings::glow`] says.
 fn tint_drink_bottle(
     settings: Res<DrinkArmsSettings>,
     drink: Res<PerkDrink>,
@@ -290,13 +302,15 @@ fn tint_drink_bottle(
     if !settings.is_changed() && !drink.is_changed() && added.is_empty() {
         return;
     }
-    let color = perk_color(drink.perk.unwrap_or(Perk::ShroomTea));
+    let perk = perk_color(drink.perk.unwrap_or(Perk::ShroomTea)).to_srgba();
+    let shade = settings.bottle_shade.max(0.0);
+    let color = Color::srgb(perk.red * shade, perk.green * shade, perk.blue * shade);
     for bottle in &bottles {
         if let Some(mat) = materials.get_mut(&bottle.0) {
-            if mat.base_color != color {
-                mat.base_color = color;
-            }
+            mat.base_color = color;
             mat.emissive = color.to_linear() * settings.glow;
+            mat.perceptual_roughness = settings.bottle_roughness.clamp(0.0, 1.0);
+            mat.metallic = 0.0;
         }
     }
 }

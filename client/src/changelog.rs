@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: perk bottles look like real glass bottles.",
         "Zombies: exfil can now be called on rounds 11, 21, 31, and so on.",
         "Fixed walking over equipment not picking it up.",
         "Zombies: thrown knives only scratch bosses.",
