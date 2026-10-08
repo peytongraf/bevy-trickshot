@@ -1603,6 +1603,19 @@ pub struct ZombieDamaged {
     pub critical: bool,
 }
 
+/// Server → every member of a lobby whose leader just left the game with the
+/// party ([`EndGame`]): the game's over — back to the lobby room, together.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ReturnToLobby;
+
+/// Server → the victim only: a boss's smash just landed on them — they're
+/// thrown back at `velocity` (m/s, horizontal), which their client bleeds
+/// off over a moment, sliding along any wall rather than through it.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct KnockedBack {
+    pub velocity: [f32; 3],
+}
+
 /// Server → the victim only: someone (another player, a bot, a zombie,
 /// hellhound or boss) just hurt them from `from` — where the attacker stood
 /// (or the hit landed) — for the damage indicator that points there.
@@ -2110,9 +2123,11 @@ pub struct StartGame;
 pub struct AssetsReady;
 
 /// Client → server: the party leader ends the running game for the **whole**
-/// party — every player entity is despawned and the lobby is disbanded, so all
-/// members drop back to the main menu. (A leader leaving *without* the party, or
-/// any non-leader leaving, sends [`LeaveLobby`] instead: that pulls just the one
+/// party ("leave with party") — the game's called off (every player entity
+/// despawned) but the lobby stays together, with the same leader and the
+/// same settings, and every member is sent back to its room
+/// ([`ReturnToLobby`]). (A leader leaving *without* the party, or any
+/// non-leader leaving, sends [`LeaveLobby`] instead: that pulls just the one
 /// player and, for the leader, promotes a replacement.)
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct EndGame;
@@ -2192,6 +2207,10 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<KnifeFlight>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<DamageTaken>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<KnockedBack>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ReturnToLobby>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);

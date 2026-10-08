@@ -20,13 +20,13 @@
     ammo_crate: Some((pos: (9.6, -0.02, -35.0), yaw_deg: -90.0)),
     power_switch: Some((pos: (-7.0, 0.0, -56.35), yaw_deg: 0.0)),
     wall_buys: [
-        (weapon: Sniper, at: (pos: (9.6, 0.0, -39.0), yaw_deg: -90.0)),
-        (weapon: Ak74, at: (pos: (9.6, 0.0, -31.0), yaw_deg: -90.0)),
+        (weapon: Sniper, at: (pos: (11.75, 0.0, -42.3), yaw_deg: -90.0)),
+        (weapon: Ak74, at: (pos: (35.8, 0.0, -44.25), yaw_deg: -90.0)),
     ],
     mystery_box: Some((pos: (-17.3, 6.0, 21.15), yaw_deg: -90.0)),
     armor_station: Some((pos: (8.4, 0.0, -59.15), yaw_deg: 0.0)),
     crafting_table: Some((pos: (-20.2, 0.0, -47.3), yaw_deg: 0.0)),
-    exfil_radio: Some((pos: (-8.0, 0.0, -47.2), yaw_deg: 0.0)),
+    exfil_radio: Some((pos: (-8.4, 0.0, -47.2), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
     player_spawns: [
         (pos: (-10.95, 0.0, -41.3), yaw_deg: 98.3),

@@ -234,6 +234,12 @@ impl EndingLobbies {
         });
     }
 
+    /// Stop ending `lobby` — its game's been called off some other way
+    /// (`lobby::on_end_game`).
+    pub(crate) fn forget(&mut self, lobby: Entity) {
+        self.0.remove(&lobby);
+    }
+
     pub(crate) fn is_ending(&self, lobby: Entity) -> bool {
         self.0.contains_key(&lobby)
     }

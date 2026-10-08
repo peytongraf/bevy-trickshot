@@ -70,6 +70,11 @@ pub fn throwing_knife_damage(round: u32) -> f32 {
     zombie_health(round)
 }
 
+/// How fast (m/s) a boss's smash throws whoever it lands on back, away from
+/// it — the start of a quick shove the victim's client bleeds off
+/// ([`crate::KnockedBack`]), never through a wall.
+pub const SMASH_KNOCKBACK_SPEED: f32 = 11.0;
+
 /// Walking speed (m/s) — a slow, heavy stride.
 pub const BOSS_SPEED: f32 = 1.7;
 

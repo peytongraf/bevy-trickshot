@@ -477,18 +477,37 @@ fn on_assets_ready(trigger: Trigger<RemoteTrigger<AssetsReady>>, mut lobbies: Qu
 }
 
 /// The leader ends the game for the whole party: despawn every player entity in
-/// the session and disband the lobby, so all members fall back to the main menu
-/// (`cull_orphan_bots` then drops the lobby's bots). Ignored for non-leaders.
+/// the game and send the whole party back to the lobby room together — same
+/// leader, same mode, map and settings — with no results. Ignored for
+/// non-leaders, and outside a game.
+#[allow(clippy::too_many_arguments)]
 fn on_end_game(
     trigger: Trigger<RemoteTrigger<EndGame>>,
-    lobbies: Query<(Entity, &Lobby)>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
+    mut endings: ResMut<crate::killcam::EndingLobbies>,
+    mut best_plays: ResMut<crate::killcam::BestPlays>,
+    mut ffa_plays: ResMut<crate::killcam::FfaPlays>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let Some((lobby_entity, _)) = lobbies.iter().find(|(_, l)| l.leader == peer) else {
+    let Some((lobby_entity, mut lobby)) = lobbies.iter_mut().find(|(_, l)| l.leader == peer && l.started) else {
         return;
     };
+    // (No ending, best play or results for a game called off.)
+    endings.forget(lobby_entity);
+    best_plays.take(lobby_entity);
+    ffa_plays.take(lobby_entity, lobby.end_cam);
+    back_to_room(&mut lobby);
+    if let Err(e) = sender.send::<_, GameChannel>(
+        &shared::ReturnToLobby,
+        server.into_inner(),
+        &NetworkTarget::Only(lobby.real_peers()),
+    ) {
+        error!("failed to send the party back to the lobby: {e:?}");
+    }
 
     let despawn = |commands: &mut Commands, e: Entity| {
         if let Ok(mut ec) = commands.get_entity(e) {
@@ -498,8 +517,7 @@ fn on_end_game(
     for (pe, _, _) in players.iter().filter(|(_, _, lp)| lp.lobby == lobby_entity) {
         despawn(&mut commands, pe);
     }
-    despawn(&mut commands, lobby_entity);
-    info!("{peer:?} ended the game for lobby {lobby_entity:?} (leave with party)");
+    info!("{peer:?} ended the game for lobby {lobby_entity:?} — back to the room (leave with party)");
 }
 
 /// The leader pauses / resumes their running game for the whole party. Not
@@ -858,6 +876,14 @@ pub(crate) fn end_match(
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
         error!("failed to broadcast match result: {e:?}");
     }
+    back_to_room(lobby);
+    info!("match over — {winner_name} wins with {winner_score}");
+}
+
+/// The game's over (finished, or called off by the leader): `started`
+/// flips false — the lobby room again — and what only lasts a game goes.
+/// The lobby itself, its members, leader and settings all stay.
+fn back_to_room(lobby: &mut Lobby) {
     lobby.started = false;
     lobby.paused = false;
     lobby.power_on = false;
@@ -866,7 +892,6 @@ pub(crate) fn end_match(
     for m in &mut lobby.members {
         m.field_upgrade = Default::default();
     }
-    info!("match over — {winner_name} wins with {winner_score}");
 }
 
 /// Count every started lobby's clock down one second at a time; at zero, end

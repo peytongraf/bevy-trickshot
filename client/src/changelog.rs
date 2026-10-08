@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: a boss's smash knocks you back.",
+        "Leaving with your party keeps everyone together in the lobby, same settings.",
+        "Zombies: a round ends when only bosses are left; they carry on into the next.",
         "The game over screen fades in fire, embers and a drained, grey world.",
         "Zombies: no revive bar when you go down playing solo.",
         "Red damage indicators point to whoever's hurting you.",

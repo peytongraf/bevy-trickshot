@@ -53,8 +53,10 @@ impl Plugin for LobbyUiPlugin {
             .add_systems(Update, (catch_match_end, watch_loadout_pick))
             .add_systems(
                 Update,
-                drive_ingame_exit.run_if(in_state(AppState::InGame)),
+                (drive_ingame_exit, return_to_lobby).run_if(in_state(AppState::InGame)),
             )
+            .init_resource::<ReturningToLobby>()
+            .add_systems(OnExit(AppState::InGame), |mut r: ResMut<ReturningToLobby>| r.0 = false)
             .add_systems(Update, wheel_scroll.run_if(in_menu))
             .add_systems(
                 Update,
@@ -389,6 +391,44 @@ fn drive_ingame_exit(
         next.set(AppState::MainMenu);
     }
 }
+
+/// The leader left the game with the party ([`shared::ReturnToLobby`]): off
+/// any menu that's up, and back to the lobby room — together, the lobby and
+/// its settings as they were.
+///
+/// (Once our lobby shows the game over, too: the message can beat its
+/// `started` going false here, and the lobby room would bounce straight
+/// back into the game.)
+fn return_to_lobby(
+    mut receivers: Query<&mut MessageReceiver<shared::ReturnToLobby>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut menu: ResMut<Menu>,
+    mut next: ResMut<NextState<AppState>>,
+    mut going: ResMut<ReturningToLobby>,
+) {
+    for mut rx in &mut receivers {
+        if rx.receive().count() > 0 && !going.0 {
+            going.0 = true;
+            menu.screen = crate::menu::Screen::None;
+            menu.dirty = true;
+        }
+    }
+    if !going.0 {
+        return;
+    }
+    let Some(me) = local_peer(&local) else { return };
+    if lobbies.iter().any(|l| l.has(me) && !l.started) {
+        going.0 = false;
+        next.set(AppState::InLobby);
+    }
+}
+
+/// [`return_to_lobby`] waiting on the lobby to show the game over —
+/// cleared on leaving the game however it's left, so it can't carry over
+/// and skip the next game's results.
+#[derive(Resource, Default)]
+struct ReturningToLobby(bool);
 
 /// Move between menu screens based on where the replicated lobby state puts us.
 fn drive_transitions(

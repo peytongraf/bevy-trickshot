@@ -452,7 +452,8 @@ enum Btn {
     /// leader if we were one) and lets the match continue for everyone else.
     LeaveGame,
     /// Party-leader only: end the match for the whole party
-    /// ([`shared::EndGame`]) — every player is pulled to the main menu.
+    /// ([`shared::EndGame`]) — everyone goes back to the lobby room
+    /// together, with the same settings (`lobby_ui::return_to_lobby`).
     LeaveWithParty,
     /// Dismiss the match-results screen and head back to the lobby room.
     ContinueFromResults,
@@ -621,8 +622,9 @@ fn menu_click(
             Btn::LeaveWithParty => {
                 menu.screen = Screen::None;
                 menu.dirty = true;
-                // End the match for everyone; `drive_ingame_exit` returns each
-                // client to the main menu when the lobby disbands.
+                // End the match for everyone; the server keeps the party
+                // together and sends each client back to the lobby room
+                // (`lobby_ui::return_to_lobby`).
                 if let Ok(mut s) = end_game.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::EndGame);
                 }

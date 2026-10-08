@@ -2,6 +2,7 @@
 // made) — written by the client's level editor. See shared/src/level.rs.
 {
     "crafting_table": 1.2,
+    "exfil_radio": 1.46,
     "mystery_box": 1.5,
     "pack_a_punch": 1.2,
 }

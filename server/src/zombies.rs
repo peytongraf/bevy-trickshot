@@ -371,6 +371,10 @@ pub(crate) fn run_rounds(
                 .iter()
                 .filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive)
                 .count();
+            let alive_bosses = zombies
+                .iter()
+                .filter(|(_, _, lp, c, boss)| lp.lobby == lobby_e && c.alive && *boss)
+                .count();
             // A dog round's hellhounds struck in but not here yet, and a boss
             // round's bosses still to come.
             let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
@@ -384,8 +388,10 @@ pub(crate) fn run_rounds(
                 lobby.enemies_active = alive as u32;
             }
 
-            // Round cleared: a breather, then the next one.
-            if rounds.to_spawn == 0 && alive == 0 && coming == 0 {
+            // Round cleared — or nothing of it left but bosses (standing, on
+            // their way or still to come), who carry on into the next one
+            // with that round's own: a breather, then the next one.
+            if rounds.to_spawn == 0 && alive == alive_bosses && rounds.pending_dogs.is_empty() {
                 // A dog round over: its last dog leaves a Max Ammo behind.
                 if let Some(at) = rounds.last_dog_at.take().filter(|_| shared::dogs::is_dog_round(rounds.round)) {
                     crate::power_ups::spawn_drop(
@@ -403,7 +409,10 @@ pub(crate) fn run_rounds(
                 rounds.next_spawn_at = rounds.break_until;
                 queue_round_bosses(rounds, members);
                 lobby.round = rounds.round;
-                lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
+                // (Bosses carried over from the last round count too.)
+                lobby.enemies_left = rounds.to_spawn
+                    + rounds.bosses_to_spawn
+                    + (alive_bosses + rounds.pending_bosses.len()) as u32;
                 info!("lobby {lobby_e:?}: zombies round {}", rounds.round);
                 continue;
             }
@@ -525,11 +534,10 @@ pub(crate) fn run_rounds(
 /// Set up `rounds`' (just started) round's bosses, for `members` players:
 /// none, or a boss round's, due [`shared::boss::BOSS_ROUND_DELAY_SECS`] in.
 fn queue_round_bosses(rounds: &mut ZombieRounds, members: usize) {
-    rounds.bosses_to_spawn = if shared::boss::is_boss_round(rounds.round) {
-        shared::boss::bosses_in_round(rounds.round, members)
-    } else {
-        0
-    };
+    // (On top of any the last round never got to send — they carry over.)
+    if shared::boss::is_boss_round(rounds.round) {
+        rounds.bosses_to_spawn += shared::boss::bosses_in_round(rounds.round, members);
+    }
     rounds.boss_due_at = rounds.break_until + shared::boss::BOSS_ROUND_DELAY_SECS;
 }
 
@@ -1003,6 +1011,28 @@ mod tests {
         assert_eq!(left(&app), zombies_in_round(2, 1));
         run(&mut app, ROUND_BREAK_SECS + 20.0);
         assert_eq!(zombies_of(&mut app).len() as u32, zombies_in_round(2, 1));
+    }
+
+    #[test]
+    fn a_round_with_only_a_boss_left_moves_on_and_the_boss_with_it() {
+        let (mut app, lobby) = game();
+        run(&mut app, FIRST_ROUND_DELAY_SECS + 12.0);
+        let first = zombies_of(&mut app);
+        assert_eq!(first.len() as u32, zombies_in_round(1, 1));
+        // One of them's a boss; the rest die.
+        let boss = first[0];
+        app.world_mut().entity_mut(boss).insert(crate::boss::Boss);
+        for &z in &first[1..] {
+            app.world_mut().get_mut::<PlayerCombat>(z).unwrap().alive = false;
+        }
+        app.update();
+        let l = app.world().get::<Lobby>(lobby).unwrap();
+        assert_eq!(l.round, 2, "the boss alone held the round");
+        assert!(app.world().get::<PlayerCombat>(boss).unwrap().alive);
+        // It counts toward round 2's enemies left.
+        run(&mut app, 1.0);
+        let left = app.world().get::<Lobby>(lobby).unwrap().enemies_left;
+        assert_eq!(left, zombies_in_round(2, 1) + 1);
     }
 
     #[test]

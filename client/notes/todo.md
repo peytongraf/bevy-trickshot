@@ -6,6 +6,9 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Rounds end with only bosses left
+- Leave with party keeps lobby
+- Boss smash knockback
 - Stronger hurt effect + damage indicator
 - Tab leaderboard
 - Realistic perk drink bottles
@@ -17,7 +20,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Fixed zombie spawn flash at map centre
 
 # Current todo
-
 
 # Bugs
 
@@ -39,12 +41,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # New
 
-- Add boss regular attack push player back some without pushing them through a wall
-- When only bosses are left on a round it should go to the next round.
 - Exfil radio model size should be increased by about 1.3 times
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
-- With current wall buy placements on break point, player can jump in between wall and wooden sign and get stuck
-- When leaving with party the lobby should still be together
 
 # Big features
 

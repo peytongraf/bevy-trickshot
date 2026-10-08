@@ -163,6 +163,63 @@ pub(crate) fn resolve_body_collisions(
     transform.translation.z += moved.z;
 }
 
+/// A shove the player's taking (a boss's smash — [`shared::KnockedBack`]):
+/// its velocity (m/s, horizontal), bled off by [`apply_knockback`].
+#[derive(Resource, Default)]
+pub(crate) struct Knockback(pub(crate) Vec3);
+
+/// How fast (1/s) a shove dies away — at 11 m/s, about 2 m all told.
+const KNOCKBACK_DECAY: f32 = 6.0;
+
+/// The server says a boss's smash threw us: on top of whatever shove's
+/// already going.
+pub(crate) fn receive_knockback(
+    mut receivers: Query<&mut lightyear::prelude::MessageReceiver<shared::KnockedBack>>,
+    mut knockback: ResMut<Knockback>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            let v = Vec3::from_array(msg.velocity);
+            knockback.0 += Vec3::new(v.x, 0.0, v.z);
+        }
+    }
+}
+
+/// Carry the player along a shove — through [`sweep_and_slide`], like any
+/// move, so it slides them along a wall rather than through it, and up
+/// against one it just stops — and let it die away.
+pub(crate) fn apply_knockback(
+    time: Res<Time>,
+    rapier: ReadRapierContext,
+    mut knockback: ResMut<Knockback>,
+    mut player: Single<&mut Transform, With<Player>>,
+) {
+    if knockback.0.length_squared() < 1e-4 {
+        knockback.0 = Vec3::ZERO;
+        return;
+    }
+    let dt = time.delta_secs();
+    let delta = knockback.0 * dt;
+    knockback.0 *= (-KNOCKBACK_DECAY * dt).exp();
+    let Ok(rapier) = rapier.single() else {
+        return;
+    };
+    let feet = player.translation.y - EYE_HEIGHT;
+    let probe_bottom = feet + WALL_PROBE_CLEARANCE;
+    let top = feet + BODY_CAPSULE_HEIGHT;
+    let half_height = ((top - probe_bottom) / 2.0 - BODY_CAPSULE_RADIUS).max(0.01);
+    let probe = Collider::capsule_y(half_height, BODY_CAPSULE_RADIUS);
+    let pos = Vec3::new(player.translation.x, (probe_bottom + top) / 2.0, player.translation.z);
+    let moved = sweep_and_slide(&rapier, pos, delta, &probe);
+    player.translation.x += moved.x;
+    player.translation.z += moved.z;
+}
+
+/// No shove carries over a respawn, or into the next game.
+pub(crate) fn reset_knockback(mut knockback: ResMut<Knockback>) {
+    knockback.0 = Vec3::ZERO;
+}
+
 /// Sweeps `probe` from `origin` toward `delta`, sliding along any wall-like
 /// hit instead of stopping dead: the leftover distance for that hit is
 /// projected onto the wall's tangent plane (dropping only the component that

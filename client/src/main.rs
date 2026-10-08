@@ -221,6 +221,17 @@ fn main() {
         .add_plugins(hud::LeaderboardPlugin)
         .add_plugins(hud::DamageIndicatorPlugin)
         .add_plugins(end_screen_fx::EndScreenFxPlugin)
+        .init_resource::<Knockback>()
+        .add_systems(OnEnter(AppState::InGame), reset_knockback)
+        .add_systems(
+            Update,
+            (
+                receive_knockback,
+                reset_knockback.run_if(on_event::<net::LocalPlayerRespawned>),
+            )
+                .chain()
+                .run_if(in_state(AppState::InGame)),
+        )
         .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)
@@ -527,6 +538,9 @@ fn main() {
                     move_player,
                     resolve_wall_collisions,
                     resolve_body_collisions,
+                    // A boss's smash throwing us back — after the move, kept
+                    // out of the walls the same way.
+                    apply_knockback,
                     // (Not while down or out in `Zombies`.)
                     teleport_home.run_if(revive::up),
                     jump,

@@ -89,6 +89,7 @@ impl Plugin for BossPlugin {
                         .after(crate::zombies::run_rounds)
                         .before(crate::ai::drive_bots),
                     (launch_blasts, run_blasts).chain().after(crate::ai::drive_bots),
+                    send_knockbacks.after(crate::ai::drive_bots),
                 ),
             );
     }
@@ -337,4 +338,25 @@ fn on_spawn_boss(
     };
     rounds.pending_bosses.push(PendingBoss::new(spot, feet, time.elapsed_secs()));
     info!("lobby {lobby_e:?}: {peer:?} struck a boss in (debug)");
+}
+
+/// A smash landed: throw its victim back (their client moves them —
+/// movement's theirs — and keeps them out of the walls).
+fn send_knockbacks(
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut smashes: EventReader<crate::ai::BossSmashed>,
+) {
+    let server = server.into_inner();
+    for smash in smashes.read() {
+        if shared::bot_players::is_bot_peer(smash.victim) {
+            continue;
+        }
+        let msg = shared::KnockedBack {
+            velocity: (smash.dir * shared::boss::SMASH_KNOCKBACK_SPEED).to_array(),
+        };
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(smash.victim)) {
+            error!("failed to send knockback to {:?}: {e:?}", smash.victim);
+        }
+    }
 }

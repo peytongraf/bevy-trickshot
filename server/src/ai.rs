@@ -103,6 +103,15 @@ pub struct ZombieSwipeLanded {
     pub at: Vec3,
 }
 
+/// A boss's smash landed on `victim`, throwing them along `dir` (unit,
+/// horizontal: away from the boss) — written by [`drive_bots`], sent on to
+/// the victim by `boss::send_knockbacks`.
+#[derive(Event)]
+pub struct BossSmashed {
+    pub victim: PeerId,
+    pub dir: Vec3,
+}
+
 /// A boss let go of a blast (`shared::boss`) from `from`, flying along `dir`
 /// — written by [`drive_bots`], flown by `boss::run_blasts`.
 #[derive(Event)]
@@ -477,6 +486,7 @@ impl Plugin for BotAiPlugin {
             .init_resource::<NextBotId>()
             .add_event::<ZombieSwipeLanded>()
             .add_event::<BossBlastFired>()
+            .add_event::<BossSmashed>()
             .add_systems(
                 FixedUpdate,
                 drive_bots.before(crate::sim::apply_client_pose),
@@ -630,6 +640,7 @@ pub(crate) fn drive_bots(
     mut swipes: EventWriter<ZombieSwipeLanded>,
     lures: Res<crate::monkey_bombs::MonkeyLures>,
     mut blasts: EventWriter<BossBlastFired>,
+    mut smashes: EventWriter<BossSmashed>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -946,6 +957,12 @@ pub(crate) fn drive_bots(
                                     lobby: lp.lobby,
                                     at: t_eye - Vec3::Y * EYE_HEIGHT,
                                 });
+                                // Thrown back, away from it (straight back
+                                // the way it faces, if they're right on it).
+                                let facing = Vec3::new(-brain.yaw.sin(), 0.0, -brain.yaw.cos());
+                                let away = t_eye - brain.feet;
+                                let dir = Vec3::new(away.x, 0.0, away.z).normalize_or(facing);
+                                smashes.write(BossSmashed { victim, dir });
                             }
                         }
                     }
@@ -1506,6 +1523,7 @@ mod tests {
         app.add_event::<crate::pvp::PlayerHit>();
         app.add_event::<ZombieSwipeLanded>();
         app.add_event::<BossBlastFired>();
+        app.add_event::<BossSmashed>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -1782,12 +1800,19 @@ mod tests {
 
     #[test]
     fn a_boss_next_to_its_target_smashes_only_once_its_arms_come_forward() {
-        let (hits, blasts) = boss_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, |_, _| {});
+        let mut smashes = Vec::new();
+        let (hits, blasts) = boss_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, |app, _| {
+            smashes.extend(app.world_mut().resource_mut::<Events<BossSmashed>>().drain());
+        });
         assert!(blasts.is_empty(), "it threw a blast point blank");
         assert_eq!(hits.len(), 1, "hits: {hits:?}");
         let (at, damage) = hits[0];
         assert_eq!(damage, shared::boss::MELEE_DAMAGE);
         assert!(at >= shared::boss::MELEE_HIT_SECS - 0.05, "the smash landed at {at} s, before the arms came forward");
+        // ...and throws them back, away from it (they're due east, +X).
+        assert_eq!(smashes.len(), 1);
+        let dir = smashes[0].dir;
+        assert!(dir.x > 0.9 && dir.y == 0.0, "thrown {dir:?}");
     }
 
     #[test]
