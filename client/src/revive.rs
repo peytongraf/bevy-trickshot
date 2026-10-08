@@ -344,7 +344,8 @@ pub(crate) fn hold_downed_stance(local: &LocalRevive, slide: &mut Slide, was_dow
 }
 
 /// The world drains to black and white as our bleed-out runs (all the way
-/// once we're out), and the view model's hidden while we're down, out or
+/// once we're out) — and behind the end-of-game results, as far and as fast
+/// as `end_screen_fx` says — and the view model's hidden while we're down, out or
 /// reviving someone (an empty render layer on its camera, so the screen
 /// passes it carries — Shroom Tea, Liquid Courage — still run). Back to
 /// normal at once otherwise, including outside a game.
@@ -353,14 +354,25 @@ fn apply_down_view(
     local: Res<LocalRevive>,
     menu: Res<menu::Menu>,
     spectating: Res<Spectate>,
+    (end_fx, end_fx_settings): (
+        Res<crate::end_screen_fx::EndScreenFx>,
+        Res<crate::end_screen_fx::EndScreenFxSettings>,
+    ),
     mut saturation: Local<Option<f32>>,
     mut grading: Query<&mut ColorGrading, Or<(With<WorldModelCamera>, With<ViewModelCamera>)>>,
     mut vm_layers: Query<&mut RenderLayers, With<ViewModelCamera>>,
 ) {
-    // Behind the results screen: the world in colour, and no weapon.
+    // Behind the results screen: no weapon, and the world drained of colour
+    // with the rest of the end screen's fade (`end_screen_fx` — which can
+    // also preview it).
     let results = menu.screen == menu::Screen::MatchResults;
+    let end_screen = end_fx
+        .active
+        .then(|| 1.0 - (1.0 - end_fx_settings.saturation.clamp(0.0, 1.0)) * end_fx.fade(&end_fx_settings));
     // (A teammate we're watching is seen as they are.)
-    let target = if results || spectating.active() {
+    let target = if let Some(s) = end_screen {
+        s
+    } else if spectating.active() {
         1.0
     } else if local.bled_out {
         0.0
@@ -370,8 +382,9 @@ fn apply_down_view(
         1.0
     };
     let current = saturation.unwrap_or(1.0);
-    // Eased, so the revive's colour comes back over a moment.
-    let next = if (target - current).abs() < 0.002 {
+    // Eased, so the revive's colour comes back over a moment (the end
+    // screen's runs to its own fade).
+    let next = if end_screen.is_some() || (target - current).abs() < 0.002 {
         target
     } else {
         current + (target - current) * (time.delta_secs() * 4.0).min(1.0)
@@ -833,6 +846,7 @@ fn name_of(lobby: &Lobby, peer: PeerId) -> String {
 
 /// Fill in our own last-stand panel: the bleed-out bar draining, the perks
 /// we went down with at their marks (gone once lost), and who's reviving us.
+/// Never shown playing alone without Quick Revive — there's no one to.
 #[allow(clippy::too_many_arguments)]
 fn update_down_panel(
     menu: Res<menu::Menu>,
@@ -854,6 +868,12 @@ fn update_down_panel(
         panel.set_if_neq(Visibility::Hidden);
         return;
     };
+    // Playing alone, nobody can get us up — unless solo Quick Revive is
+    // getting us up ourselves: no panel (the game's over in a moment).
+    if lobby.real_count() <= 1 && downed.reviver != Some(me) {
+        panel.set_if_neq(Visibility::Hidden);
+        return;
+    }
     // (Watching a teammate, the spectate label says it instead.)
     let hud_up = !menu.is_open() && active_killcam.0.is_none() && !spectating.active();
     panel.set_if_neq(if hud_up { Visibility::Inherited } else { Visibility::Hidden });

@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "The game over screen fades in fire, embers and a drained, grey world.",
+        "Zombies: no revive bar when you go down playing solo.",
         "Red damage indicators point to whoever's hurting you.",
         "Getting hurt shows much more blood, sooner, with a louder heartbeat.",
         "Zombies: the heartbeat now plays when you're hurt.",

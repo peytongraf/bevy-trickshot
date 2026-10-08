@@ -15,6 +15,10 @@
 //! more of what floats up is ash, a red glow throbs in from the edges like
 //! a heartbeat, and now and then the storm flashes cold light across it.
 //!
+//! [`results_backdrop`] is just the embers, and an amber glow in from the
+//! edges, over the world behind the end-of-game results — faded in, and
+//! tuned, by `end_screen_fx` ([`ResultsGlow`]).
+//!
 //! Every layer is worked out from the clock alone each frame (per-ember
 //! randomness is a hash of its index and its current lifetime), with no
 //! state of its own: the pages rebuild on every click, and a rebuilt
@@ -80,7 +84,9 @@ pub(crate) struct MenuBackdropPlugin;
 
 impl Plugin for MenuBackdropPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, make_backdrop_images).add_systems(
+        app.init_resource::<ResultsGlow>()
+            .add_systems(Startup, make_backdrop_images)
+            .add_systems(
             PostUpdate,
             animate_menu_backdrop.before(bevy::ui::UiSystem::Layout),
         );
@@ -99,6 +105,19 @@ enum Backdrop {
     Heartbeat,
     /// ...and the lightning.
     Lightning,
+    /// The results screen's amber glow in from the edges.
+    AmberGlow,
+}
+
+/// How [`results_backdrop`]'s layers show right now — set every frame by
+/// `end_screen_fx`: how far faded in (0..1), the embers' opacity, and the
+/// amber glow's colour and opacity.
+#[derive(Resource, Default)]
+pub(crate) struct ResultsGlow {
+    pub(crate) fade: f32,
+    pub(crate) embers: f32,
+    pub(crate) glow: f32,
+    pub(crate) glow_color: [f32; 3],
 }
 
 /// Which backdrop a layer belongs to.
@@ -106,6 +125,8 @@ enum Backdrop {
 enum Theme {
     Menu,
     Zombies,
+    /// The end-of-game results' embers and glow ([`results_backdrop`]).
+    Results,
 }
 
 /// How a [`Theme`] tunes the shared layers.
@@ -125,7 +146,7 @@ struct Look {
 impl Theme {
     fn look(self) -> Look {
         match self {
-            Theme::Menu => Look {
+            Theme::Menu | Theme::Results => Look {
                 art_size: ART_SIZE,
                 art_zoom: ART_ZOOM,
                 shade: SHADE,
@@ -173,9 +194,53 @@ pub fn zombies_background(parent: &mut ChildSpawnerCommands, asset_server: &Asse
     spawn_backdrop(parent, asset_server, Theme::Zombies);
 }
 
+/// The embers floating up and an amber glow in from the edges — for over
+/// the world behind the results screen (`end_screen_fx`), filling `parent`.
+pub(crate) fn results_backdrop(parent: &mut ChildSpawnerCommands) {
+    parent
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            overflow: Overflow::clip(),
+            ..default()
+        })
+        .with_children(|frame| {
+            frame.spawn((
+                Backdrop::AmberGlow,
+                Theme::Results,
+                ImageNode {
+                    image: GLOW_IMAGE,
+                    color: Color::NONE,
+                    image_mode: NodeImageMode::Stretch,
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+            ));
+            for i in 0..EMBERS {
+                frame.spawn((
+                    Backdrop::Ember(i),
+                    Theme::Results,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    BorderRadius::MAX,
+                    BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
+                ));
+            }
+        });
+}
+
 fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, theme: Theme) {
     let art = match theme {
-        Theme::Menu => ART,
+        Theme::Menu | Theme::Results => ART,
         Theme::Zombies => ZOMBIES_ART,
     };
     let full = || Node {
@@ -314,6 +379,7 @@ fn seed(i: usize, cycle: i64, salt: u32) -> u32 {
 #[allow(clippy::type_complexity)]
 fn animate_menu_backdrop(
     time: Res<Time<Real>>,
+    results: Res<ResultsGlow>,
     window: Query<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
     mut layers: Query<(
@@ -377,6 +443,14 @@ fn animate_menu_backdrop(
                     image.color = Color::srgba(0.6, 0.0, 0.02, HEARTBEAT_ALPHA * beat);
                 }
             }
+            // The results' amber glow: in from the edges, breathing slowly.
+            Backdrop::AmberGlow => {
+                let breathe = 0.85 + 0.15 * (t * 1.3).sin();
+                let [r, g, b] = results.glow_color;
+                if let Some(mut image) = image {
+                    image.color = Color::srgba(r, g, b, (results.glow * results.fade * breathe).clamp(0.0, 1.0));
+                }
+            }
             // Lightning: in the odd second, a bright flash and a fainter
             // flicker after it, each fading fast.
             Backdrop::Lightning => {
@@ -434,6 +508,8 @@ fn animate_menu_backdrop(
                 let life_alpha = (f * core::f32::consts::PI).sin().powf(0.7);
                 let burn = 0.65 + 0.35 * noise(t * 5.0 + i as f32 * 3.1, 0xe7);
                 let a = life_alpha * (0.35 + 0.65 * r(8)) * if ash { 0.45 } else { burn };
+                // (The results' fade in with the rest of the end screen.)
+                let a = if *theme == Theme::Results { a * results.embers * results.fade } else { a };
                 let (core, glow) = if ash {
                     (Color::srgba(0.72, 0.72, 0.72, a), Color::NONE)
                 } else {

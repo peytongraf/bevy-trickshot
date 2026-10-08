@@ -31,6 +31,7 @@ mod changelog;
 mod death_effect;
 mod debug_ui;
 mod dogs;
+mod end_screen_fx;
 mod environment;
 mod fall_death;
 mod game_start;
@@ -219,6 +220,7 @@ fn main() {
         .add_plugins(hit_detection::HitDetectionPlugin)
         .add_plugins(hud::LeaderboardPlugin)
         .add_plugins(hud::DamageIndicatorPlugin)
+        .add_plugins(end_screen_fx::EndScreenFxPlugin)
         .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)
