@@ -35,6 +35,7 @@ mod environment;
 mod fall_death;
 mod game_start;
 mod health;
+mod hit_detection;
 mod hit_marker;
 mod hud;
 mod keybinds;
@@ -215,6 +216,7 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(loadout::LoadoutPlugin)
+        .add_plugins(hit_detection::HitDetectionPlugin)
         .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)

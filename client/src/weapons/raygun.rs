@@ -199,6 +199,7 @@ pub(crate) fn raygun_draw_lower(
 pub(crate) fn raygun_debug_ui(
     mut contexts: EguiContexts,
     mut settings: ResMut<RayGunSettings>,
+    mut look: ResMut<crate::RayGunLook>,
     weapon: Res<Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
@@ -271,6 +272,45 @@ pub(crate) fn raygun_debug_ui(
                 ui.add(egui::Slider::new(&mut s.lower_drop, 0.0f32..=1.0).text("put away: drop (m)"));
                 ui.add(egui::Slider::new(&mut s.lower_tip, 0.0f32..=1.5).text("put away: tip (rad)"));
             });
+            let l = &mut *look;
+            ui.collapsing("Bolt", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("colour (bolt, burst, rings)");
+                    ui.color_edit_button_rgb(&mut l.color);
+                });
+                ui.add(egui::Slider::new(&mut l.bolt_glow, 0.0f32..=20.0).text("glow"));
+                ui.add(egui::Slider::new(&mut l.bolt_size, 0.1f32..=4.0).text("core size (×)"));
+                ui.add(egui::Slider::new(&mut l.bolt_ring_size, 0.1f32..=4.0).text("ring size (×)"));
+                ui.add(egui::Slider::new(&mut l.bolt_ring_gap, 0.0f32..=1.0).text("ring spacing (m, new bolts)"));
+                ui.add(egui::Slider::new(&mut l.bolt_ring_spin, 0.0f32..=60.0).text("ring spin (rad/s)"));
+                ui.add(egui::Slider::new(&mut l.bolt_light, 0.0f32..=500_000.0).text("light (lm, new bolts)"));
+                ui.add(egui::Slider::new(&mut l.bolt_light_range, 0.0f32..=30.0).text("light range (m, new bolts)"));
+            });
+            ui.collapsing("Burst", |ui| {
+                ui.add(egui::Slider::new(&mut l.burst_secs, 0.05f32..=2.0).text("lasts (s)"));
+                ui.add(egui::Slider::new(&mut l.burst_radius, 0.1f32..=5.0).text("swells to (m)"));
+                ui.add(egui::Slider::new(&mut l.burst_glow, 0.0f32..=20.0).text("glow"));
+                ui.add(egui::Slider::new(&mut l.burst_opacity, 0.0f32..=1.0).text("opacity"));
+                ui.add(egui::Slider::new(&mut l.burst_light, 0.0f32..=2_000_000.0).text("light (lm)"));
+                ui.add(egui::Slider::new(&mut l.burst_light_range, 0.0f32..=40.0).text("light range (m)"));
+                ui.add(egui::Slider::new(&mut l.sparks, 0u32..=60).text("sparks"));
+                ui.add(egui::Slider::new(&mut l.spark_secs, 0.05f32..=2.0).text("spark life (s)"));
+                ui.add(egui::Slider::new(&mut l.spark_speed, 0.0f32..=20.0).text("spark speed (m/s)"));
+                ui.add(egui::Slider::new(&mut l.spark_size, 0.1f32..=5.0).text("spark size (×)"));
+            });
+            ui.collapsing("Muzzle rings", |ui| {
+                ui.add(egui::Slider::new(&mut l.muzzle_rings, 0u32..=8).text("rings"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_gap_secs, 0.0f32..=0.3).text("apart (s)"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_secs, 0.05f32..=2.0).text("lasts (s)"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_speed, 0.0f32..=20.0).text("drift speed (m/s)"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_start_scale, 0.0f32..=3.0).text("size leaving (×)"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_end_scale, 0.0f32..=6.0).text("size at the end (×)"));
+                ui.add(egui::Slider::new(&mut l.muzzle_ring_opacity, 0.0f32..=1.0).text("opacity"));
+            });
+            if ui.button("Reset look").clicked() {
+                *l = crate::RayGunLook::default();
+            }
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Copy Ray Gun settings to console").clicked() {
                     let p = |o: &ViewModelOffset| {
@@ -296,6 +336,22 @@ pub(crate) fn raygun_debug_ui(
                         s.muzzle_size.y,
                         s.lower_drop,
                         s.lower_tip,
+                    );
+                    let l = &*look;
+                    info!(
+                        "ray gun look: color: [{:.3}, {:.3}, {:.3}], bolt_glow: {:.2}, bolt_size: {:.2}, \
+                         bolt_ring_size: {:.2}, bolt_ring_gap: {:.3}, bolt_ring_spin: {:.1}, bolt_light: {:.0}, \
+                         bolt_light_range: {:.1}, burst_secs: {:.3}, burst_radius: {:.2}, burst_glow: {:.2}, \
+                         burst_opacity: {:.2}, burst_light: {:.0}, burst_light_range: {:.1}, sparks: {}, \
+                         spark_secs: {:.3}, spark_speed: {:.2}, spark_size: {:.2}, muzzle_rings: {}, \
+                         muzzle_ring_gap_secs: {:.3}, muzzle_ring_secs: {:.3}, muzzle_ring_speed: {:.2}, \
+                         muzzle_ring_start_scale: {:.2}, muzzle_ring_end_scale: {:.2}, muzzle_ring_opacity: {:.2}",
+                        l.color[0], l.color[1], l.color[2], l.bolt_glow, l.bolt_size, l.bolt_ring_size,
+                        l.bolt_ring_gap, l.bolt_ring_spin, l.bolt_light, l.bolt_light_range, l.burst_secs,
+                        l.burst_radius, l.burst_glow, l.burst_opacity, l.burst_light, l.burst_light_range,
+                        l.sparks, l.spark_secs, l.spark_speed, l.spark_size, l.muzzle_rings,
+                        l.muzzle_ring_gap_secs, l.muzzle_ring_secs, l.muzzle_ring_speed,
+                        l.muzzle_ring_start_scale, l.muzzle_ring_end_scale, l.muzzle_ring_opacity,
                     );
                 }
                 if ui.button("Reset").clicked() {

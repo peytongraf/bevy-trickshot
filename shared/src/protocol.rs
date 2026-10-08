@@ -467,6 +467,69 @@ pub struct PlayerInput {
     /// `Zombies`: the interact key's held down to revive a downed teammate
     /// (`server::revive` picks the nearest one in reach).
     pub revive: bool,
+    /// With `fire`: every enemy this client saw the shot strike — tested
+    /// against their actual animated models as drawn on its screen, an arm or
+    /// a finger included — for the server to check over and apply
+    /// ([`crate::ballistics::resolve_claimed_hits`]). Empty: a clean miss.
+    /// `None` (a bot's shot, which has no client): the server tests it
+    /// against simple capsules itself.
+    #[reflect(ignore)]
+    pub fire_hits: Option<Vec<ShotClaim>>,
+}
+
+/// One enemy a player's shot struck, as their client saw it
+/// ([`PlayerInput::fire_hits`]).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct ShotClaim {
+    pub target: ClaimTarget,
+    /// Which part of them — from the bone the hit landed on
+    /// ([`crate::hitbox::zone_of_bone`]).
+    pub zone: crate::ballistics::HitZone,
+    /// Where on their model.
+    pub point: [f32; 3],
+}
+
+/// Client → server: one of our projectiles — a Ray Gun bolt, a thrown
+/// knife — struck an enemy on our screen, as [`ShotClaim`]s do for bullets
+/// (`None`: a bolt reached its surface without striking one, so it can
+/// burst there at once).
+/// `origin` is where it was fired / thrown from, exactly as we sent it,
+/// which picks out which of ours it was. The server checks it over
+/// (`server::raygun`, `server::knives`) before anything takes damage.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct ProjectileClaim {
+    pub projectile: Projectile,
+    pub origin: [f32; 3],
+    pub claim: Option<ShotClaim>,
+}
+
+/// A [`ProjectileClaim`]'s projectile.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Projectile {
+    RayGun,
+    Knife,
+}
+
+/// Server → the thrower only: where the knife they threw from `origin` (as
+/// they sent it) will be while it can still kill —
+/// `[x, y, z, seconds since the throw]`
+/// ([`crate::throwing_knife::lethal_path`]) — for their client to test it
+/// against everyone's models along the way.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KnifeFlight {
+    pub origin: [f32; 3],
+    pub path: Vec<[f32; 4]>,
+}
+
+/// Who a [`ShotClaim`] hit.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum ClaimTarget {
+    /// A player entity — another player, a `FreeForAll` bot or a `Zombies`
+    /// zombie, hellhound or boss — by its [`PeerId::to_bits`].
+    Player(u64),
+    /// A `Freestyle` target bot ([`Bot`]), by where its feet were on the
+    /// shooter's screen — the server takes the one nearest there.
+    Bot([f32; 3]),
 }
 
 impl Default for PlayerInput {
@@ -510,6 +573,7 @@ impl Default for PlayerInput {
             stabbing: false,
             crouch_drop: 0.0,
             revive: false,
+            fire_hits: None,
         }
     }
 }
@@ -2113,6 +2177,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieBlood>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<KnifeFlight>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<DogLightning>()
@@ -2290,6 +2356,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PingBot>()
             .add_map_entities()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ProjectileClaim>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

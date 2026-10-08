@@ -1,7 +1,12 @@
 //! Authoritative shot resolution. The server runs [`resolve_shot`] for every
-//! fire request; the client can run the same function to predict the result.
+//! fire request with no client behind it (a bot's), testing the shot against
+//! simple capsules. A real player's shot is tested on their own client
+//! against every enemy's actual animated model, exactly as it was drawn
+//! there — an arm, a finger — and sent up as [`Claim`]s, which the server
+//! checks over with [`resolve_claimed_hits`] before anything takes damage.
 
 use bevy::math::Vec3;
+use serde::{Deserialize, Serialize};
 
 use crate::hitbox::{ray_capsule, Capsule};
 use crate::weapon::WeaponId;
@@ -16,7 +21,7 @@ pub struct Target {
 
 /// Where on a target a shot landed — each zone has its own damage multiplier
 /// (see [`crate::weapon::WeaponSpec`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HitZone {
     Head,
     /// Upper body (waist and up, arms included) — full body-shot damage.
@@ -252,6 +257,161 @@ pub fn resolve_shot_pierce(
     hits
 }
 
+/// The path a `weapon`'s bullet fired from `origin` along `dir` (unit)
+/// follows, as a polyline out to its `max_range`: one straight leg for a
+/// hitscan weapon, the same short steps of its drop [`resolve_shot`] walks
+/// for a projectile one.
+pub fn shot_path(weapon: WeaponId, origin: Vec3, dir: Vec3) -> Vec<Vec3> {
+    let spec = weapon.spec();
+    if weapon.is_hitscan() {
+        return vec![origin, origin + dir * spec.max_range];
+    }
+    const STEP_M: f32 = 4.0;
+    let dt = STEP_M / spec.muzzle_velocity;
+    let mut path = vec![origin];
+    let mut pos = origin;
+    let mut vel = dir * spec.muzzle_velocity;
+    let mut travelled = 0.0f32;
+    while travelled < spec.max_range {
+        let next = pos + vel * dt;
+        let seg_len = (next - pos).length();
+        if seg_len <= 1e-6 {
+            break;
+        }
+        let remaining = spec.max_range - travelled;
+        path.push(pos + (next - pos) * (remaining / seg_len).min(1.0));
+        pos = next;
+        vel += Vec3::NEG_Y * spec.gravity * dt;
+        travelled += seg_len;
+    }
+    path
+}
+
+/// Where `point` sits along `path` ([`shot_path`]): how far down it (m) its
+/// nearest spot is, and how far off the path it is.
+pub fn along_path(path: &[Vec3], point: Vec3) -> Option<(f32, f32)> {
+    let mut best: Option<(f32, f32)> = None;
+    let mut travelled = 0.0;
+    for leg in path.windows(2) {
+        let (a, b) = (leg[0], leg[1]);
+        let ab = b - a;
+        let len = ab.length();
+        if len <= 1e-6 {
+            continue;
+        }
+        let t = ((point - a).dot(ab) / (len * len)).clamp(0.0, 1.0);
+        let off = point.distance(a + ab * t);
+        if best.is_none_or(|(_, o)| off < o) {
+            best = Some((travelled + t * len, off));
+        }
+        travelled += len;
+    }
+    best
+}
+
+/// One hit a player's client found its shot made on a target's model
+/// (`target`: a [`Target::id`]), where (`point`) and on which part of it
+/// (`zone`: the bone it struck — [`crate::hitbox::zone_of_bone`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Claim {
+    pub target: u64,
+    pub zone: HitZone,
+    pub point: Vec3,
+}
+
+/// How far (m) a [`Claim`]'s point may lie off the shot's path — rounding,
+/// and the camera having moved a hair between drawing and sending.
+pub const CLAIM_PATH_SLACK_M: f32 = 0.3;
+
+/// How far (m) a [`Claim`]'s point may lie outside its target's body capsule
+/// on the server: the shooter saw everyone a moment in the past (the
+/// interpolation delay plus the trip up), so a fast hellhound can be a few
+/// metres on by now — and an arm flung out reaches past the capsule anyway.
+pub const CLAIM_BODY_SLACK_M: f32 = 3.0;
+
+/// The server's side of a player's shot: check each of their client's
+/// [`Claim`]s — its target's still one (in `targets`), the point's on the
+/// shot's path, near where that target really is, and in front of the first
+/// wall (`wall_dist`, along the shot from `origin`) — and turn the ones that
+/// hold up into hits, nearest first, with the same piercing rules (and
+/// damage) as [`resolve_shot_pierce`]. Each target counts once, at the
+/// nearest point claimed on it.
+pub fn resolve_claimed_hits(
+    weapon: WeaponId,
+    origin: Vec3,
+    dir: Vec3,
+    claims: &[Claim],
+    targets: &[Target],
+    wall_dist: Option<f32>,
+) -> Vec<ShotHit> {
+    let dir = dir.normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return Vec::new();
+    }
+    let path = shot_path(weapon, origin, dir);
+    let mut valid: Vec<(f32, Claim)> = Vec::new();
+    for claim in claims {
+        let Some(target) = targets.iter().find(|t| t.id == claim.target) else {
+            continue;
+        };
+        if !near_target(target, claim.point) {
+            continue;
+        }
+        let Some((along, off)) = along_path(&path, claim.point) else {
+            continue;
+        };
+        if off > CLAIM_PATH_SLACK_M || wall_dist.is_some_and(|d| origin.distance(claim.point) > d) {
+            continue;
+        }
+        match valid.iter_mut().find(|(_, c)| c.target == claim.target) {
+            Some(prev) if prev.0 <= along => {}
+            Some(prev) => *prev = (along, *claim),
+            None => valid.push((along, *claim)),
+        }
+    }
+    valid.sort_by(|a, b| a.0.total_cmp(&b.0));
+    if !weapon.is_hitscan() {
+        // (A projectile stops in the first thing it hits.)
+        valid.truncate(1);
+    }
+
+    let mut hits = Vec::new();
+    let mut budget = weapon.spec().max_range;
+    let mut last = 0.0;
+    for (along, claim) in valid {
+        let leg = along - last;
+        if leg > budget {
+            break;
+        }
+        budget -= leg + PIERCE_RANGE_COST_M;
+        last = along;
+        hits.push(ShotHit {
+            target: claim.target,
+            headshot: claim.zone == HitZone::Head,
+            zone: claim.zone,
+            point: claim.point,
+            distance: along,
+            damage: damage_for(weapon, along, claim.zone),
+        });
+    }
+    hits
+}
+
+/// Whether a point a client claims it hit `target` at is close enough to
+/// where the server has them ([`CLAIM_BODY_SLACK_M`]).
+pub fn near_target(target: &Target, point: Vec3) -> bool {
+    let body = &target.body;
+    segment_point_distance(body.a, body.b, point) <= body.radius + CLAIM_BODY_SLACK_M
+}
+
+/// How far `p` is from the segment `a`..`b`.
+fn segment_point_distance(a: Vec3, b: Vec3, p: Vec3) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_squared();
+    let t = if len2 > 1e-12 { ((p - a).dot(ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    p.distance(a + ab * t)
+}
+
 /// Height of the flat ground plane.
 pub const GROUND_Y: f32 = 0.0;
 /// Half-extent of the ground plane on X and Z (metres).
@@ -334,6 +494,96 @@ mod tests {
         });
         let ids: Vec<u64> = hits.iter().map(|h| h.target).collect();
         assert_eq!(ids, vec![1, 2]);
+    }
+
+    fn claim(target: u64, zone: HitZone, point: Vec3) -> Claim {
+        Claim { target, zone, point }
+    }
+
+    #[test]
+    fn a_claimed_hit_on_the_shot_and_its_target_counts_with_its_zone() {
+        let targets = [dummy(1, Vec3::new(0.0, 0.0, -10.0))];
+        // An outflung arm: past the capsule, but on the shot.
+        let point = Vec3::new(0.0, 1.0, -10.0 + 0.9);
+        let hits = resolve_claimed_hits(
+            WeaponId::Sniper,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::NEG_Z,
+            &[claim(1, HitZone::Head, point)],
+            &targets,
+            None,
+        );
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].headshot && hits[0].zone == HitZone::Head);
+        assert!((hits[0].distance - 9.1).abs() < 1e-3);
+        assert_eq!(hits[0].damage, damage_for(WeaponId::Sniper, 9.1, HitZone::Head));
+    }
+
+    #[test]
+    fn a_claim_off_the_shot_far_from_its_target_or_on_no_target_is_thrown_out() {
+        let origin = Vec3::new(0.0, 1.0, 0.0);
+        let targets = [dummy(1, Vec3::new(0.0, 0.0, -10.0)), dummy(2, Vec3::new(0.0, 0.0, -40.0))];
+        let bad = [
+            // Not on the shot (a metre to the side).
+            claim(1, HitZone::Torso, Vec3::new(1.0, 1.0, -10.0)),
+            // On the shot, but nowhere near target 2.
+            claim(2, HitZone::Torso, Vec3::new(0.0, 1.0, -20.0)),
+            // No such target.
+            claim(9, HitZone::Torso, Vec3::new(0.0, 1.0, -10.0)),
+        ];
+        let hits = resolve_claimed_hits(WeaponId::Sniper, origin, Vec3::NEG_Z, &bad, &targets, None);
+        assert!(hits.is_empty(), "{hits:?}");
+    }
+
+    #[test]
+    fn claims_behind_a_wall_dont_count_and_the_rest_pierce_nearest_first() {
+        let origin = Vec3::new(0.0, 1.0, 0.0);
+        let targets = [
+            dummy(1, Vec3::new(0.0, 0.0, -10.0)),
+            dummy(2, Vec3::new(0.0, 0.0, -15.0)),
+            dummy(3, Vec3::new(0.0, 0.0, -30.0)),
+        ];
+        let claims = [
+            claim(3, HitZone::Torso, Vec3::new(0.0, 1.0, -29.7)),
+            claim(2, HitZone::Legs, Vec3::new(0.0, 1.0, -14.7)),
+            claim(1, HitZone::Torso, Vec3::new(0.0, 1.0, -9.7)),
+            // A second point on target 1, farther in: only the first counts.
+            claim(1, HitZone::Head, Vec3::new(0.0, 1.0, -10.2)),
+        ];
+        let hits = resolve_claimed_hits(WeaponId::Sniper, origin, Vec3::NEG_Z, &claims, &targets, Some(20.0));
+        let got: Vec<(u64, HitZone)> = hits.iter().map(|h| (h.target, h.zone)).collect();
+        assert_eq!(got, vec![(1, HitZone::Torso), (2, HitZone::Legs)]);
+    }
+
+    #[test]
+    fn a_projectiles_claim_follows_its_drop_and_stops_at_the_first() {
+        let origin = Vec3::new(0.0, 1.5, 0.0);
+        let path = shot_path(WeaponId::Marksman, origin, Vec3::NEG_Z);
+        // A spot well down range, where the bullet has really dropped to.
+        let far = path.iter().copied().find(|p| p.z < -250.0).unwrap();
+        assert!(far.y < origin.y - 0.1, "no drop by {far:?}");
+        let targets = [
+            dummy(1, Vec3::new(0.0, far.y - 1.0, far.z)),
+            dummy(2, Vec3::new(0.0, far.y - 1.0, far.z - 5.0)),
+        ];
+        let claims = [
+            claim(1, HitZone::Torso, far),
+            claim(2, HitZone::Torso, far + Vec3::NEG_Z * 5.0),
+        ];
+        let hits = resolve_claimed_hits(WeaponId::Marksman, origin, Vec3::NEG_Z, &claims, &targets, None);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].target, 1);
+        // ...and the same point with no drop (straight along the aim) is off it.
+        let straight = Vec3::new(0.0, origin.y, far.z);
+        let none = resolve_claimed_hits(
+            WeaponId::Marksman,
+            origin,
+            Vec3::NEG_Z,
+            &[claim(1, HitZone::Torso, straight)],
+            &[dummy(1, Vec3::new(0.0, origin.y - 1.0, far.z))],
+            None,
+        );
+        assert!(none.is_empty(), "{none:?}");
     }
 
     #[test]

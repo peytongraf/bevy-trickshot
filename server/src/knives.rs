@@ -16,6 +16,17 @@
 //! The thrower is never hit by their own knife, and a dead player can neither
 //! throw nor be hit.
 //!
+//! Who a knife hits is the thrower's client's call, Call of Duty's way: the
+//! moment it's thrown, the server works out where it'll fly while it can
+//! still kill ([`shared::throwing_knife::lethal_path`]) and sends the
+//! thrower that ([`KnifeFlight`]); their client follows its knife down it,
+//! testing it against everyone's actual animated models as drawn there
+//! (`client::hit_detection`), and claims the first one it strikes
+//! ([`ProjectileClaim`]). [`step_knives`] checks the claim over — a target
+//! this knife may kill, near where the server has them, the spot on the
+//! knife's path — before the kill counts. The server never tests a knife
+//! against anyone itself.
+//!
 //! A knife that kills drops to the ground beside its victim
 //! ([`KnifeBody::drop_beside`]), clear of the body. A stopped knife lies where it landed for
 //! [`shared::throwing_knife::REST_LINGER_SECS`]; any living player in its
@@ -30,13 +41,14 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::ballistics::Target;
+use shared::ballistics::{along_path, near_target, Target, CLAIM_PATH_SLACK_M};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
 use shared::hitbox::Capsule;
-use shared::throwing_knife::{in_pickup_range, KnifeBody, MAX_CARRIED, MAX_KNIVES_PER_PLAYER};
+use shared::throwing_knife::{in_pickup_range, lethal_path, KnifeBody, KnifeHit, MAX_CARRIED, MAX_KNIVES_PER_PLAYER};
 use shared::{
-    Bot, GameChannel, GameMode, KnifePickedUp, Lobby, PickUpKnife, PlayerId, PlayerPose,
-    ThrowKnife, ThrowingKnifeHit, ThrowingKnifeImpact, ThrownKnife, TrickScore,
+    Bot, ClaimTarget, GameChannel, GameMode, KnifeFlight, KnifePickedUp, Lobby, PickUpKnife, PlayerId, PlayerPose,
+    Projectile, ProjectileClaim, ShotClaim, ThrowKnife, ThrowingKnifeHit, ThrowingKnifeImpact, ThrownKnife,
+    TrickScore,
 };
 
 use crate::bots::{BotHit, LobbyBot};
@@ -66,7 +78,23 @@ struct KnifeSim {
     lobby: Entity,
     /// `KnifeBody::age` at this knife's last announced impact sound.
     last_impact_sound: f32,
+    /// Where the thrower said it was thrown from (which their claims name
+    /// it by), and where it'll be while it can kill
+    /// ([`shared::throwing_knife::lethal_path`]) — empty for one dropped.
+    sent_origin: Vec3,
+    path: Vec<Vec3>,
+    /// The thrower's client's claim it struck someone, waiting for
+    /// [`step_knives`] to check it — and, once one's counted, `true`.
+    claim: Option<ShotClaim>,
+    struck: bool,
 }
+
+/// How far (m) a knife claim's spot may be off the knife's path: the bullet
+/// slack, plus the knife's own width.
+const KNIFE_PATH_SLACK_M: f32 = CLAIM_PATH_SLACK_M + 0.2;
+/// How far (m) from where a thrower saw a `Freestyle` bot's feet the bot
+/// they meant can be.
+const BOT_CLAIM_RADIUS: f32 = 2.5;
 
 /// When each player last threw (`Time::elapsed_secs`).
 #[derive(Resource, Default)]
@@ -93,6 +121,7 @@ impl Plugin for KnivesPlugin {
         app.insert_resource(MapColliders::load())
             .init_resource::<LastThrow>()
             .add_observer(on_throw_knife)
+            .add_observer(on_knife_claim)
             .add_observer(on_pick_up_knife)
             .add_systems(FixedUpdate, (step_knives, cull_orphan_knives).chain());
     }
@@ -108,6 +137,10 @@ fn on_throw_knife(
     poses: Query<(&PlayerId, &PlayerPose)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     knives: Query<&KnifeSim>,
+    fixed: Res<Time<Fixed>>,
+    colliders: Res<MapColliders>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
@@ -154,6 +187,16 @@ fn on_throw_knife(
     last.0.insert(peer, now);
 
     let body = KnifeBody::thrown(origin, dir);
+    // Where it'll fly while it can kill — for the thrower's client to test
+    // against everyone's models as drawn there.
+    let path = lethal_path(body, fixed.timestep().as_secs_f32(), &colliders.for_lobby(lobby));
+    let flight = KnifeFlight {
+        origin: req.origin,
+        path: path.iter().map(|(t, p)| [p.x, p.y, p.z, *t]).collect(),
+    };
+    if let Err(e) = sender.send::<_, GameChannel>(&flight, server.into_inner(), &NetworkTarget::Single(peer)) {
+        error!("failed to send knife flight to {peer:?}: {e:?}");
+    }
     let members: Vec<PeerId> = lobby.real_peers();
     commands.spawn((
         Name::from("ThrownKnife"),
@@ -168,6 +211,10 @@ fn on_throw_knife(
             owner: peer,
             lobby: lobby_e,
             last_impact_sound: f32::NEG_INFINITY,
+            sent_origin: Vec3::from_array(req.origin),
+            path: path.iter().map(|(_, p)| *p).collect(),
+            claim: None,
+            struck: false,
         },
         Replicate::to_clients(NetworkTarget::Only(members.clone())),
         InterpolationTarget::to_clients(NetworkTarget::Only(members)),
@@ -263,6 +310,10 @@ pub(crate) fn drop_knives_around(
                 owner,
                 lobby: lobby_e,
                 last_impact_sound: f32::NEG_INFINITY,
+                sent_origin: ground,
+                path: Vec::new(),
+                claim: None,
+                struck: false,
             },
             Replicate::to_clients(NetworkTarget::Only(members.clone())),
             InterpolationTarget::to_clients(NetworkTarget::Only(members.clone())),
@@ -300,12 +351,12 @@ fn step_knives(
             continue;
         }
 
-        // Who this knife may kill, per the lobby's mode (no one, once it's
-        // lying still).
+        // Who this knife may kill, per the lobby's mode (only wanted to
+        // check a claim it struck someone).
         let mut victims: HashMap<u64, VictimAt> = HashMap::new();
         let mut targets: Vec<Target> = Vec::new();
         match lobby.mode {
-            _ if sim.body.resting => {}
+            _ if sim.claim.is_none() => {}
             GameMode::FreeForAll | GameMode::Zombies => {
                 for (id, pose, lp) in &poses {
                     if id.0 == sim.owner || lp.lobby != sim.lobby {
@@ -360,7 +411,28 @@ fn step_knives(
         }
 
         let world = &colliders.for_lobby(lobby);
-        let hit = sim.body.step(dt, world, &targets);
+        // (It hits no one by itself — only by its thrower's claim.)
+        sim.body.step(dt, world, &[]);
+        let hit = sim.claim.take().and_then(|claim| {
+            let target = match claim.target {
+                ClaimTarget::Player(bits) => bits,
+                ClaimTarget::Bot(at) => {
+                    let at = Vec3::from_array(at);
+                    victims
+                        .iter()
+                        .filter(|(_, v)| matches!(v.who, Victim::Bot(_)) && v.feet.distance(at) <= BOT_CLAIM_RADIUS)
+                        .min_by(|a, b| a.1.feet.distance(at).total_cmp(&b.1.feet.distance(at)))
+                        .map(|(key, _)| *key)?
+                }
+            };
+            let point = Vec3::from_array(claim.point);
+            let on_path = along_path(&sim.path, point).is_some_and(|(_, off)| off <= KNIFE_PATH_SLACK_M);
+            let near = targets.iter().find(|t| t.id == target).is_some_and(|t| near_target(t, point));
+            (on_path && near).then_some(KnifeHit { target, point })
+        });
+        if hit.is_some() {
+            sim.struck = true;
+        }
 
         if let Some(hit) = hit {
             let owner = sim.owner;
@@ -479,5 +551,22 @@ fn cull_orphan_knives(
         if ended {
             commands.entity(entity).try_despawn();
         }
+    }
+}
+
+/// A thrower's client says their knife thrown from `origin` struck someone:
+/// hand it to that knife (if it's theirs and hasn't struck anyone yet) for
+/// [`step_knives`] to check over.
+fn on_knife_claim(trigger: Trigger<RemoteTrigger<ProjectileClaim>>, mut knives: Query<&mut KnifeSim>) {
+    let req = &trigger.trigger;
+    if req.projectile != Projectile::Knife {
+        return;
+    }
+    let origin = Vec3::from_array(req.origin);
+    if let Some(mut sim) = knives
+        .iter_mut()
+        .find(|k| k.owner == trigger.from && !k.struck && !k.path.is_empty() && k.sent_origin.distance(origin) < 0.01)
+    {
+        sim.claim = req.claim;
     }
 }

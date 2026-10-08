@@ -17,6 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Ray Gun rings keep their shape when you fire on the move.",
+        "Ray Gun blasts go off the instant they land.",
+        "Ray Gun bolts and thrown knives now hit the real model too.",
+        "Bots' shots and knife stabs now respect crouching and going prone.",
+        "Hit detection now uses the real model: arms, hands and fingers count; near misses don't.",
         "Zombies: fixed shots to a boss's upper body and head not counting.",
         "Zombies: zombies, hellhounds and bosses bleed when hit — more on the kill.",
         "Zombies: fixed zombies flashing in the middle of the map on spawn.",

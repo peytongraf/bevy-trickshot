@@ -8,6 +8,17 @@
 //! it ([`ShotResolved`]); the rest of the lobby saw the bolt leave the
 //! barrel ([`RayGunFired`]).
 //!
+//! Which zombie a player's bolt hits is their client's call, Call of Duty's
+//! way: it follows its own bolt in flight and tests it against every
+//! zombie's actual animated model, as drawn there
+//! (`client::hit_detection`), and claims the first one it strikes — or that
+//! it reached its surface without striking one ([`ProjectileClaim`],
+//! checked over in [`on_raygun_claim`]). So the server never tests a
+//! player's bolt against zombies itself: it bursts the moment their client
+//! says where it ended — on the zombie, or on its surface. (Should that word
+//! never come, it bursts on its surface [`CLAIM_GRACE_SECS`] after getting
+//! there.)
+//!
 //! A bolt dies with its game: one whose lobby is gone or no longer started
 //! is dropped, and a paused one waits in the air.
 
@@ -15,10 +26,14 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
+use shared::ballistics::{along_path, near_target, Target, CLAIM_PATH_SLACK_M};
 use shared::bot_players::is_bot_peer;
 use shared::hitbox::ray_capsule;
 use shared::weapon::{raygun_splash_damage, WeaponId, RAYGUN_BOLT_SPEED, RAYGUN_STUN_SECS};
-use shared::{GameChannel, Lobby, PlayerId, PlayerPose, RayGunFired, ShotOutcome, ShotResolved};
+use shared::{
+    ClaimTarget, GameChannel, Lobby, PlayerId, PlayerPose, Projectile, ProjectileClaim, RayGunFired, ShotOutcome,
+    ShotResolved,
+};
 
 use crate::ai::BotBrain;
 use crate::lobby::LobbyPlayer;
@@ -38,7 +53,21 @@ struct Bolt {
     /// The surface (point, normal) it bursts on if nothing gets in the way
     /// first — `None`: off into the sky, where it fizzles out.
     surface: Option<(Vec3, Vec3)>,
+    /// How far (m) it goes in all, to `surface` or its max range.
+    reach: f32,
+    /// A player's (not a bot's): what it hits is their client's claim.
+    claimed_by_client: bool,
+    /// Their claim, checked: the zombie it struck, whether on the head, and
+    /// where.
+    claim: Option<(PeerId, bool, Vec3)>,
+    /// Seconds it's waited at its surface for a claim still on its way.
+    held: f32,
 }
+
+/// How long (s) a player's bolt waits at its surface for their client's word
+/// on where it ended, should it get lost — it normally comes about as the
+/// bolt gets there.
+const CLAIM_GRACE_SECS: f32 = 0.5;
 
 /// Every Ray Gun bolt still in the air, across all lobbies.
 #[derive(Resource, Default)]
@@ -69,6 +98,10 @@ pub(crate) fn fire(
         dir: aim,
         left,
         surface,
+        reach: left,
+        claimed_by_client: !is_bot_peer(shooter),
+        claim: None,
+        held: 0.0,
     });
     let others: Vec<PeerId> = lobby.real_peers().into_iter().filter(|&p| p != shooter).collect();
     if others.is_empty() {
@@ -115,9 +148,16 @@ pub(crate) fn fly_bolts(
         let reach = step.min(bolt.left);
 
         // The nearest living zombie it touches this tick: (distance along,
-        // who, headshot).
+        // who, headshot) — a player's, where their client says it struck.
         let mut nearest: Option<(f32, PeerId, bool)> = None;
+        if let Some((victim, headshot, point)) = bolt.claim.take() {
+            bolt.pos = point;
+            nearest = Some((0.0, victim, headshot));
+        }
         for (id, pose, combat, lp, _) in &zombies {
+            if bolt.claimed_by_client || nearest.is_some() {
+                break;
+            }
             if lp.lobby != bolt.lobby || !combat.alive || !is_bot_peer(id.0) {
                 continue;
             }
@@ -155,6 +195,15 @@ pub(crate) fn fly_bolts(
             None if reach < bolt.left => {
                 bolt.pos += bolt.dir * reach;
                 bolt.left -= reach;
+                i += 1;
+                continue;
+            }
+            // At its surface: a player's waits a moment for a claim still
+            // on its way.
+            None if bolt.claimed_by_client && bolt.held < CLAIM_GRACE_SECS => {
+                bolt.pos += bolt.dir * reach;
+                bolt.left = 0.0;
+                bolt.held += time.delta_secs();
                 i += 1;
                 continue;
             }
@@ -218,6 +267,55 @@ pub(crate) fn fly_bolts(
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::All) {
             error!("failed to broadcast ray gun burst: {e:?}");
+        }
+    }
+}
+
+/// A player's client says where their bolt fired from `origin` ended. On a
+/// zombie: if the zombie's a living one in its lobby, near where the server
+/// has it, and the spot's on the bolt's line before its surface, it bursts
+/// there ([`fly_bolts`], next tick). Otherwise — on its surface, or a claim
+/// that doesn't hold up — it bursts on its surface, now.
+pub(crate) fn on_raygun_claim(
+    trigger: Trigger<RemoteTrigger<ProjectileClaim>>,
+    mut bolts: ResMut<RayGunBolts>,
+    zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer)>,
+) {
+    let shooter = trigger.from;
+    let req = &trigger.trigger;
+    if req.projectile != Projectile::RayGun {
+        return;
+    }
+    let origin = Vec3::from_array(req.origin);
+    let Some(bolt) = bolts
+        .0
+        .iter_mut()
+        .find(|b| b.shooter == shooter && b.claim.is_none() && b.origin.distance(origin) < 0.01)
+    else {
+        return;
+    };
+    let struck = req.claim.and_then(|claim| {
+        let ClaimTarget::Player(bits) = claim.target else {
+            return None;
+        };
+        let (id, pose, _, _) = zombies
+            .iter()
+            .find(|(id, _, c, lp)| id.0.to_bits() == bits && c.alive && lp.lobby == bolt.lobby && is_bot_peer(id.0))?;
+        let point = Vec3::from_array(claim.point);
+        let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+        let (body, head) = shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
+        let on_line = along_path(&[bolt.origin, bolt.origin + bolt.dir * bolt.reach], point)
+            .is_some_and(|(_, off)| off <= CLAIM_PATH_SLACK_M);
+        (on_line && near_target(&Target { id: bits, body, head }, point))
+            .then_some((id.0, claim.zone == shared::ballistics::HitZone::Head, point))
+    });
+    match struck {
+        Some(claim) => bolt.claim = Some(claim),
+        // On its surface: straight there, no waiting.
+        None => {
+            bolt.pos = bolt.origin + bolt.dir * bolt.reach;
+            bolt.left = 0.0;
+            bolt.held = CLAIM_GRACE_SECS;
         }
     }
 }

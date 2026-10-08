@@ -300,6 +300,28 @@ impl KnifeBody {
     }
 }
 
+/// Where a knife thrown as `body` will be while it can still kill
+/// ([`LETHAL_SPEED`]): `(seconds since the throw, position)`, starting at
+/// the throw — stepped exactly as the server steps it (every `dt` through
+/// `world`), with a point every few steps and at every bounce. The server
+/// sends it to the thrower ([`crate::KnifeFlight`]), whose client follows
+/// its knife down it, testing it against everyone's models as drawn there.
+pub fn lethal_path(mut body: KnifeBody, dt: f32, world: &dyn CollisionWorld) -> Vec<(f32, Vec3)> {
+    /// Keep a point every this many steps (the arc's nearly straight across
+    /// a few; bounces are kept regardless).
+    const EVERY: usize = 4;
+    let mut path = vec![(0.0, body.pos)];
+    let mut steps = 0;
+    while !body.resting && !body.finished() && body.vel.length() >= LETHAL_SPEED {
+        body.step(dt, world, &[]);
+        steps += 1;
+        if steps % EVERY == 0 || body.impact.is_some() || body.resting || body.vel.length() < LETHAL_SPEED {
+            path.push((body.age, body.pos));
+        }
+    }
+    path
+}
+
 /// Whether a stopped knife at `knife` is close enough to pick up for a player
 /// whose body runs from `feet` up to `eye` — measured to the nearest point of
 /// that segment, so a knife on the floor and one on a crate at chest height
@@ -558,6 +580,25 @@ mod tests {
         // Kept RESTITUTION of the way in, not more.
         assert!(k.vel.x.abs() < THROW_SPEED * RESTITUTION * 1.05);
         assert!(k.pos.x < 5.0);
+    }
+
+    #[test]
+    fn the_lethal_path_is_where_the_knife_really_goes_until_it_slows() {
+        // Off a wall and back: the path follows it, bounce and all.
+        let world = TestWorld { wall_x: Some(10.0) };
+        let thrown = KnifeBody::thrown(Vec3::new(0.0, 3.0, 0.0), Vec3::X);
+        let path = lethal_path(thrown, DT, &world);
+        assert_eq!(path[0], (0.0, thrown.pos));
+        assert!(path.iter().any(|(_, p)| p.x > 9.5), "never reached the wall: {path:?}");
+        assert!(path.last().unwrap().1.x < 9.5, "didn't come back off it");
+        // Stepping the same knife lands on every point at its time.
+        let mut k = thrown;
+        for &(age, at) in &path[1..] {
+            while k.age + DT * 0.5 < age {
+                k.step(DT, &world, &[]);
+            }
+            assert!(k.pos.distance(at) < 1e-4, "at {age} s: {} vs {at}", k.pos);
+        }
     }
 
     fn capsule_at(x: f32, id: u64) -> Target {

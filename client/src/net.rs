@@ -132,7 +132,9 @@ impl Plugin for ClientNetPlugin {
 
         app.add_systems(
             FixedPreUpdate,
-            write_input
+            // (A shot's hits are tested on our models first, to go up with it.)
+            (crate::hit_detection::claim_shot_hits, write_input)
+                .chain()
                 .in_set(InputSet::WriteClientInputs)
                 // A kill-cam replay hijacks this client's own `Player`/
                 // `PlayerHead` rig to fly the killer's recorded path (see
@@ -315,6 +317,7 @@ pub(crate) fn write_input(
         ak,
         time,
         mut stabbed_at,
+        mut shot_hits,
     ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
@@ -332,6 +335,7 @@ pub(crate) fn write_input(
         // timestamp, so a stab cut short by leaving a match is long over by
         // the next one.
         Local<Option<f32>>,
+        ResMut<crate::hit_detection::ShotHits>,
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -344,6 +348,7 @@ pub(crate) fn write_input(
     // it's what our lobby says we're carrying).
     action.weapon = weapon.primary.as_u8();
     action.fire = false;
+    action.fire_hits = None;
     // A knife stab this frame (`weapon_system` filed it) rides the same
     // origin/dir fields a shot uses — the two are never both pending, since
     // the knife and the sniper aren't drawn at once.
@@ -411,6 +416,9 @@ pub(crate) fn write_input(
             action.fire = true;
             action.fire_origin = cam.translation().to_array();
             action.fire_dir = dir.to_array();
+            // What it struck on our screen (`hit_detection`), for the
+            // server to check and apply.
+            action.fire_hits = shot_hits.0.take();
             // Trick metadata for server-side scoring, then reset for the next shot.
             let grounded = physics.single().map(|p| p.grounded).unwrap_or(true);
             action.spin_deg = trick.total_deg();
@@ -744,6 +752,7 @@ fn receive_shots(
             // `RayGunFired`): this is where it really landed.
             if raygun && !killcam_playing {
                 landed.write(crate::RayGunLanded {
+                    claimed: false,
                     end: Vec3::from_array(msg.tracer_end),
                     owner: if Some(msg.shooter) == me {
                         crate::BoltOwner::Own

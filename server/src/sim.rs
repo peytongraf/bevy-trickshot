@@ -9,12 +9,12 @@ use lightyear::prelude::*;
 
 use std::collections::HashMap;
 
-use shared::ballistics::{ground_impact, resolve_shot_pierce, Target};
+use shared::ballistics::{ground_impact, resolve_claimed_hits, resolve_shot_pierce, Claim, Target};
 use shared::map::CollisionWorld;
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
 use shared::{
-    Bot, GameChannel, GameMode, HitMarker, KnifeAttackSound, Lobby, PlayerId, PlayerInput, PlayerPose,
+    Bot, ClaimTarget, GameChannel, GameMode, HitMarker, KnifeAttackSound, Lobby, PlayerId, PlayerInput, PlayerPose,
     RemoteSound, ShotOutcome, ShotResolved, TrickScore,
 };
 
@@ -34,6 +34,46 @@ pub(crate) const HEAD_RADIUS: f32 = 0.12;
 /// height to place the remote avatar model) — must track `client::EYE_HEIGHT`.
 pub(crate) const EYE_HEIGHT: f32 = 1.7;
 
+/// Below this camera drop (m, `PlayerInput::crouch_drop`) a player's lying
+/// down — the client's `CROUCH_DROP` (crouched or sliding) plus a bit, on
+/// the way to its `PRONE_DROP`.
+const PRONE_FROM_DROP: f32 = -1.0;
+
+/// The body and head a server-tested hit (a bot's bullet, a knife stab) has
+/// to reach on someone standing at `pose`. A zombie, hellhound or boss as
+/// [`shared::boss::hit_capsules`] has it; a player (or a bot player) as
+/// tall as their camera really is (`crouch_drop`: crouched or sliding,
+/// squashed down; prone, laid flat along the way they face) — the same
+/// shapes as the client's own body capsule (`player::body_capsule_pose`).
+pub(crate) fn body_capsules(pose: &PlayerPose, crouch_drop: f32) -> (Capsule, Capsule) {
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if pose.zombie.is_zombie() {
+        return shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
+    }
+    let drop = crouch_drop.clamp(-EYE_HEIGHT + 0.2, 0.0);
+    if drop < PRONE_FROM_DROP {
+        let forward = Quat::from_rotation_y(pose.yaw) * Vec3::NEG_Z;
+        let r = PLAYER_RADIUS * 0.8;
+        let middle = feet + Vec3::Y * r;
+        let half = (PLAYER_HEIGHT * 0.5 - r) * forward;
+        let eye = pose.translation + Vec3::Y * drop;
+        return (
+            Capsule {
+                a: middle - half,
+                b: middle + half,
+                radius: r,
+            },
+            Capsule {
+                a: eye,
+                b: eye,
+                radius: HEAD_RADIUS,
+            },
+        );
+    }
+    let height = PLAYER_HEIGHT + drop;
+    (Capsule::standing(feet, height, PLAYER_RADIUS), Capsule::head(feet, height, HEAD_RADIUS))
+}
+
 /// What a resolved hit landed on.
 enum HitKind {
     Player(PeerId),
@@ -44,7 +84,9 @@ pub struct SimPlugin;
 
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<crate::raygun::RayGunBolts>().add_systems(
+        app.init_resource::<crate::raygun::RayGunBolts>()
+            .add_observer(crate::raygun::on_raygun_claim)
+            .add_systems(
             FixedUpdate,
             (
                 apply_client_pose,
@@ -129,6 +171,22 @@ fn broadcast_remote_sounds(
 /// becomes a [`BotHit`] event (scored + toppled in [`crate::bots`]); a player
 /// hit is broadcast as [`ShotResolved`] as before.
 #[allow(clippy::too_many_arguments)]
+/// How far (m) from where a shooter saw a `Freestyle` bot's feet the bot
+/// they meant can be ([`ClaimTarget::Bot`]).
+const BOT_CLAIM_RADIUS: f32 = 2.5;
+
+/// The `Freestyle` bot target nearest `feet` (where a shooter saw one), if
+/// any's close enough.
+fn nearest_bot_target(targets: &[Target], kind: &HashMap<u64, HitKind>, feet: Vec3) -> Option<u64> {
+    targets
+        .iter()
+        .filter(|t| matches!(kind.get(&t.id), Some(HitKind::Bot(_))))
+        .map(|t| (t.id, (t.body.a - Vec3::Y * t.body.radius).distance(feet)))
+        .filter(|(_, d)| *d <= BOT_CLAIM_RADIUS)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
+}
+
 fn resolve_shots(
     timeline: Single<&LocalTimeline, With<Server>>,
     server: Single<&Server>,
@@ -189,10 +247,13 @@ fn resolve_shots(
             }
             let key = id.0.to_bits();
             kind.insert(key, HitKind::Player(id.0));
-            let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-            // (A boss is a much bigger target.)
-            let (body, head) =
-                shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
+            // (As low as they're really crouched; a boss is a much bigger
+            // target.)
+            let crouch_drop = shooters
+                .iter()
+                .find(|(other, ..)| other.0 == id.0)
+                .map_or(0.0, |(_, input, _)| input.0.crouch_drop);
+            let (body, head) = body_capsules(pose, crouch_drop);
             targets.push(Target { id: key, body, head });
         }
         // No bots in `FreeForAll` — it's pure PvP.
@@ -348,15 +409,38 @@ fn resolve_shots(
         // Collateral: the bullet keeps going after a bot (Call-of-Duty style),
         // so a single shot can pierce through several — `hits` is every one it
         // reached, nearest first.
-        let hits = resolve_shot_pierce(
-            weapon,
-            origin,
-            dir,
-            &targets,
-            // Occlusion: a target whose hit point lies farther along the shot
-            // than the first solid surface is behind it, so it can't be hit.
-            |_from, to| wall_dist.is_some_and(|d| origin.distance(to) > d),
-        );
+        let hits = match &i.fire_hits {
+            // A player's shot: their client tested it against everyone's
+            // actual animated model, as drawn on their screen — check what
+            // it claims and take what holds up.
+            Some(claims) => {
+                let claims: Vec<Claim> = claims
+                    .iter()
+                    .filter_map(|c| {
+                        let target = match c.target {
+                            ClaimTarget::Player(bits) => bits,
+                            ClaimTarget::Bot(at) => nearest_bot_target(&targets, &kind, Vec3::from_array(at))?,
+                        };
+                        Some(Claim {
+                            target,
+                            zone: c.zone,
+                            point: Vec3::from_array(c.point),
+                        })
+                    })
+                    .collect();
+                resolve_claimed_hits(weapon, origin, dir, &claims, &targets, wall_dist)
+            }
+            // A bot's: simple capsules.
+            None => resolve_shot_pierce(
+                weapon,
+                origin,
+                dir,
+                &targets,
+                // Occlusion: a target whose hit point lies farther along the shot
+                // than the first solid surface is behind it, so it can't be hit.
+                |_from, to| wall_dist.is_some_and(|d| origin.distance(to) > d),
+            ),
+        };
 
         let outcome = match hits.last() {
             Some(last) => {
@@ -544,4 +628,48 @@ pub(crate) fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap:
         .iter()
         .find(|m| m.peer == peer)
         .map_or(1.0, |m| shared::pap::damage_mult(m.pap.get(weapon)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::hitbox::ray_capsule;
+
+    /// Whether a level shot at `height` m up, from 10 m off along +X, hits
+    /// someone at the origin facing `yaw`, crouched by `drop`.
+    fn hit_at(height: f32, drop: f32, yaw: f32) -> bool {
+        let pose = PlayerPose {
+            translation: Vec3::Y * EYE_HEIGHT,
+            yaw,
+            ..default()
+        };
+        let (body, head) = body_capsules(&pose, drop);
+        let from = Vec3::new(10.0, height, 0.0);
+        ray_capsule(from, Vec3::NEG_X, &body).is_some() || ray_capsule(from, Vec3::NEG_X, &head).is_some()
+    }
+
+    #[test]
+    fn a_players_hitbox_is_as_tall_as_they_really_stand() {
+        // Standing: head height counts.
+        assert!(hit_at(1.65, 0.0, 0.0));
+        // Crouched: that's over their head now, their chest isn't.
+        assert!(!hit_at(1.65, -0.8, 0.0));
+        assert!(hit_at(0.8, -0.8, 0.0));
+        // Prone, facing along the shot (+X is yaw -90°): only right down low.
+        let along = -std::f32::consts::FRAC_PI_2;
+        assert!(!hit_at(0.8, -1.35, along));
+        assert!(hit_at(0.15, -1.35, along));
+    }
+
+    #[test]
+    fn a_prone_player_lies_the_way_they_face() {
+        let pose = PlayerPose {
+            translation: Vec3::Y * EYE_HEIGHT,
+            yaw: 0.0, // facing -Z
+            ..default()
+        };
+        let (body, _) = body_capsules(&pose, -1.35);
+        assert!((body.a - body.b).z.abs() > 1.0 && (body.a - body.b).x.abs() < 1e-4);
+        assert!(body.a.y < 0.4 && body.b.y < 0.4);
+    }
 }

@@ -12,6 +12,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
+- Throwing knives should always one shot zombies and dogs but not bosses.
 
 # Bugs
 

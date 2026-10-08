@@ -10,8 +10,11 @@
 //! bits (`killcam::SND_THROW`), so it needs nothing here.
 //!
 //! The server owns the whole flight — arc, bounces off the map's collision
-//! mesh, spin, hits, when it stops and is removed (`server::knives`,
+//! mesh, spin, when it stops and is removed (`server::knives`,
 //! `shared::throwing_knife`); the client only shows the interpolated result.
+//! Whom our own knife strikes is our call, though: `hit_detection` follows
+//! it down the path the server sends and tests it against everyone's models
+//! as drawn here.
 
 use bevy::math::Mat3;
 use bevy::prelude::*;
@@ -80,7 +83,9 @@ pub(crate) fn model_correction() -> Quat {
 
 /// Send the throw request `weapon_system` filed when the knife left the hand.
 fn send_throw_requests(
+    time: Res<Time<Virtual>>,
     mut knife: ResMut<ThrowingKnife>,
+    mut own: ResMut<crate::hit_detection::OwnProjectiles>,
     mut sender: Query<&mut TriggerSender<shared::ThrowKnife>, With<GameClient>>,
 ) {
     if !knife.has_throw_request() {
@@ -94,6 +99,8 @@ fn send_throw_requests(
             origin: origin.to_array(),
             dir: dir.to_array(),
         });
+        // Followed in flight, to see whom it strikes (`hit_detection`).
+        own.thrown_knife(origin, time.elapsed_secs());
     }
 }
 
