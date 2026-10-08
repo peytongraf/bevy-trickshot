@@ -1025,9 +1025,13 @@ pub struct LobbyMember {
     /// A bot's `peer` is a fake one ([`crate::bot_players::is_bot_peer`]) with
     /// no client behind it.
     pub bot: Option<crate::bot_players::BotDifficulty>,
-    /// How many enemies this member has killed this game ([`GameMode::Zombies`]'s
-    /// results screen; `FreeForAll` counts kills in `score` itself).
+    /// How many enemies this member has killed this game — zombies, other
+    /// players or target bots (`FreeForAll` also counts them in `score`).
     pub kills: u32,
+    /// `FreeForAll` / `Freestyle`: how many times this member has died this
+    /// game (killed, or a fatal fall) — the leaderboard's DEATHS.
+    #[serde(default)]
+    pub deaths: u32,
     /// [`GameMode::Zombies`], this game: kills that were critical (a headshot
     /// or a knife kill), teammates revived, and times gone down — the
     /// results screen's other columns.

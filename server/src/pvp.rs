@@ -506,6 +506,10 @@ pub(crate) fn apply_player_hits(
         }
         if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
             m.score += 1;
+            m.kills += 1;
+        }
+        if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.victim) {
+            m.deaths += 1;
         }
 
         let others: Vec<Vec3> = poses
@@ -907,6 +911,9 @@ fn fall_kill(
         combat.alive = false;
         combat.health = 0.0;
         combat.respawn_at = time.elapsed_secs() + FALL_RESPAWN_DELAY_SECS;
+        if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+            m.deaths += 1;
+        }
     }
     let others: Vec<Vec3> = poses
         .iter()

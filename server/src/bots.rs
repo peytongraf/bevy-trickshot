@@ -220,6 +220,7 @@ fn apply_bot_hits(
         if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(ev.by)) {
             if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.by) {
                 m.score += ev.points;
+                m.kills += 1;
             }
         }
         if !shared::bot_players::is_bot_peer(ev.by) {
@@ -568,6 +569,7 @@ mod tests {
                     critical_kills: 0,
                     revives: 0,
                     downs: 0,
+                    deaths: 0,
                 }],
             })
             .id();

@@ -205,6 +205,7 @@ fn on_create(
                     critical_kills: 0,
                     revives: 0,
                     downs: 0,
+                    deaths: 0,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -263,6 +264,7 @@ fn on_join(
             critical_kills: 0,
             revives: 0,
             downs: 0,
+            deaths: 0,
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -317,6 +319,7 @@ fn on_start(
         m.critical_kills = 0;
         m.revives = 0;
         m.downs = 0;
+        m.deaths = 0;
         m.perks.clear();
         m.pap = Default::default();
         m.armor = Default::default();
@@ -703,6 +706,7 @@ fn add_bots(
             critical_kills: 0,
             revives: 0,
             downs: 0,
+            deaths: 0,
         });
         *next_id += 1;
     }
@@ -958,6 +962,7 @@ mod tests {
                 critical_kills: 0,
                 revives: 0,
                 downs: 0,
+                deaths: 0,
             }],
         }
     }

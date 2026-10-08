@@ -905,6 +905,7 @@ mod tests {
                     critical_kills: 0,
                     revives: 0,
                     downs: 0,
+                    deaths: 0,
                 }],
             })
             .id();
