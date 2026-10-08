@@ -112,6 +112,7 @@ fn on_take_prize(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let TakeBoxPrize { slot, mag, reserve, dropping } = trigger.trigger;
@@ -155,6 +156,20 @@ fn on_take_prize(
     let msg = BoxPrizeTaken { prize: spin.prize, slot };
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send a Mystery Box prize to {peer:?}: {e:?}");
+    }
+    // What they took, said every time (nothing for the sniper — no lines).
+    let quote = match spin.prize {
+        shared::mystery_box::BoxPrize::Ak74 => Some(shared::quotes::Quote::MysteryAk74),
+        shared::mystery_box::BoxPrize::RayGun => Some(shared::quotes::Quote::MysteryRayGun),
+        shared::mystery_box::BoxPrize::ThrowingKnife => Some(shared::quotes::Quote::MysteryThrowingKnife),
+        shared::mystery_box::BoxPrize::Molotov => Some(shared::quotes::Quote::MysteryMolotov),
+        shared::mystery_box::BoxPrize::Frag => Some(shared::quotes::Quote::MysteryFrag),
+        shared::mystery_box::BoxPrize::FlashBang => Some(shared::quotes::Quote::MysteryFlashBang),
+        shared::mystery_box::BoxPrize::MonkeyBomb => Some(shared::quotes::Quote::MysteryMonkeyBomb),
+        shared::mystery_box::BoxPrize::Sniper => None,
+    };
+    if let Some(quote) = quote {
+        quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, quote));
     }
     info!("{peer:?} took the {} from the Mystery Box", spin.prize.label());
 }

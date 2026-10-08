@@ -63,6 +63,7 @@ fn on_buy_armor(
     endings: Res<EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let level = trigger.trigger.level;
@@ -82,6 +83,7 @@ fn on_buy_armor(
     }
     member.score -= cost;
     member.armor = Armor::full(level);
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyArmor));
     info!("{peer:?} bought armor level {level}");
 }
 
@@ -91,6 +93,7 @@ fn on_refill_armor(
     endings: Res<EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some(lobby_e) = at_station(peer, &endings, &lobbies, &players) else {
@@ -107,5 +110,6 @@ fn on_refill_armor(
     }
     member.score -= REFILL_COST;
     member.armor = Armor::full(member.armor.level);
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyArmor));
     info!("{peer:?} refilled their armor");
 }

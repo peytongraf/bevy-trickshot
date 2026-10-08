@@ -178,6 +178,7 @@ fn run_power_ups(
     zombies: Query<(Entity, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>), (With<Zombie>, Without<crate::boss::Boss>)>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
@@ -306,6 +307,7 @@ fn run_power_ups(
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(real)) {
             error!("failed to send power-up grab: {e:?}");
         }
+        quotes.write(crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::PowerUp(kind)));
         info!("{by:?} grabbed {}", kind.label());
     }
 }

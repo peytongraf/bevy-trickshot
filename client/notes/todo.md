@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Operator quotes for game events
+- Louder quotes (perk quotes too)
 - Rounds end with only bosses left
 - Leave with party keeps lobby
 - Boss smash knockback
@@ -18,6 +20,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - No random power-ups on dog rounds
 - Smaller perk icons
 - Fixed zombie spawn flash at map centre
+
+# Added
+
+- Wunderfizz ui should appear centered in the screen instead of to the left
+-
 
 # Current todo
 
@@ -49,12 +56,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add minimap top left
 - Add semtex
 - Add rampage inducer
-- Add quotes
 - Add killchains
 
 ## Sound
 
-- Perk quote volume should be higher
 - Level out perk jingle sound volumes
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound

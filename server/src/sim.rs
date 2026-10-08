@@ -316,6 +316,7 @@ fn resolve_shots(
                 Some((hit, HitKind::Player(victim))) if lobby.mode != GameMode::Freestyle => {
                     stabbed_at = Some(hit.point);
                     player_hits.write(PlayerHit {
+                        cause: crate::pvp::HitCause::Melee,
                         victim: *victim,
                         killer: shooter.0,
                         // Zombies have their own knife curve (it gives out
@@ -556,6 +557,7 @@ fn resolve_shots(
                                         && m.perks.contains(&shared::perks::Perk::BombShot)
                                 });
                             player_hits.write(PlayerHit {
+                                cause: crate::pvp::HitCause::Gun,
                                 victim: *p,
                                 killer: shooter.0,
                                 damage,

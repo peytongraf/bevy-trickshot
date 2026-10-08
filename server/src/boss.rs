@@ -113,6 +113,7 @@ fn bring_in_bosses(
     mut sender: ServerMultiMessageSender,
     mut next_id: ResMut<NextBotId>,
     mut lobbies: Query<(Entity, &Lobby, &mut ZombieRounds)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -134,6 +135,20 @@ fn bring_in_bosses(
                 continue;
             }
             let boss = rounds.pending_bosses.swap_remove(i);
+            // The game's first boss round's, and its second's: someone says
+            // so (not an exfil's — that brings its own).
+            if rounds.exfil.is_none() && rounds.last_boss_round != rounds.round {
+                rounds.last_boss_round = rounds.round;
+                rounds.boss_rounds_seen += 1;
+                let quote = match rounds.boss_rounds_seen {
+                    1 => Some(shared::quotes::Quote::FirstBoss),
+                    2 => Some(shared::quotes::Quote::BossRepeat),
+                    _ => None,
+                };
+                if let Some(quote) = quote {
+                    quotes.write(crate::quotes::SayQuote::anyone(lobby_e, quote));
+                }
+            }
 
             let peer = bot_peer(next_id.0);
             next_id.0 += 1;
@@ -282,6 +297,7 @@ fn run_blasts(
             let damage = blast_damage(d);
             if damage > 0.0 {
                 hits.write(PlayerHit {
+                    cause: crate::pvp::HitCause::Enemy,
                     victim: id.0,
                     killer: blast.boss,
                     damage,

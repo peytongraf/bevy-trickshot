@@ -896,6 +896,7 @@ pub(crate) fn drive_bots(
                         && feet.distance(at) <= shared::dogs::DOG_BLAST_RADIUS
                     {
                         hits.write(crate::pvp::PlayerHit {
+                            cause: crate::pvp::HitCause::Enemy,
                             victim: pid.0,
                             killer: id.0,
                             damage: shared::dogs::DOG_BLAST_DAMAGE,
@@ -908,6 +909,7 @@ pub(crate) fn drive_bots(
                 }
                 // ...and itself (no one scores for it).
                 hits.write(crate::pvp::PlayerHit {
+                    cause: crate::pvp::HitCause::Enemy,
                     victim: id.0,
                     killer: id.0,
                     damage: 1.0e6,
@@ -944,6 +946,7 @@ pub(crate) fn drive_bots(
                                 && height_diff <= shared::boss::MELEE_HEIGHT
                         }) {
                             hits.write(crate::pvp::PlayerHit {
+                                cause: crate::pvp::HitCause::Enemy,
                                 victim,
                                 killer: id.0,
                                 damage: shared::boss::MELEE_DAMAGE,
@@ -1032,6 +1035,7 @@ pub(crate) fn drive_bots(
                             && height_diff <= ZOMBIE_ATTACK_HEIGHT
                     }) {
                         hits.write(crate::pvp::PlayerHit {
+                            cause: crate::pvp::HitCause::Enemy,
                             victim,
                             killer: id.0,
                             damage: ZOMBIE_SWIPE_DAMAGE,

@@ -169,6 +169,7 @@ fn step_frags(
         if sim.fuse <= 0.0 {
             commands.entity(entity).try_despawn();
             blasts.write(BombBlast {
+                cause: crate::pvp::HitCause::Frag,
                 lobby: sim.lobby,
                 feet: sim.body.pos,
                 by: sim.owner,
@@ -260,6 +261,7 @@ fn on_pick_up_frag(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &FragDrop)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
@@ -294,6 +296,7 @@ fn on_pick_up_frag(
     if let Err(e) = sender.send::<_, GameChannel>(&FragPickedUp, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send frag pickup: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PickupEquipment));
     info!("{peer:?} picked up a frag");
 }
 

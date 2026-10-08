@@ -209,6 +209,7 @@ fn step_monkeys(
     mut monkeys: Query<(Entity, &mut MonkeySim, &mut ThrownMonkey)>,
     mut blasts: EventWriter<BombBlast>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let dt = time.delta_secs();
     lures.0.clear();
@@ -229,12 +230,14 @@ fn step_monkeys(
                 if secs >= sim.fuse {
                     commands.entity(entity).try_despawn();
                     blasts.write(BombBlast {
+                        cause: crate::pvp::HitCause::MonkeyBomb,
                         lobby: sim.lobby,
                         feet: sim.body.pos,
                         by: sim.owner,
                         phd: false,
                         frag: false,
                     });
+                    quotes.write(crate::quotes::SayQuote::by(sim.lobby, sim.owner, shared::quotes::Quote::MonkeyBombExplode));
                     info!("{:?}'s monkey bomb went off", sim.owner);
                     continue;
                 }
@@ -247,6 +250,12 @@ fn step_monkeys(
                     sim.body.rot = facing;
                     sim.landed = Some(0.0);
                     lures.0.push((sim.lobby, at));
+                    // It starts singing: its thrower says something about it.
+                    quotes.write(crate::quotes::SayQuote::by(
+                        sim.lobby,
+                        sim.owner,
+                        shared::quotes::Quote::MonkeyBombActivate,
+                    ));
                 } else if sim.body.lost() {
                     commands.entity(entity).try_despawn();
                     continue;
@@ -332,6 +341,7 @@ fn on_pick_up_monkey(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &MonkeyDrop)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
@@ -366,6 +376,7 @@ fn on_pick_up_monkey(
     if let Err(e) = sender.send::<_, GameChannel>(&MonkeyPickedUp, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send monkey bomb pickup: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PickupEquipment));
     info!("{peer:?} picked up a monkey bomb");
 }
 

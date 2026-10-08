@@ -1603,6 +1603,34 @@ pub struct ZombieDamaged {
     pub critical: bool,
 }
 
+/// Server → every member of a `Zombies` lobby: `speaker`'s operator says
+/// `line` (of [`crate::quotes::lines`] for them and `quote`) — from where
+/// they are, for everyone else; in their own head, for them.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct QuoteSaid {
+    pub speaker: PeerId,
+    pub quote: crate::quotes::Quote,
+    pub line: u16,
+}
+
+/// Client → server: something only the client knows of happened to us —
+/// down to our last magazine, or out of ammo ([`crate::quotes::Quote::LowAmmo`]
+/// / [`crate::quotes::Quote::OutOfAmmo`], all it may ask for) — for our
+/// operator to say so, if the server lets them.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct RequestQuote {
+    pub quote: crate::quotes::Quote,
+}
+
+/// Client → server (the debug panel's "Quotes"): how long (s) after a dog
+/// round begins, and after the exfil's called, someone says so. Only the
+/// leader's counts; kept for the lobby's lifetime.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetQuoteDelays {
+    pub dog_round: f32,
+    pub exfil: f32,
+}
+
 /// Server → every member of a lobby whose leader just left the game with the
 /// party ([`EndGame`]): the game's over — back to the lobby room, together.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -2212,6 +2240,12 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ReturnToLobby>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<QuoteSaid>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_trigger::<RequestQuote>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetQuoteDelays>()
+            .add_direction(NetworkDirection::ClientToServer);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<DogLightning>()

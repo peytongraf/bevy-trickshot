@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: operators now talk — kills, bosses, buys, power-ups and more.",
+        "Zombies: quotes are louder.",
         "Zombies: a boss's smash knocks you back.",
         "Leaving with your party keeps everyone together in the lobby, same settings.",
         "Zombies: a round ends when only bosses are left; they carry on into the next.",

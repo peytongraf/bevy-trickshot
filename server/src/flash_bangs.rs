@@ -156,6 +156,7 @@ fn step_flash_bangs(
     mut flashes: Query<(Entity, &mut FlashSim, &mut ThrownFlashBang)>,
     mut zombies: Query<(&LobbyPlayer, &PlayerPose, &PlayerCombat, &mut BotBrain), With<Zombie>>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -188,6 +189,9 @@ fn step_flash_bangs(
             };
             if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
                 error!("failed to send flash bang: {e:?}");
+            }
+            if n > 0 {
+                quotes.write(crate::quotes::SayQuote::by(sim.lobby, sim.owner, shared::quotes::Quote::StunEnemy));
             }
             info!("{:?}'s flash bang went off, stunning {n} zombies", sim.owner);
             continue;
@@ -274,6 +278,7 @@ fn on_pick_up_flash_bang(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &FlashBangDrop)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
@@ -309,6 +314,7 @@ fn on_pick_up_flash_bang(
     {
         error!("failed to send flash bang pickup: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PickupEquipment));
     info!("{peer:?} picked up a flash bang");
 }
 

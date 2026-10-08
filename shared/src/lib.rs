@@ -40,6 +40,7 @@ pub mod perks;
 pub mod power_ups;
 pub mod power;
 pub mod protocol;
+pub mod quotes;
 pub mod revive;
 pub mod scoring;
 pub mod spawns;
@@ -55,7 +56,7 @@ pub use protocol::{
     AddBots, AmmoBought, AssetsReady, BuyAmmo, Bot, BuyPap, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
-    LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, PlayerKilledBy, PlayerName, PlayerPose,
+    LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, PhdSlam, ProneAtPerk, ProneBonus, SetPerkSet, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
     RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, CallExfil, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,

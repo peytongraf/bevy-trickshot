@@ -910,6 +910,7 @@ fn play_perk_jingles(
 fn play_perk_quotes(
     finished: Query<(Entity, &PerkJingle, &Transform), Without<AudioPlayer>>,
     sound_vol: Res<crate::SoundVolumes>,
+    quote_vol: Res<crate::quotes::QuoteSettings>,
     mut commands: Commands,
 ) {
     for (entity, jingle, transform) in &finished {
@@ -922,8 +923,9 @@ fn play_perk_quotes(
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(quote.clip.clone()),
                 // (`GlobalVolume` is multiplied in at spawn.)
-                PlaybackSettings::DESPAWN
-                    .with_volume(bevy::audio::Volume::Linear(sound_vol.perk_quote * quote.volume)),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(
+                    sound_vol.perk_quote * quote_vol.volume * quote.volume,
+                )),
             ));
         } else {
             commands.spawn((
@@ -946,6 +948,7 @@ fn play_perk_quotes(
 fn update_perk_jingles(
     listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
     sound_vol: Res<crate::SoundVolumes>,
+    quote_vol: Res<crate::quotes::QuoteSettings>,
     remote: Res<crate::RemoteSoundSettings>,
     global_volume: Res<GlobalVolume>,
     mut jingles: Query<
@@ -958,7 +961,7 @@ fn update_perk_jingles(
     };
     let ear = ear.translation();
     for (gt, mut sink, quote) in &mut jingles {
-        let volume = quote.map_or(sound_vol.perk_jingle, |q| sound_vol.perk_quote * q.0);
+        let volume = quote.map_or(sound_vol.perk_jingle, |q| sound_vol.perk_quote * quote_vol.volume * q.0);
         let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
         sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }

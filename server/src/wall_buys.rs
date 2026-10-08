@@ -131,6 +131,7 @@ fn on_buy_wall_weapon(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let BuyWallWeapon { weapon, slot, mag, reserve } = trigger.trigger;
@@ -162,6 +163,9 @@ fn on_buy_wall_weapon(
     let msg = WallWeaponBought { weapon, slot };
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send a wall buy to {peer:?}: {e:?}");
+    }
+    if weapon == shared::weapon::WeaponId::Ak74 {
+        quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyAk74));
     }
     info!("{peer:?} bought the {} off the wall", weapon.label());
 }

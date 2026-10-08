@@ -236,6 +236,7 @@ fn on_pick_up_knife(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     knives: Query<(Entity, &KnifeSim)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
@@ -276,6 +277,7 @@ fn on_pick_up_knife(
     {
         error!("failed to send knife pickup: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PickupEquipment));
     info!("{peer:?} picked up a throwing knife");
 }
 
@@ -470,6 +472,7 @@ fn step_knives(
                         shared::melee::KNIFE_DAMAGE
                     };
                     player_hits.write(PlayerHit {
+                        cause: crate::pvp::HitCause::ThrowingKnife,
                         victim: *victim,
                         killer: owner,
                         damage,

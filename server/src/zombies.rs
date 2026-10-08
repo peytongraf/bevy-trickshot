@@ -157,6 +157,11 @@ pub(crate) struct ZombieRounds {
     pub(crate) next_spawn_at: f32,
     /// No spawning until then (the start delay / the break between rounds).
     break_until: f32,
+    /// Rounds a boss has turned up in so far (not counting the exfil's),
+    /// and the last — for the first boss's and the second's quotes
+    /// (`crate::boss`).
+    pub(crate) boss_rounds_seen: u32,
+    pub(crate) last_boss_round: u32,
     /// Perk machines whose prone bonus has been claimed this game
     /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
     prone_claimed: Vec<shared::perks::Perk>,
@@ -205,9 +210,19 @@ pub(crate) fn run_rounds(
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
     zombies: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<crate::boss::Boss>), With<Zombie>>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
+    // A dog round's begun: someone says so, a few seconds in.
+    let mut dog_round = |lobby_e: Entity, round: u32| {
+        if shared::dogs::is_dog_round(round) {
+            quotes.write(crate::quotes::SayQuote {
+                delay: crate::quotes::QuoteDelay::DogRound,
+                ..crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::DogRound)
+            });
+        }
+    };
     // This tick's kills, for an exfil to count (read here, with the deaths
     // they go with, so the two always agree).
     let kills: Vec<(Entity, PeerId, PeerId)> = kills.read().map(|k| (k.lobby, k.killer, k.victim)).collect();
@@ -254,6 +269,8 @@ pub(crate) fn run_rounds(
                 round: 0,
                 pending_dogs: Vec::new(),
                 last_dog_at: None,
+                boss_rounds_seen: 0,
+                last_boss_round: 0,
                 bosses_to_spawn: 0,
                 boss_due_at: now,
                 pending_bosses: Vec::new(),
@@ -286,6 +303,7 @@ pub(crate) fn run_rounds(
             rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
             queue_round_bosses(&mut rounds, members);
             lobby.round = first;
+            dog_round(lobby_e, first);
             lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
@@ -404,6 +422,7 @@ pub(crate) fn run_rounds(
                     info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
                 }
                 rounds.round += 1;
+                dog_round(lobby_e, rounds.round);
                 rounds.to_spawn = enemies_in_round(rounds.round, members);
                 rounds.break_until = now + ROUND_BREAK_SECS;
                 rounds.next_spawn_at = rounds.break_until;
@@ -691,6 +710,7 @@ fn on_buy_pap(
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let BuyPap { weapon, level } = trigger.trigger;
@@ -724,6 +744,7 @@ fn on_buy_pap(
     }
     member.score -= cost;
     member.pap.set(weapon, level);
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::Pap));
     info!("{peer:?} packed their {} to level {level}", weapon.label());
 }
 
@@ -735,6 +756,7 @@ fn on_turn_on_power(
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby)) = lobbies
@@ -762,6 +784,7 @@ fn on_turn_on_power(
     }
     member.score -= cost;
     lobby.power_on = true;
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PowerOn));
     info!("{peer:?} turned the power on");
 }
 
@@ -776,6 +799,7 @@ fn on_buy_ammo(
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby)) = lobbies
@@ -803,6 +827,7 @@ fn on_buy_ammo(
     {
         error!("failed to send ammo purchase: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyAmmo));
     info!("{peer:?} bought ammo");
 }
 
@@ -862,6 +887,7 @@ mod tests {
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<crate::killcam::ReplayClock>();
         app.add_event::<crate::pvp::ZombieKilled>();
+        app.add_event::<crate::quotes::SayQuote>();
         app.init_resource::<NextBotId>();
         app.add_systems(Update, (run_rounds, clear_dead_zombies, cull_zombies).chain());
         let me = PeerId::Netcode(1);

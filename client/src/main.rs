@@ -56,6 +56,7 @@ mod pap;
 mod pap_menu;
 mod power_ups;
 mod power;
+mod quotes;
 mod respawn;
 mod revive;
 mod round_counter;
@@ -221,6 +222,7 @@ fn main() {
         .add_plugins(hud::LeaderboardPlugin)
         .add_plugins(hud::DamageIndicatorPlugin)
         .add_plugins(end_screen_fx::EndScreenFxPlugin)
+        .add_plugins(quotes::QuotesPlugin)
         .init_resource::<Knockback>()
         .add_systems(OnEnter(AppState::InGame), reset_knockback)
         .add_systems(

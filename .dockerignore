@@ -16,6 +16,13 @@ client/assets/models/maps/*
 !client/assets/models/maps/shipment.glb
 !client/assets/models/maps/break_point_map.glb
 !client/assets/models/maps/ashes_of_the_damned_map.glb
+# ...and the list of operator quote lines with their lengths, which
+# `shared::quotes` embeds (`include_str!`) — not the audio itself.
+!client/assets/audio
+client/assets/audio/*
+!client/assets/audio/quotes
+client/assets/audio/quotes/*
+!client/assets/audio/quotes/lines.txt
 client/sniper.glb
 client/notes
 client/README.md

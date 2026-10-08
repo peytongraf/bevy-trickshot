@@ -169,6 +169,8 @@ impl Default for PlayerCombat {
 /// [`PlayerKilled`] for [`crate::killcam::queue_killcams`] to pick up.
 #[derive(Event)]
 pub struct PlayerHit {
+    /// What it was made with (for `crate::quotes`' kill lines).
+    pub cause: HitCause,
     pub victim: PeerId,
     pub killer: PeerId,
     pub damage: f32,
@@ -187,6 +189,24 @@ pub struct PlayerHit {
     pub point: Option<Vec3>,
 }
 
+/// What a [`PlayerHit`] (or the [`BombBlast`] behind it) was made with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HitCause {
+    Gun,
+    RayGun,
+    /// A knife stab.
+    Melee,
+    ThrowingKnife,
+    Molotov,
+    Frag,
+    /// PhD Flopper's blast (a slide or a big drop).
+    Phd,
+    BombShot,
+    MonkeyBomb,
+    /// A zombie, hellhound or boss (or a bot's gun) hurting a player.
+    Enemy,
+}
+
 /// A Bomb Shot went off in `lobby` with its base at `feet`, set off by `by`
 /// — written by [`apply_player_hits`] when a zombie dies to one, consumed by
 /// [`apply_bomb_blasts`]. `phd` marks PhD Flopper's instead (a slide into an
@@ -194,6 +214,9 @@ pub struct PlayerHit {
 /// damage, drawn purple.
 #[derive(Event)]
 pub struct BombBlast {
+    /// What set it off — a frag, PhD Flopper, a Bomb Shot or a monkey bomb
+    /// (what its kills were made with, for `crate::quotes`).
+    pub cause: HitCause,
     pub lobby: Entity,
     pub feet: Vec3,
     pub by: PeerId,
@@ -214,6 +237,10 @@ pub struct ZombieKilled {
     /// zombie it was.
     pub killer: PeerId,
     pub victim: PeerId,
+    /// What killed it, and what it was (a zombie, a hellhound, a boss) —
+    /// for `crate::quotes`' kill lines.
+    pub cause: HitCause,
+    pub anim: shared::ZombieAnim,
 }
 
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
@@ -272,6 +299,7 @@ pub(crate) fn apply_player_hits(
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     endings: Res<crate::killcam::EndingLobbies>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
@@ -325,6 +353,20 @@ pub(crate) fn apply_player_hits(
         };
         combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
+        // A player hurt: maybe a word about it (`crate::quotes`) — burnt by
+        // their own molotov, or hurt by someone else.
+        if taken > 0.0 && !is_bot_peer(ev.victim) {
+            let quote = if ev.killer == ev.victim && ev.cause == HitCause::Molotov {
+                Some(shared::quotes::Quote::TakeMolotovDamage)
+            } else if ev.killer != ev.victim {
+                Some(shared::quotes::Quote::TakeDamage)
+            } else {
+                None
+            };
+            if let (Some(quote), Some((lobby_e, _))) = (quote, lobbies.iter().find(|(_, l)| l.has(ev.victim))) {
+                quotes.write(crate::quotes::SayQuote::by(lobby_e, ev.victim, quote));
+            }
+        }
         // A player hurt by someone else: their damage indicator points back
         // at the attacker (or, gone, where the hit landed).
         if taken > 0.0 && !is_bot_peer(ev.victim) && ev.killer != ev.victim {
@@ -451,6 +493,7 @@ pub(crate) fn apply_player_hits(
             {
                 if let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == ev.victim) {
                     blasts.write(BombBlast {
+                        cause: crate::pvp::HitCause::BombShot,
                         lobby: lobby_e,
                         feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
                         by: ev.killer,
@@ -485,6 +528,8 @@ pub(crate) fn apply_player_hits(
                             feet: pose.translation - Vec3::Y * crate::sim::EYE_HEIGHT,
                             killer: ev.killer,
                             victim: ev.victim,
+                            cause: ev.cause,
+                            anim: pose.zombie,
                         });
                     }
                 }
@@ -648,6 +693,7 @@ fn apply_bomb_blasts(
                 }
                 n += 1;
                 hits.write(PlayerHit {
+                    cause: blast.cause,
                     victim: id.0,
                     killer: blast.by,
                     damage,
@@ -678,6 +724,7 @@ fn apply_bomb_blasts(
             }
             n += 1;
             hits.write(PlayerHit {
+                cause: blast.cause,
                 victim: id.0,
                 killer: blast.by,
                 damage,
@@ -762,6 +809,7 @@ fn on_fall_landed(
                 .is_some_and(|(_, mut c)| c.try_phd_blast(time.elapsed_secs()));
             if let (Some(feet), true) = (feet, ready) {
                 blasts.write(BombBlast {
+                    cause: crate::pvp::HitCause::Phd,
                     lobby: lobby_e,
                     feet,
                     by: peer,
@@ -858,6 +906,7 @@ fn on_phd_slam(
         .is_some_and(|(_, mut c)| c.try_phd_blast(now));
     if ready {
         blasts.write(BombBlast {
+            cause: crate::pvp::HitCause::Phd,
             lobby: lobby_e,
             feet,
             by: peer,

@@ -148,6 +148,7 @@ fn on_call_exfil(
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby, mut rounds)) = lobbies
@@ -177,6 +178,11 @@ fn on_call_exfil(
     let members = lobby.real_count();
     rounds.exfil = Some(ExfilRun::new(time.elapsed_secs(), rounds.round, members));
     lobby.exfil = Exfil::Calling;
+    // Someone says so, a few seconds in.
+    quotes.write(crate::quotes::SayQuote {
+        delay: crate::quotes::QuoteDelay::Exfil,
+        ..crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::Exfil)
+    });
     info!("lobby {lobby_e:?}: {peer:?} called the exfil on round {}", rounds.round);
 }
 

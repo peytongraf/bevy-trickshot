@@ -246,6 +246,7 @@ pub(crate) fn fly_bolts(
                     brain.stun(now + RAYGUN_STUN_SECS);
                 }
                 player_hits.write(PlayerHit {
+                    cause: crate::pvp::HitCause::RayGun,
                     victim: id.0,
                     killer: bolt.shooter,
                     damage: damage * mult,

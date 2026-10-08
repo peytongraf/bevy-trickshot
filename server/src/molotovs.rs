@@ -293,6 +293,7 @@ fn burn(
                 continue;
             }
             hits.write(PlayerHit {
+                cause: crate::pvp::HitCause::Molotov,
                 victim: id.0,
                 killer: fire.owner,
                 damage,
@@ -406,6 +407,7 @@ fn on_pick_up_molotov(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &MolotovDrop)>,
     mut commands: Commands,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
@@ -444,6 +446,7 @@ fn on_pick_up_molotov(
     ) {
         error!("failed to send molotov pickup: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PickupEquipment));
     info!("{peer:?} picked up a molotov");
 }
 
