@@ -1603,6 +1603,14 @@ pub struct ZombieDamaged {
     pub critical: bool,
 }
 
+/// Server → the victim only: someone (another player, a bot, a zombie,
+/// hellhound or boss) just hurt them from `from` — where the attacker stood
+/// (or the hit landed) — for the damage indicator that points there.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DamageTaken {
+    pub from: [f32; 3],
+}
+
 /// Server → everyone in a `Zombies` lobby: a player's shot, stab or thrown
 /// knife hit a zombie, hellhound or boss at `point`, travelling along `dir`
 /// (unit) — every client squirts blood out from there, a bigger burst when
@@ -2182,6 +2190,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<ZombieBlood>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KnifeFlight>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<DamageTaken>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);

@@ -218,6 +218,7 @@ fn main() {
         .add_plugins(loadout::LoadoutPlugin)
         .add_plugins(hit_detection::HitDetectionPlugin)
         .add_plugins(hud::LeaderboardPlugin)
+        .add_plugins(hud::DamageIndicatorPlugin)
         .add_plugins(wunderfizz::WunderfizzPlugin)
         .add_plugins(hud::HealthBarsPlugin)
         .add_plugins(hud::DamageNumbersPlugin)

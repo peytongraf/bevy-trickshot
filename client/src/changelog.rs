@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Red damage indicators point to whoever's hurting you.",
+        "Getting hurt shows much more blood, sooner, with a louder heartbeat.",
+        "Zombies: the heartbeat now plays when you're hurt.",
         "Hold Tab to see the leaderboard.",
         "Zombies: perk bottles look like real glass bottles.",
         "Zombies: exfil can now be called on rounds 11, 21, 31, and so on.",

@@ -5,6 +5,7 @@
 mod ammo_text;
 mod compass;
 mod crosshair;
+mod damage_indicator;
 mod damage_numbers;
 mod debug_readout;
 mod fps_text;
@@ -17,6 +18,7 @@ mod setup;
 pub(crate) use ammo_text::*;
 pub(crate) use compass::*;
 pub(crate) use crosshair::*;
+pub(crate) use damage_indicator::*;
 pub(crate) use damage_numbers::*;
 pub(crate) use debug_readout::*;
 pub(crate) use fps_text::*;

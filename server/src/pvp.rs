@@ -325,6 +325,24 @@ pub(crate) fn apply_player_hits(
         };
         combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
+        // A player hurt by someone else: their damage indicator points back
+        // at the attacker (or, gone, where the hit landed).
+        if taken > 0.0 && !is_bot_peer(ev.victim) && ev.killer != ev.victim {
+            let from = poses
+                .iter()
+                .find(|(id, _)| id.0 == ev.killer)
+                .map(|(_, pose)| pose.translation)
+                .or(ev.point);
+            if let Some(from) = from {
+                if let Err(e) = sender.send::<_, GameChannel>(
+                    &shared::DamageTaken { from: from.to_array() },
+                    server,
+                    &NetworkTarget::Single(ev.victim),
+                ) {
+                    error!("failed to send damage direction to {:?}: {e:?}", ev.victim);
+                }
+            }
+        }
         // `Zombies`: a player's hit on a zombie floats its damage number up
         // on their screen (an Insta-Kill's being whatever health it took).
         let zombie_hit = is_bot_peer(ev.victim)

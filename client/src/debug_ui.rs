@@ -31,13 +31,13 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, local_health, mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
         ResMut<CrosshairSettings>,
         ResMut<KnifeSounds>,
-        Res<LocalHealth>,
+        (Res<LocalHealth>, ResMut<crate::health::HurtEffectSettings>),
         ResMut<crate::DrinkArmsSettings>,
         ResMut<crate::zombies_hud::NitroBrew>,
         ResMut<crate::DrunkSettings>,
@@ -1367,14 +1367,53 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.label(format!(
                         "health (from the server): {:.0} / {:.0}",
-                        local_health.health,
-                        shared::health::FULL_HEALTH,
+                        local_health.health, local_health.max,
                     ));
                     ui.label(format!(
                         "fall damage: none under {:.0} m, lethal at {:.0} m",
                         shared::health::FALL_MIN_DISTANCE,
                         shared::health::FALL_MAX_DISTANCE,
                     ));
+                });
+
+            ui.separator();
+                ui.collapsing("Hurt effects", |ui| {
+                    let h = &mut *hurt_fx;
+                    ui.label("blood + red tint, heartbeat and the damage indicator");
+                    ui.label(format!(
+                        "now: {:.0}%",
+                        h.strength(local_health.health, local_health.max) * 100.0
+                    ));
+                    ui.label("Blood & tint (at full strength)");
+                    ui.add(egui::Slider::new(&mut h.blood_opacity, 0.0f32..=1.0).text("blood opacity"));
+                    ui.add(egui::Slider::new(&mut h.tint_opacity, 0.0f32..=1.0).text("red tint opacity"));
+                    ui.label("How it comes on (fraction of max health)");
+                    ui.add(egui::Slider::new(&mut h.start_at, 0.0f32..=1.0).text("starts below"));
+                    ui.add(egui::Slider::new(&mut h.full_at, 0.0f32..=1.0).text("full strength at"));
+                    ui.add(egui::Slider::new(&mut h.curve, 0.1f32..=3.0).text("curve (<1 = strong early)"));
+                    ui.label("Heartbeat");
+                    ui.add(egui::Slider::new(&mut h.heartbeat_volume, 0.0f32..=5.0).text("volume at full strength (×)"));
+                    ui.add(egui::Slider::new(&mut h.heartbeat_min, 0.0f32..=1.0).text("share of that from the first hit"));
+                    ui.label("Damage indicator");
+                    ui.add(egui::Slider::new(&mut h.indicator_secs, 0.2f32..=8.0).text("shows for (s)"));
+                    ui.add(egui::Slider::new(&mut h.indicator_fade_secs, 0.0f32..=4.0).text("fades over the last (s)"));
+                    ui.add(egui::Slider::new(&mut h.indicator_radius, 0.05f32..=0.5).text("distance from centre (× screen height)"));
+                    ui.add(egui::Slider::new(&mut h.indicator_size, 0.05f32..=0.8).text("width (× screen height)"));
+                    ui.add(egui::Slider::new(&mut h.indicator_opacity, 0.0f32..=1.0).text("opacity"));
+                    if ui.button("Copy hurt effects to console").clicked() {
+                        info!(
+                            "hurt effects: blood_opacity: {:.2}, tint_opacity: {:.2}, start_at: {:.2}, \
+                             full_at: {:.2}, curve: {:.2}, heartbeat_volume: {:.2}, heartbeat_min: {:.2}, \
+                             indicator_secs: {:.2}, indicator_fade_secs: {:.2}, indicator_radius: {:.3}, \
+                             indicator_size: {:.3}, indicator_opacity: {:.2}",
+                            h.blood_opacity, h.tint_opacity, h.start_at, h.full_at, h.curve,
+                            h.heartbeat_volume, h.heartbeat_min, h.indicator_secs, h.indicator_fade_secs,
+                            h.indicator_radius, h.indicator_size, h.indicator_opacity,
+                        );
+                    }
+                    if ui.button("Reset hurt effects").clicked() {
+                        *h = crate::health::HurtEffectSettings::default();
+                    }
                 });
 
             ui.separator();
