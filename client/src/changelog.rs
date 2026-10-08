@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: fixed shots to a boss's upper body and head not counting.",
+        "Zombies: zombies, hellhounds and bosses bleed when hit — more on the kill.",
         "Zombies: fixed zombies flashing in the middle of the map on spawn.",
         "Zombies: smaller perk icons.",
         "Zombies: dog rounds only drop their Max Ammo.",

@@ -126,7 +126,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<LensSettings>,
             (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>, ResMut<crate::AimRecoilSettings>),
             ResMut<ShroomSettings>,
-            (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>),
+            (ResMut<crate::hud::NameTagSettings>, ResMut<crate::hud::HealthBarSettings>, ResMut<crate::vfx::EnemyBloodSettings>),
             (
                 ResMut<BotLookSettings>,
                 (
@@ -154,7 +154,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1050,21 +1050,21 @@ pub(crate) fn ads_tuning_ui(
                 ui.collapsing("Blood splatter", |ui| {
                     let b = &mut *blood;
                     ui.label("squirted from a bot along the shot where it hits");
-                    ui.add(egui::Slider::new(&mut b.count, 0u32..=60).text("droplets per hit"));
-                    ui.add(egui::Slider::new(&mut b.speed, 0.0f32..=25.0).text("squirt speed (m/s)"));
-                    ui.add(egui::Slider::new(&mut b.spread_deg, 0.0f32..=90.0).text("spray cone (°)"));
-                    ui.add(egui::Slider::new(&mut b.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
-                    ui.add(egui::Slider::new(&mut b.drag, 0.0f32..=10.0).text("drag (/s)"));
-                    ui.add(egui::Slider::new(&mut b.scale, 0.01f32..=0.8).text("droplet size (m)"));
-                    ui.add(egui::Slider::new(&mut b.growth, 1.0f32..=4.0).text("grow ×  (over life)"));
-                    ui.add(egui::Slider::new(&mut b.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
-                    ui.add(egui::Slider::new(&mut b.opacity, 0.0f32..=1.0).text("opacity"));
-                    ui.horizontal(|ui| {
-                        ui.label("tint  (white = texture as-is)");
-                        ui.color_edit_button_rgb(&mut b.color);
-                    });
+                    blood_sliders(ui, b);
                     if ui.button("Reset blood").clicked() {
                         *b = BloodSettings::default();
+                    }
+                });
+
+            ui.separator();
+                ui.collapsing("Blood splatter (Zombies)", |ui| {
+                    let e = &mut *enemy_blood;
+                    ui.label("squirted along a shot / stab that hits a zombie, hellhound or boss — bigger on the kill");
+                    ui.collapsing("Zombies", |ui| enemy_blood_ui(ui, &mut e.zombie));
+                    ui.collapsing("Hellhounds", |ui| enemy_blood_ui(ui, &mut e.dog));
+                    ui.collapsing("Bosses", |ui| enemy_blood_ui(ui, &mut e.boss));
+                    if ui.button("Reset all").clicked() {
+                        *e = crate::vfx::EnemyBloodSettings::default();
                     }
                 });
 
@@ -2781,6 +2781,34 @@ pub(crate) fn debug_cursor_toggle(
 
 /// A machine light's sliders (the perk machines' and the Pack-a-Punch's),
 /// and a button printing them to the console as `name`.
+/// One blood squirt's sliders (`BloodSettings`).
+fn blood_sliders(ui: &mut egui::Ui, b: &mut BloodSettings) {
+    ui.add(egui::Slider::new(&mut b.count, 0u32..=60).text("droplets per hit"));
+    ui.add(egui::Slider::new(&mut b.speed, 0.0f32..=25.0).text("squirt speed (m/s)"));
+    ui.add(egui::Slider::new(&mut b.spread_deg, 0.0f32..=90.0).text("spray cone (°)"));
+    ui.add(egui::Slider::new(&mut b.gravity, 0.0f32..=60.0).text("gravity (m/s²)"));
+    ui.add(egui::Slider::new(&mut b.drag, 0.0f32..=10.0).text("drag (/s)"));
+    ui.add(egui::Slider::new(&mut b.scale, 0.01f32..=0.8).text("droplet size (m)"));
+    ui.add(egui::Slider::new(&mut b.growth, 1.0f32..=4.0).text("grow ×  (over life)"));
+    ui.add(egui::Slider::new(&mut b.lifetime, 0.1f32..=4.0).text("lifetime (s)"));
+    ui.add(egui::Slider::new(&mut b.opacity, 0.0f32..=1.0).text("opacity"));
+    ui.horizontal(|ui| {
+        ui.label("tint  (white = texture as-is)");
+        ui.color_edit_button_rgb(&mut b.color);
+    });
+}
+
+/// A `Zombies` enemy's blood: its hit squirt, and the killing blow's on top.
+fn enemy_blood_ui(ui: &mut egui::Ui, e: &mut crate::vfx::EnemyBlood) {
+    ui.label("hit (hurt, not killed)");
+    blood_sliders(ui, &mut e.hit);
+    ui.separator();
+    ui.label("killing blow (× the hit's)");
+    ui.add(egui::Slider::new(&mut e.kill_count, 1.0f32..=5.0).text("droplets ×"));
+    ui.add(egui::Slider::new(&mut e.kill_speed, 0.5f32..=3.0).text("speed ×"));
+    ui.add(egui::Slider::new(&mut e.kill_size, 0.5f32..=3.0).text("size ×"));
+}
+
 fn machine_light_ui(ui: &mut egui::Ui, l: &mut crate::zombies_hud::MachineLight, name: &str) {
     ui.add(egui::Slider::new(&mut l.offset.x, -3.0f32..=3.0).text("x — across (m)"));
     ui.add(egui::Slider::new(&mut l.offset.y, -1.0f32..=6.0).text("y — up from the ground (m)"));

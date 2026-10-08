@@ -1535,6 +1535,27 @@ pub struct ZombieDamaged {
     pub critical: bool,
 }
 
+/// Server → everyone in a `Zombies` lobby: a player's shot, stab or thrown
+/// knife hit a zombie, hellhound or boss at `point`, travelling along `dir`
+/// (unit) — every client squirts blood out from there, a bigger burst when
+/// it was the `kill`ing blow. (Fire and blasts don't land anywhere in
+/// particular, so they don't bleed.)
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieBlood {
+    pub point: [f32; 3],
+    pub dir: [f32; 3],
+    pub kill: bool,
+    pub target: BloodTarget,
+}
+
+/// What a [`ZombieBlood`] came out of — each has its own look.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BloodTarget {
+    Zombie,
+    Dog,
+    Boss,
+}
+
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
 /// `Freestyle`, another player in `FreeForAll`) at `point` — every client
 /// plays the hit sound from there.
@@ -2089,6 +2110,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieDamaged>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombieBlood>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);

@@ -1,5 +1,5 @@
 //! Bullet-impact particles: the rock + dust burst kicked up by a ground hit,
-//! and the blood squirt from a bot hit — both built on the same billboarded,
+//! and the blood squirt from a bot (or `Zombies` enemy) hit — both built on the same billboarded,
 //! gravity/drag-integrated `ImpactParticle`.
 
 use std::f32::consts::PI;
@@ -8,6 +8,7 @@ use bevy::math::Affine2;
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
+use lightyear::prelude::MessageReceiver;
 
 use crate::player::{Player, PlayerHead};
 use crate::util::{rand01, rand_roll, srgb_parts};
@@ -140,16 +141,20 @@ impl Default for DustSettings {
 /// A shot connected with a bot at `point`, travelling along `dir` (unit).
 /// Consumed by `spawn_blood_impact`, which squirts a blood burst out along the
 /// shot from that point. Written by `net::sync_bot_poses` when a
-/// server-owned bot drops.
+/// server-owned bot drops, and by [`receive_zombie_blood`] for a `Zombies`
+/// enemy hit.
 #[derive(Event)]
 pub(crate) struct BloodImpact {
     pub(crate) point: Vec3,
     pub(crate) dir: Vec3,
+    /// Its own look (a zombie's, a hellhound's, a boss's) — `None`: the
+    /// bots' [`BloodSettings`].
+    pub(crate) style: Option<BloodSettings>,
 }
 
 /// Panel-adjustable blood squirt for a bot hit (`ads_tuning_ui`'s "Blood
 /// splatter" section).
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub(crate) struct BloodSettings {
     /// Droplets launched per hit.
     pub(crate) count: u32,
@@ -186,6 +191,69 @@ impl Default for BloodSettings {
             lifetime: 1.0,
             opacity: 0.8,
             color: srgb_parts(Color::WHITE),
+        }
+    }
+}
+
+/// One `Zombies` enemy's blood ([`EnemyBloodSettings`]): its squirt when a
+/// hit just hurts it, and how much bigger the killing blow's is.
+#[derive(Clone)]
+pub(crate) struct EnemyBlood {
+    pub(crate) hit: BloodSettings,
+    /// The killing blow's droplets (× `hit.count`)...
+    pub(crate) kill_count: f32,
+    /// ...speed (× `hit.speed`)...
+    pub(crate) kill_speed: f32,
+    /// ...and droplet size (× `hit.scale`).
+    pub(crate) kill_size: f32,
+}
+
+impl EnemyBlood {
+    fn new(hit: BloodSettings) -> Self {
+        Self {
+            hit,
+            kill_count: 2.0,
+            kill_speed: 1.3,
+            kill_size: 1.3,
+        }
+    }
+
+    /// The squirt for a hit — the killing blow's, if `kill`.
+    pub(crate) fn burst(&self, kill: bool) -> BloodSettings {
+        let mut b = self.hit.clone();
+        if kill {
+            b.count = (b.count as f32 * self.kill_count).round() as u32;
+            b.speed *= self.kill_speed;
+            b.scale *= self.kill_size;
+        }
+        b
+    }
+}
+
+/// Panel-adjustable blood for `Zombies` enemies (`ads_tuning_ui`'s "Blood
+/// splatter (Zombies)" section) — each starts out like a bot's.
+#[derive(Resource, Clone)]
+pub(crate) struct EnemyBloodSettings {
+    pub(crate) zombie: EnemyBlood,
+    pub(crate) dog: EnemyBlood,
+    pub(crate) boss: EnemyBlood,
+}
+
+impl Default for EnemyBloodSettings {
+    fn default() -> Self {
+        Self {
+            zombie: EnemyBlood::new(BloodSettings::default()),
+            dog: EnemyBlood::new(BloodSettings {
+                count: 30,
+                scale: 0.16,
+                ..default()
+            }),
+            boss: EnemyBlood::new(BloodSettings {
+                count: 55,
+                speed: 7.0,
+                scale: 0.28,
+                ..default()
+            }),
         }
     }
 }
@@ -359,7 +427,7 @@ pub(crate) fn spawn_debris(
 pub(crate) fn spawn_blood_impact(
     mut events: EventReader<BloodImpact>,
     assets: Res<ImpactAssets>,
-    blood: Res<BloodSettings>,
+    bot_blood: Res<BloodSettings>,
     existing: Query<(), With<ImpactParticle>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -370,6 +438,7 @@ pub(crate) fn spawn_blood_impact(
     for ev in events.read() {
         let jet = ev.dir.normalize_or(Vec3::NEG_Y);
         *seq = seq.wrapping_add(1);
+        let blood = ev.style.as_ref().unwrap_or(&*bot_blood);
 
         for i in 0..blood.count {
             if budget == 0 {
@@ -416,6 +485,29 @@ pub(crate) fn spawn_blood_impact(
                 NoFrustumCulling,
                 NotShadowCaster,
             ));
+        }
+    }
+}
+
+/// `Zombies`: the server's [`shared::ZombieBlood`] — a zombie, hellhound or
+/// boss hit (anyone's) — squirts that enemy's blood out along the shot.
+pub(crate) fn receive_zombie_blood(
+    mut receivers: Query<&mut MessageReceiver<shared::ZombieBlood>>,
+    settings: Res<EnemyBloodSettings>,
+    mut blood: EventWriter<BloodImpact>,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            let enemy = match msg.target {
+                shared::BloodTarget::Zombie => &settings.zombie,
+                shared::BloodTarget::Dog => &settings.dog,
+                shared::BloodTarget::Boss => &settings.boss,
+            };
+            blood.write(BloodImpact {
+                point: Vec3::from_array(msg.point),
+                dir: Vec3::from_array(msg.dir),
+                style: Some(enemy.burst(msg.kill)),
+            });
         }
     }
 }

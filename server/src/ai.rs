@@ -725,8 +725,16 @@ pub(crate) fn drive_bots(
                 brain.stall_from = brain.feet;
                 brain.stall_secs = 0.0;
             }
+            // (A boss keeps a boss's state — it's what makes it one, hitbox
+            // and all: `shared::boss::hit_capsules`.)
             if let Some(z) = brain.zombie.as_mut() {
-                z.anim = if z.runner { ZombieAnim::Run } else { ZombieAnim::WalkArmsUp };
+                z.anim = if z.boss {
+                    ZombieAnim::BossWalk
+                } else if z.runner {
+                    ZombieAnim::Run
+                } else {
+                    ZombieAnim::WalkArmsUp
+                };
             }
             let eye = brain.feet + Vec3::Y * EYE_HEIGHT;
             action.0 = PlayerInput {
@@ -752,7 +760,8 @@ pub(crate) fn drive_bots(
             brain.vertical_velocity = 0.0;
             if let Some(z) = brain.zombie.as_mut() {
                 z.swing = None;
-                z.anim = ZombieAnim::Idle;
+                z.boss_attack = None;
+                z.anim = if z.boss { ZombieAnim::BossIdle } else { ZombieAnim::Idle };
             }
             action.0 = PlayerInput {
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
@@ -1779,6 +1788,27 @@ mod tests {
         let (at, damage) = hits[0];
         assert_eq!(damage, shared::boss::MELEE_DAMAGE);
         assert!(at >= shared::boss::MELEE_HIT_SECS - 0.05, "the smash landed at {at} s, before the arms came forward");
+    }
+
+    #[test]
+    fn a_frozen_boss_is_still_a_boss() {
+        // Its state is what gives it a boss's hitbox
+        // (`shared::boss::hit_capsules`) — a freeze mustn't turn it into a
+        // person-sized zombie.
+        let start = Vec3::new(-28.5, 0.0, -40.0);
+        let (mut app, bot) = world(BotDifficulty::Veteran, start, start + Vec3::X * 20.0);
+        app.world_mut()
+            .entity_mut(bot)
+            .insert(BotBrain::new(BotDifficulty::Veteran, start, 7).boss(0.0));
+        app.update();
+        app.update();
+        let mut lobbies = app.world_mut().query::<&mut Lobby>();
+        lobbies.single_mut(app.world_mut()).unwrap().bots_frozen = true;
+        for _ in 0..4 {
+            app.update();
+        }
+        let anim = app.world().get::<BotBrain>(bot).unwrap().zombie_anim();
+        assert!(anim.is_boss(), "a frozen boss became {anim:?}");
     }
 
     #[test]

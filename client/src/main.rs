@@ -334,6 +334,7 @@ fn main() {
         .init_resource::<RockSettings>()
         .init_resource::<DustSettings>()
         .init_resource::<BloodSettings>()
+        .init_resource::<vfx::EnemyBloodSettings>()
         .init_resource::<TracerSettings>()
         .init_resource::<TrickState>()
         .add_event::<GroundImpact>()
@@ -582,6 +583,7 @@ fn main() {
                 (emit_smoke.run_if(menu::game_active), update_smoke).after(look_around),
                 (
                     spawn_ground_impact,
+                    vfx::receive_zombie_blood.before(spawn_blood_impact),
                     spawn_blood_impact,
                     zombie_rise_debris,
                     update_impact_particles,

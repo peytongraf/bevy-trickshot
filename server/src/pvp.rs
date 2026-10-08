@@ -15,7 +15,7 @@ use lightyear::prelude::*;
 use shared::{
     FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, HitMarker, Lobby, PlayerHealth,
     PlayerId, PlayerKilledBy, PlayerPose, PlayerRespawn, RespawnReady, ScoreLine, TrickScore,
-    ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS, ZombieDamaged,
+    ZOMBIE_CRITICAL_POINTS, ZOMBIE_KILL_POINTS, BloodTarget, ZombieBlood, ZombieDamaged,
 };
 
 use lightyear::prelude::input::native::ActionState;
@@ -350,6 +350,33 @@ pub(crate) fn apply_player_hits(
                     &NetworkTarget::Single(ev.killer),
                 ) {
                     error!("failed to send zombie damage to {:?}: {e:?}", ev.killer);
+                }
+            }
+            // ...and, where it landed somewhere in particular, everyone in
+            // the lobby sees it bleed (more on the killing blow).
+            let victim_anim = poses.iter().find(|(id, _)| id.0 == ev.victim).map(|(_, p)| p.zombie);
+            let peers = lobbies.iter().find(|(_, l)| in_lobby(l)).map(|(_, l)| l.real_peers());
+            if let (Some(point), Some(anim), Some(peers)) = (ev.point, victim_anim, peers) {
+                let from = poses.iter().find(|(id, _)| id.0 == ev.killer).map(|(_, p)| p.translation);
+                let dir = from.map_or(Vec3::Y, |from| (point - from).normalize_or(Vec3::Y));
+                let target = if anim.is_dog() {
+                    BloodTarget::Dog
+                } else if anim.is_boss() {
+                    BloodTarget::Boss
+                } else {
+                    BloodTarget::Zombie
+                };
+                if let Err(e) = sender.send::<_, GameChannel>(
+                    &ZombieBlood {
+                        point: point.to_array(),
+                        dir: dir.to_array(),
+                        kill: combat.health <= 0.0,
+                        target,
+                    },
+                    server,
+                    &NetworkTarget::Only(peers),
+                ) {
+                    error!("failed to send zombie blood: {e:?}");
                 }
             }
         }

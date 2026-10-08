@@ -1523,7 +1523,7 @@ fn sync_bot_poses(
             // miss with no hit point, so squirt an upward blood burst
             // from the bot's chest rather than a directed one.
             let point = bot.pos + Vec3::Y * (BOT_H * 0.55);
-            blood.write(BloodImpact { point, dir: Vec3::Y });
+            blood.write(BloodImpact { point, dir: Vec3::Y, style: None });
             // Stamp it for this client's next input packet so a kill cam
             // built from our stream replays the squirt.
             blood_rec.0 = Some(point);

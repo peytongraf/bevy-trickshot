@@ -1076,7 +1076,7 @@ fn drive_killcam(
         .is_some_and(|(bt, ..)| *bt <= t)
     {
         let (_, point, dir) = run.bloods[run.blood_cursor];
-        bloods.write(BloodImpact { point, dir });
+        bloods.write(BloodImpact { point, dir, style: None });
         run.blood_cursor += 1;
     }
     while run
