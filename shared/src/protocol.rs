@@ -1169,6 +1169,11 @@ pub struct Lobby {
     /// for the results screen.
     #[serde(default)]
     pub exfil: crate::exfil::Exfil,
+    /// [`GameMode::Zombies`]: the Rampage Inducer's on ([`ToggleRampage`],
+    /// [`crate::rampage`]) — zombies faster, spawning quicker. Cleared
+    /// whenever a game starts or ends.
+    #[serde(default)]
+    pub rampage: bool,
     pub members: Vec<LobbyMember>,
 }
 
@@ -2135,6 +2140,15 @@ pub struct TurnOnPower;
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct CallExfil;
 
+/// Client → server: turn the Rampage Inducer on (`on`) or off — sent once
+/// interact's been held at it for [`crate::rampage::HOLD_SECS`]. The server
+/// checks the sender is at it and alive, and that it isn't already that way
+/// ([`Lobby::rampage`]).
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct ToggleRampage {
+    pub on: bool,
+}
+
 /// Client → server: leave whatever lobby the sender is in (server derives it).
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct LeaveLobby;
@@ -2408,6 +2422,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<CallExfil>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ToggleRampage>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyAmmo>()
             .add_direction(NetworkDirection::ClientToServer);

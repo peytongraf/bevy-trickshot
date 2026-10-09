@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Rampage Inducer
 - Wunderfizz menu centred
 - Commas in money amounts
 - Full map on hold (M)
@@ -28,6 +29,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - Make hd staminup model
 - Make a better blood overlay
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
@@ -61,7 +63,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Big features
 
 - Add semtex
-- Add rampage inducer
 - Add killchains
 
 ## Sound

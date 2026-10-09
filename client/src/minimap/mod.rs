@@ -490,6 +490,9 @@ fn wanted_icons(lobby: &Lobby) -> Vec<IconSpec> {
     if let Some(at) = layout.pack_a_punch {
         add(at, IconArt::BadgeText("PAP", Color::srgb(0.7, 0.4, 1.0)));
     }
+    if let Some(at) = layout.rampage_inducer {
+        add(at, IconArt::BadgeText("R", crate::rampage::RAMPAGE_ORANGE));
+    }
     for perk in lobby.perk_set.machine_perks() {
         add(layout.perk(perk), IconArt::Image(crate::zombies_hud::perk_icon_path(perk)));
     }

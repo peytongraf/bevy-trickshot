@@ -28,6 +28,7 @@
     crafting_table: Some((pos: (-20.2, 0.0, -47.3), yaw_deg: 0.0)),
     exfil_radio: Some((pos: (-8.4, 0.0, -47.2), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
+    rampage_inducer: Some((pos: (-12.6, 1.2, -23.4), yaw_deg: 0.0)),
     player_spawns: [
         (pos: (-10.95, 0.0, -41.3), yaw_deg: 98.3),
         (pos: (-10.6, 0.0, -37.821), yaw_deg: 75.5),

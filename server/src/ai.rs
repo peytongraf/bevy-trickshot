@@ -251,10 +251,26 @@ impl ZombieBody {
         fade * (weave + flank)
     }
 
+    /// Its own speed — faster while the Rampage Inducer's on (`rampage`,
+    /// `shared::rampage::rampage_speed`; not a dog's or a boss's).
+    fn base_speed(&self, rampage: bool) -> f32 {
+        if rampage && !self.dog && !self.boss {
+            shared::rampage::rampage_speed(self.speed)
+        } else {
+            self.speed
+        }
+    }
+
+    /// Whether it runs (rather than walks) — a walker breaks into a run
+    /// once the Rampage Inducer's fast enough.
+    fn runs(&self, rampage: bool) -> bool {
+        self.runner || (rampage && !self.dog && !self.boss && shared::rampage::runs(self.speed))
+    }
+
     /// Its speed right now, lurching a little either side of its own —
     /// never outside `shared::zombies`' min / max.
-    fn speed_now(&self, now: f32) -> f32 {
-        let speed = self.speed
+    fn speed_now(&self, now: f32, rampage: bool) -> f32 {
+        let speed = self.base_speed(rampage)
             * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin());
         if self.boss {
             // A steady, heavy stride.
@@ -741,7 +757,7 @@ pub(crate) fn drive_bots(
             if let Some(z) = brain.zombie.as_mut() {
                 z.anim = if z.boss {
                     ZombieAnim::BossWalk
-                } else if z.runner {
+                } else if z.runs(lobby.rampage) {
                     ZombieAnim::Run
                 } else {
                     ZombieAnim::WalkArmsUp
@@ -1187,9 +1203,9 @@ pub(crate) fn drive_bots(
         let mut speed = brain.zombie.map_or(WALK_SPEED, |z| {
             // A stunned zombie (PhD Flopper) barely moves.
             if z.stunned_until > now {
-                z.speed_now(now) * shared::perks::PHD_STUN_SPEED_MULT
+                z.speed_now(now, lobby.rampage) * shared::perks::PHD_STUN_SPEED_MULT
             } else {
-                z.speed_now(now)
+                z.speed_now(now, lobby.rampage)
             }
         });
         if !engaged && !hold {
@@ -1292,7 +1308,7 @@ pub(crate) fn drive_bots(
                 ZombieAnim::Attack
             } else if wish == Vec3::ZERO {
                 ZombieAnim::Idle
-            } else if z.runner {
+            } else if z.runs(lobby.rampage) {
                 ZombieAnim::Run
             } else if flat_dist <= ZOMBIE_ARMS_UP_DIST {
                 ZombieAnim::WalkArmsUp
@@ -1507,6 +1523,7 @@ mod tests {
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,
+            rampage: false,
             mystery_box: None,
             members: Vec::new(),
         }

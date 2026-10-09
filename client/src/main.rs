@@ -58,6 +58,7 @@ mod pap_menu;
 mod power_ups;
 mod power;
 mod quotes;
+mod rampage;
 mod respawn;
 mod revive;
 mod round_counter;
@@ -287,6 +288,7 @@ fn main() {
         .add_plugins(vfx::MysteryBoxVfxPlugin)
         .add_plugins(CompassPlugin)
         .add_plugins(minimap::MinimapPlugin)
+        .add_plugins(rampage::RampagePlugin)
         // The telemetry row's CPU / memory readouts (`hud::fps_text`).
         .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
         .add_plugins(hud::DrawCallsPlugin)

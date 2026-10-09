@@ -142,6 +142,7 @@ pub(crate) fn ads_tuning_ui(
                     crate::end_screen_fx::EndScreenDebug,
                     crate::quotes::QuotesDebug,
                     crate::vfx::MysteryBoxFxDebug,
+                    crate::rampage::RampageDebug,
                 ),
             ),
         ),
@@ -163,7 +164,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1982,6 +1983,9 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Mystery Box (Zombies)", |ui| box_fx_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Rampage Inducer (Zombies)", |ui| rampage_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Aether Shroud (Zombies)", |ui| aether_dbg.ui(ui));

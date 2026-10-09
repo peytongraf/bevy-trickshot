@@ -491,6 +491,12 @@ pub(crate) fn run_rounds(
         } else {
             spawn_interval(rounds.round)
         };
+        // (Quicker still with the Rampage Inducer on.)
+        let interval = if lobby.rampage {
+            interval * shared::rampage::SPAWN_INTERVAL_MULT
+        } else {
+            interval
+        };
         let dog = match rounds.exfil {
             Some(_) => rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
             None => shared::dogs::is_dog_round(rounds.round),
@@ -918,6 +924,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                rampage: false,
                 mystery_box: None,
                 members: vec![shared::LobbyMember {
                     peer: me,

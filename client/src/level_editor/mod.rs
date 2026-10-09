@@ -123,6 +123,8 @@ pub(crate) enum ObjectId {
     /// ...and the area the party has to hold (a rectangle: its middle and
     /// turn are its placement, its width and depth the properties panel's).
     ExfilArea,
+    /// The Rampage Inducer.
+    RampageInducer,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
     /// A players' start spot (`ZombiesLayout::player_spawns`, by index) —
@@ -148,7 +150,7 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 10] = [
+    pub(crate) const OPTIONAL: [ObjectId; 11] = [
         ObjectId::PackAPunch,
         ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
@@ -157,6 +159,7 @@ impl ObjectId {
         ObjectId::CraftingTable,
         ObjectId::ExfilRadio,
         ObjectId::ExfilArea,
+        ObjectId::RampageInducer,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
@@ -189,6 +192,7 @@ impl ObjectId {
             ObjectId::CraftingTable => "Crafting table",
             ObjectId::ExfilRadio => "Exfil radio",
             ObjectId::ExfilArea => "Exfil area",
+            ObjectId::RampageInducer => "Rampage Inducer",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
@@ -221,6 +225,7 @@ impl ObjectId {
             ObjectId::ArmorStation => Some("armor_station".into()),
             ObjectId::CraftingTable => Some("crafting_table".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
+            ObjectId::RampageInducer => Some("rampage_inducer".into()),
             ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => None,
         }
     }
@@ -244,6 +249,7 @@ impl ObjectId {
             ObjectId::ArmorStation => Some(&mut layout.armor_station),
             ObjectId::CraftingTable => Some(&mut layout.crafting_table),
             ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
+            ObjectId::RampageInducer => Some(&mut layout.rampage_inducer),
             _ => None,
         }
     }
@@ -285,6 +291,7 @@ impl ObjectId {
             ObjectId::CraftingTable => layout.crafting_table,
             ObjectId::ExfilRadio => layout.exfil_radio,
             ObjectId::ExfilArea => layout.exfil_area.map(|a| a.at),
+            ObjectId::RampageInducer => layout.rampage_inducer,
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
             ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
         }
@@ -352,6 +359,7 @@ impl ObjectId {
             ObjectId::CraftingTable => Color::srgb(0.85, 0.6, 0.3),
             ObjectId::ExfilRadio => crate::exfil::EXFIL_BLUE,
             ObjectId::ExfilArea => crate::exfil::EXFIL_ORANGE,
+            ObjectId::RampageInducer => crate::rampage::RAMPAGE_ORANGE,
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
             ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
@@ -367,6 +375,7 @@ impl ObjectId {
             ObjectId::ArmorStation => shared::armor::USE_RADIUS,
             ObjectId::CraftingTable => shared::crafting::USE_RADIUS,
             ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
+            ObjectId::RampageInducer => shared::rampage::USE_RADIUS,
             // (Not used — stood in. See `draw_gizmos`' rectangle.)
             ObjectId::ExfilArea => 0.0,
             // (Not used — stood on. Its circle's about a body's width.)
@@ -404,6 +413,7 @@ impl ObjectId {
             ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
             ObjectId::CraftingTable => standing(shared::crafting::HALF_EXTENTS),
             ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
+            ObjectId::RampageInducer => standing(shared::rampage::HALF_EXTENTS),
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
             ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
@@ -928,6 +938,7 @@ fn model_of(
         ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),
         ObjectId::CraftingTable => (crate::crafting::CRAFTING_TABLE_MODEL, crate::crafting::model_transform()),
         ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
+        ObjectId::RampageInducer => (crate::rampage::RAMPAGE_MODEL, Transform::IDENTITY),
         // (No model — just its marker and rectangle.)
         ObjectId::ExfilArea => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),

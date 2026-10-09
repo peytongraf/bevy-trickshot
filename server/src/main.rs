@@ -24,6 +24,7 @@ mod collision;
 mod crafting;
 mod dogs;
 mod exfil;
+mod rampage;
 mod field_upgrades;
 mod flash_bangs;
 mod frags;
@@ -87,6 +88,7 @@ fn main() {
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(boss::BossPlugin)
         .add_plugins(exfil::ExfilPlugin)
+        .add_plugins(rampage::RampagePlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)

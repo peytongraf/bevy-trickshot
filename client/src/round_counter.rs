@@ -7,6 +7,10 @@
 //! Round 1 skips the slide — there's no old number — and just swells up in
 //! the middle before settling into the corner.
 //!
+//! Behind the number, a panel of yellow lightning (`rampage`) shows while
+//! the Rampage Inducer's on; it's kept round the number as it moves and
+//! swells ([`follow_round_counter`]).
+//!
 //! Everything goes off the replicated `Lobby::round`. The counter is
 //! `StateScoped(InGame)` and keeps its own state, so each game starts fresh.
 
@@ -19,6 +23,7 @@ use crate::net::GameClient;
 /// How long (s) the dog round end sound plays before the next round's usual
 /// start sound — its audible length.
 const DOG_ROUND_END_SECS: f32 = 7.6;
+use crate::rampage::{RampageLightningMaterial, RampageSettings, RoundLightning};
 use crate::zombies_hud::zombies_game;
 use crate::{AppState, GameSounds};
 
@@ -32,7 +37,12 @@ impl Plugin for RoundCounterPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RoundAnimSettings>()
             .add_systems(OnEnter(AppState::InGame), spawn_round_counter)
-            .add_systems(Update, update_round_counter.run_if(in_state(AppState::InGame)));
+            .add_systems(
+                Update,
+                (update_round_counter, follow_round_counter)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }
 
@@ -90,7 +100,12 @@ struct RoundCounter {
     anim: Option<f32>,
 }
 
-fn spawn_round_counter(mut commands: Commands, asset_server: Res<AssetServer>, settings: Res<RoundAnimSettings>) {
+fn spawn_round_counter(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    settings: Res<RoundAnimSettings>,
+    mut lightning: ResMut<Assets<RampageLightningMaterial>>,
+) {
     commands
         .spawn((
             StateScoped(AppState::InGame),
@@ -104,26 +119,67 @@ fn spawn_round_counter(mut commands: Commands, asset_server: Res<AssetServer>, s
                 ..default()
             },
         ))
-        .with_child((
-            RoundCounter::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(HOME_TOP),
-                ..default()
-            },
-            Text::new(""),
-            TextFont {
-                font: asset_server.load(ROUND_FONT),
-                font_size: settings.size,
-                ..default()
-            },
-            TextColor(ROUND_RED),
-            TextShadow {
-                offset: Vec2::splat(2.0),
-                color: Color::srgba(0.0, 0.0, 0.0, 0.75),
-            },
-            Visibility::Hidden,
-        ));
+        .with_children(|strip| {
+            // (First, so it's behind the number.)
+            strip.spawn((
+                RoundLightning,
+                MaterialNode(lightning.add(RampageLightningMaterial::default())),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                Visibility::Hidden,
+            ));
+            strip.spawn((
+                RoundCounter::default(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(HOME_TOP),
+                    ..default()
+                },
+                Text::new(""),
+                TextFont {
+                    font: asset_server.load(ROUND_FONT),
+                    font_size: settings.size,
+                    ..default()
+                },
+                TextColor(ROUND_RED),
+                TextShadow {
+                    offset: Vec2::splat(2.0),
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.75),
+                },
+                Visibility::Hidden,
+            ));
+        });
+}
+
+/// Keep the lightning panel round the number — centred on it, reaching out
+/// round it ([`RampageSettings::lightning_pad`] of its size each side) —
+/// and showing only while it does.
+#[allow(clippy::type_complexity)]
+fn follow_round_counter(
+    settings: Res<RampageSettings>,
+    counter: Single<(&Node, &ComputedNode, &Visibility), (With<RoundCounter>, Without<RoundLightning>)>,
+    panel: Single<(&mut Node, &mut Visibility), (With<RoundLightning>, Without<RoundCounter>)>,
+) {
+    let (node, computed, vis) = counter.into_inner();
+    let (mut panel_node, mut panel_vis) = panel.into_inner();
+    panel_vis.set_if_neq(*vis);
+    let (Val::Px(left), Val::Px(top)) = (node.left, node.top) else { return };
+    let own = computed.size() * computed.inverse_scale_factor();
+    let pad = own * settings.lightning_pad;
+    let wanted = (
+        Val::Px(left - pad.x),
+        Val::Px(top - pad.y),
+        Val::Px(own.x + pad.x * 2.0),
+        Val::Px(own.y + pad.y * 2.0),
+    );
+    if (panel_node.left, panel_node.top, panel_node.width, panel_node.height) != wanted {
+        panel_node.left = wanted.0;
+        panel_node.top = wanted.1;
+        panel_node.width = wanted.2;
+        panel_node.height = wanted.3;
+    }
 }
 
 fn ease(x: f32) -> f32 {
