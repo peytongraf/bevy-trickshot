@@ -27,9 +27,13 @@ use crate::rampage::{RampageLightningMaterial, RampageSettings, RoundLightning};
 use crate::zombies_hud::zombies_game;
 use crate::{AppState, GameSounds};
 
-/// The round number's face: Creepster (`assets/fonts/Creepster-OFL.txt`),
-/// a dripping hand-painted horror face like Call of Duty zombies' own.
-const ROUND_FONT: &str = "fonts/Creepster-Regular.ttf";
+/// The round number's face: Zhi Mang Xing (`assets/fonts/ZhiMangXing-OFL.txt`),
+/// tall, rough brush strokes like Call of Duty zombies' hand-painted round
+/// numbers. Cut down to just the digits (and a space) — the full font's
+/// 4 MB of Chinese characters the counter never shows; to remake it,
+/// `pyftsubset ZhiMangXing-Regular.ttf --text="0123456789 "
+/// --layout-features='*' --output-file=ZhiMangXing-Digits.ttf`.
+const ROUND_FONT: &str = "fonts/ZhiMangXing-Digits.ttf";
 
 pub(crate) struct RoundCounterPlugin;
 
