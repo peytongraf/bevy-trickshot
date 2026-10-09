@@ -48,6 +48,7 @@ mod loading_screen;
 mod lobby_ui;
 mod match_end;
 mod menu;
+mod minimap;
 mod net;
 mod pause;
 mod player;
@@ -285,6 +286,7 @@ fn main() {
         .add_plugins(vfx::RayGunVfxPlugin)
         .add_plugins(vfx::MysteryBoxVfxPlugin)
         .add_plugins(CompassPlugin)
+        .add_plugins(minimap::MinimapPlugin)
         .add_systems(
             Update,
             weapons::raygun_draw_lower

@@ -1,4 +1,6 @@
-//! The top-left frames-per-second + ping readout.
+//! The top-left frames-per-second + ping readout, over the minimap — Modern
+//! Warfare III's: a small dark box each, a dim label ("FPS:", "LATENCY:")
+//! and the value in white.
 
 use bevy::prelude::*;
 use lightyear::prelude::{Connected, PingManager};
@@ -6,11 +8,16 @@ use lightyear::prelude::{Connected, PingManager};
 use crate::net::GameClient;
 use crate::{menu, HUD_FONT};
 
-/// The top-left FPS readout.
+/// How tall (logical px) the readout's boxes are, and how far down from the
+/// top of the screen they sit — the minimap goes under them.
+pub(crate) const FPS_ROW_TOP: f32 = 6.0;
+pub(crate) const FPS_ROW_HEIGHT: f32 = 26.0;
+
+/// The FPS value.
 #[derive(Component)]
 pub(crate) struct FpsText;
 
-/// The ping readout, beside [`FpsText`] in the same pill.
+/// The ping value, in the box beside [`FpsText`]'s.
 #[derive(Component)]
 pub(crate) struct PingText;
 
@@ -18,26 +25,41 @@ pub(crate) struct PingText;
 pub(crate) fn setup_fps_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = TextFont {
         font: asset_server.load(HUD_FONT),
-        font_size: 22.0,
+        font_size: 20.0,
         ..default()
     };
+    let stat = |row: &mut ChildSpawnerCommands, label: &str, value: Entity| {
+        row.spawn((
+            Node {
+                height: Val::Px(FPS_ROW_HEIGHT),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(0.0)),
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(5.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
+        ))
+        .with_child((Text::new(label), font.clone(), TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55))))
+        .add_child(value);
+    };
+    let fps = commands.spawn((FpsText, Text::new(""), font.clone(), TextColor(Color::WHITE))).id();
+    let ping = commands.spawn((PingText, Text::new(""), font.clone(), TextColor(Color::WHITE))).id();
     commands
         .spawn((
             menu::HudElement,
+            GlobalZIndex(4),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(20.0),
-                top: Val::Px(18.0),
-                padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
-                column_gap: Val::Px(16.0),
+                left: Val::Px(crate::minimap::MINIMAP_LEFT),
+                top: Val::Px(FPS_ROW_TOP),
+                column_gap: Val::Px(3.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-            BorderRadius::all(Val::Px(6.0)),
+            Pickable::IGNORE,
         ))
-        .with_children(|pill| {
-            pill.spawn((FpsText, Text::new(""), font.clone(), TextColor(Color::WHITE)));
-            pill.spawn((PingText, Text::new(""), font, TextColor(Color::WHITE)));
+        .with_children(|row| {
+            stat(row, "FPS:", fps);
+            stat(row, "LATENCY:", ping);
         });
 }
 
@@ -74,7 +96,7 @@ pub(crate) fn update_fps_ui(
 
     if acc.elapsed >= 0.5 {
         let fps = acc.frames as f32 / acc.elapsed;
-        let wanted = format!("{fps:.0} fps");
+        let wanted = format!("{fps:.0}");
         if fps_text.0 != wanted {
             fps_text.0 = wanted;
         }

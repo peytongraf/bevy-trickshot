@@ -77,7 +77,7 @@ fn outline_texture(gun: WeaponId) -> (&'static str, f32) {
     }
 }
 
-fn icon(gun: WeaponId) -> &'static str {
+pub(crate) fn icon(gun: WeaponId) -> &'static str {
     match gun {
         WeaponId::Ak74 => "textures/icons/weapons/ak_74.png",
         _ => "textures/icons/weapons/sniper.png",

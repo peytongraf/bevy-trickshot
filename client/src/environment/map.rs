@@ -92,6 +92,14 @@ pub(crate) struct MapLoadState {
     visual_ready: bool,
 }
 
+impl MapLoadState {
+    /// Whether the current map's [`MapModel`] (its collision blockout) has
+    /// finished spawning.
+    pub(crate) fn model_ready(&self) -> bool {
+        self.model_ready
+    }
+}
+
 /// Whether `state` reflects a fully-loaded `map` — `model_ready`, plus
 /// `visual_ready` too if `map` actually has a [`MapVisualModel`] (see
 /// [`map_visual_path`]).

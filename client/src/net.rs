@@ -718,6 +718,7 @@ fn receive_shots(
     mut holes: EventWriter<crate::BulletImpact>,
     mut tracers: EventWriter<crate::FireTracer>,
     (mut bolts, mut landed): (EventWriter<crate::RayGunBolt>, EventWriter<crate::RayGunLanded>),
+    mut enemy_fired: EventWriter<crate::minimap::SomeoneFired>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let killcam_playing = active.0.is_some();
@@ -747,6 +748,13 @@ fn receive_shots(
     }
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            // (For the minimap's red dots.)
+            if !killcam_playing && Some(msg.shooter) != me {
+                enemy_fired.write(crate::minimap::SomeoneFired {
+                    shooter: msg.shooter,
+                    from: Vec3::from_array(msg.origin),
+                });
+            }
             let raygun = msg.weapon == shared::weapon::WeaponId::RayGun.as_u8();
             // A Ray Gun bolt's already flying (ours, or theirs from its
             // `RayGunFired`): this is where it really landed.

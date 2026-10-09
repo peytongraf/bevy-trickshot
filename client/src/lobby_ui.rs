@@ -1949,7 +1949,7 @@ fn handle_clicks(
     }
 }
 
-// --- in-game scoreboard (left edge) ----------------------------------
+// --- in-game scoreboard (top left, under the minimap; not in `Zombies`) ----------------------------------
 
 #[derive(Component)]
 struct Scoreboard;
@@ -1991,6 +1991,10 @@ fn rebuild_scoreboard(
     let Some(lobby) = lobbies.iter().find(|l| l.has(me)) else {
         return;
     };
+    // (`Zombies` has its own: the party's points, bottom left.)
+    if lobby.mode == shared::GameMode::Zombies {
+        return;
+    }
 
     let mut rows: Vec<(&str, u32, bool)> = lobby
         .members
@@ -2006,8 +2010,9 @@ fn rebuild_scoreboard(
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(16.0),
-                top: Val::Px(96.0),
+                // (Under the minimap.)
+                left: Val::Px(crate::minimap::MINIMAP_LEFT),
+                top: Val::Px(crate::minimap::MINIMAP_TOP + crate::minimap::MINIMAP_SIZE + 10.0),
                 min_width: Val::Px(200.0),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(Val::Px(10.0)),

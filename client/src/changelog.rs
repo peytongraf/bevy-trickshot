@@ -17,6 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Free For All: enemies who fire flash a red dot on the minimap.",
+        "Freestyle: bots show as red dots on the minimap.",
+        "FPS and latency now sit above the minimap, Modern Warfare III style, a bit bigger.",
+        "The score panel sits under the minimap, and is gone from Zombies.",
+        "Added a minimap, top left — in Zombies it shows perks, Pack-a-Punch, the box, wall buys and your team.",
         "Zombies: operators now talk — kills, bosses, buys, power-ups and more.",
         "Zombies: quotes are louder.",
         "Zombies: a boss's smash knocks you back.",
