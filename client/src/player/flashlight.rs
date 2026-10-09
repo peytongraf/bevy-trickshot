@@ -6,7 +6,9 @@
 //! not `Zombies` zombies — following where their replicated pose is looking.
 //!
 //! Always on on that map and off everywhere else (the debug panel's
-//! "Flashlight" section can force it on anywhere for tuning). The local light
+//! "Flashlight" section can force it on anywhere for tuning) — and in
+//! `Zombies`, off for everyone once someone turns the power on
+//! (`Lobby::power_on`): the map's lit by then. The local light
 //! is a child of the camera and the remote ones are `StateScoped(InGame)`, so
 //! nothing survives the game.
 
@@ -131,10 +133,12 @@ fn sync_local_flashlight(
     sway_tuning: Res<crate::weapons::WeaponSwaySettings>,
     ads: Res<crate::Ads>,
     camera: Query<Entity, With<WorldModelCamera>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
     mut lights: Query<(&mut SpotLight, &mut Transform, &mut Visibility), With<LocalFlashlight>>,
     mut commands: Commands,
 ) {
-    let on = settings.on(current.0);
+    let on = settings.on(current.0) && !power_on(&local, &lobbies);
     if lights.is_empty() {
         if let Ok(cam) = camera.single() {
             commands.spawn((
@@ -153,6 +157,12 @@ fn sync_local_flashlight(
         *tf = lag * Transform::from_translation(settings.offset);
         vis.set_if_neq(visibility(on));
     }
+}
+
+/// Whether our lobby's `Zombies` game has had its power turned on — the
+/// flashlights go off for everyone then.
+fn power_on(local: &Query<&LocalId, With<GameClient>>, lobbies: &Query<&Lobby>) -> bool {
+    crate::zombies_hud::zombies_game(local, lobbies).is_some_and(|l| l.power_on)
 }
 
 /// Whether `id` is a `Zombies` zombie (no flashlight on those).
@@ -191,15 +201,18 @@ fn spawn_remote_flashlights(
 }
 
 /// Aim each remote light where its player is looking, from their gun; drop
-/// it once they're gone. Off while they're dead, or off this map.
+/// it once they're gone. Off while they're dead, off this map, or once the
+/// power's on.
 fn update_remote_flashlights(
     settings: Res<FlashlightSettings>,
     current: Res<CurrentMap>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
     poses: Query<&PlayerPose>,
     mut lights: Query<(Entity, &RemoteFlashlight, &mut SpotLight, &mut Transform, &mut Visibility)>,
     mut commands: Commands,
 ) {
-    let on = settings.on(current.0);
+    let on = settings.on(current.0) && !power_on(&local, &lobbies);
     for (entity, flash, mut light, mut tf, mut vis) in &mut lights {
         let Ok(pose) = poses.get(flash.src) else {
             commands.entity(entity).try_despawn();

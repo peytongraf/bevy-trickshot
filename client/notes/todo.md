@@ -29,6 +29,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Zombies should move around monkey bomb instead of just standing there
+- Create new rampage inducer music
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - Make hd staminup model
 - Make a better blood overlay
@@ -41,6 +43,12 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - When using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90. This seems to just be the case after going through this many rounds instead of starting on a high round from the start.
 - Could run btop while game is running
 - Could possibly keep a client side graph of entities, effects, fps over time etc
+
+# Flashlight
+
+- Can add a flash light on off sound
+- Can turn on flashlight if an area is too dark instead of having it only on when the power is off
+- Flashlight shouldn't be on at all on day settings
 
 # Bugs
 

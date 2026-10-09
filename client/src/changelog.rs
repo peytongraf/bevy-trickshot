@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: flashlights switch off once the power's on.",
         "Zombies: the round number is hand-painted brush strokes, like Black Ops.",
         "Level editor: add, move and tune the power lights, and preview the map as in game with the power off or on.",
         "Zombies: the Rampage Inducer — hold to turn it on for faster, quicker-spawning zombies and its own music.",
