@@ -174,6 +174,119 @@ impl AutoMantle {
 }
 
 
+/// One readout the telemetry row (top left, over the minimap — `hud::fps_text`)
+/// can show — Interface tab, Call of Duty's telemetry options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TelemetryStat {
+    Fps,
+    OnePercentLow,
+    FrameTime,
+    Latency,
+    Cpu,
+    Ram,
+}
+
+impl TelemetryStat {
+    pub const ALL: [TelemetryStat; 6] = [
+        TelemetryStat::Fps,
+        TelemetryStat::OnePercentLow,
+        TelemetryStat::FrameTime,
+        TelemetryStat::Latency,
+        TelemetryStat::Cpu,
+        TelemetryStat::Ram,
+    ];
+
+    /// Its name in the settings.
+    pub fn name(self) -> &'static str {
+        match self {
+            TelemetryStat::Fps => "FRAMES PER SECOND",
+            TelemetryStat::OnePercentLow => "1% LOW FPS",
+            TelemetryStat::FrameTime => "FRAME TIME",
+            TelemetryStat::Latency => "SERVER LATENCY",
+            TelemetryStat::Cpu => "CPU USAGE",
+            TelemetryStat::Ram => "MEMORY USAGE",
+        }
+    }
+
+    /// Its label on the HUD.
+    pub fn label(self) -> &'static str {
+        match self {
+            TelemetryStat::Fps => "FPS:",
+            TelemetryStat::OnePercentLow => "1% LOW:",
+            TelemetryStat::FrameTime => "FRAME:",
+            TelemetryStat::Latency => "LATENCY:",
+            TelemetryStat::Cpu => "CPU:",
+            TelemetryStat::Ram => "RAM:",
+        }
+    }
+}
+
+/// Which [`TelemetryStat`]s the HUD shows (FPS and latency by default) —
+/// and, in debug mode, whether the draw calls and entity count do (both by
+/// default).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Telemetry {
+    pub fps: bool,
+    pub one_percent_low: bool,
+    pub frame_time: bool,
+    pub latency: bool,
+    pub cpu: bool,
+    pub ram: bool,
+    /// Debug mode only (DEBUG tab): the draw call count...
+    pub draw_calls: bool,
+    /// ...and the entity count.
+    pub entities: bool,
+}
+
+impl Default for Telemetry {
+    fn default() -> Self {
+        Self {
+            fps: true,
+            one_percent_low: false,
+            frame_time: false,
+            latency: true,
+            cpu: false,
+            ram: false,
+            draw_calls: true,
+            entities: true,
+        }
+    }
+}
+
+impl Telemetry {
+    pub fn shows(&self, stat: TelemetryStat) -> bool {
+        *self.flag(stat)
+    }
+
+    pub fn toggle(&mut self, stat: TelemetryStat) {
+        let flag = self.flag_mut(stat);
+        *flag = !*flag;
+    }
+
+    fn flag(&self, stat: TelemetryStat) -> &bool {
+        match stat {
+            TelemetryStat::Fps => &self.fps,
+            TelemetryStat::OnePercentLow => &self.one_percent_low,
+            TelemetryStat::FrameTime => &self.frame_time,
+            TelemetryStat::Latency => &self.latency,
+            TelemetryStat::Cpu => &self.cpu,
+            TelemetryStat::Ram => &self.ram,
+        }
+    }
+
+    fn flag_mut(&mut self, stat: TelemetryStat) -> &mut bool {
+        match stat {
+            TelemetryStat::Fps => &mut self.fps,
+            TelemetryStat::OnePercentLow => &mut self.one_percent_low,
+            TelemetryStat::FrameTime => &mut self.frame_time,
+            TelemetryStat::Latency => &mut self.latency,
+            TelemetryStat::Cpu => &mut self.cpu,
+            TelemetryStat::Ram => &mut self.ram,
+        }
+    }
+}
+
 /// Non-keybind settings. Keybinds live in [`KeyBindings`] and are saved to the
 /// same file (see [`SettingsFile`]).
 #[derive(Resource, Clone, Debug, Serialize, Deserialize)]
@@ -192,6 +305,9 @@ pub struct Settings {
     pub fov: f32,
     /// Show the dev tuning panels in the top-right.
     pub debug_mode: bool,
+    /// Debug mode only (DEBUG tab): the top-centre readout of where we are
+    /// and which way we face (`hud::debug_readout`).
+    pub debug_position: bool,
     /// Dev convenience: on reaching the main menu, if no lobby exists, create one.
     pub dev_auto_create_lobby: bool,
     /// Dev convenience: on reaching the main menu, if a lobby exists, join it.
@@ -226,7 +342,8 @@ pub struct Settings {
     /// Selected scope magnification — Loadout screen. See [`ScopeZoom`].
     pub scope_zoom: ScopeZoom,
     /// Automatic ledge-mantle behavior — Controls tab. See [`AutoMantle`].
-    pub auto_mantle: AutoMantle,
+    pub auto_mantle: AutoMantle,    /// Which readouts show over the minimap — Interface tab. See [`Telemetry`].
+    pub telemetry: Telemetry,
 }
 
 impl Default for Settings {
@@ -238,6 +355,7 @@ impl Default for Settings {
             ads_sens_coefficient: ADS_COEFF_DEFAULT,
             fov: FOV_DEFAULT,
             debug_mode: false,
+            debug_position: true,
             dev_auto_create_lobby: false,
             dev_auto_join_lobby: false,
             shadow_quality: ShadowQuality::default(),
@@ -251,6 +369,7 @@ impl Default for Settings {
             crosshair: CrosshairId::default(),
             scope_zoom: ScopeZoom::default(),
             auto_mantle: AutoMantle::default(),
+            telemetry: Telemetry::default(),
         }
     }
 }

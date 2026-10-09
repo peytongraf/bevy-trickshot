@@ -20,7 +20,7 @@
 //!   hit sound.
 //!
 //! Every sound is positional and heard by the whole lobby. Look and feel
-//! are tuned in the "Boss (Zombies)" debug window ([`BossSettings`]).
+//! are tuned in the "Boss (Zombies)" debug section ([`BossSettings`]).
 //! Everything here is `StateScoped(InGame)`, and a ball whose boss or
 //! message never comes is cleared on its own.
 
@@ -29,10 +29,11 @@ use std::time::Duration;
 use bevy::animation::RepeatAnimation;
 use bevy::audio::{PlaybackMode, SpatialAudioSink, Volume};
 use bevy::pbr::NotShadowCaster;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, TriggerSender};
 use shared::boss::{BLAST_CHARGE_START_SECS, BLAST_LIFETIME_SECS, BLAST_RELEASE_SECS, BOSS_HEIGHT};
 use shared::{PlayerId, PlayerPose, ZombieAnim};
@@ -41,7 +42,7 @@ use crate::dogs::{DogAssets, DogSettings};
 use crate::net::{GameClient, RemoteAvatar};
 use crate::util::rand01;
 use crate::vfx::{smoke_billboard_rotation, ExplosionAssets};
-use crate::{menu, AppState, GameSounds, SoundVolumes, WorldModelCamera};
+use crate::{AppState, GameSounds, SoundVolumes, WorldModelCamera};
 
 pub(crate) const BOSS_MODEL: &str = "models/characters/boss.glb";
 /// `boss.glb` as made: how tall it stands (model units), and how fast (per
@@ -56,7 +57,7 @@ const MAX_PARTICLES: usize = 500;
 /// gone — or flying this long past its lifetime — is cleared.
 const ORB_GRACE_SECS: f32 = 1.5;
 
-/// Panel-tunable bosses ("Boss (Zombies)" debug window).
+/// Panel-tunable bosses ("Boss (Zombies)" debug section).
 #[derive(Resource, Clone)]
 pub(crate) struct BossSettings {
     pub(crate) scale: f32,
@@ -203,7 +204,7 @@ impl std::fmt::Debug for DebugSettings<'_> {
     }
 }
 
-/// The debug window's preview buttons, consumed by [`run_previews`].
+/// The debug section's preview buttons, consumed by [`run_previews`].
 #[derive(Resource, Default)]
 struct BossPreview {
     lightning: bool,
@@ -351,10 +352,6 @@ impl Plugin for BossPlugin {
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
-            )
-            .add_systems(
-                bevy_egui::EguiPrimaryContextPass,
-                boss_debug_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
             );
     }
 }
@@ -1187,7 +1184,7 @@ fn fade_boss_sounds(
     }
 }
 
-/// The debug window's previews: the orange lightning 10 m ahead, or a ball
+/// The debug section's previews: the orange lightning 10 m ahead, or a ball
 /// thrown from in front of us, straight ahead.
 #[allow(clippy::too_many_arguments)]
 fn run_previews(
@@ -1250,101 +1247,104 @@ fn run_previews(
     }
 }
 
-/// The "Boss (Zombies)" debug window: strike a boss in, preview its
+/// The "Boss (Zombies)" debug section: strike a boss in, preview its
 /// lightning and its blast, and tune its look and sounds.
-fn boss_debug_ui(
-    mut contexts: EguiContexts,
-    mut settings: ResMut<BossSettings>,
-    mut preview: ResMut<BossPreview>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&shared::Lobby>,
-    mut spawn: Query<&mut TriggerSender<shared::SpawnBoss>, With<GameClient>>,
-) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    let in_zombies = crate::zombies_hud::zombies_game(&local, &lobbies).is_some();
-    egui::Window::new("Boss (Zombies)")
-        .default_open(false)
-        .default_pos([20.0, 500.0])
-        .show(ctx, |ui| {
-            ui.label(format!(
-                "Comes every {}th round (not dog rounds). Smash within {} m, blasts {}–{} m.",
-                shared::boss::BOSS_ROUND_EVERY,
-                shared::boss::MELEE_RANGE,
-                shared::boss::BLAST_MIN_RANGE,
-                shared::boss::BLAST_MAX_RANGE
-            ));
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(in_zombies, egui::Button::new("Spawn a boss ahead (leader)"))
-                    .clicked()
-                {
-                    if let Ok(mut s) = spawn.single_mut() {
-                        s.trigger::<shared::LobbyChannel>(shared::SpawnBoss);
-                    }
+#[derive(SystemParam)]
+pub(crate) struct BossDebug<'w, 's> {
+    settings: ResMut<'w, BossSettings>,
+    preview: ResMut<'w, BossPreview>,
+    local: Query<'w, 's, &'static LocalId, With<GameClient>>,
+    lobbies: Query<'w, 's, &'static shared::Lobby>,
+    spawn: Query<'w, 's, &'static mut TriggerSender<shared::SpawnBoss>, With<GameClient>>,
+}
+
+impl BossDebug<'_, '_> {
+    /// Its section in the main debug panel (`debug_ui`).
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+        let settings = &mut *self.settings;
+        let preview = &mut *self.preview;
+        let local = &self.local;
+        let lobbies = &self.lobbies;
+        let spawn = &mut self.spawn;
+        let in_zombies = crate::zombies_hud::zombies_game(local, lobbies).is_some();
+        ui.label(format!(
+            "Comes every {}th round (not dog rounds). Smash within {} m, blasts {}–{} m.",
+            shared::boss::BOSS_ROUND_EVERY,
+            shared::boss::MELEE_RANGE,
+            shared::boss::BLAST_MIN_RANGE,
+            shared::boss::BLAST_MAX_RANGE
+        ));
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(in_zombies, egui::Button::new("Spawn a boss ahead (leader)"))
+                .clicked()
+            {
+                if let Ok(mut s) = spawn.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SpawnBoss);
                 }
-                if ui.button("Preview lightning").clicked() {
-                    preview.lightning = true;
-                }
-                if ui.button("Preview blast").clicked() {
-                    preview.orb = true;
-                }
-            });
-            let s = &mut *settings;
-            ui.collapsing("Model + walk", |ui| {
-                ui.add(egui::Slider::new(&mut s.scale, 0.1f32..=2.0).text("scale"));
-                ui.add(egui::Slider::new(&mut s.yaw_offset_deg, -180.0f32..=180.0).text("turn (°)"));
-                ui.add(egui::Slider::new(&mut s.walk_per_mps, 0.0f32..=3.0).text("walk speed per m/s"));
-                ui.add(egui::Slider::new(&mut s.min_move_speed, 0.0f32..=2.0).text("stands below (m/s)"));
-                ui.add(egui::Slider::new(&mut s.blend_secs, 0.0f32..=1.0).text("clip blend (s)"));
-                ui.add(egui::Slider::new(&mut s.flash_size, 0.1f32..=5.0).text("spawn flash size (×)"));
-            });
-            ui.collapsing("Energy ball", |ui| {
-                ui.add(egui::Slider::new(&mut s.charge_fade_secs, 0.01f32..=1.0).text("swells in over (s)"));
-                ui.add(egui::Slider::new(&mut s.core_size, 0.02f32..=2.0).text("core size (m)"));
-                ui.add(egui::Slider::new(&mut s.glow_size, 0.1f32..=5.0).text("glow size (m)"));
-                ui.add(egui::Slider::new(&mut s.halo_size, 0.1f32..=8.0).text("halo size (m)"));
-                ui.horizontal(|ui| {
-                    ui.label("core / fire colour");
-                    ui.color_edit_button_rgb(&mut s.core_color);
-                    ui.color_edit_button_rgb(&mut s.fire_color);
-                });
-                ui.add(egui::Slider::new(&mut s.brightness, 0.0f32..=60.0).text("brightness"));
-                ui.add(egui::Slider::new(&mut s.flames, 0u32..=24).text("flames (new balls)"));
-                ui.add(egui::Slider::new(&mut s.flame_size, 0.05f32..=3.0).text("flame size (m)"));
-                ui.add(egui::Slider::new(&mut s.flame_spin, 0.0f32..=10.0).text("flame spin"));
-                ui.add(egui::Slider::new(&mut s.wisps, 0u32..=32).text("wisps (new balls)"));
-                ui.add(egui::Slider::new(&mut s.wisp_orbit, 0.0f32..=3.0).text("wisp orbit (m)"));
-                ui.add(egui::Slider::new(&mut s.wisp_speed, 0.0f32..=5.0).text("wisp speed (rev/s)"));
-                ui.add(egui::Slider::new(&mut s.arcs, 0u32..=12).text("arcs (new balls)"));
-                ui.add(egui::Slider::new(&mut s.arc_length, 0.0f32..=3.0).text("arc length (m)"));
-                ui.add(egui::Slider::new(&mut s.arc_hz, 1.0f32..=60.0).text("arc re-forks / s"));
-                ui.add(
-                    egui::Slider::new(&mut s.light, 0.0f32..=20_000_000.0)
-                        .logarithmic(true)
-                        .text("light (lm)"),
-                );
-                ui.add(egui::Slider::new(&mut s.light_range, 1.0f32..=60.0).text("light range (m)"));
-                ui.add(egui::Slider::new(&mut s.charge_sparks, 0.0f32..=200.0).text("sparks drawn in / s"));
-                ui.add(egui::Slider::new(&mut s.trail_rate, 0.0f32..=400.0).text("embers / s"));
-                ui.add(egui::Slider::new(&mut s.trail_life, 0.05f32..=3.0).text("ember life (s)"));
-                ui.add(egui::Slider::new(&mut s.trail_size, 0.02f32..=2.0).text("ember size (m)"));
-                ui.add(egui::Slider::new(&mut s.trail_spread, 0.0f32..=5.0).text("ember scatter (m/s)"));
-                ui.add(egui::Slider::new(&mut s.smoke_rate, 0.0f32..=100.0).text("smoke puffs / s"));
-            });
-            ui.collapsing("Sounds", |ui| {
-                ui.add(egui::Slider::new(&mut s.growl_every.0, 1.0f32..=60.0).text("growls every, min (s)"));
-                ui.add(egui::Slider::new(&mut s.growl_every.1, 1.0f32..=60.0).text("growls every, max (s)"));
-                ui.add(egui::Slider::new(&mut s.sound_max_distance, 5.0f32..=200.0).text("heard within (m)"));
-                ui.label("Volumes: Sound volumes. Explosion size: Bomb Shot → boss blast's size.");
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Print boss settings to console").clicked() {
-                    info!("boss settings:\n{}", s.to_rust());
-                }
-                if ui.button("Reset").clicked() {
-                    *s = BossSettings::default();
-                }
-            });
+            }
+            if ui.button("Preview lightning").clicked() {
+                preview.lightning = true;
+            }
+            if ui.button("Preview blast").clicked() {
+                preview.orb = true;
+            }
         });
-    Ok(())
+        let s = &mut *settings;
+        ui.collapsing("Model + walk", |ui| {
+            ui.add(egui::Slider::new(&mut s.scale, 0.1f32..=2.0).text("scale"));
+            ui.add(egui::Slider::new(&mut s.yaw_offset_deg, -180.0f32..=180.0).text("turn (°)"));
+            ui.add(egui::Slider::new(&mut s.walk_per_mps, 0.0f32..=3.0).text("walk speed per m/s"));
+            ui.add(egui::Slider::new(&mut s.min_move_speed, 0.0f32..=2.0).text("stands below (m/s)"));
+            ui.add(egui::Slider::new(&mut s.blend_secs, 0.0f32..=1.0).text("clip blend (s)"));
+            ui.add(egui::Slider::new(&mut s.flash_size, 0.1f32..=5.0).text("spawn flash size (×)"));
+        });
+        ui.collapsing("Energy ball", |ui| {
+            ui.add(egui::Slider::new(&mut s.charge_fade_secs, 0.01f32..=1.0).text("swells in over (s)"));
+            ui.add(egui::Slider::new(&mut s.core_size, 0.02f32..=2.0).text("core size (m)"));
+            ui.add(egui::Slider::new(&mut s.glow_size, 0.1f32..=5.0).text("glow size (m)"));
+            ui.add(egui::Slider::new(&mut s.halo_size, 0.1f32..=8.0).text("halo size (m)"));
+            ui.horizontal(|ui| {
+                ui.label("core / fire colour");
+                ui.color_edit_button_rgb(&mut s.core_color);
+                ui.color_edit_button_rgb(&mut s.fire_color);
+            });
+            ui.add(egui::Slider::new(&mut s.brightness, 0.0f32..=60.0).text("brightness"));
+            ui.add(egui::Slider::new(&mut s.flames, 0u32..=24).text("flames (new balls)"));
+            ui.add(egui::Slider::new(&mut s.flame_size, 0.05f32..=3.0).text("flame size (m)"));
+            ui.add(egui::Slider::new(&mut s.flame_spin, 0.0f32..=10.0).text("flame spin"));
+            ui.add(egui::Slider::new(&mut s.wisps, 0u32..=32).text("wisps (new balls)"));
+            ui.add(egui::Slider::new(&mut s.wisp_orbit, 0.0f32..=3.0).text("wisp orbit (m)"));
+            ui.add(egui::Slider::new(&mut s.wisp_speed, 0.0f32..=5.0).text("wisp speed (rev/s)"));
+            ui.add(egui::Slider::new(&mut s.arcs, 0u32..=12).text("arcs (new balls)"));
+            ui.add(egui::Slider::new(&mut s.arc_length, 0.0f32..=3.0).text("arc length (m)"));
+            ui.add(egui::Slider::new(&mut s.arc_hz, 1.0f32..=60.0).text("arc re-forks / s"));
+            ui.add(
+                egui::Slider::new(&mut s.light, 0.0f32..=20_000_000.0)
+                    .logarithmic(true)
+                    .text("light (lm)"),
+            );
+            ui.add(egui::Slider::new(&mut s.light_range, 1.0f32..=60.0).text("light range (m)"));
+            ui.add(egui::Slider::new(&mut s.charge_sparks, 0.0f32..=200.0).text("sparks drawn in / s"));
+            ui.add(egui::Slider::new(&mut s.trail_rate, 0.0f32..=400.0).text("embers / s"));
+            ui.add(egui::Slider::new(&mut s.trail_life, 0.05f32..=3.0).text("ember life (s)"));
+            ui.add(egui::Slider::new(&mut s.trail_size, 0.02f32..=2.0).text("ember size (m)"));
+            ui.add(egui::Slider::new(&mut s.trail_spread, 0.0f32..=5.0).text("ember scatter (m/s)"));
+            ui.add(egui::Slider::new(&mut s.smoke_rate, 0.0f32..=100.0).text("smoke puffs / s"));
+        });
+        ui.collapsing("Sounds", |ui| {
+            ui.add(egui::Slider::new(&mut s.growl_every.0, 1.0f32..=60.0).text("growls every, min (s)"));
+            ui.add(egui::Slider::new(&mut s.growl_every.1, 1.0f32..=60.0).text("growls every, max (s)"));
+            ui.add(egui::Slider::new(&mut s.sound_max_distance, 5.0f32..=200.0).text("heard within (m)"));
+            ui.label("Volumes: Sound volumes. Explosion size: Bomb Shot → boss blast's size.");
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Print boss settings to console").clicked() {
+                info!("boss settings:\n{}", s.to_rust());
+            }
+            if ui.button("Reset").clicked() {
+                *s = BossSettings::default();
+            }
+        });
+    }
 }

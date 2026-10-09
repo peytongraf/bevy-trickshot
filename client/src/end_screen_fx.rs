@@ -6,14 +6,15 @@
 //! licks up along the bottom of the screen (`shaders/end_screen_fire.wgsl`),
 //! all fading in together over [`EndScreenFxSettings::fade_secs`].
 //!
-//! Tuned in the debug panel's "End screen" window ([`end_screen_debug_ui`]),
+//! Tuned in the debug panel's "End screen" section ([`EndScreenDebug`]),
 //! which can also preview it over the game. Its layer is
 //! `StateScoped(InGame)` and taken down as soon as the results are, and the
 //! fade starts over every time — nothing carries between games.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 
 use crate::menu::{self, Screen};
 use crate::menu_backdrop::{results_backdrop, ResultsGlow};
@@ -34,15 +35,11 @@ impl Plugin for EndScreenFxPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
-            .add_systems(OnExit(AppState::InGame), reset)
-            .add_systems(
-                bevy_egui::EguiPrimaryContextPass,
-                end_screen_debug_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
-            );
+            .add_systems(OnExit(AppState::InGame), reset);
     }
 }
 
-/// How the end screen's atmosphere looks — the "End screen" debug window.
+/// How the end screen's atmosphere looks — the "End screen" debug section.
 #[derive(Resource, Clone)]
 pub(crate) struct EndScreenFxSettings {
     /// How long (s) everything takes to fade in.
@@ -225,53 +222,55 @@ fn animate_layer(
     }
 }
 
-/// The "End screen" debug window.
-fn end_screen_debug_ui(mut contexts: EguiContexts, mut settings: ResMut<EndScreenFxSettings>) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    egui::Window::new("End screen")
-        .default_open(false)
-        .default_pos([20.0, 580.0])
-        .show(ctx, |ui| {
-            let s = &mut *settings;
-            ui.checkbox(&mut s.preview, "Preview over the game");
-            ui.add(egui::Slider::new(&mut s.fade_secs, 0.0f32..=5.0).text("fades in over (s)"));
-            ui.collapsing("World", |ui| {
-                ui.add(egui::Slider::new(&mut s.saturation, 0.0f32..=1.0).text("colour (0 = black & white)"));
-            });
-            ui.collapsing("Amber glow & embers", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("glow colour");
-                    ui.color_edit_button_rgb(&mut s.glow_color);
-                });
-                ui.add(egui::Slider::new(&mut s.glow, 0.0f32..=1.0).text("glow opacity"));
-                ui.add(egui::Slider::new(&mut s.embers, 0.0f32..=2.0).text("embers opacity"));
-            });
-            ui.collapsing("Fire", |ui| {
-                ui.add(egui::Slider::new(&mut s.fire_height, 0.0f32..=1.0).text("reaches up (× screen)"));
-                ui.add(egui::Slider::new(&mut s.fire_opacity, 0.0f32..=1.0).text("opacity"));
-                ui.add(egui::Slider::new(&mut s.fire_brightness, 0.0f32..=3.0).text("brightness"));
-                ui.add(egui::Slider::new(&mut s.fire_speed, 0.0f32..=3.0).text("speed"));
-                ui.add(egui::Slider::new(&mut s.fire_detail, 0.5f32..=10.0).text("detail (smaller tongues)"));
-                ui.add(egui::Slider::new(&mut s.fire_turbulence, 0.0f32..=2.0).text("turbulence"));
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Copy to console").clicked() {
-                    info!(
-                        "end screen: fade_secs: {:.2}, saturation: {:.2}, embers: {:.2}, glow: {:.2}, \
-                         glow_color: [{:.3}, {:.3}, {:.3}], fire_height: {:.2}, fire_opacity: {:.2}, \
-                         fire_brightness: {:.2}, fire_speed: {:.2}, fire_detail: {:.2}, fire_turbulence: {:.2}",
-                        s.fade_secs, s.saturation, s.embers, s.glow, s.glow_color[0], s.glow_color[1],
-                        s.glow_color[2], s.fire_height, s.fire_opacity, s.fire_brightness, s.fire_speed,
-                        s.fire_detail, s.fire_turbulence,
-                    );
-                }
-                if ui.button("Reset").clicked() {
-                    *s = EndScreenFxSettings {
-                        preview: s.preview,
-                        ..default()
-                    };
-                }
-            });
+/// The "End screen" debug section.
+#[derive(SystemParam)]
+pub(crate) struct EndScreenDebug<'w> {
+    settings: ResMut<'w, EndScreenFxSettings>,
+}
+
+impl EndScreenDebug<'_> {
+    /// Its section in the main debug panel (`debug_ui`).
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+        let settings = &mut *self.settings;
+        let s = &mut *settings;
+        ui.checkbox(&mut s.preview, "Preview over the game");
+        ui.add(egui::Slider::new(&mut s.fade_secs, 0.0f32..=5.0).text("fades in over (s)"));
+        ui.collapsing("World", |ui| {
+            ui.add(egui::Slider::new(&mut s.saturation, 0.0f32..=1.0).text("colour (0 = black & white)"));
         });
-    Ok(())
+        ui.collapsing("Amber glow & embers", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("glow colour");
+                ui.color_edit_button_rgb(&mut s.glow_color);
+            });
+            ui.add(egui::Slider::new(&mut s.glow, 0.0f32..=1.0).text("glow opacity"));
+            ui.add(egui::Slider::new(&mut s.embers, 0.0f32..=2.0).text("embers opacity"));
+        });
+        ui.collapsing("Fire", |ui| {
+            ui.add(egui::Slider::new(&mut s.fire_height, 0.0f32..=1.0).text("reaches up (× screen)"));
+            ui.add(egui::Slider::new(&mut s.fire_opacity, 0.0f32..=1.0).text("opacity"));
+            ui.add(egui::Slider::new(&mut s.fire_brightness, 0.0f32..=3.0).text("brightness"));
+            ui.add(egui::Slider::new(&mut s.fire_speed, 0.0f32..=3.0).text("speed"));
+            ui.add(egui::Slider::new(&mut s.fire_detail, 0.5f32..=10.0).text("detail (smaller tongues)"));
+            ui.add(egui::Slider::new(&mut s.fire_turbulence, 0.0f32..=2.0).text("turbulence"));
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Copy to console").clicked() {
+                info!(
+                    "end screen: fade_secs: {:.2}, saturation: {:.2}, embers: {:.2}, glow: {:.2}, \
+                     glow_color: [{:.3}, {:.3}, {:.3}], fire_height: {:.2}, fire_opacity: {:.2}, \
+                     fire_brightness: {:.2}, fire_speed: {:.2}, fire_detail: {:.2}, fire_turbulence: {:.2}",
+                    s.fade_secs, s.saturation, s.embers, s.glow, s.glow_color[0], s.glow_color[1],
+                    s.glow_color[2], s.fire_height, s.fire_opacity, s.fire_brightness, s.fire_speed,
+                    s.fire_detail, s.fire_turbulence,
+                );
+            }
+            if ui.button("Reset").clicked() {
+                *s = EndScreenFxSettings {
+                    preview: s.preview,
+                    ..default()
+                };
+            }
+        });
+    }
 }

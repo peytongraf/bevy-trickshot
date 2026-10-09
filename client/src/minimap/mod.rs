@@ -10,6 +10,10 @@
 //! by each shot, so a sprayed AK is still one dot (Call of Duty's). In
 //! `Freestyle` every standing target bot is a red dot, always.
 //!
+//! Holding the full map key (M by default) shows the whole map in the middle
+//! of the screen instead — north up, not turning, with us and the party as
+//! arrows and every `Zombies` icon, but no enemies' dots.
+//!
 //! The picture isn't made by hand: it's drawn from the map's own collision
 //! model the moment it loads ([`bake`]), so every map has one, and moving
 //! something in the model moves it here. It's shaded against the height
@@ -31,9 +35,12 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy::render::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat};
+use bevy::window::PrimaryWindow;
 use lightyear::prelude::{Interpolated, LocalId, PeerId};
 use shared::{Bot, GameMode, Lobby, PlayerId, PlayerPose, ZombieAnim};
 
+use crate::keybinds::KeyBindings;
+use crate::killcam::ActiveKillCam;
 use crate::net::{BotPose, GameClient, RemoteAvatar};
 use crate::zombies_hud::{my_lobby, zombies_game};
 use crate::{menu, AppState, CurrentMap, MapLoadState, MapModel, Player, WorldModelCamera, EYE_HEIGHT, HUD_FONT};
@@ -75,7 +82,7 @@ impl Plugin for MinimapPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_minimap)
             .add_systems(
                 Update,
-                (sync_icons, sync_teammates, sync_enemy_dots, update_minimap)
+                (toggle_full_map, sync_icons, sync_teammates, sync_enemy_dots, update_minimap)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -132,6 +139,10 @@ struct MinimapMaterial {
     /// the picture's shaded against.
     #[uniform(4)]
     heights: Vec4,
+    /// x: 1 to draw our arrow and view cone in the middle (the minimap; the
+    /// full map has its own arrow, wherever we are).
+    #[uniform(5)]
+    mode: Vec4,
 }
 
 impl UiMaterial for MinimapMaterial {
@@ -140,16 +151,21 @@ impl UiMaterial for MinimapMaterial {
     }
 }
 
-/// The minimap itself, its icons and arrows inside it — and the icons it
-/// has up now (rebuilt whenever the wanted set changes).
+/// A map view — the minimap, or the full map (`full`) — its icons and
+/// arrows inside it; and the icons it has up now (rebuilt whenever the
+/// wanted set changes).
 #[derive(Component, Default)]
 struct MinimapFrame {
+    full: bool,
     icons: Vec<IconSpec>,
 }
 
-/// One of the `Zombies` icons, standing at world `(x, z)`.
+/// One of the `Zombies` icons, standing at world `(x, z)`, `size` px across.
 #[derive(Component)]
-struct MinimapIcon(Vec2);
+struct MinimapIcon {
+    at: Vec2,
+    size: f32,
+}
 
 /// A teammate's arrow: the entity whose `PlayerPose` it follows.
 #[derive(Component)]
@@ -293,7 +309,35 @@ fn sd_triangle(p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> f32 {
 
 // --- the UI -------------------------------------------------------------------
 
-fn spawn_minimap(mut commands: Commands, mut materials: ResMut<Assets<MinimapMaterial>>) {
+/// The full map's frame: as big as fits in this share of the screen.
+const FULL_MAP_SCREEN_SHARE: f32 = 0.8;
+/// On the full map, icons and arrows are a little bigger.
+const FULL_ICON_SIZE: f32 = 26.0;
+const FULL_ARROW_SIZE: f32 = 22.0;
+/// Our own arrow on the full map (the minimap draws it in its shader).
+const OUR_YELLOW: Color = Color::srgb(1.0, 0.86, 0.25);
+
+/// The full map's dimmed backdrop, shown while its key's held.
+#[derive(Component)]
+struct FullMapPanel;
+
+/// Our own arrow on the full map.
+#[derive(Component)]
+struct FullMapPlayer;
+
+fn minimap_material(materials: &mut Assets<MinimapMaterial>, full: bool) -> MaterialNode<MinimapMaterial> {
+    MaterialNode(materials.add(MinimapMaterial {
+        view: Vec4::new(0.0, 0.0, 0.0, VIEW_RADIUS_M),
+        rect: Vec4::new(0.0, 0.0, 1.0, 1.0),
+        map: Handle::default(),
+        heights: Vec4::ZERO,
+        mode: Vec4::new(if full { 0.0 } else { 1.0 }, 0.0, 0.0, 0.0),
+    }))
+}
+
+/// The minimap (top left), and the full map (centre screen, while its key's
+/// held) — both hidden until the map's picture is drawn.
+fn spawn_minimap(mut commands: Commands, mut materials: ResMut<Assets<MinimapMaterial>>, arrow: Res<TeammateArrow>) {
     commands
         .spawn((
             StateScoped(AppState::InGame),
@@ -311,22 +355,92 @@ fn spawn_minimap(mut commands: Commands, mut materials: ResMut<Assets<MinimapMat
         ))
         .with_child((
             MinimapFrame::default(),
-            MaterialNode(materials.add(MinimapMaterial {
-                view: Vec4::new(0.0, 0.0, 0.0, VIEW_RADIUS_M),
-                rect: Vec4::new(0.0, 0.0, 1.0, 1.0),
-                map: Handle::default(),
-                heights: Vec4::ZERO,
-            })),
+            minimap_material(&mut materials, false),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
                 overflow: Overflow::clip(),
                 ..default()
             },
-            // (Until the map's picture is drawn.)
             Visibility::Hidden,
             Pickable::IGNORE,
         ));
+
+    // (Over the rest of the HUD, but under the menus.)
+    commands
+        .spawn((
+            StateScoped(AppState::InGame),
+            menu::HudElement,
+            GlobalZIndex(7),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .with_children(|root| {
+            root.spawn((
+                FullMapPanel,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+                Visibility::Hidden,
+                Pickable::IGNORE,
+            ))
+            .with_children(|panel| {
+                panel
+                    .spawn((
+                        MinimapFrame {
+                            full: true,
+                            ..default()
+                        },
+                        minimap_material(&mut materials, true),
+                        Node {
+                            overflow: Overflow::clip(),
+                            ..default()
+                        },
+                        Visibility::Hidden,
+                        Pickable::IGNORE,
+                    ))
+                    .with_child((
+                        FullMapPlayer,
+                        ImageNode::new(arrow.0.clone()).with_color(OUR_YELLOW),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            width: Val::Px(FULL_ARROW_SIZE),
+                            height: Val::Px(FULL_ARROW_SIZE),
+                            ..default()
+                        },
+                        // (Over the icons.)
+                        ZIndex(1),
+                        Visibility::Hidden,
+                        Pickable::IGNORE,
+                    ));
+            });
+        });
+}
+
+/// Show the full map while its key's held (not behind a menu or during a
+/// kill cam — the HUD's hidden then anyway).
+fn toggle_full_map(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    binds: Res<KeyBindings>,
+    menu: Res<menu::Menu>,
+    killcam: Res<ActiveKillCam>,
+    mut panel: Query<&mut Visibility, With<FullMapPanel>>,
+) {
+    let held = binds.full_map.pressed(&keys, &mouse) && !menu.is_open() && killcam.0.is_none();
+    for mut vis in &mut panel {
+        vis.set_if_neq(if held { Visibility::Inherited } else { Visibility::Hidden });
+    }
 }
 
 /// What an icon looks like.
@@ -385,121 +499,130 @@ fn wanted_icons(lobby: &Lobby) -> Vec<IconSpec> {
     icons
 }
 
-/// Keep the icons matching what our game should show.
+/// Keep each map view's icons matching what our game should show.
 fn sync_icons(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     asset_server: Res<AssetServer>,
     mut frames: Query<(Entity, &mut MinimapFrame)>,
-    icons: Query<Entity, With<MinimapIcon>>,
+    icons: Query<(Entity, &ChildOf), With<MinimapIcon>>,
     mut commands: Commands,
 ) {
-    let Ok((frame, mut shown)) = frames.single_mut() else { return };
     let wanted = zombies_game(&local, &lobbies).map(wanted_icons).unwrap_or_default();
-    if shown.icons == wanted {
-        return;
-    }
-    for e in &icons {
-        commands.entity(e).despawn();
-    }
     let font = asset_server.load(HUD_FONT);
-    for spec in &wanted {
-        let node = Node {
-            position_type: PositionType::Absolute,
-            width: Val::Px(ICON_SIZE),
-            height: Val::Px(ICON_SIZE),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        };
-        let mut icon = commands.spawn((MinimapIcon(spec.at), Visibility::Hidden, Pickable::IGNORE));
-        icon.insert(ChildOf(frame));
-        match spec.art {
-            IconArt::Image(path) => {
-                icon.insert((node, ImageNode::new(asset_server.load(path))));
+    for (frame, mut shown) in &mut frames {
+        if shown.icons == wanted {
+            continue;
+        }
+        for (e, parent) in &icons {
+            if parent.parent() == frame {
+                commands.entity(e).despawn();
             }
-            IconArt::BadgeImage(path, color) | IconArt::BadgeText(path, color) => {
-                icon.insert((
-                    Node {
-                        border: UiRect::all(Val::Px(1.5)),
-                        ..node
-                    },
-                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
-                    BorderColor(color),
-                    BorderRadius::MAX,
-                ));
-                if matches!(spec.art, IconArt::BadgeImage(..)) {
-                    icon.with_child((
-                        ImageNode::new(asset_server.load(path)).with_color(color),
+        }
+        let size = if shown.full { FULL_ICON_SIZE } else { ICON_SIZE };
+        for spec in &wanted {
+            let node = Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(size),
+                height: Val::Px(size),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            };
+            let mut icon = commands.spawn((MinimapIcon { at: spec.at, size }, Visibility::Hidden, Pickable::IGNORE));
+            icon.insert(ChildOf(frame));
+            match spec.art {
+                IconArt::Image(path) => {
+                    icon.insert((node, ImageNode::new(asset_server.load(path))));
+                }
+                IconArt::BadgeImage(path, color) | IconArt::BadgeText(path, color) => {
+                    icon.insert((
                         Node {
-                            width: Val::Px(ICON_SIZE * 0.62),
-                            height: Val::Px(ICON_SIZE * 0.62),
-                            ..default()
+                            border: UiRect::all(Val::Px(1.5)),
+                            ..node
                         },
+                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
+                        BorderColor(color),
+                        BorderRadius::MAX,
                     ));
-                } else {
-                    icon.with_child((
-                        Text::new(path),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: if path.len() > 1 { 10.0 } else { 14.0 },
-                            ..default()
-                        },
-                        TextColor(color),
-                    ));
+                    if matches!(spec.art, IconArt::BadgeImage(..)) {
+                        icon.with_child((
+                            ImageNode::new(asset_server.load(path)).with_color(color),
+                            Node {
+                                width: Val::Px(size * 0.62),
+                                height: Val::Px(size * 0.62),
+                                ..default()
+                            },
+                        ));
+                    } else {
+                        let text = if path.len() > 1 { 0.5 } else { 0.7 };
+                        icon.with_child((
+                            Text::new(path),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: size * text,
+                                ..default()
+                            },
+                            TextColor(color),
+                        ));
+                    }
                 }
             }
         }
+        shown.icons = wanted.clone();
     }
-    shown.icons = wanted;
 }
 
-/// Keep an arrow for each other member of our `Zombies` party.
+/// Keep an arrow on each map view for each other member of our `Zombies`
+/// party.
 #[allow(clippy::type_complexity)]
 fn sync_teammates(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     arrow: Res<TeammateArrow>,
-    frames: Query<Entity, With<MinimapFrame>>,
+    frames: Query<(Entity, &MinimapFrame)>,
     avatars: Query<&RemoteAvatar>,
     poses: Query<&PlayerPose, (With<PlayerId>, Without<BotPose>)>,
-    arrows: Query<(Entity, &MinimapTeammate)>,
+    arrows: Query<(Entity, &MinimapTeammate, &ChildOf)>,
     mut commands: Commands,
 ) {
-    let Ok(frame) = frames.single() else { return };
     let zombies = zombies_game(&local, &lobbies).is_some();
     let is_teammate = |src: Entity| zombies && poses.get(src).is_ok_and(|p| p.zombie == ZombieAnim::None);
     let mut have = Vec::new();
-    for (e, mate) in &arrows {
+    for (e, mate, parent) in &arrows {
         if is_teammate(mate.0) {
-            have.push(mate.0);
+            have.push((parent.parent(), mate.0));
         } else {
             commands.entity(e).despawn();
         }
     }
-    for avatar in &avatars {
-        if have.contains(&avatar.src) || !is_teammate(avatar.src) {
-            continue;
+    for (frame, view) in &frames {
+        let size = if view.full { FULL_ARROW_SIZE } else { TEAMMATE_SIZE };
+        for avatar in &avatars {
+            if have.contains(&(frame, avatar.src)) || !is_teammate(avatar.src) {
+                continue;
+            }
+            have.push((frame, avatar.src));
+            commands.spawn((
+                MinimapTeammate(avatar.src),
+                ChildOf(frame),
+                ImageNode::new(arrow.0.clone()).with_color(TEAMMATE_BLUE),
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Px(size),
+                    height: Val::Px(size),
+                    ..default()
+                },
+                Visibility::Hidden,
+                Pickable::IGNORE,
+            ));
         }
-        have.push(avatar.src);
-        commands.spawn((
-            MinimapTeammate(avatar.src),
-            ChildOf(frame),
-            ImageNode::new(arrow.0.clone()).with_color(TEAMMATE_BLUE),
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(TEAMMATE_SIZE),
-                height: Val::Px(TEAMMATE_SIZE),
-                ..default()
-            },
-            Visibility::Hidden,
-            Pickable::IGNORE,
-        ));
     }
 }
 
-/// Keep a red dot for each enemy that should show: `FreeForAll` enemies
-/// who've just fired (from `SomeoneFired`), `Freestyle`'s standing bots.
+/// Keep a red dot on the minimap (not the full map) for each enemy that
+/// should show: `FreeForAll` enemies who've just fired (from
+/// `SomeoneFired`), `Freestyle`'s standing bots.
 #[allow(clippy::too_many_arguments)]
 fn sync_enemy_dots(
     time: Res<Time>,
@@ -508,7 +631,7 @@ fn sync_enemy_dots(
     mut fired: EventReader<SomeoneFired>,
     mut shots: ResMut<ShotDots>,
     bots: Query<(Entity, &Bot), With<Interpolated>>,
-    frames: Query<Entity, With<MinimapFrame>>,
+    frames: Query<(Entity, &MinimapFrame)>,
     mut dots: Query<(Entity, &mut MinimapEnemy)>,
     mut commands: Commands,
 ) {
@@ -540,7 +663,7 @@ fn sync_enemy_dots(
         wanted.extend(bots.iter().filter(|(_, b)| b.alive).map(|(e, b)| (EnemyKey::Bot(e), b.pos.xz(), 1.0)));
     }
 
-    let Ok(frame) = frames.single() else { return };
+    let Some((frame, _)) = frames.iter().find(|(_, view)| !view.full) else { return };
     let mut have = Vec::new();
     for (e, mut dot) in &mut dots {
         match wanted.iter().find(|w| w.0 == dot.key) {
@@ -577,91 +700,179 @@ fn sync_enemy_dots(
     }
 }
 
-/// Follow the camera: centre and turn the picture, and put the icons,
-/// teammates and enemies' dots where they are on it.
-#[allow(clippy::type_complexity)]
+/// How one map view lays the world out: the minimap centred on us and
+/// turned with us, or the full map — the whole picture, north up.
+#[derive(Clone, Copy)]
+struct Projection {
+    full: bool,
+    /// The view's size (px).
+    size: Vec2,
+    /// Where we are, and our heading (radians, clockwise from north).
+    centre: Vec2,
+    heading: f32,
+    /// [`Picture::rect`].
+    rect: Vec4,
+}
+
+impl Projection {
+    /// Where world `(x, z)` is on the view (the top-left of an item `size`
+    /// px across), if it's far enough inside to show.
+    fn place(&self, at: Vec2, size: f32) -> Option<Vec2> {
+        if self.full {
+            let p = (at - self.rect.xy()) / self.rect.zw() * self.size;
+            let inside = p.cmpge(Vec2::ZERO).all() && p.cmple(self.size).all();
+            return inside.then_some(p - Vec2::splat(size * 0.5));
+        }
+        let half = self.size.x * 0.5;
+        let ahead = Vec2::new(self.heading.sin(), -self.heading.cos());
+        let right = Vec2::new(self.heading.cos(), self.heading.sin());
+        let d = (at - self.centre) / VIEW_RADIUS_M * half;
+        let p = Vec2::new(d.dot(right), -d.dot(ahead));
+        let limit = half - size * 0.4;
+        (p.x.abs() < limit && p.y.abs() < limit).then_some(p + Vec2::splat(half - size * 0.5))
+    }
+
+    /// How far (radians, clockwise — UI y is down) to turn an arrow facing
+    /// `heading` on this view.
+    fn turn(&self, heading: f32) -> Quat {
+        Quat::from_rotation_z(if self.full { heading } else { heading - self.heading })
+    }
+
+    /// The material's view: the minimap's centred on us and turned with us;
+    /// the full map's on the picture's middle, north up, reaching to its
+    /// nearer edges (its frame has the picture's shape, so it all fits).
+    fn view(&self) -> Vec4 {
+        if self.full {
+            let mid = self.rect.xy() + self.rect.zw() * 0.5;
+            Vec4::new(mid.x, mid.y, 0.0, self.rect.z.min(self.rect.w) * 0.5)
+        } else {
+            Vec4::new(self.centre.x, self.centre.y, self.heading, VIEW_RADIUS_M)
+        }
+    }
+}
+
+/// Put `node` at `spot` (hidden if it's off the view).
+fn set_spot(node: &mut Mut<Node>, vis: &mut Mut<Visibility>, spot: Option<Vec2>) {
+    let Some(spot) = spot else {
+        vis.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    vis.set_if_neq(Visibility::Inherited);
+    if node.left != Val::Px(spot.x) {
+        node.left = Val::Px(spot.x);
+    }
+    if node.top != Val::Px(spot.y) {
+        node.top = Val::Px(spot.y);
+    }
+}
+
+/// Follow the camera: lay out both map views — the minimap centred and
+/// turned, the full map sized to the screen — and put the icons, teammates,
+/// enemies' dots and (on the full map) us where they are on them.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn update_minimap(
     picture: Res<MinimapPicture>,
     current: Res<CurrentMap>,
+    window: Query<&Window, With<PrimaryWindow>>,
     camera: Query<&GlobalTransform, With<WorldModelCamera>>,
     // (Us, or — while spectating — moved to whoever we're watching.)
     player: Query<&Transform, With<Player>>,
-    mut frames: Query<(&MaterialNode<MinimapMaterial>, &mut Visibility), With<MinimapFrame>>,
+    mut frames: Query<(Entity, &MinimapFrame, &MaterialNode<MinimapMaterial>, &mut Node, &mut Visibility)>,
     mut materials: ResMut<Assets<MinimapMaterial>>,
-    mut icons: Query<(&MinimapIcon, &mut Node, &mut Visibility), Without<MinimapFrame>>,
+    mut icons: Query<(&MinimapIcon, &ChildOf, &mut Node, &mut Visibility), Without<MinimapFrame>>,
     mut mates: Query<
-        (&MinimapTeammate, &mut Node, &mut Transform, &mut Visibility),
+        (&MinimapTeammate, &ChildOf, &mut Node, &mut Transform, &mut Visibility),
         (Without<MinimapFrame>, Without<MinimapIcon>, Without<Player>),
     >,
     mut enemies: Query<
-        (&MinimapEnemy, &mut Node, &mut Visibility, &mut BackgroundColor, &mut BorderColor),
+        (&MinimapEnemy, &ChildOf, &mut Node, &mut Visibility, &mut BackgroundColor, &mut BorderColor),
         (Without<MinimapFrame>, Without<MinimapIcon>, Without<MinimapTeammate>),
+    >,
+    mut us: Query<
+        (&ChildOf, &mut Node, &mut Transform, &mut Visibility),
+        (
+            With<FullMapPlayer>,
+            Without<MinimapFrame>,
+            Without<MinimapIcon>,
+            Without<MinimapTeammate>,
+            Without<MinimapEnemy>,
+            Without<Player>,
+        ),
     >,
     poses: Query<&PlayerPose>,
 ) {
-    let Ok((material, mut frame_vis)) = frames.single_mut() else { return };
     let drawn = picture.picture.as_ref().filter(|_| picture.drawn_for == Some(current.0));
     let (Some(drawn), Ok(camera)) = (drawn, camera.single()) else {
-        frame_vis.set_if_neq(Visibility::Hidden);
+        for (.., mut vis) in &mut frames {
+            vis.set_if_neq(Visibility::Hidden);
+        }
         return;
     };
-    frame_vis.set_if_neq(Visibility::Inherited);
-
     let centre = camera.translation().xz();
     let (yaw, _, _) = camera.rotation().to_euler(EulerRot::YXZ);
     // (Clockwise from north: a yaw turns us anticlockwise from -Z.)
     let heading = -yaw;
-    if let Some(m) = materials.get_mut(&material.0) {
-        m.view = Vec4::new(centre.x, centre.y, heading, VIEW_RADIUS_M);
-        m.rect = drawn.rect;
-        // (Our feet, not the camera: crouching mustn't change what's floor.)
-        let eyes = player.single().map_or(camera.translation().y, |t| t.translation.y);
-        m.heights = drawn.heights.extend(eyes - EYE_HEIGHT).extend(0.0);
-        if m.map != drawn.image {
-            m.map = drawn.image.clone();
-        }
-    }
+    // (Our feet, not the camera: crouching mustn't change what's floor.)
+    let eyes = player.single().map_or(camera.translation().y, |t| t.translation.y);
+    // The full map: as big as fits, the picture's shape.
+    let screen = window.single().map_or(Vec2::new(1280.0, 720.0), |w| Vec2::new(w.width(), w.height()));
+    let room = screen * FULL_MAP_SCREEN_SHARE;
+    let fit = (room.x / drawn.rect.z).min(room.y / drawn.rect.w);
+    let full_size = (drawn.rect.zw() * fit).round();
 
-    let half = MINIMAP_SIZE * 0.5;
-    let ahead = Vec2::new(heading.sin(), -heading.cos());
-    let right = Vec2::new(heading.cos(), heading.sin());
-    // Where world `(x, z)` is on the minimap (px from its top-left), if it's
-    // far enough inside to show an item `size` px across.
-    let place = |at: Vec2, size: f32| {
-        let d = (at - centre) / VIEW_RADIUS_M * half;
-        let p = Vec2::new(d.dot(right), -d.dot(ahead));
-        let limit = half - size * 0.4;
-        (p.x.abs() < limit && p.y.abs() < limit).then_some(p + Vec2::splat(half - size * 0.5))
-    };
-    let set = |node: &mut Mut<Node>, vis: &mut Mut<Visibility>, spot: Option<Vec2>| {
-        let Some(spot) = spot else {
-            vis.set_if_neq(Visibility::Hidden);
-            return;
-        };
+    let mut views = Vec::new();
+    for (frame, view, material, mut node, mut vis) in &mut frames {
         vis.set_if_neq(Visibility::Inherited);
-        if node.left != Val::Px(spot.x) {
-            node.left = Val::Px(spot.x);
+        let size = if view.full { full_size } else { Vec2::splat(MINIMAP_SIZE) };
+        if view.full && (node.width != Val::Px(size.x) || node.height != Val::Px(size.y)) {
+            node.width = Val::Px(size.x);
+            node.height = Val::Px(size.y);
         }
-        if node.top != Val::Px(spot.y) {
-            node.top = Val::Px(spot.y);
+        let projection = Projection {
+            full: view.full,
+            size,
+            centre,
+            heading,
+            rect: drawn.rect,
+        };
+        if let Some(m) = materials.get_mut(&material.0) {
+            m.view = projection.view();
+            m.rect = drawn.rect;
+            m.heights = drawn.heights.extend(eyes - EYE_HEIGHT).extend(0.0);
+            if m.map != drawn.image {
+                m.map = drawn.image.clone();
+            }
         }
-    };
-    for (icon, mut node, mut vis) in &mut icons {
-        set(&mut node, &mut vis, place(icon.0, ICON_SIZE));
+        views.push((frame, projection));
     }
-    for (enemy, mut node, mut vis, mut fill, mut rim) in &mut enemies {
-        set(&mut node, &mut vis, place(enemy.at, ENEMY_DOT_SIZE));
+    let view_of = |parent: &ChildOf| views.iter().find(|(f, _)| *f == parent.parent()).map(|(_, v)| *v);
+
+    for (icon, parent, mut node, mut vis) in &mut icons {
+        let spot = view_of(parent).and_then(|v| v.place(icon.at, icon.size));
+        set_spot(&mut node, &mut vis, spot);
+    }
+    for (enemy, parent, mut node, mut vis, mut fill, mut rim) in &mut enemies {
+        let spot = view_of(parent).and_then(|v| v.place(enemy.at, ENEMY_DOT_SIZE));
+        set_spot(&mut node, &mut vis, spot);
         fill.set_if_neq(BackgroundColor(ENEMY_RED.with_alpha(enemy.alpha)));
         rim.set_if_neq(BorderColor(Color::BLACK.with_alpha(0.7 * enemy.alpha)));
     }
-    for (mate, mut node, mut transform, mut vis) in &mut mates {
-        let Ok(pose) = poses.get(mate.0) else { continue };
+    for (mate, parent, mut node, mut transform, mut vis) in &mut mates {
+        let (Ok(pose), Some(view)) = (poses.get(mate.0), view_of(parent)) else { continue };
         let at = pose.translation.xz();
+        let size = if view.full { FULL_ARROW_SIZE } else { TEAMMATE_SIZE };
         // (Not over our own arrow — e.g. the one we're spectating.)
-        let spot = place(at, TEAMMATE_SIZE).filter(|_| pose.alive && at.distance(centre) > 1.0);
-        set(&mut node, &mut vis, spot);
-        // Its heading, against ours (clockwise — UI y is down).
-        let turn = Quat::from_rotation_z(-pose.yaw - heading);
+        let spot = view.place(at, size).filter(|_| pose.alive && at.distance(centre) > 1.0);
+        set_spot(&mut node, &mut vis, spot);
+        let turn = view.turn(-pose.yaw);
+        if transform.rotation != turn {
+            transform.rotation = turn;
+        }
+    }
+    for (parent, mut node, mut transform, mut vis) in &mut us {
+        let Some(view) = view_of(parent) else { continue };
+        set_spot(&mut node, &mut vis, view.place(centre, FULL_ARROW_SIZE));
+        let turn = view.turn(heading);
         if transform.rotation != turn {
             transform.rotation = turn;
         }

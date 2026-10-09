@@ -1,6 +1,7 @@
 //! Top-centre debug readout: where the player is and which way they're facing.
 //! Only shown while Debug Mode is on (`Settings::debug_mode`, the same toggle
-//! as the egui tuning panels).
+//! as the egui tuning panels), and its own toggle beside it in the DEBUG tab
+//! is too (`Settings::debug_position`).
 
 use bevy::prelude::*;
 
@@ -70,7 +71,7 @@ pub(crate) fn update_debug_readout(
     mut text: Single<&mut Text, With<DebugReadoutText>>,
 ) {
     // A kill cam flies the rig along someone else's recorded path — not "you".
-    let show = settings.debug_mode && killcam.0.is_none();
+    let show = settings.debug_mode && settings.debug_position && killcam.0.is_none();
     root.set_if_neq(if show {
         Visibility::Inherited
     } else {

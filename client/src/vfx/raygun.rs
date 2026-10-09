@@ -27,8 +27,8 @@ const CONFIRM_WAIT_SECS: f32 = 0.5;
 /// The core sphere's radius (m) at `RayGunLook::bolt_size` 1 — its mesh's.
 const CORE_RADIUS: f32 = 0.055;
 
-/// How the Ray Gun's shot looks — the "Ray Gun" debug window's "Bolt",
-/// "Burst" and "Muzzle rings" sections (`weapons::raygun_debug_ui`). A
+/// How the Ray Gun's shot looks — the "Ray Gun" debug section's "Bolt",
+/// "Burst" and "Muzzle rings" sections (`weapons::RayGunDebug`). A
 /// bolt's own look is set as it's fired; the rest live.
 #[derive(Resource, Clone)]
 pub(crate) struct RayGunLook {

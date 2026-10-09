@@ -10,7 +10,7 @@ use bevy::prelude::*;
 
 // ---- palette --------------------------------------------------------------
 /// In-game menus: black, but see-through enough that the world shows behind.
-pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.78);
+pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.87);
 /// A panel / card: a faint white lift off the black.
 pub const PANEL: Color = Color::srgba(1.0, 1.0, 1.0, 0.035);
 /// Solid black — the out-of-game screens' background, and the text colour on

@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Full map on hold (M)
+- Telemetry settings (FPS, 1% low, etc.)
 - Minimap top left
 - Operator quotes for game events
 - Louder quotes (perk quotes too)
@@ -24,15 +26,15 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Make hd staminup model
+- Keybinds menu isn't scrolling well / at all
 - Wunderfizz ui should appear centered in the screen instead of to the left
--
 
 # Current todo
 
 # Performance
 
 - when using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90
-- add toggle to show fps, ping, 1 percent low, etc
 - if possible could add draw calls or other ways to detect how graphics performance is doing
 - Could run btop while game is running
 - Could possibly keep a client side graph of entities, effects, fps over time etc
@@ -62,7 +64,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Big features
 
-- Add full map shown while holding a keybind (uses the minimap's picture)
 - Add semtex
 - Add rampage inducer
 - Add killchains

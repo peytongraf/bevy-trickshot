@@ -4,7 +4,7 @@
 //! shimmering purple haze at the edges — Cold War's look — with a stronger
 //! warp and flash right as it goes up, and every so often a lightning bolt
 //! flicking in from the edge of the screen ([`BOLTS`] at most at once,
-//! placed and timed here at random and drawn by the shader). Tuned from its own debug window
+//! placed and timed here at random and drawn by the shader). Tuned from its debug section
 //! ("Aether Shroud").
 //!
 //! One fullscreen post-process pass (`assets/shaders/aether_shroud.wgsl`) on
@@ -35,7 +35,7 @@ use crate::player::ViewModelCamera;
 
 const SHADER_ASSET_PATH: &str = "shaders/aether_shroud.wgsl";
 
-/// Panel-adjustable Aether Shroud look (the "Aether Shroud" debug window).
+/// Panel-adjustable Aether Shroud look (the "Aether Shroud" debug section).
 #[derive(Resource, Clone)]
 pub(crate) struct AetherScreenSettings {
     /// Debug: show it without the Aether Shroud up.

@@ -12,13 +12,14 @@
 //! dips out of (or rises into) view in code ([`raygun_draw_lower`] →
 //! [`GunLower`], which `ads::apply_ads` applies).
 //!
-//! There's no way to get one in a game yet but the debug panel's "Ray Gun"
-//! window ([`raygun_debug_ui`]), which also tunes its look and feel
+//! There's no way to get one in a game yet but the debug panel's "Ray Gun
+//! (Zombies)" section ([`RayGunDebug`]), which also tunes its look and feel
 //! ([`RayGunSettings`]).
 
 use bevy::animation::prelude::AnimationTransitions;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::weapon::{SlotWeapon, WeaponId};
 
@@ -196,168 +197,171 @@ pub(crate) fn raygun_draw_lower(
 
 /// Debug: hand ourselves the Ray Gun (in a `Zombies` game — for free, in
 /// place of the weapon in hand, which drops like a wall buy's), and tune it.
-pub(crate) fn raygun_debug_ui(
-    mut contexts: EguiContexts,
-    mut settings: ResMut<RayGunSettings>,
-    mut look: ResMut<crate::RayGunLook>,
-    weapon: Res<Weapon>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&shared::Lobby>,
-    mut give: Query<&mut TriggerSender<shared::GiveWeapon>, With<GameClient>>,
-) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    let in_zombies = crate::zombies_hud::zombies_game(&local, &lobbies).is_some();
-    egui::Window::new("Ray Gun")
-        .default_open(false)
-        .default_pos([20.0, 420.0])
-        .show(ctx, |ui| {
-            let carried = weapon.carries(SlotWeapon::Gun(WeaponId::RayGun));
-            let button = ui.add_enabled(in_zombies && !carried, egui::Button::new("Equip the Ray Gun"));
-            if !in_zombies {
-                ui.label("(In a Zombies game.)");
-            } else if carried {
-                ui.label("(Carrying it.)");
-            }
-            if button.clicked() {
-                let (mag, reserve) = weapon.held_ammo();
-                if let Ok(mut s) = give.single_mut() {
-                    s.trigger::<shared::LobbyChannel>(shared::GiveWeapon {
-                        weapon: WeaponId::RayGun,
-                        slot: weapon.held as u8,
-                        mag,
-                        reserve,
-                    });
-                }
-            }
-            ui.separator();
-            let s = &mut *settings;
-            let pose = |ui: &mut egui::Ui, label: &str, p: &mut ViewModelOffset| {
-                ui.label(label);
-                ui.add(egui::Slider::new(&mut p.translation.x, -0.5f32..=0.5).text("x"));
-                ui.add(egui::Slider::new(&mut p.translation.y, -0.5f32..=0.5).text("y"));
-                ui.add(egui::Slider::new(&mut p.translation.z, -0.5f32..=0.5).text("z"));
-                let mut yaw = p.yaw.to_degrees();
-                if ui.add(egui::Slider::new(&mut yaw, -180.0f32..=180.0).text("yaw (°)")).changed() {
-                    p.yaw = yaw.to_radians();
-                }
-                let mut pitch = p.pitch.to_degrees();
-                if ui.add(egui::Slider::new(&mut pitch, -90.0f32..=90.0).text("pitch (°)")).changed() {
-                    p.pitch = pitch.to_radians();
-                }
-                ui.add(egui::Slider::new(&mut p.scale, 0.01f32..=1.0).logarithmic(true).text("scale"));
-            };
-            ui.collapsing("View model poses", |ui| {
-                pose(ui, "Hip", &mut s.hip);
-                ui.separator();
-                pose(ui, "Aimed (ADS)", &mut s.ads);
-                ui.add(egui::Slider::new(&mut s.ads_zoom, 1.0f32..=3.0).text("ADS zoom (×)"));
-            });
-            ui.collapsing("Firing", |ui| {
-                ui.add(egui::Slider::new(&mut s.fire_interval, 0.05f32..=1.0).text("between shots (s)"));
-                ui.add(egui::Slider::new(&mut s.trauma_per_shot, 0.0f32..=1.0).text("shake per shot"));
-                ui.add(egui::Slider::new(&mut s.recoil_kick, 0.0f32..=0.1).text("kick per shot (m)"));
-                ui.label("Muzzle flash (camera space, at the hip)");
-                ui.add(egui::Slider::new(&mut s.muzzle_translation.x, -1.0f32..=1.0).text("x"));
-                ui.add(egui::Slider::new(&mut s.muzzle_translation.y, -1.0f32..=1.0).text("y"));
-                ui.add(egui::Slider::new(&mut s.muzzle_translation.z, -2.0f32..=0.0).text("z"));
-                ui.add(egui::Slider::new(&mut s.muzzle_size.x, 0.0f32..=1.0).text("width"));
-                ui.add(egui::Slider::new(&mut s.muzzle_size.y, 0.0f32..=1.0).text("height"));
-            });
-            ui.collapsing("Animations", |ui| {
-                ui.add(egui::Slider::new(&mut s.blend_secs, 0.0f32..=1.0).text("blend between clips (s)"));
-                ui.add(egui::Slider::new(&mut s.shot_speed, 0.1f32..=4.0).text("shot speed (×)"));
-                ui.add(egui::Slider::new(&mut s.reload_speed, 0.1f32..=4.0).text("reload speed (×)"));
-                ui.add(egui::Slider::new(&mut s.draw_speed, 0.1f32..=4.0).text("draw / put away speed (×)"));
-                ui.add(egui::Slider::new(&mut s.idle_speed, 0.1f32..=4.0).text("idle speed (×)"));
-                ui.add(egui::Slider::new(&mut s.lower_drop, 0.0f32..=1.0).text("put away: drop (m)"));
-                ui.add(egui::Slider::new(&mut s.lower_tip, 0.0f32..=1.5).text("put away: tip (rad)"));
-            });
-            let l = &mut *look;
-            ui.collapsing("Bolt", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("colour (bolt, burst, rings)");
-                    ui.color_edit_button_rgb(&mut l.color);
+#[derive(SystemParam)]
+pub(crate) struct RayGunDebug<'w, 's> {
+    settings: ResMut<'w, RayGunSettings>,
+    look: ResMut<'w, crate::RayGunLook>,
+    local: Query<'w, 's, &'static LocalId, With<GameClient>>,
+    lobbies: Query<'w, 's, &'static shared::Lobby>,
+    give: Query<'w, 's, &'static mut TriggerSender<shared::GiveWeapon>, With<GameClient>>,
+}
+
+impl RayGunDebug<'_, '_> {
+    /// Its section in the main debug panel (`debug_ui`). (`weapon` is lent
+    /// by that panel — it already holds it mutably.)
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui, weapon: &Weapon) {
+        let settings = &mut *self.settings;
+        let look = &mut *self.look;
+        let local = &self.local;
+        let lobbies = &self.lobbies;
+        let give = &mut self.give;
+        let in_zombies = crate::zombies_hud::zombies_game(local, lobbies).is_some();
+        let carried = weapon.carries(SlotWeapon::Gun(WeaponId::RayGun));
+        let button = ui.add_enabled(in_zombies && !carried, egui::Button::new("Equip the Ray Gun"));
+        if !in_zombies {
+            ui.label("(In a Zombies game.)");
+        } else if carried {
+            ui.label("(Carrying it.)");
+        }
+        if button.clicked() {
+            let (mag, reserve) = weapon.held_ammo();
+            if let Ok(mut s) = give.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::GiveWeapon {
+                    weapon: WeaponId::RayGun,
+                    slot: weapon.held as u8,
+                    mag,
+                    reserve,
                 });
-                ui.add(egui::Slider::new(&mut l.bolt_glow, 0.0f32..=20.0).text("glow"));
-                ui.add(egui::Slider::new(&mut l.bolt_size, 0.1f32..=4.0).text("core size (×)"));
-                ui.add(egui::Slider::new(&mut l.bolt_ring_size, 0.1f32..=4.0).text("ring size (×)"));
-                ui.add(egui::Slider::new(&mut l.bolt_ring_gap, 0.0f32..=1.0).text("ring spacing (m, new bolts)"));
-                ui.add(egui::Slider::new(&mut l.bolt_ring_spin, 0.0f32..=60.0).text("ring spin (rad/s)"));
-                ui.add(egui::Slider::new(&mut l.bolt_light, 0.0f32..=500_000.0).text("light (lm, new bolts)"));
-                ui.add(egui::Slider::new(&mut l.bolt_light_range, 0.0f32..=30.0).text("light range (m, new bolts)"));
-            });
-            ui.collapsing("Burst", |ui| {
-                ui.add(egui::Slider::new(&mut l.burst_secs, 0.05f32..=2.0).text("lasts (s)"));
-                ui.add(egui::Slider::new(&mut l.burst_radius, 0.1f32..=5.0).text("swells to (m)"));
-                ui.add(egui::Slider::new(&mut l.burst_glow, 0.0f32..=20.0).text("glow"));
-                ui.add(egui::Slider::new(&mut l.burst_opacity, 0.0f32..=1.0).text("opacity"));
-                ui.add(egui::Slider::new(&mut l.burst_light, 0.0f32..=2_000_000.0).text("light (lm)"));
-                ui.add(egui::Slider::new(&mut l.burst_light_range, 0.0f32..=40.0).text("light range (m)"));
-                ui.add(egui::Slider::new(&mut l.sparks, 0u32..=60).text("sparks"));
-                ui.add(egui::Slider::new(&mut l.spark_secs, 0.05f32..=2.0).text("spark life (s)"));
-                ui.add(egui::Slider::new(&mut l.spark_speed, 0.0f32..=20.0).text("spark speed (m/s)"));
-                ui.add(egui::Slider::new(&mut l.spark_size, 0.1f32..=5.0).text("spark size (×)"));
-            });
-            ui.collapsing("Muzzle rings", |ui| {
-                ui.add(egui::Slider::new(&mut l.muzzle_rings, 0u32..=8).text("rings"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_gap_secs, 0.0f32..=0.3).text("apart (s)"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_secs, 0.05f32..=2.0).text("lasts (s)"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_speed, 0.0f32..=20.0).text("drift speed (m/s)"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_start_scale, 0.0f32..=3.0).text("size leaving (×)"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_end_scale, 0.0f32..=6.0).text("size at the end (×)"));
-                ui.add(egui::Slider::new(&mut l.muzzle_ring_opacity, 0.0f32..=1.0).text("opacity"));
-            });
-            if ui.button("Reset look").clicked() {
-                *l = crate::RayGunLook::default();
             }
+        }
+        ui.separator();
+        let s = &mut *settings;
+        let pose = |ui: &mut egui::Ui, label: &str, p: &mut ViewModelOffset| {
+            ui.label(label);
+            ui.add(egui::Slider::new(&mut p.translation.x, -0.5f32..=0.5).text("x"));
+            ui.add(egui::Slider::new(&mut p.translation.y, -0.5f32..=0.5).text("y"));
+            ui.add(egui::Slider::new(&mut p.translation.z, -0.5f32..=0.5).text("z"));
+            let mut yaw = p.yaw.to_degrees();
+            if ui.add(egui::Slider::new(&mut yaw, -180.0f32..=180.0).text("yaw (°)")).changed() {
+                p.yaw = yaw.to_radians();
+            }
+            let mut pitch = p.pitch.to_degrees();
+            if ui.add(egui::Slider::new(&mut pitch, -90.0f32..=90.0).text("pitch (°)")).changed() {
+                p.pitch = pitch.to_radians();
+            }
+            ui.add(egui::Slider::new(&mut p.scale, 0.01f32..=1.0).logarithmic(true).text("scale"));
+        };
+        ui.collapsing("View model poses", |ui| {
+            pose(ui, "Hip", &mut s.hip);
             ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("Copy Ray Gun settings to console").clicked() {
-                    let p = |o: &ViewModelOffset| {
-                        format!(
-                            "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, scale: {:.4}",
-                            o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.scale
-                        )
-                    };
-                    info!(
-                        "ray gun: hip {{ {} }}, ads {{ {} }}, ads_zoom: {:.2}, fire_interval: {:.3}, \
-                         trauma_per_shot: {:.3}, recoil_kick: {:.4}, muzzle_translation: Vec3::new({:.3}, {:.3}, {:.3}), \
-                         muzzle_size: Vec2::new({:.2}, {:.2}), lower_drop: {:.2}, lower_tip: {:.2}",
-                        p(&s.hip),
-                        p(&s.ads),
-                        s.ads_zoom,
-                        s.fire_interval,
-                        s.trauma_per_shot,
-                        s.recoil_kick,
-                        s.muzzle_translation.x,
-                        s.muzzle_translation.y,
-                        s.muzzle_translation.z,
-                        s.muzzle_size.x,
-                        s.muzzle_size.y,
-                        s.lower_drop,
-                        s.lower_tip,
-                    );
-                    let l = &*look;
-                    info!(
-                        "ray gun look: color: [{:.3}, {:.3}, {:.3}], bolt_glow: {:.2}, bolt_size: {:.2}, \
-                         bolt_ring_size: {:.2}, bolt_ring_gap: {:.3}, bolt_ring_spin: {:.1}, bolt_light: {:.0}, \
-                         bolt_light_range: {:.1}, burst_secs: {:.3}, burst_radius: {:.2}, burst_glow: {:.2}, \
-                         burst_opacity: {:.2}, burst_light: {:.0}, burst_light_range: {:.1}, sparks: {}, \
-                         spark_secs: {:.3}, spark_speed: {:.2}, spark_size: {:.2}, muzzle_rings: {}, \
-                         muzzle_ring_gap_secs: {:.3}, muzzle_ring_secs: {:.3}, muzzle_ring_speed: {:.2}, \
-                         muzzle_ring_start_scale: {:.2}, muzzle_ring_end_scale: {:.2}, muzzle_ring_opacity: {:.2}",
-                        l.color[0], l.color[1], l.color[2], l.bolt_glow, l.bolt_size, l.bolt_ring_size,
-                        l.bolt_ring_gap, l.bolt_ring_spin, l.bolt_light, l.bolt_light_range, l.burst_secs,
-                        l.burst_radius, l.burst_glow, l.burst_opacity, l.burst_light, l.burst_light_range,
-                        l.sparks, l.spark_secs, l.spark_speed, l.spark_size, l.muzzle_rings,
-                        l.muzzle_ring_gap_secs, l.muzzle_ring_secs, l.muzzle_ring_speed,
-                        l.muzzle_ring_start_scale, l.muzzle_ring_end_scale, l.muzzle_ring_opacity,
-                    );
-                }
-                if ui.button("Reset").clicked() {
-                    *s = RayGunSettings::default();
-                }
-            });
+            pose(ui, "Aimed (ADS)", &mut s.ads);
+            ui.add(egui::Slider::new(&mut s.ads_zoom, 1.0f32..=3.0).text("ADS zoom (×)"));
         });
-    Ok(())
+        ui.collapsing("Firing", |ui| {
+            ui.add(egui::Slider::new(&mut s.fire_interval, 0.05f32..=1.0).text("between shots (s)"));
+            ui.add(egui::Slider::new(&mut s.trauma_per_shot, 0.0f32..=1.0).text("shake per shot"));
+            ui.add(egui::Slider::new(&mut s.recoil_kick, 0.0f32..=0.1).text("kick per shot (m)"));
+            ui.label("Muzzle flash (camera space, at the hip)");
+            ui.add(egui::Slider::new(&mut s.muzzle_translation.x, -1.0f32..=1.0).text("x"));
+            ui.add(egui::Slider::new(&mut s.muzzle_translation.y, -1.0f32..=1.0).text("y"));
+            ui.add(egui::Slider::new(&mut s.muzzle_translation.z, -2.0f32..=0.0).text("z"));
+            ui.add(egui::Slider::new(&mut s.muzzle_size.x, 0.0f32..=1.0).text("width"));
+            ui.add(egui::Slider::new(&mut s.muzzle_size.y, 0.0f32..=1.0).text("height"));
+        });
+        ui.collapsing("Animations", |ui| {
+            ui.add(egui::Slider::new(&mut s.blend_secs, 0.0f32..=1.0).text("blend between clips (s)"));
+            ui.add(egui::Slider::new(&mut s.shot_speed, 0.1f32..=4.0).text("shot speed (×)"));
+            ui.add(egui::Slider::new(&mut s.reload_speed, 0.1f32..=4.0).text("reload speed (×)"));
+            ui.add(egui::Slider::new(&mut s.draw_speed, 0.1f32..=4.0).text("draw / put away speed (×)"));
+            ui.add(egui::Slider::new(&mut s.idle_speed, 0.1f32..=4.0).text("idle speed (×)"));
+            ui.add(egui::Slider::new(&mut s.lower_drop, 0.0f32..=1.0).text("put away: drop (m)"));
+            ui.add(egui::Slider::new(&mut s.lower_tip, 0.0f32..=1.5).text("put away: tip (rad)"));
+        });
+        let l = &mut *look;
+        ui.collapsing("Bolt", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("colour (bolt, burst, rings)");
+                ui.color_edit_button_rgb(&mut l.color);
+            });
+            ui.add(egui::Slider::new(&mut l.bolt_glow, 0.0f32..=20.0).text("glow"));
+            ui.add(egui::Slider::new(&mut l.bolt_size, 0.1f32..=4.0).text("core size (×)"));
+            ui.add(egui::Slider::new(&mut l.bolt_ring_size, 0.1f32..=4.0).text("ring size (×)"));
+            ui.add(egui::Slider::new(&mut l.bolt_ring_gap, 0.0f32..=1.0).text("ring spacing (m, new bolts)"));
+            ui.add(egui::Slider::new(&mut l.bolt_ring_spin, 0.0f32..=60.0).text("ring spin (rad/s)"));
+            ui.add(egui::Slider::new(&mut l.bolt_light, 0.0f32..=500_000.0).text("light (lm, new bolts)"));
+            ui.add(egui::Slider::new(&mut l.bolt_light_range, 0.0f32..=30.0).text("light range (m, new bolts)"));
+        });
+        ui.collapsing("Burst", |ui| {
+            ui.add(egui::Slider::new(&mut l.burst_secs, 0.05f32..=2.0).text("lasts (s)"));
+            ui.add(egui::Slider::new(&mut l.burst_radius, 0.1f32..=5.0).text("swells to (m)"));
+            ui.add(egui::Slider::new(&mut l.burst_glow, 0.0f32..=20.0).text("glow"));
+            ui.add(egui::Slider::new(&mut l.burst_opacity, 0.0f32..=1.0).text("opacity"));
+            ui.add(egui::Slider::new(&mut l.burst_light, 0.0f32..=2_000_000.0).text("light (lm)"));
+            ui.add(egui::Slider::new(&mut l.burst_light_range, 0.0f32..=40.0).text("light range (m)"));
+            ui.add(egui::Slider::new(&mut l.sparks, 0u32..=60).text("sparks"));
+            ui.add(egui::Slider::new(&mut l.spark_secs, 0.05f32..=2.0).text("spark life (s)"));
+            ui.add(egui::Slider::new(&mut l.spark_speed, 0.0f32..=20.0).text("spark speed (m/s)"));
+            ui.add(egui::Slider::new(&mut l.spark_size, 0.1f32..=5.0).text("spark size (×)"));
+        });
+        ui.collapsing("Muzzle rings", |ui| {
+            ui.add(egui::Slider::new(&mut l.muzzle_rings, 0u32..=8).text("rings"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_gap_secs, 0.0f32..=0.3).text("apart (s)"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_secs, 0.05f32..=2.0).text("lasts (s)"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_speed, 0.0f32..=20.0).text("drift speed (m/s)"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_start_scale, 0.0f32..=3.0).text("size leaving (×)"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_end_scale, 0.0f32..=6.0).text("size at the end (×)"));
+            ui.add(egui::Slider::new(&mut l.muzzle_ring_opacity, 0.0f32..=1.0).text("opacity"));
+        });
+        if ui.button("Reset look").clicked() {
+            *l = crate::RayGunLook::default();
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Copy Ray Gun settings to console").clicked() {
+                let p = |o: &ViewModelOffset| {
+                    format!(
+                        "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, scale: {:.4}",
+                        o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.scale
+                    )
+                };
+                info!(
+                    "ray gun: hip {{ {} }}, ads {{ {} }}, ads_zoom: {:.2}, fire_interval: {:.3}, \
+                     trauma_per_shot: {:.3}, recoil_kick: {:.4}, muzzle_translation: Vec3::new({:.3}, {:.3}, {:.3}), \
+                     muzzle_size: Vec2::new({:.2}, {:.2}), lower_drop: {:.2}, lower_tip: {:.2}",
+                    p(&s.hip),
+                    p(&s.ads),
+                    s.ads_zoom,
+                    s.fire_interval,
+                    s.trauma_per_shot,
+                    s.recoil_kick,
+                    s.muzzle_translation.x,
+                    s.muzzle_translation.y,
+                    s.muzzle_translation.z,
+                    s.muzzle_size.x,
+                    s.muzzle_size.y,
+                    s.lower_drop,
+                    s.lower_tip,
+                );
+                let l = &*look;
+                info!(
+                    "ray gun look: color: [{:.3}, {:.3}, {:.3}], bolt_glow: {:.2}, bolt_size: {:.2}, \
+                     bolt_ring_size: {:.2}, bolt_ring_gap: {:.3}, bolt_ring_spin: {:.1}, bolt_light: {:.0}, \
+                     bolt_light_range: {:.1}, burst_secs: {:.3}, burst_radius: {:.2}, burst_glow: {:.2}, \
+                     burst_opacity: {:.2}, burst_light: {:.0}, burst_light_range: {:.1}, sparks: {}, \
+                     spark_secs: {:.3}, spark_speed: {:.2}, spark_size: {:.2}, muzzle_rings: {}, \
+                     muzzle_ring_gap_secs: {:.3}, muzzle_ring_secs: {:.3}, muzzle_ring_speed: {:.2}, \
+                     muzzle_ring_start_scale: {:.2}, muzzle_ring_end_scale: {:.2}, muzzle_ring_opacity: {:.2}",
+                    l.color[0], l.color[1], l.color[2], l.bolt_glow, l.bolt_size, l.bolt_ring_size,
+                    l.bolt_ring_gap, l.bolt_ring_spin, l.bolt_light, l.bolt_light_range, l.burst_secs,
+                    l.burst_radius, l.burst_glow, l.burst_opacity, l.burst_light, l.burst_light_range,
+                    l.sparks, l.spark_secs, l.spark_speed, l.spark_size, l.muzzle_rings,
+                    l.muzzle_ring_gap_secs, l.muzzle_ring_secs, l.muzzle_ring_speed,
+                    l.muzzle_ring_start_scale, l.muzzle_ring_end_scale, l.muzzle_ring_opacity,
+                );
+            }
+            if ui.button("Reset").clicked() {
+                *s = RayGunSettings::default();
+            }
+        });
+    }
 }

@@ -11,7 +11,7 @@
 //! long it runs) in `lines.txt` there — [`shared::quotes::lines`] — all
 //! loaded at startup. How loud they are (perk quotes too), and how long after
 //! a dog round begins and the exfil's called someone speaks up, is the
-//! debug panel's "Quotes" window ([`quotes_debug_ui`]).
+//! debug panel's "Quotes (Zombies)" section ([`QuotesDebug`]).
 //!
 //! The lines playing are `StateScoped(InGame)`; nothing else carries between
 //! games.
@@ -19,15 +19,16 @@
 use std::collections::HashMap;
 
 use bevy::audio::Volume;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 use lightyear::prelude::{LocalId, MessageReceiver, PeerId, TriggerSender};
 use shared::quotes::{lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS};
 use shared::weapon::SlotWeapon;
 use shared::{Lobby, PlayerId, PlayerPose};
 
 use crate::net::GameClient;
-use crate::{menu, AppState};
+use crate::AppState;
 
 pub(crate) struct QuotesPlugin;
 
@@ -38,15 +39,11 @@ impl Plugin for QuotesPlugin {
             .add_systems(
                 Update,
                 (play_quotes, follow_quotes, ammo_quotes, send_quote_delays).run_if(in_state(AppState::InGame)),
-            )
-            .add_systems(
-                bevy_egui::EguiPrimaryContextPass,
-                quotes_debug_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
             );
     }
 }
 
-/// How the quotes sound — the "Quotes" debug window.
+/// How the quotes sound — the "Quotes" debug section.
 #[derive(Resource, Clone, PartialEq)]
 pub(crate) struct QuoteSettings {
     /// Every operator quote's volume (perk quotes' too, on top of their own
@@ -255,23 +252,25 @@ fn send_quote_delays(
     }
 }
 
-/// The "Quotes" debug window.
-fn quotes_debug_ui(mut contexts: EguiContexts, mut settings: ResMut<QuoteSettings>) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    egui::Window::new("Quotes")
-        .default_open(false)
-        .default_pos([20.0, 640.0])
-        .show(ctx, |ui| {
-            let s = &mut *settings;
-            ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=5.0).text("volume (every quote, perk quotes too)"));
-            ui.label("Party leader: how long after it starts someone says so");
-            ui.add(egui::Slider::new(&mut s.dog_round_delay, 0.0f32..=20.0).text("dog round (s)"));
-            ui.add(egui::Slider::new(&mut s.exfil_delay, 0.0f32..=20.0).text("exfil (s)"));
-            if ui.button("Reset").clicked() {
-                *s = QuoteSettings::default();
-            }
-        });
-    Ok(())
+/// The "Quotes" debug section.
+#[derive(SystemParam)]
+pub(crate) struct QuotesDebug<'w> {
+    settings: ResMut<'w, QuoteSettings>,
+}
+
+impl QuotesDebug<'_> {
+    /// Its section in the main debug panel (`debug_ui`).
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+        let settings = &mut *self.settings;
+        let s = &mut *settings;
+        ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=5.0).text("volume (every quote, perk quotes too)"));
+        ui.label("Party leader: how long after it starts someone says so");
+        ui.add(egui::Slider::new(&mut s.dog_round_delay, 0.0f32..=20.0).text("dog round (s)"));
+        ui.add(egui::Slider::new(&mut s.exfil_delay, 0.0f32..=20.0).text("exfil (s)"));
+        if ui.button("Reset").clicked() {
+            *s = QuoteSettings::default();
+        }
+    }
 }
 
 #[cfg(test)]

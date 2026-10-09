@@ -134,6 +134,14 @@ pub(crate) fn ads_tuning_ui(
                     ResMut<crate::dogs::DogPreview>,
                     Res<crate::dogs::DogReadout>,
                 ),
+                // The sections that used to be windows of their own.
+                (
+                    crate::weapons::RayGunDebug,
+                    crate::aether_shroud::AetherDebug,
+                    crate::boss::BossDebug,
+                    crate::end_screen_fx::EndScreenDebug,
+                    crate::quotes::QuotesDebug,
+                ),
             ),
         ),
     ),
@@ -154,7 +162,7 @@ pub(crate) fn ads_tuning_ui(
         mut shipment_scene,
         mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1967,6 +1975,21 @@ pub(crate) fn ads_tuning_ui(
                 let d = &mut molotov_dbg;
                 crate::flash_bang::flash_section(ui, &mut d.flash, &mut d.weapon);
             });
+
+            ui.separator();
+            ui.collapsing("Ray Gun (Zombies)", |ui| raygun_dbg.ui(ui, &molotov_dbg.weapon));
+
+            ui.separator();
+            ui.collapsing("Aether Shroud (Zombies)", |ui| aether_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Boss (Zombies)", |ui| boss_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("End screen", |ui| end_screen_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Quotes (Zombies)", |ui| quotes_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Zombies perks", |ui| {

@@ -25,7 +25,7 @@ use lightyear::prelude::*;
 use crate::keybinds::{Binding, KeyBindings, SLOTS};
 use crate::net::GameClient;
 use crate::settings::{
-    AutoMantle, CrosshairId, ScopeZoom, Settings, ShadowQuality, ADS_COEFF_MAX, ADS_COEFF_MIN, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
+    AutoMantle, CrosshairId, ScopeZoom, Settings, ShadowQuality, TelemetryStat, ADS_COEFF_MAX, ADS_COEFF_MIN, ADS_SENS_MAX, ADS_SENS_MIN, FOV_MAX,
     FOV_MIN, FRAME_LIMIT_MAX, FRAME_LIMIT_MIN, SENS_MAX, SENS_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 use crate::ui::{
@@ -95,9 +95,11 @@ pub enum Tab {
     Profile,
     Controls,
     Graphics,
+    Interface,
     Audio,
     Keybinds,
     Multiplayer,
+    Debug,
 }
 
 #[derive(Resource)]
@@ -428,6 +430,13 @@ enum Btn {
     ToggleAutoCreate,
     ToggleAutoJoin,
     ToggleVsync,
+    /// Interface tab: show / hide one telemetry readout.
+    ToggleTelemetry(TelemetryStat),
+    /// Debug tab: show / hide the debug-mode draw call and entity counts.
+    ToggleDrawCalls,
+    ToggleEntityCount,
+    /// Debug tab: show / hide the top-centre position / facing readout.
+    ToggleDebugPosition,
     SetShadowQuality(ShadowQuality),
     SetCrosshair(CrosshairId),
     SetScopeZoom(ScopeZoom),
@@ -542,7 +551,23 @@ fn menu_click(
                 }
                 menu.dirty = true;
             }
-            Btn::ToggleDebug => settings.debug_mode = !settings.debug_mode,
+            Btn::ToggleDebug => {
+                settings.debug_mode = !settings.debug_mode;
+                // (The Debug tab shows more with it on.)
+                menu.dirty = true;
+            }
+            Btn::ToggleDrawCalls => {
+                settings.telemetry.draw_calls = !settings.telemetry.draw_calls;
+                menu.dirty = true;
+            }
+            Btn::ToggleEntityCount => {
+                settings.telemetry.entities = !settings.telemetry.entities;
+                menu.dirty = true;
+            }
+            Btn::ToggleDebugPosition => {
+                settings.debug_position = !settings.debug_position;
+                menu.dirty = true;
+            }
             Btn::ToggleAutoReload => {
                 settings.auto_reload = !settings.auto_reload;
                 menu.dirty = true;
@@ -565,6 +590,10 @@ fn menu_click(
             }
             Btn::ToggleVsync => {
                 settings.vsync = !settings.vsync;
+                menu.dirty = true;
+            }
+            Btn::ToggleTelemetry(stat) => {
+                settings.telemetry.toggle(*stat);
                 menu.dirty = true;
             }
             Btn::SetCrosshair(id) => {
@@ -1456,9 +1485,11 @@ fn build_settings(
                 (Tab::Profile, "PROFILE"),
                 (Tab::Controls, "CONTROLS"),
                 (Tab::Graphics, "GRAPHICS"),
+                (Tab::Interface, "INTERFACE"),
                 (Tab::Audio, "AUDIO"),
                 (Tab::Keybinds, "KEYBINDS"),
                 (Tab::Multiplayer, "MULTIPLAYER"),
+                (Tab::Debug, "DEBUG"),
             ] {
                 tab_button(tabs, asset_server, name, Btn::SelectTab(tab), menu.tab == tab);
             }
@@ -1484,9 +1515,11 @@ fn build_settings(
             Tab::Profile => build_profile(content, asset_server),
             Tab::Controls => build_controls(content, asset_server, settings),
             Tab::Graphics => build_graphics(content, asset_server, settings),
+            Tab::Interface => build_interface(content, asset_server, settings),
             Tab::Audio => build_audio(content, asset_server, settings),
             Tab::Keybinds => build_keybinds(content, asset_server, menu, binds),
             Tab::Multiplayer => build_multiplayer(content, asset_server, settings),
+            Tab::Debug => build_debug(content, asset_server, settings),
         });
 
         // footer: key hints left; in game, the pause / leave actions right
@@ -2166,22 +2199,6 @@ fn build_controls(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
          catches you; Semi-Auto only while jumping toward one; Full-Auto any time you're \
          airborne and moving toward one, jump or not.",
     );
-
-    setting_row(content, asset_server, "DEBUG MODE", |row| {
-        // (Its ON / OFF stays live without a rebuild — `DynText::Debug`.)
-        toggle_button(
-            row,
-            asset_server,
-            settings.debug_mode,
-            Btn::ToggleDebug,
-            Some(DynText::Debug),
-        );
-    });
-    desc(
-        content,
-        asset_server,
-        "Debug mode shows the muzzle-flash / smoke / gravity tuning panels (top-right).",
-    );
 }
 
 fn build_audio(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
@@ -2252,6 +2269,69 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         "Adjusts the resolution and draw distance of shadows cast by the sun. Higher \
          settings look more accurate at longer range but cost more performance. Disabled \
          removes shadows entirely.",
+    );
+}
+
+fn build_interface(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
+    section_heading(content, asset_server, "TELEMETRY");
+    desc(
+        content,
+        asset_server,
+        "Readouts shown in the top left, above the minimap. 1% low is the average frame \
+         rate of the slowest 1% of frames over the last 10 seconds — it shows stutter an \
+         average FPS hides. CPU and memory are the game's own share. Debug mode can add \
+         draw calls and the entity count (DEBUG tab).",
+    );
+    for stat in TelemetryStat::ALL {
+        setting_row(content, asset_server, stat.name(), |row| {
+            toggle_button(row, asset_server, settings.telemetry.shows(stat), Btn::ToggleTelemetry(stat), None);
+        });
+    }
+}
+
+fn build_debug(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, settings: &Settings) {
+    section_heading(content, asset_server, "DEBUG");
+    setting_row(content, asset_server, "DEBUG MODE", |row| {
+        toggle_button(
+            row,
+            asset_server,
+            settings.debug_mode,
+            Btn::ToggleDebug,
+            Some(DynText::Debug),
+        );
+    });
+    desc(
+        content,
+        asset_server,
+        "Shows the tuning panel (top-right) in a game, and the debug telemetry below.",
+    );
+    if !settings.debug_mode {
+        return;
+    }
+    section_heading(content, asset_server, "DEBUG TELEMETRY");
+    desc(
+        content,
+        asset_server,
+        "Extra readouts while debug mode is on. Draw calls and entities go after the \
+         INTERFACE tab's telemetry. Draw calls \
+         counts every draw the last frame made — the game, its shadows and the HUD \
+         (not the debug panel). Entities is everything in the game world; one that keeps \
+         climbing means something isn't being cleaned up.",
+    );
+    setting_row(content, asset_server, "DRAW CALLS", |row| {
+        toggle_button(row, asset_server, settings.telemetry.draw_calls, Btn::ToggleDrawCalls, None);
+    });
+    setting_row(content, asset_server, "ENTITY COUNT", |row| {
+        toggle_button(row, asset_server, settings.telemetry.entities, Btn::ToggleEntityCount, None);
+    });
+    setting_row(content, asset_server, "POSITION & FACING", |row| {
+        toggle_button(row, asset_server, settings.debug_position, Btn::ToggleDebugPosition, None);
+    });
+    desc(
+        content,
+        asset_server,
+        "The readout top centre: where you are (x, y, z) and which way you're looking \
+         (yaw and pitch).",
     );
 }
 

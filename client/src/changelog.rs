@@ -17,6 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Hold M to see the full map — in Zombies, with every perk, machine and wall buy on it.",
+        "The in-game menu's background is darker, so it's easier to read.",
+        "Settings has a DEBUG tab: debug mode, and toggles for draw calls, entity count and the position readout.",
+        "Debug mode shows draw calls and entity count in the telemetry row.",
+        "Settings > Interface > Telemetry: pick what shows — FPS, 1% low, frame time, latency, CPU, RAM.",
         "Free For All: enemies who fire flash a red dot on the minimap.",
         "Freestyle: bots show as red dots on the minimap.",
         "FPS and latency now sit above the minimap, Modern Warfare III style, a bit bigger.",

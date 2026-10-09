@@ -20,6 +20,9 @@
 // x: the picture's lowest height; y: how much higher its highest is (m);
 // z: the height our feet are at.
 @group(1) @binding(4) var<uniform> heights: vec4<f32>;
+// x: 1 to draw our arrow and view cone in the middle (the minimap — the full
+// map puts its own arrow wherever we are).
+@group(1) @binding(5) var<uniform> mode: vec4<f32>;
 
 const BACKGROUND: vec3<f32> = vec3<f32>(0.012, 0.014, 0.017);
 const PIT: vec3<f32> = vec3<f32>(0.007, 0.009, 0.01);
@@ -83,8 +86,8 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     let p = (in.uv - 0.5) * in.size;
     let half = 0.5 * min(in.size.x, in.size.y);
 
-    // The rounded square.
-    let q = abs(p) - vec2<f32>(half - CORNER);
+    // The rounded rectangle (the full map's is the picture's shape).
+    let q = abs(p) - (0.5 * in.size - vec2<f32>(CORNER));
     let edge = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - CORNER;
     let inside = 1.0 - smoothstep(-1.0, 0.0, edge);
     if (inside <= 0.0) {
@@ -111,19 +114,21 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     ground = mix(ground, OUTLINE, clamp(unmul.g, 0.0, 1.0));
     var rgb = mix(BACKGROUND, ground, cover);
 
-    // Our view cone, fading out with distance.
-    let r = length(p) / half;
-    let angle = abs(atan2(p.x, -p.y));
-    let cone = (1.0 - smoothstep(CONE_HALF - 0.05, CONE_HALF, angle)) * (1.0 - smoothstep(0.1, 0.95, r));
-    rgb = mix(rgb, vec3<f32>(1.0), cone * CONE_ALPHA);
+    if (mode.x > 0.5) {
+        // Our view cone, fading out with distance.
+        let r = length(p) / half;
+        let angle = abs(atan2(p.x, -p.y));
+        let cone = (1.0 - smoothstep(CONE_HALF - 0.05, CONE_HALF, angle)) * (1.0 - smoothstep(0.1, 0.95, r));
+        rgb = mix(rgb, vec3<f32>(1.0), cone * CONE_ALPHA);
 
-    // Our arrow, pointing up, with a dark rim.
-    let arrow = min(
-        sd_triangle(p, vec2<f32>(0.0, -9.0), vec2<f32>(-7.0, 7.0), vec2<f32>(0.0, 3.0)),
-        sd_triangle(p, vec2<f32>(0.0, -9.0), vec2<f32>(0.0, 3.0), vec2<f32>(7.0, 7.0)),
-    );
-    rgb = mix(rgb, vec3<f32>(0.0), 1.0 - smoothstep(1.0, 2.5, arrow));
-    rgb = mix(rgb, ARROW, 1.0 - smoothstep(-0.5, 0.5, arrow));
+        // Our arrow, pointing up, with a dark rim.
+        let arrow = min(
+            sd_triangle(p, vec2<f32>(0.0, -9.0), vec2<f32>(-7.0, 7.0), vec2<f32>(0.0, 3.0)),
+            sd_triangle(p, vec2<f32>(0.0, -9.0), vec2<f32>(0.0, 3.0), vec2<f32>(7.0, 7.0)),
+        );
+        rgb = mix(rgb, vec3<f32>(0.0), 1.0 - smoothstep(1.0, 2.5, arrow));
+        rgb = mix(rgb, ARROW, 1.0 - smoothstep(-0.5, 0.5, arrow));
+    }
 
     // The border.
     let border = smoothstep(-BORDER_WIDTH - 1.0, -BORDER_WIDTH, edge);

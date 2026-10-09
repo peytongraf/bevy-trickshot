@@ -27,9 +27,10 @@
 use std::collections::HashMap;
 
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::field_upgrade::{FieldUpgrade, CHARGE_SECS, DURATION_SECS, SPEED_MULT};
 use shared::{Lobby, PlayerId};
@@ -66,10 +67,6 @@ impl Plugin for AetherShroudPlugin {
                     (update_shroud_hud, shroud_remote_avatars).run_if(in_state(AppState::InGame)),
                 )
                     .chain(),
-            )
-            .add_systems(
-                bevy_egui::EguiPrimaryContextPass,
-                aether_debug_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
             );
     }
 }
@@ -429,7 +426,7 @@ fn update_shroud_hud(
 
 // --- other players ---------------------------------------------------------
 
-/// How another player looks with their Aether Shroud up (the debug window).
+/// How another player looks with their Aether Shroud up (the debug section).
 #[derive(Resource, Clone, PartialEq)]
 pub(crate) struct ShroudLookSettings {
     /// sRGB tint over their textures...
@@ -541,107 +538,111 @@ fn shroud_remote_avatars(
 
 // --- debug -----------------------------------------------------------------
 
-/// The "Aether Shroud" debug window: fill the charges, preview the screen
+/// The "Aether Shroud" debug section: fill the charges, preview the screen
 /// effect and tune it, and tune other players' look.
-fn aether_debug_ui(
-    mut contexts: EguiContexts,
-    mut screen: ResMut<AetherScreenSettings>,
-    mut look: ResMut<ShroudLookSettings>,
-    shroud: Res<LocalShroud>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&Lobby>,
-    mut fill: Query<&mut TriggerSender<shared::FillFieldUpgrade>, With<GameClient>>,
-) -> Result {
-    let ctx = contexts.ctx_mut()?;
-    let in_zombies = zombies_game(&local, &lobbies).is_some();
-    egui::Window::new("Aether Shroud")
-        .default_open(false)
-        .default_pos([20.0, 460.0])
-        .show(ctx, |ui| {
-            let s = &shroud.state;
-            ui.label(format!(
-                "charges {} · next {:.0}% · {}",
-                s.charges,
-                shroud.progress() * 100.0,
-                if s.active() { format!("UP ({:.1}s left)", shroud.active_left) } else { "not up".into() }
-            ));
-            if ui
-                .add_enabled(in_zombies, egui::Button::new("Fill my charges (leader, Zombies)"))
-                .clicked()
-            {
-                if let Ok(mut f) = fill.single_mut() {
-                    f.trigger::<shared::LobbyChannel>(shared::FillFieldUpgrade);
-                }
+#[derive(SystemParam)]
+pub(crate) struct AetherDebug<'w, 's> {
+    screen: ResMut<'w, AetherScreenSettings>,
+    look: ResMut<'w, ShroudLookSettings>,
+    shroud: Res<'w, LocalShroud>,
+    local: Query<'w, 's, &'static LocalId, With<GameClient>>,
+    lobbies: Query<'w, 's, &'static Lobby>,
+    fill: Query<'w, 's, &'static mut TriggerSender<shared::FillFieldUpgrade>, With<GameClient>>,
+}
+
+impl AetherDebug<'_, '_> {
+    /// Its section in the main debug panel (`debug_ui`).
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+        let screen = &mut *self.screen;
+        let look = &mut *self.look;
+        let shroud = &*self.shroud;
+        let local = &self.local;
+        let lobbies = &self.lobbies;
+        let fill = &mut self.fill;
+        let in_zombies = zombies_game(local, lobbies).is_some();
+        let s = &shroud.state;
+        ui.label(format!(
+            "charges {} · next {:.0}% · {}",
+            s.charges,
+            shroud.progress() * 100.0,
+            if s.active() { format!("UP ({:.1}s left)", shroud.active_left) } else { "not up".into() }
+        ));
+        if ui
+            .add_enabled(in_zombies, egui::Button::new("Fill my charges (leader, Zombies)"))
+            .clicked()
+        {
+            if let Ok(mut f) = fill.single_mut() {
+                f.trigger::<shared::LobbyChannel>(shared::FillFieldUpgrade);
             }
-            ui.separator();
-            let d = &mut *screen;
-            ui.checkbox(&mut d.preview, "Preview screen effect");
-            ui.add(egui::Slider::new(&mut d.fade_in_secs, 0.0f32..=3.0).text("fade in (s)"));
-            ui.add(egui::Slider::new(&mut d.fade_out_secs, 0.0f32..=3.0).text("fade out (s)"));
-            ui.label("Colour grade (sRGB: darks / mids / highlights)");
-            for (name, c) in [("darks", &mut d.dark), ("mids", &mut d.mid), ("highlights", &mut d.light)] {
-                ui.horizontal(|ui| {
-                    ui.label(name);
-                    ui.color_edit_button_rgb(c);
-                });
-            }
-            ui.add(egui::Slider::new(&mut d.tint, 0.0f32..=1.0).text("grade amount"));
-            ui.add(egui::Slider::new(&mut d.exposure, 0.2f32..=3.0).text("exposure"));
-            ui.add(egui::Slider::new(&mut d.gamma, 0.2f32..=2.0).text("gamma"));
-            ui.label("Distortion");
-            ui.add(egui::Slider::new(&mut d.warp, -0.3f32..=0.5).text("warp toward centre"));
-            ui.add(egui::Slider::new(&mut d.chromatic, 0.0f32..=0.05).text("colour fringing"));
-            ui.add(egui::Slider::new(&mut d.edge_glow, 0.0f32..=1.0).text("edge haze"));
-            ui.add(egui::Slider::new(&mut d.shimmer, 0.0f32..=0.02).text("edge shimmer"));
-            ui.add(egui::Slider::new(&mut d.shimmer_speed, 0.0f32..=8.0).text("shimmer speed"));
-            ui.label("Kick (as it goes up)");
-            ui.add(egui::Slider::new(&mut d.kick_warp, 0.0f32..=1.0).text("extra warp"));
-            ui.add(egui::Slider::new(&mut d.kick_flash, 0.0f32..=4.0).text("flash"));
-            ui.add(egui::Slider::new(&mut d.kick_secs, 0.0f32..=3.0).text("eases off over (s)"));
-            ui.label("Lightning from the edges");
-            ui.add(egui::Slider::new(&mut d.bolt_brightness, 0.0f32..=5.0).text("brightness (0 = none)"));
-            ui.add(egui::Slider::new(&mut d.bolt_gap.0, 0.02f32..=3.0).text("gap between, min (s)"));
-            ui.add(egui::Slider::new(&mut d.bolt_gap.1, 0.02f32..=3.0).text("gap between, max (s)"));
-            ui.add(egui::Slider::new(&mut d.bolt_burst, 0..=4).text("burst as it goes up"));
-            ui.add(egui::Slider::new(&mut d.bolt_life, 0.02f32..=1.0).text("each lasts (s)"));
-            ui.add(egui::Slider::new(&mut d.bolt_length.0, 0.02f32..=1.2).text("length, min"));
-            ui.add(egui::Slider::new(&mut d.bolt_length.1, 0.02f32..=1.2).text("length, max"));
-            ui.add(egui::Slider::new(&mut d.bolt_jag, 0.0f32..=0.5).text("jaggedness"));
-            ui.add(egui::Slider::new(&mut d.bolt_width, 0.0002f32..=0.01).text("core thickness"));
-            ui.add(egui::Slider::new(&mut d.bolt_glow, 0.0005f32..=0.05).text("glow size"));
+        }
+        ui.separator();
+        let d = &mut *screen;
+        ui.checkbox(&mut d.preview, "Preview screen effect");
+        ui.add(egui::Slider::new(&mut d.fade_in_secs, 0.0f32..=3.0).text("fade in (s)"));
+        ui.add(egui::Slider::new(&mut d.fade_out_secs, 0.0f32..=3.0).text("fade out (s)"));
+        ui.label("Colour grade (sRGB: darks / mids / highlights)");
+        for (name, c) in [("darks", &mut d.dark), ("mids", &mut d.mid), ("highlights", &mut d.light)] {
             ui.horizontal(|ui| {
-                ui.label("glow colour");
-                ui.color_edit_button_rgb(&mut d.bolt_color);
+                ui.label(name);
+                ui.color_edit_button_rgb(c);
             });
-            if ui.button("Reset screen effect").clicked() {
-                *d = AetherScreenSettings {
-                    preview: d.preview,
-                    ..default()
-                };
-            }
-            ui.separator();
-            ui.label("Other players with it up");
-            let mut l = look.clone();
-            ui.horizontal(|ui| {
-                ui.label("tint");
-                ui.color_edit_button_rgb(&mut l.color);
-            });
-            ui.add(egui::Slider::new(&mut l.alpha, 0.0f32..=1.0).text("opacity"));
-            ui.add(egui::Slider::new(&mut l.glow, 0.0f32..=6.0).text("glow"));
-            if ui.button("Reset look").clicked() {
-                l = ShroudLookSettings::default();
-            }
-            if l != *look {
-                *look = l;
-            }
-            ui.separator();
-            if ui.button("Print settings to console").clicked() {
-                info!(
-                    "Aether Shroud settings:\n{}\n{}",
-                    screen.to_rust(),
-                    look.to_rust()
-                );
-            }
+        }
+        ui.add(egui::Slider::new(&mut d.tint, 0.0f32..=1.0).text("grade amount"));
+        ui.add(egui::Slider::new(&mut d.exposure, 0.2f32..=3.0).text("exposure"));
+        ui.add(egui::Slider::new(&mut d.gamma, 0.2f32..=2.0).text("gamma"));
+        ui.label("Distortion");
+        ui.add(egui::Slider::new(&mut d.warp, -0.3f32..=0.5).text("warp toward centre"));
+        ui.add(egui::Slider::new(&mut d.chromatic, 0.0f32..=0.05).text("colour fringing"));
+        ui.add(egui::Slider::new(&mut d.edge_glow, 0.0f32..=1.0).text("edge haze"));
+        ui.add(egui::Slider::new(&mut d.shimmer, 0.0f32..=0.02).text("edge shimmer"));
+        ui.add(egui::Slider::new(&mut d.shimmer_speed, 0.0f32..=8.0).text("shimmer speed"));
+        ui.label("Kick (as it goes up)");
+        ui.add(egui::Slider::new(&mut d.kick_warp, 0.0f32..=1.0).text("extra warp"));
+        ui.add(egui::Slider::new(&mut d.kick_flash, 0.0f32..=4.0).text("flash"));
+        ui.add(egui::Slider::new(&mut d.kick_secs, 0.0f32..=3.0).text("eases off over (s)"));
+        ui.label("Lightning from the edges");
+        ui.add(egui::Slider::new(&mut d.bolt_brightness, 0.0f32..=5.0).text("brightness (0 = none)"));
+        ui.add(egui::Slider::new(&mut d.bolt_gap.0, 0.02f32..=3.0).text("gap between, min (s)"));
+        ui.add(egui::Slider::new(&mut d.bolt_gap.1, 0.02f32..=3.0).text("gap between, max (s)"));
+        ui.add(egui::Slider::new(&mut d.bolt_burst, 0..=4).text("burst as it goes up"));
+        ui.add(egui::Slider::new(&mut d.bolt_life, 0.02f32..=1.0).text("each lasts (s)"));
+        ui.add(egui::Slider::new(&mut d.bolt_length.0, 0.02f32..=1.2).text("length, min"));
+        ui.add(egui::Slider::new(&mut d.bolt_length.1, 0.02f32..=1.2).text("length, max"));
+        ui.add(egui::Slider::new(&mut d.bolt_jag, 0.0f32..=0.5).text("jaggedness"));
+        ui.add(egui::Slider::new(&mut d.bolt_width, 0.0002f32..=0.01).text("core thickness"));
+        ui.add(egui::Slider::new(&mut d.bolt_glow, 0.0005f32..=0.05).text("glow size"));
+        ui.horizontal(|ui| {
+            ui.label("glow colour");
+            ui.color_edit_button_rgb(&mut d.bolt_color);
         });
-    Ok(())
+        if ui.button("Reset screen effect").clicked() {
+            *d = AetherScreenSettings {
+                preview: d.preview,
+                ..default()
+            };
+        }
+        ui.separator();
+        ui.label("Other players with it up");
+        let mut l = look.clone();
+        ui.horizontal(|ui| {
+            ui.label("tint");
+            ui.color_edit_button_rgb(&mut l.color);
+        });
+        ui.add(egui::Slider::new(&mut l.alpha, 0.0f32..=1.0).text("opacity"));
+        ui.add(egui::Slider::new(&mut l.glow, 0.0f32..=6.0).text("glow"));
+        if ui.button("Reset look").clicked() {
+            l = ShroudLookSettings::default();
+        }
+        if l != *look {
+            *look = l;
+        }
+        ui.separator();
+        if ui.button("Print settings to console").clicked() {
+            info!(
+                "Aether Shroud settings:\n{}\n{}",
+                screen.to_rust(),
+                look.to_rust()
+            );
+        }
+    }
 }

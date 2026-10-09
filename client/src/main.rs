@@ -287,15 +287,14 @@ fn main() {
         .add_plugins(vfx::MysteryBoxVfxPlugin)
         .add_plugins(CompassPlugin)
         .add_plugins(minimap::MinimapPlugin)
+        // The telemetry row's CPU / memory readouts (`hud::fps_text`).
+        .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
+        .add_plugins(hud::DrawCallsPlugin)
         .add_systems(
             Update,
             weapons::raygun_draw_lower
                 .before(apply_ads)
                 .run_if(in_state(AppState::InGame)),
-        )
-        .add_systems(
-            EguiPrimaryContextPass,
-            weapons::raygun_debug_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
         )
         .init_resource::<weapons::WalkBob>()
         // In `PostUpdate` so it reads the view model's final pose for the

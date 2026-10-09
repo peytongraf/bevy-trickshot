@@ -108,6 +108,8 @@ pub struct KeyBindings {
     /// Hold to show the leaderboard (`hud::leaderboard`) — Tab, like Call
     /// of Duty.
     pub leaderboard: Binding,
+    /// Hold to show the full map (`minimap`) — M.
+    pub full_map: Binding,
     /// Free / re-lock the mouse cursor (for dragging the debug panel sliders).
     pub cursor_toggle: Binding,
 }
@@ -140,6 +142,7 @@ impl Default for KeyBindings {
             interact: Key(KeyCode::KeyF),
             field_upgrade: Key(KeyCode::KeyX),
             leaderboard: Key(KeyCode::Tab),
+            full_map: Key(KeyCode::KeyM),
             cursor_toggle: Key(KeyCode::KeyL),
         }
     }
@@ -171,6 +174,7 @@ pub const SLOTS: &[(&str, fn(&mut KeyBindings) -> &mut Binding)] = &[
     ("Interact / Buy", |b| &mut b.interact),
     ("Field Upgrade", |b| &mut b.field_upgrade),
     ("Show Leaderboard", |b| &mut b.leaderboard),
+    ("Show Full Map", |b| &mut b.full_map),
     ("Lock / Unlock Cursor", |b| &mut b.cursor_toggle),
 ];
 
