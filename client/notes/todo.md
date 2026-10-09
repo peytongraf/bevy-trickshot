@@ -26,15 +26,16 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Add commas where money is shown in current lobby and on the in game menus and hud
 - Make hd staminup model
 - Wunderfizz ui should appear centered in the screen instead of to the left
+- Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
 
 # Current todo
 
 # Performance
 
-- when using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90
-- if possible could add draw calls or other ways to detect how graphics performance is doing
+- When using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90. This seems to just be the case after going through this many rounds instead of starting on a high round from the start.
 - Could run btop while game is running
 - Could possibly keep a client side graph of entities, effects, fps over time etc
 
@@ -55,11 +56,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Adjust
 
 - Increase aim sway
-
-# New
-
-- Exfil radio model size should be increased by about 1.3 times
-- Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
 
 # Big features
 

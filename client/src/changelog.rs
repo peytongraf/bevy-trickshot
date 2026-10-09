@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: a beam of blue lightning rises from the Mystery Box, so you can spot it from anywhere.",
         "Zombies lobby: type in the starting round, and ESTIMATE sets the points you'd have by then.",
         "The game over screen's fire is softer.",
         "Hold M to see the full map — in Zombies, with every perk, machine and wall buy on it.",
@@ -37,7 +38,7 @@ pub const ENTRIES: &[(&str, &[&str])] = &[(
         "The game over screen fades in fire, embers and a drained, grey world.",
         "Zombies: no revive bar when you go down playing solo.",
         "Red damage indicators point to whoever's hurting you.",
-        "Getting hurt shows much more blood, sooner, with a louder heartbeat.",
+        "Getting hurt shows blood sooner, with a louder heartbeat.",
         "Zombies: the heartbeat now plays when you're hurt.",
         "Hold Tab to see the leaderboard.",
         "Zombies: perk bottles look like real glass bottles.",

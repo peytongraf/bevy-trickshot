@@ -57,7 +57,7 @@ pub(crate) struct HurtEffectSettings {
 impl Default for HurtEffectSettings {
     fn default() -> Self {
         Self {
-            blood_opacity: 1.0,
+            blood_opacity: 0.2,
             tint_opacity: 0.55,
             start_at: 1.0,
             full_at: 0.5,
