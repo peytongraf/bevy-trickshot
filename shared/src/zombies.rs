@@ -106,6 +106,56 @@ pub fn zombie_speed(round: u32, roll: f32) -> (bool, f32) {
     (speed >= ZOMBIE_RUN_SPEED, speed)
 }
 
+/// How many zombies round `round` sends, for `players` members.
+pub fn zombies_in_round(round: u32, players: usize) -> u32 {
+    let round = round.max(1);
+    (4 + 2 * (round - 1) + 2 * (players.max(1) as u32 - 1)).min(60)
+}
+
+/// The share of kills an estimate counts as critical (a headshot or a knife
+/// kill, [`crate::ZOMBIE_CRITICAL_POINTS`] more) — a sniper game, so plenty.
+const ESTIMATE_CRITICAL_SHARE: f32 = 0.4;
+/// ...and on dog rounds (they're harder to headshot).
+const ESTIMATE_DOG_CRITICAL_SHARE: f32 = 0.2;
+/// The share of power-up drops an estimate counts as picked up.
+const ESTIMATE_PICKUP_SHARE: f32 = 0.8;
+/// How many of a round's kills one Double Points covers, at most (its
+/// [`crate::power_ups::TIMED_SECS`] of killing)...
+const ESTIMATE_DOUBLE_POINTS_KILLS: f32 = 15.0;
+
+/// Roughly how many points a player would have banked by the start of
+/// `round` with `players` in the party, had they played every round before
+/// it and bought nothing — for the lobby's starting points to match a later
+/// starting round. Their share of each round's kills (with a share of them
+/// critical), plus what that many kills' power-ups are worth on average:
+/// Bonus Points (split across the party), Nukes (everyone's), and the kills
+/// Double Points doubles. Dog rounds drop nothing. Power-ups are random, so
+/// this is a ballpark, rounded to 50.
+pub fn estimated_points(round: u32, players: usize) -> u32 {
+    use crate::power_ups::{PowerUp, BONUS_POINTS, NUKE_POINTS};
+    let players = players.max(1) as f32;
+    let kill = crate::ZOMBIE_KILL_POINTS as f32;
+    let critical = crate::ZOMBIE_CRITICAL_POINTS as f32;
+    let drops = |p: PowerUp, kills: f32| kills * p.drop_chance() * ESTIMATE_PICKUP_SHARE;
+    let mut points = 0.0;
+    for r in 1..round.max(1) {
+        if crate::dogs::is_dog_round(r) {
+            let dogs = crate::dogs::dogs_in_round(r, players as usize) as f32;
+            points += dogs / players * (kill + critical * ESTIMATE_DOG_CRITICAL_SHARE);
+            continue;
+        }
+        let team_kills = zombies_in_round(r, players as usize) as f32;
+        let per_kill = kill + critical * ESTIMATE_CRITICAL_SHARE;
+        points += team_kills / players * per_kill;
+        points += drops(PowerUp::BonusPoints, team_kills) * BONUS_POINTS as f32 / players;
+        points += drops(PowerUp::Nuke, team_kills) * NUKE_POINTS as f32;
+        let doubled = (team_kills * 0.5).min(ESTIMATE_DOUBLE_POINTS_KILLS);
+        points += drops(PowerUp::DoublePoints, team_kills) * doubled / players * per_kill;
+    }
+    let rounded = ((points / 50.0).round() * 50.0) as u32;
+    rounded.min(MAX_START_POINTS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +217,21 @@ mod tests {
     fn the_swing_can_be_dodged() {
         assert!(ZOMBIE_ATTACK_HIT_SECS > 0.2 && ZOMBIE_ATTACK_HIT_SECS < ZOMBIE_ATTACK_SECS);
         assert!(ZOMBIE_STOP_DIST < ZOMBIE_ATTACK_RANGE && ZOMBIE_ATTACK_RANGE < ZOMBIE_ATTACK_REACH);
+    }
+
+    #[test]
+    fn estimated_points_grow_with_the_round_and_stay_in_the_ballpark() {
+        assert_eq!(estimated_points(1, 1), 0);
+        assert!(estimated_points(2, 1) > 0);
+        for r in 2..60 {
+            assert!(estimated_points(r + 1, 1) >= estimated_points(r, 1), "round {r}");
+        }
+        // Solo to round 10: about 90 kills — around 11-14k.
+        let ten = estimated_points(10, 1);
+        assert!((10_000..16_000).contains(&ten), "{ten}");
+        // A bigger party shares the kills.
+        assert!(estimated_points(10, 4) < ten);
+        assert!(estimated_points(500, 1) <= MAX_START_POINTS);
+        assert_eq!(estimated_points(20, 1) % 50, 0);
     }
 }

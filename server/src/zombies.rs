@@ -73,11 +73,9 @@ pub fn enemies_in_round(round: u32, players: usize) -> u32 {
     }
 }
 
-/// How many zombies round `round` sends, for `players` members.
-pub fn zombies_in_round(round: u32, players: usize) -> u32 {
-    let round = round.max(1);
-    (4 + 2 * (round - 1) + 2 * (players.max(1) as u32 - 1)).min(60)
-}
+/// How many zombies round `round` sends, for `players` members (`shared`'s,
+/// so the lobby's starting-points estimate counts the same zombies).
+pub use shared::zombies::zombies_in_round;
 
 /// Most zombies up at once: they keep coming (one per [`spawn_interval`])
 /// until this many are standing, and the rest of the round waits its turn,

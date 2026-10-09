@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies lobby: type in the starting round, and ESTIMATE sets the points you'd have by then.",
+        "The game over screen's fire is softer.",
         "Hold M to see the full map — in Zombies, with every perk, machine and wall buy on it.",
         "The in-game menu's background is darker, so it's easier to read.",
         "Settings has a DEBUG tab: debug mode, and toggles for draw calls, entity count and the position readout.",

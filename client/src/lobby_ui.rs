@@ -26,6 +26,8 @@ use crate::ui::{
     TEXT, TEXT_DIM, TRACK, VICTORY,
 };
 use crate::AppState;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::ButtonState;
 
 pub struct LobbyUiPlugin;
 
@@ -60,10 +62,13 @@ impl Plugin for LobbyUiPlugin {
             .add_systems(Update, wheel_scroll.run_if(in_menu))
             .add_systems(
                 Update,
-                lobby_back
+                (type_start_round, lobby_back)
+                    .chain()
                     .before(crate::menu::menu_toggle)
                     .run_if(in_state(AppState::InLobby)),
             )
+            // (A half-typed starting round doesn't outlive the room.)
+            .add_systems(OnExit(AppState::InLobby), |mut ui: ResMut<LobbyUi>| ui.round_draft = None)
             .add_systems(
                 Update,
                 (
@@ -137,6 +142,9 @@ struct LobbyUi {
     /// The "leave the lobby?" popup is up over the room (LEAVE / the mouse
     /// back button opened it).
     confirm_leave: bool,
+    /// The leader's typing a starting round into its box ([`type_start_round`])
+    /// — what they've typed so far.
+    round_draft: Option<String>,
 }
 
 /// What the leader's "add bots" controls are set to: how many, and at which
@@ -535,8 +543,13 @@ enum MenuBtn {
     /// `Zombies`' starting round / starting points (leader only).
     StartRoundDown,
     StartRoundUp,
+    /// Click the starting round's box to type one in.
+    EditStartRound,
     StartPointsDown,
     StartPointsUp,
+    /// Set the starting points to about what a player would have by the
+    /// starting round (`shared::zombies::estimated_points`).
+    EstimateStartPoints,
     /// `Zombies`' pre-game countdown (leader only).
     CountdownDown,
     CountdownUp,
@@ -842,6 +855,123 @@ fn stepper(
     ))
     .with_child(label_hud(asset_server, value, 22.0, TEXT));
     spawn_button_hud(row, asset_server, "+", 20.0, up, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+}
+
+/// The starting round's − / + with its value in a box the leader can click
+/// to type a round into ([`type_start_round`]).
+fn round_stepper(row: &mut ChildSpawnerCommands, asset_server: &AssetServer, value: String) {
+    spawn_button_hud(row, asset_server, "\u{2212}", 20.0, MenuBtn::StartRoundDown, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+    row.spawn((
+        Button,
+        Interaction::default(),
+        MenuBtn::EditStartRound,
+        StartRoundField,
+        Hoverable::new(ROW, ROW_HOVER, TEXT),
+        ui_sound(UiSound::MENU),
+        Node {
+            min_width: Val::Px(110.0),
+            height: Val::Px(40.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::bottom(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(ROW),
+        BorderColor(ACCENT),
+    ))
+    .with_child((StartRoundFieldText, label_hud(asset_server, value, 22.0, TEXT)));
+    spawn_button_hud(row, asset_server, "+", 20.0, MenuBtn::StartRoundUp, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+}
+
+/// The starting round's box, and its text.
+#[derive(Component)]
+struct StartRoundField;
+
+#[derive(Component)]
+struct StartRoundFieldText;
+
+/// Typing a starting round: digits, Backspace, Enter (or a click anywhere
+/// else) to set it, Esc (or the mouse back button) to leave it as it was.
+/// Eats the Esc / back press, so it doesn't also open the "leave the
+/// lobby?" popup or the settings.
+#[allow(clippy::too_many_arguments)]
+fn type_start_round(
+    mut ui: ResMut<LobbyUi>,
+    mut events: EventReader<KeyboardInput>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    field: Query<&Interaction, With<StartRoundField>>,
+    buttons: Query<(&Interaction, &MenuBtn)>,
+    mut text: Query<&mut Text, With<StartRoundFieldText>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&shared::Lobby>,
+    mut set_zombies_start: Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
+) {
+    let Some(mut draft) = ui.round_draft.clone() else {
+        events.clear();
+        return;
+    };
+    let mut done = None;
+    for ev in events.read() {
+        if ev.state != ButtonState::Pressed {
+            continue;
+        }
+        match &ev.logical_key {
+            Key::Character(c) => {
+                for ch in c.chars().filter(char::is_ascii_digit) {
+                    if draft.len() < 3 {
+                        draft.push(ch);
+                    }
+                }
+            }
+            Key::Backspace => {
+                draft.pop();
+            }
+            Key::Enter => done = Some(true),
+            _ => {}
+        }
+    }
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back) {
+        keys.clear_just_pressed(KeyCode::Escape);
+        mouse.clear_just_pressed(MouseButton::Back);
+        done = Some(false);
+    }
+    // (A click on the box itself is what started it; the round's − / + and
+    // ESTIMATE take the draft over themselves, in `handle_clicks`.)
+    let on_field = field.iter().any(|i| *i != Interaction::None);
+    let on_own_button = buttons.iter().any(|(i, b)| {
+        *i == Interaction::Pressed
+            && matches!(b, MenuBtn::StartRoundDown | MenuBtn::StartRoundUp | MenuBtn::EstimateStartPoints)
+    });
+    if mouse.just_pressed(MouseButton::Left) && !on_field && !on_own_button {
+        done = Some(true);
+    }
+    match done {
+        None => {
+            let shown = format!("{draft}_");
+            for mut t in &mut text {
+                if t.0 != shown {
+                    t.0 = shown.clone();
+                }
+            }
+            ui.round_draft = Some(draft);
+        }
+        Some(set) => {
+            let me = local.iter().next().map(|l| l.0);
+            let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
+            if let (true, Ok(round), Some(l), Ok(mut s)) =
+                (set, draft.parse::<u32>(), lobby, set_zombies_start.single_mut())
+            {
+                s.trigger::<shared::LobbyChannel>(shared::SetZombiesStart {
+                    round: round.clamp(1, shared::zombies::MAX_START_ROUND),
+                    points: l.start_points,
+                    countdown: l.countdown_secs,
+                });
+            }
+            ui.round_draft = None;
+            ui.dirty = true;
+        }
+    }
 }
 
 /// One labelled line of the lobby's game setup: the setting's name in a
@@ -1451,7 +1581,7 @@ fn build_room(
                     setting_row(col, asset_server, "STARTING ROUND", |row| {
                         let value = format!("ROUND {}", lobby.start_round.max(1));
                         if can_edit {
-                            stepper(row, asset_server, value, MenuBtn::StartRoundDown, MenuBtn::StartRoundUp);
+                            round_stepper(row, asset_server, value);
                         } else {
                             setting_value(row, asset_server, value);
                         }
@@ -1460,6 +1590,17 @@ fn build_room(
                         let value = format!("{} PTS", lobby.start_points);
                         if can_edit {
                             stepper(row, asset_server, value, MenuBtn::StartPointsDown, MenuBtn::StartPointsUp);
+                            spawn_button_hud(
+                                row,
+                                asset_server,
+                                &format!("ESTIMATE FOR ROUND {}", lobby.start_round.max(1)),
+                                18.0,
+                                MenuBtn::EstimateStartPoints,
+                                ROW,
+                                ROW_HOVER,
+                                TEXT,
+                                UiSound::MENU,
+                            );
                         } else {
                             setting_value(row, asset_server, value);
                         }
@@ -1824,7 +1965,7 @@ fn handle_clicks(
 
     // `Zombies`' starting round / points / countdown: new values, sent
     // together.
-    let mut set_start = |round: fn(u32) -> u32, points: fn(u32) -> u32, countdown: fn(u32) -> u32| {
+    let mut set_start = |round: &dyn Fn(u32) -> u32, points: &dyn Fn(u32) -> u32, countdown: &dyn Fn(u32) -> u32| {
         if let (Some(l), Ok(mut s)) = (my_lobby(), set_zombies_start.single_mut()) {
             s.trigger::<shared::LobbyChannel>(shared::SetZombiesStart {
                 round: round(l.start_round.max(1)).clamp(1, shared::zombies::MAX_START_ROUND),
@@ -1839,12 +1980,36 @@ fn handle_clicks(
             continue;
         }
         match btn {
-            MenuBtn::StartRoundDown => set_start(|r| r.saturating_sub(start_round_step(r, false)), |p| p, |c| c),
-            MenuBtn::StartRoundUp => set_start(|r| r + start_round_step(r, true), |p| p, |c| c),
-            MenuBtn::StartPointsDown => set_start(|r| r, |p| p.saturating_sub(start_points_step(p, false)), |c| c),
-            MenuBtn::StartPointsUp => set_start(|r| r, |p| p + start_points_step(p, true), |c| c),
-            MenuBtn::CountdownDown => set_start(|r| r, |p| p, |c| c.saturating_sub(COUNTDOWN_STEP_SECS)),
-            MenuBtn::CountdownUp => set_start(|r| r, |p| p, |c| c + COUNTDOWN_STEP_SECS),
+            MenuBtn::StartRoundDown | MenuBtn::StartRoundUp => {
+                // (Steps from the round set, dropping anything half-typed.)
+                if ui.round_draft.take().is_some() {
+                    ui.dirty = true;
+                }
+                if matches!(btn, MenuBtn::StartRoundUp) {
+                    set_start(&|r| r + start_round_step(r, true), &|p| p, &|c| c);
+                } else {
+                    set_start(&|r| r.saturating_sub(start_round_step(r, false)), &|p| p, &|c| c);
+                }
+            }
+            MenuBtn::EditStartRound => {
+                if ui.round_draft.is_none() {
+                    ui.round_draft = Some(String::new());
+                }
+            }
+            MenuBtn::StartPointsDown => set_start(&|r| r, &|p| p.saturating_sub(start_points_step(p, false)), &|c| c),
+            MenuBtn::StartPointsUp => set_start(&|r| r, &|p| p + start_points_step(p, true), &|c| c),
+            MenuBtn::EstimateStartPoints => {
+                // (For a round still being typed, too — it's set with it.)
+                let typed = ui.round_draft.take().and_then(|d| d.parse::<u32>().ok());
+                ui.dirty = true;
+                if let Some(l) = my_lobby() {
+                    let round = typed.unwrap_or(l.start_round).clamp(1, shared::zombies::MAX_START_ROUND);
+                    let players = l.members.len();
+                    set_start(&|_| round, &|_| shared::zombies::estimated_points(round, players), &|c| c);
+                }
+            }
+            MenuBtn::CountdownDown => set_start(&|r| r, &|p| p, &|c| c.saturating_sub(COUNTDOWN_STEP_SECS)),
+            MenuBtn::CountdownUp => set_start(&|r| r, &|p| p, &|c| c + COUNTDOWN_STEP_SECS),
             MenuBtn::OpenLoadout => menu.open_loadout(None),
             MenuBtn::OpenLevelEditor => next_state.set(AppState::LevelEditor),
             MenuBtn::OpenChangelog => {

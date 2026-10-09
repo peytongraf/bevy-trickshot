@@ -27,7 +27,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Added
 
 - Make hd staminup model
-- Keybinds menu isn't scrolling well / at all
 - Wunderfizz ui should appear centered in the screen instead of to the left
 
 # Current todo
