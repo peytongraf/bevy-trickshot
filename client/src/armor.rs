@@ -986,7 +986,7 @@ fn refresh_armor_menu(
         }
     }
     for (s, mut text, mut color) in &mut statuses {
-        let price = format!("${}", cost(s.0, armor));
+        let price = format!("${}", crate::util::grouped(cost(s.0, armor)));
         let (line, c) = match status_of(s.0) {
             Status::Owned => ("OWNED".to_string(), OWNED_GREEN),
             Status::Buyable => (price, MONEY_YELLOW),
@@ -1016,7 +1016,7 @@ fn refresh_armor_menu(
                 LEVEL_RED,
             ),
             ArmorText::Cost => {
-                let price = format!("Cost: ${}", cost(state.selected, armor));
+                let price = format!("Cost: ${}", crate::util::grouped(cost(state.selected, armor)));
                 match selected {
                     Status::Owned => ("OWNED".to_string(), OWNED_GREEN),
                     Status::TooPoor => (price, POOR_RED),
@@ -1025,7 +1025,7 @@ fn refresh_armor_menu(
                 }
             }
             ArmorText::Description => (description(state.selected, armor), LIGHT_TEXT),
-            ArmorText::Points => (format!("${points}"), MONEY_YELLOW),
+            ArmorText::Points => (format!("${}", crate::util::grouped(points)), MONEY_YELLOW),
         };
         if text.0 != line {
             text.0 = line;

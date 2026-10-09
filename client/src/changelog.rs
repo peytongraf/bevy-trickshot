@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: the Der Wunderfizz menu is centred on screen and tidier — click a perk to buy it.",
+        "Points and prices show commas (100,000).",
         "Zombies: a beam of blue lightning rises from the Mystery Box, so you can spot it from anywhere.",
         "Zombies lobby: type in the starting round, and ESTIMATE sets the points you'd have by then.",
         "The game over screen's fire is softer.",

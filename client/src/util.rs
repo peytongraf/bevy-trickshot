@@ -17,6 +17,20 @@ pub(crate) fn rand_roll(seed: u32) -> f32 {
     rand01(seed) * (std::f32::consts::PI * 2.0) - std::f32::consts::PI
 }
 
+/// A number with thousands separators ("54,650") — how money (`Zombies`
+/// points) and scores are shown everywhere.
+pub(crate) fn grouped(n: u32) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub(crate) fn srgb_parts(c: Color) -> [f32; 3] {
     let s = c.to_srgba();
     [s.red, s.green, s.blue]
@@ -47,4 +61,18 @@ pub(crate) fn placed(at: shared::level::Placement) -> bevy::prelude::Transform {
     bevy::prelude::Transform::from_translation(at.pos)
         .with_rotation(at.rotation())
         .with_scale(bevy::prelude::Vec3::splat(at.scale.max(0.01)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers_group_by_thousands() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(950), "950");
+        assert_eq!(grouped(1000), "1,000");
+        assert_eq!(grouped(100_000), "100,000");
+        assert_eq!(grouped(1_234_567), "1,234,567");
+    }
 }

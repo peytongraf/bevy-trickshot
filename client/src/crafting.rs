@@ -958,11 +958,11 @@ fn refresh_crafting_menu(
             CraftText::Name => (label(state.selected).to_string(), NAME_RED),
             CraftText::Cost => match selected {
                 Status::Full => ("CARRYING THE MOST".to_string(), FULL_GREY),
-                Status::TooPoor => (format!("Cost: ${price}"), POOR_RED),
-                Status::Buyable => (format!("Cost: ${price}"), DARK_TEXT),
+                Status::TooPoor => (format!("Cost: ${}", crate::util::grouped(price)), POOR_RED),
+                Status::Buyable => (format!("Cost: ${}", crate::util::grouped(price)), DARK_TEXT),
             },
             CraftText::Description => (description(&weapon, state.selected), LIGHT_TEXT),
-            CraftText::Points => (format!("${points}"), if selected == Status::TooPoor { POOR_RED } else { MONEY_YELLOW }),
+            CraftText::Points => (format!("${}", crate::util::grouped(points)), if selected == Status::TooPoor { POOR_RED } else { MONEY_YELLOW }),
         };
         if text.0 != line {
             text.0 = line;

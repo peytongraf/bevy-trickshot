@@ -698,8 +698,8 @@ fn update_power_card(
     }
     for (which, mut text, mut color) in &mut texts {
         let (wanted, wanted_color) = match which {
-            PowerCardText::Cost => (format!("${cost}"), cost_color),
-            PowerCardText::Points => (format!("${points}"), points_color),
+            PowerCardText::Cost => (format!("${}", crate::util::grouped(cost)), cost_color),
+            PowerCardText::Points => (format!("${}", crate::util::grouped(points)), points_color),
             PowerCardText::Action => (action.clone(), action_color),
         };
         if text.0 != wanted {

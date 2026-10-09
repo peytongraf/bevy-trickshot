@@ -1518,7 +1518,7 @@ fn update_party_panels(
             .iter()
             .find(|x| x.peer == m.0)
             .map_or(0, |x| x.score);
-        let s = points.to_string();
+        let s = crate::util::grouped(points);
         if text.0 != s {
             text.0 = s;
         }
@@ -1793,8 +1793,8 @@ fn update_perk_card(
                     .join("\n"),
                 color.0,
             ),
-            PerkCardText::Cost => (format!("${}", perk.cost()), cost_color),
-            PerkCardText::Points => (format!("${points}"), points_color),
+            PerkCardText::Cost => (format!("${}", crate::util::grouped(perk.cost())), cost_color),
+            PerkCardText::Points => (format!("${}", crate::util::grouped(points)), points_color),
             PerkCardText::Action => (action.clone(), action_color),
         };
         if text.0 != wanted {

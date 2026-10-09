@@ -640,14 +640,14 @@ fn update_box_card(
     let (title, detail, detail_color, action, edge) = match what {
         BoxUse::Spin => (
             "MYSTERY BOX".to_string(),
-            format!("COST  {COST}"),
+            format!("COST  {}", crate::util::grouped(COST)),
             MONEY_YELLOW,
             format!("PRESS {key} TO SPIN"),
             AMBER,
         ),
         BoxUse::TooPoor => (
             "MYSTERY BOX".to_string(),
-            format!("COST  {COST}"),
+            format!("COST  {}", crate::util::grouped(COST)),
             CARD_RED,
             "NOT ENOUGH POINTS".to_string(),
             CARD_RED,

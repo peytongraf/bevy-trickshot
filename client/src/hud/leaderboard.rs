@@ -163,18 +163,18 @@ fn board(lobby: &Lobby, me: Option<lightyear::prelude::PeerId>) -> Board {
             me: Some(m.peer) == me,
             values: match lobby.mode {
                 GameMode::Zombies => vec![
-                    grouped(m.score),
+                    crate::util::grouped(m.score),
                     m.kills.to_string(),
                     m.critical_kills.to_string(),
                     m.revives.to_string(),
                     m.downs.to_string(),
                 ],
                 GameMode::FreeForAll => vec![
-                    m.score.to_string(),
+                    crate::util::grouped(m.score),
                     m.deaths.to_string(),
                     format!("{:.2}", m.score as f32 / m.deaths.max(1) as f32),
                 ],
-                GameMode::Freestyle => vec![grouped(m.score), m.kills.to_string(), m.deaths.to_string()],
+                GameMode::Freestyle => vec![crate::util::grouped(m.score), m.kills.to_string(), m.deaths.to_string()],
             },
         })
         .collect();
@@ -306,15 +306,3 @@ fn build(panel: &mut ChildSpawnerCommands, asset_server: &AssetServer, board: &B
         });
 }
 
-/// A number with thousands separators ("54,650").
-fn grouped(n: u32) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}

@@ -365,7 +365,7 @@ fn update_wall_buy_card(
             CardText::Name => (gun.label().to_string(), if status == Status::Owned { OWNED_GREY } else { Color::WHITE }),
             CardText::Class => (gun.class_label().to_string(), Color::srgba(1.0, 1.0, 1.0, 0.55)),
             CardText::Cost => (
-                format!("COST  {}", shared::weapon::wall_buy_cost(gun)),
+                format!("COST  {}", crate::util::grouped(shared::weapon::wall_buy_cost(gun))),
                 if status == Status::TooPoor { CARD_RED } else { MONEY_YELLOW },
             ),
             CardText::Status => (status_text.clone(), status_color),

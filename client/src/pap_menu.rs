@@ -871,7 +871,7 @@ fn refresh_pap_menu(
         color.set_if_neq(TextColor(c));
     }
     for (s, mut text, mut color) in &mut statuses {
-        let cost = format!("${}", shared::pap::cost_to(current, s.0));
+        let cost = format!("${}", crate::util::grouped(shared::pap::cost_to(current, s.0)));
         let (line, c) = match status(s.0) {
             LevelStatus::Owned => ("OWNED".to_string(), OWNED_GREEN),
             LevelStatus::Buyable => (cost, MONEY_YELLOW),
@@ -902,7 +902,7 @@ fn refresh_pap_menu(
         let (line, c) = match which {
             PapText::Level => (format!("LEVEL {}", shared::pap::numeral(state.selected)), LEVEL_RED),
             PapText::Cost => {
-                let cost = format!("Cost: ${}", shared::pap::cost_to(current, state.selected));
+                let cost = format!("Cost: ${}", crate::util::grouped(shared::pap::cost_to(current, state.selected)));
                 match selected {
                     LevelStatus::Owned => ("OWNED".to_string(), OWNED_GREEN),
                     LevelStatus::TooPoor => (cost, POOR_RED),
@@ -910,7 +910,7 @@ fn refresh_pap_menu(
                 }
             }
             PapText::Description => (level_description(state.weapon, state.mag, state.selected), LIGHT_TEXT),
-            PapText::Points => (format!("${points}"), MONEY_YELLOW),
+            PapText::Points => (format!("${}", crate::util::grouped(points)), MONEY_YELLOW),
         };
         if text.0 != line {
             text.0 = line;

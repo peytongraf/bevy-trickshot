@@ -1332,19 +1332,6 @@ fn results_screen(
         });
 }
 
-/// A number with thousands separators ("54,650").
-fn grouped(n: u32) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// Rounds a finished `Zombies` game survived: every one before the round
 /// it ended on — that one too, if the party exfilled out of it.
 pub(crate) fn survived_rounds(lobby: &shared::Lobby) -> u32 {
@@ -1386,7 +1373,7 @@ fn build_match_results(
                 name: m.name.clone(),
                 me: is_me(m),
                 values: vec![
-                    grouped(m.score),
+                    crate::util::grouped(m.score),
                     m.kills.to_string(),
                     m.critical_kills.to_string(),
                     m.revives.to_string(),
@@ -1410,13 +1397,13 @@ fn build_match_results(
     let top = members.first().map(|m| (m.name.to_uppercase(), m.score));
     let won = top.as_ref().is_some_and(|(_, best)| members.iter().any(|m| is_me(m) && m.score == *best));
     let unit = if lobby.mode == shared::GameMode::FreeForAll { "KILLS" } else { "POINTS" };
-    let subtitle = top.map_or(String::new(), |(name, best)| format!("{name} WINS WITH {} {unit}", grouped(best)));
+    let subtitle = top.map_or(String::new(), |(name, best)| format!("{name} WINS WITH {} {unit}", crate::util::grouped(best)));
     let rows: Vec<ResultRow> = members
         .iter()
         .map(|m| ResultRow {
             name: m.name.clone(),
             me: is_me(m),
-            values: vec![grouped(m.score)],
+            values: vec![crate::util::grouped(m.score)],
         })
         .collect();
     let headline = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };

@@ -353,7 +353,6 @@ enum WfText {
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum WfButton {
-    Purchase,
     Exit,
 }
 
@@ -368,7 +367,7 @@ const FAINT_TEXT: Color = Color::srgba(0.94, 0.92, 0.97, 0.6);
 const OWNED_GREEN: Color = Color::srgb(0.35, 0.85, 0.45);
 const POOR_RED: Color = Color::srgb(0.9, 0.3, 0.3);
 
-/// A key chip ("LMB", "ESC") and its label — the footer's controls.
+/// A key chip ("ESC") and its label — the footer's controls.
 fn spawn_control(
     parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands,
     which: WfButton,
@@ -491,10 +490,9 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
-                // Off to the left, so the drink stays in view beside it.
-                justify_content: JustifyContent::FlexStart,
+                // Centred on the screen.
+                justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                padding: UiRect::left(Val::Percent(6.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.02, 0.0, 0.05, 0.3)),
@@ -594,7 +592,6 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                                 ..default()
                             })
                             .with_children(|c| {
-                                spawn_control(c, WfButton::Purchase, "LMB", "PURCHASE", &heading);
                                 spawn_control(c, WfButton::Exit, "ESC", "EXIT", &heading);
                             });
                             f.spawn((WfText::Points, Text::new(""), hfont(44.0), TextColor(MONEY_YELLOW)));
@@ -689,7 +686,6 @@ fn wunderfizz_input(
             continue;
         }
         match button {
-            WfButton::Purchase => buy = state.hovered,
             WfButton::Exit => state.close_pending = true,
         }
     }
@@ -767,8 +763,8 @@ fn refresh_wunderfizz(
     for (s, mut text, mut color) in &mut statuses {
         let (line, c) = match status(s.0) {
             PerkStatus::Owned => ("OWNED".to_string(), OWNED_GREEN),
-            PerkStatus::Buyable => (format!("${}", s.0.cost()), MONEY_YELLOW),
-            PerkStatus::TooPoor => (format!("${}", s.0.cost()), POOR_RED),
+            PerkStatus::Buyable => (format!("${}", crate::util::grouped(s.0.cost())), MONEY_YELLOW),
+            PerkStatus::TooPoor => (format!("${}", crate::util::grouped(s.0.cost())), POOR_RED),
         };
         if text.0 != line {
             text.0 = line;
@@ -785,11 +781,11 @@ fn refresh_wunderfizz(
             (WfText::Description, None) => ("Hover over a perk to see what it does.".to_string(), FAINT_TEXT),
             (WfText::Cost, Some(p)) => match status(p) {
                 PerkStatus::Owned => ("OWNED".to_string(), OWNED_GREEN),
-                PerkStatus::Buyable => (format!("${}", p.cost()), MONEY_YELLOW),
-                PerkStatus::TooPoor => (format!("${}", p.cost()), POOR_RED),
+                PerkStatus::Buyable => (format!("${}", crate::util::grouped(p.cost())), MONEY_YELLOW),
+                PerkStatus::TooPoor => (format!("${}", crate::util::grouped(p.cost())), POOR_RED),
             },
             (WfText::Cost, None) => (String::new(), MONEY_YELLOW),
-            (WfText::Points, _) => (format!("${points}"), MONEY_YELLOW),
+            (WfText::Points, _) => (format!("${}", crate::util::grouped(points)), MONEY_YELLOW),
         };
         if text.0 != line {
             text.0 = line;

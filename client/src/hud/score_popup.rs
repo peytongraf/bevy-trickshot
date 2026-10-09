@@ -90,9 +90,9 @@ pub(crate) fn spawn_score_popup(
             // explaining where it came from.
             col.spawn((
                 Text::new(if ev.lines.is_empty() {
-                    format!("+{}", ev.total)
+                    format!("+{}", crate::util::grouped(ev.total))
                 } else {
-                    format!("+{}  TOTAL", ev.total)
+                    format!("+{}  TOTAL", crate::util::grouped(ev.total))
                 }),
                 TextFont {
                     font: asset_server.load(HUD_FONT),
@@ -103,7 +103,7 @@ pub(crate) fn spawn_score_popup(
             ));
             for (label, points) in &ev.lines {
                 col.spawn((
-                    Text::new(format!("+{points}  {label}")),
+                    Text::new(format!("+{}  {label}", crate::util::grouped(*points))),
                     TextFont {
                         font: asset_server.load(HUD_FONT),
                         font_size: 25.0,

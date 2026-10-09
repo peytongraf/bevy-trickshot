@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Wunderfizz menu centred
+- Commas in money amounts
 - Full map on hold (M)
 - Telemetry settings (FPS, 1% low, etc.)
 - Minimap top left
@@ -26,9 +28,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
-- Add commas where money is shown in current lobby and on the in game menus and hud
 - Make hd staminup model
-- Wunderfizz ui should appear centered in the screen instead of to the left
+- Make a better blood overlay
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
 
 # Current todo

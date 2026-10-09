@@ -1482,7 +1482,7 @@ fn build_room(
                         },
                     )
                 } else {
-                    ("LAST MATCH", format!("{winner} won with {score}"))
+                    ("LAST MATCH", format!("{winner} won with {}", crate::util::grouped(*score)))
                 };
                 b.spawn(label_hud(asset_server, title, 18.0, ACCENT));
                 b.spawn(label_hud(asset_server, text.to_uppercase(), 20.0, TEXT));
@@ -1587,7 +1587,7 @@ fn build_room(
                         }
                     });
                     setting_row(col, asset_server, "STARTING POINTS", |row| {
-                        let value = format!("{} PTS", lobby.start_points);
+                        let value = format!("{} PTS", crate::util::grouped(lobby.start_points));
                         if can_edit {
                             stepper(row, asset_server, value, MenuBtn::StartPointsDown, MenuBtn::StartPointsUp);
                             spawn_button_hud(
@@ -2205,7 +2205,7 @@ fn rebuild_scoreboard(
                     })
                     .with_children(|row| {
                         row.spawn(label(name, 17.0, col));
-                        row.spawn(label(score.to_string(), 17.0, col));
+                        row.spawn(label(crate::util::grouped(score), 17.0, col));
                     });
             }
         });

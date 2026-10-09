@@ -317,8 +317,8 @@ fn update_ammo_card(
     }
     for (which, mut text, mut color) in &mut texts {
         let (wanted, wanted_color) = match which {
-            AmmoCardText::Cost => (format!("${cost}"), cost_color),
-            AmmoCardText::Points => (format!("${points}"), points_color),
+            AmmoCardText::Cost => (format!("${}", crate::util::grouped(cost)), cost_color),
+            AmmoCardText::Points => (format!("${}", crate::util::grouped(points)), points_color),
             AmmoCardText::Action => (action.clone(), action_color),
         };
         if text.0 != wanted {
