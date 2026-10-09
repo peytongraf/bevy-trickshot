@@ -1722,57 +1722,16 @@ pub(crate) fn ads_tuning_ui(
             });
 
             ui.separator();
-            ui.collapsing("Map lights (Break Point Night)", |ui| {
+            ui.collapsing("Map lights (power)", |ui| {
                 let ml = &mut *map_lights;
                 ui.label(
-                    "In Zombies they're off until someone turns the power on, then fade in; \
-                     in other modes they're just on.",
+                    "Each map's lights are placed and tuned in the level editor (main menu → LEVEL EDITOR). \
+                     In Zombies they're off until someone turns the power on, then fade in; in other modes \
+                     they're just on.",
                 );
                 ui.checkbox(&mut ml.force_on, "force power on (untick / tick to replay the fade)");
                 ui.add(egui::Slider::new(&mut ml.fade_secs, 0.0f32..=15.0).text("fade in (s)"));
-                for (i, l) in ml.lights.iter_mut().enumerate() {
-                    ui.separator();
-                    ui.label(format!("Light {}", i + 1));
-                    ui.checkbox(&mut l.enabled, "on");
-                    ui.add(egui::Slider::new(&mut l.pos.x, -80.0f32..=80.0).text("x (m)"));
-                    ui.add(egui::Slider::new(&mut l.pos.y, -10.0f32..=60.0).text("y (m)"));
-                    ui.add(egui::Slider::new(&mut l.pos.z, -80.0f32..=80.0).text("z (m)"));
-                    ui.horizontal(|ui| {
-                        ui.label("colour");
-                        ui.color_edit_button_rgb(&mut l.color);
-                    });
-                    ui.add(
-                        egui::Slider::new(&mut l.intensity, 0.0f32..=100_000_000.0)
-                            .logarithmic(true)
-                            .text("intensity (lm)"),
-                    );
-                    ui.add(egui::Slider::new(&mut l.range, 1.0f32..=200.0).text("range (m)"));
-                    ui.add(egui::Slider::new(&mut l.radius, 0.0f32..=5.0).text("radius (m)"));
-                    ui.checkbox(&mut l.shadows, "shadows");
-                }
-                ui.separator();
-                if ui.button("Copy map lights to console").clicked() {
-                    info!("map lights: fade_secs: {:.2}", ml.fade_secs);
-                    for (i, l) in ml.lights.iter().enumerate() {
-                        info!(
-                            "map light {}: enabled: {}, pos: ({:.2}, {:.2}, {:.2}), color: ({:.3}, {:.3}, {:.3}), \
-                             intensity: {:.0}, range: {:.2}, radius: {:.2}, shadows: {}",
-                            i + 1,
-                            l.enabled,
-                            l.pos.x,
-                            l.pos.y,
-                            l.pos.z,
-                            l.color[0],
-                            l.color[1],
-                            l.color[2],
-                            l.intensity,
-                            l.range,
-                            l.radius,
-                            l.shadows,
-                        );
-                    }
-                }
-                if ui.button("Reset map lights").clicked() {
+                if ui.button("Reset").clicked() {
                     *ml = crate::power::MapLightSettings {
                         force_on: ml.force_on,
                         ..default()

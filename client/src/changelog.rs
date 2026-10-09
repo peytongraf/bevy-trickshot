@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Level editor: add, move and tune the power lights, and preview the map as in game with the power off or on.",
         "Zombies: the Rampage Inducer — hold to turn it on for faster, quicker-spawning zombies and its own music.",
         "Zombies: the Der Wunderfizz menu is centred on screen and tidier — click a perk to buy it.",
         "Points and prices show commas (100,000).",

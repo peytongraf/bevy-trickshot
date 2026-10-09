@@ -1,8 +1,9 @@
 //! The `Zombies` level editor — main menu → LEVEL EDITOR
 //! ([`AppState::LevelEditor`]). It places everything a `Zombies` game puts on
 //! a map (the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo crate,
-//! the power switch, the wall buys, the exfil radio and area, the players'
-//! start spots) and saves each map's layout to its file in
+//! the power switch, the wall buys, the exfil radio and area, the Rampage
+//! Inducer, the lights the power turns on, the players' start spots) and
+//! saves each map's layout to its file in
 //! `shared/levels/` (`shared::level`), which the client and the server both
 //! build in — rebuild them to play the new layout.
 //!
@@ -21,6 +22,10 @@
 //!   click / Enter confirms, right click / Esc cancels;
 //! * End drops onto the ground below, X / Delete removes, Ctrl+Z / Ctrl+Shift+Z
 //!   undo / redo, Ctrl+S saves; F1 lists all of it.
+//!
+//! The map shows brightly lit and fog-free to work on; View → Look shows it
+//! as a game does instead — its own light and fog — with the power off, or
+//! on (its power lights lit, [`sync_editor_lights`]).
 //!
 //! Esc (with nothing to cancel) and the mouse back button do what EXIT does:
 //! leave — asking first if there's anything unsaved.
@@ -81,6 +86,7 @@ impl Plugin for LevelEditorPlugin {
                         share_sizes,
                         input::drive_camera,
                         sync_objects,
+                        sync_editor_lights,
                         input::draw_gizmos,
                     )
                         .chain(),
@@ -130,6 +136,10 @@ pub(crate) enum ObjectId {
     /// A players' start spot (`ZombiesLayout::player_spawns`, by index) —
     /// as many as players a lobby holds, each player dealt a different one.
     PlayerSpawn(u8),
+    /// One of the lights the power turns on (`ZombiesLayout::power_lights`,
+    /// by index) — hanging where it's put, no model; its colour, brightness
+    /// and reach are the properties panel's.
+    PowerLight(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -176,6 +186,26 @@ impl ObjectId {
         "Player spawn 8",
     ];
 
+    /// Names for the power lights ([`ObjectId::PowerLight`]).
+    const LIGHT_LABELS: [&'static str; shared::level::MAX_POWER_LIGHTS] = [
+        "Power light 1",
+        "Power light 2",
+        "Power light 3",
+        "Power light 4",
+        "Power light 5",
+        "Power light 6",
+        "Power light 7",
+        "Power light 8",
+        "Power light 9",
+        "Power light 10",
+        "Power light 11",
+        "Power light 12",
+        "Power light 13",
+        "Power light 14",
+        "Power light 15",
+        "Power light 16",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -196,6 +226,7 @@ impl ObjectId {
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
+            ObjectId::PowerLight(i) => Self::LIGHT_LABELS[(i as usize).min(Self::LIGHT_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -207,7 +238,11 @@ impl ObjectId {
     pub(crate) fn scalable(self) -> bool {
         !matches!(
             self,
-            ObjectId::Reference(_) | ObjectId::WallBuy(_) | ObjectId::ExfilArea | ObjectId::PlayerSpawn(_)
+            ObjectId::Reference(_)
+                | ObjectId::WallBuy(_)
+                | ObjectId::ExfilArea
+                | ObjectId::PlayerSpawn(_)
+                | ObjectId::PowerLight(_)
         )
     }
 
@@ -226,7 +261,11 @@ impl ObjectId {
             ObjectId::CraftingTable => Some("crafting_table".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
             ObjectId::RampageInducer => Some("rampage_inducer".into()),
-            ObjectId::ExfilArea | ObjectId::WallBuy(_) | ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => None,
+            ObjectId::ExfilArea
+            | ObjectId::WallBuy(_)
+            | ObjectId::Reference(_)
+            | ObjectId::PlayerSpawn(_)
+            | ObjectId::PowerLight(_) => None,
         }
     }
 
@@ -237,7 +276,9 @@ impl ObjectId {
 
     /// Whether it can be added and removed (everything but the machines).
     pub(crate) fn is_optional(self) -> bool {
-        Self::OPTIONAL.contains(&self) || self.is_reference() || matches!(self, ObjectId::PlayerSpawn(_))
+        Self::OPTIONAL.contains(&self)
+            || self.is_reference()
+            || matches!(self, ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_))
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
@@ -294,6 +335,7 @@ impl ObjectId {
             ObjectId::RampageInducer => layout.rampage_inducer,
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
             ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
+            ObjectId::PowerLight(i) => layout.power_lights.get(i as usize).map(|l| Placement::new(l.pos, 0.0)),
         }
     }
 
@@ -315,6 +357,16 @@ impl ObjectId {
                     spots.push(at);
                 }
             }
+            // (Only its position — the rest is the properties panel's; a
+            // new one goes on the end.)
+            ObjectId::PowerLight(i) => {
+                let lights = &mut layout.power_lights;
+                if let Some(light) = lights.get_mut(i as usize) {
+                    light.pos = at.pos;
+                } else if lights.len() < shared::level::MAX_POWER_LIGHTS {
+                    lights.push(shared::level::PowerLight::new(at.pos));
+                }
+            }
             ObjectId::ExfilArea => match layout.exfil_area.as_mut() {
                 Some(area) => area.at = at.with_scale(1.0),
                 None => layout.exfil_area = Some(ExfilArea::new(at)),
@@ -334,6 +386,10 @@ impl ObjectId {
         if let ObjectId::PlayerSpawn(i) = self {
             let i = i as usize;
             return (i < layout.player_spawns.len()).then(|| layout.player_spawns.remove(i)).is_some();
+        }
+        if let ObjectId::PowerLight(i) = self {
+            let i = i as usize;
+            return (i < layout.power_lights.len()).then(|| layout.power_lights.remove(i)).is_some();
         }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
@@ -363,6 +419,7 @@ impl ObjectId {
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
             ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
+            ObjectId::PowerLight(_) => Color::srgb(1.0, 0.92, 0.45),
         }
     }
 
@@ -380,6 +437,8 @@ impl ObjectId {
             ObjectId::ExfilArea => 0.0,
             // (Not used — stood on. Its circle's about a body's width.)
             ObjectId::PlayerSpawn(_) => 0.4,
+            // (Not used — its reach is drawn as a sphere instead.)
+            ObjectId::PowerLight(_) => 0.0,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -417,6 +476,8 @@ impl ObjectId {
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
             ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
+            // A light: a small box round where it hangs (to click).
+            ObjectId::PowerLight(_) => (Vec3::ZERO, Vec3::splat(0.3)),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
             // The sign: post and board.
@@ -441,6 +502,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     }
     out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(doc).is_some()));
     out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
+    out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -557,8 +619,33 @@ pub(crate) struct ViewOptions {
     pub(crate) labels: bool,
     /// Every thing's use range, not just the selection's.
     pub(crate) ranges: bool,
-    /// Lift the ambient light and the fog, so a night map's workable.
-    pub(crate) bright: bool,
+    /// How the map's lit (View → Look).
+    pub(crate) look: Look,
+}
+
+/// How the editor lights the map.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum Look {
+    /// Ambient light lifted and the fog pushed away, so a night map's
+    /// workable — the power lights not lit.
+    #[default]
+    Editor,
+    /// As a game has it: its own light and fog, the power off...
+    GamePowerOff,
+    /// ...or on — its power lights lit.
+    GamePowerOn,
+}
+
+impl Look {
+    pub(crate) const ALL: [Look; 3] = [Look::Editor, Look::GamePowerOff, Look::GamePowerOn];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Look::Editor => "Editor (bright, no fog)",
+            Look::GamePowerOff => "In game — power off",
+            Look::GamePowerOn => "In game — power on",
+        }
+    }
 }
 
 impl Default for ViewOptions {
@@ -567,7 +654,7 @@ impl Default for ViewOptions {
             grid: true,
             labels: true,
             ranges: false,
-            bright: true,
+            look: Look::Editor,
         }
     }
 }
@@ -872,12 +959,12 @@ fn exit(
 
 // --- lighting -----------------------------------------------------------------------
 
-/// The map's own ambient brightness and fog while [`ViewOptions::bright`]
-/// has them lifted — put back when it's turned off, and on the way out.
+/// The map's own ambient brightness and fog while the editor's look
+/// ([`Look::Editor`]) has them lifted — put back when it's turned off, and on the way out.
 #[derive(Resource, Default)]
 struct LightingBackup(Option<(f32, FogFalloff)>);
 
-/// Ambient brightness (and no fog to speak of) with "bright" on.
+/// Ambient brightness (and no fog to speak of) in the editor's look.
 const BRIGHT_AMBIENT: f32 = 750.0;
 
 /// Lift (or put back) the light, after `apply_scene_tuning` sets the map's
@@ -893,7 +980,7 @@ fn apply_editor_lighting(
     if current.is_changed() {
         backup.0 = None;
     }
-    match (editor.view.bright, backup.0.is_some()) {
+    match (editor.view.look == Look::Editor, backup.0.is_some()) {
         (true, false) => {
             backup.0 = Some((ambient.brightness, fog.falloff.clone()));
             ambient.brightness = ambient.brightness.max(BRIGHT_AMBIENT);
@@ -909,6 +996,47 @@ fn apply_editor_lighting(
             }
         }
         _ => {}
+    }
+}
+
+/// One of the map's power lights, lit in the editor.
+#[derive(Component)]
+struct EditorPowerLight(usize);
+
+/// Light the shown map's power lights as a game would with the power on
+/// ([`Look::GamePowerOn`]) — dark otherwise — and keep them matching the
+/// layout as it's edited.
+fn sync_editor_lights(
+    editor: Res<Editor>,
+    mut lights: Query<(Entity, &EditorPowerLight, &mut PointLight, &mut Transform)>,
+    mut commands: Commands,
+) {
+    if editor.docs.is_empty() {
+        return;
+    }
+    let wanted = &editor.doc().layout.power_lights;
+    let lit = editor.view.look == Look::GamePowerOn;
+    if lights.iter().count() != wanted.len() {
+        for (e, ..) in &lights {
+            commands.entity(e).despawn();
+        }
+        for (i, light) in wanted.iter().enumerate() {
+            commands.spawn((
+                StateScoped(AppState::LevelEditor),
+                EditorPowerLight(i),
+                crate::power::point_light(light, if lit { 1.0 } else { 0.0 }),
+                Transform::from_translation(light.pos),
+            ));
+        }
+        return;
+    }
+    if !editor.is_changed() {
+        return;
+    }
+    for (_, i, mut point, mut t) in &mut lights {
+        let Some(light) = wanted.get(i.0) else { continue };
+        *point = crate::power::point_light(light, if lit { 1.0 } else { 0.0 });
+        t.set_if_neq(Transform::from_translation(light.pos));
     }
 }
 
@@ -939,8 +1067,9 @@ fn model_of(
         ObjectId::CraftingTable => (crate::crafting::CRAFTING_TABLE_MODEL, crate::crafting::model_transform()),
         ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
         ObjectId::RampageInducer => (crate::rampage::RAMPAGE_MODEL, Transform::IDENTITY),
-        // (No model — just its marker and rectangle.)
-        ObjectId::ExfilArea => return None,
+        // (No model — just its marker and rectangle; a light, its marker and
+        // reach.)
+        ObjectId::ExfilArea | ObjectId::PowerLight(_) => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).

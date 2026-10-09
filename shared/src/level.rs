@@ -2,7 +2,7 @@
 //! stands — the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo
 //! crate, the power switch, the wall buys, the Mystery Box, the armor
 //! station, the crafting table, the exfil (its radio and area), the Rampage
-//! Inducer and where the players start.
+//! Inducer, the lights the power turns on and where the players start.
 //!
 //! Each place has its own file, `shared/levels/<place>.ron` ([`file_name`]),
 //! compiled into the client and the server alike ([`layout`]) so they
@@ -102,6 +102,64 @@ impl Placement {
 pub struct WallBuy {
     pub weapon: WeaponId,
     pub at: Placement,
+}
+
+/// One of the map's power lights: on once someone turns the power on in a
+/// `Zombies` game (and always on in the other modes) — the client fades it
+/// in (`client::power`). Placed and tuned in the level editor.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct PowerLight {
+    /// Where it hangs (m, world).
+    pub pos: Vec3,
+    /// Its colour (sRGB, 0..1 each).
+    pub color: [f32; 3],
+    /// How bright (lumens) at full power.
+    pub intensity: f32,
+    /// How far (m) it reaches.
+    pub range: f32,
+    /// The size (m) of its glowing source — softens highlights and shadows.
+    #[serde(default = "default_light_radius")]
+    pub radius: f32,
+    /// Whether it casts shadows (costly — keep it to the few that need it).
+    #[serde(default)]
+    pub shadows: bool,
+}
+
+fn default_light_radius() -> f32 {
+    0.3
+}
+
+/// Most power lights a map keeps.
+pub const MAX_POWER_LIGHTS: usize = 16;
+
+impl PowerLight {
+    /// A fresh one at `pos`: warm white, a room's worth of light.
+    pub fn new(pos: Vec3) -> Self {
+        Self {
+            pos,
+            color: [1.0, 0.95, 0.85],
+            intensity: 2_000_000.0,
+            range: 30.0,
+            radius: default_light_radius(),
+            shadows: false,
+        }
+    }
+
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
+        let [cr, cg, cb] = self.color.map(|c| r(c, 1000.0));
+        format!(
+            "(pos: ({:?}, {:?}, {:?}), color: ({cr:?}, {cg:?}, {cb:?}), intensity: {:?}, range: {:?}, radius: {:?}, shadows: {})",
+            r(self.pos.x, 1000.0),
+            r(self.pos.y, 1000.0),
+            r(self.pos.z, 1000.0),
+            self.intensity.round(),
+            r(self.range, 100.0),
+            r(self.radius, 1000.0),
+            self.shadows,
+        )
+    }
 }
 
 /// The exfil area (`crate::exfil`): a rectangle on the ground, `width` (m,
@@ -243,6 +301,9 @@ pub struct ZombiesLayout {
     /// The Rampage Inducer ([`crate::rampage`]), if the place has one.
     #[serde(default)]
     pub rampage_inducer: Option<Placement>,
+    /// The lights the power turns on — up to [`MAX_POWER_LIGHTS`].
+    #[serde(default)]
+    pub power_lights: Vec<PowerLight>,
     /// Where the players start a game: each is put on a different one, at
     /// random (`crate::spawns::zombies_start`) — up to
     /// [`MAX_PLAYER_SPAWNS`], one per player a lobby can hold. None, and
@@ -361,6 +422,11 @@ impl ZombiesLayout {
             self.exfil_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
         );
         out += &format!("    rampage_inducer: {},\n", optional(self.rampage_inducer));
+        out += "    power_lights: [\n";
+        for light in &self.power_lights {
+            out += &format!("        {},\n", light.to_ron());
+        }
+        out += "    ],\n";
         out += "    player_spawns: [\n";
         for at in &self.player_spawns {
             out += &format!("        {},\n", at.with_scale(1.0).to_ron());
@@ -435,6 +501,19 @@ pub fn layout(map: MapId) -> &'static ZombiesLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn power_lights_survive_a_save_and_load() {
+        let mut layout = layout(MapId::BreakPoint).clone();
+        assert!(!layout.power_lights.is_empty(), "Break Point keeps its power light");
+        let mut light = PowerLight::new(Vec3::new(1.5, 6.25, -3.0));
+        light.color = [0.9, 0.5, 0.25];
+        light.shadows = true;
+        layout.power_lights.push(light);
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.power_lights.last(), Some(&light));
+        assert_eq!(back.power_lights.len(), layout.power_lights.len());
+    }
 
     #[test]
     fn every_place_has_a_layout_with_every_machine() {

@@ -1,7 +1,7 @@
 //! The map's lights and the `Zombies` power switch that turns them on.
 //!
-//! Break Point (day or night) has [`MapLightSettings`]' lights (tuned from the debug
-//! panel, "Map lights"). In `Zombies` they start off: a player pays at the
+//! A map's power lights are its layout's (`shared::level`, placed and tuned
+//! in the level editor). In `Zombies` they start off: a player pays at the
 //! switch — the power lever model, where `shared::power` puts it — and the
 //! server sets `Lobby::power_on`, which fades them in for everyone. Every
 //! client sees that flip, so for everyone the lever throws (its one
@@ -50,26 +50,11 @@ impl Plugin for PowerPlugin {
 
 // --- map lights ------------------------------------------------------------
 
-/// One of the map's lights.
-#[derive(Clone, Copy)]
-pub(crate) struct MapLight {
-    pub(crate) enabled: bool,
-    /// World position (m).
-    pub(crate) pos: Vec3,
-    pub(crate) color: [f32; 3],
-    /// Lumens, at full power.
-    pub(crate) intensity: f32,
-    /// How far (m) it reaches.
-    pub(crate) range: f32,
-    /// Size of the glowing source (m) — softens highlights and shadows.
-    pub(crate) radius: f32,
-    pub(crate) shadows: bool,
-}
-
-/// Panel-tunable map lights ("Map lights (Break Point)").
+/// The map lights' fade and the debug "power on" ("Map lights" in the debug
+/// panel). The lights themselves are each map's own — placed and tuned in
+/// the level editor (`shared::level::ZombiesLayout::power_lights`).
 #[derive(Resource, Clone)]
 pub(crate) struct MapLightSettings {
-    pub(crate) lights: [MapLight; 2],
     /// Seconds for the lights to fade in once the power's on.
     pub(crate) fade_secs: f32,
     /// Debug: act as if the power's on (untick and tick again to replay the
@@ -79,20 +64,7 @@ pub(crate) struct MapLightSettings {
 
 impl Default for MapLightSettings {
     fn default() -> Self {
-        let light = |pos, color, intensity, range| MapLight {
-            enabled: true,
-            pos,
-            color,
-            intensity,
-            range,
-            radius: 0.3,
-            shadows: true,
-        };
         Self {
-            lights: [
-                light(Vec3::new(0.0, 18.0, -38.0), [1.0, 1.0, 1.0], 30_000_000.0, 90.0),
-                light(Vec3::new(0.0, 18.0, 27.0), [1.0, 0.983, 0.959], 0.0, 60.0),
-            ],
             fade_secs: 5.0,
             force_on: false,
         }
@@ -103,12 +75,24 @@ impl Default for MapLightSettings {
 #[derive(Resource, Default)]
 struct PowerLevel(f32);
 
-/// Which of [`MapLightSettings::lights`] a light is.
+/// Which of the map's power lights a light is.
 #[derive(Component)]
 struct MapLightIndex(usize);
 
-/// Put the map's lights up while in a game on a map that has them, fade them
-/// toward on / off, and keep them matching the panel.
+/// A power light as a Bevy light, `fade` (0..1) of the way up.
+pub(crate) fn point_light(light: &shared::level::PowerLight, fade: f32) -> PointLight {
+    PointLight {
+        color: Color::srgb(light.color[0], light.color[1], light.color[2]),
+        intensity: light.intensity * fade,
+        range: light.range,
+        radius: light.radius,
+        shadows_enabled: light.shadows && fade > 0.0,
+        ..default()
+    }
+}
+
+/// Put the map's power lights up while in a game on a map that has them,
+/// fade them toward on / off, and keep them matching the panel.
 #[allow(clippy::too_many_arguments)]
 fn sync_map_lights(
     state: Res<State<AppState>>,
@@ -122,16 +106,20 @@ fn sync_map_lights(
     fresh: Query<(), Added<MapLightIndex>>,
     mut commands: Commands,
 ) {
-    let wanted = *state.get() == AppState::InGame && current.0.is_break_point();
-    if !wanted {
+    let wanted = &shared::level::layout(current.0).power_lights;
+    if *state.get() != AppState::InGame || wanted.is_empty() {
         for (e, ..) in &lights {
             commands.entity(e).despawn();
         }
         level.0 = 0.0;
         return;
     }
-    if lights.is_empty() {
-        for i in 0..settings.lights.len() {
+    // (A fresh set whenever the map's count doesn't match — another map.)
+    if lights.iter().count() != wanted.len() {
+        for (e, ..) in &lights {
+            commands.entity(e).despawn();
+        }
+        for i in 0..wanted.len() {
             commands.spawn((
                 StateScoped(AppState::InGame),
                 MapLightIndex(i),
@@ -139,9 +127,10 @@ fn sync_map_lights(
                     intensity: 0.0,
                     ..default()
                 },
-                Transform::default(),
+                Transform::from_translation(wanted[i].pos),
             ));
         }
+        return;
     }
 
     // In `Zombies` the power has to be turned on (and fades in); anywhere
@@ -157,23 +146,14 @@ fn sync_map_lights(
         let step = time.delta_secs() / settings.fade_secs;
         level.0 + (target - level.0).clamp(-step, step)
     };
-    if level.0 == before && !settings.is_changed() && fresh.is_empty() {
+    if level.0 == before && !settings.is_changed() && !current.is_changed() && fresh.is_empty() {
         return;
     }
     let fade = level.0 * level.0 * (3.0 - 2.0 * level.0);
     for (_, i, mut light, mut t) in &mut lights {
-        let Some(s) = settings.lights.get(i.0) else {
-            continue;
-        };
-        *light = PointLight {
-            color: Color::srgb(s.color[0], s.color[1], s.color[2]),
-            intensity: if s.enabled { s.intensity * fade } else { 0.0 },
-            range: s.range,
-            radius: s.radius,
-            shadows_enabled: s.shadows && s.enabled && fade > 0.0,
-            ..default()
-        };
-        t.translation = s.pos;
+        let Some(l) = wanted.get(i.0) else { continue };
+        *light = point_light(l, fade);
+        t.translation = l.pos;
     }
 }
 

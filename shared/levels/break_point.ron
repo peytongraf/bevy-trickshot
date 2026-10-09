@@ -29,6 +29,15 @@
     exfil_radio: Some((pos: (-8.4, 0.0, -47.2), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, 0.0), yaw_deg: 0.0), width: 28.9, depth: 65.5)),
     rampage_inducer: Some((pos: (-12.6, 1.2, -23.4), yaw_deg: 0.0)),
+    power_lights: [
+        (pos: (0.0, 15.0, -39.4), color: (1.0, 0.947, 0.847), intensity: 40000000.0, range: 120.0, radius: 0.3, shadows: true),
+        (pos: (2.45, 15.0, 33.4), color: (1.0, 0.95, 0.85), intensity: 40000000.0, range: 120.0, radius: 0.3, shadows: true),
+        (pos: (16.9, 4.75, 2.4), color: (1.0, 0.95, 0.85), intensity: 2620000.0, range: 37.0, radius: 0.7, shadows: true),
+        (pos: (-24.8, 4.45, 1.45), color: (1.0, 0.95, 0.85), intensity: 8000000.0, range: 49.0, radius: 0.3, shadows: true),
+        (pos: (28.55, 4.8, 49.5), color: (1.0, 0.95, 0.85), intensity: 3000000.0, range: 12.5, radius: 0.3, shadows: true),
+        (pos: (-20.05, 3.35, -55.35), color: (1.0, 0.95, 0.85), intensity: 1240000.0, range: 20.5, radius: 0.3, shadows: true),
+        (pos: (-20.0, 8.3, -55.0), color: (1.0, 0.95, 0.85), intensity: 1240000.0, range: 15.7, radius: 0.3, shadows: true),
+    ],
     player_spawns: [
         (pos: (-10.95, 0.0, -41.3), yaw_deg: 98.3),
         (pos: (-10.6, 0.0, -37.821), yaw_deg: 75.5),

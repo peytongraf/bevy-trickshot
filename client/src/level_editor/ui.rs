@@ -10,7 +10,7 @@ use shared::perks::PerkSet;
 use shared::MapId;
 
 use super::input::{self, ACTIVE, SELECTED};
-use super::{overlaps, Editor, ObjectId};
+use super::{overlaps, Editor, Look, ObjectId};
 use crate::player::WorldModelCamera;
 use crate::power::PowerLeverSettings;
 use crate::{map_ready, AppState, CurrentMap, MapLoadState};
@@ -51,7 +51,7 @@ const CONTROLS: &[(&str, &str)] = &[
     ("While moving / turning: Ctrl", "Snap (0.25 m / 15°)"),
     ("Left click / Enter  ·  Right click / Esc", "Confirm  ·  cancel"),
     ("End", "Drop onto the ground below"),
-    ("X  /  Delete", "Remove (Pack-a-Punch, ammo crate, power switch, wall buys)"),
+    ("X  /  Delete", "Remove (Pack-a-Punch, ammo crate, power switch, wall buys, lights)"),
     ("Ctrl + Z  /  Ctrl + Shift + Z", "Undo / redo"),
     ("Ctrl + S", "Save this map"),
     ("Esc  /  mouse back", "Exit (asks first if anything's unsaved)"),
@@ -156,6 +156,18 @@ fn menu_bar(
                     input::add_at_view(ed, ObjectId::PlayerSpawn(spawns as u8), rapier);
                     ui.close();
                 }
+                // (Power lights: up to a map's worth.)
+                let lights = ed.doc().layout.power_lights.len();
+                let max = shared::level::MAX_POWER_LIGHTS;
+                if ui
+                    .add_enabled(lights < max, egui::Button::new(format!("Power light  ({lights}/{max})")))
+                    .on_hover_text("A light the power turns on in a Zombies game (always on in the other modes)")
+                    .clicked()
+                {
+                    input::add_light_at_view(ed, rapier);
+                    ui.close();
+                }
+                ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
                 }
@@ -170,7 +182,11 @@ fn menu_bar(
                 ui.checkbox(&mut ed.view.grid, "Floor grid");
                 ui.checkbox(&mut ed.view.labels, "Names");
                 ui.checkbox(&mut ed.view.ranges, "Every use range (not just the selection's)");
-                ui.checkbox(&mut ed.view.bright, "Bright lighting (no fog)");
+                ui.separator();
+                ui.label("Look");
+                for look in Look::ALL {
+                    ui.radio_value(&mut ed.view.look, look, look.label());
+                }
                 ui.separator();
                 if ui.add(egui::Button::new("Frame selection").shortcut_text("F")).clicked() {
                     let ids = if ed.selected.is_empty() { ed.objects() } else { ed.selected.clone() };
@@ -336,6 +352,20 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                 };
                 listed(ui, ed, &ObjectId::OPTIONAL);
                 ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("POWER LIGHTS").small().color(DIM));
+                    let room = ed.doc().layout.power_lights.len() < shared::level::MAX_POWER_LIGHTS;
+                    if ui.add_enabled(room, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_light_at_view(ed, rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::PowerLight(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.power_lights.is_empty() {
+                    ui.colored_label(DIM, "None — the power turns nothing on here");
+                }
+                ui.add_space(8.0);
                 ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
                 listed(ui, ed, &ObjectId::REFERENCES);
 
@@ -398,17 +428,20 @@ fn properties(
                     editing |= r.dragged() || r.has_focus();
                     ui.end_row();
                 }
-                ui.label("Turn");
-                let r = ui.add_enabled(
-                    !busy,
-                    egui::DragValue::new(&mut edited.yaw_deg)
-                        .speed(0.5)
-                        .range(-180.0..=180.0)
-                        .suffix("°")
-                        .max_decimals(1),
-                );
-                editing |= r.dragged() || r.has_focus();
-                ui.end_row();
+                // (A light doesn't face anywhere.)
+                if !matches!(id, ObjectId::PowerLight(_)) {
+                    ui.label("Turn");
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut edited.yaw_deg)
+                            .speed(0.5)
+                            .range(-180.0..=180.0)
+                            .suffix("°")
+                            .max_decimals(1),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                }
                 // (Not the stand-ins — the yardstick, always as in game — or
                 // the wall buys, all one size.)
                 // (A kind's size is every map's.)
@@ -442,13 +475,69 @@ fn properties(
                     }
                 }
             });
+            // A light's own settings.
+            let light_index = match id {
+                ObjectId::PowerLight(i) => Some(i as usize),
+                _ => None,
+            };
+            let light_before = light_index.and_then(|i| ed.doc().layout.power_lights.get(i).copied());
+            let mut light = light_before;
+            if let Some(l) = light.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Light");
+                egui::Grid::new("level_editor_light").num_columns(2).show(ui, |ui| {
+                    ui.label("Colour");
+                    let r = ui.add_enabled_ui(!busy, |ui| ui.color_edit_button_rgb(&mut l.color)).inner;
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Brightness").on_hover_text("Lumens at full power");
+                    // (Steps in proportion to how bright it is already.)
+                    let step = l.intensity.max(1_000.0) * 0.01;
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut l.intensity)
+                            .speed(step)
+                            .range(0.0..=200_000_000.0)
+                            .suffix(" lm"),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Range").on_hover_text("How far it reaches");
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut l.range).speed(0.25).range(0.5..=300.0).suffix(" m").max_decimals(2),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Softness").on_hover_text("The size of the glowing source — softens highlights and shadows");
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut l.radius).speed(0.01).range(0.0..=10.0).suffix(" m").max_decimals(3),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Shadows").on_hover_text("Costly — keep it to the few lights that need them");
+                    ui.add_enabled(!busy, egui::Checkbox::without_text(&mut l.shadows));
+                    ui.end_row();
+                });
+                if ed.view.look != Look::GamePowerOn {
+                    ui.colored_label(DIM, "View → Look → In game — power on to see it lit");
+                }
+            }
+            let light_changed = light != light_before;
+            if let (true, Some(i), Some(l)) = (light_changed, light_index, light) {
+                if let Some(slot) = ed.doc_mut().layout.power_lights.get_mut(i) {
+                    // (Its position's the fields above.)
+                    *slot = shared::level::PowerLight { pos: slot.pos, ..l };
+                }
+            }
             let resized = area_size.is_some_and(|s| s != size);
             if resized {
                 if let Some(area) = ed.doc_mut().layout.exfil_area.as_mut() {
                     (area.width, area.depth) = size;
                 }
             }
-            if edited != at || resized {
+            if edited != at || resized || light_changed {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -460,6 +549,8 @@ fn properties(
             ui.add_space(6.0);
             if id == ObjectId::ExfilArea {
                 ui.colored_label(DIM, "During an exfil, only kills from inside it count");
+            } else if let ObjectId::PowerLight(_) = id {
+                ui.colored_label(DIM, "Off until the power's on in a Zombies game; always on in the other modes");
             } else if let ObjectId::PlayerSpawn(_) = id {
                 ui.colored_label(
                     DIM,

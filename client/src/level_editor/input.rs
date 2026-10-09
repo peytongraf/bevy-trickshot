@@ -523,9 +523,13 @@ fn update_op(
             (None, _) => {
                 // Onto whatever's under the cursor (kept where it was on
                 // screen); missing the map, across the height it started at.
+                // A light hangs in the air: across its own height, always
+                // (lock to Y to raise or lower it).
+                let light = matches!(op.starts.last(), Some((ObjectId::PowerLight(_), _)));
                 if let Ok(ray) = camera.viewport_to_world(&cam, cursor + op.grab_offset) {
                     let dir = *ray.direction;
-                    let target = hit_map(rapier, ray.origin, dir, RAY_M).or_else(|| {
+                    let surface = if light { None } else { hit_map(rapier, ray.origin, dir, RAY_M) };
+                    let target = surface.or_else(|| {
                         (dir.y.abs() > 1e-4)
                             .then(|| (active.pos.y - ray.origin.y) / dir.y)
                             .filter(|t| *t > 0.0)
@@ -660,7 +664,12 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     // (Start spots last-first, so taking one out doesn't shift the rest
     // before they go.)
     let mut ids = editor.selected.clone();
-    ids.sort_by_key(|id| std::cmp::Reverse(if let ObjectId::PlayerSpawn(i) = id { *i as i32 } else { -1 }));
+    ids.sort_by_key(|id| {
+        std::cmp::Reverse(match id {
+            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) => *i as i32,
+            _ => -1,
+        })
+    });
     for id in ids {
         if !id.remove(editor.doc_mut()) {
             kept = true;
@@ -684,6 +693,25 @@ pub(crate) fn add_at_view(editor: &mut Editor, id: ObjectId, rapier: &ReadRapier
     // (At its kind's size — every map's.)
     let size = id.size_key().map_or(1.0, |key| editor.sizes.get(&key));
     id.set(editor.doc_mut(), Placement::new(ground, yaw_deg).with_scale(size));
+    editor.doc_mut().checkpoint(before);
+    editor.selected = vec![id];
+}
+
+/// How high (m) over the ground a new power light hangs.
+const NEW_LIGHT_HEIGHT: f32 = 4.0;
+
+/// Hang a new power light over the ground at the middle of the view, and
+/// select it.
+pub(crate) fn add_light_at_view(editor: &mut Editor, rapier: &ReadRapierContext) {
+    let index = editor.doc().layout.power_lights.len();
+    if index >= shared::level::MAX_POWER_LIGHTS {
+        return;
+    }
+    let focus = editor.cam.focus;
+    let ground = hit_map(rapier, focus + Vec3::Y * 50.0, Vec3::NEG_Y, 500.0).unwrap_or(focus);
+    let id = ObjectId::PowerLight(index as u8);
+    let before = editor.doc().layout.clone();
+    id.set(editor.doc_mut(), Placement::new(ground + Vec3::Y * NEW_LIGHT_HEIGHT, 0.0));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
 }
@@ -922,6 +950,26 @@ pub(crate) fn draw_gizmos(
         } else {
             id.color().with_alpha(0.45)
         };
+        // A light: a star where it hangs, a line down to the ground, and —
+        // selected — a sphere as far as it reaches.
+        if let ObjectId::PowerLight(i) = id {
+            let Some(light) = doc.layout.power_lights.get(i as usize) else { continue };
+            let own = Color::srgb(light.color[0], light.color[1], light.color[2]);
+            let mark = if active == Some(id) || selected { color } else { own.with_alpha(0.8) };
+            for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                gizmos.line(at.pos - axis * 0.35, at.pos + axis * 0.35, mark);
+            }
+            gizmos.sphere(Isometry3d::from_translation(at.pos), 0.2, mark);
+            gizmos.line(at.pos, Vec3::new(at.pos.x, at.pos.y - 200.0, at.pos.z), own.with_alpha(0.15));
+            if selected || editor.view.ranges {
+                gizmos.sphere(
+                    Isometry3d::from_translation(at.pos),
+                    light.range,
+                    own.with_alpha(if selected { 0.5 } else { 0.2 }),
+                );
+            }
+            continue;
+        }
         let (center, rot, half) = id.world_box(at, &lever);
         gizmos.cuboid(
             Transform::from_translation(center).with_rotation(rot).with_scale(half * 2.0),
