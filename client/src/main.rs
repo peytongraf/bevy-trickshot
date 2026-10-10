@@ -94,7 +94,7 @@ use debug_ui::*;
 use environment::*;
 use hud::*;
 use player::*;
-use util::{color_from_parts, rand_roll};
+use util::rand_roll;
 use vfx::*;
 use weapons::*;
 
@@ -385,9 +385,6 @@ fn main() {
         .init_resource::<MapLoadState>()
         .init_resource::<ShipmentSettings>()
         .init_resource::<WaterSettings>()
-        .init_resource::<ShipmentLightSettings>()
-        .init_resource::<FluoroLightSettings>()
-        .init_resource::<BulbLightSettings>()
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<SniperGlintSettings>()
@@ -634,12 +631,6 @@ fn main() {
                     apply_map_transform,
                     apply_shipment_transform,
                     apply_water_settings,
-                    apply_shipment_lights,
-                    sync_light_marker_visibility,
-                    apply_fluoro_light,
-                    sync_fluoro_marker_visibility,
-                    apply_bulb_lights,
-                    sync_bulb_marker_visibility,
                     update_rain,
                     apply_rain_assets,
                     apply_knife_transform,
@@ -711,9 +702,6 @@ fn setup_world(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     water: Res<WaterSettings>,
-    light: Res<ShipmentLightSettings>,
-    fluoro: Res<FluoroLightSettings>,
-    bulbs: Res<BulbLightSettings>,
 ) {
     // Ground: a 200 m plane wrapped in a seamless procedural asphalt texture
     // (see `build_ground_texture`), tiled every ~2 m. Spawned hidden with its
@@ -810,158 +798,6 @@ fn setup_world(
         Transform::from_xyz(0.0, -water.level_drop, 0.0),
         Visibility::Hidden,
     ));
-
-    // Shipment floodlights: spotlights mounted high on the cargo ship,
-    // lighting the yard below — see `ShipmentLightSettings` for why each
-    // one's initial transform/params come from that resource rather than
-    // being hardcoded here (same reasoning as the water plane above them).
-    // Hidden for `BasicMap`; `sync_shipment_only_visibility` shows them for
-    // `Shipment`. The bulb/rod gizmo mesh + material (see
-    // `ShipmentLightMarker`) are built once and shared (`.clone()`d) across
-    // every light's pair, rather than once per light — they're geometrically
-    // identical, so there's nothing light-specific to bake into either.
-    let marker_bulb_mesh = meshes.add(Sphere::new(LIGHT_MARKER_BULB_RADIUS));
-    let marker_bulb_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.0, 0.9, 0.2),
-        unlit: true,
-        ..default()
-    });
-    let marker_rod_mesh = meshes.add(Cuboid::new(
-        LIGHT_MARKER_ROD_THICKNESS,
-        LIGHT_MARKER_ROD_THICKNESS,
-        LIGHT_MARKER_ROD_LENGTH,
-    ));
-    let marker_rod_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.2, 0.9, 1.0),
-        unlit: true,
-        ..default()
-    });
-    // Unlike the debug-only gizmo mesh/material above, [`ShipmentLightGlow`]'s
-    // material carries each light's own colour/brightness, so (mesh aside)
-    // it's built fresh per light below rather than shared.
-    let glow_mesh = meshes.add(Sphere::new(LIGHT_GLOW_BULB_RADIUS));
-    for (index, cfg) in light.lights.iter().enumerate() {
-        let glow_color = color_from_parts(cfg.color);
-        let glow_material = materials.add(StandardMaterial {
-            base_color: glow_color,
-            emissive: LinearRgba::from(glow_color) * cfg.glow_intensity / GLOW_EMISSIVE_PER_LUMEN,
-            ..default()
-        });
-        commands
-            .spawn((
-                ShipmentSpotLight(index),
-                SpotLight {
-                    color: color_from_parts(cfg.color),
-                    intensity: cfg.intensity,
-                    range: cfg.range,
-                    inner_angle: cfg.inner_angle_deg.to_radians(),
-                    outer_angle: cfg.outer_angle_deg.to_radians(),
-                    shadows_enabled: cfg.shadows_enabled,
-                    ..default()
-                },
-                Transform {
-                    translation: cfg.position,
-                    rotation: Quat::from_euler(
-                        EulerRot::YXZ,
-                        cfg.yaw_deg.to_radians(),
-                        cfg.pitch_deg.to_radians(),
-                        0.0,
-                    ),
-                    ..default()
-                },
-                Visibility::Hidden,
-            ))
-            .with_children(|light| {
-                // Debug-only gizmo — a bulb at the fixture and a rod
-                // pointing along its beam direction, so the position/aim
-                // controls in the "Shipment Lights" panel have something
-                // visible to calibrate against. `unlit` so it reads clearly
-                // regardless of how dark/foggy the scene itself is.
-                light.spawn((
-                    ShipmentLightMarker,
-                    Mesh3d(marker_bulb_mesh.clone()),
-                    MeshMaterial3d(marker_bulb_material.clone()),
-                    Visibility::Hidden,
-                ));
-                light.spawn((
-                    ShipmentLightMarker,
-                    Mesh3d(marker_rod_mesh.clone()),
-                    MeshMaterial3d(marker_rod_material.clone()),
-                    // A `Cuboid`'s local Z already spans the rod's length,
-                    // centred on its parent's origin — shift it half a
-                    // length forward (local -Z, `SpotLight`'s own shine
-                    // direction) so it starts at the bulb and extends
-                    // outward instead of piercing through it.
-                    Transform::from_xyz(0.0, 0.0, -LIGHT_MARKER_ROD_LENGTH / 2.0),
-                    Visibility::Hidden,
-                ));
-                // Always-visible glow — see `ShipmentLightGlow`. No explicit
-                // `Visibility` (defaults to `Inherited`), unlike the two debug
-                // gizmos above: it should show whenever its parent light does.
-                light.spawn((
-                    ShipmentLightGlow(index),
-                    Mesh3d(glow_mesh.clone()),
-                    MeshMaterial3d(glow_material),
-                    PointLight {
-                        color: glow_color,
-                        intensity: cfg.glow_intensity,
-                        range: LIGHT_GLOW_RANGE,
-                        shadows_enabled: false,
-                        ..default()
-                    },
-                ));
-            });
-    }
-
-    // Fluorescent light: the tube fixture model inside one of
-    // `shipment_visual.glb`'s containers — see `FluoroLightSettings`. Hidden
-    // for `BasicMap`; `sync_shipment_only_visibility` shows it for
-    // `Shipment`, same as the floodlights above.
-    commands
-        .spawn((
-            ContainerFluoroLight,
-            PointLight {
-                color: color_from_parts(fluoro.color),
-                intensity: fluoro.intensity,
-                range: fluoro.range,
-                shadows_enabled: fluoro.shadows_enabled,
-                ..default()
-            },
-            Transform::from_translation(fluoro.position),
-            Visibility::Hidden,
-        ))
-        .with_child((
-            ContainerFluoroLightMarker,
-            Mesh3d(marker_bulb_mesh.clone()),
-            MeshMaterial3d(marker_bulb_material.clone()),
-            Visibility::Hidden,
-        ));
-
-    // Bulb lights: the two bare-bulb fixture models in another container —
-    // see `BulbLightSettings`. Reuses the same debug-gizmo bulb mesh/
-    // material as the fluorescent light and the floodlights' markers above
-    // (all just "a small sphere at this position" in the end).
-    for (index, &pos) in bulbs.positions.iter().enumerate() {
-        commands
-            .spawn((
-                ContainerBulbLight(index),
-                PointLight {
-                    color: color_from_parts(bulbs.color),
-                    intensity: bulbs.intensity,
-                    range: bulbs.range,
-                    shadows_enabled: bulbs.shadows_enabled,
-                    ..default()
-                },
-                Transform::from_translation(pos),
-                Visibility::Hidden,
-            ))
-            .with_child((
-                ContainerBulbLightMarker,
-                Mesh3d(marker_bulb_mesh.clone()),
-                MeshMaterial3d(marker_bulb_material.clone()),
-                Visibility::Hidden,
-            ));
-    }
 
     // The selected map's model is kept in sync by `sync_map_model` (not
     // spawned here) so it can be swapped per-lobby — its `AsyncSceneCollider`

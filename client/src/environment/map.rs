@@ -9,7 +9,6 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::scene::SceneInstanceReady;
 use bevy_rapier3d::prelude::*;
 
-use super::lighting::{ContainerBulbLight, ContainerFluoroLight, ShipmentSpotLight};
 use super::water::WaterPlane;
 
 /// Placement of `basic_map.glb` (position / yaw / uniform scale), live-tweakable
@@ -328,9 +327,9 @@ pub(crate) fn reveal_map_visual(
     }
 }
 
-/// Toggles [`WaterPlane`] and [`ShipmentSpotLight`] (plus the container
-/// fluoro/bulb lights) visible only for maps with a nautical setting to
-/// speak of — `Shipment`'s MW3-style cargo ship; hidden for `basic_map.glb`.
+/// Toggles [`WaterPlane`] visible only on `Shipment` (night or day) — the
+/// MW3-style cargo ship's ocean; hidden elsewhere. (Its floodlights and
+/// container fixtures are its layout's power lights now — `power.rs`.)
 ///
 /// [`ProceduralGround`] used to get the same map-dependent treatment here
 /// (shown for whichever map didn't yet have its own ground mesh), but every
@@ -338,43 +337,24 @@ pub(crate) fn reveal_map_visual(
 /// hidden with its collider disabled and nothing here needs to touch it —
 /// see that spawn's doc comment.
 ///
-/// [`WaterPlane`] and [`ShipmentSpotLight`] are spawned once in `setup_world`
-/// and never respawned, unlike [`MapModel`], so there's no freshly-respawned
-/// entity to recover state for on other frames.
+/// [`WaterPlane`] is spawned once in `setup_world` and never respawned,
+/// unlike [`MapModel`], so there's no freshly-respawned entity to recover
+/// state for on other frames.
 pub(crate) fn sync_shipment_only_visibility(
     current: Res<CurrentMap>,
     water: Query<Entity, With<WaterPlane>>,
-    light: Query<Entity, With<ShipmentSpotLight>>,
-    fluoro: Query<Entity, With<ContainerFluoroLight>>,
-    bulbs: Query<Entity, With<ContainerBulbLight>>,
     mut commands: Commands,
 ) {
     if !current.is_changed() {
         return;
     }
-    let visible_if = |shown: bool| {
-        if shown {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        }
+    let water_visibility = if current.0.is_shipment() {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
     };
-    // The ocean shows on both Shipment variants; the floodlights and
-    // container fixtures are night-only — Shipment Day has full sun, and
-    // their beams/glows would just read as stray bright spots in daylight.
-    let water_visibility = visible_if(current.0.is_shipment());
-    let night_visibility = visible_if(current.0 == shared::MapId::Shipment);
     if let Ok(entity) = water.single() {
         commands.entity(entity).insert(water_visibility);
-    }
-    for entity in &light {
-        commands.entity(entity).insert(night_visibility);
-    }
-    if let Ok(entity) = fluoro.single() {
-        commands.entity(entity).insert(night_visibility);
-    }
-    for entity in &bulbs {
-        commands.entity(entity).insert(night_visibility);
     }
 }
 

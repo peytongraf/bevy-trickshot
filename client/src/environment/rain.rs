@@ -165,7 +165,7 @@ pub(crate) fn apply_rain_assets(
 /// direction, so it reads as a real 3D streak from any angle rather than a
 /// flat billboard. Hides the whole pool (and skips simulating it) unless
 /// `Shipment` is selected and `RainSettings::enabled` is on. Runs alongside
-/// `apply_shipment_lights` and friends, so it only ever executes during
+/// `apply_water_settings` and friends, so it only ever executes during
 /// `AppState::InGame` (this tuple's own `run_if`) — the `Player` this reads
 /// always exists by then.
 #[allow(clippy::too_many_arguments)]

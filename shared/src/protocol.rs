@@ -145,6 +145,13 @@ impl MapId {
         matches!(self, MapId::Shipment | MapId::BreakPointNight)
     }
 
+    /// Whether it's played in the dark — every night map, including ones
+    /// with no day version. Only these light their layout's power lights
+    /// (`level::ZombiesLayout::power_lights`); a day map has none on.
+    pub fn is_dark(self) -> bool {
+        matches!(self, MapId::Shipment | MapId::BreakPointNight | MapId::AshesOfTheDamned)
+    }
+
     /// The same place at night (`true`) or by day (`false`) — itself for a
     /// place with only the one.
     pub fn with_night(self, night: bool) -> MapId {

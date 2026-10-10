@@ -1,7 +1,9 @@
 //! The map's lights and the `Zombies` power switch that turns them on.
 //!
 //! A map's power lights are its layout's (`shared::level`, placed and tuned
-//! in the level editor). In `Zombies` they start off: a player pays at the
+//! in the level editor) — lit only on a night map (`MapId::is_dark`): the
+//! day version of a place shares its layout but has none on. In `Zombies`
+//! they start off: a player pays at the
 //! switch — the power lever model, where `shared::power` puts it — and the
 //! server sets `Lobby::power_on`, which fades them in for everyone. Every
 //! client sees that flip, so for everyone the lever throws (its one
@@ -15,6 +17,7 @@
 use bevy::audio::SpatialAudioSink;
 use bevy::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
+use shared::level::{PowerLight, SpotCone};
 use shared::{GameMode, Lobby};
 
 use crate::keybinds::KeyBindings;
@@ -75,14 +78,49 @@ impl Default for MapLightSettings {
 #[derive(Resource, Default)]
 struct PowerLevel(f32);
 
-/// Which of the map's power lights a light is.
+/// On the game's power lights (the editor has its own).
 #[derive(Component)]
-struct MapLightIndex(usize);
+struct GameLight;
 
-/// A power light as a Bevy light, `fade` (0..1) of the way up.
-pub(crate) fn point_light(light: &shared::level::PowerLight, fade: f32) -> PointLight {
+/// A power light's entity — which of the layout's it is, and what it was
+/// built as (a spotlight? with a bulb?), so a change there rebuilds it. Its
+/// glowing bulb ([`PowerLightGlow`]), if it has one, is a child.
+#[derive(Component)]
+pub(crate) struct PowerLightSlot {
+    index: usize,
+    shape: (bool, bool),
+}
+
+/// A power light's glowing bulb (`shared::level::PowerLight::glow`): an
+/// emissive ball where it hangs, with a short light of its own.
+#[derive(Component)]
+pub(crate) struct PowerLightGlow;
+
+/// The glowing bulb's size — a fixture, not a floating ball.
+const GLOW_BULB_RADIUS: f32 = 0.35;
+/// How far the bulb's own light reaches — just its fixture.
+const GLOW_RANGE: f32 = 12.0;
+/// Lumens of glow per unit of the bulb's emissive brightness (by eye, so a
+/// bright one blooms without washing out).
+const GLOW_EMISSIVE_PER_LUMEN: f32 = 25_000.0;
+
+fn shape(light: &PowerLight) -> (bool, bool) {
+    (light.spot.is_some(), light.glow > 0.0)
+}
+
+fn light_color(light: &PowerLight) -> Color {
+    Color::srgb(light.color[0], light.color[1], light.color[2])
+}
+
+/// Where a power light hangs, aimed if it's a spotlight.
+fn light_transform(light: &PowerLight) -> Transform {
+    Transform::from_translation(light.pos).with_rotation(light.spot.map_or(Quat::IDENTITY, |c| c.rotation()))
+}
+
+/// A point power light as a Bevy light, `fade` (0..1) of the way up.
+fn point_light(light: &PowerLight, fade: f32) -> PointLight {
     PointLight {
-        color: Color::srgb(light.color[0], light.color[1], light.color[2]),
+        color: light_color(light),
         intensity: light.intensity * fade,
         range: light.range,
         radius: light.radius,
@@ -91,8 +129,114 @@ pub(crate) fn point_light(light: &shared::level::PowerLight, fade: f32) -> Point
     }
 }
 
-/// Put the map's power lights up while in a game on a map that has them,
-/// fade them toward on / off, and keep them matching the panel.
+/// A spotlight power light as a Bevy light, `fade` (0..1) of the way up.
+fn spot_light(light: &PowerLight, cone: SpotCone, fade: f32) -> SpotLight {
+    let outer = cone.outer_angle_deg.to_radians();
+    SpotLight {
+        color: light_color(light),
+        intensity: light.intensity * fade,
+        range: light.range,
+        radius: light.radius,
+        shadows_enabled: light.shadows && fade > 0.0,
+        outer_angle: outer,
+        inner_angle: cone.inner_angle_deg.to_radians().min(outer),
+        ..default()
+    }
+}
+
+/// The bulb's own short light.
+fn glow_light(light: &PowerLight, fade: f32) -> PointLight {
+    PointLight {
+        color: light_color(light),
+        intensity: light.glow * fade,
+        range: GLOW_RANGE,
+        shadows_enabled: false,
+        ..default()
+    }
+}
+
+/// The bulb's emissive brightness — well past 1 (HDR) so bloom catches it.
+fn glow_emissive(light: &PowerLight, fade: f32) -> LinearRgba {
+    LinearRgba::from(light_color(light)) * light.glow * fade / GLOW_EMISSIVE_PER_LUMEN
+}
+
+/// Keep a set of power-light entities (the ones `lights` finds) matching
+/// `wanted` at `fade` (0..1): rebuilt — each spawned with `extra` — when the
+/// set's changed shape, otherwise brought up to date when `changed`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
+    wanted: &[PowerLight],
+    fade: f32,
+    changed: bool,
+    lights: &Query<(Entity, &PowerLightSlot), F>,
+    glows: &Query<(Entity, &ChildOf, &MeshMaterial3d<StandardMaterial>), With<PowerLightGlow>>,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    extra: impl Fn() -> B,
+) {
+    let stale = lights.iter().count() != wanted.len()
+        || lights
+            .iter()
+            .any(|(_, slot)| wanted.get(slot.index).map(shape) != Some(slot.shape));
+    if stale {
+        for (e, _) in lights {
+            commands.entity(e).despawn();
+        }
+        for (index, light) in wanted.iter().enumerate() {
+            let mut e = commands.spawn((
+                extra(),
+                PowerLightSlot {
+                    index,
+                    shape: shape(light),
+                },
+                light_transform(light),
+            ));
+            match light.spot {
+                Some(cone) => e.insert(spot_light(light, cone, fade)),
+                None => e.insert(point_light(light, fade)),
+            };
+            if light.glow > 0.0 {
+                e.with_child((
+                    PowerLightGlow,
+                    Mesh3d(meshes.add(Sphere::new(GLOW_BULB_RADIUS))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: light_color(light),
+                        emissive: glow_emissive(light, fade),
+                        ..default()
+                    })),
+                    bevy::pbr::NotShadowCaster,
+                    glow_light(light, fade),
+                ));
+            }
+        }
+        return;
+    }
+    if !changed {
+        return;
+    }
+    for (e, slot) in lights {
+        let Some(light) = wanted.get(slot.index) else { continue };
+        match light.spot {
+            Some(cone) => commands.entity(e).insert((spot_light(light, cone, fade), light_transform(light))),
+            None => commands.entity(e).insert((point_light(light, fade), light_transform(light))),
+        };
+        for (glow, parent, material) in glows {
+            if parent.parent() != e {
+                continue;
+            }
+            commands.entity(glow).insert(glow_light(light, fade));
+            if let Some(m) = materials.get_mut(material) {
+                m.base_color = light_color(light);
+                m.emissive = glow_emissive(light, fade);
+            }
+        }
+    }
+}
+
+/// Put the map's power lights up while in a game on a night map that has
+/// them (a day map has none on), fade them toward on / off, and keep them
+/// matching the panel.
 #[allow(clippy::too_many_arguments)]
 fn sync_map_lights(
     state: Res<State<AppState>>,
@@ -102,34 +246,22 @@ fn sync_map_lights(
     settings: Res<MapLightSettings>,
     time: Res<Time>,
     mut level: ResMut<PowerLevel>,
-    mut lights: Query<(Entity, &MapLightIndex, &mut PointLight, &mut Transform)>,
-    fresh: Query<(), Added<MapLightIndex>>,
+    lights: Query<(Entity, &PowerLightSlot), With<GameLight>>,
+    glows: Query<(Entity, &ChildOf, &MeshMaterial3d<StandardMaterial>), With<PowerLightGlow>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let wanted = &shared::level::layout(current.0).power_lights;
+    let wanted: &[PowerLight] = if current.0.is_dark() {
+        &shared::level::layout(current.0).power_lights
+    } else {
+        &[]
+    };
     if *state.get() != AppState::InGame || wanted.is_empty() {
-        for (e, ..) in &lights {
+        for (e, _) in &lights {
             commands.entity(e).despawn();
         }
         level.0 = 0.0;
-        return;
-    }
-    // (A fresh set whenever the map's count doesn't match — another map.)
-    if lights.iter().count() != wanted.len() {
-        for (e, ..) in &lights {
-            commands.entity(e).despawn();
-        }
-        for i in 0..wanted.len() {
-            commands.spawn((
-                StateScoped(AppState::InGame),
-                MapLightIndex(i),
-                PointLight {
-                    intensity: 0.0,
-                    ..default()
-                },
-                Transform::from_translation(wanted[i].pos),
-            ));
-        }
         return;
     }
 
@@ -146,15 +278,19 @@ fn sync_map_lights(
         let step = time.delta_secs() / settings.fade_secs;
         level.0 + (target - level.0).clamp(-step, step)
     };
-    if level.0 == before && !settings.is_changed() && !current.is_changed() && fresh.is_empty() {
-        return;
-    }
+    let changed = level.0 != before || settings.is_changed() || current.is_changed();
     let fade = level.0 * level.0 * (3.0 - 2.0 * level.0);
-    for (_, i, mut light, mut t) in &mut lights {
-        let Some(l) = wanted.get(i.0) else { continue };
-        *light = point_light(l, fade);
-        t.translation = l.pos;
-    }
+    sync_power_lights(
+        wanted,
+        fade,
+        changed,
+        &lights,
+        &glows,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        || (StateScoped(AppState::InGame), GameLight),
+    );
 }
 
 // --- the switch ------------------------------------------------------------

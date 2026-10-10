@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Shipment Night: its lights fade on with the power in Zombies, and can be moved in the level editor.",
+        "Day maps no longer turn on any lights with the power.",
         "Zombies: flashlights switch off once the power's on.",
         "Zombies: the round number is hand-painted brush strokes, like Black Ops.",
         "Level editor: add, move and tune the power lights, and preview the map as in game with the power off or on.",

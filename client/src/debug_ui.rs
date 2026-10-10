@@ -109,7 +109,6 @@ pub(crate) fn ads_tuning_ui(
         ResMut<RemoteSoundSettings>,
         ResMut<WaterSettings>,
         ResMut<ShipmentSceneTuning>,
-        ResMut<ShipmentLightSettings>,
         ResMut<LedgeJumpSettings>,
         (
             ResMut<RainSettings>,
@@ -117,8 +116,6 @@ pub(crate) fn ads_tuning_ui(
             ResMut<ThrowArmsSettings>,
             ResMut<ThrowKnifeModelSettings>,
             ResMut<BulletHoleSettings>,
-            ResMut<FluoroLightSettings>,
-            ResMut<BulbLightSettings>,
             ResMut<MantleSettings>,
             ResMut<ShipmentDaySceneTuning>,
             ResMut<BreakPointSceneTuning>,
@@ -162,9 +159,8 @@ pub(crate) fn ads_tuning_ui(
         mut remote_sound,
         mut water,
         mut shipment_scene,
-        mut shipment_light,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut fluoro, mut bulbs, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -2572,215 +2568,9 @@ pub(crate) fn ads_tuning_ui(
                         };
                     }
                 });
-
-            ui.separator();
-                ui.collapsing("Shipment lights", |ui| {
-                    ui.collapsing("Markers", |ui| {
-                        ui.checkbox(
-                            &mut shipment_light.markers_visible,
-                            "show position/aim markers",
-                        );
-                        ui.label(
-                            "Off by default — the bulb + rod gizmo is only there to help place the \
-                             lights, not something to leave on.",
-                        );
-                    });
-
-                ui.separator();
-                    ui.collapsing("Shipment Light 1", |ui| {
-                        shipment_light_sliders(ui, &mut shipment_light.lights[0], 0);
-                    });
-
-                ui.separator();
-                    ui.collapsing("Shipment Light 2", |ui| {
-                        shipment_light_sliders(ui, &mut shipment_light.lights[1], 1);
-                    });
-
-                ui.separator();
-                    ui.collapsing("Fluorescent Light", |ui| {
-                        let f = &mut *fluoro;
-                        ui.label("Shipment only — the tube fixture model inside one container");
-                        ui.checkbox(&mut f.markers_visible, "show position marker");
-                        ui.add(egui::Slider::new(&mut f.position.x, -80.0f32..=80.0).text("x"));
-                        ui.add(egui::Slider::new(&mut f.position.y, 0.0f32..=60.0).text("y (height)"));
-                        ui.add(egui::Slider::new(&mut f.position.z, -80.0f32..=80.0).text("z"));
-                        point_light_sliders(
-                            ui,
-                            &mut f.color,
-                            &mut f.intensity,
-                            &mut f.range,
-                            &mut f.shadows_enabled,
-                        );
-
-                        if ui.button("Copy fluorescent light to console").clicked() {
-                            info!(
-                                "fluoro: position: Vec3::new({:.2}, {:.2}, {:.2}), color: \
-                                 Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, range: {:.1}, \
-                                 shadows_enabled: {}",
-                                f.position.x,
-                                f.position.y,
-                                f.position.z,
-                                f.color[0],
-                                f.color[1],
-                                f.color[2],
-                                f.intensity,
-                                f.range,
-                                f.shadows_enabled,
-                            );
-                        }
-                        if ui.button("Reset fluorescent light").clicked() {
-                            *f = FluoroLightSettings::default();
-                        }
-                    });
-
-                ui.separator();
-                    ui.collapsing("Bulb Lights", |ui| {
-                        let b = &mut *bulbs;
-                        ui.label(
-                            "Shipment only — two bare bulbs in another container; everything below is \
-                             shared between both, only position is per-bulb",
-                        );
-                        ui.checkbox(&mut b.markers_visible, "show position markers");
-                        ui.label("Bulb 1 position");
-                        ui.add(egui::Slider::new(&mut b.positions[0].x, -80.0f32..=80.0).text("x"));
-                        ui.add(
-                            egui::Slider::new(&mut b.positions[0].y, 0.0f32..=60.0).text("y (height)"),
-                        );
-                        ui.add(egui::Slider::new(&mut b.positions[0].z, -80.0f32..=80.0).text("z"));
-                        ui.label("Bulb 2 position");
-                        ui.add(egui::Slider::new(&mut b.positions[1].x, -80.0f32..=80.0).text("x"));
-                        ui.add(
-                            egui::Slider::new(&mut b.positions[1].y, 0.0f32..=60.0).text("y (height)"),
-                        );
-                        ui.add(egui::Slider::new(&mut b.positions[1].z, -80.0f32..=80.0).text("z"));
-                        ui.separator();
-                        ui.label("Shared");
-                        point_light_sliders(
-                            ui,
-                            &mut b.color,
-                            &mut b.intensity,
-                            &mut b.range,
-                            &mut b.shadows_enabled,
-                        );
-
-                        if ui.button("Copy bulb lights to console").clicked() {
-                            info!(
-                                "bulbs: positions: [Vec3::new({:.2}, {:.2}, {:.2}), Vec3::new({:.2}, \
-                                 {:.2}, {:.2})], color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: \
-                                 {:.0}, range: {:.1}, shadows_enabled: {}",
-                                b.positions[0].x,
-                                b.positions[0].y,
-                                b.positions[0].z,
-                                b.positions[1].x,
-                                b.positions[1].y,
-                                b.positions[1].z,
-                                b.color[0],
-                                b.color[1],
-                                b.color[2],
-                                b.intensity,
-                                b.range,
-                                b.shadows_enabled,
-                            );
-                        }
-                        if ui.button("Reset bulb lights").clicked() {
-                            *b = BulbLightSettings::default();
-                        }
-                    });
-                });
             });
         });
     Ok(())
-}
-
-/// Position/aim/cone sliders + copy/reset buttons for one [`ShipmentLight`]
-/// slot — shared by "Shipment Light 1" and "Shipment Light 2". `index` is
-/// only needed for the reset button, to pull that slot's own default back
-/// out of [`ShipmentLightSettings::default`] rather than some other light's.
-pub(crate) fn shipment_light_sliders(ui: &mut egui::Ui, l: &mut ShipmentLight, index: usize) {
-    ui.add(egui::Slider::new(&mut l.position.x, -80.0f32..=80.0).text("x"));
-    ui.add(egui::Slider::new(&mut l.position.y, 0.0f32..=60.0).text("y (height)"));
-    ui.add(egui::Slider::new(&mut l.position.z, -80.0f32..=80.0).text("z"));
-    ui.add(egui::Slider::new(&mut l.yaw_deg, -180.0f32..=180.0).text("yaw°  (heading)"));
-    ui.add(
-        egui::Slider::new(&mut l.pitch_deg, -89.0f32..=89.0).text("pitch°  (negative tilts down)"),
-    );
-    ui.separator();
-    ui.label("Cone / beam");
-    ui.horizontal(|ui| {
-        ui.color_edit_button_rgb(&mut l.color);
-        ui.label("colour");
-    });
-    ui.add(
-        egui::Slider::new(&mut l.intensity, 0.0f32..=100_000_000.0)
-            .logarithmic(true)
-            .text("intensity (lumens)"),
-    );
-    ui.add(egui::Slider::new(&mut l.range, 1.0f32..=200.0).text("range (m)"));
-    ui.add(
-        egui::Slider::new(&mut l.inner_angle_deg, 0.0f32..=89.0)
-            .text("inner cone half-angle°  (hard core)"),
-    );
-    ui.add(
-        egui::Slider::new(&mut l.outer_angle_deg, 0.0f32..=89.0)
-            .text("outer cone half-angle°  (full spread — the \"triangle\")"),
-    );
-    ui.checkbox(&mut l.shadows_enabled, "cast shadows");
-    ui.separator();
-    ui.label("Glow  (the always-visible bulb at the fixture — see ShipmentLightGlow)");
-    ui.add(
-        egui::Slider::new(&mut l.glow_intensity, 0.0f32..=20_000_000.0)
-            .logarithmic(true)
-            .text("glow intensity (lumens)"),
-    );
-
-    if ui.button("Copy light settings to console").clicked() {
-        info!(
-            "shipment light {index}: position: Vec3::new({:.2}, {:.2}, {:.2}), yaw_deg: {:.1}, \
-             pitch_deg: {:.1}, color: Color::srgb({:.3}, {:.3}, {:.3}), intensity: {:.0}, \
-             range: {:.1}, inner_angle_deg: {:.1}, outer_angle_deg: {:.1}, shadows_enabled: {}, \
-             glow_intensity: {:.0}",
-            l.position.x,
-            l.position.y,
-            l.position.z,
-            l.yaw_deg,
-            l.pitch_deg,
-            l.color[0],
-            l.color[1],
-            l.color[2],
-            l.intensity,
-            l.range,
-            l.inner_angle_deg,
-            l.outer_angle_deg,
-            l.shadows_enabled,
-            l.glow_intensity,
-        );
-    }
-    if ui.button("Reset light").clicked() {
-        *l = ShipmentLightSettings::default().lights[index].clone();
-    }
-}
-
-/// Colour/intensity/range/shadow sliders shared by the "Fluorescent Light"
-/// and "Bulb Lights" debug-panel sections — the parts of a `PointLight` that
-/// aren't position.
-pub(crate) fn point_light_sliders(
-    ui: &mut egui::Ui,
-    color: &mut [f32; 3],
-    intensity: &mut f32,
-    range: &mut f32,
-    shadows_enabled: &mut bool,
-) {
-    ui.horizontal(|ui| {
-        ui.color_edit_button_rgb(color);
-        ui.label("colour");
-    });
-    ui.add(
-        egui::Slider::new(intensity, 0.0f32..=6_000_000.0)
-            .logarithmic(true)
-            .text("intensity (lumens)"),
-    );
-    ui.add(egui::Slider::new(range, 0.5f32..=60.0).text("range (m)"));
-    ui.checkbox(shadows_enabled, "cast shadows");
 }
 
 /// In debug mode, the "Lock / Unlock Cursor" key (rebindable, `L` by default)

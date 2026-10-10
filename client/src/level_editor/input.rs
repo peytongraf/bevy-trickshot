@@ -950,8 +950,9 @@ pub(crate) fn draw_gizmos(
         } else {
             id.color().with_alpha(0.45)
         };
-        // A light: a star where it hangs, a line down to the ground, and —
-        // selected — a sphere as far as it reaches.
+        // A light: a star where it hangs, a line down to the ground, its
+        // aim if it's a spotlight, and — selected — a sphere as far as it
+        // reaches.
         if let ObjectId::PowerLight(i) = id {
             let Some(light) = doc.layout.power_lights.get(i as usize) else { continue };
             let own = Color::srgb(light.color[0], light.color[1], light.color[2]);
@@ -961,6 +962,10 @@ pub(crate) fn draw_gizmos(
             }
             gizmos.sphere(Isometry3d::from_translation(at.pos), 0.2, mark);
             gizmos.line(at.pos, Vec3::new(at.pos.x, at.pos.y - 200.0, at.pos.z), own.with_alpha(0.15));
+            // A spotlight: which way it shines.
+            if let Some(cone) = light.spot {
+                gizmos.arrow(at.pos, at.pos + cone.rotation() * Vec3::NEG_Z * 3.0, mark);
+            }
             if selected || editor.view.ranges {
                 gizmos.sphere(
                     Isometry3d::from_translation(at.pos),

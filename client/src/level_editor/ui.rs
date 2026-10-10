@@ -161,7 +161,7 @@ fn menu_bar(
                 let max = shared::level::MAX_POWER_LIGHTS;
                 if ui
                     .add_enabled(lights < max, egui::Button::new(format!("Power light  ({lights}/{max})")))
-                    .on_hover_text("A light the power turns on in a Zombies game (always on in the other modes)")
+                    .on_hover_text("A light the power turns on in a Zombies game (always on in the other modes) — night maps only")
                     .clicked()
                 {
                     input::add_light_at_view(ed, rapier);
@@ -519,8 +519,40 @@ fn properties(
                     ui.label("Shadows").on_hover_text("Costly — keep it to the few lights that need them");
                     ui.add_enabled(!busy, egui::Checkbox::without_text(&mut l.shadows));
                     ui.end_row();
+                    ui.label("Bulb glow").on_hover_text("A glowing bulb where it hangs, lighting just around itself (0 = none)");
+                    let step = l.glow.max(1_000.0) * 0.01;
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut l.glow).speed(step).range(0.0..=50_000_000.0).suffix(" lm"),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Spotlight").on_hover_text("Shine one way in a cone instead of all round");
+                    let mut spot = l.spot.is_some();
+                    if ui.add_enabled(!busy, egui::Checkbox::without_text(&mut spot)).changed() {
+                        l.spot = spot.then(shared::level::SpotCone::default);
+                    }
+                    ui.end_row();
+                    if let Some(cone) = l.spot.as_mut() {
+                        for (label, v, range, hover) in [
+                            ("Aim turn", &mut cone.yaw_deg, -180.0..=180.0, "Which way it shines, about the vertical"),
+                            ("Aim tilt", &mut cone.pitch_deg, -90.0..=90.0, "How far it tips up (+) or down (−)"),
+                            ("Cone core", &mut cone.inner_angle_deg, 0.0..=89.0, "Half-angle of its fully-bright middle"),
+                            ("Cone edge", &mut cone.outer_angle_deg, 0.0..=89.0, "Half-angle to where it fades out"),
+                        ] {
+                            ui.label(label).on_hover_text(hover);
+                            let r = ui.add_enabled(
+                                !busy,
+                                egui::DragValue::new(v).speed(0.5).range(range).suffix("°").max_decimals(1),
+                            );
+                            editing |= r.dragged() || r.has_focus();
+                            ui.end_row();
+                        }
+                    }
                 });
-                if ed.view.look != Look::GamePowerOn {
+                if !ed.map.is_dark() {
+                    ui.colored_label(DIM, "Never lit on a day map — switch to the night version to see it");
+                } else if ed.view.look != Look::GamePowerOn {
                     ui.colored_label(DIM, "View → Look → In game — power on to see it lit");
                 }
             }
@@ -550,7 +582,7 @@ fn properties(
             if id == ObjectId::ExfilArea {
                 ui.colored_label(DIM, "During an exfil, only kills from inside it count");
             } else if let ObjectId::PowerLight(_) = id {
-                ui.colored_label(DIM, "Off until the power's on in a Zombies game; always on in the other modes");
+                ui.colored_label(DIM, "Night maps only: off until the power's on in a Zombies game; always on in the other modes");
             } else if let ObjectId::PlayerSpawn(_) = id {
                 ui.colored_label(
                     DIM,

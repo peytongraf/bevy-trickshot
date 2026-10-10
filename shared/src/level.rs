@@ -106,7 +106,9 @@ pub struct WallBuy {
 
 /// One of the map's power lights: on once someone turns the power on in a
 /// `Zombies` game (and always on in the other modes) — the client fades it
-/// in (`client::power`). Placed and tuned in the level editor.
+/// in (`client::power`). Only a night map's are ever lit
+/// ([`MapId::is_dark`]): the day version of a place shares the layout but
+/// leaves them off. Placed and tuned in the level editor.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PowerLight {
     /// Where it hangs (m, world).
@@ -123,6 +125,48 @@ pub struct PowerLight {
     /// Whether it casts shadows (costly — keep it to the few that need it).
     #[serde(default)]
     pub shadows: bool,
+    /// A spotlight's aim and cone — `None` for a light shining all round.
+    #[serde(default)]
+    pub spot: Option<SpotCone>,
+    /// A glowing bulb drawn where it hangs, lighting just around itself
+    /// (lumens, at full power) — 0 for none.
+    #[serde(default)]
+    pub glow: f32,
+}
+
+/// Which way a spotlight [`PowerLight`] shines and how wide.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SpotCone {
+    /// Its turn about the vertical (degrees).
+    pub yaw_deg: f32,
+    /// How far it tips up (+) or down (−) (degrees).
+    pub pitch_deg: f32,
+    /// Half-angles (degrees) of its fully-bright core and its edge.
+    pub inner_angle_deg: f32,
+    pub outer_angle_deg: f32,
+}
+
+impl Default for SpotCone {
+    fn default() -> Self {
+        Self {
+            yaw_deg: 0.0,
+            pitch_deg: -45.0,
+            inner_angle_deg: 30.0,
+            outer_angle_deg: 40.0,
+        }
+    }
+}
+
+impl SpotCone {
+    /// Its aim as a rotation (a spotlight shines along its local −Z).
+    pub fn rotation(self) -> Quat {
+        Quat::from_euler(
+            bevy::math::EulerRot::YXZ,
+            self.yaw_deg.to_radians(),
+            self.pitch_deg.to_radians(),
+            0.0,
+        )
+    }
 }
 
 fn default_light_radius() -> f32 {
@@ -142,6 +186,8 @@ impl PowerLight {
             range: 30.0,
             radius: default_light_radius(),
             shadows: false,
+            spot: None,
+            glow: 0.0,
         }
     }
 
@@ -149,8 +195,8 @@ impl PowerLight {
     fn to_ron(self) -> String {
         let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
         let [cr, cg, cb] = self.color.map(|c| r(c, 1000.0));
-        format!(
-            "(pos: ({:?}, {:?}, {:?}), color: ({cr:?}, {cg:?}, {cb:?}), intensity: {:?}, range: {:?}, radius: {:?}, shadows: {})",
+        let mut out = format!(
+            "(pos: ({:?}, {:?}, {:?}), color: ({cr:?}, {cg:?}, {cb:?}), intensity: {:?}, range: {:?}, radius: {:?}, shadows: {}",
             r(self.pos.x, 1000.0),
             r(self.pos.y, 1000.0),
             r(self.pos.z, 1000.0),
@@ -158,7 +204,20 @@ impl PowerLight {
             r(self.range, 100.0),
             r(self.radius, 1000.0),
             self.shadows,
-        )
+        );
+        if let Some(c) = self.spot {
+            out += &format!(
+                ", spot: Some((yaw_deg: {:?}, pitch_deg: {:?}, inner_angle_deg: {:?}, outer_angle_deg: {:?}))",
+                r(c.yaw_deg, 10.0),
+                r(c.pitch_deg, 10.0),
+                r(c.inner_angle_deg, 10.0),
+                r(c.outer_angle_deg, 10.0),
+            );
+        }
+        if self.glow > 0.0 {
+            out += &format!(", glow: {:?}", self.glow.round());
+        }
+        out + ")"
     }
 }
 
@@ -510,9 +569,26 @@ mod tests {
         light.color = [0.9, 0.5, 0.25];
         light.shadows = true;
         layout.power_lights.push(light);
+        let mut spot = PowerLight::new(Vec3::new(-16.0, 18.5, 0.0));
+        spot.spot = Some(SpotCone {
+            yaw_deg: -75.0,
+            pitch_deg: -35.0,
+            inner_angle_deg: 89.0,
+            outer_angle_deg: 89.0,
+        });
+        spot.glow = 5_000_000.0;
+        layout.power_lights.push(spot);
         let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
-        assert_eq!(back.power_lights.last(), Some(&light));
+        assert_eq!(back.power_lights.last(), Some(&spot));
+        assert_eq!(back.power_lights[back.power_lights.len() - 2], light);
         assert_eq!(back.power_lights.len(), layout.power_lights.len());
+    }
+
+    #[test]
+    fn shipment_keeps_its_floodlights_as_power_lights() {
+        let lights = &layout(MapId::Shipment).power_lights;
+        assert_eq!(lights.len(), 5);
+        assert_eq!(lights.iter().filter(|l| l.spot.is_some() && l.glow > 0.0).count(), 2, "the crane floodlights");
     }
 
     #[test]

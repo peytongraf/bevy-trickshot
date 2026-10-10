@@ -6,26 +6,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Rampage Inducer
-- Wunderfizz menu centred
-- Commas in money amounts
-- Full map on hold (M)
-- Telemetry settings (FPS, 1% low, etc.)
-- Minimap top left
-- Operator quotes for game events
-- Louder quotes (perk quotes too)
-- Rounds end with only bosses left
-- Leave with party keeps lobby
-- Boss smash knockback
-- Stronger hurt effect + damage indicator
-- Tab leaderboard
-- Realistic perk drink bottles
-- Thrown knives only scratch bosses
-- Fixed equipment pickups failing
-- Exfil on rounds 11, 21, 31...
-- No random power-ups on dog rounds
-- Smaller perk icons
-- Fixed zombie spawn flash at map centre
+- No lights on day maps
+- Shipment Night lights on power + in editor
+
+# Current todo
 
 # Added
 
@@ -35,8 +19,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Make hd staminup model
 - Make a better blood overlay
 - Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
-
-# Current todo
 
 # Performance
 
@@ -48,7 +30,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Can add a flash light on off sound
 - Can turn on flashlight if an area is too dark instead of having it only on when the power is off
-- Flashlight shouldn't be on at all on day settings
 
 # Bugs
 

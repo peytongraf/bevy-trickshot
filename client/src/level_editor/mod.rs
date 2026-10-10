@@ -999,45 +999,36 @@ fn apply_editor_lighting(
     }
 }
 
-/// One of the map's power lights, lit in the editor.
+/// On the editor's power lights.
 #[derive(Component)]
-struct EditorPowerLight(usize);
+struct EditorPowerLight;
 
 /// Light the shown map's power lights as a game would with the power on
-/// ([`Look::GamePowerOn`]) — dark otherwise — and keep them matching the
-/// layout as it's edited.
+/// ([`Look::GamePowerOn`] — and only on a night map, as in a game) — dark
+/// otherwise — and keep them matching the layout as it's edited.
 fn sync_editor_lights(
     editor: Res<Editor>,
-    mut lights: Query<(Entity, &EditorPowerLight, &mut PointLight, &mut Transform)>,
+    lights: Query<(Entity, &crate::power::PowerLightSlot), With<EditorPowerLight>>,
+    glows: Query<(Entity, &ChildOf, &MeshMaterial3d<StandardMaterial>), With<crate::power::PowerLightGlow>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     if editor.docs.is_empty() {
         return;
     }
-    let wanted = &editor.doc().layout.power_lights;
-    let lit = editor.view.look == Look::GamePowerOn;
-    if lights.iter().count() != wanted.len() {
-        for (e, ..) in &lights {
-            commands.entity(e).despawn();
-        }
-        for (i, light) in wanted.iter().enumerate() {
-            commands.spawn((
-                StateScoped(AppState::LevelEditor),
-                EditorPowerLight(i),
-                crate::power::point_light(light, if lit { 1.0 } else { 0.0 }),
-                Transform::from_translation(light.pos),
-            ));
-        }
-        return;
-    }
-    if !editor.is_changed() {
-        return;
-    }
-    for (_, i, mut point, mut t) in &mut lights {
-        let Some(light) = wanted.get(i.0) else { continue };
-        *point = crate::power::point_light(light, if lit { 1.0 } else { 0.0 });
-        t.set_if_neq(Transform::from_translation(light.pos));
-    }
+    let lit = editor.view.look == Look::GamePowerOn && editor.map.is_dark();
+    crate::power::sync_power_lights(
+        &editor.doc().layout.power_lights,
+        if lit { 1.0 } else { 0.0 },
+        editor.is_changed(),
+        &lights,
+        &glows,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        || (StateScoped(AppState::LevelEditor), EditorPowerLight),
+    );
 }
 
 // --- the scene --------------------------------------------------------------------
