@@ -130,6 +130,8 @@ pub(crate) fn ads_tuning_ui(
                     ResMut<crate::dogs::DogSettings>,
                     ResMut<crate::dogs::DogPreview>,
                     Res<crate::dogs::DogReadout>,
+                    ResMut<crate::environment::DogRoundLook>,
+                    Res<crate::environment::DogRoundFade>,
                 ),
                 // The sections that used to be windows of their own.
                 (
@@ -160,7 +162,7 @@ pub(crate) fn ads_tuning_ui(
         mut water,
         mut shipment_scene,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1691,6 +1693,9 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Dogs (Zombies)", |ui| {
                 crate::dogs::dogs_section(ui, &mut dog_settings, &mut dog_preview, &dog_readout);
+                ui.collapsing("Dog round sky + fog", |ui| {
+                    crate::environment::dog_round_look_section(ui, &mut dog_round_look, dog_round_fade.0);
+                });
             });
 
             ui.separator();

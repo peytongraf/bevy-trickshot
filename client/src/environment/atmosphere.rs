@@ -7,6 +7,7 @@ use bevy::pbr::{
     CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap, DistanceFog,
     FogFalloff,
 };
+use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
@@ -39,8 +40,8 @@ pub(crate) const FOG_VISIBILITY_M: f32 = 1300.0;
 /// Defaults mirror the `SUN_*` / `SKY_*` / `FOG_*` consts.
 #[derive(Resource)]
 pub(crate) struct SceneTuning {
-    fog_visibility_m: f32,
-    fog_color: [f32; 3],
+    pub(crate) fog_visibility_m: f32,
+    pub(crate) fog_color: [f32; 3],
     fog_sun_exponent: f32,
     sun_lux: f32,
     sun_color: [f32; 3],
@@ -203,6 +204,41 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
     ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
 }
 
+/// Every map's look ([`SceneTuning`] and its per-map wrappers), with which
+/// one a map uses — shared by `apply_scene_tuning` and the dog-round sky.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct MapLooks<'w> {
+    scene: Res<'w, SceneTuning>,
+    shipment_scene: Res<'w, ShipmentSceneTuning>,
+    shipment_day_scene: Res<'w, ShipmentDaySceneTuning>,
+    break_point_scene: Res<'w, BreakPointSceneTuning>,
+    break_point_night_scene: Res<'w, BreakPointNightSceneTuning>,
+}
+
+impl MapLooks<'_> {
+    pub(crate) fn is_changed(&self) -> bool {
+        self.scene.is_changed()
+            || self.shipment_scene.is_changed()
+            || self.shipment_day_scene.is_changed()
+            || self.break_point_scene.is_changed()
+            || self.break_point_night_scene.is_changed()
+    }
+
+    /// The look `map` uses.
+    pub(crate) fn get(&self, map: shared::MapId) -> &SceneTuning {
+        match map {
+            shared::MapId::BasicMap => &self.scene,
+            shared::MapId::Shipment => &self.shipment_scene.0,
+            shared::MapId::ShipmentDay => &self.shipment_day_scene.0,
+            shared::MapId::BreakPoint => &self.break_point_scene.0,
+            // (Ashes of the Damned borrows Break Point Night's look outright.)
+            shared::MapId::BreakPointNight | shared::MapId::AshesOfTheDamned => {
+                &self.break_point_night_scene.0
+            }
+        }
+    }
+}
+
 /// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
 /// changes (also once at startup, which just re-applies the consts).
 /// Picks whichever of [`SceneTuning`] (`BasicMap`), [`ShipmentSceneTuning`]
@@ -214,46 +250,38 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
 /// entities.
 pub(crate) fn apply_scene_tuning(
     current: Res<CurrentMap>,
-    scene: Res<SceneTuning>,
-    shipment_scene: Res<ShipmentSceneTuning>,
-    shipment_day_scene: Res<ShipmentDaySceneTuning>,
-    break_point_scene: Res<BreakPointSceneTuning>,
-    break_point_night_scene: Res<BreakPointNightSceneTuning>,
+    looks: MapLooks,
+    dog_fade: Res<super::DogRoundFade>,
+    dog_look: Res<super::DogRoundLook>,
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
 ) {
-    if !current.is_changed()
-        && !scene.is_changed()
-        && !shipment_scene.is_changed()
-        && !shipment_day_scene.is_changed()
-        && !break_point_scene.is_changed()
-        && !break_point_night_scene.is_changed()
-    {
+    if !current.is_changed() && !looks.is_changed() && !dog_fade.is_changed() && !dog_look.is_changed() {
         return;
     }
-    let active = match current.0 {
-        shared::MapId::BasicMap => &*scene,
-        shared::MapId::Shipment => &shipment_scene.0,
-        shared::MapId::ShipmentDay => &shipment_day_scene.0,
-        shared::MapId::BreakPoint => &break_point_scene.0,
-        // (Ashes of the Damned borrows Break Point Night's look outright.)
-        shared::MapId::BreakPointNight | shared::MapId::AshesOfTheDamned => {
-            &break_point_night_scene.0
-        }
-    };
+    let active = looks.get(current.0);
 
-    ambient.color = color_from_parts(active.ambient_color);
-    ambient.brightness = active.ambient_lux;
+    // A dog round darkens all of it, `t` of the way (`dog_round.rs`).
+    let t = dog_fade.0;
+    let lerp = |a: f32, b: f32| a + (b - a) * t;
+    let mix = |a: [f32; 3], b: [f32; 3]| color_from_parts(a).mix(&color_from_parts(b), t);
+    let sun_mult = lerp(1.0, dog_look.sun_mult);
 
-    sun.illuminance = active.sun_lux;
+    ambient.color = mix(active.ambient_color, dog_look.ambient_color);
+    ambient.brightness = active.ambient_lux * lerp(1.0, dog_look.ambient_mult);
+
+    sun.illuminance = active.sun_lux * sun_mult;
     sun.color = color_from_parts(active.sun_color);
 
-    fog.color = color_from_parts(active.fog_color);
-    fog.directional_light_color = color_from_parts(active.sun_color);
+    fog.color = mix(active.fog_color, dog_look.fog_color);
+    fog.directional_light_color = Color::LinearRgba(LinearRgba::from(color_from_parts(active.sun_color)) * sun_mult);
     fog.directional_light_exponent = active.fog_sun_exponent;
-    fog.falloff = FogFalloff::from_visibility(active.fog_visibility_m);
+    fog.falloff = FogFalloff::from_visibility(lerp(
+        active.fog_visibility_m,
+        dog_look.fog_visibility_m.min(active.fog_visibility_m),
+    ));
 
     bloom.intensity = active.bloom_intensity;
 }

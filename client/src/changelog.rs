@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: dog rounds turn the sky blood red and plunge the map into darkness.",
         "Shipment Night: its lights fade on with the power in Zombies, and can be moved in the level editor.",
         "Day maps no longer turn on any lights with the power.",
         "Zombies: flashlights switch off once the power's on.",

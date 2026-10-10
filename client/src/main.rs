@@ -385,6 +385,8 @@ fn main() {
         .init_resource::<MapLoadState>()
         .init_resource::<ShipmentSettings>()
         .init_resource::<WaterSettings>()
+        .init_resource::<DogRoundLook>()
+        .init_resource::<DogRoundFade>()
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<SniperGlintSettings>()
@@ -490,6 +492,8 @@ fn main() {
                 sync_map_model,
                 sync_shipment_only_visibility,
                 sync_sky_texture,
+                // (Ungated, so leaving a game mid-dog-round puts the sky back.)
+                (update_dog_round_fade, apply_dog_round_sky).chain(),
             ),
         )
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
@@ -826,6 +830,27 @@ fn setup_world(
         // Bevy's UV sphere has its poles on +Z/-Z; rotate so the equirect map's
         // zenith points up and its nadir points down.
         Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        NotShadowCaster,
+    ));
+    // The sky's haze while a dog round's on (`environment::dog_round`):
+    // a shell just inside the sky in the fog's colour, standing in for the
+    // fog on the sky so the map's fog can thicken without hiding it.
+    let veil_material = materials.add(StandardMaterial {
+        base_color: Color::NONE,
+        unlit: true,
+        cull_mode: None,
+        fog_enabled: false,
+        alpha_mode: AlphaMode::Blend,
+        // Sorted behind every other see-through thing (even the water's -1000).
+        depth_bias: -2000.0,
+        ..default()
+    });
+    commands.spawn((
+        SkyHazeVeil(veil_material.clone()),
+        Mesh3d(meshes.add(Sphere::new(SKY_HAZE_RADIUS).mesh().uv(64, 32))),
+        MeshMaterial3d(veil_material),
+        Transform::default(),
+        Visibility::Hidden,
         NotShadowCaster,
     ));
 

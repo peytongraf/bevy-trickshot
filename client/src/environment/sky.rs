@@ -11,6 +11,15 @@ use super::map::CurrentMap;
 /// follows the camera so the player never reaches its edge.
 pub(crate) const SKY_RADIUS: f32 = 900.0;
 
+/// Radius of [`SkyHazeVeil`] — just inside the sky.
+pub(crate) const SKY_HAZE_RADIUS: f32 = SKY_RADIUS - 5.0;
+
+/// The sky's haze during a dog round (`dog_round.rs`), and its material: a
+/// see-through shell just inside the sky, in the fog's colour, standing in
+/// for the fog on the sky (which is switched off then). Hidden otherwise.
+#[derive(Component)]
+pub(crate) struct SkyHazeVeil(pub(crate) Handle<StandardMaterial>);
+
 /// The HDR sky sphere; recentred on the camera every frame.
 #[derive(Component)]
 pub(crate) struct SkySphere;
@@ -66,11 +75,14 @@ pub(crate) fn sync_sky_texture(
     material.base_color_texture = Some(asset_server.load(sky_texture_path(current.0)));
 }
 
-/// Recentre the sky sphere on the camera so its edge is never reached (it uses
-/// last frame's camera `GlobalTransform`, which is imperceptible at this scale).
+/// Recentre the sky sphere (and its haze) on the camera so its edge is never
+/// reached (it uses last frame's camera `GlobalTransform`, which is
+/// imperceptible at this scale).
 pub(crate) fn sky_follow_camera(
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
-    mut sky: Single<&mut Transform, With<SkySphere>>,
+    mut sky: Query<&mut Transform, Or<(With<SkySphere>, With<SkyHazeVeil>)>>,
 ) {
-    sky.translation = camera.translation();
+    for mut t in &mut sky {
+        t.translation = camera.translation();
+    }
 }
