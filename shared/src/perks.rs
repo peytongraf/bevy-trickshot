@@ -45,8 +45,8 @@ pub enum Perk {
     StaminUp,
     /// Double Tap — a faster rate of fire (client-side, likewise).
     DoubleTap,
-    /// Deadshot Daiquiri — aiming down sights pulls onto enemies (the
-    /// client's aim assist, `player::shroom_aim_assist`).
+    /// Deadshot Daiquiri — aiming down sights pulls onto enemies' heads
+    /// (the client's aim assist, `player::shroom_aim_assist`).
     DeadshotDaiquiri,
     /// PhD Flopper (Der Wunderfizz only) — no fall damage, longer slides, and an explosion when
     /// sliding into an enemy ([`crate::PhdSlam`]) or landing a big fall
@@ -306,7 +306,7 @@ impl Perk {
             Perk::SpeedCola => "Reload faster.",
             Perk::StaminUp => "Move faster.",
             Perk::DoubleTap => "Increases rate of fire.",
-            Perk::DeadshotDaiquiri => "Aiming down sights snaps to enemies.",
+            Perk::DeadshotDaiquiri => "Aiming down sights snaps to enemy heads.",
             Perk::PhdFlopper => {
                 "Immune to fall damage. Slide further, and sliding into enemies or landing from a height causes an explosion."
             }

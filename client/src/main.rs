@@ -460,7 +460,7 @@ fn main() {
             Update,
             // Right after mouse look, under the same conditions (no menu, kill
             // cam, fall death or death look-at in charge of the view).
-            shroom_aim_assist.after(look_around).run_if(
+            (tag_head_bones, shroom_aim_assist).chain().after(look_around).run_if(
                 in_state(AppState::InGame)
                     .and(menu::game_active)
                     .and(killcam::no_killcam)
