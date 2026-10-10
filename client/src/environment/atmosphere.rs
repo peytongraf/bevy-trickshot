@@ -231,9 +231,12 @@ impl MapLooks<'_> {
             shared::MapId::Shipment => &self.shipment_scene.0,
             shared::MapId::ShipmentDay => &self.shipment_day_scene.0,
             shared::MapId::BreakPoint => &self.break_point_scene.0,
-            // (Ashes of the Damned and Vesper Station borrow Break Point
-            // Night's look outright.)
-            shared::MapId::BreakPointNight | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation => {
+            // (Ashes of the Damned, Vesper Station and Die Maschine borrow
+            // Break Point Night's look outright.)
+            shared::MapId::BreakPointNight
+            | shared::MapId::AshesOfTheDamned
+            | shared::MapId::VesperStation
+            | shared::MapId::DieMaschine => {
                 &self.break_point_night_scene.0
             }
         }

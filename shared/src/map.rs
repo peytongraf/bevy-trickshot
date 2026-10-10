@@ -65,6 +65,16 @@ pub const VESPER_STATION_PLACEMENT: MapPlacement = MapPlacement {
     scale: 1.0,
 };
 
+/// `die_maschine_map.glb`'s placement: as modelled — built in metres in the
+/// game's own frame (`tools/blender/die_maschine.py`), the Yard (the spawn)
+/// round the origin. The surface is `y = 0`; the labs are underground at
+/// `y = -6`, their lower floors at `y = -10`.
+pub const DIE_MASCHINE_PLACEMENT: MapPlacement = MapPlacement {
+    position: Vec3::ZERO,
+    yaw_deg: 0.0,
+    scale: 1.0,
+};
+
 /// The collision model file for `map`, relative to the client's assets
 /// directory — `shipment.glb` for both Shipment variants. The server embeds
 /// these same files at build time (`server::collision`).
@@ -75,6 +85,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
         MapId::BreakPoint | MapId::BreakPointNight => "models/maps/break_point_map.glb",
         MapId::AshesOfTheDamned => "models/maps/ashes_of_the_damned_map.glb",
         MapId::VesperStation => "models/maps/vesper_station_map.glb",
+        MapId::DieMaschine => "models/maps/die_maschine_map.glb",
     }
 }
 
@@ -86,6 +97,7 @@ pub fn placement(map: MapId) -> MapPlacement {
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT,
         MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_PLACEMENT,
         MapId::VesperStation => VESPER_STATION_PLACEMENT,
+        MapId::DieMaschine => DIE_MASCHINE_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
             yaw_deg: 0.0,
@@ -178,8 +190,20 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_WALLS,
         MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_WALLS,
         MapId::VesperStation => VESPER_STATION_WALLS,
+        MapId::DieMaschine => DIE_MASCHINE_WALLS,
     }
 }
+
+/// What stands in `die_maschine_map.glb`'s Yard (from
+/// `tools/blender/die_maschine.py`) — the only part of the map [`bounds`]
+/// lets bots be placed in: the stone ledge and its steps, the tank, the rock
+/// in the south-west corner and the crates.
+const DIE_MASCHINE_WALLS: &[WallBox] = &[
+    WallBox { x: (5.0, 16.0), z: (-16.0, -7.6) },
+    WallBox { x: (-0.5, 6.5), z: (2.0, 10.0) },
+    WallBox { x: (-16.0, -9.5), z: (9.5, 16.0) },
+    WallBox { x: (-6.6, -4.2), z: (11.4, 13.2) },
+];
 
 /// What stands in `vesper_station_map.glb`'s spawn square (from
 /// `tools/blender/vesper_station.py`) — the only part of the map [`bounds`]
@@ -249,6 +273,8 @@ pub fn area_scale(map: MapId) -> f32 {
         MapId::AshesOfTheDamned => 0.3,
         // Its spawn square is only 28 × 38 m.
         MapId::VesperStation => 0.3,
+        // Its Yard is only 32 × 32 m.
+        MapId::DieMaschine => 0.3,
         _ => 1.0,
     }
 }
@@ -277,6 +303,8 @@ fn bounds(map: MapId) -> Option<WallBox> {
         MapId::AshesOfTheDamned => Some(WallBox { x: (-24.0, 24.0), z: (-38.0, -1.0) }),
         // The spawn square.
         MapId::VesperStation => Some(WallBox { x: (-13.5, 13.5), z: (-18.5, 18.5) }),
+        // The Yard.
+        MapId::DieMaschine => Some(WallBox { x: (-15.5, 15.5), z: (-15.5, 15.5) }),
     }
 }
 

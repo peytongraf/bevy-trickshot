@@ -112,6 +112,12 @@ pub enum MapId {
     /// `tools/blender/vesper_station.py`; the collision mesh is what's
     /// rendered.
     VesperStation,
+    /// `models/maps/die_maschine_map.glb` — a `Zombies` map, at night: a
+    /// plain-shapes blockout of Black Ops Cold War's Die Maschine (the Yard,
+    /// the Nacht building, the Crash Site, the Pond, and the labs under them
+    /// down to the Particle Accelerator), at this game's scale. Built by
+    /// `tools/blender/die_maschine.py`; the collision mesh is what's rendered.
+    DieMaschine,
 }
 
 impl MapId {
@@ -125,6 +131,7 @@ impl MapId {
             MapId::BreakPointNight => "BREAK POINT NIGHT",
             MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
             MapId::VesperStation => "VESPER STATION",
+            MapId::DieMaschine => "DIE MASCHINE",
         }
     }
 
@@ -137,17 +144,19 @@ impl MapId {
             MapId::BreakPoint | MapId::BreakPointNight => "BREAK POINT",
             MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
             MapId::VesperStation => "VESPER STATION",
+            MapId::DieMaschine => "DIE MASCHINE",
         }
     }
 
     /// Every place a lobby can pick (one variant each — see
     /// [`Self::with_night`] for the time of day).
-    pub const PLACES: [MapId; 5] = [
+    pub const PLACES: [MapId; 6] = [
         MapId::BasicMap,
         MapId::Shipment,
         MapId::BreakPoint,
         MapId::AshesOfTheDamned,
         MapId::VesperStation,
+        MapId::DieMaschine,
     ];
 
     /// Whether the place comes in a day and a night version.
@@ -166,7 +175,11 @@ impl MapId {
     pub fn is_dark(self) -> bool {
         matches!(
             self,
-            MapId::Shipment | MapId::BreakPointNight | MapId::AshesOfTheDamned | MapId::VesperStation
+            MapId::Shipment
+                | MapId::BreakPointNight
+                | MapId::AshesOfTheDamned
+                | MapId::VesperStation
+                | MapId::DieMaschine
         )
     }
 

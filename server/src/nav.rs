@@ -153,6 +153,7 @@ pub struct NavGraphs {
     break_point: NavGraph,
     ashes_of_the_damned: NavGraph,
     vesper_station: NavGraph,
+    die_maschine: NavGraph,
 }
 
 impl NavGraphs {
@@ -167,6 +168,7 @@ impl NavGraphs {
             break_point: build(MapId::BreakPoint),
             ashes_of_the_damned: build(MapId::AshesOfTheDamned),
             vesper_station: build(MapId::VesperStation),
+            die_maschine: build(MapId::DieMaschine),
         }
     }
 
@@ -177,6 +179,7 @@ impl NavGraphs {
             MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
             MapId::AshesOfTheDamned => &self.ashes_of_the_damned,
             MapId::VesperStation => &self.vesper_station,
+            MapId::DieMaschine => &self.die_maschine,
         }
     }
 }
@@ -849,7 +852,13 @@ pub(crate) mod tests {
     #[test]
     fn every_designated_spawn_point_is_on_walkable_ground() {
         let (c, n) = built();
-        for map in [MapId::Shipment, MapId::ShipmentDay, MapId::AshesOfTheDamned, MapId::VesperStation] {
+        for map in [
+            MapId::Shipment,
+            MapId::ShipmentDay,
+            MapId::AshesOfTheDamned,
+            MapId::VesperStation,
+            MapId::DieMaschine,
+        ] {
             let (w, g) = (c.world(map), n.graph(map));
             for (i, p) in shared::spawns::designated_spawns(map).unwrap().iter().enumerate() {
                 let at = Vec3::new(p.x, p.y, p.z);
@@ -903,6 +912,55 @@ pub(crate) mod tests {
             let path = g
                 .find_path(w, start, floor, false)
                 .unwrap_or_else(|| panic!("no walk from spawn to {what} at {at:?}"));
+            let points: Vec<Vec3> = path.iter().map(|p| p.at).collect();
+            assert_walkable(w, start, floor, &points);
+        }
+    }
+
+    /// Die Maschine: every area — the Nacht building's floors and roof, the
+    /// Crash Site, the Pond, down the tunnel and through every lab to the
+    /// Particle Accelerator — is a walk (no climbing) from the Yard, and so
+    /// is every machine the layout places.
+    #[test]
+    fn die_maschine_areas_are_all_walkable_from_the_yard() {
+        let (c, n) = built();
+        let map = MapId::DieMaschine;
+        let (w, g) = (c.world(map), n.graph(map));
+        let start = Vec3::new(0.0, 0.0, -8.0);
+        let layout = shared::level::layout(map);
+        let mut spots = vec![
+            ("Yard ledge", Vec3::new(10.0, 1.2, -13.0)),
+            ("Omega Outpost", Vec3::new(-25.0, 0.0, -6.0)),
+            ("Living Room", Vec3::new(-30.0, 0.0, 5.0)),
+            ("Bedroom", Vec3::new(-30.0, 3.6, -5.0)),
+            ("Mezzanine", Vec3::new(-22.0, 3.6, 4.0)),
+            ("Penthouse", Vec3::new(-28.0, 7.2, -3.0)),
+            ("Crash Site", Vec3::new(-44.0, 0.0, -46.0)),
+            ("Crash Site east", Vec3::new(4.0, 0.0, -52.0)),
+            ("Pond", Vec3::new(-60.0, 0.0, -10.0)),
+            ("tunnel entrance", Vec3::new(-68.0, 0.0, -40.0)),
+            ("Tunnel", Vec3::new(-56.0, -6.0, -59.0)),
+            ("Control Room", Vec3::new(-32.0, -6.0, -55.0)),
+            ("Medical Bay walkway", Vec3::new(-32.0, -6.0, -38.5)),
+            ("Medical Bay floor", Vec3::new(-32.0, -10.0, -20.0)),
+            ("Weapons Lab ring", Vec3::new(2.0, -6.0, -46.0)),
+            ("Weapons Lab pit", Vec3::new(2.0, -10.0, -58.0)),
+            ("Particle Accelerator ring", Vec3::new(33.0, -6.0, -10.0)),
+            ("Particle Accelerator bowl", Vec3::new(0.0, -10.0, -20.0)),
+        ];
+        spots.extend(layout.perks.values().map(|p| ("a perk machine", p.pos)));
+        spots.push(("Pack-a-Punch", layout.pack_a_punch.unwrap().pos));
+        spots.push(("Der Wunderfizz", layout.wunderfizz.pos));
+        spots.push(("the power switch", layout.power_switch.unwrap().pos));
+        spots.push(("the Mystery Box", layout.mystery_box.unwrap().pos));
+        spots.push(("the armor station", layout.armor_station.unwrap().pos));
+        for (what, at) in spots {
+            let node = g.nearest_node(at).unwrap_or_else(|| panic!("{what} at {at:?}: no floor near it"));
+            let floor = g.nodes[node as usize];
+            assert!((floor.y - at.y).abs() < 0.6, "{what} at {at:?}: nearest floor is {floor:?}");
+            let path = g
+                .find_path(w, start, floor, false)
+                .unwrap_or_else(|| panic!("no walk from the Yard to {what} at {at:?}"));
             let points: Vec<Vec3> = path.iter().map(|p| p.at).collect();
             assert_walkable(w, start, floor, &points);
         }

@@ -92,6 +92,27 @@ const VESPER_STATION_SPAWNS: [SpawnPoint; 13] = [
     sp(32.0, -44.0, 180.0),
 ];
 
+/// `DieMaschine`'s spawn points, over every area: the Yard, the Nacht
+/// building's floors and roof, the Crash Site, the Pond and the labs.
+const DIE_MASCHINE_SPAWNS: [SpawnPoint; 16] = [
+    sp(0.0, -8.0, 180.0),
+    sp(-8.0, 4.0, -90.0),
+    sp(-25.0, -6.0, -90.0),
+    sp(-30.0, 5.0, -90.0),
+    sp_at(-30.0, 3.6, -5.0, 90.0),
+    sp_at(-22.0, 3.6, 4.0, 90.0),
+    sp_at(-28.0, 7.2, -3.0, 0.0),
+    sp(-44.0, -46.0, 90.0),
+    sp(4.0, -52.0, 0.0),
+    sp(-60.0, -10.0, 180.0),
+    sp(-70.0, 20.0, 90.0),
+    sp_at(-56.0, -6.0, -59.0, -90.0),
+    sp_at(-32.0, -6.0, -55.0, 0.0),
+    sp_at(-32.0, -10.0, -20.0, 180.0),
+    sp_at(2.0, -10.0, -58.0, 90.0),
+    sp_at(0.0, -10.0, -20.0, 0.0),
+];
+
 /// `Shipment` / `ShipmentDay`'s spawn points, from
 /// `client/notes/shipment-spawn-points.md`.
 const SHIPMENT_SPAWNS: [SpawnPoint; 11] = [
@@ -148,6 +169,7 @@ pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),
         MapId::AshesOfTheDamned => Some(&ASHES_OF_THE_DAMNED_SPAWNS),
         MapId::VesperStation => Some(&VESPER_STATION_SPAWNS),
+        MapId::DieMaschine => Some(&DIE_MASCHINE_SPAWNS),
         _ => None,
     }
 }

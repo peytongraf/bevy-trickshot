@@ -87,7 +87,10 @@ impl FlashlightSettings {
         self.force_on
             || matches!(
                 map,
-                shared::MapId::BreakPointNight | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation
+                shared::MapId::BreakPointNight
+                    | shared::MapId::AshesOfTheDamned
+                    | shared::MapId::VesperStation
+                    | shared::MapId::DieMaschine
             )
     }
 

@@ -134,6 +134,10 @@ pub(crate) fn apply_map_transform(
             let p = shared::map::VESPER_STATION_PLACEMENT;
             (p.position, p.yaw_deg, p.scale)
         }
+        shared::MapId::DieMaschine => {
+            let p = shared::map::DIE_MASCHINE_PLACEMENT;
+            (p.position, p.yaw_deg, p.scale)
+        }
         _ => return,
     };
     for mut transform in &mut models {
@@ -221,7 +225,7 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
         shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
-        | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation => None,
+        | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation | shared::MapId::DieMaschine => None,
         shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/maps/shipment_visual.glb"),
     }
 }

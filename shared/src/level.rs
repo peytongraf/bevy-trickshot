@@ -512,6 +512,7 @@ pub fn file_name(map: MapId) -> &'static str {
         MapId::BreakPoint | MapId::BreakPointNight => "break_point.ron",
         MapId::AshesOfTheDamned => "ashes_of_the_damned.ron",
         MapId::VesperStation => "vesper_station.ron",
+        MapId::DieMaschine => "die_maschine.ron",
         MapId::BasicMap => "basic_map.ron",
     }
 }
@@ -533,6 +534,7 @@ fn built_in_text(map: MapId) -> &'static str {
         MapId::BreakPoint | MapId::BreakPointNight => include_str!("../levels/break_point.ron"),
         MapId::AshesOfTheDamned => include_str!("../levels/ashes_of_the_damned.ron"),
         MapId::VesperStation => include_str!("../levels/vesper_station.ron"),
+        MapId::DieMaschine => include_str!("../levels/die_maschine.ron"),
         MapId::BasicMap => include_str!("../levels/basic_map.ron"),
     }
 }

@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "New Zombies map: Die Maschine.",
         "New Zombies map: Vesper Station.",
         "Zombies: dog rounds turn the sky blood red and plunge the map into darkness.",
         "Shipment Night: its lights fade on with the power in Zombies, and can be moved in the level editor.",
