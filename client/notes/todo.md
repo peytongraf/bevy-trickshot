@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Zombies circle monkey bomb
 - No lights on day maps
 - Shipment Night lights on power + in editor
 
@@ -15,7 +16,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
-- Zombies should move around monkey bomb instead of just standing there
 - Create new rampage inducer music
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - Make hd staminup model

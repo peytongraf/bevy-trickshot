@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies now shuffle round a monkey bomb, arms up.",
         "Deadshot pulls harder, onto heads.",
         "New Zombies map: Die Maschine.",
         "New Zombies map: Vesper Station.",

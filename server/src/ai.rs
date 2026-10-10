@@ -195,6 +195,19 @@ const ZOMBIE_WANDER_NONE_DIST: f32 = 2.5;
 /// eases apart rather than popping.
 const ZOMBIE_PUSH_MAX_SPEED: f32 = 3.0;
 
+/// A zombie lured to a landed monkey bomb stops heading straight in this
+/// close (m, horizontally) — if it can see it — and shuffles round it,
+/// arms up...
+const MONKEY_CIRCLE_START: f32 = 3.0;
+/// ...each in its own lane this far out (m, rolled at spawn), so a crowd
+/// rings it rather than piling onto one spot...
+const MONKEY_RING_MIN: f32 = 1.0;
+const MONKEY_RING_MAX: f32 = 1.8;
+/// ...pulled back onto that lane this hard per metre it's off it...
+const MONKEY_RING_PULL: f32 = 1.5;
+/// ...and going round at no more than this (m/s), runners included.
+const MONKEY_CIRCLE_SPEED: f32 = 1.3;
+
 /// A `Zombies` zombie's body ([`BotBrain::zombie`]): no gun — it walks or
 /// runs at its own speed, stops just short of who it's after, and swipes at
 /// them (`shared::zombies`), the hit landing a moment into the swing.
@@ -234,6 +247,12 @@ struct ZombieBody {
     boss_attack: Option<BossAttack>,
     /// ...and when (`Time::elapsed_secs`) it may next hurl a blast.
     blast_ready_at: f32,
+    /// Round a monkey bomb: its lane (m out from it, [`MONKEY_RING_MIN`]..
+    /// [`MONKEY_RING_MAX`]) and which way it's going round (±1 — every
+    /// zombie the same way, so they follow rather than walk into each
+    /// other; flipped only when a wall's in the way).
+    ring: f32,
+    circle_dir: f32,
 }
 
 impl ZombieBody {
@@ -423,6 +442,8 @@ impl BotBrain {
             boss: false,
             boss_attack: None,
             blast_ready_at: 0.0,
+            ring: MONKEY_RING_MIN + (MONKEY_RING_MAX - MONKEY_RING_MIN) * self.roll(),
+            circle_dir: 1.0,
         });
         self
     }
@@ -861,6 +882,13 @@ pub(crate) fn drive_bots(
             Some(at) => Some(at + Vec3::Y * EYE_HEIGHT),
             None => target_pose,
         };
+        // Right up by it (and nothing in the way): round and round it, arms
+        // up, rather than standing on it.
+        let circling = lure.filter(|at| {
+            Vec3::new(at.x - brain.feet.x, 0.0, at.z - brain.feet.z).length() <= MONKEY_CIRCLE_START
+                && (at.y - brain.feet.y).abs() <= ZOMBIE_ATTACK_HEIGHT
+                && !world.segment_blocked(eye, *at + Vec3::Y * 0.3)
+        });
 
         // Can it see them? (Chest of the target, through the map's geometry.)
         let mut visible = false;
@@ -1083,8 +1111,9 @@ pub(crate) fn drive_bots(
                 z.swing = Some((now, false));
                 hold = true;
             }
-            // (Not under someone up on a ledge, out of reach — it climbs.)
-            if flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT {
+            // (Not under someone up on a ledge, out of reach — it climbs.
+            // Nor by a monkey bomb — it keeps going round that.)
+            if circling.is_none() && flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT {
                 hold = true;
             }
         }
@@ -1094,7 +1123,7 @@ pub(crate) fn drive_bots(
         // heading straight at it below.
         let flat_to_target = Vec3::new(to_target.x, 0.0, to_target.z).normalize_or_zero();
         let mut path_wish: Option<Vec3> = None;
-        if !engaged {
+        if !engaged && circling.is_none() {
             if let Some(t_eye) = target_pose {
                 let goal = t_eye - Vec3::Y * EYE_HEIGHT;
                 if now >= brain.repath_at || brain.path_goal.distance(goal) > REPATH_TARGET_MOVED {
@@ -1162,7 +1191,23 @@ pub(crate) fn drive_bots(
                     spread += dir * (1.0 - d / ZOMBIE_SPREAD_RADIUS);
                 }
             }
-            if !engaged {
+            if let Some(at) = circling {
+                // Round the monkey (the same way as everyone else), drawn
+                // back onto its own lane, and easing off behind whoever's
+                // in front — not normalised, so a crowded spot slows it
+                // rather than shoving it through.
+                let out = Vec3::new(brain.feet.x - at.x, 0.0, brain.feet.z - at.z);
+                let off = z.ring - out.length();
+                let out = out.try_normalize().unwrap_or_else(|| {
+                    let a = (id.0.to_bits() % 628) as f32 / 100.0;
+                    Vec3::new(a.cos(), 0.0, a.sin())
+                });
+                let round = Vec3::Y.cross(out) * z.circle_dir;
+                let wish = round
+                    + out * (off * MONKEY_RING_PULL).clamp(-1.5, 1.5)
+                    + spread * ZOMBIE_SPREAD_WEIGHT;
+                path_wish = Some(wish.with_y(0.0).clamp_length_max(1.0)).filter(|d| *d != Vec3::ZERO);
+            } else if !engaged {
                 let base = path_wish.or((flat_to_target != Vec3::ZERO).then_some(flat_to_target));
                 if let Some(base) = base {
                     let turned =
@@ -1222,6 +1267,9 @@ pub(crate) fn drive_bots(
             if brain.zombie.is_none() && skill.sprints && distance > SPRINT_MIN_DISTANCE && !visible {
                 speed = SPRINT_SPEED;
             }
+            if circling.is_some() {
+                speed = speed.min(MONKEY_CIRCLE_SPEED);
+            }
         }
         // Zombies never overlap: push this one out of any it's inside (half
         // the overlap — the other one takes the other half on its turn),
@@ -1268,7 +1316,13 @@ pub(crate) fn drive_bots(
         } else {
             brain.blocked_for = 0.0;
         }
-        if brain.blocked_for > STUCK_SECS {
+        if brain.blocked_for > STUCK_SECS && circling.is_some() {
+            // Going round a monkey into a wall: turn back the other way.
+            brain.blocked_for = 0.0;
+            if let Some(z) = brain.zombie.as_mut() {
+                z.circle_dir = -z.circle_dir;
+            }
+        } else if brain.blocked_for > STUCK_SECS {
             brain.blocked_for = 0.0;
             let turn = (brain.roll() - 0.5) * core::f32::consts::PI * 1.5;
             let base = if wish != Vec3::ZERO { wish } else { Vec3::NEG_Z };
@@ -1306,6 +1360,8 @@ pub(crate) fn drive_bots(
         } else if let Some(z) = brain.zombie.as_mut() {
             z.anim = if z.swing.is_some() {
                 ZombieAnim::Attack
+            } else if circling.is_some() {
+                ZombieAnim::WalkArmsUp
             } else if wish == Vec3::ZERO {
                 ZombieAnim::Idle
             } else if z.runs(lobby.rampage) {
@@ -1718,6 +1774,70 @@ mod tests {
         assert!(landed.is_empty(), "it swiped at the player at {landed:?}");
         let feet = Vec3::from_array(input(&app, bot).translation) - Vec3::Y * EYE_HEIGHT;
         assert!(feet.distance(monkey) < 2.0, "it ended at {feet:?}, not by the monkey");
+    }
+
+    /// A crowd at a monkey bomb doesn't just stand on it: they keep
+    /// shuffling round it, arms up, close by and never inside each other.
+    #[test]
+    fn zombies_circle_a_monkey_bomb_without_overlapping() {
+        let start = Vec3::new(-30.0, 0.0, -40.0);
+        let (mut app, first) = world(BotDifficulty::Veteran, start, Vec3::new(-20.0, 0.0, -40.0));
+        app.add_systems(Update, crate::sim::apply_client_pose.after(drive_bots));
+        let lobby = app.world().get::<LobbyPlayer>(first).unwrap().lobby;
+        let monkey = Vec3::new(-32.0, 0.0, -44.0);
+        app.world_mut()
+            .resource_mut::<crate::monkey_bombs::MonkeyLures>()
+            .add(lobby, monkey);
+        let mut zombies = vec![first];
+        for n in 0..5u64 {
+            zombies.push(
+                app.world_mut()
+                    .spawn((
+                        PlayerId(bot_peer(10 + n)),
+                        LobbyPlayer { lobby },
+                        PlayerCombat::default(),
+                        ActionState::<PlayerInput>::default(),
+                    ))
+                    .id(),
+            );
+        }
+        for (n, &z) in zombies.iter().enumerate() {
+            let at = start + Vec3::new(n as f32 * 0.5, 0.0, 0.0);
+            app.world_mut().entity_mut(z).insert((
+                BotBrain::new(BotDifficulty::Veteran, at, 100 + n as u64).zombie(n % 2 == 0, 1.4),
+                PlayerPose {
+                    translation: at + Vec3::Y * EYE_HEIGHT,
+                    zombie: ZombieAnim::Idle,
+                    ..default()
+                },
+            ));
+        }
+        let feet = |app: &App| -> Vec<Vec3> {
+            zombies
+                .iter()
+                .map(|&z| app.world().get::<PlayerPose>(z).unwrap().translation - Vec3::Y * EYE_HEIGHT)
+                .collect()
+        };
+        app.update(); // (the first update has no time delta)
+        for _ in 0..(8 * 64) {
+            app.update();
+        }
+        let before = feet(&app);
+        for _ in 0..(2 * 64) {
+            app.update();
+        }
+        let after = feet(&app);
+        for (i, a) in after.iter().enumerate() {
+            assert!(a.distance(monkey) < MONKEY_CIRCLE_START, "a zombie wandered off to {a:?}");
+            assert!(a.distance(before[i]) > 0.5, "a zombie stood still at {a:?}");
+            for b in &after[i + 1..] {
+                let d = Vec3::new(a.x - b.x, 0.0, a.z - b.z).length();
+                assert!(d >= ZOMBIE_MIN_SPACING * 0.85, "two zombies {d:.2} m apart: {after:?}");
+            }
+        }
+        for &z in &zombies {
+            assert_eq!(app.world().get::<BotBrain>(z).unwrap().zombie.unwrap().anim, ZombieAnim::WalkArmsUp);
+        }
     }
 
     #[test]
