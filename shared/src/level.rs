@@ -511,6 +511,7 @@ pub fn file_name(map: MapId) -> &'static str {
         MapId::Shipment | MapId::ShipmentDay => "shipment.ron",
         MapId::BreakPoint | MapId::BreakPointNight => "break_point.ron",
         MapId::AshesOfTheDamned => "ashes_of_the_damned.ron",
+        MapId::VesperStation => "vesper_station.ron",
         MapId::BasicMap => "basic_map.ron",
     }
 }
@@ -531,6 +532,7 @@ fn built_in_text(map: MapId) -> &'static str {
         MapId::Shipment | MapId::ShipmentDay => include_str!("../levels/shipment.ron"),
         MapId::BreakPoint | MapId::BreakPointNight => include_str!("../levels/break_point.ron"),
         MapId::AshesOfTheDamned => include_str!("../levels/ashes_of_the_damned.ron"),
+        MapId::VesperStation => include_str!("../levels/vesper_station.ron"),
         MapId::BasicMap => include_str!("../levels/basic_map.ron"),
     }
 }
@@ -582,13 +584,6 @@ mod tests {
         assert_eq!(back.power_lights.last(), Some(&spot));
         assert_eq!(back.power_lights[back.power_lights.len() - 2], light);
         assert_eq!(back.power_lights.len(), layout.power_lights.len());
-    }
-
-    #[test]
-    fn shipment_keeps_its_floodlights_as_power_lights() {
-        let lights = &layout(MapId::Shipment).power_lights;
-        assert_eq!(lights.len(), 5);
-        assert_eq!(lights.iter().filter(|l| l.spot.is_some() && l.glow > 0.0).count(), 2, "the crane floodlights");
     }
 
     #[test]

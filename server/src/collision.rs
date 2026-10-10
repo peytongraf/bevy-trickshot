@@ -29,6 +29,7 @@ const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/ship
 const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/break_point_map.glb");
 const ASHES_OF_THE_DAMNED_GLB: &[u8] =
     include_bytes!("../../client/assets/models/maps/ashes_of_the_damned_map.glb");
+const VESPER_STATION_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/vesper_station_map.glb");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
@@ -42,6 +43,7 @@ pub struct MapColliders {
     shipment: MapMesh,
     break_point: MapMesh,
     ashes_of_the_damned: MapMesh,
+    vesper_station: MapMesh,
 }
 
 impl MapColliders {
@@ -60,6 +62,8 @@ impl MapColliders {
                 map::placement(MapId::AshesOfTheDamned),
             )
             .expect("ashes_of_the_damned_map.glb collision model"),
+            vesper_station: MapMesh::from_glb(VESPER_STATION_GLB, map::placement(MapId::VesperStation))
+                .expect("vesper_station_map.glb collision model"),
         }
     }
 
@@ -96,6 +100,7 @@ impl MapColliders {
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
             MapId::AshesOfTheDamned => &self.ashes_of_the_damned,
+            MapId::VesperStation => &self.vesper_station,
         }
     }
 }

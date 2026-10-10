@@ -69,6 +69,29 @@ const ASHES_OF_THE_DAMNED_SPAWNS: [SpawnPoint; 12] = [
     sp_at(45.0, -10.0, 0.0, 90.0),
 ];
 
+/// `VesperStation`'s spawn points, a couple in each zone (upstairs in the
+/// barracks, up on the plateau for the power and the lab).
+const VESPER_STATION_SPAWNS: [SpawnPoint; 13] = [
+    // The spawn square.
+    sp(0.0, -12.0, 180.0),
+    sp(-10.0, 9.0, 90.0),
+    sp(10.0, -15.0, 45.0),
+    // The barracks: downstairs, upstairs, and its yard.
+    sp(-33.0, 8.0, -90.0),
+    sp_at(-33.0, 4.0, 8.0, -90.0),
+    sp(-21.0, -15.0, 0.0),
+    // The power: its yard and the generator hall.
+    sp_at(-30.0, 3.0, -25.0, 180.0),
+    sp_at(-27.0, 3.0, -56.0, 90.0),
+    // The lab: the front room and the core.
+    sp_at(0.0, 3.0, -26.0, 0.0),
+    sp_at(-8.0, 3.0, -52.0, -90.0),
+    // The rail yard.
+    sp(28.0, -20.0, 90.0),
+    sp(20.0, 10.0, 0.0),
+    sp(32.0, -44.0, 180.0),
+];
+
 /// `Shipment` / `ShipmentDay`'s spawn points, from
 /// `client/notes/shipment-spawn-points.md`.
 const SHIPMENT_SPAWNS: [SpawnPoint; 11] = [
@@ -124,6 +147,7 @@ pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
     match map {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),
         MapId::AshesOfTheDamned => Some(&ASHES_OF_THE_DAMNED_SPAWNS),
+        MapId::VesperStation => Some(&VESPER_STATION_SPAWNS),
         _ => None,
     }
 }

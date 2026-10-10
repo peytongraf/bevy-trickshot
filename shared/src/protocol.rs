@@ -105,6 +105,13 @@ pub enum MapId {
     /// mesh is what's rendered, and it borrows [`MapId::BreakPointNight`]'s
     /// fog, sky and flashlights.
     AshesOfTheDamned,
+    /// `models/maps/vesper_station_map.glb` — a `Zombies` map, at night: an
+    /// abandoned VESPER research depot in five zones (the spawn square, the
+    /// barracks, the rail yard, and up on a plateau the power and the lab)
+    /// joined by doorways. A plain-shapes blockout built by
+    /// `tools/blender/vesper_station.py`; the collision mesh is what's
+    /// rendered.
+    VesperStation,
 }
 
 impl MapId {
@@ -117,6 +124,7 @@ impl MapId {
             MapId::BreakPoint => "BREAK POINT DAY",
             MapId::BreakPointNight => "BREAK POINT NIGHT",
             MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
+            MapId::VesperStation => "VESPER STATION",
         }
     }
 
@@ -128,12 +136,19 @@ impl MapId {
             MapId::Shipment | MapId::ShipmentDay => "SHIPMENT",
             MapId::BreakPoint | MapId::BreakPointNight => "BREAK POINT",
             MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
+            MapId::VesperStation => "VESPER STATION",
         }
     }
 
     /// Every place a lobby can pick (one variant each — see
     /// [`Self::with_night`] for the time of day).
-    pub const PLACES: [MapId; 4] = [MapId::BasicMap, MapId::Shipment, MapId::BreakPoint, MapId::AshesOfTheDamned];
+    pub const PLACES: [MapId; 5] = [
+        MapId::BasicMap,
+        MapId::Shipment,
+        MapId::BreakPoint,
+        MapId::AshesOfTheDamned,
+        MapId::VesperStation,
+    ];
 
     /// Whether the place comes in a day and a night version.
     pub fn has_time_of_day(self) -> bool {
@@ -149,7 +164,10 @@ impl MapId {
     /// with no day version. Only these light their layout's power lights
     /// (`level::ZombiesLayout::power_lights`); a day map has none on.
     pub fn is_dark(self) -> bool {
-        matches!(self, MapId::Shipment | MapId::BreakPointNight | MapId::AshesOfTheDamned)
+        matches!(
+            self,
+            MapId::Shipment | MapId::BreakPointNight | MapId::AshesOfTheDamned | MapId::VesperStation
+        )
     }
 
     /// The same place at night (`true`) or by day (`false`) — itself for a
