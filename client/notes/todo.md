@@ -11,6 +11,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
+- Add new radio quotes
+
 # Added
 
 - Zombies should move around monkey bomb instead of just standing there
