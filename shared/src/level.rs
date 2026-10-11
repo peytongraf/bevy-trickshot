@@ -107,7 +107,7 @@ pub struct WallBuy {
 /// One of the map's power lights: on once someone turns the power on in a
 /// `Zombies` game (and always on in the other modes) — the client fades it
 /// in (`client::power`). Only a night map's are ever lit
-/// ([`MapId::is_dark`]): the day version of a place shares the layout but
+/// ([`MapId::is_night`]): the day version of a place shares the layout but
 /// leaves them off. Placed and tuned in the level editor.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct PowerLight {
@@ -501,6 +501,8 @@ pub fn place(map: MapId) -> MapId {
     match map {
         MapId::ShipmentDay => MapId::Shipment,
         MapId::BreakPointNight => MapId::BreakPoint,
+        MapId::BasicMapNight => MapId::BasicMap,
+        MapId::DerTempelDay => MapId::DerTempel,
         other => other,
     }
 }
@@ -510,10 +512,8 @@ pub fn file_name(map: MapId) -> &'static str {
     match place(map) {
         MapId::Shipment | MapId::ShipmentDay => "shipment.ron",
         MapId::BreakPoint | MapId::BreakPointNight => "break_point.ron",
-        MapId::AshesOfTheDamned => "ashes_of_the_damned.ron",
-        MapId::VesperStation => "vesper_station.ron",
-        MapId::DieMaschine => "die_maschine.ron",
-        MapId::BasicMap => "basic_map.ron",
+        MapId::DerTempel | MapId::DerTempelDay => "der_tempel.ron",
+        MapId::BasicMap | MapId::BasicMapNight => "basic_map.ron",
     }
 }
 
@@ -532,10 +532,8 @@ fn built_in_text(map: MapId) -> &'static str {
     match place(map) {
         MapId::Shipment | MapId::ShipmentDay => include_str!("../levels/shipment.ron"),
         MapId::BreakPoint | MapId::BreakPointNight => include_str!("../levels/break_point.ron"),
-        MapId::AshesOfTheDamned => include_str!("../levels/ashes_of_the_damned.ron"),
-        MapId::VesperStation => include_str!("../levels/vesper_station.ron"),
-        MapId::DieMaschine => include_str!("../levels/die_maschine.ron"),
-        MapId::BasicMap => include_str!("../levels/basic_map.ron"),
+        MapId::DerTempel | MapId::DerTempelDay => include_str!("../levels/der_tempel.ron"),
+        MapId::BasicMap | MapId::BasicMapNight => include_str!("../levels/basic_map.ron"),
     }
 }
 

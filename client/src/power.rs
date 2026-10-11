@@ -1,7 +1,7 @@
 //! The map's lights and the `Zombies` power switch that turns them on.
 //!
 //! A map's power lights are its layout's (`shared::level`, placed and tuned
-//! in the level editor) — lit only on a night map (`MapId::is_dark`): the
+//! in the level editor) — lit only on a night map (`MapId::is_night`): the
 //! day version of a place shares its layout but has none on. In `Zombies`
 //! they start off: a player pays at the
 //! switch — the power lever model, where `shared::power` puts it — and the
@@ -252,7 +252,7 @@ fn sync_map_lights(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let wanted: &[PowerLight] = if current.0.is_dark() {
+    let wanted: &[PowerLight] = if current.0.is_night() {
         &shared::level::layout(current.0).power_lights
     } else {
         &[]

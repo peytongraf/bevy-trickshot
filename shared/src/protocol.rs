@@ -79,7 +79,7 @@ impl GameMode {
 /// `client::CurrentMap`).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MapId {
-    /// `models/maps/basic_map.glb` — cubes, ramps and a bridge.
+    /// `models/maps/basic_map.glb` — cubes, ramps and a bridge, by day.
     #[default]
     BasicMap,
     /// `models/maps/shipment.glb` — a Call-of-Duty-style Shipment recreation:
@@ -100,38 +100,30 @@ pub enum MapId {
     /// bounds and everything `Zombies` (perk machines, Pack-a-Punch, power
     /// switch) are identical (see [`MapId::is_break_point`]).
     BreakPointNight,
-    /// `models/maps/ashes_of_the_damned_map.glb` — raised platforms and blocks
+    /// `models/maps/der_tempel_map.glb` — raised platforms and blocks
     /// over deep chasms, at night. Like [`MapId::BreakPoint`] the collision
-    /// mesh is what's rendered, and it borrows [`MapId::BreakPointNight`]'s
-    /// fog, sky and flashlights.
-    AshesOfTheDamned,
-    /// `models/maps/vesper_station_map.glb` — a `Zombies` map, at night: an
-    /// abandoned VESPER research depot in five zones (the spawn square, the
-    /// barracks, the rail yard, and up on a plateau the power and the lab)
-    /// joined by doorways. A plain-shapes blockout built by
-    /// `tools/blender/vesper_station.py`; the collision mesh is what's
-    /// rendered.
-    VesperStation,
-    /// `models/maps/die_maschine_map.glb` — a `Zombies` map, at night: a
-    /// plain-shapes blockout of Black Ops Cold War's Die Maschine (the Yard,
-    /// the Nacht building, the Crash Site, the Pond, and the labs under them
-    /// down to the Particle Accelerator), at this game's scale. Built by
-    /// `tools/blender/die_maschine.py`; the collision mesh is what's rendered.
-    DieMaschine,
+    /// mesh is what's rendered.
+    DerTempel,
+    /// The same `models/maps/basic_map.glb` as [`MapId::BasicMap`] at night —
+    /// only the client's fog/sky/lighting (and the flashlights) differ.
+    BasicMapNight,
+    /// The same `models/maps/der_tempel_map.glb` as [`MapId::DerTempel`] by
+    /// day — only the client's fog/sky/lighting differ.
+    DerTempelDay,
 }
 
 impl MapId {
     /// Its full name, time of day included where it has one.
     pub fn label(self) -> &'static str {
         match self {
-            MapId::BasicMap => "BASIC MAP",
+            MapId::BasicMap => "BASIC MAP DAY",
+            MapId::BasicMapNight => "BASIC MAP NIGHT",
             MapId::Shipment => "SHIPMENT NIGHT",
             MapId::ShipmentDay => "SHIPMENT DAY",
             MapId::BreakPoint => "BREAK POINT DAY",
             MapId::BreakPointNight => "BREAK POINT NIGHT",
-            MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
-            MapId::VesperStation => "VESPER STATION",
-            MapId::DieMaschine => "DIE MASCHINE",
+            MapId::DerTempel => "DER TEMPEL NIGHT",
+            MapId::DerTempelDay => "DER TEMPEL DAY",
         }
     }
 
@@ -139,60 +131,59 @@ impl MapId {
     /// buttons say.
     pub fn place_label(self) -> &'static str {
         match self {
-            MapId::BasicMap => "BASIC MAP",
+            MapId::BasicMap | MapId::BasicMapNight => "BASIC MAP",
             MapId::Shipment | MapId::ShipmentDay => "SHIPMENT",
             MapId::BreakPoint | MapId::BreakPointNight => "BREAK POINT",
-            MapId::AshesOfTheDamned => "ASHES OF THE DAMNED",
-            MapId::VesperStation => "VESPER STATION",
-            MapId::DieMaschine => "DIE MASCHINE",
+            MapId::DerTempel | MapId::DerTempelDay => "DER TEMPEL",
         }
     }
 
     /// Every place a lobby can pick (one variant each — see
     /// [`Self::with_night`] for the time of day).
-    pub const PLACES: [MapId; 6] = [
+    pub const PLACES: [MapId; 4] = [
         MapId::BasicMap,
         MapId::Shipment,
         MapId::BreakPoint,
-        MapId::AshesOfTheDamned,
-        MapId::VesperStation,
-        MapId::DieMaschine,
+        MapId::DerTempel,
     ];
 
-    /// Whether the place comes in a day and a night version.
-    pub fn has_time_of_day(self) -> bool {
-        self.is_shipment() || self.is_break_point()
-    }
+    /// Every map: each of [`Self::PLACES`] by day, then at night.
+    pub const ALL: [MapId; 8] = [
+        MapId::BasicMap,
+        MapId::BasicMapNight,
+        MapId::ShipmentDay,
+        MapId::Shipment,
+        MapId::BreakPoint,
+        MapId::BreakPointNight,
+        MapId::DerTempelDay,
+        MapId::DerTempel,
+    ];
 
-    /// Whether this is the night version of a place with both.
-    pub fn is_night(self) -> bool {
-        matches!(self, MapId::Shipment | MapId::BreakPointNight)
-    }
-
-    /// Whether it's played in the dark — every night map, including ones
-    /// with no day version. Only these light their layout's power lights
+    /// Whether this is the night version of its place — played in the dark.
+    /// Only these light their layout's power lights
     /// (`level::ZombiesLayout::power_lights`); a day map has none on.
-    pub fn is_dark(self) -> bool {
-        matches!(
-            self,
-            MapId::Shipment
-                | MapId::BreakPointNight
-                | MapId::AshesOfTheDamned
-                | MapId::VesperStation
-                | MapId::DieMaschine
-        )
+    pub fn is_night(self) -> bool {
+        matches!(self, MapId::BasicMapNight | MapId::Shipment | MapId::BreakPointNight | MapId::DerTempel)
     }
 
-    /// The same place at night (`true`) or by day (`false`) — itself for a
-    /// place with only the one.
+    /// The same place at night (`true`) or by day (`false`).
     pub fn with_night(self, night: bool) -> MapId {
         match (self, night) {
+            (MapId::BasicMap | MapId::BasicMapNight, true) => MapId::BasicMapNight,
+            (MapId::BasicMap | MapId::BasicMapNight, false) => MapId::BasicMap,
             (MapId::Shipment | MapId::ShipmentDay, true) => MapId::Shipment,
             (MapId::Shipment | MapId::ShipmentDay, false) => MapId::ShipmentDay,
             (MapId::BreakPoint | MapId::BreakPointNight, true) => MapId::BreakPointNight,
             (MapId::BreakPoint | MapId::BreakPointNight, false) => MapId::BreakPoint,
-            (other, _) => other,
+            (MapId::DerTempel | MapId::DerTempelDay, true) => MapId::DerTempel,
+            (MapId::DerTempel | MapId::DerTempelDay, false) => MapId::DerTempelDay,
         }
+    }
+
+    /// `true` for either variant built on `basic_map.glb` (day or night) —
+    /// the same idea as [`Self::is_shipment`].
+    pub fn is_basic_map(self) -> bool {
+        matches!(self, MapId::BasicMap | MapId::BasicMapNight)
     }
 
     /// `true` for either variant built on `shipment.glb` (night or day) —
@@ -207,6 +198,12 @@ impl MapId {
     /// night) — the same idea as [`Self::is_shipment`].
     pub fn is_break_point(self) -> bool {
         matches!(self, MapId::BreakPoint | MapId::BreakPointNight)
+    }
+
+    /// `true` for either variant built on `der_tempel_map.glb` (day or
+    /// night) — the same idea as [`Self::is_shipment`].
+    pub fn is_der_tempel(self) -> bool {
+        matches!(self, MapId::DerTempel | MapId::DerTempelDay)
     }
 }
 

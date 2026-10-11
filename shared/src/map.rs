@@ -44,32 +44,12 @@ pub const BREAK_POINT_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.6,
 };
 
-/// `ashes_of_the_damned_map.glb`'s placement: as modelled — it's built in
+/// `der_tempel_map.glb`'s placement: as modelled — it's built in
 /// metres (its `player_ref` marker is a 1.8 m person). The main platform's
 /// top is the ground at `y = 0` (x ±25, z -40..0); a ramp (z 0..20) climbs
 /// to a 5 m deck (z 20..40), and there are 10 m platforms either side and a
 /// sunken one at -10, all ringed by chasms.
-pub const ASHES_OF_THE_DAMNED_PLACEMENT: MapPlacement = MapPlacement {
-    position: Vec3::ZERO,
-    yaw_deg: 0.0,
-    scale: 1.0,
-};
-
-/// `vesper_station_map.glb`'s placement: as modelled — it's built in metres
-/// in the game's own frame (`tools/blender/vesper_station.py`), the spawn
-/// square's middle at the origin. Ground level is `y = 0`; the power and the
-/// lab stand on a plateau at `y = 3` (z < -19).
-pub const VESPER_STATION_PLACEMENT: MapPlacement = MapPlacement {
-    position: Vec3::ZERO,
-    yaw_deg: 0.0,
-    scale: 1.0,
-};
-
-/// `die_maschine_map.glb`'s placement: as modelled — built in metres in the
-/// game's own frame (`tools/blender/die_maschine.py`), the Yard (the spawn)
-/// round the origin. The surface is `y = 0`; the labs are underground at
-/// `y = -6`, their lower floors at `y = -10`.
-pub const DIE_MASCHINE_PLACEMENT: MapPlacement = MapPlacement {
+pub const DER_TEMPEL_PLACEMENT: MapPlacement = MapPlacement {
     position: Vec3::ZERO,
     yaw_deg: 0.0,
     scale: 1.0,
@@ -80,12 +60,10 @@ pub const DIE_MASCHINE_PLACEMENT: MapPlacement = MapPlacement {
 /// these same files at build time (`server::collision`).
 pub fn collision_model_path(map: MapId) -> &'static str {
     match map {
-        MapId::BasicMap => "models/maps/basic_map.glb",
+        MapId::BasicMap | MapId::BasicMapNight => "models/maps/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/maps/shipment.glb",
         MapId::BreakPoint | MapId::BreakPointNight => "models/maps/break_point_map.glb",
-        MapId::AshesOfTheDamned => "models/maps/ashes_of_the_damned_map.glb",
-        MapId::VesperStation => "models/maps/vesper_station_map.glb",
-        MapId::DieMaschine => "models/maps/die_maschine_map.glb",
+        MapId::DerTempel | MapId::DerTempelDay => "models/maps/der_tempel_map.glb",
     }
 }
 
@@ -93,11 +71,9 @@ pub fn collision_model_path(map: MapId) -> &'static str {
 /// just [`SHIPMENT_SCALE`] at the origin.
 pub fn placement(map: MapId) -> MapPlacement {
     match map {
-        MapId::BasicMap => BASIC_MAP_PLACEMENT,
+        MapId::BasicMap | MapId::BasicMapNight => BASIC_MAP_PLACEMENT,
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT,
-        MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_PLACEMENT,
-        MapId::VesperStation => VESPER_STATION_PLACEMENT,
-        MapId::DieMaschine => DIE_MASCHINE_PLACEMENT,
+        MapId::DerTempel | MapId::DerTempelDay => DER_TEMPEL_PLACEMENT,
         MapId::Shipment | MapId::ShipmentDay => MapPlacement {
             position: Vec3::ZERO,
             yaw_deg: 0.0,
@@ -170,12 +146,8 @@ const SHIPMENT_WALLS: &[WallBox] = &[
 
 /// `shipment.glb` was authored about twice the size it should be relative to
 /// the rest of the game (player height, weapon range, ...), so it's rendered
-/// at this uniform scale rather than `1.0` — see `client::ShipmentSettings`,
-/// whose debug-panel slider defaults to this and lets you dial in a different
-/// number live. The server has no such panel, so its spawn/respawn placement
-/// (`crate::spawns::spawn_point`, `crate::bots::respawn_pose`) always uses
-/// this constant; if you land on a different number, update it here so the
-/// server stays in agreement with what the client renders and collides with.
+/// at this uniform scale rather than `1.0` — by the client and the server
+/// alike (see [`placement`]).
 pub const SHIPMENT_SCALE: f32 = 0.5;
 
 /// Every wall box for `map`, in **native** (unscaled) coordinates — scale
@@ -185,43 +157,17 @@ pub const SHIPMENT_SCALE: f32 = 0.5;
 /// [`point_blocked`].
 pub fn walls(map: MapId) -> &'static [WallBox] {
     match map {
-        MapId::BasicMap => BASIC_MAP_WALLS,
+        MapId::BasicMap | MapId::BasicMapNight => BASIC_MAP_WALLS,
         MapId::Shipment | MapId::ShipmentDay => SHIPMENT_WALLS,
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_WALLS,
-        MapId::AshesOfTheDamned => ASHES_OF_THE_DAMNED_WALLS,
-        MapId::VesperStation => VESPER_STATION_WALLS,
-        MapId::DieMaschine => DIE_MASCHINE_WALLS,
+        MapId::DerTempel | MapId::DerTempelDay => DER_TEMPEL_WALLS,
     }
 }
 
-/// What stands in `die_maschine_map.glb`'s Yard (from
-/// `tools/blender/die_maschine.py`) — the only part of the map [`bounds`]
-/// lets bots be placed in: the stone ledge and its steps, the tank, the rock
-/// in the south-west corner and the crates.
-const DIE_MASCHINE_WALLS: &[WallBox] = &[
-    WallBox { x: (5.0, 16.0), z: (-16.0, -7.6) },
-    WallBox { x: (-0.5, 6.5), z: (2.0, 10.0) },
-    WallBox { x: (-16.0, -9.5), z: (9.5, 16.0) },
-    WallBox { x: (-6.6, -4.2), z: (11.4, 13.2) },
-];
-
-/// What stands in `vesper_station_map.glb`'s spawn square (from
-/// `tools/blender/vesper_station.py`) — the only part of the map [`bounds`]
-/// lets bots be placed in: the ticket office, the fountain, the raised
-/// platform and the crates.
-const VESPER_STATION_WALLS: &[WallBox] = &[
-    WallBox { x: (-8.4, 8.4), z: (10.6, 19.2) },
-    WallBox { x: (-2.6, 2.6), z: (1.4, 6.6) },
-    WallBox { x: (-14.0, -8.0), z: (-16.0, 1.0) },
-    WallBox { x: (6.4, 8.9), z: (-12.6, -10.8) },
-    WallBox { x: (-4.6, -3.4), z: (-15.6, -14.4) },
-    WallBox { x: (3.0, 6.5), z: (-3.5, -2.5) },
-];
-
-/// `ashes_of_the_damned_map.glb`'s walls and blocks standing on its main
+/// `der_tempel_map.glb`'s walls and blocks standing on its main
 /// ground-level platform (from the model's node transforms) — the only part
 /// of the map at `y = 0`, which is all [`bounds`] lets bots be placed on.
-const ASHES_OF_THE_DAMNED_WALLS: &[WallBox] = &[
+const DER_TEMPEL_WALLS: &[WallBox] = &[
     // Back wall and the side walls by it.
     WallBox { x: (-25.0, 25.0), z: (-40.0, -39.0) },
     WallBox { x: (24.0, 25.0), z: (-39.0, -24.0) },
@@ -270,11 +216,7 @@ pub fn area_scale(map: MapId) -> f32 {
     match map {
         MapId::BreakPoint | MapId::BreakPointNight => BREAK_POINT_PLACEMENT.scale,
         // Its ground-level platform is only 50 × 40 m.
-        MapId::AshesOfTheDamned => 0.3,
-        // Its spawn square is only 28 × 38 m.
-        MapId::VesperStation => 0.3,
-        // Its Yard is only 32 × 32 m.
-        MapId::DieMaschine => 0.3,
+        MapId::DerTempel | MapId::DerTempelDay => 0.3,
         _ => 1.0,
     }
 }
@@ -295,16 +237,12 @@ pub fn point_blocked(map: MapId, x: f32, z: f32, radius: f32, scale: f32) -> boo
 /// with no real boundary to enforce.
 fn bounds(map: MapId) -> Option<WallBox> {
     match map {
-        MapId::BasicMap => None,
+        MapId::BasicMap | MapId::BasicMapNight => None,
         MapId::Shipment | MapId::ShipmentDay => Some(WallBox { x: (-52.0, 55.0), z: (-55.0, 58.0) }),
         // The ground plane's x ±60, z ±100, with a margin off the boundary walls.
         MapId::BreakPoint | MapId::BreakPointNight => Some(WallBox { x: (-58.0, 58.0), z: (-98.0, 98.0) }),
         // The ground-level platform, short of the raised deck at z 0.
-        MapId::AshesOfTheDamned => Some(WallBox { x: (-24.0, 24.0), z: (-38.0, -1.0) }),
-        // The spawn square.
-        MapId::VesperStation => Some(WallBox { x: (-13.5, 13.5), z: (-18.5, 18.5) }),
-        // The Yard.
-        MapId::DieMaschine => Some(WallBox { x: (-15.5, 15.5), z: (-15.5, 15.5) }),
+        MapId::DerTempel | MapId::DerTempelDay => Some(WallBox { x: (-24.0, 24.0), z: (-38.0, -1.0) }),
     }
 }
 

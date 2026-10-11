@@ -1532,13 +1532,8 @@ fn build_room(
                 setting_row(col, asset_server, "MAP", |row| {
                     if can_edit {
                         for place in shared::MapId::PLACES {
-                            // A place with a day and a night keeps whichever
-                            // time of day is picked now (night if none is).
-                            let night = if lobby.map.has_time_of_day() {
-                                lobby.map.is_night()
-                            } else {
-                                place.is_night()
-                            };
+                            // Keeps whichever time of day is picked now.
+                            let night = lobby.map.is_night();
                             option_button(
                                 row,
                                 asset_server,
@@ -1551,8 +1546,8 @@ fn build_room(
                         setting_value(row, asset_server, lobby.map.label().to_string());
                     }
                 });
-                // Shipment and Break Point come by day or by night.
-                if can_edit && lobby.map.has_time_of_day() {
+                // Every map comes by day or by night.
+                if can_edit {
                     setting_row(col, asset_server, "TIME OF DAY", |row| {
                         for (text, night) in [("DAY", false), ("NIGHT", true)] {
                             option_button(

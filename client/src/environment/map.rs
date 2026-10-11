@@ -11,37 +11,9 @@ use bevy_rapier3d::prelude::*;
 
 use super::water::WaterPlane;
 
-/// Placement of `basic_map.glb` (position / yaw / uniform scale), live-tweakable
-/// from the debug panel's "Map" section and pushed onto the loaded scene by
-/// `apply_map_transform`. Rotation is yaw-only (about Y) — the collider
-/// `sync_map_model` generates from the mesh moves with this transform too, but
-/// `apply_gravity`'s ground raycast assumes "up" stays world-up, which a
-/// pitch/roll tilt would break.
-#[derive(Resource)]
-pub(crate) struct MapSettings {
-    pub(crate) position: Vec3,
-    pub(crate) rotation_deg: f32,
-    pub(crate) scale: f32,
-}
-
-impl Default for MapSettings {
-    fn default() -> Self {
-        // The server places its own copy of this model's collision mesh with
-        // the same constants (`shared::map`), so thrown knives bounce off
-        // exactly what's rendered here.
-        let p = shared::map::BASIC_MAP_PLACEMENT;
-        Self {
-            position: p.position,
-            rotation_deg: p.yaw_deg,
-            scale: p.scale,
-        }
-    }
-}
-
 /// Marker on every entity [`sync_map_model`] spawns for the current map
 /// ([`MapModel`] and, if there is one, [`MapVisualModel`]) — lets
-/// [`apply_map_transform`] / [`apply_shipment_transform`] move both with one
-/// query instead of naming each marker (and instead of `Or<(With<A>,
+/// [`apply_map_transform`] move both with one query instead of naming each marker (and instead of `Or<(With<A>,
 /// With<B>)>`, which drags clippy's `type_complexity` lint in for no benefit
 /// here).
 #[derive(Component)]
@@ -64,8 +36,7 @@ pub(crate) struct MapModel;
 /// `shipment_visual.glb`, sitting on top of `shipment.glb`'s collision
 /// blockout (hidden once this finishes loading — see [`reveal_map_visual`]).
 /// Purely visual: no collider, and its `Transform` is kept identical to
-/// `MapModel`'s ([`apply_map_transform`] / [`apply_shipment_transform`] move
-/// both, via [`MapGeometry`]), so it lines up with the blockout's geometry —
+/// `MapModel`'s ([`apply_map_transform`] moves both, via [`MapGeometry`]), so it lines up with the blockout's geometry —
 /// and therefore with collision — as long as whoever builds it keeps the two
 /// aligned in whatever tool exported them.
 #[derive(Component)]
@@ -106,44 +77,16 @@ pub(crate) fn map_ready(state: &MapLoadState, map: shared::MapId) -> bool {
     state.model_ready && (map_visual_path(map).is_none() || state.visual_ready)
 }
 
-/// Push `MapSettings` onto the loaded `basic_map.glb` scene (or Break
-/// Point's fixed placement onto `break_point_map.glb`) every frame it's
-/// the selected map — cheap (one `Transform` write), and unconditional so a
-/// freshly re-spawned model (see `sync_map_model`, after switching away from
-/// and back to this map) always picks the placement back up, rather than only
-/// on the next tweak to `MapSettings` itself.
-pub(crate) fn apply_map_transform(
-    current: Res<CurrentMap>,
-    map: Res<MapSettings>,
-    mut models: Query<&mut Transform, With<MapGeometry>>,
-) {
-    // `BasicMap` is live-tunable (`MapSettings`); `BreakPoint` is placed by its
-    // fixed shared placement — the same constants the server places its own
-    // copy of the collision mesh with.
-    let (position, rotation_deg, scale) = match current.0 {
-        shared::MapId::BasicMap => (map.position, map.rotation_deg, map.scale),
-        shared::MapId::BreakPoint | shared::MapId::BreakPointNight => {
-            let p = shared::map::BREAK_POINT_PLACEMENT;
-            (p.position, p.yaw_deg, p.scale)
-        }
-        shared::MapId::AshesOfTheDamned => {
-            let p = shared::map::ASHES_OF_THE_DAMNED_PLACEMENT;
-            (p.position, p.yaw_deg, p.scale)
-        }
-        shared::MapId::VesperStation => {
-            let p = shared::map::VESPER_STATION_PLACEMENT;
-            (p.position, p.yaw_deg, p.scale)
-        }
-        shared::MapId::DieMaschine => {
-            let p = shared::map::DIE_MASCHINE_PLACEMENT;
-            (p.position, p.yaw_deg, p.scale)
-        }
-        _ => return,
-    };
+/// Place the current map's model (and its visual overlay) where
+/// `shared::map::placement` says — the same placement the server puts its
+/// own copy of the collision mesh at — every frame, so a freshly re-spawned
+/// model (see `sync_map_model`) always picks it up.
+pub(crate) fn apply_map_transform(current: Res<CurrentMap>, mut models: Query<&mut Transform, With<MapGeometry>>) {
+    let p = shared::map::placement(current.0);
     for mut transform in &mut models {
-        transform.translation = position;
-        transform.rotation = Quat::from_rotation_y(rotation_deg.to_radians());
-        transform.scale = Vec3::splat(scale);
+        transform.translation = p.position;
+        transform.rotation = Quat::from_rotation_y(p.yaw_deg.to_radians());
+        transform.scale = Vec3::splat(p.scale);
     }
 }
 
@@ -156,50 +99,6 @@ pub(crate) fn apply_map_transform(
 #[derive(Resource, Default, PartialEq)]
 pub(crate) struct CurrentMap(pub shared::MapId);
 
-/// Live-tunable uniform scale for `shipment.glb` — see
-/// `shared::map::SHIPMENT_SCALE`, which this defaults to and which the
-/// server's own spawn/respawn placement always uses. Adjustable from the
-/// debug panel's "Shipment map" section so you can dial in a different number
-/// by eye; [`apply_shipment_transform`] reads the live value here, and
-/// because the model's own `Collider`s are children of the `Transform` this
-/// writes, `apply_gravity` / `resolve_wall_collisions` automatically collide
-/// against whatever scale is currently showing — nothing else to keep in
-/// sync. Once you've settled on a number, update the `shared` constant to
-/// match — otherwise a fresh session (or the server's own placement) falls
-/// back to the old default.
-#[derive(Resource)]
-pub(crate) struct ShipmentSettings {
-    pub scale: f32,
-}
-
-impl Default for ShipmentSettings {
-    fn default() -> Self {
-        Self {
-            scale: shared::map::SHIPMENT_SCALE,
-        }
-    }
-}
-
-/// Push [`ShipmentSettings`] onto both the loaded `shipment.glb`
-/// collision blockout and, if it's currently spawned, its
-/// `shipment_visual.glb` overlay — every frame it's the selected map, so the
-/// two stay at the same scale as each other (mirrors
-/// [`apply_map_transform`]'s reasoning: unconditional, not gated on a change
-/// flag, so freshly re-spawned models always pick the current scale back
-/// up).
-pub(crate) fn apply_shipment_transform(
-    current: Res<CurrentMap>,
-    settings: Res<ShipmentSettings>,
-    mut models: Query<&mut Transform, With<MapGeometry>>,
-) {
-    if !current.0.is_shipment() {
-        return;
-    }
-    for mut transform in &mut models {
-        transform.scale = Vec3::splat(settings.scale);
-    }
-}
-
 /// Collider shape used for every mesh node in a map's `.glb` — an exact
 /// triangle mesh, so collision always matches the visual geometry exactly,
 /// including concave/open shapes: a container built from a few wall meshes
@@ -210,7 +109,7 @@ pub(crate) fn apply_shipment_transform(
 /// shape, so it silently filled in any such opening; there's no Blender-side
 /// fix for that, it's a property of convex hulls in general.) Every map's
 /// collision blockout is static — nothing here moves at runtime beyond
-/// `MapSettings`/`ShipmentSettings`'s whole-scene placement — so trimesh's
+/// its whole-scene placement — so trimesh's
 /// usual downside (expensive to move) doesn't apply, and slopes/ramps built
 /// into a mesh (a node named `"Ground"`, or any other) produce real walkable
 /// geometry for free, the same way.
@@ -224,9 +123,8 @@ pub(crate) fn map_collider_shape() -> ComputedColliderShape {
 /// entry here once a map gets a `MapVisualModel` of its own.
 pub(crate) fn map_visual_path(map: shared::MapId) -> Option<&'static str> {
     match map {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
-        | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation | shared::MapId::DieMaschine => None,
-        shared::MapId::Shipment | shared::MapId::ShipmentDay => Some("models/maps/shipment_visual.glb"),
+        map if map.is_shipment() => Some("models/maps/shipment_visual.glb"),
+        _ => None,
     }
 }
 

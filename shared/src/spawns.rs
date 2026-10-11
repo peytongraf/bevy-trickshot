@@ -49,9 +49,9 @@ const fn sp_at(x: f32, y: f32, z: f32, yaw_deg: f32) -> SpawnPoint {
     SpawnPoint { x, y, z, yaw_deg }
 }
 
-/// `AshesOfTheDamned`'s spawn points, spread over every platform, each
+/// `DerTempel`'s spawn points, spread over every platform, each
 /// facing the middle of the map.
-const ASHES_OF_THE_DAMNED_SPAWNS: [SpawnPoint; 12] = [
+const DER_TEMPEL_SPAWNS: [SpawnPoint; 12] = [
     // Ground-level platform.
     sp(-15.0, -15.0, -135.0),
     sp(15.0, -15.0, 135.0),
@@ -67,50 +67,6 @@ const ASHES_OF_THE_DAMNED_SPAWNS: [SpawnPoint; 12] = [
     sp_at(-50.0, 10.0, 25.0, -63.4),
     sp_at(0.0, 10.0, -70.0, 180.0),
     sp_at(45.0, -10.0, 0.0, 90.0),
-];
-
-/// `VesperStation`'s spawn points, a couple in each zone (upstairs in the
-/// barracks, up on the plateau for the power and the lab).
-const VESPER_STATION_SPAWNS: [SpawnPoint; 13] = [
-    // The spawn square.
-    sp(0.0, -12.0, 180.0),
-    sp(-10.0, 9.0, 90.0),
-    sp(10.0, -15.0, 45.0),
-    // The barracks: downstairs, upstairs, and its yard.
-    sp(-33.0, 8.0, -90.0),
-    sp_at(-33.0, 4.0, 8.0, -90.0),
-    sp(-21.0, -15.0, 0.0),
-    // The power: its yard and the generator hall.
-    sp_at(-30.0, 3.0, -25.0, 180.0),
-    sp_at(-27.0, 3.0, -56.0, 90.0),
-    // The lab: the front room and the core.
-    sp_at(0.0, 3.0, -26.0, 0.0),
-    sp_at(-8.0, 3.0, -52.0, -90.0),
-    // The rail yard.
-    sp(28.0, -20.0, 90.0),
-    sp(20.0, 10.0, 0.0),
-    sp(32.0, -44.0, 180.0),
-];
-
-/// `DieMaschine`'s spawn points, over every area: the Yard, the Nacht
-/// building's floors and roof, the Crash Site, the Pond and the labs.
-const DIE_MASCHINE_SPAWNS: [SpawnPoint; 16] = [
-    sp(0.0, -8.0, 180.0),
-    sp(-8.0, 4.0, -90.0),
-    sp(-25.0, -6.0, -90.0),
-    sp(-30.0, 5.0, -90.0),
-    sp_at(-30.0, 3.6, -5.0, 90.0),
-    sp_at(-22.0, 3.6, 4.0, 90.0),
-    sp_at(-28.0, 7.2, -3.0, 0.0),
-    sp(-44.0, -46.0, 90.0),
-    sp(4.0, -52.0, 0.0),
-    sp(-60.0, -10.0, 180.0),
-    sp(-70.0, 20.0, 90.0),
-    sp_at(-56.0, -6.0, -59.0, -90.0),
-    sp_at(-32.0, -6.0, -55.0, 0.0),
-    sp_at(-32.0, -10.0, -20.0, 180.0),
-    sp_at(2.0, -10.0, -58.0, 90.0),
-    sp_at(0.0, -10.0, -20.0, 0.0),
 ];
 
 /// `Shipment` / `ShipmentDay`'s spawn points, from
@@ -167,9 +123,7 @@ pub fn zombies_start(map: MapId, seed: u64, taken: &[Vec3]) -> Option<(Vec3, f32
 pub fn designated_spawns(map: MapId) -> Option<&'static [SpawnPoint]> {
     match map {
         MapId::Shipment | MapId::ShipmentDay => Some(&SHIPMENT_SPAWNS),
-        MapId::AshesOfTheDamned => Some(&ASHES_OF_THE_DAMNED_SPAWNS),
-        MapId::VesperStation => Some(&VESPER_STATION_SPAWNS),
-        MapId::DieMaschine => Some(&DIE_MASCHINE_SPAWNS),
+        MapId::DerTempel | MapId::DerTempelDay => Some(&DER_TEMPEL_SPAWNS),
         _ => None,
     }
 }

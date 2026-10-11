@@ -11,7 +11,7 @@ use super::movement::{Player, PlayerPhysics, EYE_HEIGHT};
 
 /// Where the player spawns, and the initial [`TeleportPoint`] the teleport key
 /// returns to. Ground level, facing the basic map's ramp. Follows
-/// `MapSettings`'s default placement — if you move the map far from its default,
+/// `shared::map::BASIC_MAP_PLACEMENT` — if you move the map far from it,
 /// update this too.
 pub(crate) const SPAWN_POS: Vec3 = Vec3::new(26.0, EYE_HEIGHT, -15.0);
 

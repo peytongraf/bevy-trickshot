@@ -212,12 +212,10 @@ fn menu_bar(
             if place != shared::level::place(ed.map) {
                 map = place.with_night(ed.map.is_night());
             }
-            if map.has_time_of_day() {
-                let mut night = map.is_night();
-                ui.selectable_value(&mut night, false, "Day");
-                ui.selectable_value(&mut night, true, "Night");
-                map = map.with_night(night);
-            }
+            let mut night = map.is_night();
+            ui.selectable_value(&mut night, false, "Day");
+            ui.selectable_value(&mut night, true, "Night");
+            map = map.with_night(night);
             ui.separator();
             let mut set = ed.perk_set;
             ui.label("Perks");
@@ -550,7 +548,7 @@ fn properties(
                         }
                     }
                 });
-                if !ed.map.is_dark() {
+                if !ed.map.is_night() {
                     ui.colored_label(DIM, "Never lit on a day map — switch to the night version to see it");
                 } else if ed.view.look != Look::GamePowerOn {
                     ui.colored_label(DIM, "View → Look → In game — power on to see it lit");

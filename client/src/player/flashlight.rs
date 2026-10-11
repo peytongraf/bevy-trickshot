@@ -84,14 +84,7 @@ impl Default for FlashlightSettings {
 impl FlashlightSettings {
     /// Whether flashlights are on for `map`.
     pub(crate) fn on(&self, map: shared::MapId) -> bool {
-        self.force_on
-            || matches!(
-                map,
-                shared::MapId::BreakPointNight
-                    | shared::MapId::AshesOfTheDamned
-                    | shared::MapId::VesperStation
-                    | shared::MapId::DieMaschine
-            )
+        self.force_on || map.is_night()
     }
 
     fn light(&self, intensity_mult: f32, shadows: bool) -> SpotLight {

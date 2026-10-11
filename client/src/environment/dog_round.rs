@@ -5,27 +5,19 @@
 //!
 //! [`DogRoundFade`] is how far in it is (0..1); `apply_scene_tuning` blends
 //! the map's own fog / sun / ambient toward [`DogRoundLook`]'s by it, and
-//! [`apply_dog_round_sky`] tints the sky sphere. The thicker fog would hide
-//! the sky, so while it's on the sky's taken out of the fog and a haze shell
-//! ([`SkyHazeVeil`]) stands in for it: matching the map's usual fog on the
-//! sky as it starts, thinning to [`DogRoundLook::sky_fog`] of that. Tuned in the debug panel's
+//! `sky::apply_sky_look` blends the map's sky (which the fog never reaches)
+//! toward its darkened tint, with its haze shell going to
+//! [`DogRoundLook::sky_fog`] in the dog-round fog's colour. Tuned in the debug panel's
 //! "Dogs (Zombies)" → "Dog round sky + fog". Out of a game the fade is
 //! dropped straight back to 0, so nothing carries into the next one.
 
-use bevy::color::Mix;
-use bevy::pbr::FogFalloff;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::Lobby;
 
 use crate::net::GameClient;
-use crate::util::color_from_parts;
 use crate::AppState;
-
-use super::atmosphere::MapLooks;
-use super::map::CurrentMap;
-use super::sky::{SkyHazeVeil, SkyMaterial, SKY_HAZE_RADIUS};
 
 /// Panel-tunable dog-round look.
 #[derive(Resource, Clone)]
@@ -40,8 +32,8 @@ pub(crate) struct DogRoundLook {
     pub(crate) sky_brightness: f32,
     /// ...and its tint (sRGB multiplier).
     pub(crate) sky_tint: [f32; 3],
-    /// How much of the map's usual haze stays over the sky at full darkness
-    /// (0 = a clear sky, 1 = as hazy as ever) — the thicker fog never covers it.
+    /// The haze over the sky at full darkness, in [`Self::fog_color`]
+    /// (0 = a clear sky, 1 = solid) — the fog itself never covers it.
     pub(crate) sky_fog: f32,
     /// How far (m) you can see through the fog at full darkness — never
     /// clearer than the map's own.
@@ -117,46 +109,6 @@ pub(crate) fn update_dog_round_fade(
     }
 }
 
-/// Tint the sky sphere by [`DogRoundFade`], and while it's on, swap the
-/// fog on the sky for the haze shell.
-pub(crate) fn apply_dog_round_sky(
-    fade: Res<DogRoundFade>,
-    look: Res<DogRoundLook>,
-    current: Res<CurrentMap>,
-    looks: MapLooks,
-    sky: Query<&SkyMaterial>,
-    mut veil: Query<(&SkyHazeVeil, &mut Visibility)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    if !fade.is_changed() && !look.is_changed() && !current.is_changed() && !looks.is_changed() {
-        return;
-    }
-    let t = fade.0;
-    let on = t > 0.0;
-    if let Some(material) = sky.single().ok().and_then(|s| materials.get_mut(&s.0)) {
-        let dark = LinearRgba::from(color_from_parts(look.sky_tint)) * look.sky_brightness;
-        material.base_color = Color::LinearRgba(LinearRgba::WHITE * (1.0 - t) + dark * t);
-        // (Only flipped when it changes — it re-specialises the material.)
-        if material.fog_enabled == on {
-            material.fog_enabled = !on;
-        }
-    }
-    let Ok((veil, mut vis)) = veil.single_mut() else { return };
-    vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
-    let Some(material) = materials.get_mut(&veil.0) else { return };
-    // How much the map's own fog covers the sky (as Bevy's exponential fog
-    // would at the shell's distance), thinned as the darkness comes in, in
-    // the fog's colour of the moment (`apply_scene_tuning`'s blend).
-    let base = looks.get(current.0);
-    let FogFalloff::Exponential { density } = FogFalloff::from_visibility(base.fog_visibility_m) else {
-        return;
-    };
-    let haze = 1.0 - (-density * SKY_HAZE_RADIUS).exp();
-    let alpha = haze * (1.0 + (look.sky_fog - 1.0) * t);
-    let color = color_from_parts(base.fog_color).mix(&color_from_parts(look.fog_color), t);
-    material.base_color = color.with_alpha(alpha);
-}
-
 /// The debug panel's controls for it.
 pub(crate) fn dog_round_look_section(ui: &mut egui::Ui, look: &mut DogRoundLook, fade: f32) {
     ui.label(format!("now: {:.0}% in", fade * 100.0));
@@ -170,7 +122,7 @@ pub(crate) fn dog_round_look_section(ui: &mut egui::Ui, look: &mut DogRoundLook,
         ui.color_edit_button_rgb(&mut look.sky_tint);
         ui.label("sky tint");
     });
-    ui.add(egui::Slider::new(&mut look.sky_fog, 0.0f32..=1.0).text("haze left on the sky"));
+    ui.add(egui::Slider::new(&mut look.sky_fog, 0.0f32..=1.0).text("haze on the sky"));
     ui.add(
         egui::Slider::new(&mut look.fog_visibility_m, 5.0f32..=1500.0)
             .logarithmic(true)

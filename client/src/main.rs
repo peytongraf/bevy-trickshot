@@ -375,15 +375,9 @@ fn main() {
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
         .init_resource::<SoundVolumes>()
-        .init_resource::<SceneTuning>()
-        .init_resource::<ShipmentSceneTuning>()
-        .init_resource::<ShipmentDaySceneTuning>()
-        .init_resource::<BreakPointSceneTuning>()
-        .init_resource::<BreakPointNightSceneTuning>()
-        .init_resource::<MapSettings>()
+        .init_resource::<MapLooks>()
         .init_resource::<CurrentMap>()
         .init_resource::<MapLoadState>()
-        .init_resource::<ShipmentSettings>()
         .init_resource::<WaterSettings>()
         .init_resource::<DogRoundLook>()
         .init_resource::<DogRoundFade>()
@@ -493,7 +487,7 @@ fn main() {
                 sync_shipment_only_visibility,
                 sync_sky_texture,
                 // (Ungated, so leaving a game mid-dog-round puts the sky back.)
-                (update_dog_round_fade, apply_dog_round_sky).chain(),
+                (update_dog_round_fade, apply_sky_look).chain(),
             ),
         )
         // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
@@ -633,7 +627,6 @@ fn main() {
                 (apply_shadow_quality, apply_crosshair_texture),
                 (
                     apply_map_transform,
-                    apply_shipment_transform,
                     apply_water_settings,
                     update_rain,
                     apply_rain_assets,
@@ -820,6 +813,9 @@ fn setup_world(
         base_color_texture: Some(asset_server.load(sky_texture_path(shared::MapId::default()))),
         unlit: true,
         cull_mode: None,
+        // The map's fog never reaches the sky — its look is its own
+        // (`SkyLook`, applied by `apply_sky_look`).
+        fog_enabled: false,
         ..default()
     });
     commands.spawn((
@@ -832,9 +828,8 @@ fn setup_world(
         Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
         NotShadowCaster,
     ));
-    // The sky's haze while a dog round's on (`environment::dog_round`):
-    // a shell just inside the sky in the fog's colour, standing in for the
-    // fog on the sky so the map's fog can thicken without hiding it.
+    // The sky's haze (`SkyLook::haze`, thickened during a dog round): a
+    // see-through shell just inside the sky.
     let veil_material = materials.add(StandardMaterial {
         base_color: Color::NONE,
         unlit: true,

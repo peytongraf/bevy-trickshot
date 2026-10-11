@@ -107,7 +107,7 @@ on, find out what happened. This is the longest line, at roughly 20–30 s.
 > want to know why a research outpost needed walls that thick. Weapons free. Stay off the
 > walls, stay together, and don't let them box you in. Warden out."
 
-**game_start/ashes_of_the_damned_1** (Ashes of the Damned)
+**game_start/der_tempel_1** (Der Tempel)
 > "Dagger, Warden, radio check. ...Alright. Whatever VESPER was digging for, they dug deep
 > enough to split the goddamn ground open. Those chasms weren't there on last year's imagery. I've
 > got heat signatures climbing up out of them that should not be warm. Hold the high ground,

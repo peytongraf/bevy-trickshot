@@ -76,7 +76,6 @@ impl Plugin for LevelEditorPlugin {
                     // The world's look, which only `InGame` keeps up otherwise.
                     (
                         crate::apply_map_transform,
-                        crate::apply_shipment_transform,
                         (crate::apply_scene_tuning, apply_editor_lighting).chain(),
                         crate::sky_follow_camera,
                     ),
@@ -1017,7 +1016,7 @@ fn sync_editor_lights(
     if editor.docs.is_empty() {
         return;
     }
-    let lit = editor.view.look == Look::GamePowerOn && editor.map.is_dark();
+    let lit = editor.view.look == Look::GamePowerOn && editor.map.is_night();
     crate::power::sync_power_lights(
         &editor.doc().layout.power_lights,
         if lit { 1.0 } else { 0.0 },

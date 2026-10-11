@@ -13,6 +13,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 # Current todo
 
 - Add new radio quotes
+- "Power must be activated first" ui should have a smaller background and text should be centered.
 
 # Added
 

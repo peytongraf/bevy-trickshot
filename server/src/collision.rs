@@ -27,10 +27,7 @@ use shared::{GameMode, Lobby, MapId};
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/shipment.glb");
 const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/break_point_map.glb");
-const ASHES_OF_THE_DAMNED_GLB: &[u8] =
-    include_bytes!("../../client/assets/models/maps/ashes_of_the_damned_map.glb");
-const VESPER_STATION_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/vesper_station_map.glb");
-const DIE_MASCHINE_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/die_maschine_map.glb");
+const DER_TEMPEL_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/der_tempel_map.glb");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
@@ -43,9 +40,7 @@ pub struct MapColliders {
     basic: MapMesh,
     shipment: MapMesh,
     break_point: MapMesh,
-    ashes_of_the_damned: MapMesh,
-    vesper_station: MapMesh,
-    die_maschine: MapMesh,
+    der_tempel: MapMesh,
 }
 
 impl MapColliders {
@@ -59,15 +54,8 @@ impl MapColliders {
                 .expect("shipment.glb collision model"),
             break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
                 .expect("break_point_map.glb collision model"),
-            ashes_of_the_damned: MapMesh::from_glb(
-                ASHES_OF_THE_DAMNED_GLB,
-                map::placement(MapId::AshesOfTheDamned),
-            )
-            .expect("ashes_of_the_damned_map.glb collision model"),
-            vesper_station: MapMesh::from_glb(VESPER_STATION_GLB, map::placement(MapId::VesperStation))
-                .expect("vesper_station_map.glb collision model"),
-            die_maschine: MapMesh::from_glb(DIE_MASCHINE_GLB, map::placement(MapId::DieMaschine))
-                .expect("die_maschine_map.glb collision model"),
+            der_tempel: MapMesh::from_glb(DER_TEMPEL_GLB, map::placement(MapId::DerTempel))
+                .expect("der_tempel_map.glb collision model"),
         }
     }
 
@@ -100,12 +88,10 @@ impl MapColliders {
     /// The collision mesh for `map` (both Shipment variants share one).
     pub fn world(&self, map: MapId) -> &MapMesh {
         match map {
-            MapId::BasicMap => &self.basic,
+            MapId::BasicMap | MapId::BasicMapNight => &self.basic,
             MapId::Shipment | MapId::ShipmentDay => &self.shipment,
             MapId::BreakPoint | MapId::BreakPointNight => &self.break_point,
-            MapId::AshesOfTheDamned => &self.ashes_of_the_damned,
-            MapId::VesperStation => &self.vesper_station,
-            MapId::DieMaschine => &self.die_maschine,
+            MapId::DerTempel | MapId::DerTempelDay => &self.der_tempel,
         }
     }
 }

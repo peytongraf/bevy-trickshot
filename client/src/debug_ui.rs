@@ -31,7 +31,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, mut break_point_night_scene, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<SoundVolumes>,
@@ -49,7 +49,6 @@ pub(crate) fn ads_tuning_ui(
         >,
         ResMut<crate::ShroomKick>,
         ResMut<crate::DrunkKick>,
-        ResMut<BreakPointNightSceneTuning>,
         (
             ResMut<FlashlightSettings>,
             (ResMut<crate::zombies_hud::PerkMachineSettings>, ResMut<crate::zombies_hud::ClassicPerks>),
@@ -91,15 +90,13 @@ pub(crate) fn ads_tuning_ui(
     mut sway: ResMut<WeaponSwaySettings>,
     mut shake_cfg: ResMut<ShakeSettings>,
     mut anim: ResMut<AnimationSettings>,
-    mut scene: ResMut<SceneTuning>,
+    mut looks: ResMut<MapLooks>,
     mut tracer: ResMut<TracerSettings>,
     binds: Res<KeyBindings>,
     // Bundled — a system function tops out at 16 top-level params.
     misc: (
         Res<Shake>,
         Res<Ads>,
-        ResMut<MapSettings>,
-        ResMut<ShipmentSettings>,
         ResMut<BloodSettings>,
         ResMut<NoScopeSpread>,
         ResMut<IdleSwaySettings>,
@@ -108,7 +105,6 @@ pub(crate) fn ads_tuning_ui(
         ResMut<SoldierAnimSettings>,
         ResMut<RemoteSoundSettings>,
         ResMut<WaterSettings>,
-        ResMut<ShipmentSceneTuning>,
         ResMut<LedgeJumpSettings>,
         (
             ResMut<RainSettings>,
@@ -117,8 +113,6 @@ pub(crate) fn ads_tuning_ui(
             ResMut<ThrowKnifeModelSettings>,
             ResMut<BulletHoleSettings>,
             ResMut<MantleSettings>,
-            ResMut<ShipmentDaySceneTuning>,
-            ResMut<BreakPointSceneTuning>,
             Res<Settings>,
             ResMut<LensSettings>,
             (ResMut<SniperGlintSettings>, ResMut<crate::RemoteMuzzleSettings>, ResMut<crate::AimRecoilSettings>),
@@ -150,8 +144,6 @@ pub(crate) fn ads_tuning_ui(
     let (
         shake,
         ads,
-        mut map,
-        mut shipment,
         mut blood,
         mut noscope,
         mut idle_sway,
@@ -160,9 +152,8 @@ pub(crate) fn ads_tuning_ui(
         mut soldier_anim,
         mut remote_sound,
         mut water,
-        mut shipment_scene,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, mut shipment_day_scene, mut break_point_scene, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -2341,58 +2332,6 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Maps & lighting", |ui| {
-                ui.collapsing("Map", |ui| {
-                    let mp = &mut *map;
-                    ui.label("position");
-                    ui.add(egui::Slider::new(&mut mp.position.x, -100.0f32..=100.0).text("x"));
-                    ui.add(egui::Slider::new(&mut mp.position.y, -20.0f32..=20.0).text("y"));
-                    ui.add(egui::Slider::new(&mut mp.position.z, -100.0f32..=100.0).text("z"));
-                    ui.add(
-                        egui::Slider::new(&mut mp.rotation_deg, -180.0f32..=180.0)
-                            .text("rotation°  (yaw)"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut mp.scale, 0.1f32..=5.0)
-                            .text("scale")
-                            .logarithmic(true),
-                    );
-
-                    if ui.button("Copy map transform to console").clicked() {
-                        info!(
-                            "map: position Vec3::new({:.2}, {:.2}, {:.2}), rotation_deg: {:.1}, \
-                             scale: {:.3}",
-                            mp.position.x, mp.position.y, mp.position.z, mp.rotation_deg, mp.scale,
-                        );
-                    }
-                    if ui.button("Reset map transform").clicked() {
-                        *mp = MapSettings::default();
-                    }
-                });
-
-            ui.separator();
-                ui.collapsing("Shipment map", |ui| {
-                    let sh = &mut *shipment;
-                    ui.label("models/maps/shipment.glb — spawned at the origin, scale only");
-                    ui.add(
-                        egui::Slider::new(&mut sh.scale, 0.05f32..=2.0)
-                            .text("scale")
-                            .logarithmic(true),
-                    );
-                    ui.label(
-                        "Only affects this client's own rendering + collision — the server's \
-                         spawn/respawn placement always uses shared::map::SHIPMENT_SCALE, so \
-                         update that constant to match once you've found the right number.",
-                    );
-
-                    if ui.button("Copy shipment scale to console").clicked() {
-                        info!("shipment: SHIPMENT_SCALE = {:.3};", sh.scale);
-                    }
-                    if ui.button("Reset shipment scale").clicked() {
-                        *sh = ShipmentSettings::default();
-                    }
-                });
-
-            ui.separator();
                 ui.collapsing("Water", |ui| {
                     let w = &mut *water;
                     ui.label("Shipment / Shipment Day — the MW3-style cargo-ship setting's ocean plane");
@@ -2490,48 +2429,22 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
                 ui.collapsing("Fog & Sky", |ui| {
-                    ui.collapsing("Basic Map", |ui| {
-                        scene_tuning_sliders(ui, &mut scene);
-                        if ui.button("Reset fog & sky").clicked() {
-                            *scene = SceneTuning::default();
+                    if ui.button("Copy every map to console").clicked() {
+                        for map in shared::MapId::ALL {
+                            looks.get(map).log(map);
                         }
-                    });
-
-                ui.separator();
-                    ui.collapsing("Shipment", |ui| {
-                        ui.label("MW3-style setting: dark, foggy, overcast, out on open water");
-                        scene_tuning_sliders(ui, &mut shipment_scene.0);
-                        if ui.button("Reset fog & sky").clicked() {
-                            *shipment_scene = ShipmentSceneTuning::default();
-                        }
-                    });
-
-                ui.separator();
-                    ui.collapsing("Shipment Day", |ui| {
-                        ui.label("Bright, clear daytime — barely any fog, no rain");
-                        scene_tuning_sliders(ui, &mut shipment_day_scene.0);
-                        if ui.button("Reset fog & sky").clicked() {
-                            *shipment_day_scene = ShipmentDaySceneTuning::default();
-                        }
-                    });
-
-                ui.separator();
-                    ui.collapsing("Break Point", |ui| {
-                        ui.label("Clear mid-day — bright sun, virtually no fog (very high visibility)");
-                        scene_tuning_sliders(ui, &mut break_point_scene.0);
-                        if ui.button("Reset fog & sky").clicked() {
-                            *break_point_scene = BreakPointSceneTuning::default();
-                        }
-                    });
-
-                ui.separator();
-                    ui.collapsing("Break Point Night", |ui| {
-                        ui.label("Full night — faint moonlight, dark fog; flashlights do the rest");
-                        scene_tuning_sliders(ui, &mut break_point_night_scene.0);
-                        if ui.button("Reset fog & sky").clicked() {
-                            *break_point_night_scene = BreakPointNightSceneTuning::default();
-                        }
-                    });
+                    }
+                    for map in shared::MapId::ALL {
+                        ui.collapsing(map.label(), |ui| {
+                            scene_tuning_sliders(ui, looks.get_mut(map));
+                            if ui.button("Copy to console").clicked() {
+                                looks.get(map).log(map);
+                            }
+                            if ui.button("Reset fog & sky").clicked() {
+                                *looks.get_mut(map) = SceneTuning::default_for(map);
+                            }
+                        });
+                    }
                 });
 
             ui.separator();

@@ -1,0 +1,53 @@
+// Zombies level layout — written by the client's level editor (main menu →
+// LEVEL EDITOR). `pos` is the ground under each thing's middle (m), `yaw_deg`
+// its turn about the vertical (degrees). See shared/src/level.rs.
+(
+    perks: {
+        ShroomTea: (pos: (-12.0, 0.0, -22.0), yaw_deg: 0.0),
+        NitroBrew: (pos: (-6.0, 0.0, -22.0), yaw_deg: 0.0),
+        LiquidCourage: (pos: (0.0, 0.0, -22.0), yaw_deg: 0.0),
+        BombShot: (pos: (6.0, 0.0, -22.0), yaw_deg: 0.0),
+        Kangabrew: (pos: (12.0, 0.0, -22.0), yaw_deg: 0.0),
+        Juggernog: (pos: (-60.994, -0.0, 41.441), yaw_deg: 0.0),
+        QuickRevive: (pos: (-48.561, 0.0, -79.668), yaw_deg: 45.0),
+        SpeedCola: (pos: (-58.939, -9.0, -34.1), yaw_deg: 0.0),
+        StaminUp: (pos: (41.054, 0.0, 41.562), yaw_deg: 0.0),
+        DoubleTap: (pos: (39.64, 0.0, -70.141), yaw_deg: 0.0),
+        DeadshotDaiquiri: (pos: (33.439, 0.0, -71.78), yaw_deg: 0.0),
+    },
+    wunderfizz: (pos: (17.731, -5.0, 54.75), yaw_deg: 180.0),
+    pack_a_punch: Some((pos: (0.0, -10.0, 28.75), yaw_deg: 180.0)),
+    ammo_crate: Some((pos: (11.207, -4.0, 56.479), yaw_deg: 0.0)),
+    power_switch: Some((pos: (-15.5, -5.0, 55.2), yaw_deg: -180.0)),
+    wall_buys: [
+        (weapon: Sniper, at: (pos: (28.815, -0.0, -79.113), yaw_deg: 0.0)),
+        (weapon: Ak74, at: (pos: (-29.9, -4.15, 69.5), yaw_deg: 90.0)),
+    ],
+    mystery_box: Some((pos: (0.0, -15.0, 0.0), yaw_deg: 180.0)),
+    armor_station: Some((pos: (16.43, -15.0, -15.965), yaw_deg: 0.0)),
+    crafting_table: Some((pos: (29.45, -4.0, 69.15), yaw_deg: -90.0)),
+    exfil_radio: Some((pos: (-9.415, -4.0, 56.6), yaw_deg: 0.0)),
+    exfil_area: Some((at: (pos: (0.0, 0.0, -67.36), yaw_deg: 0.0), width: 62.6, depth: 41.9)),
+    rampage_inducer: Some((pos: (27.606, -4.0, 58.668), yaw_deg: 0.0)),
+    power_lights: [
+        (pos: (-55.392, 13.0, 18.977), color: (1.0, 0.838, 0.514), intensity: 4150000.0, range: 28.7, radius: 0.28, shadows: true),
+        (pos: (-62.909, 16.3, 56.075), color: (1.0, 0.95, 0.85), intensity: 6700000.0, range: 30.0, radius: 0.3, shadows: true),
+        (pos: (-1.76, 12.0, 68.563), color: (0.969, 0.893, 0.742), intensity: 6600000.0, range: 45.0, radius: 0.6, shadows: false),
+        (pos: (0.11, 64.5, -0.17), color: (1.0, 0.0, 0.0), intensity: 7000000.0, range: 39.0, radius: 0.3, shadows: false, glow: 220.0),
+        (pos: (0.0, -2.7, 0.0), color: (1.0, 0.931, 0.793), intensity: 14800000.0, range: 62.0, radius: 0.3, shadows: true),
+        (pos: (0.0, -3.45, 46.55), color: (0.885, 0.482, 0.321), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
+        (pos: (-48.431, 4.6, -67.748), color: (1.0, 0.905, 0.716), intensity: 4150000.0, range: 20.5, radius: 0.3, shadows: true),
+        (pos: (0.006, 6.1, -29.56), color: (0.88, 0.097, 0.097), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: true),
+        (pos: (61.674, 13.0, 57.541), color: (1.0, 0.95, 0.85), intensity: 7600000.0, range: 30.0, radius: 0.3, shadows: false),
+        (pos: (-39.254, 12.8, 39.518), color: (1.0, 0.95, 0.85), intensity: 69000000.0, range: 48.5, radius: 0.3, shadows: false, spot: Some((yaw_deg: -45.0, pitch_deg: 45.0, inner_angle_deg: 15.0, outer_angle_deg: 74.0))),
+        (pos: (39.698, 13.0, 41.879), color: (1.0, 0.95, 0.85), intensity: 26500000.0, range: 62.5, radius: 0.3, shadows: false, spot: Some((yaw_deg: 45.0, pitch_deg: 15.0, inner_angle_deg: 22.5, outer_angle_deg: 40.0))),
+        (pos: (39.607, 9.4, -38.944), color: (1.0, 0.95, 0.85), intensity: 16700000.0, range: 55.5, radius: 0.35, shadows: false, spot: Some((yaw_deg: 131.0, pitch_deg: 21.0, inner_angle_deg: 34.0, outer_angle_deg: 48.5))),
+        (pos: (-41.351, 13.0, -43.742), color: (1.0, 0.95, 0.85), intensity: 27500000.0, range: 69.5, radius: 0.3, shadows: false, spot: Some((yaw_deg: -137.0, pitch_deg: 21.0, inner_angle_deg: 30.0, outer_angle_deg: 40.0))),
+        (pos: (-57.922, 13.0, -24.839), color: (1.0, 0.95, 0.85), intensity: 11100000.0, range: 30.0, radius: 0.3, shadows: true),
+    ],
+    player_spawns: [
+        (pos: (0.641, -4.0, 74.133), yaw_deg: -180.0),
+        (pos: (2.815, -4.0, 73.216), yaw_deg: -180.0),
+        (pos: (-1.564, -4.0, 73.72), yaw_deg: -180.0),
+    ],
+)

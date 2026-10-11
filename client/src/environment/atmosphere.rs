@@ -16,6 +16,7 @@ use crate::settings::{Settings, ShadowQuality};
 use crate::util::{color_from_parts, srgb_parts};
 
 use super::map::CurrentMap;
+use super::sky::{sky_look_sliders, SkyLook};
 
 // --- daylight look (bright, mostly-sunny midday) -----------------------------
 // These are calibrated against Bevy's *default* camera exposure — a genuinely
@@ -33,12 +34,11 @@ pub(crate) const FOG_COLOR: Color = Color::srgb(0.72, 0.80, 0.90);
 /// Roughly the distance (m) at which geometry fades fully into the haze.
 pub(crate) const FOG_VISIBILITY_M: f32 = 1300.0;
 
-/// `basic_map.glb`'s daytime look, live-tweakable from the debug panel's
-/// "Fog & Sky (Basic Map)" section and pushed onto the fog / sun / ambient /
-/// bloom by `apply_scene_tuning` whenever that's the selected map — see
-/// [`ShipmentSceneTuning`] for `Shipment`'s (separately tunable) look.
-/// Defaults mirror the `SUN_*` / `SKY_*` / `FOG_*` consts.
-#[derive(Resource)]
+/// One map's look — its fog, sun, ambient light, bloom and (separately, since
+/// the fog never reaches it) its sky. Every map has its own, day and night
+/// versions alike ([`MapLooks`]), live-tweakable from the debug panel's
+/// "Maps & lighting" → "Fog & Sky" → the map.
+#[derive(Clone, Debug)]
 pub(crate) struct SceneTuning {
     pub(crate) fog_visibility_m: f32,
     pub(crate) fog_color: [f32; 3],
@@ -48,135 +48,124 @@ pub(crate) struct SceneTuning {
     ambient_color: [f32; 3],
     ambient_lux: f32,
     bloom_intensity: f32,
+    /// The sky's own look — the fog above never reaches it.
+    pub(crate) sky: SkyLook,
 }
 
-impl Default for SceneTuning {
-    fn default() -> Self {
-        Self {
-            fog_visibility_m: FOG_VISIBILITY_M,
-            fog_color: srgb_parts(FOG_COLOR),
-            fog_sun_exponent: 100.0,
-            sun_lux: SUN_LUX,
-            sun_color: srgb_parts(SUN_COLOR),
-            ambient_color: srgb_parts(SKY_AMBIENT_COLOR),
-            ambient_lux: SKY_AMBIENT_LUX,
-            bloom_intensity: 0.09,
+impl SceneTuning {
+    /// Print it to the console (the debug panel's "Copy to console"), in one
+    /// line ready to paste back into [`Self::default_for`].
+    pub(crate) fn log(&self, map: shared::MapId) {
+        info!("fog & sky — {} ({map:?}): {self:?}", map.label());
+    }
+
+    /// `map`'s look before any tweaking.
+    pub(crate) fn default_for(map: shared::MapId) -> Self {
+        use shared::MapId;
+        match map {
+            // Bright, mostly-sunny midday — the `SUN_*` / `SKY_*` / `FOG_*` consts.
+            MapId::BasicMap => Self {
+                fog_visibility_m: FOG_VISIBILITY_M,
+                fog_color: srgb_parts(FOG_COLOR),
+                fog_sun_exponent: 100.0,
+                sun_lux: SUN_LUX,
+                sun_color: srgb_parts(SUN_COLOR),
+                ambient_color: srgb_parts(SKY_AMBIENT_COLOR),
+                ambient_lux: SKY_AMBIENT_LUX,
+                bloom_intensity: 0.09,
+                sky: SkyLook::clear(srgb_parts(FOG_COLOR)),
+            },
+            // MW3-style: dark, foggy, overcast — near dawn/dusk under heavy
+            // cloud, out on open water.
+            MapId::Shipment => Self {
+                fog_visibility_m: 200.0,
+                // r24 g30 b37 (0-255) — a dark, cool overcast grey.
+                fog_color: srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0)),
+                fog_sun_exponent: 7.0,
+                sun_lux: 1000.0,
+                sun_color: srgb_parts(Color::srgb(0.75, 0.78, 0.85)),
+                ambient_color: srgb_parts(Color::srgb(0.35, 0.38, 0.42)),
+                ambient_lux: 50.0,
+                bloom_intensity: 0.1,
+                sky: SkyLook::clear(srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0))),
+            },
+            // The same yard in bright midday sun: barely any fog (just enough
+            // haze to soften the horizon over the water), a strong warm sun,
+            // and a bright ambient fill so container shadows stay readable.
+            MapId::ShipmentDay => Self {
+                fog_visibility_m: 1200.0,
+                // r225 g240 b255 (0-255) — a pale, cool sky-blue haze.
+                fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
+                fog_sun_exponent: 3.0,
+                sun_lux: 18_000.0,
+                // r241 g233 b217 (0-255).
+                sun_color: srgb_parts(Color::srgb(241.0 / 255.0, 233.0 / 255.0, 217.0 / 255.0)),
+                // r208 g209 b221 (0-255).
+                ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 209.0 / 255.0, 221.0 / 255.0)),
+                ambient_lux: 200.0,
+                bloom_intensity: 0.075,
+                sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
+            },
+            // A clear mid-day with great visibility — the fog's pushed out to
+            // tens of kilometres. (Der Tempel by day starts out the same.)
+            MapId::BreakPoint | MapId::DerTempelDay => Self {
+                fog_visibility_m: 40_000.0,
+                // r225 g240 b255 (0-255) — a pale, cool sky-blue (barely visible).
+                fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
+                fog_sun_exponent: 3.0,
+                sun_lux: 20_000.0,
+                // r250 g240 b222 (0-255) — bright, slightly warm noon light.
+                sun_color: srgb_parts(Color::srgb(250.0 / 255.0, 240.0 / 255.0, 222.0 / 255.0)),
+                // r208 g215 b232 (0-255) — clear-sky fill.
+                ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 215.0 / 255.0, 232.0 / 255.0)),
+                ambient_lux: 240.0,
+                bloom_intensity: 0.075,
+                sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
+            },
+            // Pitch dark: a thick near-black fog close in, a dim grey ambient
+            // fill and a barely-there sky — the gun flashlights do the lighting.
+            MapId::DerTempel => Self {
+                fog_visibility_m: 120.0,
+                fog_color: [0.040293436, 0.040293436, 0.040293436],
+                fog_sun_exponent: 100.0,
+                // No sun (colour kept only for the fog's sun-scatter tint).
+                sun_lux: 0.0,
+                sun_color: [0.5882353, 0.6666666, 0.8627451],
+                ambient_color: [0.53333336, 0.53333336, 0.53333336],
+                ambient_lux: 20.0,
+                bloom_intensity: 0.095,
+                sky: SkyLook {
+                    brightness: 0.05,
+                    tint: [0.26091984, 0.26091984, 0.26091984],
+                    yaw_deg: -130.0,
+                    haze: 0.0,
+                    haze_color: [0.023529414, 0.03137255, 0.05490196],
+                },
+            },
+            // Full night: no sun at all, a near-black blue fog closing in the
+            // distance, and a flat grey ambient fill so the map reads as dim
+            // shapes — the gun flashlights (`player::flashlight`) do the real
+            // lighting. (Basic Map by night starts out the same.)
+            MapId::BreakPointNight | MapId::BasicMapNight => Self {
+                fog_visibility_m: 500.0,
+                // r6 g8 b14 (0-255) — near-black night blue.
+                fog_color: srgb_parts(Color::srgb(6.0 / 255.0, 8.0 / 255.0, 14.0 / 255.0)),
+                fog_sun_exponent: 100.0,
+                // No sun (colour kept only for the fog's sun-scatter tint).
+                sun_lux: 0.0,
+                sun_color: srgb_parts(Color::srgb(150.0 / 255.0, 170.0 / 255.0, 220.0 / 255.0)),
+                // r136 g136 b136 (0-255) — flat grey.
+                ambient_color: srgb_parts(Color::srgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0)),
+                ambient_lux: 200.0,
+                bloom_intensity: 0.095,
+                sky: SkyLook::clear(srgb_parts(Color::srgb(6.0 / 255.0, 8.0 / 255.0, 14.0 / 255.0))),
+            },
         }
     }
 }
 
-/// `shipment.glb`'s look — same shape as [`SceneTuning`] (see that struct's
-/// fields), just a separate resource so `Shipment` can be tuned to its own
-/// MW3-style setting (dark, foggy, overcast — near dawn/dusk under heavy
-/// cloud, out on open water) without touching `basic_map.glb`'s daytime one.
-/// Live-tweakable from the debug panel's "Fog & Sky (Shipment)" section;
-/// `apply_scene_tuning` pushes whichever of the two is currently selected
-/// ([`CurrentMap`]) onto the shared fog / sun / ambient / bloom.
-#[derive(Resource)]
-pub(crate) struct ShipmentSceneTuning(pub(crate) SceneTuning);
-
-impl Default for ShipmentSceneTuning {
-    fn default() -> Self {
-        Self(SceneTuning {
-            fog_visibility_m: 200.0,
-            // r24 g30 b37 (0-255) — a dark, cool overcast grey.
-            fog_color: srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0)),
-            fog_sun_exponent: 7.0,
-            sun_lux: 1000.0,
-            sun_color: srgb_parts(Color::srgb(0.75, 0.78, 0.85)),
-            ambient_color: srgb_parts(Color::srgb(0.35, 0.38, 0.42)),
-            ambient_lux: 50.0,
-            bloom_intensity: 0.1,
-        })
-    }
-}
-
-/// `shipment.glb`'s daytime look ([`shared::MapId::ShipmentDay`]) — the same
-/// yard as [`ShipmentSceneTuning`], but in bright midday sun instead of dark,
-/// foggy, rainy dusk: barely any fog (just enough distance haze to soften the
-/// horizon over the water), a strong warm sun, and a bright sky-blue ambient
-/// fill so container shadows stay readable rather than going black. Paired
-/// with `basic_map.glb`'s clear-sky HDR (see `sky_texture_path`) and no rain
-/// (`update_rain` only runs for `Shipment`). Live-tweakable from the debug
-/// panel's "Fog & Sky (Shipment Day)" section.
-#[derive(Resource)]
-pub(crate) struct ShipmentDaySceneTuning(pub(crate) SceneTuning);
-
-impl Default for ShipmentDaySceneTuning {
-    fn default() -> Self {
-        Self(SceneTuning {
-            fog_visibility_m: 1200.0,
-            // r225 g240 b255 (0-255) — a pale, cool sky-blue haze.
-            fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
-            fog_sun_exponent: 3.0,
-            sun_lux: 18_000.0,
-            // r241 g233 b217 (0-255).
-            sun_color: srgb_parts(Color::srgb(241.0 / 255.0, 233.0 / 255.0, 217.0 / 255.0)),
-            // r208 g209 b221 (0-255).
-            ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 209.0 / 255.0, 221.0 / 255.0)),
-            ambient_lux: 200.0,
-            bloom_intensity: 0.075,
-        })
-    }
-}
-
-/// `break_point_map.glb`'s look ([`shared::MapId::BreakPoint`]): a clear
-/// mid-day under `sunflowers_puresky_8k.hdr`, with great visibility — the fog is
-/// pushed out to tens of kilometres, so nothing on the map is hazed at all. A
-/// bright neutral-warm sun and a cool sky-blue ambient fill. Live-tweakable from
-/// the debug panel's "Fog & Sky (Break Point)" section. (The sun's *direction* is
-/// the one shared light direction for every map, not part of this.)
-#[derive(Resource)]
-pub(crate) struct BreakPointSceneTuning(pub(crate) SceneTuning);
-
-impl Default for BreakPointSceneTuning {
-    fn default() -> Self {
-        Self(SceneTuning {
-            fog_visibility_m: 40_000.0,
-            // r225 g240 b255 (0-255) — a pale, cool sky-blue (barely visible).
-            fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
-            fog_sun_exponent: 3.0,
-            sun_lux: 20_000.0,
-            // r250 g240 b222 (0-255) — bright, slightly warm noon light.
-            sun_color: srgb_parts(Color::srgb(250.0 / 255.0, 240.0 / 255.0, 222.0 / 255.0)),
-            // r208 g215 b232 (0-255) — clear-sky fill.
-            ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 215.0 / 255.0, 232.0 / 255.0)),
-            ambient_lux: 240.0,
-            bloom_intensity: 0.075,
-        })
-    }
-}
-
-/// `break_point_map.glb` at full night ([`shared::MapId::BreakPointNight`]),
-/// under `qwantani_night_puresky_8k.hdr`: no sun at all, a near-black blue
-/// fog closing in the distance, and a flat grey ambient fill so the map
-/// reads as dim shapes — the gun flashlights (`player::flashlight`) do the
-/// real lighting. Live-tweakable from the debug panel's
-/// "Fog & Sky" → "Break Point Night" section.
-#[derive(Resource)]
-pub(crate) struct BreakPointNightSceneTuning(pub(crate) SceneTuning);
-
-impl Default for BreakPointNightSceneTuning {
-    fn default() -> Self {
-        Self(SceneTuning {
-            fog_visibility_m: 500.0,
-            // r6 g8 b14 (0-255) — near-black night blue.
-            fog_color: srgb_parts(Color::srgb(6.0 / 255.0, 8.0 / 255.0, 14.0 / 255.0)),
-            fog_sun_exponent: 100.0,
-            // No sun (colour kept only for the fog's sun-scatter tint).
-            sun_lux: 0.0,
-            sun_color: srgb_parts(Color::srgb(150.0 / 255.0, 170.0 / 255.0, 220.0 / 255.0)),
-            // r136 g136 b136 (0-255) — flat grey.
-            ambient_color: srgb_parts(Color::srgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0)),
-            ambient_lux: 200.0,
-            bloom_intensity: 0.095,
-        })
-    }
-}
-
-/// Fog/sun/ambient/bloom sliders shared by "Fog & Sky (Basic Map)",
-/// "Fog & Sky (Shipment)" and "Fog & Sky (Shipment Day)" — same [`SceneTuning`] shape, different resource
-/// (and therefore different defaults) behind each.
+/// One map's fog/sun/ambient/bloom/sky sliders (the debug panel's
+/// "Fog & Sky" section has one set per map).
 pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
     ui.add(
         egui::Slider::new(&mut s.fog_visibility_m, 20.0f32..=100_000.0)
@@ -202,59 +191,44 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
         ui.label("ambient colour");
     });
     ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
+    ui.separator();
+    ui.label("Sky (the fog doesn't reach it)");
+    sky_look_sliders(ui, &mut s.sky);
 }
 
-/// Every map's look ([`SceneTuning`] and its per-map wrappers), with which
-/// one a map uses — shared by `apply_scene_tuning` and the dog-round sky.
-#[derive(bevy::ecs::system::SystemParam)]
-pub(crate) struct MapLooks<'w> {
-    scene: Res<'w, SceneTuning>,
-    shipment_scene: Res<'w, ShipmentSceneTuning>,
-    shipment_day_scene: Res<'w, ShipmentDaySceneTuning>,
-    break_point_scene: Res<'w, BreakPointSceneTuning>,
-    break_point_night_scene: Res<'w, BreakPointNightSceneTuning>,
+/// Every map's look ([`SceneTuning`]), one per [`shared::MapId::ALL`] —
+/// read by `apply_scene_tuning` and the sky (`sky::apply_sky_look`).
+#[derive(Resource)]
+pub(crate) struct MapLooks([SceneTuning; shared::MapId::ALL.len()]);
+
+impl Default for MapLooks {
+    fn default() -> Self {
+        Self(shared::MapId::ALL.map(SceneTuning::default_for))
+    }
 }
 
-impl MapLooks<'_> {
-    pub(crate) fn is_changed(&self) -> bool {
-        self.scene.is_changed()
-            || self.shipment_scene.is_changed()
-            || self.shipment_day_scene.is_changed()
-            || self.break_point_scene.is_changed()
-            || self.break_point_night_scene.is_changed()
+impl MapLooks {
+    fn index(map: shared::MapId) -> usize {
+        shared::MapId::ALL.iter().position(|&m| m == map).expect("every map is in `MapId::ALL`")
     }
 
     /// The look `map` uses.
     pub(crate) fn get(&self, map: shared::MapId) -> &SceneTuning {
-        match map {
-            shared::MapId::BasicMap => &self.scene,
-            shared::MapId::Shipment => &self.shipment_scene.0,
-            shared::MapId::ShipmentDay => &self.shipment_day_scene.0,
-            shared::MapId::BreakPoint => &self.break_point_scene.0,
-            // (Ashes of the Damned, Vesper Station and Die Maschine borrow
-            // Break Point Night's look outright.)
-            shared::MapId::BreakPointNight
-            | shared::MapId::AshesOfTheDamned
-            | shared::MapId::VesperStation
-            | shared::MapId::DieMaschine => {
-                &self.break_point_night_scene.0
-            }
-        }
+        &self.0[Self::index(map)]
+    }
+
+    pub(crate) fn get_mut(&mut self, map: shared::MapId) -> &mut SceneTuning {
+        &mut self.0[Self::index(map)]
     }
 }
 
-/// Push `SceneTuning` onto the live fog / sun / ambient / bloom whenever it
-/// changes (also once at startup, which just re-applies the consts).
-/// Picks whichever of [`SceneTuning`] (`BasicMap`), [`ShipmentSceneTuning`]
-/// (`Shipment`), [`ShipmentDaySceneTuning`] (`ShipmentDay`), [`BreakPointSceneTuning`]
-/// (`BreakPoint`) or [`BreakPointNightSceneTuning`] (`BreakPointNight`) is
-/// currently selected and pushes it onto the shared fog /
-/// sun / ambient light / bloom — there's only one of each in the world, so
-/// switching maps re-points them at a different look rather than swapping
-/// entities.
+/// Push the current map's [`SceneTuning`] onto the live fog / sun / ambient /
+/// bloom whenever it or the map changes (also once at startup) — there's only
+/// one of each in the world, so switching maps re-points them at a different
+/// look rather than swapping entities.
 pub(crate) fn apply_scene_tuning(
     current: Res<CurrentMap>,
-    looks: MapLooks,
+    looks: Res<MapLooks>,
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
     mut ambient: ResMut<AmbientLight>,

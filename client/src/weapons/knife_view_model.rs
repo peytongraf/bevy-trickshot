@@ -151,7 +151,7 @@ pub(crate) fn start_knife_animation(
 }
 
 /// Push `KnifeViewModelSettings` onto the knife view model's `Transform`
-/// every frame — mirrors `apply_shipment_transform`'s reasoning: cheap, and
+/// every frame — mirrors `apply_map_transform`'s reasoning: cheap, and
 /// unconditional so a value tweaked while the knife is hidden still takes
 /// effect the instant it's next drawn. Unlike `apply_ads`, there's no
 /// hip/ADS blend to compute — the knife never aims — so this just pushes

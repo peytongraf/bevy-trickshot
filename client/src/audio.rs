@@ -845,13 +845,8 @@ pub(crate) fn start_ambient(
         return;
     }
     let (clip, volume_mult) = match current.0 {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
-        | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation | shared::MapId::DieMaschine => {
-            (sounds.ambient.clone(), vols.ambient)
-        }
-        shared::MapId::Shipment | shared::MapId::ShipmentDay => {
-            (sounds.shipment_ambient.clone(), vols.shipment_ambient)
-        }
+        map if map.is_shipment() => (sounds.shipment_ambient.clone(), vols.shipment_ambient),
+        _ => (sounds.ambient.clone(), vols.ambient),
     };
     commands.spawn((
         AmbientAudio,
@@ -909,11 +904,7 @@ pub(crate) fn apply_master_volume(
         return;
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
-    let ambient_mult = match current.0 {
-        shared::MapId::BasicMap | shared::MapId::BreakPoint | shared::MapId::BreakPointNight
-        | shared::MapId::AshesOfTheDamned | shared::MapId::VesperStation | shared::MapId::DieMaschine => vols.ambient,
-        shared::MapId::Shipment | shared::MapId::ShipmentDay => vols.shipment_ambient,
-    };
+    let ambient_mult = if current.0.is_shipment() { vols.shipment_ambient } else { vols.ambient };
     for mut sink in &mut ambient {
         sink.set_volume(Volume::Linear(
             AMBIENT_VOLUME * ambient_mult * settings.master_volume,

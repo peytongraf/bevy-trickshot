@@ -17,10 +17,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Der Tempel at night is darker, with thicker fog.",
+        "Every map can now be played by day or by night.",
+        "Ashes of the Damned is now Der Tempel.",
+        "Fog no longer washes out the sky.",
         "Zombies now shuffle round a monkey bomb, arms up.",
         "Deadshot pulls harder, onto heads.",
-        "New Zombies map: Die Maschine.",
-        "New Zombies map: Vesper Station.",
         "Zombies: dog rounds turn the sky blood red and plunge the map into darkness.",
         "Shipment Night: its lights fade on with the power in Zombies, and can be moved in the level editor.",
         "Day maps no longer turn on any lights with the power.",

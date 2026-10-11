@@ -75,7 +75,7 @@ impl Default for WaterSettings {
 }
 
 /// Push [`WaterSettings`] onto [`WaterPlane`]'s `Transform` and material
-/// every frame — mirrors `apply_shipment_transform`'s reasoning: cheap, and
+/// every frame — mirrors `apply_map_transform`'s reasoning: cheap, and
 /// unconditional so a value tweaked while the plane is hidden still takes
 /// effect the instant `sync_shipment_only_visibility` reveals it.
 pub(crate) fn apply_water_settings(
