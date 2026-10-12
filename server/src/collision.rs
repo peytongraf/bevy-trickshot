@@ -59,17 +59,27 @@ impl MapColliders {
         }
     }
 
-    /// What's solid in `lobby`'s game: its map, plus the perk machines in
-    /// `Zombies` (they're only on the map there).
+    /// What's solid in `lobby`'s game: its map, plus the perk machines and
+    /// the doors still shut in `Zombies` (they're only on the map there).
     pub fn for_lobby(&self, lobby: &Lobby) -> LobbyWorld<'_> {
-        self.for_game(lobby.map, lobby.mode, lobby.perk_set)
+        self.for_game(lobby.map, lobby.mode, lobby.perk_set, lobby.doors_open)
     }
 
-    /// [`Self::for_lobby`] from just the map, mode and perk set.
-    pub fn for_game(&self, map: MapId, mode: GameMode, set: PerkSet) -> LobbyWorld<'_> {
+    /// [`Self::for_lobby`] from just the map, mode, perk set and open doors.
+    pub fn for_game(&self, map: MapId, mode: GameMode, set: PerkSet, doors_open: u32) -> LobbyWorld<'_> {
         LobbyWorld {
             map: self.world(map),
-            machines: (mode == GameMode::Zombies).then(|| machine_boxes(map, set)),
+            machines: (mode == GameMode::Zombies).then(|| {
+                let mut boxes = machine_boxes(map, set);
+                boxes.extend(
+                    shared::doors::doors(map)
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| !shared::doors::is_open(doors_open, i))
+                        .map(|(_, d)| solid(d.solid_box())),
+                );
+                boxes
+            }),
         }
     }
 
@@ -119,6 +129,28 @@ impl MapMesh {
         let mesh = TriMesh::with_flags(vertices, indices, TriMeshFlags::MERGE_DUPLICATE_VERTICES)
             .map_err(|e| format!("{e:?}"))?;
         Ok(Self { mesh })
+    }
+
+    /// A mesh of solid axis-aligned boxes, each `(min, max)` — for tests.
+    #[cfg(test)]
+    pub fn from_boxes(boxes: &[(Vec3, Vec3)]) -> Self {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for &(lo, hi) in boxes {
+            let base = vertices.len() as u32;
+            for i in 0..8 {
+                let pick = |bit: u32, a: f32, b: f32| if i & bit == 0 { a } else { b };
+                vertices.push(Point::new(pick(1, lo.x, hi.x), pick(2, lo.y, hi.y), pick(4, lo.z, hi.z)));
+            }
+            // Two triangles a face: -x, +x, -y, +y, -z, +z.
+            for [a, b, c, d] in [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]] {
+                indices.push([base + a, base + b, base + c]);
+                indices.push([base + a, base + c, base + d]);
+            }
+        }
+        Self {
+            mesh: TriMesh::with_flags(vertices, indices, TriMeshFlags::MERGE_DUPLICATE_VERTICES).unwrap(),
+        }
     }
 
     /// The mesh's world-space bounds: `(min, max)`.
@@ -286,19 +318,22 @@ fn machine_boxes(map: MapId, set: PerkSet) -> Vec<MachineBox> {
         .chain(shared::exfil::radio_box(map))
         .chain(shared::crafting::solid_box(map))
         .chain(shared::rampage::solid_box(map))
-        .map(|(center, rot, half)| MachineBox {
-            iso: Isometry::from_parts(
-                parry3d::math::Translation::new(center.x, center.y, center.z),
-                parry3d::na::UnitQuaternion::from_quaternion(parry3d::na::Quaternion::new(
-                    rot.w, rot.x, rot.y, rot.z,
-                )),
-            ),
-            shape: Cuboid::new(Vector::new(half.x, half.y, half.z)),
-        })
+        .map(solid)
         .collect()
 }
 
-/// A lobby's map mesh plus (in `Zombies`) its perk machines — see
+/// A solid box from its `(centre, rotation, half extents)`.
+fn solid((center, rot, half): (Vec3, Quat, Vec3)) -> MachineBox {
+    MachineBox {
+        iso: Isometry::from_parts(
+            parry3d::math::Translation::new(center.x, center.y, center.z),
+            parry3d::na::UnitQuaternion::from_quaternion(parry3d::na::Quaternion::new(rot.w, rot.x, rot.y, rot.z)),
+        ),
+        shape: Cuboid::new(Vector::new(half.x, half.y, half.z)),
+    }
+}
+
+/// A lobby's map mesh plus (in `Zombies`) its perk machines and shut doors — see
 /// [`MapColliders::for_lobby`].
 pub struct LobbyWorld<'a> {
     map: &'a MapMesh,
@@ -550,12 +585,12 @@ mod tests {
             // A ray fired sideways at the machine's middle from a metre and a
             // half away hits it before reaching its middle...
             let from = center + Vec3::X * 1.5;
-            let zombies = c.for_game(map, GameMode::Zombies, set);
+            let zombies = c.for_game(map, GameMode::Zombies, set, 0);
             let hit = zombies.raycast(from, Vec3::NEG_X, 3.0).expect("hits the machine");
             assert!(hit.distance < 1.5 && hit.distance >= 1.5 - half.max_element() - 0.01, "{perk:?} hit at {}", hit.distance);
             assert!(zombies.sweep_sphere(from, center, 0.3).is_some(), "a body bumps into it");
             // ...but there's nothing there outside `Zombies`.
-            let ffa = c.for_game(map, GameMode::FreeForAll, set);
+            let ffa = c.for_game(map, GameMode::FreeForAll, set, 0);
             assert!(ffa.raycast(from, Vec3::NEG_X, 1.4).is_none(), "no machine outside Zombies");
         }
         let with = c.with_machines(map);

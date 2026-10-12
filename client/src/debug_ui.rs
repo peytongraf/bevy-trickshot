@@ -1511,6 +1511,8 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: perk quote", &mut v.perk_quote),
                         ("zombies: power on", &mut v.power_on),
+                        ("zombies: door open", &mut v.door_open),
+                        ("zombies: main door ambience", &mut v.main_door_ambience),
                         ("zombies: der tempel earthquake", &mut v.der_tempel_power_on),
                         ("fire crackle", &mut v.fire_crackle),
                         ("zombies: mystery box open", &mut v.mystery_box_open),

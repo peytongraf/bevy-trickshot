@@ -103,7 +103,7 @@ pub(crate) fn frame(editor: &Editor, ids: &[ObjectId], lever: &PowerLeverSetting
     let points: Vec<Vec3> = ids
         .iter()
         .filter_map(|&id| {
-            let (center, _, half) = id.world_box(id.get(doc)?, lever);
+            let (center, _, half) = id.world_box(doc, id.get(doc)?, lever);
             Some([center - half.length(), center + half.length()])
         })
         .flatten()
@@ -281,7 +281,7 @@ fn pick(editor: &Editor, ray: Ray3d, lever: &PowerLeverSettings) -> Option<Objec
         .objects()
         .into_iter()
         .filter_map(|id| {
-            let (center, rot, half) = id.world_box(id.get(doc)?, lever);
+            let (center, rot, half) = id.world_box(doc, id.get(doc)?, lever);
             ray_box(ray, center, rot, half).map(|t| (id, t))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -606,7 +606,7 @@ pub(crate) fn player_view(
     rapier: &ReadRapierContext,
 ) -> Option<OrbitCam> {
     let at = id.get(editor.doc())?;
-    let (center, rot, half) = id.world_box(at, lever);
+    let (center, rot, half) = id.world_box(editor.doc(), at, lever);
     let (eye, target) = match id {
         ObjectId::Reference(super::RefKind::Player) | ObjectId::PlayerSpawn(_) => {
             let eye = at.pos + Vec3::Y * crate::EYE_HEIGHT;
@@ -666,7 +666,7 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     let mut ids = editor.selected.clone();
     ids.sort_by_key(|id| {
         std::cmp::Reverse(match id {
-            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) | ObjectId::Flame(i) => *i as i32,
+            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) | ObjectId::Flame(i) | ObjectId::Door(i) => *i as i32,
             _ => -1,
         })
     });
@@ -858,7 +858,7 @@ pub(crate) fn edit_input(
                             .into_iter()
                             .filter(|id| {
                                 id.get(doc).is_some_and(|at| {
-                                    let (center, ..) = id.world_box(at, &lever);
+                                    let (center, ..) = id.world_box(doc, at, &lever);
                                     to_screen(&cam, &camera, center)
                                         .is_some_and(|p| p.cmpge(lo).all() && p.cmple(hi).all())
                                 })
@@ -1012,7 +1012,7 @@ pub(crate) fn draw_gizmos(
             }
             continue;
         }
-        let (center, rot, half) = id.world_box(at, &lever);
+        let (center, rot, half) = id.world_box(doc, at, &lever);
         gizmos.cuboid(
             Transform::from_translation(center).with_rotation(rot).with_scale(half * 2.0),
             color,
@@ -1020,6 +1020,23 @@ pub(crate) fn draw_gizmos(
         // Which way it faces (its front, +Z), along the ground.
         let base = at.pos + Vec3::Y * 0.05;
         gizmos.arrow(base, base + rot * Vec3::Z * (half.z + 1.0), color);
+        // A door: which way it slides, and — selected — where it's bought
+        // from.
+        if let ObjectId::Door(i) = id {
+            if let Some(door) = doc.layout.doors.get(i as usize) {
+                gizmos.arrow(center, center + rot * door.slide_offset(1.0), color);
+                if selected || editor.view.ranges {
+                    let (w, d) = (door.size.x * 0.5, door.size.z * 0.5 + shared::doors::USE_REACH);
+                    let c = [Vec3::new(-w, 0.05, -d), Vec3::new(w, 0.05, -d), Vec3::new(w, 0.05, d), Vec3::new(-w, 0.05, d)]
+                        .map(|p| at.pos + rot * p);
+                    let line = id.color().with_alpha(if selected { 0.9 } else { 0.4 });
+                    for k in 0..4 {
+                        gizmos.line(c[k], c[(k + 1) % 4], line);
+                    }
+                }
+            }
+            continue;
+        }
         // The exfil area: its rectangle, always.
         if id == ObjectId::ExfilArea {
             if let Some(area) = doc.layout.exfil_area {

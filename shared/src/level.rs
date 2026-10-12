@@ -291,6 +291,24 @@ impl Flame {
     }
 }
 
+impl crate::doors::Door {
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32| ((v as f64 * 1000.0).round() / 1000.0) as f32;
+        let main = if self.main { ", main: true" } else { "" };
+        format!(
+            "(at: {}, size: ({:?}, {:?}, {:?}), cost: {}, requires_power: {}, slide: {:?}{main})",
+            self.at.with_scale(1.0).to_ron(),
+            r(self.size.x),
+            r(self.size.y),
+            r(self.size.z),
+            self.cost,
+            self.requires_power,
+            self.slide,
+        )
+    }
+}
+
 /// The exfil area (`crate::exfil`): a rectangle on the ground, `width` (m,
 /// along its own x) by `depth` (along its own z), its middle and turn
 /// `at`. Its size is the map's own — not [`ObjectSizes`]'.
@@ -437,6 +455,10 @@ pub struct ZombiesLayout {
     /// [`MAX_FLAMES`].
     #[serde(default)]
     pub flames: Vec<Flame>,
+    /// The doors in the map's doorways ([`crate::doors`]) — up to
+    /// [`crate::doors::MAX_DOORS`].
+    #[serde(default)]
+    pub doors: Vec<crate::doors::Door>,
     /// Where the players start a game: each is put on a different one, at
     /// random (`crate::spawns::zombies_start`) — up to
     /// [`MAX_PLAYER_SPAWNS`], one per player a lobby can hold. None, and
@@ -565,6 +587,11 @@ impl ZombiesLayout {
             out += &format!("        {},\n", flame.to_ron());
         }
         out += "    ],\n";
+        out += "    doors: [\n";
+        for door in &self.doors {
+            out += &format!("        {},\n", door.to_ron());
+        }
+        out += "    ],\n";
         out += "    player_spawns: [\n";
         for at in &self.player_spawns {
             out += &format!("        {},\n", at.with_scale(1.0).to_ron());
@@ -663,6 +690,21 @@ mod tests {
         assert_eq!(back.power_lights.last(), Some(&spot));
         assert_eq!(back.power_lights[back.power_lights.len() - 2], light);
         assert_eq!(back.power_lights.len(), layout.power_lights.len());
+    }
+
+    #[test]
+    fn doors_survive_a_save_and_load() {
+        let mut layout = layout(MapId::DerTempel).clone();
+        let mut door = crate::doors::Door::new(Placement::new(Vec3::new(-4.5, 0.0, 22.25), -90.0));
+        door.size = Vec3::new(5.5, 6.0, 0.75);
+        door.cost = 1250;
+        door.requires_power = true;
+        door.slide = crate::doors::Slide::Up;
+        door.main = true;
+        layout.doors.push(door);
+        layout.doors.push(crate::doors::Door::new(Placement::new(Vec3::new(3.0, -4.0, 1.0), 0.0)));
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.doors, layout.doors);
     }
 
     #[test]

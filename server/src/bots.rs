@@ -467,6 +467,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                doors_open: 0,
                 rampage: false,
                 mystery_box: None,
                 members: Vec::new(),
@@ -551,6 +552,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                doors_open: 0,
                 rampage: false,
                 mystery_box: None,
                 members: vec![shared::LobbyMember {

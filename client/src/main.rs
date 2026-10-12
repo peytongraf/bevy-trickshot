@@ -31,6 +31,7 @@ mod changelog;
 mod death_effect;
 mod debug_ui;
 mod dogs;
+mod doors;
 mod earthquake;
 mod flames;
 mod end_screen_fx;
@@ -266,6 +267,7 @@ fn main() {
         .add_plugins(power::PowerPlugin)
         .add_plugins(earthquake::EarthquakePlugin)
         .add_plugins(flames::FlamesPlugin)
+        .add_plugins(doors::DoorsPlugin)
         .add_plugins(pap::PapPlugin)
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)

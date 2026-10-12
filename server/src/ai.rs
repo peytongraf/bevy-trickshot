@@ -1130,7 +1130,9 @@ pub(crate) fn drive_bots(
                     let jitter = brain.roll() * 0.6;
                     brain.repath_at = now + REPATH_SECS + jitter;
                     brain.path_goal = goal;
-                    brain.path = nav.find_path(world, brain.feet, goal, true).unwrap_or_default();
+                    // (Never through a door that's still shut.)
+                    let closed = if zombies { shared::doors::closed_mask(lobby.map, lobby.doors_open) } else { 0 };
+                    brain.path = nav.find_path_doors(world, brain.feet, goal, true, closed).unwrap_or_default();
                     brain.path_index = 0;
                 }
                 let feet = brain.feet;
@@ -1579,6 +1581,7 @@ mod tests {
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,
+            doors_open: 0,
             rampage: false,
             mystery_box: None,
             members: Vec::new(),

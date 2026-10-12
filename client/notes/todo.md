@@ -17,6 +17,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Raygun should fire a larger projectile ( doesn't have to be seen visually ) so that even if aim is off a little bit enemies will be hit
 - Create new rampage inducer music
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - Make hd staminup model

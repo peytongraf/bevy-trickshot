@@ -1194,6 +1194,10 @@ pub struct Lobby {
     /// ([`TurnOnPower`]) — the map's lights are on. Cleared whenever a game
     /// starts or ends.
     pub power_on: bool,
+    /// [`GameMode::Zombies`]: which of the map's doors are open
+    /// ([`crate::doors`]) — a bit per door, set as each is bought
+    /// ([`BuyDoor`]). Cleared whenever a game starts or ends.
+    pub doors_open: u32,
     /// [`GameMode::Zombies`]: the Mystery Box's spin, while there is one
     /// ([`crate::mystery_box`]). Server-owned; cleared whenever a game starts
     /// or ends.
@@ -2169,6 +2173,12 @@ pub struct BuyPap {
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct TurnOnPower;
 
+/// Client → server: pay to open door `0` of the map's
+/// ([`crate::doors`]). The server checks the sender is at it, alive, can
+/// afford it and that it can be opened ([`crate::doors::can_open`]).
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct BuyDoor(pub u8);
+
 /// Client → server: call the exfil — sent once interact's been held at the
 /// radio for [`crate::exfil::HOLD_SECS`]. The server checks the sender is at
 /// the radio, alive, and that it can be called ([`crate::exfil::available`]).
@@ -2455,6 +2465,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyPap>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<TurnOnPower>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<BuyDoor>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<CallExfil>()
             .add_direction(NetworkDirection::ClientToServer);

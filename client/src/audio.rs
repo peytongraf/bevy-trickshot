@@ -107,6 +107,13 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/machines/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
+    /// `audio/zombies/doors/open.mp3` — a door sliding open once it's bought:
+    /// from the door, for the whole lobby (`doors::slide_doors`).
+    pub(crate) door_open: Handle<AudioSource>,
+    /// `audio/zombies/doors/main_door_ambience.mp3` — a scary swell as a
+    /// map's main door (`shared::doors::Door::main`) opens: from it, for the
+    /// whole lobby, heard well beyond it (`doors::slide_doors`).
+    pub(crate) main_door_ambience: Handle<AudioSource>,
     /// `audio/zombies/machines/der_tempel_power_on.wav` — the rumble and
     /// music of Der Tempel's power-on earthquake: for the whole lobby, not
     /// positional, faded with the quake (`earthquake.rs`).
@@ -397,6 +404,10 @@ pub(crate) struct SoundVolumes {
     pub(crate) perk_quote: f32,
     /// The power lever being thrown (on top of its distance fade).
     pub(crate) power_on: f32,
+    /// A door sliding open (on top of its distance fade).
+    pub(crate) door_open: f32,
+    /// The main door's ambience (on top of its distance fade).
+    pub(crate) main_door_ambience: f32,
     /// Der Tempel's power-on earthquake (on top of the quake's fade).
     pub(crate) der_tempel_power_on: f32,
     /// A map's fires crackling (on top of their distance fade, `flames`).
@@ -491,6 +502,8 @@ impl Default for SoundVolumes {
             perk_jingle: 1.0,
             perk_quote: 1.0,
             power_on: 1.0,
+            door_open: 1.0,
+            main_door_ambience: 2.0,
             der_tempel_power_on: 1.0,
             fire_crackle: 1.0,
             mystery_box_open: 1.0,
@@ -794,6 +807,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .map(|op| (op, PerkQuotes::load(&asset_server, op)))
             .collect(),
         power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
+        door_open: asset_server.load("audio/zombies/doors/open.mp3"),
+        main_door_ambience: asset_server.load("audio/zombies/doors/main_door_ambience.mp3"),
         der_tempel_power_on: asset_server.load("audio/zombies/machines/der_tempel_power_on.wav"),
         mystery_box_open: asset_server.load("audio/zombies/mystery_box/open.mp3"),
         mystery_box_close: asset_server.load("audio/zombies/mystery_box/close.mp3"),

@@ -18,6 +18,7 @@ pub mod armor;
 pub mod boss;
 pub mod crafting;
 pub mod dogs;
+pub mod doors;
 pub mod exfil;
 pub mod field_upgrade;
 pub mod flash_bang;
@@ -60,7 +61,7 @@ pub use protocol::{
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, PhdSlam, ProneAtPerk, ProneBonus, SetPerkSet, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
     RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
-    ThrowingKnifeImpact, TrickScore, TurnOnPower, CallExfil, ToggleRampage, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
+    ThrowingKnifeImpact, TrickScore, TurnOnPower, BuyDoor, CallExfil, ToggleRampage, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
     SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor, UseFieldUpgrade, FillFieldUpgrade,

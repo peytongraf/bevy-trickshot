@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: buy sliding doors open to reach more of the map — zombies only come from areas you can get to.",
+        "Level editor: place doors, sized to any doorway, with their cost, slide direction and whether they need the power.",
         "Level editor: place fires — in a wall bowl, say — that always burn, crackle and light up their surroundings.",
         "Der Tempel: turning on the power sets off a rumbling earthquake, shakes debris loose from above and brings a horde up out of the ground.",
         "Der Tempel at night is darker, with thicker fog.",

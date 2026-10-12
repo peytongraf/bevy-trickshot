@@ -37,7 +37,7 @@ use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::exfil::Exfil;
 use shared::{
-    AmmoBought, BuyAmmo, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
+    AmmoBought, BuyAmmo, BuyDoor, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
     PlayerName, PlayerPose, ProneAtPerk, ProneBonus,
 };
 
@@ -185,6 +185,7 @@ impl Plugin for ZombiesPlugin {
         app.add_observer(on_buy_perk)
             .add_observer(on_buy_pap)
             .add_observer(on_turn_on_power)
+            .add_observer(on_buy_door)
             .add_observer(on_buy_ammo)
             .add_observer(on_prone_at_perk)
             .add_systems(
@@ -300,7 +301,9 @@ pub(crate) fn run_rounds(
             if alive < MAX_ALIVE {
                 let living = living_members(&players, lobby_e);
                 let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits() ^ 0x5e6e;
-                match pick_spawn(navs.graph(lobby.map), &living, seed) {
+                let nav = navs.graph(lobby.map);
+                let reach = nav.reachable_zones(lobby.doors_open);
+                match pick_spawn(nav, reach.as_deref(), &living, seed) {
                     Some((feet, near)) => {
                         let round = rounds.enemy_round().max(lobby.start_round).max(1);
                         spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, seed, now);
@@ -470,7 +473,9 @@ pub(crate) fn run_rounds(
         // comes up.
         let living = living_members(&players, lobby_e);
         let nav = navs.graph(lobby.map);
-        let pick_spot = |seed: u64| pick_spawn(nav, &living, seed);
+        // (Only where the party can get to, past the doors they've opened.)
+        let reach = nav.reachable_zones(lobby.doors_open);
+        let pick_spot = |seed: u64| pick_spawn(nav, reach.as_deref(), &living, seed);
 
         // A boss round's boss, once it's due: struck in by lightning
         // (`crate::boss`), on top of the round's zombies.
@@ -546,13 +551,21 @@ fn living_members(players: &Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &Player
 }
 
 /// Somewhere near a random one of `living`, as far off as a zombie comes up
+/// and in a zone the party can reach (`reach`, `NavGraph::reachable_zones`)
 /// — and that member's feet.
-fn pick_spawn(nav: &crate::nav::NavGraph, living: &[Vec3], seed: u64) -> Option<(Vec3, Vec3)> {
+fn pick_spawn(
+    nav: &crate::nav::NavGraph,
+    reach: Option<&[bool]>,
+    living: &[Vec3],
+    seed: u64,
+) -> Option<(Vec3, Vec3)> {
     if living.is_empty() {
         return None;
     }
     let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
-    nav.random_spot_near(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed)
+    nav.random_spot_near_where(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed, |n| {
+        nav.spawn_allowed(reach, n)
+    })
         .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS))
         .map(|feet| (feet, near))
 }
@@ -851,6 +864,48 @@ fn on_turn_on_power(
     info!("{peer:?} turned the power on");
 }
 
+/// A member wants to open one of the map's doors (`shared::doors`): they
+/// must be in a running `Zombies` game, alive, at the door, with the points —
+/// and it has to be shut (and the power on, for one that needs it).
+fn on_buy_door(
+    trigger: Trigger<RemoteTrigger<BuyDoor>>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+) {
+    let peer = trigger.from;
+    let index = trigger.trigger.0 as usize;
+    let Some((lobby_e, mut lobby)) = lobbies
+        .iter_mut()
+        .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused {
+        return;
+    }
+    let Ok(door) = shared::doors::can_open(lobby.map, index, lobby.doors_open, lobby.power_on) else {
+        return;
+    };
+    let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
+        return;
+    };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if !combat.alive || !door.in_range(feet, 0.75) {
+        return;
+    }
+    let cost = door.cost;
+    let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
+        return;
+    };
+    if member.score < cost {
+        return;
+    }
+    member.score -= cost;
+    lobby.doors_open |= 1 << index;
+    info!("{peer:?} opened door {index}");
+}
+
 /// A member wants a sniper ammo refill at the ammo crate: they must be in a
 /// running `Zombies` game, alive, with the points. (Where the crate stands
 /// and whether they're already full are the client's to check — see
@@ -983,6 +1038,7 @@ mod tests {
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
+                doors_open: 0,
                 rampage: false,
                 mystery_box: None,
                 members: vec![shared::LobbyMember {

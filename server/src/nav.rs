@@ -27,6 +27,16 @@
 //! **Queries** ([`NavGraph::find_path`]): A* over that graph, then the route is
 //! straightened by dropping every waypoint a bot can walk past in a line.
 //!
+//! **Doors** (`Zombies`, [`shared::doors`]): the nodes in and just either side
+//! of each of the layout's doorways belong to that door ([`NavGraph::set_doors`]).
+//! Taking them all out splits the rest into zones; the zones the players
+//! start in, plus every zone through a door that's open, are where zombies
+//! may come up ([`NavGraph::spawn_allowed`]) — and a route never crosses a door
+//! that's shut ([`NavGraph::find_path_doors`]). The zones come from the real
+//! walkable ground, so nothing is drawn by hand — but a doorway that isn't
+//! the only way between two zones (a gap, a ledge to climb) leaves them one;
+//! the tests check every door does split the ground.
+//!
 //! The rules here deliberately mirror `ai::move_bot` (same body radius, chest
 //! height, step and slope limits), because a graph that says "you can walk
 //! here" when the mover can't is how bots get stuck — a test walks a real bot
@@ -38,6 +48,7 @@ use std::collections::BinaryHeap;
 
 use bevy::math::Vec3;
 use bevy::prelude::Resource;
+use shared::doors::{is_open, Door, MAX_DOORS};
 use shared::map::CollisionWorld;
 use shared::MapId;
 
@@ -101,6 +112,8 @@ const DROP_COST: f32 = 0.5;
 /// A* gives up after expanding this many nodes.
 const MAX_EXPANSIONS: usize = 200_000;
 const NO_NODE: u32 = u32::MAX;
+/// A node in no doorway.
+const NO_DOOR: u8 = u8::MAX;
 
 /// The 8 neighbour directions in grid steps `(dx, dz)`; the first four are the
 /// orthogonal ones (diagonals need both of their orthogonal edges).
@@ -143,6 +156,17 @@ pub struct NavGraph {
     /// Which connected region each node is in (`NO_NODE` for a region too small
     /// to matter) — paths only exist between nodes of the same region.
     region: Vec<u32>,
+    /// The doors ([`Self::set_doors`]) — empty on a map without any: which
+    /// door's doorway each node is in ([`NO_DOOR`] for none)...
+    door_of: Vec<u8>,
+    /// ...the zone each other node is in once they're all taken out
+    /// (`NO_NODE` for a doorway's, or one in no real region)...
+    zone: Vec<u32>,
+    /// ...the zones each door joins...
+    door_zones: Vec<Vec<u32>>,
+    /// ...and the ones the players start in.
+    start_zones: Vec<u32>,
+    zone_count: usize,
 }
 
 /// Every map's graph, built once at startup from `MapColliders`.
@@ -158,7 +182,9 @@ impl NavGraphs {
     pub fn build(colliders: &MapColliders) -> Self {
         let build = |map: MapId| {
             let (lo, hi) = colliders.world(map).bounds();
-            NavGraph::build(&colliders.with_machines(map), lo, hi)
+            let mut graph = NavGraph::build(&colliders.with_machines(map), lo, hi);
+            graph.set_doors(shared::doors::doors(map), &start_spots(map));
+            graph
         };
         Self {
             basic: build(MapId::BasicMap),
@@ -178,6 +204,18 @@ impl NavGraphs {
     }
 }
 
+/// Where the players start a game on `map` (feet): its layout's start spots,
+/// or the designated spawns of the other modes.
+fn start_spots(map: MapId) -> Vec<Vec3> {
+    let layout = shared::level::layout(map);
+    if !layout.player_spawns.is_empty() {
+        return layout.player_spawns.iter().map(|p| p.pos).collect();
+    }
+    shared::spawns::designated_spawns(map)
+        .map(|s| s.iter().map(|p| Vec3::new(p.x, p.y, p.z)).collect())
+        .unwrap_or_default()
+}
+
 impl NavGraph {
     /// Build the graph for a map whose collision mesh spans `min..max`.
     pub fn build(world: &dyn CollisionWorld, min: Vec3, max: Vec3) -> Self {
@@ -194,6 +232,11 @@ impl NavGraph {
             mantles: Vec::new(),
             drops: Vec::new(),
             region: Vec::new(),
+            door_of: Vec::new(),
+            zone: Vec::new(),
+            door_zones: Vec::new(),
+            start_zones: Vec::new(),
+            zone_count: 0,
         };
 
         // 1. Nodes: every standable surface in every cell.
@@ -519,6 +562,11 @@ impl NavGraph {
     /// The nearest node (in a real region) to feet position `p`, searching a few
     /// cells around it and only floors within a body's reach in height.
     pub fn nearest_node(&self, p: Vec3) -> Option<u32> {
+        self.nearest_node_where(p, |_| true)
+    }
+
+    /// [`Self::nearest_node`] of just the nodes `ok` lets through.
+    fn nearest_node_where(&self, p: Vec3, ok: impl Fn(u32) -> bool) -> Option<u32> {
         let (cx, cz) = self.cell_of(p);
         let mut best: Option<(f32, u32)> = None;
         for r in 0..=3i32 {
@@ -532,7 +580,7 @@ impl NavGraph {
                     };
                     for &n in &self.cells[idx] {
                         let q = self.nodes[n as usize];
-                        if self.region[n as usize] == NO_NODE || (q.y - p.y).abs() > 2.0 {
+                        if self.region[n as usize] == NO_NODE || (q.y - p.y).abs() > 2.0 || !ok(n) {
                             continue;
                         }
                         let d = q.distance_squared(p);
@@ -561,6 +609,18 @@ impl NavGraph {
     /// can reach. `seed` picks which; `None` if nothing fits (e.g. `center`
     /// isn't on the map).
     pub fn random_spot_near(&self, center: Vec3, min: f32, max: f32, seed: u64) -> Option<Vec3> {
+        self.random_spot_near_where(center, min, max, seed, |_| true)
+    }
+
+    /// [`Self::random_spot_near`] on just the nodes `ok` lets through.
+    pub fn random_spot_near_where(
+        &self,
+        center: Vec3,
+        min: f32,
+        max: f32,
+        seed: u64,
+        ok: impl Fn(u32) -> bool,
+    ) -> Option<Vec3> {
         let region = self.region[self.nearest_node(center)? as usize];
         let roll = |i: u64| shared::bots::rand01(seed ^ i.wrapping_mul(0x9e37_79b9_7f4a_7c15));
         for i in 0..48u64 {
@@ -577,7 +637,7 @@ impl NavGraph {
             let floors: Vec<u32> = self.cells[idx]
                 .iter()
                 .copied()
-                .filter(|&n| self.region[n as usize] == region)
+                .filter(|&n| self.region[n as usize] == region && ok(n))
                 .collect();
             if floors.is_empty() {
                 continue;
@@ -603,12 +663,26 @@ impl NavGraph {
         to: Vec3,
         climb: bool,
     ) -> Option<Vec<Waypoint>> {
-        let start = self.nearest_node(from)?;
-        let goal = self.nearest_node(to)?;
+        self.find_path_doors(world, from, to, climb, 0)
+    }
+
+    /// [`Self::find_path`], never through a door whose bit is set in
+    /// `closed` ([`shared::doors::closed_mask`]).
+    pub fn find_path_doors(
+        &self,
+        world: &dyn CollisionWorld,
+        from: Vec3,
+        to: Vec3,
+        climb: bool,
+        closed: u32,
+    ) -> Option<Vec<Waypoint>> {
+        let passable = |n: u32| !self.shut(n, closed);
+        let start = self.nearest_node_where(from, passable)?;
+        let goal = self.nearest_node_where(to, passable)?;
         if self.region[start as usize] != self.region[goal as usize] {
             return None; // no walkable connection between them
         }
-        let mut nodes = self.astar(start, goal, climb)?;
+        let mut nodes = self.astar(start, goal, climb, closed)?;
         // Start from where the body really is, end where it really needs to be.
         nodes.insert(0, Waypoint { at: from, mantle: false });
         nodes.push(Waypoint { at: to, mantle: false });
@@ -638,7 +712,7 @@ impl NavGraph {
         pts.into_iter().map(|at| Waypoint { at, mantle: false }).collect()
     }
 
-    fn astar(&self, start: u32, goal: u32, climb: bool) -> Option<Vec<Waypoint>> {
+    fn astar(&self, start: u32, goal: u32, climb: bool, closed: u32) -> Option<Vec<Waypoint>> {
         #[derive(Copy, Clone)]
         struct Open(f32, u32);
         impl PartialEq for Open {
@@ -713,7 +787,7 @@ impl NavGraph {
                     .chain(self.drops[cur as usize].iter().map(|&n| (n, DROP_COST)))
                     .filter(|_| climb);
                 for (next, extra) in walks.chain(climbs) {
-                    if next == NO_NODE || self.region[next as usize] == NO_NODE {
+                    if next == NO_NODE || self.region[next as usize] == NO_NODE || self.shut(next, closed) {
                         continue;
                     }
                     let cost = gc + extra + self.nodes[cur as usize].distance(self.nodes[next as usize]);
@@ -797,6 +871,134 @@ impl NavGraph {
     }
 
     /// How many nodes are in a real region (not a dropped sliver).
+    /// Whether node `n` is in the doorway of a door shut in `closed`.
+    fn shut(&self, n: u32, closed: u32) -> bool {
+        closed != 0
+            && self
+                .door_of
+                .get(n as usize)
+                .is_some_and(|&d| d != NO_DOOR && closed & (1 << d) != 0)
+    }
+
+    /// Every node one step from `n`: walked, climbed or dropped to.
+    fn neighbours(&self, n: u32) -> impl Iterator<Item = u32> + '_ {
+        let i = n as usize;
+        self.edges[i]
+            .iter()
+            .copied()
+            .filter(|&m| m != NO_NODE)
+            .chain(self.mantles[i].iter().copied())
+            .chain(self.drops[i].iter().copied())
+    }
+
+    /// Mark each of `doors`' doorways — the nodes in it and a cell either
+    /// side, as wide as it and a body more — and split the rest into zones,
+    /// the players starting in the ones under `starts`.
+    pub fn set_doors(&mut self, doors: &[Door], starts: &[Vec3]) {
+        let n = self.nodes.len();
+        self.door_of = Vec::new();
+        self.zone = Vec::new();
+        self.door_zones = Vec::new();
+        self.start_zones = Vec::new();
+        self.zone_count = 0;
+        if doors.is_empty() {
+            return;
+        }
+        let mut door_of = vec![NO_DOOR; n];
+        for (d, door) in doors.iter().enumerate().take(MAX_DOORS) {
+            for (id, &p) in self.nodes.iter().enumerate() {
+                let l = door.local(p);
+                if l.x.abs() <= door.size.x * 0.5 + BODY_RADIUS
+                    && l.z.abs() <= door.size.z * 0.5 + CELL
+                    && l.y >= -STEP_HEIGHT
+                    && l.y <= door.size.y
+                {
+                    door_of[id] = d as u8;
+                }
+            }
+        }
+        self.door_of = door_of;
+
+        // Zones: what's left connected with every doorway taken out.
+        let mut zone = vec![NO_NODE; n];
+        let mut count = 0u32;
+        for seed in 0..n {
+            if zone[seed] != NO_NODE || self.region[seed] == NO_NODE || self.door_of[seed] != NO_DOOR {
+                continue;
+            }
+            zone[seed] = count;
+            let mut stack = vec![seed as u32];
+            while let Some(cur) = stack.pop() {
+                for next in self.neighbours(cur) {
+                    let j = next as usize;
+                    if zone[j] == NO_NODE && self.region[j] != NO_NODE && self.door_of[j] == NO_DOOR {
+                        zone[j] = count;
+                        stack.push(next);
+                    }
+                }
+            }
+            count += 1;
+        }
+        // Each door joins the zones touching its doorway (either way round).
+        let mut door_zones = vec![Vec::new(); doors.len().min(MAX_DOORS)];
+        for a in 0..n as u32 {
+            for b in self.neighbours(a) {
+                for (x, y) in [(a, b), (b, a)] {
+                    let (d, z) = (self.door_of[x as usize], zone[y as usize]);
+                    if d != NO_DOOR && z != NO_NODE && !door_zones[d as usize].contains(&z) {
+                        door_zones[d as usize].push(z);
+                    }
+                }
+            }
+        }
+        self.start_zones = starts
+            .iter()
+            .filter_map(|&p| self.nearest_node_where(p, |m| zone[m as usize] != NO_NODE))
+            .map(|m| zone[m as usize])
+            .collect();
+        self.start_zones.sort_unstable();
+        self.start_zones.dedup();
+        self.zone = zone;
+        self.door_zones = door_zones;
+        self.zone_count = count as usize;
+    }
+
+    /// The zones the party can get to with `doors_open` open: where they
+    /// start, and on through every open door. `None` when it doesn't matter
+    /// — a map with no doors (or none of its zones known to be the start).
+    pub fn reachable_zones(&self, doors_open: u32) -> Option<Vec<bool>> {
+        if self.door_zones.is_empty() || self.start_zones.is_empty() {
+            return None;
+        }
+        let mut reach = vec![false; self.zone_count];
+        for &z in &self.start_zones {
+            reach[z as usize] = true;
+        }
+        loop {
+            let mut grew = false;
+            for (d, zones) in self.door_zones.iter().enumerate() {
+                if is_open(doors_open, d) && zones.iter().any(|&z| reach[z as usize]) {
+                    for &z in zones {
+                        grew |= !std::mem::replace(&mut reach[z as usize], true);
+                    }
+                }
+            }
+            if !grew {
+                return Some(reach);
+            }
+        }
+    }
+
+    /// Whether a zombie may come up at node `n`, the party able to reach
+    /// `reachable` ([`Self::reachable_zones`]): anywhere on a map with no
+    /// doors, otherwise in a zone they can get to (not in a doorway).
+    pub fn spawn_allowed(&self, reachable: Option<&[bool]>, n: u32) -> bool {
+        let Some(reach) = reachable else { return true };
+        self.zone
+            .get(n as usize)
+            .is_some_and(|&z| z != NO_NODE && reach[z as usize])
+    }
+
     pub fn usable_count(&self) -> usize {
         self.region.iter().filter(|&&r| r != NO_NODE).count()
     }
@@ -828,6 +1030,68 @@ pub(crate) mod tests {
 
     /// Every hand-placed spawn point stands on walkable ground — not inside a
     /// container, not over a gap — with room for a body.
+    /// Two rooms either side of a wall, joined by one doorway with a door
+    /// in it: shut, the far room's its own zone, out of the zombies' reach
+    /// and no route goes through; open, it's all one.
+    #[test]
+    fn a_shut_door_splits_the_ground_into_zones() {
+        use shared::doors::{Door, MODEL_SIZE};
+        use shared::level::Placement;
+        let world = crate::collision::MapMesh::from_boxes(&[
+            // The floor, 30 × 14 m.
+            (Vec3::new(-15.0, -1.0, -7.0), Vec3::new(15.0, 0.0, 7.0)),
+            // The wall down the middle (x = 0), with a 2.4 m gap at z = 0.
+            (Vec3::new(-0.3, 0.0, -7.0), Vec3::new(0.3, 4.0, -1.2)),
+            (Vec3::new(-0.3, 0.0, 1.2), Vec3::new(0.3, 4.0, 7.0)),
+        ]);
+        let (lo, hi) = world.bounds();
+        let mut g = NavGraph::build(&world, lo, hi);
+        // The door across the gap, facing ±x.
+        let door = Door {
+            size: Vec3::new(2.4, 3.0, MODEL_SIZE.z),
+            ..Door::new(Placement::new(Vec3::ZERO, 90.0))
+        };
+        let (left, right) = (Vec3::new(-8.0, 0.0, 0.0), Vec3::new(8.0, 0.0, 0.0));
+        g.set_doors(&[door], &[left]);
+        assert_eq!(g.door_zones[0].len(), 2, "the door joins two zones");
+        assert!(g.connected(left, right), "one region all the same");
+
+        let node = |p: Vec3| g.nearest_node(p).unwrap();
+        let shut = g.reachable_zones(0).unwrap();
+        assert!(g.spawn_allowed(Some(&shut), node(left)));
+        assert!(!g.spawn_allowed(Some(&shut), node(right)), "nothing comes up past a shut door");
+        assert!(
+            (0..64).filter_map(|s| g.random_spot_near_where(left, 3.0, 14.0, s, |n| g.spawn_allowed(Some(&shut), n))).all(|p| p.x < 0.0),
+            "every spawn spot's on the near side"
+        );
+        assert!(g.find_path_doors(&world, left, right, false, 1).is_none(), "no route through it shut");
+
+        let open = g.reachable_zones(1).unwrap();
+        assert!(g.spawn_allowed(Some(&open), node(right)));
+        assert!(g.find_path_doors(&world, left, right, false, 0).is_some(), "and through it open");
+    }
+
+    /// Every door on every map splits the ground — otherwise there's another
+    /// way round it (a gap in a wall, a ledge to climb) and zombies would
+    /// come up beyond it with it shut.
+    #[test]
+    fn every_door_splits_its_map() {
+        let (_, n) = built();
+        for map in MapId::PLACES {
+            let g = n.graph(map);
+            for (i, zones) in g.door_zones.iter().enumerate() {
+                assert!(
+                    zones.len() >= 2,
+                    "{map:?} door {}: the ground either side of it is one zone — is there another way round it?",
+                    i + 1
+                );
+            }
+            if !shared::doors::doors(map).is_empty() {
+                assert!(!g.start_zones.is_empty(), "{map:?}: no start spot on walkable ground");
+            }
+        }
+    }
+
     #[test]
     fn every_designated_spawn_point_is_on_walkable_ground() {
         let (c, n) = built();

@@ -144,6 +144,10 @@ pub(crate) enum ObjectId {
     /// index) — where its flames start, no model; its size and light are
     /// the properties panel's.
     Flame(u8),
+    /// One of the doors in the map's doorways (`ZombiesLayout::doors`, by
+    /// index) — its own width, height and depth, cost, whether it needs the
+    /// power and which way it slides are the properties panel's.
+    Door(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -246,6 +250,42 @@ impl ObjectId {
         "Fire 32",
     ];
 
+    /// Names for the doors ([`ObjectId::Door`]).
+    const DOOR_LABELS: [&'static str; shared::doors::MAX_DOORS] = [
+        "Door 1",
+        "Door 2",
+        "Door 3",
+        "Door 4",
+        "Door 5",
+        "Door 6",
+        "Door 7",
+        "Door 8",
+        "Door 9",
+        "Door 10",
+        "Door 11",
+        "Door 12",
+        "Door 13",
+        "Door 14",
+        "Door 15",
+        "Door 16",
+        "Door 17",
+        "Door 18",
+        "Door 19",
+        "Door 20",
+        "Door 21",
+        "Door 22",
+        "Door 23",
+        "Door 24",
+        "Door 25",
+        "Door 26",
+        "Door 27",
+        "Door 28",
+        "Door 29",
+        "Door 30",
+        "Door 31",
+        "Door 32",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -268,6 +308,7 @@ impl ObjectId {
             ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
             ObjectId::PowerLight(i) => Self::LIGHT_LABELS[(i as usize).min(Self::LIGHT_LABELS.len() - 1)],
             ObjectId::Flame(i) => Self::FLAME_LABELS[(i as usize).min(Self::FLAME_LABELS.len() - 1)],
+            ObjectId::Door(i) => Self::DOOR_LABELS[(i as usize).min(Self::DOOR_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -285,6 +326,7 @@ impl ObjectId {
                 | ObjectId::PlayerSpawn(_)
                 | ObjectId::PowerLight(_)
                 | ObjectId::Flame(_)
+                | ObjectId::Door(_)
         )
     }
 
@@ -308,7 +350,8 @@ impl ObjectId {
             | ObjectId::Reference(_)
             | ObjectId::PlayerSpawn(_)
             | ObjectId::PowerLight(_)
-            | ObjectId::Flame(_) => None,
+            | ObjectId::Flame(_)
+            | ObjectId::Door(_) => None,
         }
     }
 
@@ -321,7 +364,10 @@ impl ObjectId {
     pub(crate) fn is_optional(self) -> bool {
         Self::OPTIONAL.contains(&self)
             || self.is_reference()
-            || matches!(self, ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_) | ObjectId::Flame(_))
+            || matches!(
+                self,
+                ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_) | ObjectId::Flame(_) | ObjectId::Door(_)
+            )
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
@@ -380,6 +426,7 @@ impl ObjectId {
             ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
             ObjectId::PowerLight(i) => layout.power_lights.get(i as usize).map(|l| Placement::new(l.pos, 0.0)),
             ObjectId::Flame(i) => layout.flames.get(i as usize).map(|f| Placement::new(f.pos, 0.0)),
+            ObjectId::Door(i) => layout.doors.get(i as usize).map(|d| d.at),
         }
     }
 
@@ -409,6 +456,15 @@ impl ObjectId {
                     light.pos = at.pos;
                 } else if lights.len() < shared::level::MAX_POWER_LIGHTS {
                     lights.push(shared::level::PowerLight::new(at.pos));
+                }
+            }
+            // (Its spot and turn; the rest is the properties panel's.)
+            ObjectId::Door(i) => {
+                let doors = &mut layout.doors;
+                if let Some(door) = doors.get_mut(i as usize) {
+                    door.at = at.with_scale(1.0);
+                } else if doors.len() < shared::doors::MAX_DOORS {
+                    doors.push(shared::doors::Door::new(at));
                 }
             }
             // (The same: only its position here.)
@@ -448,6 +504,10 @@ impl ObjectId {
             let i = i as usize;
             return (i < layout.flames.len()).then(|| layout.flames.remove(i)).is_some();
         }
+        if let ObjectId::Door(i) = self {
+            let i = i as usize;
+            return (i < layout.doors.len()).then(|| layout.doors.remove(i)).is_some();
+        }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
             layout.wall_buys.retain(|w| w.weapon != gun);
@@ -478,6 +538,7 @@ impl ObjectId {
             ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
             ObjectId::PowerLight(_) => Color::srgb(1.0, 0.92, 0.45),
             ObjectId::Flame(_) => Color::srgb(1.0, 0.5, 0.12),
+            ObjectId::Door(_) => Color::srgb(0.85, 0.72, 0.5),
         }
     }
 
@@ -497,6 +558,9 @@ impl ObjectId {
             ObjectId::PlayerSpawn(_) => 0.4,
             // (Not used — its reach is drawn as a sphere instead.)
             ObjectId::PowerLight(_) | ObjectId::Flame(_) => 0.0,
+            // (Bought from in front of or behind it — a rectangle, drawn by
+            // `input::draw_gizmos`.)
+            ObjectId::Door(_) => shared::doors::USE_REACH,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -512,17 +576,21 @@ impl ObjectId {
 
     /// Its box standing at `at`, scale and all: `(centre, rotation, half
     /// extents)` — what's clicked and outlined.
-    pub(crate) fn world_box(self, at: Placement, lever: &PowerLeverSettings) -> (Vec3, Quat, Vec3) {
-        let (center, half) = self.bounds(lever);
+    pub(crate) fn world_box(self, doc: &Doc, at: Placement, lever: &PowerLeverSettings) -> (Vec3, Quat, Vec3) {
+        let (center, half) = self.bounds(doc, lever);
         let rot = at.rotation();
         (at.pos + rot * center * at.scale, rot, half * at.scale)
     }
 
     /// Its box in its own frame (from the ground under its middle), as made:
     /// `(centre, half extents)`.
-    fn bounds(self, lever: &PowerLeverSettings) -> (Vec3, Vec3) {
+    fn bounds(self, doc: &Doc, lever: &PowerLeverSettings) -> (Vec3, Vec3) {
         let standing = |half: Vec3| (Vec3::Y * half.y, half);
         match self {
+            // A door: its own size.
+            ObjectId::Door(i) => standing(
+                doc.layout.doors.get(i as usize).map_or(shared::doors::MODEL_SIZE, |d| d.size) * 0.5,
+            ),
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
             ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
@@ -564,6 +632,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
     out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
     out.extend((0..doc.layout.flames.len() as u8).map(ObjectId::Flame));
+    out.extend((0..doc.layout.doors.len() as u8).map(ObjectId::Door));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -1154,6 +1223,9 @@ fn model_of(
         // (A fire draws itself, live — `sync_editor_flames`.)
         ObjectId::ExfilArea | ObjectId::PowerLight(_) | ObjectId::Flame(_) => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
+        // (Turned to face +Z at the model's own size — the root stretches it
+        // to the door's, `root_transform_of`.)
+        ObjectId::Door(_) => (crate::doors::DOOR_MODEL, crate::doors::model_transform(shared::doors::MODEL_SIZE)),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).
         // (A start spot shows who'll stand there.)
@@ -1171,6 +1243,17 @@ fn model_of(
 
 fn root_transform(at: Placement) -> Transform {
     crate::util::placed(at)
+}
+
+/// [`root_transform`] for `id` in `doc` — a door's stretched to its own size.
+fn root_transform_of(id: ObjectId, doc: &Doc, at: Placement) -> Transform {
+    match id {
+        ObjectId::Door(i) => {
+            let size = doc.layout.doors.get(i as usize).map_or(shared::doors::MODEL_SIZE, |d| d.size);
+            root_transform(at.with_scale(1.0)).with_scale(size / shared::doors::MODEL_SIZE)
+        }
+        _ => root_transform(at),
+    }
 }
 
 /// Keep a model standing where each shown thing is, and none for anything
@@ -1196,7 +1279,7 @@ fn sync_objects(
     for (e, obj, mut t) in &mut spawned {
         match obj.0.get(doc).filter(|_| wanted.contains(&obj.0)) {
             Some(at) => {
-                t.set_if_neq(root_transform(at));
+                t.set_if_neq(root_transform_of(obj.0, doc, at));
             }
             None => commands.entity(e).despawn(),
         }
@@ -1209,7 +1292,7 @@ fn sync_objects(
         let mut object = commands.spawn((
             StateScoped(AppState::LevelEditor),
             EditorObject(id),
-            root_transform(at),
+            root_transform_of(id, doc, at),
             Visibility::default(),
         ));
         let Some((model, offset)) = model_of(id, &machines, &pap, &ammo, &lever, &avatars) else {

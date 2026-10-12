@@ -178,6 +178,17 @@ fn menu_bar(
                     input::add_flame_at_view(ed, rapier);
                     ui.close();
                 }
+                // (Doors: up to a map's worth.)
+                let doors = ed.doc().layout.doors.len();
+                let max = shared::doors::MAX_DOORS;
+                if ui
+                    .add_enabled(doors < max, egui::Button::new(format!("Door  ({doors}/{max})")))
+                    .on_hover_text("A sliding door bought open in a Zombies game — zombies don't come through or come up past it while it's shut")
+                    .clicked()
+                {
+                    input::add_at_view(ed, ObjectId::Door(doors as u8), rapier);
+                    ui.close();
+                }
                 ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
@@ -387,6 +398,20 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                 }
                 if ed.doc().layout.flames.is_empty() {
                     ui.colored_label(DIM, "None");
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("DOORS").small().color(DIM));
+                    let n = ed.doc().layout.doors.len();
+                    if ui.add_enabled(n < shared::doors::MAX_DOORS, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_at_view(ed, ObjectId::Door(n as u8), rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::Door(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.doors.is_empty() {
+                    ui.colored_label(DIM, "None — the whole map's open from the start");
                 }
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
@@ -615,6 +640,69 @@ fn properties(
                     ui.end_row();
                 });
             }
+            // A door's own settings.
+            let door_index = match id {
+                ObjectId::Door(i) => Some(i as usize),
+                _ => None,
+            };
+            let door_before = door_index.and_then(|i| ed.doc().layout.doors.get(i).copied());
+            let mut door = door_before;
+            if let Some(d) = door.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Door");
+                egui::Grid::new("level_editor_door").num_columns(2).show(ui, |ui| {
+                    for (label, v, hover) in [
+                        ("Width", &mut d.size.x, "Across the doorway"),
+                        ("Height", &mut d.size.y, "Floor to top"),
+                        ("Depth", &mut d.size.z, "How thick it is"),
+                    ] {
+                        ui.label(label).on_hover_text(hover);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(0.01).range(0.05..=40.0).suffix(" m").max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                    ui.label("");
+                    if ui
+                        .add_enabled(!busy && d.size != shared::doors::MODEL_SIZE, egui::Button::new("Model's size"))
+                        .on_hover_text("Back to door.glb as made")
+                        .clicked()
+                    {
+                        d.size = shared::doors::MODEL_SIZE;
+                    }
+                    ui.end_row();
+                    ui.label("Cost").on_hover_text("Points to open it");
+                    let r = ui.add_enabled(!busy, egui::DragValue::new(&mut d.cost).speed(10.0).range(0..=100_000));
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Needs power").on_hover_text("Can only be bought once the power's on");
+                    ui.add_enabled(!busy, egui::Checkbox::without_text(&mut d.requires_power));
+                    ui.end_row();
+                    ui.label("Main door").on_hover_text("Opening it plays the main-door ambience from it, heard well beyond it");
+                    ui.add_enabled(!busy, egui::Checkbox::without_text(&mut d.main));
+                    ui.end_row();
+                    ui.label("Slides").on_hover_text("Which way it slides out of the doorway — left / right as seen from its front (the arrow)");
+                    ui.add_enabled_ui(!busy, |ui| {
+                        egui::ComboBox::from_id_salt("level_editor_door_slide")
+                            .selected_text(d.slide.label())
+                            .show_ui(ui, |ui| {
+                                for s in shared::doors::Slide::ALL {
+                                    ui.selectable_value(&mut d.slide, s, s.label());
+                                }
+                            });
+                    });
+                    ui.end_row();
+                });
+            }
+            let door_changed = door != door_before;
+            if let (true, Some(i), Some(d)) = (door_changed, door_index, door) {
+                if let Some(slot) = ed.doc_mut().layout.doors.get_mut(i) {
+                    // (Its spot and turn are the fields above.)
+                    *slot = shared::doors::Door { at: slot.at, ..d };
+                }
+            }
             let flame_changed = flame != flame_before;
             if let (true, Some(i), Some(f)) = (flame_changed, flame_index, flame) {
                 if let Some(slot) = ed.doc_mut().layout.flames.get_mut(i) {
@@ -635,7 +723,7 @@ fn properties(
                     (area.width, area.depth) = size;
                 }
             }
-            if edited != at || resized || light_changed || flame_changed {
+            if edited != at || resized || light_changed || flame_changed || door_changed {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -649,6 +737,11 @@ fn properties(
                 ui.colored_label(DIM, "During an exfil, only kills from inside it count");
             } else if let ObjectId::PowerLight(_) = id {
                 ui.colored_label(DIM, "Night maps only: off until the power's on in a Zombies game; always on in the other modes");
+            } else if let ObjectId::Door(_) = id {
+                ui.colored_label(
+                    DIM,
+                    "Zombies only: solid until bought open, and zombies don't path through or come up past it while it's shut. Its spot is the floor under its middle; the arrow's which way it slides",
+                );
             } else if let ObjectId::Flame(_) = id {
                 ui.colored_label(DIM, "Always burning — power on or off, day or night, every mode. Its spot is the bottom of the flames: drag it onto the bowl");
             } else if let ObjectId::PlayerSpawn(_) = id {
@@ -702,7 +795,7 @@ fn viewport_overlay(
         let doc = ed.doc();
         for id in ed.objects() {
             let Some(at) = id.get(doc) else { continue };
-            let (center, _, half) = id.world_box(at, lever);
+            let (center, _, half) = id.world_box(doc, at, lever);
             let top = center + Vec3::Y * (half.y + 0.25);
             let Ok(p) = camera.world_to_viewport(&cam, top) else { continue };
             let color = if ed.active() == Some(id) {
