@@ -1066,8 +1066,10 @@ fn exit(
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     mut ambient: ResMut<AmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
+    mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {
     *editor = Editor::default();
+    ground_fog.0 = false;
     for (e, t) in backup.transforms.drain(..) {
         if let Ok(mut now) = transforms.get_mut(e) {
             *now = t;
@@ -1094,7 +1096,8 @@ fn exit(
 #[derive(Resource, Default)]
 struct LightingBackup(Option<(f32, FogFalloff)>);
 
-/// Ambient brightness (and no fog to speak of) in the editor's look.
+/// Ambient brightness (and no fog to speak of, ground fog included) in the
+/// editor's look.
 const BRIGHT_AMBIENT: f32 = 750.0;
 
 /// Lift (or put back) the light, after `apply_scene_tuning` sets the map's
@@ -1106,11 +1109,16 @@ fn apply_editor_lighting(
     mut backup: ResMut<LightingBackup>,
     mut ambient: ResMut<AmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
+    mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {
+    let editor_look = editor.view.look == Look::Editor;
+    if ground_fog.0 != editor_look {
+        ground_fog.0 = editor_look;
+    }
     if current.is_changed() {
         backup.0 = None;
     }
-    match (editor.view.look == Look::Editor, backup.0.is_some()) {
+    match (editor_look, backup.0.is_some()) {
         (true, false) => {
             backup.0 = Some((ambient.brightness, fog.falloff.clone()));
             ambient.brightness = ambient.brightness.max(BRIGHT_AMBIENT);

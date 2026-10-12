@@ -16,6 +16,7 @@ use crate::settings::{Settings, ShadowQuality};
 use crate::util::{color_from_parts, srgb_parts};
 
 use super::map::CurrentMap;
+use super::ground_fog::{ground_fog_sliders, GroundFogLook};
 use super::sky::{sky_look_sliders, SkyLook};
 
 // --- daylight look (bright, mostly-sunny midday) -----------------------------
@@ -48,6 +49,8 @@ pub(crate) struct SceneTuning {
     ambient_color: [f32; 3],
     ambient_lux: f32,
     bloom_intensity: f32,
+    /// The low, uneven fog over the floor, on top of the even fog above.
+    pub(crate) ground_fog: GroundFogLook,
     /// The sky's own look — the fog above never reaches it.
     pub(crate) sky: SkyLook,
 }
@@ -73,6 +76,7 @@ impl SceneTuning {
                 ambient_color: srgb_parts(SKY_AMBIENT_COLOR),
                 ambient_lux: SKY_AMBIENT_LUX,
                 bloom_intensity: 0.09,
+                ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(FOG_COLOR)),
             },
             // MW3-style: dark, foggy, overcast — near dawn/dusk under heavy
@@ -87,6 +91,7 @@ impl SceneTuning {
                 ambient_color: srgb_parts(Color::srgb(0.35, 0.38, 0.42)),
                 ambient_lux: 50.0,
                 bloom_intensity: 0.1,
+                ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(Color::srgb(24.0 / 255.0, 30.0 / 255.0, 37.0 / 255.0))),
             },
             // The same yard in bright midday sun: barely any fog (just enough
@@ -104,6 +109,7 @@ impl SceneTuning {
                 ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 209.0 / 255.0, 221.0 / 255.0)),
                 ambient_lux: 200.0,
                 bloom_intensity: 0.075,
+                ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
             },
             // A clear mid-day with great visibility — the fog's pushed out to
@@ -120,6 +126,7 @@ impl SceneTuning {
                 ambient_color: srgb_parts(Color::srgb(208.0 / 255.0, 215.0 / 255.0, 232.0 / 255.0)),
                 ambient_lux: 240.0,
                 bloom_intensity: 0.075,
+                ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
             },
             // Pitch dark: a thick near-black fog close in, a dim grey ambient
@@ -134,6 +141,22 @@ impl SceneTuning {
                 ambient_color: [0.53333336, 0.53333336, 0.53333336],
                 ambient_lux: 20.0,
                 bloom_intensity: 0.095,
+                // A cold mist pooled over the temple floor.
+                ground_fog: GroundFogLook {
+                    density: 0.05,
+                    base_height: 0.0,
+                    falloff_height: 2.0,
+                    color: [0.12, 0.13, 0.15],
+                    brightness: 1.0,
+                    max_distance: 30.0,
+                    max_opacity: 0.43,
+                    splotch_size: 1.4,
+                    splotchiness: 0.33,
+                    contrast: 3.1,
+                    seed: 600,
+                    drift_speed: 1.25,
+                    drift_dir_deg: 70.0,
+                },
                 sky: SkyLook {
                     brightness: 0.05,
                     tint: [0.26091984, 0.26091984, 0.26091984],
@@ -158,6 +181,7 @@ impl SceneTuning {
                 ambient_color: srgb_parts(Color::srgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0)),
                 ambient_lux: 200.0,
                 bloom_intensity: 0.095,
+                ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(Color::srgb(6.0 / 255.0, 8.0 / 255.0, 14.0 / 255.0))),
             },
         }
@@ -191,6 +215,8 @@ pub(crate) fn scene_tuning_sliders(ui: &mut egui::Ui, s: &mut SceneTuning) {
         ui.label("ambient colour");
     });
     ui.add(egui::Slider::new(&mut s.bloom_intensity, 0.0f32..=0.5).text("bloom"));
+    ui.separator();
+    ui.collapsing("Ground fog", |ui| ground_fog_sliders(ui, &mut s.ground_fog));
     ui.separator();
     ui.label("Sky (the fog doesn't reach it)");
     sky_look_sliders(ui, &mut s.sky);

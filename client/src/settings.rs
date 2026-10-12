@@ -314,6 +314,9 @@ pub struct Settings {
     pub dev_auto_join_lobby: bool,
     /// Shadow map resolution / cascade tier — the performance/quality trade-off.
     pub shadow_quality: ShadowQuality,
+    /// The low, patchy mist some maps have over their floor
+    /// (`environment::ground_fog`) — off saves its full-screen pass.
+    pub ground_fog: bool,
     /// Master volume, linear `0.0` (silent) .. `1.0` (full).
     pub master_volume: f32,
     /// Main menu music volume, linear `0.0` .. `1.0`, on top of
@@ -359,6 +362,7 @@ impl Default for Settings {
             dev_auto_create_lobby: false,
             dev_auto_join_lobby: false,
             shadow_quality: ShadowQuality::default(),
+            ground_fog: true,
             master_volume: VOLUME_DEFAULT,
             music_volume: VOLUME_DEFAULT,
             auto_reload: true,

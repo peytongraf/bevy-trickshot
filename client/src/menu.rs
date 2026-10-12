@@ -430,6 +430,7 @@ enum Btn {
     ToggleAutoCreate,
     ToggleAutoJoin,
     ToggleVsync,
+    ToggleGroundFog,
     /// Interface tab: show / hide one telemetry readout.
     ToggleTelemetry(TelemetryStat),
     /// Debug tab: show / hide the debug-mode draw call and entity counts.
@@ -590,6 +591,10 @@ fn menu_click(
             }
             Btn::ToggleVsync => {
                 settings.vsync = !settings.vsync;
+                menu.dirty = true;
+            }
+            Btn::ToggleGroundFog => {
+                settings.ground_fog = !settings.ground_fog;
                 menu.dirty = true;
             }
             Btn::ToggleTelemetry(stat) => {
@@ -2256,6 +2261,16 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         "Adjusts the resolution and draw distance of shadows cast by the sun. Higher \
          settings look more accurate at longer range but cost more performance. Disabled \
          removes shadows entirely.",
+    );
+
+    setting_row(content, asset_server, "GROUND FOG", |row| {
+        toggle_button(row, asset_server, settings.ground_fog, Btn::ToggleGroundFog, None);
+    });
+    desc(
+        content,
+        asset_server,
+        "The low, patchy mist that lies over the floor on some maps. Turning it off \
+         gains a little performance.",
     );
 }
 

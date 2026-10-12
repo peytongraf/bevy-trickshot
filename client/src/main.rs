@@ -245,6 +245,7 @@ fn main() {
         .add_plugins(vfx::MachineFogPlugin)
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(boss::BossPlugin)
+        .add_plugins(environment::GroundFogPlugin)
         .add_plugins(ShroomPlugin)
         // After `ShroomPlugin`: its pass chains onto the shroom one.
         .add_plugins(DrunkPlugin)
