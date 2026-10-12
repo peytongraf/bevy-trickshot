@@ -31,6 +31,8 @@ mod changelog;
 mod death_effect;
 mod debug_ui;
 mod dogs;
+mod earthquake;
+mod flames;
 mod end_screen_fx;
 mod environment;
 mod fall_death;
@@ -262,6 +264,8 @@ fn main() {
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
+        .add_plugins(earthquake::EarthquakePlugin)
+        .add_plugins(flames::FlamesPlugin)
         .add_plugins(pap::PapPlugin)
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)

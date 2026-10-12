@@ -136,6 +136,8 @@ pub(crate) fn ads_tuning_ui(
                     crate::quotes::QuotesDebug,
                     crate::vfx::MysteryBoxFxDebug,
                     crate::rampage::RampageDebug,
+                    crate::earthquake::EarthquakeDebug,
+                    crate::flames::FlamesDebug,
                 ),
             ),
         ),
@@ -153,7 +155,7 @@ pub(crate) fn ads_tuning_ui(
         mut remote_sound,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut flames_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1509,6 +1511,8 @@ pub(crate) fn ads_tuning_ui(
                         ("zombies: perk jingle", &mut v.perk_jingle),
                         ("zombies: perk quote", &mut v.perk_quote),
                         ("zombies: power on", &mut v.power_on),
+                        ("zombies: der tempel earthquake", &mut v.der_tempel_power_on),
+                        ("fire crackle", &mut v.fire_crackle),
                         ("zombies: mystery box open", &mut v.mystery_box_open),
                         ("zombies: mystery box close", &mut v.mystery_box_close),
                         ("zombies: mystery box spin", &mut v.mystery_box_spin),
@@ -1937,6 +1941,12 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Rampage Inducer (Zombies)", |ui| rampage_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Earthquake (Der Tempel)", |ui| earthquake_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Fire crackle", |ui| flames_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Aether Shroud (Zombies)", |ui| aether_dbg.ui(ui));

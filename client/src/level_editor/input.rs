@@ -666,7 +666,7 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     let mut ids = editor.selected.clone();
     ids.sort_by_key(|id| {
         std::cmp::Reverse(match id {
-            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) => *i as i32,
+            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) | ObjectId::Flame(i) => *i as i32,
             _ => -1,
         })
     });
@@ -712,6 +712,25 @@ pub(crate) fn add_light_at_view(editor: &mut Editor, rapier: &ReadRapierContext)
     let id = ObjectId::PowerLight(index as u8);
     let before = editor.doc().layout.clone();
     id.set(editor.doc_mut(), Placement::new(ground + Vec3::Y * NEW_LIGHT_HEIGHT, 0.0));
+    editor.doc_mut().checkpoint(before);
+    editor.selected = vec![id];
+}
+
+/// Put a new fire on whatever's at the middle of the view (a bowl, say),
+/// and select it.
+pub(crate) fn add_flame_at_view(editor: &mut Editor, rapier: &ReadRapierContext) {
+    let index = editor.doc().layout.flames.len();
+    if index >= shared::level::MAX_FLAMES {
+        return;
+    }
+    let (eye, focus) = (editor.cam.eye(), editor.cam.focus);
+    let dir = (focus - eye).normalize_or(Vec3::NEG_Y);
+    let at = hit_map(rapier, eye, dir, RAY_M)
+        .or_else(|| hit_map(rapier, focus + Vec3::Y * 50.0, Vec3::NEG_Y, 500.0))
+        .unwrap_or(focus);
+    let id = ObjectId::Flame(index as u8);
+    let before = editor.doc().layout.clone();
+    id.set(editor.doc_mut(), Placement::new(at, 0.0));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
 }
@@ -953,6 +972,24 @@ pub(crate) fn draw_gizmos(
         // A light: a star where it hangs, a line down to the ground, its
         // aim if it's a spotlight, and — selected — a sphere as far as it
         // reaches.
+        // A fire: a small cross where its flames start and — selected — a
+        // sphere as far as its light reaches.
+        if let ObjectId::Flame(i) = id {
+            let Some(flame) = doc.layout.flames.get(i as usize) else { continue };
+            let mark = if active == Some(id) || selected { color } else { id.color().with_alpha(0.8) };
+            for axis in [Vec3::X, Vec3::Z] {
+                gizmos.line(at.pos - axis * 0.25, at.pos + axis * 0.25, mark);
+            }
+            gizmos.line(at.pos, at.pos + Vec3::Y * flame.size * flame.height, mark);
+            if selected || editor.view.ranges {
+                gizmos.sphere(
+                    Isometry3d::from_translation(at.pos),
+                    flame.range,
+                    id.color().with_alpha(if selected { 0.5 } else { 0.2 }),
+                );
+            }
+            continue;
+        }
         if let ObjectId::PowerLight(i) = id {
             let Some(light) = doc.layout.power_lights.get(i as usize) else { continue };
             let own = Color::srgb(light.color[0], light.color[1], light.color[2]);

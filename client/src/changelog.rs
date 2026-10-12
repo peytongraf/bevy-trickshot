@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Level editor: place fires — in a wall bowl, say — that always burn, crackle and light up their surroundings.",
+        "Der Tempel: turning on the power sets off a rumbling earthquake, shakes debris loose from above and brings a horde up out of the ground.",
         "Der Tempel at night is darker, with thicker fog.",
         "Every map can now be played by day or by night.",
         "Ashes of the Damned is now Der Tempel.",

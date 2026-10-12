@@ -32,25 +32,31 @@ pub(crate) struct GroundImpact(pub(crate) Vec3);
 /// camera; rocks arc under `gravity`, dust drifts and swells with `drag`.
 #[derive(Component)]
 pub(crate) struct ImpactParticle {
-    velocity: Vec3,
+    pub(crate) velocity: Vec3,
     /// Downward acceleration (m/s²). Rocks fall; dust is ~0.
-    gravity: f32,
+    pub(crate) gravity: f32,
     /// Per-second velocity damping. Dust high (billows then stalls); rocks ~0.
-    drag: f32,
-    age: f32,
-    lifetime: f32,
+    pub(crate) drag: f32,
+    pub(crate) age: f32,
+    pub(crate) lifetime: f32,
     /// Seconds to ramp opacity 0 → `peak_alpha` before the fade-out.
-    fade_in: f32,
-    roll: f32,
+    pub(crate) fade_in: f32,
+    pub(crate) roll: f32,
     /// Roll spin (rad/s); rocks tumble, dust doesn't.
-    spin: f32,
+    pub(crate) spin: f32,
     /// Sprite size (m) at spawn and at end of life — dust grows, rocks hold.
-    scale0: f32,
-    scale1: f32,
-    peak_alpha: f32,
+    pub(crate) scale0: f32,
+    pub(crate) scale1: f32,
+    pub(crate) peak_alpha: f32,
     /// RGB the sprite's blended material is tinted with (multiplies the
     /// texture) — white for rocks / dust, `BloodSettings::color` for blood.
-    tint: [f32; 3],
+    pub(crate) tint: [f32; 3],
+    /// World height it can't fall below — it comes to rest there
+    /// (`f32::NEG_INFINITY` for none).
+    pub(crate) floor: f32,
+    /// How far through its life (0..1) it stays fully opaque before fading
+    /// out (0 = fades the whole way).
+    pub(crate) hold: f32,
 }
 
 /// Shared quad + the impact textures (`spawn_ground_impact` / `spawn_blood_impact`
@@ -374,6 +380,8 @@ pub(crate) fn spawn_debris(
                 scale1: rock_scale,
                 peak_alpha: 1.0,
                 tint: [1.0, 1.0, 1.0],
+                floor: f32::NEG_INFINITY,
+                hold: 0.0,
             },
             Mesh3d(assets.quad.clone()),
             MeshMaterial3d(materials.add(material)),
@@ -410,6 +418,8 @@ pub(crate) fn spawn_debris(
                 scale1: dust.end_scale * size,
                 peak_alpha: dust.opacity,
                 tint: [1.0, 1.0, 1.0],
+                floor: f32::NEG_INFINITY,
+                hold: 0.0,
             },
             Mesh3d(assets.quad.clone()),
             MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
@@ -478,6 +488,8 @@ pub(crate) fn spawn_blood_impact(
                     scale1: scale0 * blood.growth.max(0.1),
                     peak_alpha: blood.opacity,
                     tint: blood.color,
+                    floor: f32::NEG_INFINITY,
+                    hold: 0.0,
                 },
                 Mesh3d(assets.quad.clone()),
                 MeshMaterial3d(materials.add(material)),
@@ -546,6 +558,13 @@ pub(crate) fn update_impact_particles(
         p.velocity.y -= gravity * dt;
         p.velocity *= (1.0 - drag * dt).max(0.0);
         transform.translation += p.velocity * dt;
+        if transform.translation.y < p.floor {
+            // Landed: it stops falling and just slides out to a stop.
+            transform.translation.y = p.floor;
+            p.velocity.y = 0.0;
+            p.velocity *= (1.0 - 6.0 * dt).max(0.0);
+            p.spin *= (1.0 - 6.0 * dt).max(0.0);
+        }
 
         let f = (p.age / p.lifetime.max(1.0e-4)).clamp(0.0, 1.0);
         let scale = p.scale0.lerp(p.scale1, f).max(1.0e-4);
@@ -568,8 +587,9 @@ pub(crate) fn update_impact_particles(
         let envelope = if p.age < p.fade_in {
             p.age / p.fade_in.max(1.0e-4)
         } else {
-            let fade_out = (p.lifetime - p.fade_in).max(1.0e-4);
-            1.0 - (p.age - p.fade_in) / fade_out
+            let from = p.fade_in.max(p.hold * p.lifetime);
+            let fade_out = (p.lifetime - from).max(1.0e-4);
+            1.0 - (p.age - from).max(0.0) / fade_out
         };
         if let Some(m) = materials.get_mut(&material.0) {
             let [tr, tg, tb] = p.tint;

@@ -86,6 +86,7 @@ impl Plugin for LevelEditorPlugin {
                         input::drive_camera,
                         sync_objects,
                         sync_editor_lights,
+                        sync_editor_flames,
                         input::draw_gizmos,
                     )
                         .chain(),
@@ -139,6 +140,10 @@ pub(crate) enum ObjectId {
     /// by index) — hanging where it's put, no model; its colour, brightness
     /// and reach are the properties panel's.
     PowerLight(u8),
+    /// One of the fires burning on the map (`ZombiesLayout::flames`, by
+    /// index) — where its flames start, no model; its size and light are
+    /// the properties panel's.
+    Flame(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -205,6 +210,42 @@ impl ObjectId {
         "Power light 16",
     ];
 
+    /// Names for the fires ([`ObjectId::Flame`]).
+    const FLAME_LABELS: [&'static str; shared::level::MAX_FLAMES] = [
+        "Fire 1",
+        "Fire 2",
+        "Fire 3",
+        "Fire 4",
+        "Fire 5",
+        "Fire 6",
+        "Fire 7",
+        "Fire 8",
+        "Fire 9",
+        "Fire 10",
+        "Fire 11",
+        "Fire 12",
+        "Fire 13",
+        "Fire 14",
+        "Fire 15",
+        "Fire 16",
+        "Fire 17",
+        "Fire 18",
+        "Fire 19",
+        "Fire 20",
+        "Fire 21",
+        "Fire 22",
+        "Fire 23",
+        "Fire 24",
+        "Fire 25",
+        "Fire 26",
+        "Fire 27",
+        "Fire 28",
+        "Fire 29",
+        "Fire 30",
+        "Fire 31",
+        "Fire 32",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -226,6 +267,7 @@ impl ObjectId {
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
             ObjectId::PowerLight(i) => Self::LIGHT_LABELS[(i as usize).min(Self::LIGHT_LABELS.len() - 1)],
+            ObjectId::Flame(i) => Self::FLAME_LABELS[(i as usize).min(Self::FLAME_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -242,6 +284,7 @@ impl ObjectId {
                 | ObjectId::ExfilArea
                 | ObjectId::PlayerSpawn(_)
                 | ObjectId::PowerLight(_)
+                | ObjectId::Flame(_)
         )
     }
 
@@ -264,7 +307,8 @@ impl ObjectId {
             | ObjectId::WallBuy(_)
             | ObjectId::Reference(_)
             | ObjectId::PlayerSpawn(_)
-            | ObjectId::PowerLight(_) => None,
+            | ObjectId::PowerLight(_)
+            | ObjectId::Flame(_) => None,
         }
     }
 
@@ -277,7 +321,7 @@ impl ObjectId {
     pub(crate) fn is_optional(self) -> bool {
         Self::OPTIONAL.contains(&self)
             || self.is_reference()
-            || matches!(self, ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_))
+            || matches!(self, ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_) | ObjectId::Flame(_))
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
@@ -335,6 +379,7 @@ impl ObjectId {
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
             ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
             ObjectId::PowerLight(i) => layout.power_lights.get(i as usize).map(|l| Placement::new(l.pos, 0.0)),
+            ObjectId::Flame(i) => layout.flames.get(i as usize).map(|f| Placement::new(f.pos, 0.0)),
         }
     }
 
@@ -366,6 +411,15 @@ impl ObjectId {
                     lights.push(shared::level::PowerLight::new(at.pos));
                 }
             }
+            // (The same: only its position here.)
+            ObjectId::Flame(i) => {
+                let flames = &mut layout.flames;
+                if let Some(flame) = flames.get_mut(i as usize) {
+                    flame.pos = at.pos;
+                } else if flames.len() < shared::level::MAX_FLAMES {
+                    flames.push(shared::level::Flame::new(at.pos));
+                }
+            }
             ObjectId::ExfilArea => match layout.exfil_area.as_mut() {
                 Some(area) => area.at = at.with_scale(1.0),
                 None => layout.exfil_area = Some(ExfilArea::new(at)),
@@ -389,6 +443,10 @@ impl ObjectId {
         if let ObjectId::PowerLight(i) = self {
             let i = i as usize;
             return (i < layout.power_lights.len()).then(|| layout.power_lights.remove(i)).is_some();
+        }
+        if let ObjectId::Flame(i) = self {
+            let i = i as usize;
+            return (i < layout.flames.len()).then(|| layout.flames.remove(i)).is_some();
         }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
@@ -419,6 +477,7 @@ impl ObjectId {
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
             ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
             ObjectId::PowerLight(_) => Color::srgb(1.0, 0.92, 0.45),
+            ObjectId::Flame(_) => Color::srgb(1.0, 0.5, 0.12),
         }
     }
 
@@ -437,7 +496,7 @@ impl ObjectId {
             // (Not used — stood on. Its circle's about a body's width.)
             ObjectId::PlayerSpawn(_) => 0.4,
             // (Not used — its reach is drawn as a sphere instead.)
-            ObjectId::PowerLight(_) => 0.0,
+            ObjectId::PowerLight(_) | ObjectId::Flame(_) => 0.0,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -477,6 +536,8 @@ impl ObjectId {
             ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
             // A light: a small box round where it hangs (to click).
             ObjectId::PowerLight(_) => (Vec3::ZERO, Vec3::splat(0.3)),
+            // A fire: a small box over where its flames start (to click).
+            ObjectId::Flame(_) => (Vec3::Y * 0.2, Vec3::splat(0.2)),
             // The lever, up on the wall, and down to the ground where it's
             // used from.
             // The sign: post and board.
@@ -502,6 +563,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(doc).is_some()));
     out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
     out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
+    out.extend((0..doc.layout.flames.len() as u8).map(ObjectId::Flame));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -1030,6 +1092,36 @@ fn sync_editor_lights(
     );
 }
 
+/// On the editor's fires.
+#[derive(Component)]
+struct EditorFlame;
+
+/// Keep the shown layout's fires burning, as they would in a game (always —
+/// they don't wait for the power), matching it as it's edited.
+fn sync_editor_flames(
+    editor: Res<Editor>,
+    assets: Option<Res<crate::molotov::MolotovAssets>>,
+    molotov: Res<crate::molotov::MolotovSettings>,
+    existing: Query<(Entity, &crate::flames::MapFlame), With<EditorFlame>>,
+    mut materials: ResMut<Assets<crate::molotov::FireMaterial>>,
+    mut commands: Commands,
+    mut shown: Local<Vec<shared::level::Flame>>,
+) {
+    let wanted: &[shared::level::Flame] = if editor.docs.is_empty() { &[] } else { &editor.doc().layout.flames };
+    crate::flames::sync_flames(
+        wanted,
+        &mut shown,
+        &existing,
+        assets.as_deref(),
+        &molotov,
+        // (Silent in the editor.)
+        None,
+        &mut materials,
+        &mut commands,
+        || (StateScoped(AppState::LevelEditor), EditorFlame),
+    );
+}
+
 // --- the scene --------------------------------------------------------------------
 
 /// A placed thing's stand-in in the editor: its root is its placement, its
@@ -1059,7 +1151,8 @@ fn model_of(
         ObjectId::RampageInducer => (crate::rampage::RAMPAGE_MODEL, Transform::IDENTITY),
         // (No model — just its marker and rectangle; a light, its marker and
         // reach.)
-        ObjectId::ExfilArea | ObjectId::PowerLight(_) => return None,
+        // (A fire draws itself, live — `sync_editor_flames`.)
+        ObjectId::ExfilArea | ObjectId::PowerLight(_) | ObjectId::Flame(_) => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).

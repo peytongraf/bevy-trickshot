@@ -151,6 +151,11 @@ pub(crate) struct ZombieRounds {
     countdown_left: f32,
     /// Zombies this round still has to send.
     to_spawn: u32,
+    /// Extra zombies a scary power-on (`shared::power::scary_power_on`)
+    /// still has to send — right away, quick, whatever the round's doing —
+    /// and when the next one's due.
+    surge: u32,
+    surge_next_at: f32,
     /// (A Nuke pushes this back — `crate::power_ups`.)
     pub(crate) next_spawn_at: f32,
     /// No spawning until then (the start delay / the break between rounds).
@@ -245,6 +250,7 @@ pub(crate) fn run_rounds(
             if let Some(mut rounds) = rounds {
                 rounds.break_until += time.delta_secs();
                 rounds.next_spawn_at += time.delta_secs();
+                rounds.surge_next_at += time.delta_secs();
                 for dog in &mut rounds.pending_dogs {
                     dog.spawn_at += time.delta_secs();
                 }
@@ -275,6 +281,8 @@ pub(crate) fn run_rounds(
                 exfil: None,
                 countdown_left: countdown as f32,
                 to_spawn: 0,
+                surge: 0,
+                surge_next_at: now,
                 next_spawn_at: now,
                 break_until: now,
                 prone_claimed: Vec::new(),
@@ -284,6 +292,24 @@ pub(crate) fn run_rounds(
             }
             continue;
         };
+        // A scary power-on's horde: one every few tenths of a second, even
+        // in the countdown or a break between rounds.
+        if rounds.surge > 0 && now >= rounds.surge_next_at {
+            rounds.surge_next_at = now + shared::power::POWER_SURGE_INTERVAL_SECS;
+            let alive = zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive).count();
+            if alive < MAX_ALIVE {
+                let living = living_members(&players, lobby_e);
+                let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits() ^ 0x5e6e;
+                match pick_spawn(navs.graph(lobby.map), &living, seed) {
+                    Some((feet, near)) => {
+                        let round = rounds.enemy_round().max(lobby.start_round).max(1);
+                        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, seed, now);
+                        rounds.surge -= 1;
+                    }
+                    None => rounds.surge_next_at = now + SPAWN_RETRY_SECS,
+                }
+            }
+        }
         if rounds.round == 0 {
             rounds.countdown_left -= time.delta_secs();
             let shown = rounds.countdown_left.max(0.0).ceil() as u32;
@@ -395,7 +421,7 @@ pub(crate) fn run_rounds(
             // round's bosses still to come.
             let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
             // For the HUD's "enemies left": still to come plus still standing.
-            let left = rounds.to_spawn + (alive + coming) as u32;
+            let left = rounds.to_spawn + rounds.surge + (alive + coming) as u32;
             if lobby.enemies_left != left {
                 lobby.enemies_left = left;
             }
@@ -407,7 +433,7 @@ pub(crate) fn run_rounds(
             // Round cleared — or nothing of it left but bosses (standing, on
             // their way or still to come), who carry on into the next one
             // with that round's own: a breather, then the next one.
-            if rounds.to_spawn == 0 && alive == alive_bosses && rounds.pending_dogs.is_empty() {
+            if rounds.to_spawn == 0 && rounds.surge == 0 && alive == alive_bosses && rounds.pending_dogs.is_empty() {
                 // A dog round over: its last dog leaves a Max Ammo behind.
                 if let Some(at) = rounds.last_dog_at.take().filter(|_| shared::dogs::is_dog_round(rounds.round)) {
                     crate::power_ups::spawn_drop(
@@ -442,21 +468,9 @@ pub(crate) fn run_rounds(
 
         // Somewhere near a random living member, as far off as a zombie
         // comes up.
-        let living: Vec<Vec3> = players
-            .iter()
-            .filter(|(id, _, lp, c)| lp.lobby == lobby_e && !is_bot_peer(id.0) && c.alive)
-            .map(|(_, pose, ..)| pose.translation - Vec3::Y * EYE_HEIGHT)
-            .collect();
+        let living = living_members(&players, lobby_e);
         let nav = navs.graph(lobby.map);
-        let pick_spot = |seed: u64| -> Option<(Vec3, Vec3)> {
-            if living.is_empty() {
-                return None;
-            }
-            let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
-            nav.random_spot_near(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed)
-                .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS))
-                .map(|feet| (feet, near))
-        };
+        let pick_spot = |seed: u64| pick_spawn(nav, &living, seed);
 
         // A boss round's boss, once it's due: struck in by lightning
         // (`crate::boss`), on top of the round's zombies.
@@ -516,42 +530,79 @@ pub(crate) fn run_rounds(
             continue;
         }
 
-        let peer = bot_peer(next_id.0);
-        next_id.0 += 1;
-        // How fast (the round's speed, give or take a little), and so
-        // whether it walks or runs.
-        let round = rounds.enemy_round();
-        let (runner, speed) = shared::zombies::zombie_speed(round, rand01(seed ^ 0x2a2a));
-        let to_player = near - feet;
-        let yaw = f32::atan2(-to_player.x, -to_player.z);
-        let real = lobby.real_peers();
-        commands.spawn((
-            Name::from("Zombie"),
-            Zombie,
-            LobbyPlayer { lobby: lobby_e },
-            PlayerId(peer),
-            PlayerName("Zombie".into()),
-            PlayerPose {
-                translation: feet + Vec3::Y * EYE_HEIGHT,
-                yaw,
-                zombie: shared::ZombieAnim::Rising,
-                ..default()
-            },
-            ActionState::<PlayerInput>::default(),
-            BotBrain::new(BotDifficulty::Recruit, feet, seed)
-                .facing(yaw)
-                .with_skill(zombie_skill(round))
-                .rising(now, RISE_SECS)
-                .zombie(runner, speed),
-            // Tougher every round (`shared::zombies::zombie_health`).
-            PlayerCombat::zombie(shared::zombies::zombie_health(round)),
-            shared::PlayerHealth(shared::zombies::zombie_health(round)),
-            Replicate::to_clients(NetworkTarget::Only(real.clone())),
-            InterpolationTarget::to_clients(NetworkTarget::Only(real)),
-        ));
+        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, rounds.enemy_round(), feet, near, seed, now);
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + interval;
     }
+}
+
+/// Where `lobby_e`'s living (real) members are standing.
+fn living_members(players: &Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>, lobby_e: Entity) -> Vec<Vec3> {
+    players
+        .iter()
+        .filter(|(id, _, lp, c)| lp.lobby == lobby_e && !is_bot_peer(id.0) && c.alive)
+        .map(|(_, pose, ..)| pose.translation - Vec3::Y * EYE_HEIGHT)
+        .collect()
+}
+
+/// Somewhere near a random one of `living`, as far off as a zombie comes up
+/// — and that member's feet.
+fn pick_spawn(nav: &crate::nav::NavGraph, living: &[Vec3], seed: u64) -> Option<(Vec3, Vec3)> {
+    if living.is_empty() {
+        return None;
+    }
+    let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
+    nav.random_spot_near(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed)
+        .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS))
+        .map(|feet| (feet, near))
+}
+
+/// A zombie as tough as `round`'s rising out of the ground at `feet`, facing
+/// `near`.
+#[allow(clippy::too_many_arguments)]
+fn spawn_zombie(
+    commands: &mut Commands,
+    next_id: &mut NextBotId,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    round: u32,
+    feet: Vec3,
+    near: Vec3,
+    seed: u64,
+    now: f32,
+) {
+    let peer = bot_peer(next_id.0);
+    next_id.0 += 1;
+    // How fast (the round's speed, give or take a little), and so
+    // whether it walks or runs.
+    let (runner, speed) = shared::zombies::zombie_speed(round, rand01(seed ^ 0x2a2a));
+    let to_player = near - feet;
+    let yaw = f32::atan2(-to_player.x, -to_player.z);
+    let real = lobby.real_peers();
+    commands.spawn((
+        Name::from("Zombie"),
+        Zombie,
+        LobbyPlayer { lobby: lobby_e },
+        PlayerId(peer),
+        PlayerName("Zombie".into()),
+        PlayerPose {
+            translation: feet + Vec3::Y * EYE_HEIGHT,
+            yaw,
+            zombie: shared::ZombieAnim::Rising,
+            ..default()
+        },
+        ActionState::<PlayerInput>::default(),
+        BotBrain::new(BotDifficulty::Recruit, feet, seed)
+            .facing(yaw)
+            .with_skill(zombie_skill(round))
+            .rising(now, RISE_SECS)
+            .zombie(runner, speed),
+        // Tougher every round (`shared::zombies::zombie_health`).
+        PlayerCombat::zombie(shared::zombies::zombie_health(round)),
+        shared::PlayerHealth(shared::zombies::zombie_health(round)),
+        Replicate::to_clients(NetworkTarget::Only(real.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+    ));
 }
 
 /// Set up `rounds`' (just started) round's bosses, for `members` players:
@@ -758,14 +809,14 @@ fn on_buy_pap(
 fn on_turn_on_power(
     trigger: Trigger<RemoteTrigger<TurnOnPower>>,
     endings: Res<crate::killcam::EndingLobbies>,
-    mut lobbies: Query<(Entity, &mut Lobby)>,
+    mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
-    let Some((lobby_e, mut lobby)) = lobbies
+    let Some((lobby_e, mut lobby, rounds)) = lobbies
         .iter_mut()
-        .find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+        .find(|(_, l, _)| l.started && l.mode == GameMode::Zombies && l.has(peer))
     else {
         return;
     };
@@ -788,7 +839,15 @@ fn on_turn_on_power(
     }
     member.score -= cost;
     lobby.power_on = true;
-    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PowerOn));
+    if shared::power::scary_power_on(lobby.map) {
+        // No cheery power-on line here — the ground quakes (client-side)
+        // and a horde comes up out of it (`run_rounds`).
+        if let Some(mut rounds) = rounds {
+            rounds.surge += shared::power::POWER_SURGE_ZOMBIES;
+        }
+    } else {
+        quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::PowerOn));
+    }
     info!("{peer:?} turned the power on");
 }
 
@@ -1246,6 +1305,51 @@ mod tests {
         // Already on: not charged again.
         flip(&mut app);
         assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].score, 3000 - shared::power::POWER_COST);
+    }
+
+    #[test]
+    fn der_tempels_power_says_nothing_and_sends_a_horde_at_once() {
+        let (mut app, lobby) = game();
+        app.add_observer(on_turn_on_power);
+        let me = PeerId::Netcode(1);
+        let map = shared::MapId::DerTempel;
+        let switch = shared::power::switch_pos(map).unwrap();
+        {
+            let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+            l.members[0].score = 3000;
+            l.map = map;
+        }
+        // (The round itself sends nobody for now.)
+        {
+            let mut rounds = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
+            rounds.to_spawn = 0;
+            rounds.break_until = f32::MAX;
+        }
+        let player = app
+            .world_mut()
+            .query_filtered::<Entity, (With<PlayerCombat>, Without<Zombie>)>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation = switch + Vec3::Y * EYE_HEIGHT;
+        for z in zombies_of(&mut app) {
+            app.world_mut().despawn(z);
+        }
+        app.world_mut().resource_mut::<Events<crate::quotes::SayQuote>>().clear();
+
+        app.world_mut().trigger(RemoteTrigger { trigger: TurnOnPower, from: me });
+        app.world_mut().flush();
+        assert!(app.world().get::<Lobby>(lobby).unwrap().power_on);
+        let said = app.world_mut().resource_mut::<Events<crate::quotes::SayQuote>>().drain().count();
+        assert_eq!(said, 0, "no power-on line on Der Tempel");
+
+        run(&mut app, 0.5);
+        let early = zombies_of(&mut app).len();
+        assert!(early > 0 && early < shared::power::POWER_SURGE_ZOMBIES as usize, "{early} up after 0.5 s");
+        run(&mut app, shared::power::POWER_SURGE_ZOMBIES as f32 * shared::power::POWER_SURGE_INTERVAL_SECS);
+        assert_eq!(zombies_of(&mut app).len(), shared::power::POWER_SURGE_ZOMBIES as usize);
+        run(&mut app, 2.0);
+        assert_eq!(zombies_of(&mut app).len(), shared::power::POWER_SURGE_ZOMBIES as usize, "and no more");
     }
 
     #[test]

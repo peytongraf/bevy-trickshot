@@ -221,6 +221,76 @@ impl PowerLight {
     }
 }
 
+/// A fire burning on the map — in a wall-mounted bowl, say — the whole time,
+/// power on or off, day or night: flames and a flickering light (the
+/// client's `flames`). Placed and tuned in the level editor.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Flame {
+    /// The bottom of the flames (m, world).
+    pub pos: Vec3,
+    /// How big the fire is (m, across).
+    pub size: f32,
+    /// How tall, as a multiple of `size`.
+    #[serde(default = "default_flame_height")]
+    pub height: f32,
+    /// How bright the flames themselves are.
+    #[serde(default = "default_flame_brightness")]
+    pub brightness: f32,
+    /// Its light: how bright (lumens) and how far (m) it reaches...
+    pub light: f32,
+    pub range: f32,
+    /// ...and how much it flickers (0 = steady).
+    #[serde(default = "default_flame_flicker")]
+    pub flicker: f32,
+}
+
+fn default_flame_height() -> f32 {
+    1.6
+}
+
+fn default_flame_brightness() -> f32 {
+    1.0
+}
+
+fn default_flame_flicker() -> f32 {
+    0.35
+}
+
+/// Most fires a map keeps.
+pub const MAX_FLAMES: usize = 32;
+
+impl Flame {
+    /// A fresh one at `pos`: a bowl's worth of fire.
+    pub fn new(pos: Vec3) -> Self {
+        Self {
+            pos,
+            size: 0.45,
+            height: default_flame_height(),
+            brightness: default_flame_brightness(),
+            light: 60_000.0,
+            range: 9.0,
+            flicker: default_flame_flicker(),
+        }
+    }
+
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
+        format!(
+            "(pos: ({:?}, {:?}, {:?}), size: {:?}, height: {:?}, brightness: {:?}, light: {:?}, range: {:?}, flicker: {:?})",
+            r(self.pos.x, 1000.0),
+            r(self.pos.y, 1000.0),
+            r(self.pos.z, 1000.0),
+            r(self.size, 1000.0),
+            r(self.height, 100.0),
+            r(self.brightness, 100.0),
+            self.light.round(),
+            r(self.range, 100.0),
+            r(self.flicker, 100.0),
+        )
+    }
+}
+
 /// The exfil area (`crate::exfil`): a rectangle on the ground, `width` (m,
 /// along its own x) by `depth` (along its own z), its middle and turn
 /// `at`. Its size is the map's own — not [`ObjectSizes`]'.
@@ -363,6 +433,10 @@ pub struct ZombiesLayout {
     /// The lights the power turns on — up to [`MAX_POWER_LIGHTS`].
     #[serde(default)]
     pub power_lights: Vec<PowerLight>,
+    /// The fires burning on the map, power or no power — up to
+    /// [`MAX_FLAMES`].
+    #[serde(default)]
+    pub flames: Vec<Flame>,
     /// Where the players start a game: each is put on a different one, at
     /// random (`crate::spawns::zombies_start`) — up to
     /// [`MAX_PLAYER_SPAWNS`], one per player a lobby can hold. None, and
@@ -486,6 +560,11 @@ impl ZombiesLayout {
             out += &format!("        {},\n", light.to_ron());
         }
         out += "    ],\n";
+        out += "    flames: [\n";
+        for flame in &self.flames {
+            out += &format!("        {},\n", flame.to_ron());
+        }
+        out += "    ],\n";
         out += "    player_spawns: [\n";
         for at in &self.player_spawns {
             out += &format!("        {},\n", at.with_scale(1.0).to_ron());
@@ -584,6 +663,19 @@ mod tests {
         assert_eq!(back.power_lights.last(), Some(&spot));
         assert_eq!(back.power_lights[back.power_lights.len() - 2], light);
         assert_eq!(back.power_lights.len(), layout.power_lights.len());
+    }
+
+    #[test]
+    fn flames_survive_a_save_and_load() {
+        let mut layout = layout(MapId::DerTempel).clone();
+        let mut flame = Flame::new(Vec3::new(-12.5, 3.25, 40.0));
+        flame.size = 0.6;
+        flame.light = 85_000.0;
+        flame.flicker = 0.5;
+        layout.flames.push(flame);
+        layout.flames.push(Flame::new(Vec3::new(4.0, 2.0, -7.5)));
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.flames, layout.flames);
     }
 
     #[test]

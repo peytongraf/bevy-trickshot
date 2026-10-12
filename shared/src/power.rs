@@ -12,6 +12,19 @@ use crate::MapId;
 /// `perks::Perk::cost` for the points pace).
 pub const POWER_COST: u32 = 750;
 
+/// Whether turning the power on is a scare on `map` (Der Tempel, day or
+/// night): the ground quakes (the client's `earthquake`), nobody says the
+/// power-on line, and [`POWER_SURGE_ZOMBIES`] extra zombies come up out of
+/// the ground at once (`server::zombies`).
+pub fn scary_power_on(map: MapId) -> bool {
+    map.is_der_tempel()
+}
+
+/// Extra zombies a [`scary_power_on`] sends, on top of the round's...
+pub const POWER_SURGE_ZOMBIES: u32 = 10;
+/// ...one every this many seconds.
+pub const POWER_SURGE_INTERVAL_SECS: f32 = 0.3;
+
 /// Where the power switch is on `map` (the ground under its middle — the
 /// lever itself is mounted on the wall above, see the client's
 /// `power::PowerLeverSettings`), if that map has one — from its layout

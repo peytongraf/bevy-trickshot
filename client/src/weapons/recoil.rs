@@ -194,6 +194,7 @@ pub(crate) fn camera_shake(
     time: Res<Time>,
     cfg: Res<ShakeSettings>,
     ads: Res<Ads>,
+    quake: Res<crate::earthquake::Quake>,
     mut shake: ResMut<Shake>,
     mut rig: Single<&mut Transform, (With<CameraShake>, Without<CameraRecoil>)>,
     mut recoil_node: Single<&mut Transform, (With<CameraRecoil>, Without<CameraShake>)>,
@@ -220,7 +221,8 @@ pub(crate) fn camera_shake(
         shake.phase = 0.0;
     }
 
-    let want = shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase);
+    // (Under it, an earthquake's rumble, if one's on — `earthquake.rs`.)
+    let want = quake.offset * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase);
     if **rig != want {
         **rig = want;
     }

@@ -167,6 +167,17 @@ fn menu_bar(
                     input::add_light_at_view(ed, rapier);
                     ui.close();
                 }
+                // (Fires: up to a map's worth.)
+                let flames = ed.doc().layout.flames.len();
+                let max = shared::level::MAX_FLAMES;
+                if ui
+                    .add_enabled(flames < max, egui::Button::new(format!("Fire  ({flames}/{max})")))
+                    .on_hover_text("A fire that always burns, power or no power — put it in a bowl or brazier")
+                    .clicked()
+                {
+                    input::add_flame_at_view(ed, rapier);
+                    ui.close();
+                }
                 ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
@@ -364,6 +375,20 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                     ui.colored_label(DIM, "None — the power turns nothing on here");
                 }
                 ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("FIRES").small().color(DIM));
+                    let room = ed.doc().layout.flames.len() < shared::level::MAX_FLAMES;
+                    if ui.add_enabled(room, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_flame_at_view(ed, rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::Flame(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.flames.is_empty() {
+                    ui.colored_label(DIM, "None");
+                }
+                ui.add_space(8.0);
                 ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
                 listed(ui, ed, &ObjectId::REFERENCES);
 
@@ -426,8 +451,8 @@ fn properties(
                     editing |= r.dragged() || r.has_focus();
                     ui.end_row();
                 }
-                // (A light doesn't face anywhere.)
-                if !matches!(id, ObjectId::PowerLight(_)) {
+                // (A light or a fire doesn't face anywhere.)
+                if !matches!(id, ObjectId::PowerLight(_) | ObjectId::Flame(_)) {
                     ui.label("Turn");
                     let r = ui.add_enabled(
                         !busy,
@@ -554,6 +579,49 @@ fn properties(
                     ui.colored_label(DIM, "View → Look → In game — power on to see it lit");
                 }
             }
+            // A fire's own settings.
+            let flame_index = match id {
+                ObjectId::Flame(i) => Some(i as usize),
+                _ => None,
+            };
+            let flame_before = flame_index.and_then(|i| ed.doc().layout.flames.get(i).copied());
+            let mut flame = flame_before;
+            if let Some(f) = flame.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Fire");
+                egui::Grid::new("level_editor_flame").num_columns(2).show(ui, |ui| {
+                    for (label, v, speed, range, suffix, hover) in [
+                        ("Size", &mut f.size, 0.01, 0.02..=5.0, " m", "How wide the fire is"),
+                        ("Height", &mut f.height, 0.02, 0.2..=6.0, "×", "How tall, as a multiple of its size"),
+                        ("Flames", &mut f.brightness, 0.02, 0.0..=10.0, "×", "How bright the flames themselves are"),
+                        ("Light range", &mut f.range, 0.1, 0.5..=100.0, " m", "How far its light reaches"),
+                        ("Flicker", &mut f.flicker, 0.01, 0.0..=1.0, "", "How much its light flickers (0 = steady)"),
+                    ] {
+                        ui.label(label).on_hover_text(hover);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(speed).range(range).suffix(suffix).max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                    ui.label("Light").on_hover_text("How bright its light is (lumens)");
+                    let step = f.light.max(1_000.0) * 0.01;
+                    let r = ui.add_enabled(
+                        !busy,
+                        egui::DragValue::new(&mut f.light).speed(step).range(0.0..=50_000_000.0).suffix(" lm"),
+                    );
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                });
+            }
+            let flame_changed = flame != flame_before;
+            if let (true, Some(i), Some(f)) = (flame_changed, flame_index, flame) {
+                if let Some(slot) = ed.doc_mut().layout.flames.get_mut(i) {
+                    // (Its position's the fields above.)
+                    *slot = shared::level::Flame { pos: slot.pos, ..f };
+                }
+            }
             let light_changed = light != light_before;
             if let (true, Some(i), Some(l)) = (light_changed, light_index, light) {
                 if let Some(slot) = ed.doc_mut().layout.power_lights.get_mut(i) {
@@ -567,7 +635,7 @@ fn properties(
                     (area.width, area.depth) = size;
                 }
             }
-            if edited != at || resized || light_changed {
+            if edited != at || resized || light_changed || flame_changed {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -581,6 +649,8 @@ fn properties(
                 ui.colored_label(DIM, "During an exfil, only kills from inside it count");
             } else if let ObjectId::PowerLight(_) = id {
                 ui.colored_label(DIM, "Night maps only: off until the power's on in a Zombies game; always on in the other modes");
+            } else if let ObjectId::Flame(_) = id {
+                ui.colored_label(DIM, "Always burning — power on or off, day or night, every mode. Its spot is the bottom of the flames: drag it onto the bowl");
             } else if let ObjectId::PlayerSpawn(_) = id {
                 ui.colored_label(
                     DIM,

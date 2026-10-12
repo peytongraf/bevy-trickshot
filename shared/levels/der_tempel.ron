@@ -45,6 +45,12 @@
         (pos: (-41.351, 13.0, -43.742), color: (1.0, 0.95, 0.85), intensity: 27500000.0, range: 69.5, radius: 0.3, shadows: false, spot: Some((yaw_deg: -137.0, pitch_deg: 21.0, inner_angle_deg: 30.0, outer_angle_deg: 40.0))),
         (pos: (-57.922, 13.0, -24.839), color: (1.0, 0.95, 0.85), intensity: 11100000.0, range: 30.0, radius: 0.3, shadows: true),
     ],
+    flames: [
+        (pos: (1.52, -1.873, 56.524), size: 0.502, height: 2.0, brightness: 1.0, light: 100000.0, range: 10.0, flicker: 0.5),
+        (pos: (-1.5, -1.8, 56.6), size: 0.502, height: 2.0, brightness: 1.0, light: 100000.0, range: 10.0, flicker: 0.5),
+        (pos: (-4.047, 4.25, -42.695), size: 1.0, height: 2.0, brightness: 1.0, light: 200000.0, range: 20.0, flicker: 0.5),
+        (pos: (3.975, 4.233, -42.809), size: 1.0, height: 2.0, brightness: 1.0, light: 200000.0, range: 20.0, flicker: 0.5),
+    ],
     player_spawns: [
         (pos: (0.641, -4.0, 74.133), yaw_deg: -180.0),
         (pos: (2.815, -4.0, 73.216), yaw_deg: -180.0),

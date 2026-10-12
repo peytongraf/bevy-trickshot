@@ -107,6 +107,10 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/machines/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
+    /// `audio/zombies/machines/der_tempel_power_on.wav` — the rumble and
+    /// music of Der Tempel's power-on earthquake: for the whole lobby, not
+    /// positional, faded with the quake (`earthquake.rs`).
+    pub(crate) der_tempel_power_on: Handle<AudioSource>,
     /// `audio/zombies/mystery_box/` — the Mystery Box's lid opening and
     /// shutting, and the music while its prizes cycle: from the box, for the
     /// whole lobby (`mystery_box::play_box_sounds`).
@@ -134,6 +138,9 @@ pub(crate) struct GameSounds {
     /// perk machine and the Pack-a-Punch once the power's on
     /// (`power::sync_machine_hums`).
     pub(crate) machine_hum: Handle<AudioSource>,
+    /// `audio/ambient/fire_crackle.mp3` — looped from every fire the map
+    /// keeps burning (`flames`).
+    pub(crate) fire_crackle: Handle<AudioSource>,
     /// `audio/zombies/rounds/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
@@ -390,6 +397,10 @@ pub(crate) struct SoundVolumes {
     pub(crate) perk_quote: f32,
     /// The power lever being thrown (on top of its distance fade).
     pub(crate) power_on: f32,
+    /// Der Tempel's power-on earthquake (on top of the quake's fade).
+    pub(crate) der_tempel_power_on: f32,
+    /// A map's fires crackling (on top of their distance fade, `flames`).
+    pub(crate) fire_crackle: f32,
     /// The Mystery Box's lid and spin (on top of their distance fade).
     pub(crate) mystery_box_open: f32,
     pub(crate) mystery_box_close: f32,
@@ -480,6 +491,8 @@ impl Default for SoundVolumes {
             perk_jingle: 1.0,
             perk_quote: 1.0,
             power_on: 1.0,
+            der_tempel_power_on: 1.0,
+            fire_crackle: 1.0,
             mystery_box_open: 1.0,
             mystery_box_close: 1.0,
             mystery_box_spin: 1.0,
@@ -781,6 +794,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .map(|op| (op, PerkQuotes::load(&asset_server, op)))
             .collect(),
         power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
+        der_tempel_power_on: asset_server.load("audio/zombies/machines/der_tempel_power_on.wav"),
         mystery_box_open: asset_server.load("audio/zombies/mystery_box/open.mp3"),
         mystery_box_close: asset_server.load("audio/zombies/mystery_box/close.mp3"),
         mystery_box_spin: asset_server.load("audio/zombies/mystery_box/spin.mp3"),
@@ -795,6 +809,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         boss_blast: asset_server.load("audio/zombies/boss/blast.mp3"),
         boss_blast_hit: asset_server.load("audio/zombies/boss/blast_hit.mp3"),
         machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
+        fire_crackle: asset_server.load("audio/ambient/fire_crackle.mp3"),
         round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),
         dog_round_start: asset_server.load("audio/zombies/rounds/dog_round_start.mp3"),
         dog_round_end: asset_server.load("audio/zombies/rounds/dog_round_end.mp3"),
