@@ -20,7 +20,21 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Current todo
 
+# Map
+
+- Add ledge to side area that is lowered with the 2 large stair cases
+- Add lights to zone above lower tomb
+- Add cut outs for zombies to climb through that can be repaired with boards and carpenter
+- Add fire bowls to wooden building
+- Add fire bowls to zone above temple
+
 # Added
+
+- For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame
+- Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
+- Add short cut scene of a map screen shot that plays before zombies, just use one of der tempel for all for now. Don't play when debug mode is on unless this would affect time for match to start. Could just see it if any players don't have debug mode turned on. Show a few different screen shots with an intro music.
+- Could add a text near the top compass that shows the name of the curent zone
+- Add ability to add more power lights to a map
 
 - Use something like kira for reverb and complete handling of sounds
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
@@ -59,7 +73,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Improve
 
-- Improve molotov fire look
 - Dial in phd slider effect look ( trail and explosion )
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 
