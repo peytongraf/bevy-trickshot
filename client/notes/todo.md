@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Forgiving Ray Gun hits
 - No bullet holes on placed objects, smaller holes
 - Bullet holes stay off edges
 - Smaller, centered "power first" popup
@@ -15,7 +16,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
-- Raygun should fire a larger projectile ( doesn't have to be seen visually ) so that even if aim is off a little bit enemies will be hit
 - When knifing zombies and a power up pops up the player instantly activates it even if they don’t want to. See how cod handles power up spawn position on zombie kill / knife kill
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.

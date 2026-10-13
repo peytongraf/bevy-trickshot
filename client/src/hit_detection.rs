@@ -17,7 +17,9 @@
 //!   stretch tested against the models as they are that frame; the first
 //!   enemy one strikes is claimed ([`shared::ProjectileClaim`]). A bolt that
 //!   reaches its surface without striking one says so too, so it bursts
-//!   there at once, here and on the server.
+//!   there at once, here and on the server. A bolt's a little forgiving: one
+//!   that just misses a zombie, within [`RAYGUN_NEAR_MISS_M`] of it, still
+//!   counts, burst on its line beside them ([`Models::hits_along_near`]).
 //!
 //! The server checks every claim over before anything takes damage. (A knife
 //! stab is the server's own, a Call-of-Duty lunge: whoever's close and
@@ -92,6 +94,10 @@ impl OwnProjectiles {
 /// A knife's path that never comes (s) — given up on.
 const KNIFE_PATH_WAIT_SECS: f32 = 3.0;
 
+/// How close (m) a Ray Gun bolt can pass by a zombie's model and still hit
+/// it — so a shot aimed a little off still lands. (Never a headshot, though.)
+const RAYGUN_NEAR_MISS_M: f32 = 0.4;
+
 /// Most claims one shot sends (nearest first).
 const MAX_CLAIMS: usize = 16;
 
@@ -158,6 +164,14 @@ impl Models<'_, '_> {
     /// Every living enemy `path` (a polyline) passes through, nearest
     /// first: where on them, and on which part.
     pub(crate) fn hits_along(&self, path: &[Vec3]) -> Vec<ModelHit> {
+        self.hits_along_near(path, 0.0)
+    }
+
+    /// As [`Self::hits_along`], but an enemy `path` passes within `near` (m)
+    /// of without touching counts too: struck at the first spot on `path`
+    /// that close to them (on the path, beside them), on the part it passed
+    /// closest to — though never on the head.
+    pub(crate) fn hits_along_near(&self, path: &[Vec3], near: f32) -> Vec<ModelHit> {
         let legs = path_legs(path);
         let mut hits = Vec::new();
         for (avatar_e, avatar, avatar_tf, soldier, boss) in &self.avatars {
@@ -179,13 +193,16 @@ impl Models<'_, '_> {
                 (None, None) => continue,
             };
             let (up, radius) = bounds(boss);
+            let radius = radius + near;
             let centre = avatar_tf.translation() + Vec3::Y * up;
             if !legs.iter().any(|leg| leg.distance_to(centre) <= radius) {
                 continue;
             }
 
-            // The nearest spot it strikes on any of its meshes.
+            // The nearest spot it strikes on any of its meshes — failing
+            // that, the first it passes close enough by.
             let mut best: Option<(f32, Vec3, Entity)> = None;
+            let mut best_near: Option<(f32, Vec3, Entity)> = None;
             for e in self.children.iter_descendants(avatar_e) {
                 let Ok((mesh3d, skin)) = self.skinned.get(e) else {
                     continue;
@@ -205,12 +222,25 @@ impl Models<'_, '_> {
                         best = Some((along, point, joint));
                     }
                 }
+                if best.is_none() && near > 0.0 {
+                    if let Some((along, point, joint)) = verts.first_near(&legs, centre, radius, near) {
+                        if best_near.is_none_or(|(b, ..)| along < b) {
+                            best_near = Some((along, point, joint));
+                        }
+                    }
+                }
             }
-            let Some((along, point, joint)) = best else {
-                continue;
+            let (struck, grazed) = match (best, best_near) {
+                (Some(hit), _) => (hit, false),
+                (None, Some(hit)) => (hit, true),
+                (None, None) => continue,
             };
+            let (along, point, joint) = struck;
             let bone = self.names.get(joint).map_or("?", |n| n.as_str());
-            let zone = zone_of_bone(bone);
+            let zone = match zone_of_bone(bone) {
+                shared::ballistics::HitZone::Head if grazed => shared::ballistics::HitZone::Torso,
+                zone => zone,
+            };
             debug!("struck {:?} at {along:.1} m on {bone} ({zone:?})", avatar.src);
             hits.push(ModelHit {
                 along,
@@ -312,8 +342,9 @@ fn track_own_projectiles(
         let to = age.min(end);
         let stretch = path_between(path, p.tested, to);
         p.tested = to;
+        let near = if p.projectile == Projectile::RayGun { RAYGUN_NEAR_MISS_M } else { 0.0 };
         let hit = models
-            .hits_along(&stretch)
+            .hits_along_near(&stretch, near)
             .into_iter()
             .find(|h| may_hit(p.projectile, mode, h.kind));
         if let Some(hit) = hit {
@@ -516,6 +547,37 @@ impl<'a> SkinnedVerts<'a> {
         let joint = pull.into_iter().max_by(|a, b| a.1.total_cmp(&b.1))?.0;
         Some((along, point, *self.bones.get(joint as usize)?))
     }
+
+    /// The first spot along any of `legs` (near `centre`, within `radius`)
+    /// that comes within `near` (m) of one of the mesh's vertices: how far
+    /// down the path, that spot (on the path), and the bone that vertex
+    /// hangs off most.
+    fn first_near(&self, legs: &[Leg], centre: Vec3, radius: f32, near: f32) -> Option<(f32, Vec3, Entity)> {
+        let mut best: Option<(f32, Vec3, usize)> = None;
+        for leg in legs.iter().filter(|l| l.distance_to(centre) <= radius) {
+            for (i, &v) in self.positions.iter().enumerate() {
+                let off = v - leg.from;
+                let t = off.dot(leg.dir).clamp(0.0, leg.len);
+                let miss = off.distance(leg.dir * t);
+                if miss > near {
+                    continue;
+                }
+                // Back up the path to where it first comes `near` that close.
+                let t = (t - (near * near - miss * miss).max(0.0).sqrt()).max(0.0);
+                let along = leg.start + t;
+                if best.is_none_or(|(b, ..)| along < b) {
+                    best = Some((along, leg.from + leg.dir * t, i));
+                }
+            }
+            // (Legs come in order: one passed on this leg beats any later.)
+            if best.is_some() {
+                break;
+            }
+        }
+        let (along, point, i) = best?;
+        let n = (0..4).max_by(|&a, &b| self.weights[i][a].total_cmp(&self.weights[i][b]))?;
+        Some((along, point, *self.bones.get(self.joints[i][n] as usize)?))
+    }
 }
 
 /// Möller–Trumbore: where the ray `origin + t·dir` (`t >= 0`) crosses the
@@ -547,6 +609,27 @@ fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<(f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_just_past_a_vertex_counts_as_near_and_one_further_off_doesnt() {
+        let joints = [[0u16; 4]];
+        let weights = [[1.0f32, 0.0, 0.0, 0.0]];
+        let bones = [Entity::from_raw(7)];
+        let verts = SkinnedVerts {
+            positions: vec![Vec3::new(0.3, 0.0, -5.0)],
+            joints: &joints,
+            weights: &weights,
+            indices: Vec::new(),
+            bones: &bones,
+        };
+        let legs = path_legs(&[Vec3::ZERO, Vec3::new(0.0, 0.0, -10.0)]);
+        let (along, point, bone) = verts.first_near(&legs, Vec3::new(0.0, 0.0, -5.0), 2.0, 0.4).unwrap();
+        // Where the path first comes 0.4 m from it, on the path.
+        assert!((along - (5.0 - (0.4f32 * 0.4 - 0.3 * 0.3).sqrt())).abs() < 1e-4, "{along}");
+        assert!(point.x.abs() < 1e-6 && point.y.abs() < 1e-6);
+        assert_eq!(bone, Entity::from_raw(7));
+        assert!(verts.first_near(&legs, Vec3::new(0.0, 0.0, -5.0), 2.0, 0.25).is_none());
+    }
 
     #[test]
     fn a_ray_through_a_triangle_hits_it_and_one_beside_it_misses() {
