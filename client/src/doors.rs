@@ -14,19 +14,31 @@
 //! (`GameSounds::main_door_ambience`) from it, for everyone, heard much
 //! further off ([`MAIN_DOOR_FULL_M`]..[`MAIN_DOOR_SILENT_M`]).
 //!
-//! The doors, their sounds and the card are `StateScoped(InGame)`, and the doors are taken
+//! As one slides it grinds against the stone it slides into: small chips
+//! and a little dust spill from that seam — the floor line for a door going
+//! down, the lintel for one going up, the jamb for one going sideways — on
+//! both faces, most as it's moving fastest ([`door_debris`]), and a little
+//! dust is shaken off the top of the doorway as it starts. (The same rock
+//! and dust sprites as `crate::earthquake`'s debris, far fewer and smaller.)
+//!
+//! The doors, their sounds, the debris and the card are `StateScoped(InGame)`, and the doors are taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
 //! next one. In the other modes every doorway's open.
 
 use bevy::audio::{SpatialAudioSink, Volume};
+use bevy::math::Affine2;
+use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::render::view::NoFrustumCulling;
 use bevy_rapier3d::prelude::Collider;
 use lightyear::prelude::{LocalId, TriggerSender};
-use shared::doors::{Door, Locked, MODEL_SIZE, OPEN_SECS};
+use shared::doors::{Door, Locked, Slide, MODEL_SIZE, OPEN_SECS};
 use shared::Lobby;
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
+use crate::util::{rand01, rand_roll};
+use crate::vfx::{impact_material, ImpactAssets, ImpactParticle, IMPACT_MAX, ROCK_COLS, ROCK_ROWS};
 use crate::zombies_hud::{zombies_game, CARD_RED, MONEY_YELLOW, PERK_CARD_WIDTH};
 use crate::{killcam, menu, AppState, Player, EYE_HEIGHT, HUD_FONT};
 
@@ -47,6 +59,7 @@ impl Plugin for DoorsPlugin {
                 (
                     sync_doors,
                     slide_doors,
+                    door_debris,
                     fade_door_sounds,
                     update_door_card,
                     buy_door.run_if(menu::game_active.and(killcam::no_killcam)),
@@ -80,6 +93,11 @@ struct DoorRoot {
     opened_at: Option<f32>,
     /// Whether it's been seen once (so one open from the start doesn't slide).
     seen: bool,
+    /// Stone chips due to spill from its seam, not yet spawned
+    /// ([`door_debris`])...
+    chips_owed: f32,
+    /// ...and whether the dust's been shaken off the top of its doorway.
+    shaken: bool,
 }
 
 /// What slides: the model and, while it's shut, the collider.
@@ -143,6 +161,8 @@ fn spawn_door(commands: &mut Commands, asset_server: &AssetServer, index: usize,
                 index,
                 opened_at: None,
                 seen: false,
+                chips_owed: 0.0,
+                shaken: false,
             },
             Transform::from_translation(door.at.pos).with_rotation(door.rotation()),
             Visibility::default(),
@@ -241,6 +261,209 @@ fn slide_doors(
             }
         }
     }
+}
+
+/// Chips a door sliding open spills over the whole slide, per 2 m of seam.
+const CHIPS_PER_SLIDE: f32 = 36.0;
+/// The chance each chip comes with a puff of dust.
+const CHIP_DUST_CHANCE: f32 = 0.3;
+/// Dust puffs shaken off the top of the doorway as it starts.
+const LINTEL_DUST: u32 = 5;
+/// A chip's size (m), at its smallest — up to twice that.
+const CHIP_SIZE: f32 = 0.025;
+/// Stone, and the dust ground off it (multiplying the sprites).
+const CHIP_TINT: [f32; 3] = [0.78, 0.72, 0.64];
+const DUST_TINT: [f32; 3] = [0.72, 0.66, 0.58];
+/// How see-through the dust is at its thickest — faint.
+const DUST_OPACITY: f32 = 0.22;
+const GRAVITY: f32 = 9.8;
+
+/// Grind stone off the seam each door's sliding into, for as long as it's
+/// sliding (none from one already open when we got here).
+#[allow(clippy::too_many_arguments)]
+fn door_debris(
+    time: Res<Time>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    assets: Option<Res<ImpactAssets>>,
+    existing: Query<(), With<ImpactParticle>>,
+    mut doors: Query<&mut DoorRoot>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+    mut seq: Local<u32>,
+) {
+    let (Some(lobby), Some(assets)) = (zombies_game(&local, &lobbies), assets) else { return };
+    let now = time.elapsed_secs();
+    let layout = shared::doors::doors(lobby.map);
+    let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
+    for mut root in &mut doors {
+        let (Some(opened_at), Some(door)) = (root.opened_at, layout.get(root.index)) else { continue };
+        let t = (now - opened_at) / OPEN_SECS;
+        if !(0.0..1.0).contains(&t) {
+            continue;
+        }
+        let floor = door.at.pos.y + 0.02;
+        let to_world = |p: Vec3| door.at.pos + door.rotation() * p;
+        let (w, h, d) = (door.size.x, door.size.y, door.size.z);
+        // Dust shaken loose off the top of the doorway as it lurches into
+        // motion (not for one going up into it — that's its seam).
+        if !root.shaken {
+            root.shaken = true;
+            if door.slide != Slide::Up {
+                for i in 0..LINTEL_DUST {
+                    *seq = seq.wrapping_add(1);
+                    let s = seq.wrapping_mul(2_654_435_761) ^ i;
+                    let face = if rand01(s ^ 0x1) < 0.5 { 1.0 } else { -1.0 };
+                    let at = Vec3::new((rand01(s ^ 0x2) - 0.5) * w, h - 0.05, face * (d * 0.5 + 0.05));
+                    let drift = door.rotation() * Vec3::new(0.0, 0.0, face * 0.1);
+                    spawn_door_dust(&mut commands, &mut materials, &assets, to_world(at), drift, -0.5, floor, s, &mut budget);
+                }
+            }
+        }
+        // As fast as it's moving (the eased slide's speed, which over the
+        // whole slide adds up to one).
+        let seam = match door.slide {
+            Slide::Down | Slide::Up => w,
+            Slide::Left | Slide::Right => h,
+        };
+        root.chips_owed += CHIPS_PER_SLIDE * (seam / 2.0) * 6.0 * t * (1.0 - t) * time.delta_secs() / OPEN_SECS;
+        while root.chips_owed >= 1.0 {
+            root.chips_owed -= 1.0;
+            *seq = seq.wrapping_add(1);
+            let s = seq.wrapping_mul(2_654_435_761);
+            // Which face of the doorway, and where along the seam.
+            let face = if rand01(s ^ 0x1) < 0.5 { 1.0 } else { -1.0 };
+            let along = rand01(s ^ 0x2) - 0.5;
+            let z = face * (d * 0.5 + 0.02);
+            let out = rand01(s ^ 0x3);
+            let (at, velocity) = match door.slide {
+                // Ground out of the floor line: kicked up and out.
+                Slide::Down => (
+                    Vec3::new(along * w, 0.03, z),
+                    Vec3::new((rand01(s ^ 0x4) - 0.5) * 0.6, 0.8 + 1.2 * rand01(s ^ 0x5), face * (0.3 + 0.8 * out)),
+                ),
+                // Scraped off the lintel: drops, a little out from it.
+                Slide::Up => (
+                    Vec3::new(along * w, h - 0.03, z),
+                    Vec3::new((rand01(s ^ 0x4) - 0.5) * 0.4, -0.2 * rand01(s ^ 0x5), face * (0.2 + 0.5 * out)),
+                ),
+                // Off the jamb it slides into: out of the doorway, dropping.
+                Slide::Left | Slide::Right => {
+                    let side = if door.slide == Slide::Left { -0.5 } else { 0.5 };
+                    (
+                        Vec3::new(side * w, (along + 0.5) * h, z),
+                        Vec3::new(-side * 0.4 * rand01(s ^ 0x4), 0.4 * rand01(s ^ 0x5), face * (0.3 + 0.7 * out)),
+                    )
+                }
+            };
+            let at = to_world(at);
+            let velocity = door.rotation() * velocity;
+            spawn_chip(&mut commands, &mut materials, &assets, at, velocity, floor, s, &mut budget);
+            if rand01(s ^ 0x6) < CHIP_DUST_CHANCE {
+                spawn_door_dust(&mut commands, &mut materials, &assets, at, velocity * 0.25, 0.0, floor, s, &mut budget);
+            }
+        }
+    }
+}
+
+/// One stone chip flung off at `velocity` from `at`, coming to rest on
+/// `floor`.
+#[allow(clippy::too_many_arguments)]
+fn spawn_chip(
+    commands: &mut Commands,
+    materials: &mut Assets<StandardMaterial>,
+    assets: &ImpactAssets,
+    at: Vec3,
+    velocity: Vec3,
+    floor: f32,
+    s: u32,
+    budget: &mut usize,
+) {
+    if *budget == 0 {
+        return;
+    }
+    *budget -= 1;
+    let size = CHIP_SIZE * (1.0 + rand01(s ^ 0x11));
+    // One rock off `vfx/rocks.png`'s sheet (as `vfx::spawn_debris`).
+    let col = (rand01(s ^ 0x12) * ROCK_COLS as f32) as u32 % ROCK_COLS;
+    let row = (rand01(s ^ 0x13) * ROCK_ROWS as f32) as u32 % ROCK_ROWS;
+    let mut material = impact_material(assets.rocks.clone());
+    material.uv_transform = Affine2::from_scale_angle_translation(
+        Vec2::new(1.0 / ROCK_COLS as f32, 1.0 / ROCK_ROWS as f32),
+        0.0,
+        Vec2::new(col as f32 / ROCK_COLS as f32, row as f32 / ROCK_ROWS as f32),
+    );
+    // Flies, lies on the floor a moment, then fades.
+    let lifetime = 1.6 + 0.8 * rand01(s ^ 0x14);
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        ImpactParticle {
+            velocity,
+            gravity: GRAVITY,
+            drag: 0.0,
+            age: 0.0,
+            lifetime,
+            fade_in: 0.0,
+            roll: rand_roll(s ^ 0x15),
+            spin: (rand01(s ^ 0x16) * 2.0 - 1.0) * 12.0,
+            scale0: size,
+            scale1: size,
+            peak_alpha: 1.0,
+            tint: CHIP_TINT,
+            floor,
+            hold: 0.6,
+        },
+        Mesh3d(assets.quad.clone()),
+        MeshMaterial3d(materials.add(material)),
+        Transform::from_translation(at).with_scale(Vec3::splat(size)),
+        NoFrustumCulling,
+        NotShadowCaster,
+    ));
+}
+
+/// A faint puff of stone dust at `at`, drifting at `drift` and sinking at
+/// `fall` (m/s, up positive), spreading as it hangs.
+#[allow(clippy::too_many_arguments)]
+fn spawn_door_dust(
+    commands: &mut Commands,
+    materials: &mut Assets<StandardMaterial>,
+    assets: &ImpactAssets,
+    at: Vec3,
+    drift: Vec3,
+    fall: f32,
+    floor: f32,
+    s: u32,
+    budget: &mut usize,
+) {
+    if *budget == 0 {
+        return;
+    }
+    *budget -= 1;
+    let size = 0.75 + 0.5 * rand01(s ^ 0x21);
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        ImpactParticle {
+            velocity: drift + Vec3::Y * fall,
+            gravity: 0.3,
+            drag: 1.2,
+            age: 0.0,
+            lifetime: 1.4 + 0.8 * rand01(s ^ 0x22),
+            fade_in: 0.1,
+            roll: rand_roll(s ^ 0x23),
+            spin: (rand01(s ^ 0x24) * 2.0 - 1.0) * 0.4,
+            scale0: 0.15 * size,
+            scale1: 0.6 * size,
+            peak_alpha: DUST_OPACITY,
+            tint: DUST_TINT,
+            floor: floor + 0.1,
+            hold: 0.0,
+        },
+        Mesh3d(assets.quad.clone()),
+        MeshMaterial3d(materials.add(impact_material(assets.dust.clone()))),
+        Transform::from_translation(at).with_scale(Vec3::splat(0.15 * size)),
+        NoFrustumCulling,
+        NotShadowCaster,
+    ));
 }
 
 /// Keep each door's opening sound at the loudness for how far the listener

@@ -566,6 +566,34 @@ fn resolve_shots(
                                 critical: hit.headshot,
                                 point: Some(hit.point),
                             });
+                            // `Zombies`: a player's shot goes on through the
+                            // zombie into the ones behind it (Call of Duty's
+                            // penetration), weaker for each it's gone
+                            // through, until its round gives out
+                            // (`WeaponId::zombie_penetration`).
+                            if zombies && !shared::bot_players::is_bot_peer(shooter.0) {
+                                let packed = pap_mult(lobby, shooter.0, shared::pap::PapWeapon::gun(weapon));
+                                // (The tracer ends in the last one it gets to.)
+                                tracer_end = hit.point;
+                                let behind = hits.iter().filter_map(|h| match kind.get(&h.target) {
+                                    Some(HitKind::Player(z)) => Some((z, h)),
+                                    _ => None,
+                                });
+                                for (pierced, (z, h)) in behind.enumerate().skip(1) {
+                                    let Some(keep) = weapon.penetration_damage_mult(pierced) else { break };
+                                    tracer_end = h.point;
+                                    player_hits.write(PlayerHit {
+                                        cause: crate::pvp::HitCause::Gun,
+                                        victim: *z,
+                                        killer: shooter.0,
+                                        damage: h.damage * packed * keep,
+                                        bomb_shot,
+                                        blast: false,
+                                        critical: h.headshot,
+                                        point: Some(h.point),
+                                    });
+                                }
+                            }
                         }
                         ShotOutcome::Hit {
                             target: p.to_bits(),

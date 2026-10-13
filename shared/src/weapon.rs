@@ -311,6 +311,28 @@ impl WeaponId {
         !matches!(self, WeaponId::RayGun)
     }
 
+    /// How many more zombies past the first a shot of it goes through in
+    /// `Zombies`, and the share of its damage it keeps each time it does —
+    /// Call of Duty's penetration: a heavy round punches on through a line of
+    /// them, a lighter one through one more at most, each body it passes
+    /// through taking some out of it. (The Marksman's slower round and the
+    /// Ray Gun's bolt stop in the first.)
+    pub const fn zombie_penetration(self) -> (usize, f32) {
+        match self {
+            WeaponId::Sniper => (3, 0.7),
+            WeaponId::Ak74 => (1, 0.5),
+            WeaponId::Marksman | WeaponId::RayGun => (0, 1.0),
+        }
+    }
+
+    /// What share of its damage a shot of it still does to the zombie it
+    /// reaches after going through `pierced` others — `None` past as many
+    /// as it can go through ([`Self::zombie_penetration`]).
+    pub fn penetration_damage_mult(self, pierced: usize) -> Option<f32> {
+        let (most, keep) = self.zombie_penetration();
+        (pierced <= most).then(|| keep.powi(pierced as i32))
+    }
+
     /// True when the weapon has no travel time and no drop, so the server can
     /// resolve it with a single ray instead of stepping a trajectory.
     pub fn is_hitscan(self) -> bool {
@@ -331,5 +353,22 @@ mod tests {
         assert_eq!(raygun_splash_damage(RAYGUN_SPLASH_RADIUS + 0.01), 0.0);
         assert_eq!(WeaponId::from_u8(WeaponId::RayGun.as_u8()), Some(WeaponId::RayGun));
         assert!(!WeaponId::RayGun.pierces() && WeaponId::Sniper.pierces());
+    }
+
+    #[test]
+    fn penetration_loses_damage_each_zombie_and_gives_out() {
+        // The first zombie takes it all.
+        for w in [WeaponId::Sniper, WeaponId::Ak74, WeaponId::Marksman, WeaponId::RayGun] {
+            assert_eq!(w.penetration_damage_mult(0), Some(1.0));
+        }
+        // Each one after takes less than the one before...
+        let sniper: Vec<f32> = (0..=3).map(|n| WeaponId::Sniper.penetration_damage_mult(n).unwrap()).collect();
+        assert!(sniper.windows(2).all(|w| w[1] < w[0]), "{sniper:?}");
+        // ...until it's gone through as many as it can.
+        assert_eq!(WeaponId::Sniper.penetration_damage_mult(4), None);
+        assert!(WeaponId::Ak74.penetration_damage_mult(1).is_some_and(|m| m < 1.0));
+        assert_eq!(WeaponId::Ak74.penetration_damage_mult(2), None);
+        assert_eq!(WeaponId::Marksman.penetration_damage_mult(1), None);
+        assert_eq!(WeaponId::RayGun.penetration_damage_mult(1), None);
     }
 }

@@ -6,6 +6,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Bullet penetration through zombies
+- Debris when doors open
 - Multiple ammo crates per map
 - Power-ups drop out of reach on knife kills
 - Forgiving Ray Gun hits
@@ -22,8 +24,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
 - 2 times going up to juggernog has caused damage with no zombie nearby
-- Add debris fall when a door opens
-- add penetration to shots so that a round can go through one zombie and still damage another but not as much. At some point it shouldn’t be able to go through any more zombies
 - When zombies are far away from all players and no lobby member can see them, they should respawn closer to a player
 - look into using different footstep sounds based on surface
 - Look into using reverb on sounds based on location like in the echoey tomb

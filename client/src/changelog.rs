@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: bullets go through zombies into the ones behind, doing less damage each time — the sniper through up to 4, the AK-74 through 2.",
+        "Zombies: doors grind chips and dust off the stone as they slide open.",
         "Level editor: place as many ammo crates as you like — one for each zone.",
         "Zombies: power-ups from zombies you knife or kill up close drop just out of reach, so grabbing them is your choice.",
         "Zombies: the Ray Gun is more forgiving — a shot just off a zombie still hits it.",
