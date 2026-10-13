@@ -32,7 +32,7 @@
     mystery_box: Some((pos: (0.0, -15.0, 0.0), yaw_deg: 180.0)),
     armor_station: Some((pos: (16.43, -15.0, -15.965), yaw_deg: 0.0)),
     crafting_table: Some((pos: (29.45, -4.0, 69.15), yaw_deg: -90.0)),
-    exfil_radio: Some((pos: (-9.415, -4.0, 56.6), yaw_deg: 0.0)),
+    exfil_radio: Some((pos: (-9.415, -5.7, 53.15), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, -67.36), yaw_deg: 0.0), width: 62.6, depth: 41.9)),
     rampage_inducer: Some((pos: (27.606, -4.0, 58.668), yaw_deg: 0.0)),
     power_lights: [
@@ -40,7 +40,7 @@
         (pos: (-62.909, 16.3, 56.075), color: (1.0, 0.95, 0.85), intensity: 6700000.0, range: 30.0, radius: 0.3, shadows: true),
         (pos: (-1.76, 12.0, 68.563), color: (0.969, 0.893, 0.742), intensity: 6600000.0, range: 45.0, radius: 0.6, shadows: false),
         (pos: (0.11, 64.5, -0.17), color: (1.0, 0.0, 0.0), intensity: 7000000.0, range: 39.0, radius: 0.3, shadows: false, glow: 220.0),
-        (pos: (0.0, -2.7, 0.0), color: (1.0, 0.931, 0.793), intensity: 14800000.0, range: 62.0, radius: 0.3, shadows: true),
+        (pos: (0.0, -2.7, 0.0), color: (0.203, 0.158, 0.428), intensity: 14800000.0, range: 62.0, radius: 0.3, shadows: true),
         (pos: (0.0, -3.45, 46.55), color: (0.885, 0.482, 0.321), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
         (pos: (-48.431, 4.6, -67.748), color: (1.0, 0.905, 0.716), intensity: 4150000.0, range: 20.5, radius: 0.3, shadows: true),
         (pos: (0.006, 6.1, -29.56), color: (0.88, 0.097, 0.097), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: true),
@@ -50,6 +50,8 @@
         (pos: (39.607, 9.4, -38.944), color: (1.0, 0.95, 0.85), intensity: 16700000.0, range: 55.5, radius: 0.35, shadows: false, spot: Some((yaw_deg: 131.0, pitch_deg: 21.0, inner_angle_deg: 34.0, outer_angle_deg: 48.5))),
         (pos: (-41.351, 13.0, -43.742), color: (1.0, 0.95, 0.85), intensity: 27500000.0, range: 69.5, radius: 0.3, shadows: false, spot: Some((yaw_deg: -137.0, pitch_deg: 21.0, inner_angle_deg: 30.0, outer_angle_deg: 40.0))),
         (pos: (-57.922, 13.0, -24.839), color: (1.0, 0.95, 0.85), intensity: 11100000.0, range: 30.0, radius: 0.3, shadows: true),
+        (pos: (-20.0, -8.5, 45.0), color: (0.746, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
+        (pos: (20.0, -8.5, 45.0), color: (0.745, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
     ],
     flames: [
         (pos: (1.52, -1.8, 56.524), size: 0.502, height: 2.0, brightness: 1.0, light: 100000.0, range: 10.0, flicker: 0.5),

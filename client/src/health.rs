@@ -92,6 +92,10 @@ impl HurtEffectSettings {
 pub(crate) struct LocalHealth {
     pub(crate) health: f32,
     pub(crate) max: f32,
+    /// A bigger maximum (Juggernog) we've seen but not taken on yet: it,
+    /// our health when we saw it, and when (`Time::elapsed_secs`) — see
+    /// [`mirror_health`].
+    raised: Option<(f32, f32, f32)>,
 }
 
 impl Default for LocalHealth {
@@ -99,9 +103,14 @@ impl Default for LocalHealth {
         Self {
             health: FULL_HEALTH,
             max: FULL_HEALTH,
+            raised: None,
         }
     }
 }
+
+/// Longest (s) a bigger maximum waits for the server's health to catch up
+/// with it ([`mirror_health`]).
+const RAISED_MAX_WAIT_SECS: f32 = 0.5;
 
 pub(crate) struct HealthPlugin;
 
@@ -140,8 +149,13 @@ fn reset_on_respawn(
 }
 
 /// Track the server's replicated health for our own player, and how much
-/// we can have (`Zombies`' Juggernog raises it).
+/// we can have (`Zombies`' Juggernog raises it). The server fills a bigger
+/// bar at once, but the perk and the health it gives come over separately:
+/// a bigger maximum is only taken on once our health has moved since (the
+/// server's caught up), or after [`RAISED_MAX_WAIT_SECS`] — never shown
+/// against the old health, which would read as hurt for a moment.
 fn mirror_health(
+    time: Res<Time>,
     local: Query<&LocalId, With<GameClient>>,
     players: Query<(&PlayerId, &PlayerHealth)>,
     lobbies: Query<&shared::Lobby>,
@@ -160,8 +174,20 @@ fn mirror_health(
         .find(|l| l.has(me) && l.mode == shared::GameMode::Zombies)
         .and_then(|l| l.members.iter().find(|m| m.peer == me))
         .map_or(FULL_HEALTH, |m| shared::perks::max_health(&m.perks));
-    if health.max != max {
-        health.max = max;
+    let now = time.elapsed_secs();
+    if max > health.max {
+        let (_, then, at) = health.raised.unwrap_or((max, health.health, now));
+        if health.health != then || now - at >= RAISED_MAX_WAIT_SECS {
+            health.max = max;
+            health.raised = None;
+        } else {
+            health.raised = Some((max, then, at));
+        }
+    } else {
+        health.raised = None;
+        if health.max != max {
+            health.max = max;
+        }
     }
 }
 
@@ -309,7 +335,7 @@ mod tests {
     fn respawning_restores_full_health_display_immediately() {
         let mut app = App::new();
         app.add_event::<crate::net::LocalPlayerRespawned>()
-            .insert_resource(LocalHealth { health: -8.0, max: FULL_HEALTH })
+            .insert_resource(LocalHealth { health: -8.0, ..default() })
             .add_systems(Update, reset_on_respawn);
         app.update();
         assert_eq!(app.world().resource::<LocalHealth>().health, -8.0, "not until a respawn");

@@ -1115,6 +1115,14 @@ fn tick_respawns(
         if combat.regenerates {
             let max = shared::perks::max_health(&perks);
             if combat.max_health != max {
+                // A bigger bar (Juggernog) comes filled, Call of Duty's way:
+                // the extra's added at once, so a player at full stays at
+                // full rather than suddenly hurt. A smaller one (losing it)
+                // just caps what's there. (Not for the dead — they come back
+                // at full anyway.)
+                if max > combat.max_health && combat.alive {
+                    combat.health += max - combat.max_health;
+                }
                 combat.max_health = max;
                 combat.health = combat.health.min(max);
             }

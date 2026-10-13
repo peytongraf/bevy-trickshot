@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Juggernog no longer shows as damage
 - Far, unseen zombies respawn near players
 - Bullet penetration through zombies
 - Debris when doors open
@@ -21,23 +22,20 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Added
 
+- Use something like kira for reverb and complete handling of sounds
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
-- 2 times going up to juggernog has caused damage with no zombie nearby
 - look into using different footstep sounds based on surface
 - Look into using reverb on sounds based on location like in the echoey tomb
 
 # Asset todo
 
 - Add new radio quotes
-- railing in temple at the top of the stairs is too high
 - add red lights in tomb
 - Add more fire pits
 - Make a better blood overlay
 - could update pap camos
-- Make hd staminup model
-- Could use the part above the temple that isn’t used
 - Add underground connection where speed color is to other parts of the map
 - Finish other side of map but could keep it dark to keep fog look or at least allow the player to go out in the fog for something like a trap
 
@@ -57,7 +55,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Check: Knife won't stab when enemies are totally point blank
 - On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
-- Only one light is coming on when turning on the power
 - It doesn't show to update anywhere on the client after it is launched and a new release is out.
 
 # Improve
@@ -78,7 +75,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 ## Sound
 
 - Create new rampage inducer music
-
 - Level out perk jingle sound volumes
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound
