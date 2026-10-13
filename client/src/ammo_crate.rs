@@ -1,15 +1,16 @@
-//! The `Zombies` ammo crate (`models/props/ammo_crate.glb`): stand at it with the
+//! The `Zombies` ammo crates (`models/props/ammo_crate.glb`): stand at one with the
 //! sniper out and not full, and a card (the perk card's style, pared down)
 //! shows the price and our points; the interact key buys a refill
 //! ([`shared::BuyAmmo`] → [`shared::AmmoBought`]), which fills the sniper's
 //! mag and reserve (`Weapon::fill_mag_and_reserve`) and plays the buy sound
 //! for us alone.
 //!
-//! It stands where the map's layout says (`shared::ammo::crate_pos`, placed
-//! in the level editor) — the server takes the client's word that it's at
-//! the crate; its solid box (zombies' and ours) is `shared::ammo::crate_box`.
+//! They stand where the map's layout says (`shared::ammo::crates`, placed —
+//! as many as the map wants — in the level editor); the server takes the
+//! client's word that it's at one; each one's solid box (zombies' and ours)
+//! is `shared::ammo::crate_boxes`'.
 //!
-//! The crate and card are `StateScoped(InGame)`; the crate is also taken
+//! The crates and card are `StateScoped(InGame)`; the crates are also taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
 //! next one.
 
@@ -82,10 +83,6 @@ impl AmmoCrateSettings {
     }
 }
 
-/// `map`'s ammo crate, if it has one.
-fn crate_on(map: shared::MapId) -> Option<shared::level::Placement> {
-    shared::level::layout(map).ammo_crate
-}
 
 /// Whether feet at `feet` are close enough to use a crate standing at `at`.
 fn in_reach(at: Vec3, feet: Vec3) -> bool {
@@ -93,54 +90,60 @@ fn in_reach(at: Vec3, feet: Vec3) -> bool {
     Vec2::new(d.x, d.z).length() <= USE_RADIUS && d.y.abs() <= USE_HEIGHT
 }
 
+/// One of the map's crates — its index in the layout's
+/// `shared::level::ZombiesLayout::ammo_crates`.
 #[derive(Component)]
-struct AmmoCrate;
+struct AmmoCrate(usize);
 
 /// The crate's solid box (a child of [`AmmoCrate`], so it follows the
 /// panel's scale) — the server's `shared::ammo::crate_box`.
 #[derive(Component)]
 struct AmmoCrateCollider;
 
-/// Put the crate on the map while we're in a `Zombies` game on a map with one
-/// (and take it away otherwise), where its layout says.
+/// Put the map's crates on it while we're in a `Zombies` game (and take them
+/// away otherwise), where its layout says.
 fn sync_ammo_crate(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     settings: Res<AmmoCrateSettings>,
     asset_server: Res<AssetServer>,
-    mut crates: Query<(Entity, &mut Transform), With<AmmoCrate>>,
+    mut crates: Query<(Entity, &AmmoCrate, &mut Transform)>,
     mut commands: Commands,
 ) {
-    let Some(at) = zombies_game(&local, &lobbies).and_then(|l| crate_on(l.map)) else {
-        for (e, _) in &crates {
+    let wanted: &[shared::level::Placement] =
+        zombies_game(&local, &lobbies).map_or(&[], |l| shared::ammo::crates(l.map));
+    // (A different number than there are: start them over.)
+    if crates.iter().count() != wanted.len() {
+        for (e, ..) in &crates {
             commands.entity(e).despawn();
         }
-        return;
-    };
-    if crates.is_empty() {
         let half = shared::ammo::CRATE_HALF_EXTENTS;
-        commands
-            .spawn((
-                StateScoped(AppState::InGame),
-                AmmoCrate,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
-                settings.transform(at),
-            ))
-            .with_child((
-                AmmoCrateCollider,
-                crate::vfx::NoBulletHoles,
-                bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
-                Transform::default(),
-            ));
+        for (i, &at) in wanted.iter().enumerate() {
+            commands
+                .spawn((
+                    StateScoped(AppState::InGame),
+                    AmmoCrate(i),
+                    SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
+                    settings.transform(at),
+                ))
+                .with_child((
+                    AmmoCrateCollider,
+                    crate::vfx::NoBulletHoles,
+                    bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
+                    Transform::default(),
+                ));
+        }
         return;
     }
-    for (_, mut t) in &mut crates {
-        t.set_if_neq(settings.transform(at));
+    for (_, which, mut t) in &mut crates {
+        if let Some(&at) = wanted.get(which.0) {
+            t.set_if_neq(settings.transform(at));
+        }
     }
 }
 
-/// Our points, if we're at the crate in a running `Zombies` game (on a map
-/// with one) with the sniper out and short of ammo.
+/// Our points, if we're at one of the crates in a running `Zombies` game
+/// with the sniper out and short of ammo.
 fn at_crate(
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &Query<&Lobby>,
@@ -148,12 +151,11 @@ fn at_crate(
     player: &Transform,
 ) -> Option<u32> {
     let lobby = zombies_game(local, lobbies)?;
-    let at = crate_on(lobby.map)?;
     let me = local.iter().next()?.0;
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     if weapon.slot != WeaponSlot::Primary
         || weapon.ammo_full(GameMode::Zombies)
-        || !in_reach(at.pos, feet)
+        || !shared::ammo::crates(lobby.map).iter().any(|at| in_reach(at.pos, feet))
     {
         return None;
     }

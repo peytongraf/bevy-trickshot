@@ -145,6 +145,17 @@ fn menu_bar(
                     .chain(ObjectId::REFERENCES)
                     .filter(|o| o.get(ed.doc()).is_none())
                     .collect();
+                // (Ammo crates: one per zone, say.)
+                let crates = ed.doc().layout.ammo_crates.len();
+                let max = shared::level::MAX_AMMO_CRATES;
+                if ui
+                    .add_enabled(crates < max, egui::Button::new(format!("Ammo crate  ({crates}/{max})")))
+                    .on_hover_text("Buy a sniper ammo refill here in a Zombies game — put one in each zone")
+                    .clicked()
+                {
+                    input::add_at_view(ed, ObjectId::AmmoCrate(crates as u8), rapier);
+                    ui.close();
+                }
                 // (Start spots: as many as a lobby holds players.)
                 let spawns = ed.doc().layout.player_spawns.len();
                 let max = shared::level::MAX_PLAYER_SPAWNS;
@@ -371,6 +382,21 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                     }
                 };
                 listed(ui, ed, &ObjectId::OPTIONAL);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("AMMO CRATES").small().color(DIM));
+                    let n = ed.doc().layout.ammo_crates.len();
+                    let room = n < shared::level::MAX_AMMO_CRATES;
+                    if ui.add_enabled(room, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_at_view(ed, ObjectId::AmmoCrate(n as u8), rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::AmmoCrate(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.ammo_crates.is_empty() {
+                    ui.colored_label(DIM, "None — no ammo to buy here");
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("POWER LIGHTS").small().color(DIM));

@@ -305,14 +305,14 @@ pub struct MachineBox {
 }
 
 /// `set`'s machine boxes on `map` (Der Wunderfizz's too for the classic
-/// set), and the Pack-a-Punch's, ammo crate's, Mystery Box's (and the rest's —
+/// set), and the Pack-a-Punch's, ammo crates', Mystery Box's (and the rest's —
 /// armor, exfil radio, crafting table, Rampage Inducer) if it has them.
 fn machine_boxes(map: MapId, set: PerkSet) -> Vec<MachineBox> {
     set.machine_perks()
         .map(|perk| perk.machine_box(map))
         .chain((set == PerkSet::Classic).then(|| shared::wunderfizz::machine_box(map)))
         .chain(shared::pap::machine_box(map))
-        .chain(shared::ammo::crate_box(map))
+        .chain(shared::ammo::crate_boxes(map))
         .chain(shared::mystery_box::solid_box(map))
         .chain(shared::armor::solid_box(map))
         .chain(shared::exfil::radio_box(map))

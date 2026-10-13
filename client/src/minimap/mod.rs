@@ -466,7 +466,7 @@ fn wanted_icons(lobby: &Lobby) -> Vec<IconSpec> {
     let mut icons = Vec::new();
     let mut add = |at: shared::level::Placement, art: IconArt| icons.push(IconSpec { at: at.pos.xz(), art });
     // (Badges first, so the perks' own icons sit over them.)
-    if let Some(at) = layout.ammo_crate {
+    for &at in &layout.ammo_crates {
         add(at, IconArt::BadgeImage("textures/icons/weapons/bullet.png", Color::srgb(0.95, 0.78, 0.35)));
     }
     if let Some(at) = layout.crafting_table {

@@ -419,9 +419,9 @@ pub struct ZombiesLayout {
     /// The Pack-a-Punch machine, if the place has one.
     #[serde(default)]
     pub pack_a_punch: Option<Placement>,
-    /// The ammo crate, if the place has one.
+    /// The ammo crates — one per zone, say — up to [`MAX_AMMO_CRATES`].
     #[serde(default)]
-    pub ammo_crate: Option<Placement>,
+    pub ammo_crates: Vec<Placement>,
     /// The power switch, if the place has one — without one, the power's
     /// always on there ([`crate::power::has_power`]).
     #[serde(default)]
@@ -467,6 +467,9 @@ pub struct ZombiesLayout {
     pub player_spawns: Vec<Placement>,
 }
 
+/// Most ammo crates a layout keeps.
+pub const MAX_AMMO_CRATES: usize = 8;
+
 /// Most player start spots a layout keeps — as many players as a lobby
 /// holds.
 pub const MAX_PLAYER_SPAWNS: usize = 8;
@@ -507,9 +510,9 @@ impl ZombiesLayout {
         let mut out: Vec<(String, &mut Placement)> =
             self.perks.iter_mut().map(|(perk, at)| (perk_size_key(*perk), at)).collect();
         out.push(("wunderfizz".into(), &mut self.wunderfizz));
+        out.extend(self.ammo_crates.iter_mut().map(|at| ("ammo_crate".to_string(), at)));
         for (key, slot) in [
             ("pack_a_punch", &mut self.pack_a_punch),
-            ("ammo_crate", &mut self.ammo_crate),
             ("power_switch", &mut self.power_switch),
             ("mystery_box", &mut self.mystery_box),
             ("armor_station", &mut self.armor_station),
@@ -559,7 +562,11 @@ impl ZombiesLayout {
         out += "    },\n";
         out += &format!("    wunderfizz: {},\n", self.wunderfizz.to_ron());
         out += &format!("    pack_a_punch: {},\n", optional(self.pack_a_punch));
-        out += &format!("    ammo_crate: {},\n", optional(self.ammo_crate));
+        out += "    ammo_crates: [\n";
+        for at in &self.ammo_crates {
+            out += &format!("        {},\n", at.to_ron());
+        }
+        out += "    ],\n";
         out += &format!("    power_switch: {},\n", optional(self.power_switch));
         out += "    wall_buys: [\n";
         for gun in WALL_BUY_WEAPONS {
@@ -668,6 +675,20 @@ pub fn layout(map: MapId) -> &'static ZombiesLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn several_ammo_crates_survive_a_save_and_load() {
+        let mut layout = layout(MapId::BreakPoint).clone();
+        assert_eq!(layout.ammo_crates.len(), 1, "Break Point keeps its crate");
+        layout.ammo_crates.push(Placement::new(Vec3::new(3.0, 0.0, -7.5), 90.0));
+        layout.ammo_crates.push(Placement::new(Vec3::new(-12.25, 1.5, 4.0), -45.0));
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap().sized(sizes());
+        assert_eq!(back.ammo_crates.len(), 3);
+        for (a, b) in layout.ammo_crates.iter().zip(&back.ammo_crates) {
+            assert!(a.pos.distance(b.pos) < 1e-3 && (a.yaw_deg - b.yaw_deg).abs() < 1e-3);
+        }
+        assert_eq!(crate::ammo::crate_boxes(MapId::BreakPoint).count(), 1);
+    }
 
     #[test]
     fn power_lights_survive_a_save_and_load() {

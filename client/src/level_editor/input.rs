@@ -666,7 +666,11 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     let mut ids = editor.selected.clone();
     ids.sort_by_key(|id| {
         std::cmp::Reverse(match id {
-            ObjectId::PlayerSpawn(i) | ObjectId::PowerLight(i) | ObjectId::Flame(i) | ObjectId::Door(i) => *i as i32,
+            ObjectId::AmmoCrate(i)
+            | ObjectId::PlayerSpawn(i)
+            | ObjectId::PowerLight(i)
+            | ObjectId::Flame(i)
+            | ObjectId::Door(i) => *i as i32,
             _ => -1,
         })
     });

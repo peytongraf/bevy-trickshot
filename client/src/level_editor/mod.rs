@@ -118,7 +118,9 @@ pub(crate) enum ObjectId {
     Perk(Perk),
     Wunderfizz,
     PackAPunch,
-    AmmoCrate,
+    /// One of the ammo crates (`ZombiesLayout::ammo_crates`, by index) — as
+    /// many as the map wants, one per zone say.
+    AmmoCrate(u8),
     PowerSwitch,
     MysteryBox,
     ArmorStation,
@@ -168,9 +170,8 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 11] = [
+    pub(crate) const OPTIONAL: [ObjectId; 10] = [
         ObjectId::PackAPunch,
-        ObjectId::AmmoCrate,
         ObjectId::PowerSwitch,
         ObjectId::MysteryBox,
         ObjectId::ArmorStation,
@@ -180,6 +181,18 @@ impl ObjectId {
         ObjectId::RampageInducer,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
+    ];
+
+    /// Names for the ammo crates ([`ObjectId::AmmoCrate`]).
+    const CRATE_LABELS: [&'static str; shared::level::MAX_AMMO_CRATES] = [
+        "Ammo crate 1",
+        "Ammo crate 2",
+        "Ammo crate 3",
+        "Ammo crate 4",
+        "Ammo crate 5",
+        "Ammo crate 6",
+        "Ammo crate 7",
+        "Ammo crate 8",
     ];
 
     /// Names for the start spots ([`ObjectId::PlayerSpawn`]).
@@ -295,7 +308,7 @@ impl ObjectId {
             ObjectId::Perk(p) => p.label(),
             ObjectId::Wunderfizz => "Der Wunderfizz",
             ObjectId::PackAPunch => "Pack-a-Punch",
-            ObjectId::AmmoCrate => "Ammo crate",
+            ObjectId::AmmoCrate(i) => Self::CRATE_LABELS[(i as usize).min(Self::CRATE_LABELS.len() - 1)],
             ObjectId::PowerSwitch => "Power switch",
             ObjectId::MysteryBox => "Mystery Box",
             ObjectId::ArmorStation => "Armor station",
@@ -338,7 +351,7 @@ impl ObjectId {
             ObjectId::Perk(p) => Some(shared::level::perk_size_key(p)),
             ObjectId::Wunderfizz => Some("wunderfizz".into()),
             ObjectId::PackAPunch => Some("pack_a_punch".into()),
-            ObjectId::AmmoCrate => Some("ammo_crate".into()),
+            ObjectId::AmmoCrate(_) => Some("ammo_crate".into()),
             ObjectId::PowerSwitch => Some("power_switch".into()),
             ObjectId::MysteryBox => Some("mystery_box".into()),
             ObjectId::ArmorStation => Some("armor_station".into()),
@@ -366,14 +379,17 @@ impl ObjectId {
             || self.is_reference()
             || matches!(
                 self,
-                ObjectId::PlayerSpawn(_) | ObjectId::PowerLight(_) | ObjectId::Flame(_) | ObjectId::Door(_)
+                ObjectId::AmmoCrate(_)
+                    | ObjectId::PlayerSpawn(_)
+                    | ObjectId::PowerLight(_)
+                    | ObjectId::Flame(_)
+                    | ObjectId::Door(_)
             )
     }
 
     fn slot(self, layout: &mut ZombiesLayout) -> Option<&mut Option<Placement>> {
         match self {
             ObjectId::PackAPunch => Some(&mut layout.pack_a_punch),
-            ObjectId::AmmoCrate => Some(&mut layout.ammo_crate),
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
             ObjectId::MysteryBox => Some(&mut layout.mystery_box),
             ObjectId::ArmorStation => Some(&mut layout.armor_station),
@@ -414,7 +430,7 @@ impl ObjectId {
             ObjectId::Perk(p) => layout.perks.get(&p).copied(),
             ObjectId::Wunderfizz => Some(layout.wunderfizz),
             ObjectId::PackAPunch => layout.pack_a_punch,
-            ObjectId::AmmoCrate => layout.ammo_crate,
+            ObjectId::AmmoCrate(i) => layout.ammo_crates.get(i as usize).copied(),
             ObjectId::PowerSwitch => layout.power_switch,
             ObjectId::MysteryBox => layout.mystery_box,
             ObjectId::ArmorStation => layout.armor_station,
@@ -437,6 +453,15 @@ impl ObjectId {
             }
             ObjectId::Wunderfizz => layout.wunderfizz = at,
             ObjectId::WallBuy(gun) => layout.set_wall_buy(gun, at),
+            // (A new one goes on the end.)
+            ObjectId::AmmoCrate(i) => {
+                let crates = &mut layout.ammo_crates;
+                if let Some(c) = crates.get_mut(i as usize) {
+                    *c = at;
+                } else if crates.len() < shared::level::MAX_AMMO_CRATES {
+                    crates.push(at);
+                }
+            }
             // (Keeping its size; a new one's the default size.)
             // (A new one goes on the end.)
             ObjectId::PlayerSpawn(i) => {
@@ -492,6 +517,10 @@ impl ObjectId {
         if self == ObjectId::ExfilArea {
             return layout.exfil_area.take().is_some();
         }
+        if let ObjectId::AmmoCrate(i) = self {
+            let i = i as usize;
+            return (i < layout.ammo_crates.len()).then(|| layout.ammo_crates.remove(i)).is_some();
+        }
         if let ObjectId::PlayerSpawn(i) = self {
             let i = i as usize;
             return (i < layout.player_spawns.len()).then(|| layout.player_spawns.remove(i)).is_some();
@@ -525,7 +554,7 @@ impl ObjectId {
             ObjectId::Perk(p) => perk_color(p),
             ObjectId::Wunderfizz => Color::srgb(0.62, 0.22, 1.0),
             ObjectId::PackAPunch => crate::pap::PAP_BLUE,
-            ObjectId::AmmoCrate => Color::srgb(0.55, 0.8, 0.35),
+            ObjectId::AmmoCrate(_) => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
             ObjectId::MysteryBox => crate::mystery_box::AMBER,
             ObjectId::ArmorStation => crate::armor::ARMOR_BLUE,
@@ -593,7 +622,7 @@ impl ObjectId {
             ),
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
-            ObjectId::AmmoCrate => standing(shared::ammo::CRATE_HALF_EXTENTS),
+            ObjectId::AmmoCrate(_) => standing(shared::ammo::CRATE_HALF_EXTENTS),
             ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
             ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
             ObjectId::CraftingTable => standing(shared::crafting::HALF_EXTENTS),
@@ -629,6 +658,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
         out.push(ObjectId::Wunderfizz);
     }
     out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(doc).is_some()));
+    out.extend((0..doc.layout.ammo_crates.len() as u8).map(ObjectId::AmmoCrate));
     out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
     out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
     out.extend((0..doc.layout.flames.len() as u8).map(ObjectId::Flame));
@@ -1219,7 +1249,7 @@ fn model_of(
         ObjectId::Perk(p) => (machine_model(p).0, machines.model_transform(p)),
         ObjectId::Wunderfizz => (WUNDERFIZZ_MODEL, machines.wunderfizz_model_transform()),
         ObjectId::PackAPunch => (PAP_MODEL, pap.model_transform()),
-        ObjectId::AmmoCrate => (AMMO_CRATE_MODEL, ammo.model_transform()),
+        ObjectId::AmmoCrate(_) => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
         ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
         ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),

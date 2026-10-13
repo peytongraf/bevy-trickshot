@@ -6,6 +6,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
+- Multiple ammo crates per map
 - Power-ups drop out of reach on knife kills
 - Forgiving Ray Gun hits
 - No bullet holes on placed objects, smaller holes
@@ -20,7 +21,6 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
-- add ammo crates to each zone
 - 2 times going up to juggernog has caused damage with no zombie nearby
 - Add debris fall when a door opens
 - add penetration to shots so that a round can go through one zombie and still damage another but not as much. At some point it shouldn’t be able to go through any more zombies

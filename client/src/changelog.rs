@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Level editor: place as many ammo crates as you like — one for each zone.",
         "Zombies: power-ups from zombies you knife or kill up close drop just out of reach, so grabbing them is your choice.",
         "Zombies: the Ray Gun is more forgiving — a shot just off a zombie still hits it.",
         "Der Tempel by day has a softer, hazier look with a light mist over the floor.",
