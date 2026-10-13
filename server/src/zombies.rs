@@ -11,6 +11,13 @@
 //! connected to them. Once a round's zombies are all dead, a short break,
 //! then the next round.
 //!
+//! A zombie left far behind — [`RECYCLE_DIST`] from every living player, and
+//! out of every one's sight, for [`RECYCLE_AFTER_SECS`] — is brought back in
+//! (Cold War's way): it's quietly taken away where no one can see it and
+//! rises again near the party, as hurt as it was, so the round doesn't stall
+//! on a straggler across the map ([`recycle_far_zombies`]). Dogs and bosses
+//! aren't.
+//!
 //! Every fifth round is a dog round instead (`shared::dogs`): only
 //! hellhounds come, each announced by a lightning strike where it'll appear
 //! — this queues them ([`PendingDog`]); `crate::dogs` strikes the lightning,
@@ -36,6 +43,7 @@ use lightyear::prelude::*;
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty, BotSkill};
 use shared::bots::rand01;
 use shared::exfil::Exfil;
+use shared::map::CollisionWorld;
 use shared::{
     AmmoBought, BuyAmmo, BuyDoor, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
     PlayerName, PlayerPose, ProneAtPerk, ProneBonus,
@@ -52,6 +60,15 @@ const SPAWN_MIN_DIST: f32 = 12.0;
 const SPAWN_MAX_DIST: f32 = 30.0;
 /// ...and it never comes up closer than this to *any* living player.
 const SPAWN_CLEAR_OF_PLAYERS: f32 = 8.0;
+/// A zombie at least this far (m) from every living player...
+const RECYCLE_DIST: f32 = 35.0;
+/// ...that none of them can see — a clear line from their eyes to its head
+/// or chest, within this far (m) —...
+const RECYCLE_SEE_DIST: f32 = 100.0;
+/// ...for this long (s) on end is brought back in near them.
+const RECYCLE_AFTER_SECS: f32 = 6.0;
+/// How often (s) each zombie's checked for it.
+const RECYCLE_CHECK_SECS: f32 = 0.5;
 /// Seconds a zombie takes to climb out of the ground.
 const RISE_SECS: f32 = shared::zombies::ZOMBIE_RISE_SECS;
 /// Seconds before round 1's first zombie, once everyone has loaded in.
@@ -109,6 +126,11 @@ pub fn zombie_skill(round: u32) -> BotSkill {
 /// On a zombie's player entity (a dog-round hellhound's too).
 #[derive(Component)]
 pub struct Zombie;
+
+/// How long (s) a zombie's been far from and out of sight of every living
+/// player, without a break ([`recycle_far_zombies`]).
+#[derive(Component, Default)]
+struct OutOfTouch(f32);
 
 /// A dog round's hellhound, struck in by lightning but not here yet: it
 /// appears at `feet`, facing `yaw`, at `spawn_at` (`Time::elapsed_secs`).
@@ -190,7 +212,9 @@ impl Plugin for ZombiesPlugin {
             .add_observer(on_prone_at_perk)
             .add_systems(
                 FixedUpdate,
-                (run_rounds, clear_dead_zombies, cull_zombies).before(crate::ai::drive_bots),
+                (run_rounds, recycle_far_zombies, clear_dead_zombies, cull_zombies)
+                    .chain()
+                    .before(crate::ai::drive_bots),
             )
             .add_systems(
                 FixedUpdate,
@@ -583,7 +607,7 @@ fn spawn_zombie(
     near: Vec3,
     seed: u64,
     now: f32,
-) {
+) -> Entity {
     let peer = bot_peer(next_id.0);
     next_id.0 += 1;
     // How fast (the round's speed, give or take a little), and so
@@ -615,7 +639,101 @@ fn spawn_zombie(
         shared::PlayerHealth(shared::zombies::zombie_health(round)),
         Replicate::to_clients(NetworkTarget::Only(real.clone())),
         InterpolationTarget::to_clients(NetworkTarget::Only(real)),
-    ));
+        OutOfTouch::default(),
+    ))
+    .id()
+}
+
+/// Bring each straggler back in: a plain zombie (not a dog or a boss, nor
+/// one rising or doomed by a Nuke) that's been [`RECYCLE_DIST`] from every
+/// living player and out of all their sight for [`RECYCLE_AFTER_SECS`] is
+/// taken away — where no one sees it go — and rises again near a random one
+/// of them, wherever a new zombie would, with the health it had left. (The
+/// round sees one zombie gone and one come in the same tick: nothing
+/// changes in its count.)
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn recycle_far_zombies(
+    time: Res<Time>,
+    mut since_check: Local<f32>,
+    navs: Res<NavGraphs>,
+    colliders: Res<crate::collision::MapColliders>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut next_id: ResMut<NextBotId>,
+    lobbies: Query<(&Lobby, &ZombieRounds)>,
+    players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
+    mut zombies: Query<
+        (Entity, &PlayerPose, &LobbyPlayer, &PlayerCombat, &mut OutOfTouch),
+        (
+            With<Zombie>,
+            Without<crate::dogs::Dog>,
+            Without<crate::boss::Boss>,
+            Without<crate::power_ups::NukeDeath>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    *since_check += time.delta_secs();
+    if *since_check < RECYCLE_CHECK_SECS {
+        return;
+    }
+    let step = std::mem::take(&mut *since_check);
+    let now = time.elapsed_secs();
+    for (zombie_e, pose, lp, combat, mut out) in &mut zombies {
+        let Ok((lobby, rounds)) = lobbies.get(lp.lobby) else { continue };
+        if !lobby.started || lobby.mode != GameMode::Zombies || lobby.paused || endings.is_ending(lp.lobby) {
+            continue;
+        }
+        if !combat.alive || pose.zombie == shared::ZombieAnim::Rising {
+            out.0 = 0.0;
+            continue;
+        }
+        // Living players' eyes in its game.
+        let eyes: Vec<Vec3> = players
+            .iter()
+            .filter(|(id, _, plp, c)| plp.lobby == lp.lobby && !is_bot_peer(id.0) && c.alive)
+            .map(|(_, p, ..)| p.translation)
+            .collect();
+        if eyes.is_empty() {
+            continue;
+        }
+        let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+        let world = colliders.for_lobby(lobby);
+        let near = eyes.iter().any(|e| (*e - Vec3::Y * EYE_HEIGHT).distance(feet) < RECYCLE_DIST);
+        let seen = || {
+            eyes.iter().any(|&eye| {
+                [feet + Vec3::Y * 1.6, feet + Vec3::Y * 1.0]
+                    .into_iter()
+                    .any(|part| eye.distance(part) <= RECYCLE_SEE_DIST && !world.segment_blocked(eye, part))
+            })
+        };
+        if near || seen() {
+            out.0 = 0.0;
+            continue;
+        }
+        out.0 += step;
+        if out.0 < RECYCLE_AFTER_SECS {
+            continue;
+        }
+        // Somewhere a new zombie would come up near the party.
+        let living: Vec<Vec3> = eyes.iter().map(|e| *e - Vec3::Y * EYE_HEIGHT).collect();
+        let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ zombie_e.to_bits() ^ 0x7ec1;
+        let nav = navs.graph(lobby.map);
+        let reach = nav.reachable_zones(lobby.doors_open);
+        let Some((to, facing)) = pick_spawn(nav, reach.as_deref(), &living, seed) else {
+            // (Nowhere this time: tried again at the next check.)
+            continue;
+        };
+        let round = rounds.enemy_round().max(lobby.start_round).max(1);
+        commands.entity(zombie_e).despawn();
+        let fresh = spawn_zombie(&mut commands, &mut next_id, lp.lobby, lobby, round, to, facing, seed, now);
+        // As hurt as it was.
+        let max = shared::zombies::zombie_health(round);
+        let health = combat.health.min(max);
+        let mut kept = PlayerCombat::zombie(max);
+        kept.health = health;
+        commands.entity(fresh).insert((kept, shared::PlayerHealth(health)));
+        debug!("lobby {:?}: a straggler zombie came back in at {to}", lp.lobby);
+    }
 }
 
 /// Set up `rounds`' (just started) round's bosses, for `members` players:
