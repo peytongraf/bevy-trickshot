@@ -27,7 +27,7 @@ use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
 use shared::power_ups::{
-    in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, DROP_LIFETIME_SECS, NUKE_KILL_SECS,
+    drop_spot, in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, DROP_LIFETIME_SECS, NUKE_KILL_SECS,
     NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
 };
 use shared::{
@@ -91,11 +91,14 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
 }
 
 /// Maybe drop a power-up where each zombie a player killed fell (never on
-/// a dog round).
+/// a dog round) — or, if a player's close enough to grab it there at once,
+/// just out of their reach ([`drop_spot`]).
 fn roll_drops(
     time: Res<Time>,
     mut kills: EventReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
+    colliders: Res<crate::collision::MapColliders>,
+    players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
     mut commands: Commands,
 ) {
     for (i, ev) in kills.read().enumerate() {
@@ -112,11 +115,20 @@ fn roll_drops(
         let Some(kind) = roll(shared::bots::rand01(seed), lobby.power_up_test) else {
             continue;
         };
+        // (Who could grab it — the same players `run_power_ups` lets.)
+        let feet: Vec<Vec3> = players
+            .iter()
+            .filter(|(id, _, lp, combat)| {
+                lp.lobby == ev.lobby && !is_bot_peer(id.0) && combat.is_none_or(|c| c.alive)
+            })
+            .map(|(_, pose, ..)| pose.translation - Vec3::Y * EYE_HEIGHT)
+            .collect();
+        let pos = drop_spot(ev.feet, &feet, &colliders.for_lobby(lobby));
         commands.spawn((
             Name::from("PowerUpDrop"),
             PowerUpDrop {
                 kind,
-                pos: ev.feet,
+                pos,
                 blinking: false,
             },
             DropSim {

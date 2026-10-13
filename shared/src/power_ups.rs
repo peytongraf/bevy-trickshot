@@ -11,12 +11,18 @@
 //!   and no more rise for [`NUKE_SPAWN_PAUSE_SECS`].
 //! * **Bonus Points** — [`BONUS_POINTS`] for whoever grabbed it.
 //!
+//! A drop that would land within a player's reach — a zombie knifed, or shot
+//! point blank — is set down just out of it instead ([`drop_spot`]), so
+//! picking it up stays their choice.
+//!
 //! The server owns all of it (`server::power_ups`); clients draw the drops
 //! ([`crate::PowerUpDrop`]), play the sounds on [`crate::PowerUpGrabbed`], and
 //! show the running timers from [`crate::Lobby::active_power_ups`].
 
-use bevy::math::Vec3;
+use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
+
+use crate::map::CollisionWorld;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PowerUp {
@@ -49,6 +55,12 @@ pub const NUKE_SPAWN_PAUSE_SECS: f32 = NUKE_KILL_SECS;
 pub const PICKUP_RADIUS: f32 = 1.4;
 /// ...and how far (m) above or below it.
 pub const PICKUP_HEIGHT: f32 = 2.0;
+/// A drop moved out of a player's reach ([`drop_spot`]) lands this much (m)
+/// past it — a step away.
+pub const DROP_CLEARANCE: f32 = 0.6;
+/// ...on ground at most this far (m) above or below where the zombie fell
+/// (not down off a ledge, nor up on one).
+const DROP_STEP: f32 = 1.0;
 
 impl PowerUp {
     pub const ALL: [PowerUp; 5] = [
@@ -112,9 +124,118 @@ pub fn in_pickup_range(feet: Vec3, drop: Vec3) -> bool {
     Vec3::new(d.x, 0.0, d.z).length() <= PICKUP_RADIUS && d.y.abs() <= PICKUP_HEIGHT
 }
 
+/// Where a power-up a zombie dropped at `feet` lands: right there — unless
+/// one of the living players (feet at `players`) could already grab it
+/// there, when it's set down just out of reach of the nearest of them,
+/// straight on past the zombie from them if there's room, or swung round
+/// them to the first open floor that is (clear of the walls, on ground about
+/// level with the zombie's, out of everyone's reach). Nowhere like that:
+/// right there after all.
+pub fn drop_spot(feet: Vec3, players: &[Vec3], world: &dyn CollisionWorld) -> Vec3 {
+    let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    let Some(&nearest) = players
+        .iter()
+        .filter(|&&p| in_pickup_range(p, feet))
+        .min_by(|a, b| flat(feet - **a).length().total_cmp(&flat(feet - **b).length()))
+    else {
+        return feet;
+    };
+    let away = flat(feet - nearest).try_normalize().unwrap_or(Vec3::X);
+    let chest = feet + Vec3::Y;
+    // Straight on, then further round each side in 30° steps.
+    let turns = std::iter::once(0).chain((1..=6).flat_map(|k| [k, -k]));
+    turns
+        .filter_map(|k: i32| {
+            let dir = Quat::from_rotation_y(k as f32 * 30f32.to_radians()) * away;
+            let above = Vec3::new(nearest.x, feet.y, nearest.z) + dir * (PICKUP_RADIUS + DROP_CLEARANCE) + Vec3::Y * DROP_STEP;
+            if world.segment_blocked(chest, above) {
+                return None;
+            }
+            let ground = world.raycast(above, Vec3::NEG_Y, DROP_STEP * 2.0)?;
+            let spot = above - Vec3::Y * ground.distance;
+            (!players.iter().any(|&p| in_pickup_range(p, spot))).then_some(spot)
+        })
+        .next()
+        .unwrap_or(feet)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::map::{RayHit, WorldHit};
+
+    /// A floor at `y = 0` (with a drop-off past `x <= ledge`, if one), and
+    /// optionally a wall filling `x >= wall`.
+    struct World {
+        wall: Option<f32>,
+        ledge: Option<f32>,
+    }
+
+    impl CollisionWorld for World {
+        fn segment_blocked(&self, a: Vec3, b: Vec3) -> bool {
+            self.wall.is_some_and(|w| a.x.max(b.x) >= w)
+        }
+
+        fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RayHit> {
+            if self.wall.is_some_and(|w| origin.x >= w) || self.ledge.is_some_and(|l| origin.x <= l) {
+                return None;
+            }
+            (dir.y < 0.0 && origin.y >= 0.0)
+                .then(|| origin.y / -dir.y)
+                .filter(|d| *d <= max_dist)
+                .map(|distance| RayHit { distance, normal: Vec3::Y })
+        }
+
+        fn sweep_sphere(&self, _from: Vec3, _to: Vec3, _radius: f32) -> Option<WorldHit> {
+            None
+        }
+    }
+
+    const OPEN: World = World { wall: None, ledge: None };
+
+    #[test]
+    fn a_drop_out_of_everyones_reach_stays_where_the_zombie_fell() {
+        let feet = Vec3::new(5.0, 0.0, 0.0);
+        assert_eq!(drop_spot(feet, &[Vec3::ZERO], &OPEN), feet);
+        assert_eq!(drop_spot(feet, &[], &OPEN), feet);
+    }
+
+    #[test]
+    fn a_knifed_zombies_drop_lands_just_out_of_reach_beyond_it() {
+        let me = Vec3::ZERO;
+        let feet = Vec3::new(1.0, 0.0, 0.0);
+        let spot = drop_spot(feet, &[me], &OPEN);
+        assert!(!in_pickup_range(me, spot), "{spot}");
+        assert!((spot - Vec3::X * (PICKUP_RADIUS + DROP_CLEARANCE)).length() < 1e-4, "{spot}");
+    }
+
+    #[test]
+    fn a_wall_behind_the_zombie_swings_the_drop_round_and_never_into_reach() {
+        let me = Vec3::ZERO;
+        let feet = Vec3::new(1.0, 0.0, 0.0);
+        let world = World { wall: Some(1.5), ledge: None };
+        let spot = drop_spot(feet, &[me], &world);
+        assert!(spot.x < 1.5 && !in_pickup_range(me, spot), "{spot}");
+        assert!(spot.y.abs() < 1e-4);
+        // Nor off a drop-off.
+        let world = World { wall: Some(1.5), ledge: Some(-0.5) };
+        let spot = drop_spot(feet, &[me], &world);
+        assert!(spot.x > -0.5 && spot.x < 1.5 && !in_pickup_range(me, spot), "{spot}");
+    }
+
+    #[test]
+    fn a_drop_stays_out_of_every_players_reach() {
+        let players = [Vec3::ZERO, Vec3::new(2.4, 0.0, 0.0)];
+        let spot = drop_spot(Vec3::new(1.0, 0.0, 0.0), &players, &OPEN);
+        assert!(players.iter().all(|&p| !in_pickup_range(p, spot)), "{spot}");
+    }
+
+    #[test]
+    fn boxed_in_it_stays_where_the_zombie_fell() {
+        let feet = Vec3::new(1.0, 0.0, 0.0);
+        let world = World { wall: Some(-10.0), ledge: None };
+        assert_eq!(drop_spot(feet, &[Vec3::ZERO], &world), feet);
+    }
 
     #[test]
     fn chances_differ_and_stay_small() {
