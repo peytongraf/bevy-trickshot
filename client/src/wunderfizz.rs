@@ -160,6 +160,7 @@ fn sync_wunderfizz_machine(
                 // Solid, like a perk machine (the server has the same box,
                 // `server::collision`).
                 m.spawn((
+                    crate::vfx::NoBulletHoles,
                     bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                     Transform::from_xyz(0.0, half.y, 0.0),
                 ));

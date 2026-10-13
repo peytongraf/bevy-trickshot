@@ -17,6 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Der Tempel by day has a softer, hazier look with a light mist over the floor.",
+        "Bullet holes no longer hang off the edge of walls and corners.",
+        "Smaller bullet holes, and no more floating ones on perk machines and other objects.",
+        "Zombies: dogs are quicker from the start, but can no longer outrun a sprinting player.",
+        "Tidied up the \"power must be activated first\" message.",
         "Der Tempel at night has a low, patchy mist lying over the floor (can be turned off in Graphics).",
         "Zombies: buy sliding doors open to reach more of the map — zombies only come from areas you can get to.",
         "Level editor: place doors, sized to any doorway, with their cost, slide direction and whether they need the power.",

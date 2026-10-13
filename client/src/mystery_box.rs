@@ -222,6 +222,7 @@ fn sync_mystery_box(
             b.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(MYSTERY_BOX_MODEL))));
             // Solid — the server's `shared::mystery_box::solid_box`.
             b.spawn((
+                crate::vfx::NoBulletHoles,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                 Transform::from_translation(Vec3::Y * half.y),
             ));

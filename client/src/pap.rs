@@ -207,6 +207,7 @@ fn sync_pap_machine(
                 let half = settings.half_extents();
                 m.spawn((
                     PapCollider,
+                    crate::vfx::NoBulletHoles,
                     bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                     Transform::from_xyz(0.0, half.y, 0.0),
                 ));

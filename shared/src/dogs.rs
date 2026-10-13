@@ -1,9 +1,9 @@
 //! `Zombies` hellhound rounds: every fifth round ([`is_dog_round`]) sends
 //! only dogs — a few at first, more each dog round ([`dogs_in_round`]). Each
 //! one is announced by a lightning strike where it's about to appear (for
-//! [`DOG_PRE_SPAWN_SECS`]), then appears there in a flash. A dog runs a
-//! little faster than the round's zombies ([`dog_speed`]) and, instead of
-//! swiping, blows up once it's within [`DOG_EXPLODE_RANGE`] of a player,
+//! [`DOG_PRE_SPAWN_SECS`]), then appears there in a flash. A dog runs fast
+//! from the start but never past a sprinting player ([`dog_speed`]) and,
+//! instead of swiping, blows up once it's within [`DOG_EXPLODE_RANGE`] of a player,
 //! hurting everyone within [`DOG_BLAST_RADIUS`]. Killed, it blows up too
 //! (harmlessly) — either way it's gone on the spot.
 //!
@@ -11,7 +11,7 @@
 //! the client's effects agree. Dogs are zombies as far as everything else
 //! is concerned (scoring, power-up drops, "enemies left").
 
-use crate::zombies::{round_speed, zombie_health, ZOMBIE_MAX_SPEED, ZOMBIE_RUN_SPEED};
+use crate::zombies::{round_speed, zombie_health};
 
 /// Every this-many rounds is a dog round.
 pub const DOG_ROUND_EVERY: u32 = 5;
@@ -32,14 +32,16 @@ pub fn dogs_in_round(round: u32, players: usize) -> u32 {
 /// length of the pre-spawn sound (`audio/zombies/dogs/pre_spawn.mp3`).
 pub const DOG_PRE_SPAWN_SECS: f32 = 5.35;
 
-/// Every dog speed below is this much faster than it first was.
-const DOG_SPEED_BOOST: f32 = 1.5;
-/// Slowest and fastest (m/s) a dog runs: always well past a zombie runner's
-/// pace, at most well past the fastest zombie.
-pub const DOG_MIN_SPEED: f32 = (ZOMBIE_RUN_SPEED + 0.5) * DOG_SPEED_BOOST;
-pub const DOG_MAX_SPEED: f32 = ZOMBIE_MAX_SPEED * 1.15 * DOG_SPEED_BOOST;
-/// How much faster than the round's zombies a dog is.
-pub const DOG_SPEED_MULT: f32 = 1.15 * DOG_SPEED_BOOST;
+/// A player's sprint speed (m/s) with no perks — the client's
+/// `DEFAULT_SPRINT_SPEED`.
+pub const PLAYER_SPRINT_SPEED: f32 = 9.0;
+/// Slowest and fastest (m/s) a dog runs: from the very first dog round a
+/// good deal quicker than a zombie runner (`ZOMBIE_RUN_SPEED`), but never faster than a
+/// sprinting player — sprinting always keeps pace, and perks pull away.
+pub const DOG_MIN_SPEED: f32 = 7.0;
+pub const DOG_MAX_SPEED: f32 = PLAYER_SPRINT_SPEED;
+/// How much faster than the round's zombies a dog is (until it tops out).
+pub const DOG_SPEED_MULT: f32 = 1.725;
 /// Each dog's own speed is its round's ± this fraction.
 pub const DOG_SPEED_VARIANCE: f32 = 0.08;
 
@@ -66,6 +68,7 @@ pub const DOG_BLAST_RADIUS: f32 = 2.5;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::zombies::ZOMBIE_RUN_SPEED;
 
     #[test]
     fn every_fifth_round_is_a_dog_round() {
@@ -87,13 +90,15 @@ mod tests {
     }
 
     #[test]
-    fn dogs_outrun_the_rounds_zombies_and_stay_in_bounds() {
+    fn dogs_start_fast_but_never_outrun_a_sprinting_player() {
+        assert!(DOG_MIN_SPEED > ZOMBIE_RUN_SPEED);
+        assert!(DOG_MAX_SPEED <= PLAYER_SPRINT_SPEED);
         for round in [5, 10, 20, 35, 50, 100] {
             for roll in [0.0, 0.5, 0.999] {
                 let s = dog_speed(round, roll);
                 assert!((DOG_MIN_SPEED..=DOG_MAX_SPEED).contains(&s), "round {round}: {s}");
             }
-            assert!(dog_speed(round, 0.5) > round_speed(round), "round {round}");
+            assert!(dog_speed(round, 0.5) >= round_speed(round).min(DOG_MAX_SPEED), "round {round}");
         }
     }
 

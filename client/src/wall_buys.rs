@@ -163,10 +163,12 @@ fn sync_wall_buy_signs(
                 sign.spawn(decal(wall_buy.weapon, &assets));
                 // Solid: the post, and the board up top.
                 sign.spawn((
+                    crate::vfx::NoBulletHoles,
                     bevy_rapier3d::prelude::Collider::cuboid(0.08, 0.8, 0.08),
                     Transform::from_xyz(0.0, 0.8, -0.03),
                 ));
                 sign.spawn((
+                    crate::vfx::NoBulletHoles,
                     bevy_rapier3d::prelude::Collider::cuboid(1.0, 0.65, 0.09),
                     Transform::from_xyz(-0.02, 2.16, 0.04),
                 ));

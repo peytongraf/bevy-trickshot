@@ -127,6 +127,7 @@ fn sync_armor_station(
             ));
             // Solid — the server's `shared::armor::solid_box`.
             s.spawn((
+                crate::vfx::NoBulletHoles,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                 Transform::from_translation(Vec3::Y * half.y),
             ));

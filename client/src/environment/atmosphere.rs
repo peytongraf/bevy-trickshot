@@ -113,8 +113,8 @@ impl SceneTuning {
                 sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
             },
             // A clear mid-day with great visibility — the fog's pushed out to
-            // tens of kilometres. (Der Tempel by day starts out the same.)
-            MapId::BreakPoint | MapId::DerTempelDay => Self {
+            // tens of kilometres.
+            MapId::BreakPoint => Self {
                 fog_visibility_m: 40_000.0,
                 // r225 g240 b255 (0-255) — a pale, cool sky-blue (barely visible).
                 fog_color: srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0)),
@@ -128,6 +128,40 @@ impl SceneTuning {
                 bloom_intensity: 0.075,
                 ground_fog: GroundFogLook::off(),
                 sky: SkyLook::clear(srgb_parts(Color::srgb(225.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0))),
+            },
+            // A soft, hazy day: a warm dusty fog a few kilometres out, a gentle
+            // sun and the faintest mist over the temple floor.
+            MapId::DerTempelDay => Self {
+                fog_visibility_m: 5000.0,
+                fog_color: [0.7991695, 0.7551609, 0.70117474],
+                fog_sun_exponent: 2.0,
+                sun_lux: 5000.0,
+                sun_color: [0.98039216, 0.9411765, 0.87058824],
+                ambient_color: [0.8156863, 0.84313726, 0.9098039],
+                ambient_lux: 100.0,
+                bloom_intensity: 0.14,
+                ground_fog: GroundFogLook {
+                    density: 0.001,
+                    base_height: 0.0,
+                    falloff_height: 5.0,
+                    color: [0.6, 0.62, 0.66],
+                    brightness: 1.0,
+                    max_distance: 150.0,
+                    max_opacity: 0.03,
+                    splotch_size: 9.0,
+                    splotchiness: 0.82,
+                    contrast: 2.0,
+                    seed: 480,
+                    drift_speed: 0.0,
+                    drift_dir_deg: 0.0,
+                },
+                sky: SkyLook {
+                    brightness: 0.7,
+                    tint: [1.0, 1.0, 1.0],
+                    yaw_deg: 60.0,
+                    haze: 0.03,
+                    haze_color: [0.88235295, 0.94117635, 1.0],
+                },
             },
             // Pitch dark: a thick near-black fog close in, a dim grey ambient
             // fill and a barely-there sky — the gun flashlights do the lighting.

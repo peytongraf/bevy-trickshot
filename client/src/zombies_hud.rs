@@ -1075,6 +1075,7 @@ fn spawn_perk_machine(
             ));
             m.spawn((
                 MachinePart::Collider,
+                crate::vfx::NoBulletHoles,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                 settings.part_transform(MachinePart::Collider),
             ));
@@ -1168,8 +1169,10 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
             row.spawn((
                 NoPowerPrompt,
                 Node {
-                    padding: UiRect::axes(Val::Px(22.0), Val::Px(12.0)),
+                    padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
                     border: UiRect::all(Val::Px(2.0)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
@@ -1177,7 +1180,12 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
-            .with_child((Text::new("THE POWER MUST BE ACTIVATED FIRST"), heading(26.0), TextColor(Color::WHITE)));
+            .with_child((
+                Text::new("THE POWER MUST BE ACTIVATED FIRST"),
+                heading(22.0),
+                TextLayout::new_with_justify(JustifyText::Center),
+                TextColor(Color::WHITE),
+            ));
             row.spawn((
                 PerkCard,
                 Node {

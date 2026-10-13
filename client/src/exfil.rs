@@ -113,6 +113,7 @@ fn sync_radio(
         .with_children(|r| {
             r.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RADIO_MODEL))));
             r.spawn((
+                crate::vfx::NoBulletHoles,
                 Collider::cuboid(half.x, half.y, half.z),
                 Transform::from_translation(Vec3::Y * half.y),
             ));

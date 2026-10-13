@@ -128,6 +128,7 @@ fn sync_ammo_crate(
             ))
             .with_child((
                 AmmoCrateCollider,
+                crate::vfx::NoBulletHoles,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                 Transform::default(),
             ));

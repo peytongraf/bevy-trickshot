@@ -156,6 +156,7 @@ fn spawn_door(commands: &mut Commands, asset_server: &AssetServer, index: usize,
                     ));
                     panel.spawn((
                         DoorCollider,
+                        crate::vfx::NoBulletHoles,
                         Collider::cuboid(half.x, half.y, half.z),
                         Transform::from_xyz(0.0, half.y, 0.0),
                     ));

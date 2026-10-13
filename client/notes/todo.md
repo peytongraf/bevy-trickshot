@@ -6,23 +6,42 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Zombies circle monkey bomb
-- No lights on day maps
-- Shipment Night lights on power + in editor
+- No bullet holes on placed objects, smaller holes
+- Bullet holes stay off edges
+- Smaller, centered "power first" popup
+- Dog speed retune
 
 # Current todo
-
-- Add new radio quotes
-- "Power must be activated first" ui should have a smaller background and text should be centered.
 
 # Added
 
 - Raygun should fire a larger projectile ( doesn't have to be seen visually ) so that even if aim is off a little bit enemies will be hit
-- Create new rampage inducer music
+- When knifing zombies and a power up pops up the player instantly activates it even if they don’t want to. See how cod handles power up spawn position on zombie kill / knife kill
+- On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
-- Make hd staminup model
+- mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
+- add ammo crates to each zone
+- 2 times going up to juggernog has caused damage with no zombie nearby
+- Add debris fall when a door opens
+- add penetration to shots so that a round can go through one zombie and still damage another but not as much. At some point it shouldn’t be able to go through any more zombies
+- When zombies are far away from all players and no lobby member can see them, they should respawn closer to a player
+- look into using different footstep sounds based on surface
+- Look into using reverb on sounds based on location like in the echoey tomb
+
+# Asset todo
+
+- Add new radio quotes
+- railing in temple at the top of the stairs is too high
+- add red lights in tomb
+- Add more fire pits
+- Add wall to room the exposed part of the pyramid since enemies keep getting caught on it
+- Add walls alll the way around so a player can’t fall out
 - Make a better blood overlay
-- Some objects shouldn't get bullet holes when shot. For instance they don't look right on some perk machines.
+- could update pap camos
+- Make hd staminup model
+- Could use the part above the temple that isn’t used
+- Add underground connection where speed color is to other parts of the map
+- Finish other side of map but could keep it dark to keep fog look or at least allow the player to go out in the fog for something like a trap
 
 # Performance
 
@@ -59,6 +78,8 @@ Also, only do one todo at a time. I will test the changes by running the client 
 - Add killchains
 
 ## Sound
+
+- Create new rampage inducer music
 
 - Level out perk jingle sound volumes
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.

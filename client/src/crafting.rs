@@ -130,6 +130,7 @@ fn sync_crafting_table(
                 model_transform(),
             ));
             t.spawn((
+                crate::vfx::NoBulletHoles,
                 bevy_rapier3d::prelude::Collider::cuboid(half.x, half.y, half.z),
                 Transform::from_translation(Vec3::Y * half.y),
             ));

@@ -216,6 +216,7 @@ fn sync_inducer(
         .with_children(|m| {
             m.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RAMPAGE_MODEL))));
             m.spawn((
+                crate::vfx::NoBulletHoles,
                 Collider::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z),
                 Transform::from_translation(Vec3::Y * HALF_EXTENTS.y),
             ));

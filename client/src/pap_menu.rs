@@ -189,6 +189,8 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             col.spawn((
                 Node {
                     padding: UiRect::axes(Val::Px(40.0), Val::Px(10.0)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
                 BackgroundColor(PROMPT_LINE_BG),
@@ -196,6 +198,7 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_child((
                 PapPromptText,
                 Text::new(""),
+                TextLayout::new_with_justify(JustifyText::Center),
                 TextFont {
                     font: body,
                     font_size: 24.0,

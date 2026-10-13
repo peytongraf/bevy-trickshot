@@ -778,6 +778,7 @@ fn receive_shots(
                 holes.write(crate::BulletImpact {
                     point: Vec3::from_array(point),
                     normal: Vec3::from_array(normal),
+                    dir: Vec3::from_array(point) - Vec3::from_array(msg.origin),
                 });
             }
             let start = barrel(msg.shooter).unwrap_or(Vec3::from_array(msg.origin));

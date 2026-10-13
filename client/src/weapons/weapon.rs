@@ -227,7 +227,7 @@ pub(crate) fn resolve_local_shot(
         }
         if let Some((p, normal)) = surface {
             impacts.write(GroundImpact(p));
-            holes.write(BulletImpact { point: p, normal });
+            holes.write(BulletImpact { point: p, normal, dir: aim });
             // Stamp it onto this tick's `PlayerInput` too, so the kill cam can
             // replay the burst for the other players watching.
             ground_hit.0 = Some(p);
