@@ -34,7 +34,7 @@ use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, Molotov
 use crate::net::RemoteAvatar;
 use crate::player::Player;
 use crate::util::rand01;
-use crate::{AppState, GameSounds, SoundVolumes, WorldModelCamera};
+use crate::{AppState, GameSounds};
 
 pub(crate) const DOG_MODEL: &str = "models/characters/dog.glb";
 /// `run1`'s one cycle sits at the very end of its timeline: keys only from
@@ -85,9 +85,6 @@ pub(crate) struct DogSettings {
     pub(crate) fire_light: f32,
     pub(crate) fire_light_range: f32,
 
-    /// Every dog sound fades to silence this far (m) away.
-    pub(crate) sound_max_distance: f32,
-
     // --- the lightning before one appears ---
     pub(crate) lightning_height: f32,
     pub(crate) lightning_width: f32,
@@ -129,7 +126,6 @@ impl Default for DogSettings {
             fire_light: 80_000.0,
             fire_light_range: 5.0,
 
-            sound_max_distance: 50.0,
 
             lightning_height: 80.0,
             lightning_width: 0.16,
@@ -230,9 +226,7 @@ struct DogFireLight {
 
 /// A playing dog sound: its loudness before the distance fade.
 #[derive(Component)]
-struct DogSound {
-    loudness: f32,
-}
+struct DogSound;
 
 /// Lightning striking where a dog's about to appear.
 #[derive(Component)]
@@ -281,7 +275,6 @@ impl Plugin for DogsPlugin {
                     update_dog_fires,
                     update_lightning,
                     update_flashes,
-                    fade_dog_sounds,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -375,18 +368,15 @@ fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -
         .map(|id| id.0)
 }
 
-/// A positional dog sound at `at`, silent until [`fade_dog_sounds`] sets its
-/// real volume.
-fn dog_sound(clip: Handle<AudioSource>, loudness: f32, at: Vec3, looped: bool) -> impl Bundle {
-    let mut playback = crate::positional_playback(Volume::Linear(0.0));
+/// A positional dog sound at `at` (faded by distance by its profile).
+fn dog_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle {
+    let mut playback = crate::positional_playback(Volume::Linear(1.0));
     if looped {
         playback.mode = PlaybackMode::Loop;
     }
     (
         StateScoped(AppState::InGame),
-        DogSound { loudness },
-        // Volume is ours (distance fade), not the one-shot pass's.
-        crate::RemoteSoundEmitter,
+        DogSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
         playback,
@@ -495,7 +485,6 @@ fn receive_dog_messages(
     mut exploded: Query<&mut MessageReceiver<shared::DogExploded>>,
     assets: Option<Res<DogAssets>>,
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     settings: Res<DogSettings>,
     avatars: Query<(Entity, &RemoteAvatar, &Transform), With<DogVisual>>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
@@ -510,14 +499,14 @@ fn receive_dog_messages(
             let at = Vec3::from_array(msg.at);
             *seq = seq.wrapping_add(1);
             spawn_lightning(&mut commands, &assets, &settings, at, *seq, shared::dogs::DOG_PRE_SPAWN_SECS, false);
-            commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), vols.dog_pre_spawn, at + Vec3::Y, false));
+            commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), at + Vec3::Y, false));
         }
     }
     for mut rx in &mut spawned {
         for msg in rx.receive() {
             let at = Vec3::from_array(msg.at);
             spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
-            commands.spawn(dog_sound(sounds.dog_spawn.clone(), vols.dog_spawn, at + Vec3::Y * 0.5, false));
+            commands.spawn(dog_sound(sounds.dog_spawn.clone(), at + Vec3::Y * 0.5, false));
         }
     }
     for mut rx in &mut exploded {
@@ -621,7 +610,6 @@ fn animate_dogs(
 fn light_dog_fires(
     time: Res<Time>,
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     settings: Res<DogSettings>,
     molotov: Res<MolotovSettings>,
     molotov_assets: Option<Res<MolotovAssets>>,
@@ -684,7 +672,7 @@ fn light_dog_fires(
         if motion.bark_at.is_some_and(|at| now >= at) {
             motion.bark_at = None;
             let bark = commands
-                .spawn(dog_sound(sounds.dog_bark.clone(), vols.dog_bark, Vec3::ZERO, true))
+                .spawn(dog_sound(sounds.dog_bark.clone(), Vec3::ZERO, true))
                 .id();
             commands.entity(avatar).add_child(bark);
         }
@@ -883,23 +871,6 @@ fn update_flashes(
     }
 }
 
-/// Keep every dog sound's loudness matched to how far the listener is from
-/// it — a squared fade to silence at `sound_max_distance`.
-fn fade_dog_sounds(
-    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
-    settings: Res<DogSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut playing: Query<(&GlobalTransform, &DogSound, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    let max = settings.sound_max_distance.max(1.0);
-    for (gt, sound, mut sink) in &mut playing {
-        let fade = (1.0 - ear.distance(gt.translation()) / max).clamp(0.0, 1.0).powi(2);
-        sink.set_volume(Volume::Linear((sound.loudness * fade).max(0.0)) * global_volume.volume);
-    }
-}
-
 /// The debug panel's previews, 8 m in front of us on our ground.
 #[allow(clippy::too_many_arguments)]
 fn run_previews(
@@ -907,7 +878,6 @@ fn run_previews(
     assets: Option<Res<DogAssets>>,
     settings: Res<DogSettings>,
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     player: Single<&Transform, With<Player>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut boom: EventWriter<crate::vfx::Explosion>,
@@ -921,11 +891,11 @@ fn run_previews(
     let at = player.translation - Vec3::Y * crate::EYE_HEIGHT + fwd * 8.0;
     if std::mem::take(&mut preview.lightning) {
         spawn_lightning(&mut commands, &assets, &settings, at, 0, shared::dogs::DOG_PRE_SPAWN_SECS, false);
-        commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), vols.dog_pre_spawn, at + Vec3::Y, false));
+        commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), at + Vec3::Y, false));
     }
     if std::mem::take(&mut preview.flash) {
         spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
-        commands.spawn(dog_sound(sounds.dog_spawn.clone(), vols.dog_spawn, at + Vec3::Y * 0.5, false));
+        commands.spawn(dog_sound(sounds.dog_spawn.clone(), at + Vec3::Y * 0.5, false));
     }
     if std::mem::take(&mut preview.explosion) {
         boom.write(crate::vfx::Explosion {
@@ -1007,8 +977,7 @@ pub(crate) fn dogs_section(ui: &mut egui::Ui, s: &mut DogSettings, preview: &mut
         );
         ui.add(egui::Slider::new(&mut s.flash_light_range, 1.0f32..=60.0).text("light range (m)"));
     });
-    ui.add(egui::Slider::new(&mut s.sound_max_distance, 5.0f32..=150.0).text("sounds heard within (m)"));
-    ui.label("Explosion size: \"Zombies perks\" → \"Bomb Shot\" → hellhound's size. Volumes: Sound volumes.");
+    ui.label("Explosion size: \"Zombies perks\" → \"Bomb Shot\" → hellhound's size. Volumes and distance fade: the audio mixer (F9) — the \"Dogs\" profile.");
     ui.horizontal(|ui| {
         if ui.button("Copy dog settings to console").clicked() {
             info!(
@@ -1019,13 +988,13 @@ pub(crate) fn dogs_section(ui: &mut egui::Ui, s: &mut DogSettings, preview: &mut
                  lightning_jitter {:.2}, lightning_flicker_hz {:.1}, lightning_on_chance {:.2}, \
                  lightning_brightness {:.1}, lightning_light {:.0}, lightning_light_range {:.1}, \
                  flash_size {:.2}, flash_secs {:.2}, flash_brightness {:.1}, flash_light {:.0}, \
-                 flash_light_range {:.1}, sound_max_distance {:.1}",
+                 flash_light_range {:.1}",
                 s.scale, s.yaw_offset_deg, s.run_per_mps, s.min_move_speed, s.fire_height, s.fire_forward,
                 s.fire_flames, s.fire_length, s.fire_width, s.flame_width, s.flame_height, s.fire_brightness,
                 s.fire_trail, s.fire_light, s.fire_light_range, s.lightning_height, s.lightning_width,
                 s.lightning_jitter, s.lightning_flicker_hz, s.lightning_on_chance, s.lightning_brightness,
                 s.lightning_light, s.lightning_light_range, s.flash_size, s.flash_secs, s.flash_brightness,
-                s.flash_light, s.flash_light_range, s.sound_max_distance,
+                s.flash_light, s.flash_light_range,
             );
         }
         if ui.button("Reset").clicked() {

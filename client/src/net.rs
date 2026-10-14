@@ -791,28 +791,21 @@ fn receive_shots(
 
 /// Server → everyone else in the shooter's lobby: play another player's
 /// one-shot sounds (footstep/jump/slide/reload/rechamber/shot/dive/throw)
-/// positionally at their reported position, falling off with distance. The
-/// server already excludes the triggering player from the message's targets
+/// positionally at their reported position (faded by distance by each clip's
+/// profile in the mix — another player's rechamber, say, also has its own
+/// quieter positional level there). The server already excludes the triggering player from the message's targets
 /// (they hear their own local, non-spatial version instead), but the `me`
 /// check here is a cheap defensive backstop.
 #[allow(clippy::too_many_arguments)]
 fn receive_remote_sounds(
     local: Query<&LocalId, With<GameClient>>,
-    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
     mut receivers: Query<&mut MessageReceiver<shared::RemoteSound>>,
     sounds: Res<crate::GameSounds>,
-    sound_vol: Res<crate::SoundVolumes>,
-    remote_sound: Res<crate::RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
     mut footstep_seed: Local<u32>,
     mut footstep_last: Local<std::collections::HashMap<PeerId, usize>>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    let ear = ear.translation();
 
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -820,13 +813,6 @@ fn receive_remote_sounds(
                 continue;
             }
             let pos = Vec3::from_array(msg.position);
-            let distance = ear.distance(pos);
-            if distance >= remote_sound.max_distance {
-                continue;
-            }
-            // Linear fade to silence at `max_distance`, squared for a
-            // steeper near-field/far-field falloff than a straight ramp.
-            let falloff = (1.0 - distance / remote_sound.max_distance).powi(2);
 
             for bit in killcam::ALL_SND_BITS {
                 // Another player's aiming isn't heard (only their kill cam
@@ -842,18 +828,10 @@ fn receive_remote_sounds(
                     killcam::sound_for(&sounds, bit).cloned()
                 };
                 let Some(clip) = clip else { continue };
-                let category = sound_vol.oneshot_for(&clip, &sounds).unwrap_or(1.0);
-                let mult = (category * remote_sound.for_bit(bit) * falloff * remote_sound.volume).max(0.0);
-                let volume = Volume::Linear(mult) * global_volume.volume;
                 commands.spawn((
-                    crate::RemoteSoundEmitter,
                     AudioPlayer::new(clip),
                     Transform::from_translation(pos),
-                    PlaybackSettings::DESPAWN
-                        // (Panning only — `falloff` above is the sole thing
-                        // deciding loudness by distance.)
-                        .with_spatial(true)
-                        .with_volume(volume),
+                    crate::positional_playback(Volume::Linear(1.0)),
                 ));
             }
         }

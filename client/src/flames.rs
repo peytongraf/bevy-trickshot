@@ -4,21 +4,19 @@
 //! on or off, day or night.
 //!
 //! In a game each also crackles — `GameSounds::fire_crackle`, looped from the
-//! fire, fading with distance ([`FlameSoundSettings`], the debug panel's
-//! "Fire crackle" section) and paused out of earshot.
+//! fire, fading with distance by the "Fire" profile in the audio mixer (and
+//! held silent out of earshot, so far-off fires cost nothing).
 //!
 //! In a game they're the current map's ([`sync_game_flames`], all
 //! `StateScoped(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`sync_flames`]). Each set is
 //! rebuilt whenever its list changes, so nothing carries over between games.
 
-use bevy::ecs::system::SystemParam;
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
 use bevy::render::view::NoFrustumCulling;
-use bevy_egui::egui;
 use shared::level::Flame;
 
 use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, MolotovSettings};
@@ -30,40 +28,7 @@ pub(crate) struct FlamesPlugin;
 impl Plugin for FlamesPlugin {
     fn build(&self, app: &mut App) {
         // (Ungated: leaving the game is what takes them away.)
-        app.init_resource::<FlameSoundSettings>()
-            .add_systems(Update, (sync_game_flames, flicker_flames, fade_flame_sounds));
-    }
-}
-
-/// Panel-tunable crackle: its own short range, so a fire's only heard near it.
-#[derive(Resource, Clone)]
-pub(crate) struct FlameSoundSettings {
-    pub(crate) volume: f32,
-    /// Full volume within this far (m) of a fire...
-    pub(crate) full_distance: f32,
-    /// ...fading to silence here (and paused beyond it).
-    pub(crate) max_distance: f32,
-    /// The fade's curve between them (1 = linear; higher drops off sooner).
-    pub(crate) falloff: f32,
-}
-
-impl Default for FlameSoundSettings {
-    fn default() -> Self {
-        Self {
-            volume: 1.0,
-            full_distance: 1.5,
-            max_distance: 12.0,
-            falloff: 2.0,
-        }
-    }
-}
-
-impl FlameSoundSettings {
-    /// Loudness (before the global volume) `distance` m away.
-    fn loudness(&self, distance: f32) -> f32 {
-        let span = (self.max_distance - self.full_distance).max(1e-3);
-        let t = ((distance - self.full_distance) / span).clamp(0.0, 1.0);
-        self.volume * (1.0 - t).powf(self.falloff.max(0.01))
+        app.add_systems(Update, (sync_game_flames, flicker_flames));
     }
 }
 
@@ -188,67 +153,12 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                 if let Some(crackle) = crackle {
                     fire.spawn((
                         FlameSound,
-                        // Volume is ours to set (`fade_flame_sounds`), not
-                        // the one-shot volume pass's.
-                        crate::RemoteSoundEmitter,
                         AudioPlayer::new(crackle.clone()),
                         Transform::from_xyz(0.0, flame.size * 0.5, 0.0),
-                        // Looped; starts silent, the real volume set from the
-                        // next frame.
-                        PlaybackSettings::LOOP
-                            .with_spatial(true)
-                            .with_volume(Volume::Linear(0.0)),
+                        PlaybackSettings::LOOP.with_spatial(true),
                     ));
                 }
             });
-    }
-}
-
-/// Keep each fire's crackle at the loudness for how far the listener is —
-/// paused once out of earshot, so far-off fires cost nothing.
-fn fade_flame_sounds(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    settings: Res<FlameSoundSettings>,
-    vols: Res<crate::SoundVolumes>,
-    global_volume: Res<GlobalVolume>,
-    mut sounds: Query<(&GlobalTransform, &mut SpatialAudioSink), With<FlameSound>>,
-) {
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    let ear = ear.translation();
-    for (gt, mut sink) in &mut sounds {
-        let loudness = settings.loudness(ear.distance(gt.translation())) * vols.fire_crackle;
-        if loudness <= 0.0 {
-            if !sink.is_paused() {
-                sink.pause();
-            }
-            continue;
-        }
-        if sink.is_paused() {
-            sink.play();
-        }
-        sink.set_volume(Volume::Linear(loudness) * global_volume.volume);
-    }
-}
-
-/// The debug panel's "Fire crackle" section.
-#[derive(SystemParam)]
-pub(crate) struct FlamesDebug<'w> {
-    settings: ResMut<'w, FlameSoundSettings>,
-}
-
-impl FlamesDebug<'_> {
-    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
-        let s = &mut *self.settings;
-        ui.label("Every fire the map keeps burning (placed in the level editor) crackles, looped.");
-        ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=3.0).text("volume"));
-        ui.add(egui::Slider::new(&mut s.full_distance, 0.0f32..=20.0).text("full volume within (m)"));
-        ui.add(egui::Slider::new(&mut s.max_distance, 1.0f32..=60.0).text("silent beyond (m)"));
-        ui.add(egui::Slider::new(&mut s.falloff, 0.1f32..=5.0).text("falloff curve"));
-        if ui.button("Reset").clicked() {
-            *s = FlameSoundSettings::default();
-        }
     }
 }
 

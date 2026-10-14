@@ -162,8 +162,6 @@ pub(crate) struct FlashBangSettings {
     /// Camera-shake trauma right on top of it, and how far (m) it reaches.
     pub(crate) shake: f32,
     pub(crate) shake_radius: f32,
-    /// Distance (m) at which its bang has faded to silence.
-    pub(crate) sound_max_distance: f32,
     /// Of the thrower's white-out, the share spent fully white before it
     /// starts fading.
     pub(crate) blind_hold: f32,
@@ -215,7 +213,6 @@ impl Default for FlashBangSettings {
             light_time: 0.2,
             shake: 0.25,
             shake_radius: 18.0,
-            sound_max_distance: 140.0,
             blind_hold: 0.55,
 
             debug_show_in_hand: false,
@@ -510,7 +507,6 @@ fn receive_detonations(
     settings: Res<FlashBangSettings>,
     assets: Res<ExplosionAssets>,
     sounds: Res<GameSounds>,
-    volumes: Res<crate::SoundVolumes>,
     existing: Query<(), With<FlashParticle>>,
     mut shake: ResMut<Shake>,
     mut blind: ResMut<FlashBlind>,
@@ -531,7 +527,6 @@ fn receive_detonations(
                 &settings,
                 &assets,
                 &sounds,
-                &volumes,
                 existing.iter().count(),
                 &mut shake,
                 &mut materials,
@@ -570,7 +565,6 @@ fn fire_preview(
     player: Single<&Transform, With<Player>>,
     assets: Res<ExplosionAssets>,
     sounds: Res<GameSounds>,
-    volumes: Res<crate::SoundVolumes>,
     existing: Query<(), With<FlashParticle>>,
     mut shake: ResMut<Shake>,
     mut blind: ResMut<FlashBlind>,
@@ -598,7 +592,6 @@ fn fire_preview(
         &settings,
         &assets,
         &sounds,
-        &volumes,
         existing.iter().count(),
         &mut shake,
         &mut materials,
@@ -621,7 +614,8 @@ fn sprite_material(texture: Handle<Image>, additive: bool) -> StandardMaterial {
 }
 
 /// One flash going off at `at`: its sprites, its light, a jolt of camera
-/// shake and its bang (fading with our distance, `listener`).
+/// shake (fading with our distance, `listener`) and its bang (faded by its
+/// profile in the mix).
 #[allow(clippy::too_many_arguments)]
 fn spawn_flash(
     at: Vec3,
@@ -630,7 +624,6 @@ fn spawn_flash(
     s: &FlashBangSettings,
     assets: &ExplosionAssets,
     sounds: &GameSounds,
-    volumes: &crate::SoundVolumes,
     live: usize,
     shake: &mut Shake,
     materials: &mut Assets<StandardMaterial>,
@@ -640,17 +633,12 @@ fn spawn_flash(
     let dist = listener.map_or(f32::INFINITY, |l| l.distance(center));
 
     // The bang, from there.
-    let fade = (1.0 - dist / s.sound_max_distance.max(1.0)).clamp(0.0, 1.0);
-    let loudness = volumes.flash_bang_detonate * fade * fade;
-    if loudness > 0.0 {
-        commands.spawn((
-            StateScoped(AppState::InGame),
-            crate::RemoteSoundEmitter,
-            AudioPlayer::new(sounds.flash_bang_detonate.clone()),
-            Transform::from_translation(center),
-            crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
-        ));
-    }
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        AudioPlayer::new(sounds.flash_bang_detonate.clone()),
+        Transform::from_translation(center),
+        crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
+    ));
 
     // A small jolt.
     let falloff = (1.0 - dist / s.shake_radius.max(0.1)).clamp(0.0, 1.0);
@@ -932,7 +920,6 @@ pub(crate) fn flash_section(ui: &mut egui::Ui, s: &mut FlashBangSettings, weapon
         ui.add(egui::Slider::new(&mut s.light_time, 0.02f32..=1.5).text("light time (s)"));
         ui.add(egui::Slider::new(&mut s.shake, 0.0f32..=1.0).text("shake"));
         ui.add(egui::Slider::new(&mut s.shake_radius, 1.0f32..=60.0).text("shake radius (m)"));
-        ui.add(egui::Slider::new(&mut s.sound_max_distance, 10.0f32..=300.0).text("sound fades out by (m)"));
         ui.add(egui::Slider::new(&mut s.blind_hold, 0.0f32..=0.95).text("white-out: share held fully white"));
     });
     if ui.button("Copy settings to console").clicked() {
@@ -941,13 +928,13 @@ pub(crate) fn flash_section(ui: &mut egui::Ui, s: &mut FlashBangSettings, weapon
              held_roll: {:.1}, held_scale: {:.2}, world_height: {:.3}, drop_height: {:.3}, core: {:.2} m {:.2} s x{:.1}, \
              bloom: {:.2} m {:.2} s x{:.1}, glare: {:.2}x{:.2} m {:.2} s x{:.1}, sparks: {} @ {:.1} {:.3} m {:.2} s x{:.1}, \
              smoke: {} {:.2} m @ {:.1} {:.2} s a{:.2}, light: {:.0} lm {:.1} m {:.2} s, shake {:.2} / {:.1} m, \
-             sound {:.0} m, blind_hold {:.2}",
+             blind_hold {:.2}",
             s.held_translation.x, s.held_translation.y, s.held_translation.z, s.held_yaw, s.held_pitch, s.held_roll,
             s.held_scale, s.world_height, s.drop_height, s.core_size, s.core_time, s.core_brightness, s.bloom_size,
             s.bloom_time, s.bloom_brightness, s.glare_length, s.glare_thickness, s.glare_time, s.glare_brightness,
             s.spark_count, s.spark_speed, s.spark_size, s.spark_life, s.spark_brightness, s.smoke_count, s.smoke_size,
             s.smoke_speed, s.smoke_life, s.smoke_opacity, s.light_intensity, s.light_range, s.light_time, s.shake,
-            s.shake_radius, s.sound_max_distance, s.blind_hold,
+            s.shake_radius, s.blind_hold,
         );
     }
     if ui.button("Reset flash bang").clicked() {

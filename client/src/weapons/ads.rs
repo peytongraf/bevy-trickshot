@@ -162,7 +162,7 @@ pub(crate) fn update_ads(
         } else {
             (sounds.aim_out.clone(), killcam::SND_AIM_OUT)
         };
-        commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN.with_reverb(true)));
+        commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
         snd.note(bit);
         *was_aiming = aiming;
     }

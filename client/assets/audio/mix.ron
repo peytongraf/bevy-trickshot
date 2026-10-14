@@ -1,0 +1,265 @@
+(
+    buses: {},
+    profiles: {
+        "Boss": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 70.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 8000.0,
+        ),
+        "Default": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 60.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 20000.0,
+        ),
+        "Dogs": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 50.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 8000.0,
+        ),
+        "Explosions": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 160.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 4000.0,
+        ),
+        "Fire": (
+            volume_db: 0.0,
+            near: 1.5,
+            far: 12.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 20000.0,
+        ),
+        "Machine hum": (
+            volume_db: 0.0,
+            near: 2.0,
+            far: 10.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 20000.0,
+        ),
+        "Machines": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 60.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 10000.0,
+        ),
+        "Main door": (
+            volume_db: 0.0,
+            near: 15.0,
+            far: 60.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 10000.0,
+        ),
+        "Players": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 60.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 8000.0,
+        ),
+        "Voices": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 60.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 8000.0,
+        ),
+        "Zombies": (
+            volume_db: 0.0,
+            near: 0.0,
+            far: 50.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 8000.0,
+        ),
+    },
+    folders: {
+        "ambient": (
+            bus: Some(Ambience),
+        ),
+        "combat": (
+            bus: Some(Interface),
+        ),
+        "movement": (
+            profile: Some("Players"),
+            bus: Some(Movement),
+            reverb: Some(true),
+        ),
+        "music": (
+            bus: Some(Music),
+        ),
+        "quotes": (
+            volume_db: 6.02,
+            profile: Some("Voices"),
+            bus: Some(Quotes),
+            reverb: Some(true),
+        ),
+        "ui": (
+            bus: Some(Interface),
+        ),
+        "weapons": (
+            profile: Some("Players"),
+            bus: Some(Weapons),
+            reverb: Some(true),
+        ),
+        "weapons/throwing_knife/impact": (
+            volume_db: -10.46,
+        ),
+        "zombies/aether_shroud": (
+            bus: Some(Interface),
+        ),
+        "zombies/armor": (
+            bus: Some(Interface),
+        ),
+        "zombies/boss": (
+            profile: Some("Boss"),
+            bus: Some(Zombies),
+        ),
+        "zombies/dogs": (
+            profile: Some("Dogs"),
+            bus: Some(Zombies),
+        ),
+        "zombies/doors": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/enemy": (
+            profile: Some("Zombies"),
+            bus: Some(Zombies),
+        ),
+        "zombies/machines": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/mystery_box": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/perks/bomb_shot_explosions": (
+            profile: Some("Explosions"),
+            bus: Some(Explosions),
+        ),
+        "zombies/perks/jingles": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/power_ups": (
+            bus: Some(Announcer),
+        ),
+        "zombies/purchases": (
+            bus: Some(Interface),
+        ),
+        "zombies/rampage": (
+            bus: Some(Music),
+        ),
+        "zombies/revive": (
+            bus: Some(Announcer),
+        ),
+        "zombies/rounds": (
+            bus: Some(Announcer),
+        ),
+    },
+    clips: {
+        "ambient/fire_crackle.mp3": (
+            profile: Some("Fire"),
+            bus: Some(World),
+        ),
+        "ambient/nature.ogg": (
+            volume_db: 7.96,
+        ),
+        "ambient/shipment.ogg": (
+            volume_db: 7.96,
+        ),
+        "combat/kill_enemy.mp3": (
+            volume_db: 9.54,
+        ),
+        "movement/jump_land.mp3": (
+            volume_db: -6.02,
+        ),
+        "weapons/flash_bang/flash_bang_detonate.mp3": (
+            profile: Some("Explosions"),
+            bus: Some(Explosions),
+        ),
+        "weapons/frag/frag_explosion.mp3": (
+            profile: Some("Explosions"),
+            bus: Some(Explosions),
+        ),
+        "weapons/molotov/molotov_burst.mp3": (
+            volume_db: 3.52,
+            bus: Some(Explosions),
+        ),
+        "weapons/pick_up_equipment.mp3": (
+            bus: Some(Interface),
+            reverb: Some(false),
+        ),
+        "weapons/sniper/rechamber.wav": (
+            positional_db: -26.02,
+        ),
+        "weapons/sniper/reload.wav": (
+            volume_db: 3.52,
+        ),
+        "weapons/throwing_knife/hit_enemy.mp3": (
+            volume_db: 3.52,
+        ),
+        "zombies/boss/blast_hit.mp3": (
+            profile: Some("Explosions"),
+        ),
+        "zombies/dogs/bark.mp3": (
+            volume_db: -4.44,
+        ),
+        "zombies/dogs/explosion.mp3": (
+            profile: Some("Explosions"),
+            bus: Some(Explosions),
+        ),
+        "zombies/doors/main_door_ambience.mp3": (
+            volume_db: 6.02,
+            profile: Some("Main door"),
+        ),
+        "zombies/machines/pap_buzzing.mp3": (
+            profile: Some("Machine hum"),
+        ),
+        "zombies/perks/jingles/classic/dead_shot.mp3": (
+            volume_db: 1.0,
+        ),
+        "zombies/perks/jingles/classic/double_tap.mp3": (
+            volume_db: 1.0,
+        ),
+        "zombies/perks/jingles/classic/jug.mp3": (
+            volume_db: 8.0,
+        ),
+        "zombies/perks/jingles/classic/quick_revive.mp3": (
+            volume_db: 2.0,
+        ),
+        "zombies/perks/jingles/classic/speed_cola.mp3": (
+            volume_db: 3.0,
+        ),
+        "zombies/perks/jingles/classic/stamin_up.mp3": (
+            volume_db: 1.0,
+        ),
+        "zombies/power_ups/drop_loop.mp3": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/rounds/final_zombie.mp3": (
+            profile: Some("Zombies"),
+            bus: Some(Zombies),
+        ),
+    },
+)

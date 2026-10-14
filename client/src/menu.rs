@@ -272,9 +272,18 @@ pub(crate) fn menu_toggle(
     mut menu: ResMut<Menu>,
     settings: Res<Settings>,
     state: Res<State<AppState>>,
+    mut mixer: ResMut<crate::audio_engine::AudioMixer>,
 ) {
     // (The level editor has its own: `level_editor::input::edit_input`.)
     if *state.get() == AppState::LevelEditor {
+        return;
+    }
+    // The audio mixer's open over everything: both close it, and that's all.
+    if mixer.open
+        && menu.rebinding.is_none()
+        && (keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back))
+    {
+        mixer.open = false;
         return;
     }
     // (Pack-a-Punch, Der Wunderfizz and the armor station close themselves
@@ -869,17 +878,19 @@ fn scroll_hovered(
 
 fn cursor_and_hud(
     menu: Res<Menu>,
+    mixer: Res<crate::audio_engine::AudioMixer>,
     app_state: Res<State<crate::AppState>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
-    if !menu.is_changed() {
+    if !menu.is_changed() && !mixer.is_changed() {
         return;
     }
     // Only the in-game screen owns the cursor; the main-menu / lobby screens are
     // `bevy_ui` and always want it free, open settings overlay or not. HUD
     // visibility is handled by `crate::hud_visibility` (it also needs the state).
+    // (The audio mixer frees it too, while it's open.)
     if *app_state == crate::AppState::InGame {
-        let open = menu.is_open();
+        let open = menu.is_open() || mixer.open;
         for mut window in &mut windows {
             crate::set_cursor_grabbed(&mut window, !open);
         }

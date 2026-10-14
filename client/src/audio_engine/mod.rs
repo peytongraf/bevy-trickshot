@@ -6,19 +6,26 @@
 //! `Remove` clean up after it the same way bevy_audio did.
 //!
 //! Positional sounds each play on their own kira spatial track, panned
-//! around the [`SpatialListener`]. Their loudness by distance is still the
-//! game's own business (each feature's falloff, baked into its volume), as
-//! it was under rodio: the tracks have no distance attenuation of their own.
+//! around the [`SpatialListener`]. How they fade with distance (and lose
+//! their highs to the air) is their [`mix::Profile`]'s, applied here every
+//! frame — features play them at their plain volume and leave distance to
+//! this.
 //!
-//! Every sound in the world — every positional one, plus non-positional ones
-//! flagged [`PlaybackSettings::reverb`] (our own shots, footsteps, ...) —
-//! also feeds one shared reverb, shaped by the space the listener is in
-//! ([`room`]). UI, music and announcers stay dry.
+//! On top of the volume each sound's played at, master volume
+//! ([`GlobalVolume`]) and the [`mix`] set its level (bus, folders, clip —
+//! tuned live in the audio [`mixer`] and saved with the game), both live,
+//! and whether it's a world sound: one that also feeds the shared
+//! reverb, shaped by the space the listener is in ([`room`]). By default
+//! positional sounds are world sounds and the rest are dry; the mix
+//! overrides that per folder / clip (our own shots and footsteps are world
+//! sounds; UI, music and announcers stay dry).
 //!
 //! Clips decode as they play ([`decoder`]) rather than being held decoded in
 //! memory.
 
 mod decoder;
+pub(crate) mod mix;
+mod mixer;
 mod room;
 
 use std::sync::Arc;
@@ -27,15 +34,18 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::prelude::*;
 use bevy::transform::TransformSystem;
+use kira::effect::filter::{FilterBuilder, FilterHandle};
 use kira::effect::reverb::{ReverbBuilder, ReverbHandle};
 use kira::listener::ListenerHandle;
 use kira::track::{
     MainTrackBuilder, SendTrackBuilder, SendTrackHandle, SpatialTrackBuilder, SpatialTrackHandle,
     TrackBuilder, TrackHandle,
 };
-use kira::{AudioManager, AudioManagerSettings, Capacities, Decibels, DefaultBackend, Mix, Tween};
+use kira::{AudioManager, AudioManagerSettings, Capacities, Decibels, DefaultBackend, Tween};
 
 use decoder::{DecodingSoundData, Playback};
+use mix::{clip_gain, clip_key, BusMonitor, Mix, AIR_OFF_HZ};
+pub(crate) use mixer::AudioMixer;
 pub(crate) use room::ReverbDebug;
 
 /// What call sites need: `use crate::audio_engine::prelude::*;`.
@@ -62,13 +72,15 @@ pub(crate) struct AudioEnginePlugin;
 
 impl Plugin for AudioEnginePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(room::RoomReverbPlugin)
+        app.add_plugins((room::RoomReverbPlugin, mixer::MixerPlugin))
+            .insert_resource(Mix::load())
+            .init_resource::<BusMonitor>()
             .init_asset::<AudioSource>()
             .register_asset_loader(AudioLoader)
             .init_resource::<GlobalVolume>()
             .add_systems(
                 PostUpdate,
-                (update_listener, update_emitters, play_queued, cleanup_finished)
+                (update_listener, update_emitters, play_queued, apply_mix, apply_profiles, cleanup_finished)
                     .chain()
                     .after(TransformSystem::TransformPropagate),
             );
@@ -114,7 +126,7 @@ impl AudioEngine {
             .add_listener(mint_vec(Vec3::ZERO), mint_quat(Quat::IDENTITY))
             .map_err(|e| e.to_string())?;
         let mut send = SendTrackBuilder::new().volume(Decibels::SILENCE);
-        let reverb = send.add_effect(ReverbBuilder::new().mix(Mix::WET));
+        let reverb = send.add_effect(ReverbBuilder::new().mix(kira::Mix::WET));
         let reverb_send = manager.add_send_track(send).map_err(|e| e.to_string())?;
         let world = manager
             .add_sub_track(
@@ -190,8 +202,8 @@ impl std::ops::Mul for Volume {
     }
 }
 
-/// Master volume, multiplied into every sound's [`PlaybackSettings::volume`]
-/// as it starts. Doesn't touch what's already playing.
+/// Master volume, applied live on top of every sound (what's already
+/// playing too) — never multiply it in yourself.
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct GlobalVolume {
     pub(crate) volume: Volume,
@@ -234,19 +246,15 @@ pub(crate) enum PlaybackMode {
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct PlaybackSettings {
     pub(crate) mode: PlaybackMode,
-    /// Multiplied by [`GlobalVolume`] when it starts.
+    /// Its own volume, before master volume, the mix and (positional) its
+    /// profile's distance fade.
     pub(crate) volume: Volume,
     /// Playback rate — also shifts the pitch.
     pub(crate) speed: f32,
     pub(crate) paused: bool,
     /// Panned from the entity's `GlobalTransform` around the
-    /// [`SpatialListener`], following it as it moves. Always feeds the
-    /// room's reverb.
+    /// [`SpatialListener`], following it as it moves.
     pub(crate) spatial: bool,
-    /// A non-positional sound that's still happening in the world (our own
-    /// shot, footstep, reload, ...), so it feeds the room's reverb. Leave it
-    /// off for UI, music, announcers and the like.
-    pub(crate) reverb: bool,
 }
 
 impl Default for PlaybackSettings {
@@ -262,7 +270,6 @@ impl PlaybackSettings {
         speed: 1.0,
         paused: false,
         spatial: false,
-        reverb: false,
     };
     pub(crate) const LOOP: Self = Self {
         mode: PlaybackMode::Loop,
@@ -284,10 +291,6 @@ impl PlaybackSettings {
     pub(crate) const fn with_spatial(self, spatial: bool) -> Self {
         Self { spatial, ..self }
     }
-
-    pub(crate) const fn with_reverb(self, reverb: bool) -> Self {
-        Self { reverb, ..self }
-    }
 }
 
 /// The ears spatial sounds are heard from — on the player's camera. Kira
@@ -301,6 +304,8 @@ pub(crate) struct SpatialListener;
 #[derive(Component)]
 pub(crate) struct AudioSink {
     playback: Arc<Playback>,
+    /// Its clip's key in the [`Mix`].
+    clip: Arc<str>,
 }
 
 /// Steers a playing spatial sound; its emitter position follows the
@@ -308,7 +313,14 @@ pub(crate) struct AudioSink {
 #[derive(Component)]
 pub(crate) struct SpatialAudioSink {
     playback: Arc<Playback>,
+    /// Its clip's key in the [`Mix`].
+    clip: Arc<str>,
+    /// Its [`mix::Profile`]'s name.
+    profile: String,
+    looping: bool,
     track: SpatialTrackHandle,
+    /// Its air-absorption low-pass.
+    filter: FilterHandle,
 }
 
 impl Drop for AudioSink {
@@ -332,13 +344,14 @@ macro_rules! sink_controls {
         // (Not every control is used on both kinds of sink.)
         #[allow(dead_code)]
         impl $sink {
-            /// The volume it's playing at (`GlobalVolume` included, as set).
+            /// The volume it was played / last set at.
             pub(crate) fn volume(&self) -> Volume {
                 Volume::Linear(self.playback.volume())
             }
 
             /// Change the volume (eased across one audio buffer, a few
-            /// milliseconds). `GlobalVolume` isn't applied — multiply it in.
+            /// milliseconds). Master volume, the mix and the distance fade
+            /// still go on top.
             pub(crate) fn set_volume(&mut self, volume: Volume) {
                 self.playback.set_volume(volume.to_linear().max(0.0));
             }
@@ -369,11 +382,15 @@ sink_controls!(AudioSink);
 sink_controls!(SpatialAudioSink);
 
 /// Start every [`AudioPlayer`] whose clip has loaded.
+#[allow(clippy::too_many_arguments)]
 fn play_queued(
     mut commands: Commands,
     engine: Option<ResMut<AudioEngine>>,
     sources: Res<Assets<AudioSource>>,
     global: Res<GlobalVolume>,
+    mix: Res<Mix>,
+    monitor: Res<BusMonitor>,
+    listener: Query<&GlobalTransform, With<SpatialListener>>,
     queued: Query<
         (Entity, &AudioPlayer, &PlaybackSettings, Option<&GlobalTransform>),
         (Without<AudioSink>, Without<SpatialAudioSink>),
@@ -381,10 +398,21 @@ fn play_queued(
 ) {
     let Some(mut engine) = engine else { return };
     let engine = &mut *engine;
+    let ears = listener.single().ok().map(GlobalTransform::translation);
     for (entity, player, settings, transform) in &queued {
         let Some(source) = sources.get(&player.0) else {
             continue;
         };
+        let key: Arc<str> = player.0.path().map_or("".into(), |p| clip_key(&p.path().to_string_lossy()).into());
+        let (mix_gain, resolved) = clip_gain(&mix, &monitor, &key, settings.spatial);
+        let position = transform.map_or(Vec3::ZERO, GlobalTransform::translation);
+        let profile = mix.profile(&resolved.profile);
+        let distance = ears.map_or(0.0, |e| e.distance(position));
+        // A positional one-shot that starts out of earshot is never heard.
+        if settings.spatial && settings.mode == PlaybackMode::Despawn && profile.gain(distance) <= 0.0 {
+            end_playback(commands.entity(entity), settings.mode);
+            continue;
+        }
         let clip = match decoder::open(&source.bytes) {
             Ok(clip) => clip,
             Err(e) => {
@@ -393,30 +421,35 @@ fn play_queued(
                 continue;
             }
         };
+        let reverb = resolved.reverb.unwrap_or(settings.spatial);
+        let looping = settings.mode == PlaybackMode::Loop;
         let playback = Arc::new(Playback::new(
-            (settings.volume * global.volume).to_linear().max(0.0),
+            settings.volume.to_linear().max(0.0),
+            mix_gain * global.volume.to_linear(),
             settings.paused,
         ));
         let data = DecodingSoundData {
             clip,
             speed: settings.speed,
-            looping: settings.mode == PlaybackMode::Loop,
+            looping,
             playback: playback.clone(),
         };
         let mut entity = commands.entity(entity);
         if settings.spatial {
-            let position = transform.map_or(Vec3::ZERO, GlobalTransform::translation);
-            let track = engine.manager.add_spatial_sub_track(
-                &engine.listener,
-                mint_vec(position),
-                SpatialTrackBuilder::new()
-                    .sound_capacity(1)
-                    .sub_track_capacity(1)
-                    .persist_until_sounds_finish(true)
-                    .attenuation_function(None)
-                    .volume(Decibels(20.0 * SPATIAL_GAIN.log10()))
-                    .with_send(engine.reverb_send.id(), Decibels::IDENTITY),
-            );
+            playback.set_distance(profile.gain(distance));
+            let mut builder = SpatialTrackBuilder::new()
+                .sound_capacity(1)
+                .sub_track_capacity(1)
+                .persist_until_sounds_finish(true)
+                .attenuation_function(None)
+                .spatialization_strength(profile.width.clamp(0.0, 1.0))
+                .volume(Decibels(20.0 * SPATIAL_GAIN.log10()));
+            // Air absorption — bypassed (dry) until the profile wants it.
+            let filter = builder.add_effect(FilterBuilder::new().cutoff(AIR_OFF_HZ as f64).mix(kira::Mix::DRY));
+            if reverb {
+                builder = builder.with_send(engine.reverb_send.id(), Decibels::IDENTITY);
+            }
+            let track = engine.manager.add_spatial_sub_track(&engine.listener, mint_vec(position), builder);
             let Ok(mut track) = track else {
                 warn!("too many sounds playing; dropped {:?}", player.0.path());
                 end_playback(entity, settings.mode);
@@ -426,9 +459,16 @@ fn play_queued(
                 end_playback(entity, settings.mode);
                 continue;
             }
-            entity.insert(SpatialAudioSink { playback, track });
+            entity.insert(SpatialAudioSink {
+                playback,
+                clip: key,
+                profile: resolved.profile,
+                looping,
+                track,
+                filter,
+            });
         } else {
-            let played = if settings.reverb {
+            let played = if reverb {
                 engine.world.play(data).is_ok()
             } else {
                 engine.manager.play(data).is_ok()
@@ -438,8 +478,62 @@ fn play_queued(
                 end_playback(entity, settings.mode);
                 continue;
             }
-            entity.insert(AudioSink { playback });
+            entity.insert(AudioSink { playback, clip: key });
         }
+    }
+}
+
+/// Re-apply the mix (and master volume) to everything playing whenever it,
+/// mute / solo or master volume changes — what makes the mixer's faders
+/// live. Positional sounds pick up a changed profile assignment here too.
+fn apply_mix(
+    mix: Res<Mix>,
+    monitor: Res<BusMonitor>,
+    global: Res<GlobalVolume>,
+    sinks: Query<&AudioSink>,
+    mut spatial: Query<&mut SpatialAudioSink>,
+) {
+    if !mix.is_changed() && !monitor.is_changed() && !global.is_changed() {
+        return;
+    }
+    let master = global.volume.to_linear();
+    for sink in &sinks {
+        sink.playback.set_mix(clip_gain(&mix, &monitor, &sink.clip, false).0 * master);
+    }
+    for mut sink in &mut spatial {
+        let (gain, resolved) = clip_gain(&mix, &monitor, &sink.clip, true);
+        sink.playback.set_mix(gain * master);
+        if sink.profile != resolved.profile {
+            sink.profile = resolved.profile;
+        }
+    }
+}
+
+/// Every frame, each positional sound's profile against its distance from
+/// the listener: its fade, the highs it's lost to the air, how widely it
+/// pans — and a looping one out of earshot held silent (not decoding).
+fn apply_profiles(
+    mix: Res<Mix>,
+    listener: Query<&GlobalTransform, With<SpatialListener>>,
+    mut spatial: Query<(&mut SpatialAudioSink, Option<&GlobalTransform>)>,
+) {
+    let Ok(ears) = listener.single() else { return };
+    let ears = ears.translation();
+    for (mut sink, transform) in &mut spatial {
+        let profile = mix.profile(&sink.profile);
+        let distance = ears.distance(transform.map_or(Vec3::ZERO, GlobalTransform::translation));
+        let gain = profile.gain(distance);
+        sink.playback.set_distance(gain);
+        sink.playback.set_culled(sink.looping && gain <= 0.0);
+        let tween = Tween::default();
+        match profile.air_cutoff(distance) {
+            Some(hz) => {
+                sink.filter.set_cutoff(hz as f64, tween);
+                sink.filter.set_mix(kira::Mix::WET, tween);
+            }
+            None => sink.filter.set_mix(kira::Mix::DRY, tween),
+        }
+        sink.track.set_spatialization_strength(profile.width.clamp(0.0, 1.0), tween);
     }
 }
 

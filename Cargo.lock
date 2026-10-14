@@ -570,6 +570,7 @@ dependencies = [
  "kira",
  "lightyear",
  "mint",
+ "ron",
  "self-replace",
  "semver",
  "serde",

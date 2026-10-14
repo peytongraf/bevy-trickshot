@@ -9,7 +9,6 @@ use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_egui::{egui, EguiContexts};
 
 use crate::health::LocalHealth;
-use crate::audio::*;
 use crate::avatars::*;
 use crate::environment::*;
 use crate::keybinds::KeyBindings;
@@ -31,12 +30,11 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut sound_vol, mut crosshair_cfg, mut knife_sounds, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut audio_mixer, mut crosshair_cfg, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
-        ResMut<SoundVolumes>,
+        ResMut<crate::audio_engine::AudioMixer>,
         ResMut<CrosshairSettings>,
-        ResMut<KnifeSounds>,
         (Res<LocalHealth>, ResMut<crate::health::HurtEffectSettings>),
         ResMut<crate::DrinkArmsSettings>,
         ResMut<crate::zombies_hud::NitroBrew>,
@@ -103,7 +101,6 @@ pub(crate) fn ads_tuning_ui(
         ResMut<AimSwaySettings>,
         ResMut<RemoteAvatarSettings>,
         ResMut<SoldierAnimSettings>,
-        ResMut<RemoteSoundSettings>,
         ResMut<WaterSettings>,
         ResMut<LedgeJumpSettings>,
         (
@@ -137,7 +134,6 @@ pub(crate) fn ads_tuning_ui(
                     crate::vfx::MysteryBoxFxDebug,
                     crate::rampage::RampageDebug,
                     crate::earthquake::EarthquakeDebug,
-                    crate::flames::FlamesDebug,
                     crate::audio_engine::ReverbDebug,
                 ),
             ),
@@ -153,10 +149,9 @@ pub(crate) fn ads_tuning_ui(
         mut aim_sway,
         mut remote_avatar,
         mut soldier_anim,
-        mut remote_sound,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut flames_dbg, mut reverb_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1462,140 +1457,14 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Audio", |ui| {
-                ui.collapsing("Sound volumes", |ui| {
-                    let v = &mut *sound_vol;
-                    ui.label("per-sound multiplier (1 = built-in level)");
-                    for (label, slot) in [
-                        ("shot", &mut v.shot),
-                        ("rechamber", &mut v.rechamber),
-                        ("reload", &mut v.reload),
-                        ("AK-74: shot", &mut v.ak_shot),
-                        ("AK-74: reload", &mut v.ak_reload),
-                        ("AK-74: fast reload", &mut v.ak_reload_fast),
-                        ("Ray Gun: shot", &mut v.raygun_shot),
-                        ("Ray Gun: reload", &mut v.raygun_reload),
-                        ("Ray Gun: equip", &mut v.raygun_equip),
-                        ("ambient", &mut v.ambient),
-                        ("shipment ambient", &mut v.shipment_ambient),
-                        ("aim in", &mut v.aim_in),
-                        ("aim out", &mut v.aim_out),
-                        ("out of ammo", &mut v.out_of_ammo),
-                        ("slide", &mut v.slide),
-                        ("dive", &mut v.dive),
-                        ("kill enemy", &mut v.kill_enemy),
-                        ("jump land", &mut v.jump_land),
-                        ("teleport", &mut v.teleport),
-                        ("throwing knife: throw", &mut v.knife_throw),
-                        ("throwing knife: hit enemy", &mut v.knife_hit),
-                        ("throwing knife: in air", &mut v.knife_in_air),
-                        ("knife: equip", &mut v.knife_equip),
-                        ("molotov: light (held)", &mut v.molotov_light),
-                        ("molotov: burst", &mut v.molotov_burst),
-                        ("monkey bomb: prime", &mut v.monkey_bomb_prime),
-                        ("monkey bomb: throw", &mut v.monkey_bomb_throw),
-                        ("monkey bomb: land", &mut v.monkey_bomb_land),
-                        ("monkey bomb: song", &mut v.monkey_bomb_song),
-                        ("monkey bomb: bye bye", &mut v.monkey_bomb_explode_vox),
-                        ("frag: pin pull", &mut v.frag_pin_pull),
-                        ("frag: explosion", &mut v.frag_explosion),
-                        ("flash bang: detonate", &mut v.flash_bang_detonate),
-                        ("throwing knife: pick up", &mut v.pick_up_equipment),
-                        ("sniper: equip", &mut v.sniper_equip),
-                        ("heartbeat (at zero health)", &mut v.heartbeat),
-                        ("hit marker", &mut v.hit_marker),
-                        ("zombies: buy perk", &mut v.perk_buy),
-                        ("zombies: buy ammo", &mut v.buy_ammo),
-                        ("zombies: prone bonus ching", &mut v.money_ching),
-                        ("zombies: power-up grab", &mut v.power_up_grab),
-                        ("zombies: power-up loop", &mut v.power_up_loop),
-                        ("zombies: power-up announcer", &mut v.power_up_announcer),
-                        ("zombies: perk jingle", &mut v.perk_jingle),
-                        ("zombies: perk quote", &mut v.perk_quote),
-                        ("zombies: power on", &mut v.power_on),
-                        ("zombies: door open", &mut v.door_open),
-                        ("zombies: main door ambience", &mut v.main_door_ambience),
-                        ("zombies: der tempel earthquake", &mut v.der_tempel_power_on),
-                        ("fire crackle", &mut v.fire_crackle),
-                        ("zombies: mystery box open", &mut v.mystery_box_open),
-                        ("zombies: mystery box close", &mut v.mystery_box_close),
-                        ("zombies: mystery box spin", &mut v.mystery_box_spin),
-                        ("zombies: armor destroyed", &mut v.armor_destroy),
-                        ("zombies: aether shroud activate", &mut v.aether_activate),
-                        ("zombies: aether shroud loop", &mut v.aether_active),
-                        ("zombies: aether shroud deactivate", &mut v.aether_deactivate),
-                        ("zombies: boss spawn", &mut v.boss_spawn),
-                        ("zombies: boss growl", &mut v.boss_growl),
-                        ("zombies: boss smash", &mut v.boss_attack),
-                        ("zombies: boss death", &mut v.boss_death),
-                        ("zombies: boss blast (flying)", &mut v.boss_blast),
-                        ("zombies: boss blast hit", &mut v.boss_blast_hit),
-                        ("zombies: round start", &mut v.round_start),
-                        ("zombies: dog round start", &mut v.dog_round_start),
-                        ("zombies: dog round end", &mut v.dog_round_end),
-                        ("zombies: dog lightning (pre-spawn)", &mut v.dog_pre_spawn),
-                        ("zombies: dog spawn", &mut v.dog_spawn),
-                        ("zombies: dog bark", &mut v.dog_bark),
-                        ("zombies: dog explosion", &mut v.dog_explosion),
-                        ("zombies: player down", &mut v.player_down),
-                        ("zombies: revived", &mut v.revived),
-                        ("zombies: bomb shot explosion", &mut v.bomb_shot_explosion),
-                        ("zombies: zombie moans", &mut v.zombie_moan),
-                        ("zombies: zombie spawn", &mut v.zombie_spawn),
-                        ("zombies: zombie death", &mut v.zombie_death),
-                        ("zombies: zombie swipe hit", &mut v.zombie_attack),
-                        ("zombies: final zombie", &mut v.final_zombie),
-                        ("zombies: ambience", &mut v.zombies_ambient),
-                        ("zombies: game over music", &mut v.zombies_game_over),
-                    ] {
-                        ui.add(egui::Slider::new(slot, 0.0f32..=10.0).text(label));
-                    }
-                    // One slider per clip in each folder-backed set (one of a set's
-                    // clips plays at random per event).
-                    let ks = &mut *knife_sounds;
-                    for (title, set) in [
-                        ("throwing knife: surface impacts", &mut ks.impact),
-                        ("knife: stabs (hit a bot / player)", &mut ks.stab),
-                        ("knife: swings (miss)", &mut ks.swing),
-                    ] {
-                        ui.collapsing(title, |ui| {
-                            if set.clips.is_empty() {
-                                ui.label("(no clips found in this folder)");
-                            }
-                            for clip in &mut set.clips {
-                                ui.add(egui::Slider::new(&mut clip.volume, 0.0f32..=10.0).text(&clip.name));
-                            }
-                        });
-                    }
-                    if ui.button("Reset sound volumes").clicked() {
-                        *v = SoundVolumes::default();
-                        for clip in &mut ks.impact.clips {
-                            clip.volume = 0.3;
-                        }
-                        for clip in ks.stab.clips.iter_mut().chain(&mut ks.swing.clips) {
-                            clip.volume = 1.0;
-                        }
-                    }
-                });
+                ui.label(
+                    "Every sound's level, bus, reverb and positional profile (distance fade, air, \
+                     width) live in the audio mixer (F9).",
+                );
+                if ui.button("Open audio mixer").clicked() {
+                    audio_mixer.open = true;
+                }
 
-            ui.separator();
-                ui.collapsing("Remote sounds", |ui| {
-                    ui.label("Other players' (and bots') footsteps/jump/slide/reload/rechamber/shot/dive/throw.");
-                    let rs = &mut *remote_sound;
-                    ui.add(egui::Slider::new(&mut rs.volume, 0.0f32..=3.0).text("volume (×)"));
-                    ui.add(
-                        egui::Slider::new(&mut rs.max_distance, 5.0f32..=300.0)
-                            .text("max distance (m)"),
-                    );
-                    ui.label("Per sound (× on top of volume) — players and bots alike:");
-                    for bit in crate::killcam::ALL_SND_BITS {
-                        if let Some((label, v)) = rs.field_mut(bit) {
-                            ui.add(egui::Slider::new(v, 0.0f32..=4.0).text(label));
-                        }
-                    }
-                    if ui.button("Reset remote sounds").clicked() {
-                        *rs = RemoteSoundSettings::default();
-                    }
-                });
 
             ui.separator();
                 ui.collapsing("Reverb", |ui| reverb_dbg.ui(ui));
@@ -1676,8 +1545,7 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Zombie sounds", |ui| {
                 let s = &mut *zombie_voice;
-                ui.label("Loudness per sound: Sound volumes → \"zombies: …\".");
-                ui.add(egui::Slider::new(&mut s.max_distance, 5.0f32..=150.0).text("heard up to (m)"));
+                ui.label("Loudness and distance fade: the audio mixer (F9) — the \"Zombies\" profile.");
                 ui.add(egui::Slider::new(&mut s.moan_min_secs, 0.5f32..=30.0).text("moan every, min (s)"));
                 ui.add(egui::Slider::new(&mut s.moan_max_secs, 0.5f32..=30.0).text("moan every, max (s)"));
                 ui.add(egui::Slider::new(&mut s.max_moans_at_once, 1u32..=10).text("moans at once, max"));
@@ -1745,24 +1613,10 @@ pub(crate) fn ads_tuning_ui(
             ui.collapsing("Machine hum (Zombies)", |ui| {
                 let h = &mut *hum;
                 ui.label(
-                    "The buzz from every perk machine and the Pack-a-Punch once the power's on: \
-                     full volume within the inner radius, fading to silence at the max distance.",
-                );
-                ui.add(egui::Slider::new(&mut h.volume, 0.0f32..=4.0).text("volume"));
-                ui.add(egui::Slider::new(&mut h.full_distance, 0.0f32..=20.0).text("full volume within (m)"));
-                ui.add(egui::Slider::new(&mut h.max_distance, 1.0f32..=60.0).text("silent past (m)"));
-                ui.add(
-                    egui::Slider::new(&mut h.falloff, 0.5f32..=4.0)
-                        .text("falloff curve (1 = linear, higher = drops off sooner)"),
+                    "The buzz from every perk machine and the Pack-a-Punch once the power's on. \
+                     Its level and distance fade: the audio mixer (F9) — the \"Machine hum\" profile.",
                 );
                 ui.add(egui::Slider::new(&mut h.fade_in_secs, 0.0f32..=10.0).text("swell in when powered (s)"));
-                if ui.button("Copy machine hum settings to console").clicked() {
-                    info!(
-                        "machine hum: volume: {:.2}, full_distance: {:.2}, max_distance: {:.2}, falloff: {:.2}, \
-                         fade_in_secs: {:.2}",
-                        h.volume, h.full_distance, h.max_distance, h.falloff, h.fade_in_secs,
-                    );
-                }
                 if ui.button("Reset machine hum").clicked() {
                     *h = default();
                 }
@@ -1951,8 +1805,6 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
             ui.collapsing("Earthquake (Der Tempel)", |ui| earthquake_dbg.ui(ui));
 
-            ui.separator();
-            ui.collapsing("Fire crackle", |ui| flames_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Aether Shroud (Zombies)", |ui| aether_dbg.ui(ui));

@@ -384,7 +384,6 @@ fn main() {
         .init_resource::<MantleSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
-        .init_resource::<SoundVolumes>()
         .init_resource::<MapLooks>()
         .init_resource::<CurrentMap>()
         .init_resource::<MapLoadState>()
@@ -398,7 +397,6 @@ fn main() {
         .init_resource::<NameTagSettings>()
         .init_resource::<BotLookSettings>()
         .init_resource::<LedgeJumpSettings>()
-        .init_resource::<RemoteSoundSettings>()
         .init_resource::<SoldierAnimSettings>()
         // The world, cameras and HUD are built once at startup — spawning the 3D
         // cameras lazily on `OnEnter(InGame)` left the window with a stale/black
@@ -500,9 +498,6 @@ fn main() {
                 (update_dog_round_fade, apply_sky_look).chain(),
             ),
         )
-        // In `Last`, so it sees `AudioSink`s that `audio_engine` adds in this
-        // frame's `PostUpdate` and can scale them before they've really played.
-        .add_systems(Last, apply_sound_volumes)
         // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
             EguiPrimaryContextPass,

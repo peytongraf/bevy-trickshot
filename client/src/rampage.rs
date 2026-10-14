@@ -33,7 +33,6 @@ use shared::Lobby;
 
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
-use crate::settings::Settings;
 use crate::zombies_hud::zombies_game;
 use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
@@ -312,7 +311,6 @@ fn rampage_audio(
     lobbies: Query<&Lobby>,
     sounds: Option<Res<RampageSounds>>,
     settings: Res<RampageSettings>,
-    game_settings: Res<Settings>,
     mut state: ResMut<RampageLocal>,
     mut music: Query<(Entity, Option<&mut AudioSink>), With<RampageMusic>>,
     mut commands: Commands,
@@ -325,7 +323,6 @@ fn rampage_audio(
             commands.spawn((
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(clip.clone()),
-                // (`GlobalVolume` — master volume — is multiplied in at spawn.)
                 PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume)),
             ));
         };
@@ -347,8 +344,8 @@ fn rampage_audio(
         if !now_on {
             commands.entity(e).despawn();
         } else if let Some(mut sink) = sink {
-            // (Following the panel and master volume while it plays.)
-            let volume = Volume::Linear(s.music_volume * game_settings.master_volume);
+            // (Following the panel while it plays.)
+            let volume = Volume::Linear(s.music_volume);
             if sink.volume() != volume {
                 sink.set_volume(volume);
             }

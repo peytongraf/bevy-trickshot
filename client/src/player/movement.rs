@@ -811,7 +811,7 @@ pub(crate) fn apply_gravity(
     if !was_grounded && physics.grounded && !dive_landed {
         commands.spawn((
             AudioPlayer::new(sounds.jump_land.clone()),
-            PlaybackSettings::DESPAWN.with_reverb(true),
+            PlaybackSettings::DESPAWN,
         ));
         snd.note(killcam::SND_JUMP_LAND);
     }

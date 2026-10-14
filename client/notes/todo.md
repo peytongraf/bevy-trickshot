@@ -4,6 +4,11 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Note - P logs position to client console *
 
+# Sound Terms
+
+Positional vs nonpositional
+World vs dry (reverb or no reverb)
+
 # Done
 
 - Kira audio engine
@@ -11,6 +16,7 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Level editor
 
+- Fix der tempel crafting table position
 - Add fires to 4 bowls around pyramid and remove 4 lights
 - Add lights to zone above lower tomb
 

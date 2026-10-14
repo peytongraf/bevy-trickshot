@@ -68,8 +68,17 @@ pub(super) fn open(bytes: &Arc<[u8]>) -> Result<OpenClip, SymphoniaError> {
 /// The controls and state one playing sound shares between the game (its
 /// `AudioSink` / `SpatialAudioSink`) and the audio thread.
 pub(super) struct Playback {
-    /// Linear gain, as `f32` bits.
+    /// Linear gain the sound was played / set at, as `f32` bits.
     volume: AtomicU32,
+    /// Linear gain from the mix (`mix`) and master volume on top, as `f32`
+    /// bits.
+    mix: AtomicU32,
+    /// Linear gain from a positional sound's distance (its profile), as
+    /// `f32` bits; `1` for the rest.
+    distance: AtomicU32,
+    /// Out of earshot: held silent where it is, not decoding (looping
+    /// positional sounds only).
+    culled: AtomicBool,
     paused: AtomicBool,
     /// Asked to stop: fades out over one buffer, then finishes.
     stopped: AtomicBool,
@@ -78,9 +87,12 @@ pub(super) struct Playback {
 }
 
 impl Playback {
-    pub(super) fn new(volume: f32, paused: bool) -> Self {
+    pub(super) fn new(volume: f32, mix: f32, paused: bool) -> Self {
         Self {
             volume: AtomicU32::new(volume.to_bits()),
+            mix: AtomicU32::new(mix.to_bits()),
+            distance: AtomicU32::new(1f32.to_bits()),
+            culled: AtomicBool::new(false),
             paused: AtomicBool::new(paused),
             stopped: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -93,6 +105,25 @@ impl Playback {
 
     pub(super) fn set_volume(&self, volume: f32) {
         self.volume.store(volume.to_bits(), Ordering::Relaxed);
+    }
+
+    pub(super) fn set_mix(&self, mix: f32) {
+        self.mix.store(mix.to_bits(), Ordering::Relaxed);
+    }
+
+    pub(super) fn set_distance(&self, gain: f32) {
+        self.distance.store(gain.to_bits(), Ordering::Relaxed);
+    }
+
+    pub(super) fn set_culled(&self, culled: bool) {
+        self.culled.store(culled, Ordering::Relaxed);
+    }
+
+    /// What's actually applied: the volume times the mix times the distance.
+    fn gain(&self) -> f32 {
+        self.volume()
+            * f32::from_bits(self.mix.load(Ordering::Relaxed))
+            * f32::from_bits(self.distance.load(Ordering::Relaxed))
     }
 
     pub(super) fn is_paused(&self) -> bool {
@@ -127,7 +158,7 @@ impl SoundData for DecodingSoundData {
 
     fn into_sound(self) -> Result<(Box<dyn Sound>, Self::Handle), Self::Error> {
         // Gain starts right at the target — no fade-in on the first buffer.
-        let gain = self.playback.volume();
+        let gain = self.playback.gain();
         let mut sound = DecodingSound {
             // Source frames per second of output.
             rate: self.clip.sample_rate as f64 * self.speed.max(0.0) as f64,
@@ -174,7 +205,7 @@ struct DecodingSound {
     /// once the last real frame has left `window[1]`.
     frames_past_end: u8,
     /// The gain applied at the end of the last buffer (ramped toward
-    /// [`Playback::volume`] across each buffer, so changes don't click).
+    /// [`Playback::gain`] across each buffer, so changes don't click).
     gain: f32,
     done: bool,
 }
@@ -257,11 +288,12 @@ impl Sound for DecodingSound {
             return;
         }
         let stopping = self.playback.stopped.load(Ordering::Relaxed);
-        if self.playback.is_paused() && !stopping {
+        let held = self.playback.is_paused() || self.playback.culled.load(Ordering::Relaxed);
+        if held && !stopping {
             // (`out` arrives zeroed.)
             return;
         }
-        let target = if stopping { 0.0 } else { self.playback.volume() };
+        let target = if stopping { 0.0 } else { self.playback.gain() };
         let step = self.rate * dt;
         let start = self.gain;
         let len = out.len() as f32;
@@ -351,7 +383,7 @@ mod tests {
                 }
                 let bytes: Arc<[u8]> = std::fs::read(&path).unwrap().into();
                 let clip = open(&bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-                let playback = Arc::new(Playback::new(1.0, false));
+                let playback = Arc::new(Playback::new(1.0, 1.0, false));
                 let (mut sound, ()) = DecodingSoundData {
                     clip,
                     speed: 1.0,

@@ -39,8 +39,7 @@ impl Plugin for PowerPlugin {
                 Update,
                 (
                     sync_power_lever,
-                    fade_power_sound,
-                    (sync_machine_hums, fade_machine_hums).chain(),
+                    (sync_machine_hums, swell_machine_hums).chain(),
                     update_power_card,
                     turn_on_power.run_if(menu::game_active.and(killcam::no_killcam)),
                 )
@@ -443,14 +442,10 @@ fn sync_power_lever(
                 commands.spawn((
                     StateScoped(AppState::InGame),
                     PowerOnSound,
-                    // Volume is ours to set (`fade_power_sound`), not the
-                    // one-shot volume pass's.
-                    crate::RemoteSoundEmitter,
                     AudioPlayer::new(sounds.power_on.clone()),
                     // From the lever itself.
                     Transform::from_translation(t.translation),
-                    // Starts silent; the real volume is set from the next frame.
-                    crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
+                    crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
                 ));
             }
         }
@@ -461,26 +456,6 @@ fn sync_power_lever(
                 }
             }
         }
-    }
-}
-
-/// Keep the power-on sound's loudness matched to how far the listener is from
-/// the lever — the same fade as other players' sounds ("Remote sounds"
-/// range) — times the "power on" volume.
-fn fade_power_sound(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    sound_vol: Res<crate::SoundVolumes>,
-    remote: Res<crate::RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut sounds: Query<(&GlobalTransform, &mut SpatialAudioSink), With<PowerOnSound>>,
-) {
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    let ear = ear.translation();
-    for (gt, mut sink) in &mut sounds {
-        let loudness = sound_vol.power_on * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 
@@ -502,40 +477,17 @@ struct MachineHum {
     started: f32,
 }
 
-/// Panel-tunable machine hum ("Machine hum (Zombies)"): its own short range,
-/// so it's only heard near a machine — not the "Remote sounds" range meant
-/// for gunfire across the map.
+/// Panel-tunable machine hum ("Machine hum (Zombies)"). How it fades with
+/// distance is the "Machine hum" profile's, in the audio mixer.
 #[derive(Resource, Clone)]
 pub(crate) struct MachineHumSettings {
-    pub(crate) volume: f32,
-    /// Full volume within this far (m) of a machine...
-    pub(crate) full_distance: f32,
-    /// ...fading to silence here.
-    pub(crate) max_distance: f32,
-    /// The fade's curve between them (1 = linear; higher drops off sooner).
-    pub(crate) falloff: f32,
     /// Seconds a hum takes to swell to full once the power comes on.
     pub(crate) fade_in_secs: f32,
 }
 
 impl Default for MachineHumSettings {
     fn default() -> Self {
-        Self {
-            volume: 1.0,
-            full_distance: 2.0,
-            max_distance: 10.0,
-            falloff: 2.0,
-            fade_in_secs: 1.5,
-        }
-    }
-}
-
-impl MachineHumSettings {
-    /// Loudness (before the swell and global volume) `distance` m away.
-    fn loudness(&self, distance: f32) -> f32 {
-        let span = (self.max_distance - self.full_distance).max(1e-3);
-        let t = ((distance - self.full_distance) / span).clamp(0.0, 1.0);
-        self.volume * (1.0 - t).powf(self.falloff.max(0.01))
+        Self { fade_in_secs: 1.5 }
     }
 }
 
@@ -561,12 +513,9 @@ fn sync_machine_hums(
             MachineHum {
                 started: time.elapsed_secs(),
             },
-            // Volume is ours to set (`fade_machine_hums`), not the one-shot
-            // volume pass's.
-            crate::RemoteSoundEmitter,
             AudioPlayer::new(sounds.machine_hum.clone()),
             Transform::from_translation(hum.0),
-            // Looped; starts silent, the real volume set from the next frame.
+            // Looped; starts silent, swelling in (`swell_machine_hums`).
             PlaybackSettings::LOOP
                 .with_spatial(true)
                 .with_volume(crate::audio_engine::Volume::Linear(0.0)),
@@ -575,27 +524,21 @@ fn sync_machine_hums(
     }
 }
 
-/// Keep each hum's loudness matched to how far the listener is from its
-/// machine ([`MachineHumSettings`]), swelling in as it starts.
-fn fade_machine_hums(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+/// Swell each hum in as it starts ([`MachineHumSettings::fade_in_secs`]).
+fn swell_machine_hums(
     settings: Res<MachineHumSettings>,
-    global_volume: Res<GlobalVolume>,
     time: Res<Time>,
-    mut hums: Query<(&GlobalTransform, &MachineHum, &mut SpatialAudioSink)>,
+    mut hums: Query<(&MachineHum, &mut SpatialAudioSink)>,
 ) {
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    let ear = ear.translation();
-    for (gt, hum, mut sink) in &mut hums {
+    for (hum, mut sink) in &mut hums {
         let swell = if settings.fade_in_secs > 0.0 {
             ((time.elapsed_secs() - hum.started) / settings.fade_in_secs).clamp(0.0, 1.0)
         } else {
             1.0
         };
-        let loudness = swell * settings.loudness(ear.distance(gt.translation()));
-        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        if sink.volume().to_linear() != swell {
+            sink.set_volume(crate::audio_engine::Volume::Linear(swell));
+        }
     }
 }
 

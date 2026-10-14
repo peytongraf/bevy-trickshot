@@ -14,8 +14,8 @@
 //! Everything but the swipe is worked out by each client from what it sees
 //! (Call of Duty's zombie vocals aren't synced either): every client sees the
 //! same zombie rise or fall at the same moment, and the moans are ambience.
-//! Moans and the final call ride along with their zombie; every clip's
-//! loudness follows the listener's distance each frame.
+//! Moans and the final call ride along with their zombie; how they fade
+//! with distance is their positional profile's, in the audio mixer.
 
 use bevy::prelude::*;
 
@@ -25,7 +25,7 @@ use shared::{Lobby, PlayerPose};
 
 use crate::net::{GameClient, RemoteAvatar};
 use crate::util::rand01;
-use crate::{AppState, WorldModelCamera, ZombieMotion, ZombieVisual};
+use crate::{AppState, ZombieMotion, ZombieVisual};
 
 /// Where on a zombie (m above its feet) its voice comes from.
 const MOUTH_HEIGHT: f32 = 1.6;
@@ -33,8 +33,6 @@ const MOUTH_HEIGHT: f32 = 1.6;
 /// Panel-tunable zombie voice timing ("Zombie sounds" debug-panel section).
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct ZombieSoundSettings {
-    /// Distance (m) at which a zombie sound has faded to silence.
-    pub(crate) max_distance: f32,
     /// Each zombie moans every `moan_min_secs..moan_max_secs` (random)...
     pub(crate) moan_min_secs: f32,
     pub(crate) moan_max_secs: f32,
@@ -54,7 +52,6 @@ pub(crate) struct ZombieSoundSettings {
 impl Default for ZombieSoundSettings {
     fn default() -> Self {
         Self {
-            max_distance: 50.0,
             moan_min_secs: 4.0,
             moan_max_secs: 11.0,
             max_moans_at_once: 3,
@@ -90,9 +87,7 @@ struct ZombieVoice {
 
 /// A playing zombie sound: its loudness before the distance fade.
 #[derive(Component)]
-struct ZombieSound {
-    loudness: f32,
-}
+struct ZombieSound;
 
 /// A playing sound in a zombie's own voice (its spawn groan, a moan, the
 /// final-zombie call): cut off the moment that zombie dies.
@@ -124,7 +119,6 @@ impl Plugin for ZombieSoundsPlugin {
                     zombie_rise_and_fall,
                     zombie_moans,
                     receive_zombie_swipes,
-                    fade_zombie_sounds,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -155,18 +149,16 @@ fn pick(clips: &[Handle<AudioSource>], roll: f32) -> Option<Handle<AudioSource>>
     (!clips.is_empty()).then(|| clips[(roll * clips.len() as f32) as usize % clips.len()].clone())
 }
 
-/// A zombie sound at `at` (or riding along on `parent`, offset by `at`),
-/// silent until [`fade_zombie_sounds`] sets its real volume next frame.
-fn spawn_sound(commands: &mut Commands, clip: Handle<AudioSource>, loudness: f32, at: Vec3) -> Entity {
+/// A zombie sound at `at` (or riding along on `parent`, offset by `at`) —
+/// faded by distance by its profile in the mix.
+fn spawn_sound(commands: &mut Commands, clip: Handle<AudioSource>, at: Vec3) -> Entity {
     commands
         .spawn((
             StateScoped(AppState::InGame),
-            ZombieSound { loudness },
-            // Volume is ours (distance fade), not the one-shot pass's.
-            crate::RemoteSoundEmitter,
+            ZombieSound,
             AudioPlayer::new(clip),
             Transform::from_translation(at),
-            crate::positional_playback(Volume::Linear(0.0)),
+            crate::positional_playback(Volume::Linear(1.0)),
         ))
         .id()
 }
@@ -183,7 +175,6 @@ fn zombie_rise_and_fall(
     time: Res<Time>,
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
-    vols: Res<crate::SoundVolumes>,
     poses: Query<&PlayerPose>,
     new: Query<(Entity, &RemoteAvatar), (With<ZombieVisual>, Without<ZombieVoice>)>,
     mut voices: Query<(Entity, &RemoteAvatar, &mut ZombieVoice)>,
@@ -202,7 +193,7 @@ fn zombie_rise_and_fall(
         let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
         if pose.alive {
             if let Some(clip) = pick(&sounds.spawns, roll()) {
-                let id = spawn_sound(&mut commands, clip, vols.zombie_spawn, feet + Vec3::Y * 0.5);
+                let id = spawn_sound(&mut commands, clip, feet + Vec3::Y * 0.5);
                 commands.entity(id).insert(VoiceOf(entity));
             }
         }
@@ -223,7 +214,7 @@ fn zombie_rise_and_fall(
             }
             let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
             if let Some(clip) = pick(&sounds.deaths, roll()) {
-                spawn_sound(&mut commands, clip, vols.zombie_death, feet + Vec3::Y * MOUTH_HEIGHT);
+                spawn_sound(&mut commands, clip, feet + Vec3::Y * MOUTH_HEIGHT);
             }
         }
         voice.was_alive = pose.alive;
@@ -238,7 +229,6 @@ fn zombie_moans(
     time: Res<Time>,
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
-    vols: Res<crate::SoundVolumes>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     poses: Query<&PlayerPose>,
@@ -283,7 +273,7 @@ fn zombie_moans(
         if Some(entity) == final_one {
             let due = *last.next_at.get_or_insert_with(|| after(now, 1.0, 2.5, roll()));
             if now >= due {
-                let id = spawn_sound(&mut commands, sounds.final_zombie.clone(), vols.final_zombie, mouth);
+                let id = spawn_sound(&mut commands, sounds.final_zombie.clone(), mouth);
                 commands.entity(id).insert((VoiceOf(entity), ChildOf(entity)));
                 last.next_at = Some(after(now, settings.final_min_secs, settings.final_max_secs, roll()));
             }
@@ -305,7 +295,7 @@ fn zombie_moans(
             2
         };
         if let Some(clip) = pick(&sounds.moans[tier], roll()) {
-            let id = spawn_sound(&mut commands, clip, vols.zombie_moan, mouth);
+            let id = spawn_sound(&mut commands, clip, mouth);
             commands.entity(id).insert((ZombieMoan, VoiceOf(entity), ChildOf(entity)));
             playing += 1;
             last.last_moan_at = now;
@@ -317,7 +307,6 @@ fn zombie_moans(
 /// Server → us: a zombie's swipe landed on someone — the hit, from them.
 fn receive_zombie_swipes(
     sounds: Option<Res<ZombieSounds>>,
-    vols: Res<crate::SoundVolumes>,
     mut receivers: Query<&mut MessageReceiver<shared::ZombieSwipeLanded>>,
     mut commands: Commands,
 ) {
@@ -325,25 +314,8 @@ fn receive_zombie_swipes(
         for msg in rx.receive() {
             let Some(sounds) = sounds.as_ref() else { continue };
             let at = Vec3::from_array(msg.at) + Vec3::Y * 1.2;
-            spawn_sound(&mut commands, sounds.attack.clone(), vols.zombie_attack, at);
+            spawn_sound(&mut commands, sounds.attack.clone(), at);
         }
     }
 }
 
-/// Keep every zombie sound's loudness matched to how far the listener is
-/// from it (they can move with their zombie) — a squared fade to silence at
-/// `max_distance`.
-fn fade_zombie_sounds(
-    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
-    settings: Res<ZombieSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut playing: Query<(&GlobalTransform, &ZombieSound, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    let max = settings.max_distance.max(1.0);
-    for (gt, sound, mut sink) in &mut playing {
-        let fade = (1.0 - ear.distance(gt.translation()) / max).clamp(0.0, 1.0).powi(2);
-        sink.set_volume(Volume::Linear((sound.loudness * fade).max(0.0)) * global_volume.volume);
-    }
-}

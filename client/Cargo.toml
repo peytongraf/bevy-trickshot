@@ -78,6 +78,8 @@ dirs = "7"
 lightyear = { workspace = true }
 shared = { path = "../shared" }
 serde = { workspace = true }
+# The audio mix (`assets/audio/mix.ron`, `audio_engine::mix`) — same as `shared`'s.
+ron = "0.8"
 
 # Self-update on launch — see src/updater.rs. Checks the latest GitHub Release,
 # swaps the executable in place and relaunches. Kept to small, pure-Rust crates.

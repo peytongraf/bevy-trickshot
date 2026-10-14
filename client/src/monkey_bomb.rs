@@ -13,7 +13,7 @@
 //!   ([`MonkeyAvatar`]) and hears it thrown; once it's down it plays its
 //!   clip (spinning, bouncing, clapping its cymbals) on a loop, and its land
 //!   sound, its song and then its "bye bye zombies" play from it, for the
-//!   whole lobby ([`BoxSound`]-style distance fade, [`fade_monkey_sounds`]).
+//!   whole lobby (faded by distance by their profile in the audio mixer).
 //!   The explosion is the server's Bomb Shot blast (`vfx::explosion`).
 //! * **Dropped** — a zombie's dropped monkey bomb stands where it fell,
 //!   outlined like a dropped molotov ([`DropAvatar`]); the pickup card and
@@ -80,7 +80,6 @@ impl Plugin for MonkeyBombPlugin {
                     send_throw_requests,
                     sync_monkey_avatars,
                     play_landed_monkeys,
-                    fade_monkey_sounds,
                     sync_drop_avatars,
                     receive_pickups,
                 )
@@ -256,7 +255,7 @@ struct MonkeyAvatar {
 struct MonkeyModel;
 
 /// One of a monkey's sounds, playing from it (a child of its avatar, so it
-/// goes with it) — its loudness follows our distance.
+/// goes with it), faded by distance by its profile in the mix.
 #[derive(Component, Clone, Copy)]
 enum MonkeySound {
     Throw,
@@ -268,13 +267,9 @@ enum MonkeySound {
 fn monkey_sound(kind: MonkeySound, clip: Handle<AudioSource>) -> impl Bundle {
     (
         kind,
-        // Volume is ours to set (`fade_monkey_sounds`), not the one-shot
-        // volume pass's.
-        crate::RemoteSoundEmitter,
         AudioPlayer::new(clip),
         Transform::from_translation(Vec3::Y * 0.15),
-        // Starts silent; the real volume is set from the next frame.
-        crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
+        crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
     )
 }
 
@@ -398,28 +393,6 @@ fn play_landed_monkeys(
                 }
             }
         }
-    }
-}
-
-/// Keep each monkey sound's loudness matched to how far we are from it.
-fn fade_monkey_sounds(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    sound_vol: Res<crate::SoundVolumes>,
-    remote: Res<crate::RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut sounds: Query<(&MonkeySound, &GlobalTransform, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    for (kind, gt, mut sink) in &mut sounds {
-        let volume = match kind {
-            MonkeySound::Throw => sound_vol.monkey_bomb_throw,
-            MonkeySound::Land => sound_vol.monkey_bomb_land,
-            MonkeySound::Song => sound_vol.monkey_bomb_song,
-            MonkeySound::Vox => sound_vol.monkey_bomb_explode_vox,
-        };
-        let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

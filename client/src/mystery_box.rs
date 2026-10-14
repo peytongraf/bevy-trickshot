@@ -79,7 +79,6 @@ impl Plugin for MysteryBoxPlugin {
                 (
                     sync_mystery_box,
                     animate_mystery_box,
-                    fade_box_sounds,
                     update_box_card,
                     use_mystery_box.run_if(menu::game_active.and(killcam::no_killcam)),
                     receive_prizes,
@@ -130,7 +129,7 @@ impl MysteryBox {
 }
 
 /// One of the box's sounds, playing from it (a child, so it goes with the
-/// box) — its loudness follows our distance ([`fade_box_sounds`]).
+/// box), faded by distance by its profile in the mix.
 #[derive(Component, Clone, Copy)]
 enum BoxSound {
     Open,
@@ -423,13 +422,9 @@ fn animate_mystery_box(
         for (kind, clip) in clips {
             commands.entity(box_e).with_child((
                 kind,
-                // Volume is ours to set (`fade_box_sounds`), not the
-                // one-shot volume pass's.
-                crate::RemoteSoundEmitter,
                 AudioPlayer::new(clip),
                 Transform::from_translation(Vec3::Y * HALF_EXTENTS.y),
-                // Starts silent; the real volume is set from the next frame.
-                crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
             ));
         }
     }
@@ -495,27 +490,6 @@ fn animate_mystery_box(
         let scale = at.scale.max(0.01);
         d.translation = at.pos + Vec3::Y * y * scale;
         d.rotation = at.rotation();
-    }
-}
-
-/// Keep each box sound's loudness matched to how far we are from the box.
-fn fade_box_sounds(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    sound_vol: Res<crate::SoundVolumes>,
-    remote: Res<crate::RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut sounds: Query<(&BoxSound, &GlobalTransform, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    for (kind, gt, mut sink) in &mut sounds {
-        let volume = match kind {
-            BoxSound::Open => sound_vol.mystery_box_open,
-            BoxSound::Spin => sound_vol.mystery_box_spin,
-            BoxSound::Close => sound_vol.mystery_box_close,
-        };
-        let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

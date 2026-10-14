@@ -268,12 +268,10 @@ fn update_quake(settings: Res<EarthquakeSettings>, time: Res<Time>, mut quake: R
     quake.offset = settings.pose(t, quake.level);
 }
 
-/// Keep the sound's volume on the shake's strength (and the panel's and
-/// master volume), and stop it once the quake's over.
+/// Keep the sound's volume on the shake's strength, and stop it once the
+/// quake's over.
 fn quake_sound(
     quake: Res<Quake>,
-    vols: Res<crate::SoundVolumes>,
-    settings: Res<crate::settings::Settings>,
     mut sounds: Query<(Entity, Option<&mut AudioSink>), With<QuakeSound>>,
     mut commands: Commands,
 ) {
@@ -283,7 +281,7 @@ fn quake_sound(
             continue;
         }
         let Some(mut sink) = sink else { continue };
-        let volume = Volume::Linear(quake.level * vols.der_tempel_power_on * settings.master_volume);
+        let volume = Volume::Linear(quake.level);
         if sink.volume() != volume {
             sink.set_volume(volume);
         }

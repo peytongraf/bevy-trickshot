@@ -35,8 +35,8 @@ use shared::{GameMode, Lobby, PowerUpDrop, PowerUpGrabbed};
 use crate::net::GameClient;
 use crate::zombies_hud::{zombies_game, PERK_ICON_BOTTOM, PERK_ICON_SIZE};
 use crate::{
-    distance_falloff, killcam, menu, AppState, GameSounds, RemoteSoundEmitter,
-    RemoteSoundSettings, SoundVolumes, Weapon, WorldModelCamera, HUD_FONT,
+    killcam, menu, AppState, GameSounds,
+    Weapon, HUD_FONT,
 };
 
 const SHADER_ASSET_PATH: &str = "shaders/power_up_glow.wgsl";
@@ -317,7 +317,6 @@ impl Plugin for PowerUpsPlugin {
                 sync_drop_avatars,
                 animate_drop_avatars,
                 measure_drop_models,
-                fade_drop_loops,
                 apply_power_up_settings,
                 receive_grabs,
                 update_timed_row,
@@ -428,15 +427,11 @@ fn sync_drop_avatars(
                             Transform::default(),
                         ));
                     });
-                // Spawned silent; `fade_drop_loops` sets its volume by
-                // distance every frame.
+                // (Faded by distance by its profile in the mix.)
                 avatar.spawn((
                     DropLoop,
-                    RemoteSoundEmitter,
                     AudioPlayer::new(sounds.power_up_loop.clone()),
-                    PlaybackSettings::LOOP
-                        .with_spatial(true)
-                        .with_volume(Volume::Linear(0.0)),
+                    PlaybackSettings::LOOP.with_spatial(true),
                     Transform::from_xyz(0.0, 1.0, 0.0),
                 ));
             });
@@ -521,24 +516,6 @@ fn animate_drop_avatars(
                 tf.rotation = Quat::from_rotation_y(t * settings.spin_deg.to_radians() + avatar.phase);
             }
         }
-    }
-}
-
-/// Keep each drop's loop matched to its distance from the listener.
-fn fade_drop_loops(
-    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
-    vols: Res<SoundVolumes>,
-    remote: Res<RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut loops: Query<(&GlobalTransform, &mut SpatialAudioSink), With<DropLoop>>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    for (gt, mut sink) in &mut loops {
-        let loudness = vols.power_up_loop
-            * distance_falloff(ear.distance(gt.translation()), &remote)
-            * remote.volume;
-        sink.set_volume(Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

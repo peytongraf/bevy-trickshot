@@ -43,7 +43,7 @@ use crate::dogs::{DogAssets, DogSettings};
 use crate::net::{GameClient, RemoteAvatar};
 use crate::util::rand01;
 use crate::vfx::{smoke_billboard_rotation, ExplosionAssets};
-use crate::{AppState, GameSounds, SoundVolumes, WorldModelCamera};
+use crate::{AppState, GameSounds, WorldModelCamera};
 
 pub(crate) const BOSS_MODEL: &str = "models/characters/boss.glb";
 /// `boss.glb` as made: how tall it stands (model units), and how fast (per
@@ -72,8 +72,6 @@ pub(crate) struct BossSettings {
     pub(crate) blend_secs: f32,
     /// Seconds between growls (a random gap in this range).
     pub(crate) growl_every: (f32, f32),
-    /// Every boss sound fades to silence this far (m) away.
-    pub(crate) sound_max_distance: f32,
     /// Its spawn flash's size (× the hellhound's).
     pub(crate) flash_size: f32,
 
@@ -124,7 +122,6 @@ impl Default for BossSettings {
             min_move_speed: 0.25,
             blend_secs: 0.2,
             growl_every: (6.0, 13.0),
-            sound_max_distance: 70.0,
             flash_size: 1.8,
 
             charge_fade_secs: 0.3,
@@ -175,7 +172,6 @@ impl std::fmt::Debug for DebugSettings<'_> {
             .field("min_move_speed", &s.min_move_speed)
             .field("blend_secs", &s.blend_secs)
             .field("growl_every", &s.growl_every)
-            .field("sound_max_distance", &s.sound_max_distance)
             .field("flash_size", &s.flash_size)
             .field("charge_fade_secs", &s.charge_fade_secs)
             .field("core_size", &s.core_size)
@@ -260,9 +256,7 @@ struct BossMotion {
 
 /// A playing boss sound: its loudness before the distance fade.
 #[derive(Component)]
-struct BossSound {
-    loudness: f32,
-}
+struct BossSound;
 
 /// A ball of energy: forming in a boss's hands, or flying.
 #[derive(Component)]
@@ -349,7 +343,6 @@ impl Plugin for BossPlugin {
                     update_orbs,
                     update_orb_parts,
                     update_orb_particles,
-                    fade_boss_sounds,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -440,18 +433,15 @@ fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -
         .map(|id| id.0)
 }
 
-/// A positional boss sound at `at`, silent until [`fade_boss_sounds`] sets
-/// its real volume.
-fn boss_sound(clip: Handle<AudioSource>, loudness: f32, at: Vec3, looped: bool) -> impl Bundle {
-    let mut playback = crate::positional_playback(Volume::Linear(0.0));
+/// A positional boss sound at `at` (faded by distance by its profile).
+fn boss_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle {
+    let mut playback = crate::positional_playback(Volume::Linear(1.0));
     if looped {
         playback.mode = PlaybackMode::Loop;
     }
     (
         StateScoped(AppState::InGame),
-        BossSound { loudness },
-        // Volume is ours (distance fade), not the one-shot pass's.
-        crate::RemoteSoundEmitter,
+        BossSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
         playback,
@@ -583,7 +573,6 @@ fn receive_boss_messages(
     (dog_assets, dog_settings): (Option<Res<DogAssets>>, Res<DogSettings>),
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     settings: Res<BossSettings>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
@@ -609,7 +598,7 @@ fn receive_boss_messages(
                 shared::boss::BOSS_PRE_SPAWN_SECS,
                 true,
             );
-            commands.spawn(boss_sound(sounds.boss_spawn.clone(), vols.boss_spawn, at + Vec3::Y, false));
+            commands.spawn(boss_sound(sounds.boss_spawn.clone(), at + Vec3::Y, false));
         }
     }
     for mut rx in &mut spawned {
@@ -670,7 +659,7 @@ fn receive_boss_messages(
             };
             // Its roar, from the ball as it flies.
             let sound = commands
-                .spawn(boss_sound(sounds.boss_blast.clone(), vols.boss_blast, Vec3::ZERO, true))
+                .spawn(boss_sound(sounds.boss_blast.clone(), Vec3::ZERO, true))
                 .id();
             commands.entity(orb).add_child(sound);
         }
@@ -704,7 +693,6 @@ fn animate_bosses(
     settings: Res<BossSettings>,
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     poses: Query<&PlayerPose>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
     mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>)>,
@@ -756,7 +744,7 @@ fn animate_bosses(
                 *seq = seq.wrapping_add(1);
                 let gap = s.growl_every.0 + rand01(seq.wrapping_mul(2_654_435_761)) * (s.growl_every.1 - s.growl_every.0).max(0.0);
                 motion.next_growl = Some(now + gap);
-                let growl = commands.spawn(boss_sound(sounds.boss_growl.clone(), vols.boss_growl, Vec3::ZERO, false)).id();
+                let growl = commands.spawn(boss_sound(sounds.boss_growl.clone(), Vec3::ZERO, false)).id();
                 // (Rides along with it: the avatar's scaled, so the offset
                 // is in its units.)
                 commands.entity(growl).insert(Transform::from_translation(
@@ -783,7 +771,7 @@ fn animate_bosses(
                         .set_repeat(RepeatAnimation::Never)
                         .replay();
                     if state == BossState::Smash {
-                        commands.spawn(boss_sound(sounds.boss_attack.clone(), vols.boss_attack, head, false));
+                        commands.spawn(boss_sound(sounds.boss_attack.clone(), head, false));
                     } else if let Some(peer) = peer_of(avatar.src, &ids, &interp) {
                         // A ball starts forming as its arms go up.
                         if !orbs.iter().any(|o| o.flight.is_none() && o.peer == Some(peer)) {
@@ -807,7 +795,7 @@ fn animate_bosses(
                     transitions
                         .play(&mut player, assets.death, Duration::from_secs_f32(0.15))
                         .set_repeat(RepeatAnimation::Never);
-                    commands.spawn(boss_sound(sounds.boss_death.clone(), vols.boss_death, head, false));
+                    commands.spawn(boss_sound(sounds.boss_death.clone(), head, false));
                 }
             }
             motion.state = state;
@@ -1168,23 +1156,6 @@ fn update_orb_particles(
     }
 }
 
-/// Keep every boss sound's loudness matched to how far the listener is from
-/// it — a squared fade to silence at `sound_max_distance`.
-fn fade_boss_sounds(
-    listener: Query<&GlobalTransform, With<WorldModelCamera>>,
-    settings: Res<BossSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut playing: Query<(&GlobalTransform, &BossSound, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else { return };
-    let ear = ear.translation();
-    let max = settings.sound_max_distance.max(1.0);
-    for (gt, sound, mut sink) in &mut playing {
-        let fade = (1.0 - ear.distance(gt.translation()) / max).clamp(0.0, 1.0).powi(2);
-        sink.set_volume(Volume::Linear((sound.loudness * fade).max(0.0)) * global_volume.volume);
-    }
-}
-
 /// The debug section's previews: the orange lightning 10 m ahead, or a ball
 /// thrown from in front of us, straight ahead.
 #[allow(clippy::too_many_arguments)]
@@ -1194,7 +1165,6 @@ fn run_previews(
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     settings: Res<BossSettings>,
     sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -1219,7 +1189,7 @@ fn run_previews(
             shared::boss::BOSS_PRE_SPAWN_SECS,
             true,
         );
-        commands.spawn(boss_sound(sounds.boss_spawn.clone(), vols.boss_spawn, at + Vec3::Y, false));
+        commands.spawn(boss_sound(sounds.boss_spawn.clone(), at + Vec3::Y, false));
     }
     if std::mem::take(&mut preview.orb) {
         // (Slow, and a long way off: something to look at, with no message
@@ -1242,7 +1212,7 @@ fn run_previews(
             7,
         );
         let sound = commands
-            .spawn(boss_sound(sounds.boss_blast.clone(), vols.boss_blast, Vec3::ZERO, true))
+            .spawn(boss_sound(sounds.boss_blast.clone(), Vec3::ZERO, true))
             .id();
         commands.entity(orb).add_child(sound);
     }
@@ -1336,8 +1306,7 @@ impl BossDebug<'_, '_> {
         ui.collapsing("Sounds", |ui| {
             ui.add(egui::Slider::new(&mut s.growl_every.0, 1.0f32..=60.0).text("growls every, min (s)"));
             ui.add(egui::Slider::new(&mut s.growl_every.1, 1.0f32..=60.0).text("growls every, max (s)"));
-            ui.add(egui::Slider::new(&mut s.sound_max_distance, 5.0f32..=200.0).text("heard within (m)"));
-            ui.label("Volumes: Sound volumes. Explosion size: Bomb Shot → boss blast's size.");
+            ui.label("Volumes and distance fade: the audio mixer (F9) — the \"Boss\" profile. Explosion size: Bomb Shot → boss blast's size.");
         });
         ui.horizontal(|ui| {
             if ui.button("Print boss settings to console").clicked() {

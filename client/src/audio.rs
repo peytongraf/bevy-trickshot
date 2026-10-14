@@ -1,6 +1,6 @@
-//! Preloaded sound handles, per-category volume multipliers, and the
-//! looping ambience bed — plus pushing `Settings::master_volume` and the
-//! "Sound volumes" panel onto whatever's actually playing.
+//! Preloaded sound handles and the looping ambience bed — plus pushing
+//! `Settings::master_volume` into the audio engine. Each sound's
+//! own level is the audio mixer's business (`audio_engine::mix`).
 //!
 //! `assets/audio/` layout: one folder per category — `ambient/`, `combat/`,
 //! `movement/` (+ `footsteps/`), `music/`, `quotes/<operator>/`, `ui/`,
@@ -243,7 +243,7 @@ impl PerkQuotes {
         use shared::perks::Perk;
         let dir = format!("audio/quotes/{}/perk_quotes", operator.dir());
         Self {
-            any: SoundSet::load(asset_server, &format!("{dir}/any"), 1.0),
+            any: SoundSet::load(asset_server, &format!("{dir}/any")),
             by_perk: [
                 (Perk::Juggernog, "jug"),
                 (Perk::QuickRevive, "quick_revive"),
@@ -255,19 +255,15 @@ impl PerkQuotes {
                 (Perk::DeathPerception, "death_perception"),
             ]
             .into_iter()
-            .map(|(perk, sub)| (perk, SoundSet::load(asset_server, &format!("{dir}/{sub}"), 1.0)))
+            .map(|(perk, sub)| (perk, SoundSet::load(asset_server, &format!("{dir}/{sub}"))))
             .collect(),
         }
     }
 }
 
-/// One clip from a [`SoundSet`], with its own volume multiplier.
+/// One clip from a [`SoundSet`].
 pub(crate) struct SoundClip {
-    /// File name without the extension — the label in the debug panel.
-    pub(crate) name: String,
     pub(crate) handle: Handle<AudioSource>,
-    /// Multiplier on the clip's built-in level ("Sound volumes" panel).
-    pub(crate) volume: f32,
 }
 
 /// Every audio file (`.mp3` / `.wav` / `.ogg` / `.flac`) found in one folder
@@ -275,16 +271,15 @@ pub(crate) struct SoundClip {
 /// the same on every client. The server picks which clip plays for an event
 /// (`variant % clips.len()`), so the whole lobby hears the same one. Found by
 /// listing the folder rather than hard-coding names, so dropping clips in / out
-/// of it needs no code change; each clip gets its own slider.
+/// of it needs no code change.
 #[derive(Default)]
 pub(crate) struct SoundSet {
     pub(crate) clips: Vec<SoundClip>,
 }
 
 impl SoundSet {
-    /// Load the folder `dir` (relative to the assets dir), every clip starting
-    /// at `volume`.
-    fn load(asset_server: &AssetServer, dir: &str, volume: f32) -> Self {
+    /// Load the folder `dir` (relative to the assets dir).
+    fn load(asset_server: &AssetServer, dir: &str) -> Self {
         let path = bevy::asset::io::file::FileAssetReader::get_base_path()
             .join("assets")
             .join(dir);
@@ -308,11 +303,7 @@ impl SoundSet {
             clips: names
                 .into_iter()
                 .map(|file| SoundClip {
-                    name: file
-                        .rsplit_once('.')
-                        .map_or(file.clone(), |(stem, _)| stem.to_owned()),
                     handle: asset_server.load(format!("{dir}/{file}")),
-                    volume,
                 })
                 .collect(),
         }
@@ -339,273 +330,16 @@ pub(crate) struct KnifeSounds {
 impl KnifeSounds {
     fn load(asset_server: &AssetServer) -> Self {
         Self {
-            impact: SoundSet::load(asset_server, "audio/weapons/throwing_knife/impact", 0.3),
-            stab: SoundSet::load(asset_server, "audio/weapons/knife/stab", 1.0),
-            swing: SoundSet::load(asset_server, "audio/weapons/knife/swing", 1.0),
+            impact: SoundSet::load(asset_server, "audio/weapons/throwing_knife/impact"),
+            stab: SoundSet::load(asset_server, "audio/weapons/knife/stab"),
+            swing: SoundSet::load(asset_server, "audio/weapons/knife/swing"),
         }
     }
 }
 
 /// Linear volume shared by both ambience loops (`ambient` and
-/// `shipment_ambient`) before their own "Sound volumes" multiplier.
+/// `shipment_ambient`) before their level in the mix.
 pub(crate) const AMBIENT_VOLUME: f32 = 0.5;
-
-/// Panel-adjustable per-sound volume multipliers ("Sound volumes" panel
-/// section). `1.0` leaves a sound at its built-in level; every one-shot is
-/// scaled by its entry when it spawns (`apply_sound_volumes`), and whichever
-/// ambience loop is currently playing by `ambient` / `shipment_ambient`
-/// (folded into `apply_master_volume`). Footsteps have their own controls in
-/// the "Footsteps" section and aren't here.
-#[derive(Resource)]
-pub(crate) struct SoundVolumes {
-    pub(crate) shot: f32,
-    pub(crate) rechamber: f32,
-    pub(crate) reload: f32,
-    pub(crate) ak_shot: f32,
-    pub(crate) ak_reload: f32,
-    pub(crate) ak_reload_fast: f32,
-    pub(crate) raygun_shot: f32,
-    pub(crate) raygun_reload: f32,
-    pub(crate) raygun_equip: f32,
-    pub(crate) ambient: f32,
-    pub(crate) shipment_ambient: f32,
-    pub(crate) aim_in: f32,
-    pub(crate) aim_out: f32,
-    pub(crate) out_of_ammo: f32,
-    pub(crate) slide: f32,
-    pub(crate) dive: f32,
-    pub(crate) kill_enemy: f32,
-    pub(crate) jump_land: f32,
-    pub(crate) teleport: f32,
-    pub(crate) knife_throw: f32,
-    pub(crate) knife_hit: f32,
-    pub(crate) knife_in_air: f32,
-    pub(crate) knife_equip: f32,
-    pub(crate) molotov_light: f32,
-    pub(crate) molotov_burst: f32,
-    pub(crate) monkey_bomb_prime: f32,
-    pub(crate) monkey_bomb_throw: f32,
-    pub(crate) monkey_bomb_land: f32,
-    pub(crate) monkey_bomb_song: f32,
-    pub(crate) monkey_bomb_explode_vox: f32,
-    pub(crate) frag_pin_pull: f32,
-    pub(crate) frag_explosion: f32,
-    pub(crate) flash_bang_detonate: f32,
-    pub(crate) pick_up_equipment: f32,
-    pub(crate) sniper_equip: f32,
-    /// Loudness of the heartbeat at zero health (it fades toward silence as
-    /// health recovers) — see `health::update_heartbeat`.
-    pub(crate) heartbeat: f32,
-    pub(crate) hit_marker: f32,
-    pub(crate) perk_buy: f32,
-    /// Every perk machine's jingle (on top of its distance fade).
-    pub(crate) perk_jingle: f32,
-    /// An operator's line after buying a perk (another player's on top of
-    /// its distance fade).
-    pub(crate) perk_quote: f32,
-    /// The power lever being thrown (on top of its distance fade).
-    pub(crate) power_on: f32,
-    /// A door sliding open (on top of its distance fade).
-    pub(crate) door_open: f32,
-    /// The main door's ambience (on top of its distance fade).
-    pub(crate) main_door_ambience: f32,
-    /// Der Tempel's power-on earthquake (on top of the quake's fade).
-    pub(crate) der_tempel_power_on: f32,
-    /// A map's fires crackling (on top of their distance fade, `flames`).
-    pub(crate) fire_crackle: f32,
-    /// The Mystery Box's lid and spin (on top of their distance fade).
-    pub(crate) mystery_box_open: f32,
-    pub(crate) mystery_box_close: f32,
-    pub(crate) mystery_box_spin: f32,
-    pub(crate) armor_destroy: f32,
-    pub(crate) aether_activate: f32,
-    pub(crate) aether_active: f32,
-    pub(crate) aether_deactivate: f32,
-    /// A boss's sounds (`boss`), each on top of its distance fade.
-    pub(crate) boss_spawn: f32,
-    pub(crate) boss_growl: f32,
-    pub(crate) boss_attack: f32,
-    pub(crate) boss_death: f32,
-    pub(crate) boss_blast: f32,
-    pub(crate) boss_blast_hit: f32,
-    pub(crate) round_start: f32,
-    pub(crate) dog_round_start: f32,
-    pub(crate) dog_round_end: f32,
-    /// A hellhound's sounds (`dogs`), each on top of its distance fade.
-    pub(crate) dog_pre_spawn: f32,
-    pub(crate) dog_spawn: f32,
-    pub(crate) dog_bark: f32,
-    pub(crate) dog_explosion: f32,
-    /// A lobby member going down, and a revive finishing (`revive`).
-    pub(crate) player_down: f32,
-    pub(crate) revived: f32,
-    /// A Bomb Shot explosion (on top of its distance fade).
-    pub(crate) bomb_shot_explosion: f32,
-    /// Zombie voices (`zombie_sounds`), each on top of its distance fade.
-    pub(crate) zombie_moan: f32,
-    pub(crate) zombie_spawn: f32,
-    pub(crate) zombie_death: f32,
-    pub(crate) zombie_attack: f32,
-    pub(crate) final_zombie: f32,
-    /// The `Zombies` ambience loop and game-over music (`zombies_audio`).
-    pub(crate) zombies_ambient: f32,
-    pub(crate) buy_ammo: f32,
-    pub(crate) money_ching: f32,
-    pub(crate) power_up_grab: f32,
-    /// A dropped power-up's loop (on top of its distance fade).
-    pub(crate) power_up_loop: f32,
-    /// Every power-up's announcer line.
-    pub(crate) power_up_announcer: f32,
-    pub(crate) zombies_game_over: f32,
-}
-
-impl Default for SoundVolumes {
-    fn default() -> Self {
-        Self {
-            shot: 1.0,
-            rechamber: 1.0,
-            reload: 1.5,
-            ak_shot: 1.0,
-            ak_reload: 1.0,
-            ak_reload_fast: 1.0,
-            raygun_shot: 1.0,
-            raygun_reload: 1.0,
-            raygun_equip: 1.0,
-            ambient: 2.5,
-            shipment_ambient: 2.5,
-            aim_in: 1.0,
-            aim_out: 1.0,
-            out_of_ammo: 1.0,
-            slide: 1.0,
-            dive: 1.0,
-            kill_enemy: 3.0,
-            jump_land: 0.5,
-            teleport: 1.0,
-            knife_throw: 1.0,
-            knife_hit: 1.5,
-            knife_in_air: 1.0,
-            knife_equip: 1.0,
-            molotov_light: 1.0,
-            molotov_burst: 1.5,
-            monkey_bomb_prime: 1.0,
-            monkey_bomb_throw: 1.0,
-            monkey_bomb_land: 1.0,
-            monkey_bomb_song: 1.0,
-            monkey_bomb_explode_vox: 1.0,
-            frag_pin_pull: 1.0,
-            frag_explosion: 1.0,
-            flash_bang_detonate: 1.0,
-            pick_up_equipment: 1.0,
-            sniper_equip: 1.0,
-            heartbeat: 1.0,
-            hit_marker: 1.0,
-            perk_buy: 1.0,
-            perk_jingle: 1.0,
-            perk_quote: 1.0,
-            power_on: 1.0,
-            door_open: 1.0,
-            main_door_ambience: 2.0,
-            der_tempel_power_on: 1.0,
-            fire_crackle: 1.0,
-            mystery_box_open: 1.0,
-            mystery_box_close: 1.0,
-            mystery_box_spin: 1.0,
-            armor_destroy: 1.0,
-            aether_activate: 1.0,
-            aether_active: 1.0,
-            aether_deactivate: 1.0,
-            boss_spawn: 1.0,
-            boss_growl: 1.0,
-            boss_attack: 1.0,
-            boss_death: 1.0,
-            boss_blast: 1.0,
-            boss_blast_hit: 1.0,
-            round_start: 4.0,
-            dog_round_start: 1.0,
-            dog_round_end: 1.0,
-            dog_pre_spawn: 1.0,
-            dog_spawn: 1.0,
-            dog_bark: 0.6,
-            dog_explosion: 1.0,
-            player_down: 1.0,
-            revived: 1.0,
-            bomb_shot_explosion: 1.0,
-            zombie_moan: 1.0,
-            zombie_spawn: 1.0,
-            zombie_death: 1.0,
-            zombie_attack: 1.0,
-            final_zombie: 1.0,
-            zombies_ambient: 1.0,
-            buy_ammo: 1.0,
-            money_ching: 1.0,
-            power_up_grab: 1.0,
-            power_up_loop: 1.0,
-            power_up_announcer: 1.0,
-            zombies_game_over: 1.0,
-        }
-    }
-}
-
-impl SoundVolumes {
-    /// The multiplier for `handle`, or `None` if it isn't a one-shot this
-    /// resource covers (footstep clips, the ambient loop).
-    pub(crate) fn oneshot_for(
-        &self,
-        handle: &Handle<AudioSource>,
-        sounds: &GameSounds,
-    ) -> Option<f32> {
-        let id = handle.id();
-        [
-            (sounds.shot.id(), self.shot),
-            (sounds.rechamber.id(), self.rechamber),
-            (sounds.reload.id(), self.reload),
-            (sounds.ak_shot.id(), self.ak_shot),
-            (sounds.ak_reload.id(), self.ak_reload),
-            (sounds.ak_reload_fast.id(), self.ak_reload_fast),
-            (sounds.raygun_shot.id(), self.raygun_shot),
-            (sounds.raygun_reload.id(), self.raygun_reload),
-            (sounds.raygun_equip.id(), self.raygun_equip),
-            (sounds.aim_in.id(), self.aim_in),
-            (sounds.aim_out.id(), self.aim_out),
-            (sounds.out_of_ammo.id(), self.out_of_ammo),
-            (sounds.slide.id(), self.slide),
-            (sounds.phd_slide.id(), self.slide),
-            (sounds.dive.id(), self.dive),
-            (sounds.kill_enemy.id(), self.kill_enemy),
-            (sounds.jump_land.id(), self.jump_land),
-            (sounds.teleport.id(), self.teleport),
-            (sounds.knife_throw.id(), self.knife_throw),
-            (sounds.knife_hit.id(), self.knife_hit),
-            (sounds.knife_in_air.id(), self.knife_in_air),
-            (sounds.knife_equip.id(), self.knife_equip),
-            (sounds.molotov_light.id(), self.molotov_light),
-            (sounds.monkey_bomb_prime.id(), self.monkey_bomb_prime),
-            (sounds.frag_pin_pull.id(), self.frag_pin_pull),
-            (sounds.pick_up_equipment.id(), self.pick_up_equipment),
-            (sounds.sniper_equip.id(), self.sniper_equip),
-            (sounds.hit_marker.id(), self.hit_marker),
-            (sounds.perk_buy.id(), self.perk_buy),
-            (sounds.buy_ammo.id(), self.buy_ammo),
-            (sounds.money_ching.id(), self.money_ching),
-            (sounds.power_up_grab.id(), self.power_up_grab),
-            (sounds.power_up_max_ammo.id(), self.power_up_announcer),
-            (sounds.power_up_insta_kill.id(), self.power_up_announcer),
-            (sounds.power_up_double_points.id(), self.power_up_announcer),
-            (sounds.power_up_nuke.id(), self.power_up_announcer),
-            (sounds.power_up_bonus_points.id(), self.power_up_announcer),
-            (sounds.round_start.id(), self.round_start),
-            (sounds.dog_round_start.id(), self.dog_round_start),
-            (sounds.dog_round_end.id(), self.dog_round_end),
-            (sounds.player_down.id(), self.player_down),
-            (sounds.aether_activate.id(), self.aether_activate),
-            (sounds.aether_active.id(), self.aether_active),
-            (sounds.aether_deactivate.id(), self.aether_deactivate),
-            (sounds.revived.id(), self.revived),
-        ]
-        .into_iter()
-        .find_map(|(hid, vol)| (hid == id).then_some(vol))
-    }
-}
 
 /// The looping ambient-nature bed. `StateScoped(InGame)`, so it starts when the
 /// player enters the world and stops on the way out.
@@ -621,118 +355,12 @@ pub(crate) const MENU_MUSIC_VOLUME: f32 = 0.5;
 #[derive(Component)]
 pub(crate) struct MenuMusic;
 
-/// Tags a sound spawned by `net::receive_remote_sounds` for another player's
-/// action (reload, footstep, shot, ...), positioned at their world location.
-/// `apply_sound_volumes` skips these — their volume is already fully baked in
-/// at spawn time (category volume × distance falloff × the "Remote sounds"
-/// panel's master volume × global volume), since re-deriving it post-spawn
-/// would need the same distance calculation all over again for no benefit.
-#[derive(Component)]
-pub(crate) struct RemoteSoundEmitter;
-
-/// Distance falloff for other players' positional sounds ("Remote sounds"
-/// debug-panel section). Applied by `net::receive_remote_sounds` on top of
-/// this same clip's normal `SoundVolumes` category multiplier.
-#[derive(Resource, Clone, Copy)]
-pub(crate) struct RemoteSoundSettings {
-    /// Overall gain on every remote-player sound, on top of its usual
-    /// per-category volume.
-    pub(crate) volume: f32,
-    /// Distance (m) at which a remote sound has faded to silence.
-    pub(crate) max_distance: f32,
-    /// Per-sound gain for another player's (or bot's) actions — one per
-    /// `killcam::SND_*` bit that's played remotely (not aim in / out), on top of `volume` and the clip's `SoundVolumes`
-    /// entry. See [`Self::for_bit`].
-    pub(crate) shot: f32,
-    pub(crate) reload: f32,
-    pub(crate) rechamber: f32,
-    pub(crate) ak_shot: f32,
-    pub(crate) ak_reload: f32,
-    pub(crate) ak_reload_fast: f32,
-    pub(crate) raygun_shot: f32,
-    pub(crate) raygun_reload: f32,
-    pub(crate) slide: f32,
-    pub(crate) dive: f32,
-    pub(crate) footstep: f32,
-    pub(crate) jump_land: f32,
-    pub(crate) knife_throw: f32,
-}
-
-impl Default for RemoteSoundSettings {
-    fn default() -> Self {
-        Self {
-            volume: 1.0,
-            max_distance: 60.0,
-            shot: 1.0,
-            reload: 1.0,
-            rechamber: 0.05,
-            ak_shot: 1.0,
-            ak_reload: 1.0,
-            ak_reload_fast: 1.0,
-            raygun_shot: 1.0,
-            raygun_reload: 1.0,
-            slide: 1.0,
-            dive: 1.0,
-            footstep: 1.0,
-            jump_land: 1.0,
-            knife_throw: 1.0,
-        }
-    }
-}
-
-impl RemoteSoundSettings {
-    /// The per-sound gain field for a `killcam::SND_*` bit, with its panel
-    /// label — `None` for a bit that isn't played remotely.
-    pub(crate) fn field_mut(&mut self, bit: u16) -> Option<(&'static str, &mut f32)> {
-        use crate::killcam::*;
-        Some(match bit {
-            SND_SHOT => ("shot", &mut self.shot),
-            SND_RELOAD => ("reload", &mut self.reload),
-            SND_RECHAMBER => ("rechamber", &mut self.rechamber),
-            SND_AK_SHOT => ("AK-74 shot", &mut self.ak_shot),
-            SND_AK_RELOAD => ("AK-74 reload", &mut self.ak_reload),
-            SND_AK_RELOAD_FAST => ("AK-74 fast reload", &mut self.ak_reload_fast),
-            SND_RAYGUN_SHOT => ("Ray Gun shot", &mut self.raygun_shot),
-            SND_RAYGUN_RELOAD => ("Ray Gun reload", &mut self.raygun_reload),
-            SND_SLIDE => ("slide", &mut self.slide),
-            SND_DIVE => ("dive", &mut self.dive),
-            SND_FOOTSTEP => ("footstep", &mut self.footstep),
-            SND_JUMP_LAND => ("jump land", &mut self.jump_land),
-            SND_THROW => ("knife throw", &mut self.knife_throw),
-            _ => return None,
-        })
-    }
-
-    /// The per-sound gain for a `killcam::SND_*` bit (`1.0` for an unknown one).
-    pub(crate) fn for_bit(&self, bit: u16) -> f32 {
-        // (PhD Flopper's slide goes by the slide's.)
-        let bit = if bit == crate::killcam::SND_PHD_SLIDE {
-            crate::killcam::SND_SLIDE
-        } else {
-            bit
-        };
-        let mut copy = *self;
-        copy.field_mut(bit).map_or(1.0, |(_, v)| *v)
-    }
-}
-
-/// Playback settings for a sound emitted from a point in the world: spatial
-/// (panned by where it is relative to the listener), with no distance
-/// attenuation of its own — the loudness-by-distance is whatever `volume`
-/// already bakes in (see `audio_engine`).
+/// Playback settings for a sound emitted from a point in the world: panned
+/// by where it is relative to the listener, and faded with distance by its
+/// positional profile in the mix (`audio_engine`) — `volume` is its own
+/// level on top, not a distance fade.
 pub(crate) fn positional_playback(volume: Volume) -> PlaybackSettings {
     PlaybackSettings::DESPAWN.with_spatial(true).with_volume(volume)
-}
-
-/// The `[0, 1]` loudness factor for a remote sound `distance` metres from the
-/// listener: a squared linear fade to silence at
-/// [`RemoteSoundSettings::max_distance`].
-pub(crate) fn distance_falloff(distance: f32, remote: &RemoteSoundSettings) -> f32 {
-    if distance >= remote.max_distance {
-        0.0
-    } else {
-        (1.0 - distance / remote.max_distance).powi(2)
-    }
 }
 
 pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -862,8 +490,6 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
 pub(crate) fn start_ambient(
     mut commands: Commands,
     sounds: Res<GameSounds>,
-    settings: Res<Settings>,
-    vols: Res<SoundVolumes>,
     current: Res<CurrentMap>,
     local: Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
     lobbies: Query<&shared::Lobby>,
@@ -871,17 +497,15 @@ pub(crate) fn start_ambient(
     if crate::zombies_hud::my_lobby(&local, &lobbies).is_some_and(|l| l.mode == shared::GameMode::Zombies) {
         return;
     }
-    let (clip, volume_mult) = match current.0 {
-        map if map.is_shipment() => (sounds.shipment_ambient.clone(), vols.shipment_ambient),
-        _ => (sounds.ambient.clone(), vols.ambient),
+    let clip = match current.0 {
+        map if map.is_shipment() => sounds.shipment_ambient.clone(),
+        _ => sounds.ambient.clone(),
     };
     commands.spawn((
         AmbientAudio,
         StateScoped(AppState::InGame),
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(
-            AMBIENT_VOLUME * volume_mult * settings.master_volume,
-        )),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME)),
     ));
 }
 
@@ -905,62 +529,25 @@ pub(crate) fn sync_menu_music(
         commands.spawn((
             MenuMusic,
             AudioPlayer::new(sounds.menu_music.clone()),
-            // `GlobalVolume` (master volume) is multiplied in at spawn.
             PlaybackSettings::LOOP
                 .with_volume(Volume::Linear(MENU_MUSIC_VOLUME * settings.music_volume)),
         ));
     }
 }
 
-/// Push `Settings::master_volume` onto `GlobalVolume`, which scales
-/// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
-/// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
-/// audio that's already playing, though, so the looping ambience needs its own
-/// direct nudge here too — also picking up the "Sound volumes" panel's
-/// multiplier for whichever ambience loop `start_ambient` actually started —
-/// and the menu music loop likewise (with `Settings::music_volume` on top).
+/// Push `Settings::master_volume` onto `GlobalVolume` — applied live to
+/// every sound, playing or not — and `Settings::music_volume` onto the menu
+/// music loop.
 pub(crate) fn apply_master_volume(
     settings: Res<Settings>,
-    vols: Res<SoundVolumes>,
-    current: Res<CurrentMap>,
     mut global_volume: ResMut<GlobalVolume>,
-    mut ambient: Query<&mut AudioSink, With<AmbientAudio>>,
-    mut music: Query<&mut AudioSink, (With<MenuMusic>, Without<AmbientAudio>)>,
+    mut music: Query<&mut AudioSink, With<MenuMusic>>,
 ) {
-    if !settings.is_changed() && !vols.is_changed() {
+    if !settings.is_changed() {
         return;
     }
     global_volume.volume = Volume::Linear(settings.master_volume);
-    let ambient_mult = if current.0.is_shipment() { vols.shipment_ambient } else { vols.ambient };
-    for mut sink in &mut ambient {
-        sink.set_volume(Volume::Linear(
-            AMBIENT_VOLUME * ambient_mult * settings.master_volume,
-        ));
-    }
     for mut sink in &mut music {
-        sink.set_volume(Volume::Linear(
-            MENU_MUSIC_VOLUME * settings.music_volume * settings.master_volume,
-        ));
-    }
-}
-
-/// Scale each freshly-started one-shot to its "Sound volumes" multiplier.
-/// `audio_engine` bakes `PlaybackSettings::volume * GlobalVolume` into the sink when
-/// it starts it, so we re-derive the same product with the per-sound factor
-/// mixed in. Sounds not covered here (footsteps, the ambient loop) are left be.
-pub(crate) fn apply_sound_volumes(
-    sounds: Option<Res<GameSounds>>,
-    vols: Res<SoundVolumes>,
-    global_volume: Res<GlobalVolume>,
-    mut fresh: Query<
-        (&AudioPlayer, &mut AudioSink),
-        (Added<AudioSink>, Without<RemoteSoundEmitter>),
-    >,
-) {
-    let Some(sounds) = sounds else { return };
-    for (player, mut sink) in &mut fresh {
-        if let Some(mult) = vols.oneshot_for(&player.0, &sounds) {
-            sink.set_volume(Volume::Linear(mult.max(0.0)) * global_volume.volume);
-        }
+        sink.set_volume(Volume::Linear(MENU_MUSIC_VOLUME * settings.music_volume));
     }
 }

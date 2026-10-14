@@ -293,7 +293,7 @@ pub(crate) fn crouch_slide(
                     let clip = if phd { &sounds.phd_slide } else { &sounds.slide };
                     slide.sound = Some(
                         commands
-                            .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN.with_reverb(true)))
+                            .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN))
                             .id(),
                     );
                     snd.note(if phd { killcam::SND_PHD_SLIDE } else { killcam::SND_SLIDE });
@@ -356,7 +356,7 @@ pub(crate) fn crouch_slide(
                 slide.prone_from = Stance::Standing;
                 commands.spawn((
                     AudioPlayer::new(sounds.dive.clone()),
-                    PlaybackSettings::DESPAWN.with_reverb(true),
+                    PlaybackSettings::DESPAWN,
                 ));
                 snd.note(killcam::SND_DIVE);
             }

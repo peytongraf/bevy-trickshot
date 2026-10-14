@@ -12,7 +12,7 @@
 //! we remember the door we asked for ([`DoorBuy`]) and ching when it opens.
 //! The map's main door (`Door::main`) also plays its ambience
 //! (`GameSounds::main_door_ambience`) from it, for everyone, heard much
-//! further off ([`MAIN_DOOR_FULL_M`]..[`MAIN_DOOR_SILENT_M`]).
+//! further off (its own "Main door" profile in the audio mixer).
 //!
 //! As one slides it grinds against the stone it slides into: small chips
 //! and a little dust spill from that seam — the floor line for a door going
@@ -61,7 +61,6 @@ impl Plugin for DoorsPlugin {
                     sync_doors,
                     slide_doors,
                     door_debris,
-                    fade_door_sounds,
                     update_door_card,
                     buy_door.run_if(menu::game_active.and(killcam::no_killcam)),
                 )
@@ -116,18 +115,6 @@ struct DoorBuy(Option<(usize, f32)>);
 
 /// How long (s) after asking a door opening still counts as our buy.
 const BUY_CONFIRM_SECS: f32 = 2.0;
-
-/// The main door's ambience: full volume within this far (m) of it, fading
-/// to silence here — a good way across the map, not all of it.
-const MAIN_DOOR_FULL_M: f32 = 15.0;
-const MAIN_DOOR_SILENT_M: f32 = 60.0;
-
-/// A door's sound as it slides open — and whether it's the main door's
-/// ambience (its own long range) rather than the slide.
-#[derive(Component)]
-struct DoorOpenSound {
-    ambience: bool,
-}
 
 /// Put the map's doors in while we're in a `Zombies` game (and take them
 /// away otherwise).
@@ -217,24 +204,18 @@ fn slide_doors(
             root.opened_at = Some(if root.seen { now } else { now - OPEN_SECS });
             if let (true, Some(sounds)) = (root.seen, sounds.as_ref()) {
                 let (center, ..) = door.solid_box();
-                let clips = std::iter::once((sounds.door_open.clone(), false))
-                    .chain(door.main.then(|| (sounds.main_door_ambience.clone(), true)));
-                for (clip, ambience) in clips {
+                let clips = std::iter::once(sounds.door_open.clone())
+                    .chain(door.main.then(|| sounds.main_door_ambience.clone()));
+                for clip in clips {
                     commands.spawn((
                         StateScoped(AppState::InGame),
-                        DoorOpenSound { ambience },
-                        // Volume is ours to set (`fade_door_sounds`), not the
-                        // one-shot volume pass's.
-                        crate::RemoteSoundEmitter,
                         AudioPlayer::new(clip),
                         Transform::from_translation(center),
-                        // Starts silent; the real volume is set from the next
-                        // frame.
-                        crate::positional_playback(Volume::Linear(0.0)),
+                        crate::positional_playback(Volume::Linear(1.0)),
                     ));
                 }
             }
-            // Ours: the ching (the one-shot volume pass sets its loudness).
+            // Ours: the ching (its level is the mix's).
             if let (Some((asked, at)), Some(sounds)) = (buy.0, sounds.as_ref()) {
                 if asked == root.index && now - at <= BUY_CONFIRM_SECS {
                     buy.0 = None;
@@ -465,33 +446,6 @@ fn spawn_door_dust(
         NoFrustumCulling,
         NotShadowCaster,
     ));
-}
-
-/// Keep each door's opening sound at the loudness for how far the listener
-/// is — the same fade as other players' sounds ("Remote sounds" range) —
-/// times the "door open" volume; the main door's ambience over its own,
-/// longer range.
-fn fade_door_sounds(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    vols: Res<crate::SoundVolumes>,
-    remote: Res<crate::RemoteSoundSettings>,
-    global_volume: Res<GlobalVolume>,
-    mut sounds: Query<(&GlobalTransform, &DoorOpenSound, &mut SpatialAudioSink)>,
-) {
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    let ear = ear.translation();
-    for (gt, sound, mut sink) in &mut sounds {
-        let distance = ear.distance(gt.translation());
-        let loudness = if sound.ambience {
-            let t = ((distance - MAIN_DOOR_FULL_M) / (MAIN_DOOR_SILENT_M - MAIN_DOOR_FULL_M)).clamp(0.0, 1.0);
-            vols.main_door_ambience * (1.0 - t) * (1.0 - t)
-        } else {
-            vols.door_open * crate::distance_falloff(distance, &remote)
-        };
-        sink.set_volume(Volume::Linear(loudness.max(0.0)) * global_volume.volume);
-    }
 }
 
 /// The shut door we're at, if any, and why it can't be bought if it can't.

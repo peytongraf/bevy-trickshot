@@ -62,7 +62,7 @@ pub(crate) fn teleport_home(
         physics.grounded = true;
         commands.spawn((
             AudioPlayer::new(sounds.teleport.clone()),
-            PlaybackSettings::DESPAWN.with_reverb(true),
+            PlaybackSettings::DESPAWN,
         ));
     }
 }

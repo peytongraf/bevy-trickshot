@@ -25,7 +25,7 @@ use crate::death_effect::DeathEffect;
 use crate::fall_death::FallDeathState;
 use crate::killcam::ActiveKillCam;
 use crate::net::GameClient;
-use crate::{AppState, GameSounds, SoundVolumes};
+use crate::{AppState, GameSounds};
 
 /// How the hurt effects look and sound — the debug panel's "Hurt effects"
 /// section (`debug_ui`).
@@ -292,8 +292,6 @@ fn update_heartbeat(
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
     sounds: Res<GameSounds>,
-    vols: Res<SoundVolumes>,
-    global_volume: Res<GlobalVolume>,
     mut beats: Query<(Entity, &mut AudioSink), With<Heartbeat>>,
     have_beat: Query<(), With<Heartbeat>>,
     mut commands: Commands,
@@ -321,10 +319,10 @@ fn update_heartbeat(
         0.0
     } else {
         let min = settings.heartbeat_min.clamp(0.0, 1.0);
-        (min + (1.0 - min) * strength) * settings.heartbeat_volume * vols.heartbeat
+        (min + (1.0 - min) * strength) * settings.heartbeat_volume
     };
     for (_, mut sink) in &mut beats {
-        sink.set_volume(Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(Volume::Linear(loudness.max(0.0)));
     }
 }
 

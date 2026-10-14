@@ -17,7 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
-        "Sounds now echo to fit where you are — tight in small rooms, big and ringing in large halls, open outdoors.",
+        "Far-off sounds now get duller with distance, like they would through real air.",
+        "Sounds and operator voice lines now echo to fit where you are — tight in small rooms, big and ringing in large halls, open outdoors.",
         "Zombies: drinking Juggernog fills the extra health at once, instead of showing you as hurt.",
         "Zombies: stragglers left far behind and out of sight now come back in near you, so you're not hunting for the last zombie.",
         "Zombies: bullets go through zombies into the ones behind, doing less damage each time — the sniper through up to 4, the AK-74 through 2.",

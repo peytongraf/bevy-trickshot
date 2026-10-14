@@ -119,9 +119,6 @@ pub(crate) struct ExplosionSettings {
     pub(crate) shake: f32,
     /// Distance (m) past which there's no shake.
     pub(crate) shake_radius: f32,
-    /// Distance (m) at which the explosion sound has faded to silence —
-    /// much further than other players' sounds, it's a bomb.
-    pub(crate) sound_max_distance: f32,
     /// A hellhound's explosion's size, as a multiple of the whole thing's...
     pub(crate) dog_scale: f32,
     /// ...and a boss blast's.
@@ -178,7 +175,6 @@ impl Default for ExplosionSettings {
 
             shake: 0.9,
             shake_radius: 35.0,
-            sound_max_distance: 160.0,
         }
     }
 }
@@ -438,7 +434,7 @@ fn spawn_explosions(
     player: Single<&Transform, With<Player>>,
     existing: Query<(), With<ExplosionParticle>>,
     mut shake: ResMut<Shake>,
-    (sounds, volumes): (Option<Res<crate::GameSounds>>, Res<crate::SoundVolumes>),
+    sounds: Option<Res<crate::GameSounds>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
     mut seq: Local<u32>,
@@ -467,7 +463,7 @@ fn spawn_explosions(
         let jolt = s.shake * size;
         shake.trauma = (shake.trauma + jolt * falloff * falloff).min(1.0);
 
-        // The boom, from the blast (positional), fading with distance.
+        // The boom, from the blast (positional; faded by its profile).
         let clip = if ev.dog {
             sounds.as_ref().map(|snd| snd.dog_explosion.clone())
         } else if ev.boss {
@@ -482,25 +478,12 @@ fn spawn_explosions(
                     snd.bomb_shot_explosions[ev.variant as usize % snd.bomb_shot_explosions.len()].clone()
                 })
         };
-        let fade = (1.0 - dist / s.sound_max_distance.max(1.0)).clamp(0.0, 1.0);
-        let volume = if ev.dog {
-            volumes.dog_explosion
-        } else if ev.boss {
-            volumes.boss_blast_hit
-        } else if ev.frag {
-            volumes.frag_explosion
-        } else {
-            volumes.bomb_shot_explosion
-        };
-        let loudness = volume * fade * fade;
-        if let (Some(clip), true) = (clip, loudness > 0.0) {
+        if let Some(clip) = clip {
             commands.spawn((
                 StateScoped(AppState::InGame),
-                // Volume is ours (distance fade), not the one-shot pass's.
-                crate::RemoteSoundEmitter,
                 AudioPlayer::new(clip),
                 Transform::from_translation(center),
-                crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
             ));
         }
 
@@ -959,11 +942,7 @@ pub(crate) fn explosion_section(ui: &mut egui::Ui, s: &mut ExplosionSettings) {
         ui.add(egui::Slider::new(&mut s.shake_radius, 1.0f32..=100.0).text("radius (m)"));
     });
     ui.collapsing("Sound", |ui| {
-        ui.add(
-            egui::Slider::new(&mut s.sound_max_distance, 10.0f32..=400.0)
-                .text("heard up to (m)"),
-        );
-        ui.label("Loudness: Sound volumes → \"zombies: bomb shot explosion\".");
+        ui.label("Loudness and distance fade: the audio mixer (F9) — the \"Explosions\" profile.");
     });
     ui.separator();
     if ui.button("Copy explosion settings to console").clicked() {

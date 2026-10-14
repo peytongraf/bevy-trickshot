@@ -1027,7 +1027,7 @@ fn drive_killcam(
                     // longer, not just quieter-for-longer.
                     commands.spawn((
                         AudioPlayer::new(clip.clone()),
-                        PlaybackSettings::DESPAWN.with_reverb(true).with_speed(speed_mult),
+                        PlaybackSettings::DESPAWN.with_speed(speed_mult),
                     ));
                 }
             }
@@ -1041,7 +1041,7 @@ fn drive_killcam(
                 let pitch = 1.0 + (rand_roll(seed ^ 0x5bd1_e995) / PI) * footstep_cfg.pitch_jitter;
                 commands.spawn((
                     AudioPlayer::new(clip),
-                    PlaybackSettings::DESPAWN.with_reverb(true)
+                    PlaybackSettings::DESPAWN
                         .with_volume(Volume::Linear(
                             (footstep_cfg.volume * footstep_cfg.walk_volume).max(0.0),
                         ))

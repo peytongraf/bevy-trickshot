@@ -97,7 +97,7 @@ pub(crate) fn play_footstep(
     let pitch = 1.0 + (rand01(s ^ 0x5bd1_e995) * 2.0 - 1.0) * pitch_jitter;
     commands.spawn((
         AudioPlayer::new(clips[idx].clone()),
-        PlaybackSettings::DESPAWN.with_reverb(true)
+        PlaybackSettings::DESPAWN
             .with_volume(Volume::Linear(volume.max(0.0)))
             .with_speed(pitch.clamp(0.1, 4.0)),
     ));

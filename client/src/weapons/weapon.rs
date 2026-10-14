@@ -1390,7 +1390,7 @@ fn begin_segment(
     };
     commands.spawn((
         AudioPlayer::new(sound.clone()),
-        PlaybackSettings::DESPAWN.with_reverb(true).with_speed(sound_speed),
+        PlaybackSettings::DESPAWN.with_speed(sound_speed),
         WeaponActionSound,
     ));
     snd.note(bit);
@@ -1601,7 +1601,7 @@ pub(crate) fn weapon_system(
                 **view_model_vis = Visibility::Hidden;
                 weapon.slot = WeaponSlot::Secondary;
                 **knife_vis = Visibility::Inherited;
-                commands.spawn((AudioPlayer::new(sounds.knife_equip.clone()), PlaybackSettings::DESPAWN.with_reverb(true)));
+                commands.spawn((AudioPlayer::new(sounds.knife_equip.clone()), PlaybackSettings::DESPAWN));
                 play_segment_at(&mut knife_player, knife_node, KNIFE_SEGMENTS[KNIFE_SEG_SHOW], swap_speed);
                 knife_state.busy = Some(KnifeBusy {
                     remaining: vec![KNIFE_SEGMENTS[KNIFE_SEG_SHOW]],
@@ -1620,7 +1620,7 @@ pub(crate) fn weapon_system(
                 } else {
                     &sounds.sniper_equip
                 };
-                commands.spawn((AudioPlayer::new(equip.clone()), PlaybackSettings::DESPAWN.with_reverb(true)));
+                commands.spawn((AudioPlayer::new(equip.clone()), PlaybackSettings::DESPAWN));
                 let show = rig.seg(SegAct::Show);
                 rig.play_at(show, primary_swap);
                 weapon.busy = Some(WeaponBusy {
@@ -1752,7 +1752,7 @@ pub(crate) fn weapon_system(
             commands.spawn((
                 StateScoped(crate::AppState::InGame),
                 AudioPlayer::new(sounds.frag_pin_pull.clone()),
-                PlaybackSettings::DESPAWN.with_reverb(true),
+                PlaybackSettings::DESPAWN,
             ));
         }
         knife.thrown = false;
@@ -1856,7 +1856,7 @@ pub(crate) fn weapon_system(
                 commands.spawn((
                     StateScoped(crate::AppState::InGame),
                     AudioPlayer::new(sounds.monkey_bomb_prime.clone()),
-                    PlaybackSettings::DESPAWN.with_reverb(true),
+                    PlaybackSettings::DESPAWN,
                 ));
             } else if !key_held && knife.slide >= 1.0 {
                 // Released with the arms fully in place: throw.
@@ -1869,7 +1869,7 @@ pub(crate) fn weapon_system(
                 if knife.kind == Lethal::ThrowingKnife {
                     commands.spawn((
                         AudioPlayer::new(sounds.knife_throw.clone()),
-                        PlaybackSettings::DESPAWN.with_reverb(true),
+                        PlaybackSettings::DESPAWN,
                     ));
                     snd.note(killcam::SND_THROW);
                 }
@@ -2162,7 +2162,7 @@ pub(crate) fn weapon_system(
                         // Just the local player hears the equip sound.
                         commands.spawn((
                             AudioPlayer::new(sounds.knife_equip.clone()),
-                            PlaybackSettings::DESPAWN.with_reverb(true),
+                            PlaybackSettings::DESPAWN,
                         ));
                         play_segment_at(
                             &mut knife_player,
@@ -2255,7 +2255,7 @@ pub(crate) fn weapon_system(
                     **view_model_vis = Visibility::Inherited;
                     commands.spawn((
                         AudioPlayer::new(sounds.sniper_equip.clone()),
-                        PlaybackSettings::DESPAWN.with_reverb(true),
+                        PlaybackSettings::DESPAWN,
                     ));
                     let show = rig.seg(SegAct::Show);
                     rig.play_at(show, primary_swap);
@@ -2363,7 +2363,7 @@ pub(crate) fn weapon_system(
             muzzle.shots = muzzle.shots.wrapping_add(1);
             muzzle.roll = rand_roll(muzzle.shots);
             muzzle.intensity = 1.0;
-            commands.spawn((AudioPlayer::new(sounds.raygun_shot.clone()), PlaybackSettings::DESPAWN.with_reverb(true)));
+            commands.spawn((AudioPlayer::new(sounds.raygun_shot.clone()), PlaybackSettings::DESPAWN));
             snd.note(killcam::SND_RAYGUN_SHOT);
             let cam_gt = cam.single().ok();
             let dir = cam_gt.map_or(Vec3::NEG_Z, |cam| cam.forward().as_vec3());
@@ -2390,7 +2390,7 @@ pub(crate) fn weapon_system(
                 });
             }
         } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
-            commands.spawn((AudioPlayer::new(sounds.out_of_ammo.clone()), PlaybackSettings::DESPAWN.with_reverb(true)));
+            commands.spawn((AudioPlayer::new(sounds.out_of_ammo.clone()), PlaybackSettings::DESPAWN));
         } else if binds.reload.just_pressed(&keys, &mouse)
             && weapon.reserve > 0
             && weapon.mag < weapon.mag_size()
@@ -2430,7 +2430,7 @@ pub(crate) fn weapon_system(
             muzzle.intensity = 1.0;
             commands.spawn((
                 AudioPlayer::new(sounds.ak_shot.clone()),
-                PlaybackSettings::DESPAWN.with_reverb(true),
+                PlaybackSettings::DESPAWN,
             ));
             snd.note(killcam::SND_AK_SHOT);
             let cam_gt = cam.single().ok();
@@ -2467,7 +2467,7 @@ pub(crate) fn weapon_system(
         } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
             commands.spawn((
                 AudioPlayer::new(sounds.out_of_ammo.clone()),
-                PlaybackSettings::DESPAWN.with_reverb(true),
+                PlaybackSettings::DESPAWN,
             ));
         } else if binds.reload.just_pressed(&keys, &mouse)
             && weapon.reserve > 0
@@ -2496,7 +2496,7 @@ pub(crate) fn weapon_system(
         smoke.0 = Some(0.0);
         commands.spawn((
             AudioPlayer::new(sounds.shot.clone()),
-            PlaybackSettings::DESPAWN.with_reverb(true),
+            PlaybackSettings::DESPAWN,
         ));
         snd.note(killcam::SND_SHOT);
 
@@ -2558,7 +2558,7 @@ pub(crate) fn weapon_system(
         // Trigger pulled on an empty mag — click, no bang.
         commands.spawn((
             AudioPlayer::new(sounds.out_of_ammo.clone()),
-            PlaybackSettings::DESPAWN.with_reverb(true),
+            PlaybackSettings::DESPAWN,
         ));
     } else if binds.reload.just_pressed(&keys, &mouse) && weapon.reserve > 0 {
         // TEMP: reload allowed even with a full mag, for reload-sound testing

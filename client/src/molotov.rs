@@ -1131,7 +1131,7 @@ fn play_light_sound(
                 StateScoped(AppState::InGame),
                 LightSound,
                 AudioPlayer::new(sounds.molotov_light.clone()),
-                PlaybackSettings::LOOP.with_reverb(true),
+                PlaybackSettings::LOOP,
             ));
         }
         (false, Some(_)) => {
@@ -1144,38 +1144,23 @@ fn play_light_sound(
 }
 
 /// The server announced a molotov breaking somewhere: play the burst from
-/// there, fading with distance like other players' sounds.
-#[allow(clippy::too_many_arguments)]
+/// there (faded by distance by its profile).
 fn receive_bursts(
     mut receivers: Query<&mut MessageReceiver<shared::MolotovBurst>>,
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
     killcam: Res<ActiveKillCam>,
     sounds: Res<GameSounds>,
-    sound_vol: Res<crate::SoundVolumes>,
-    remote: Res<crate::RemoteSoundSettings>,
     mut commands: Commands,
 ) {
-    let ear = listener.single().ok().map(|t| t.translation());
     for mut rx in &mut receivers {
         for msg in rx.receive() {
-            let Some(ear) = ear else { continue };
             if killcam.0.is_some() {
-                continue;
-            }
-            let pos = Vec3::from_array(msg.point);
-            let loudness = sound_vol.molotov_burst
-                * crate::distance_falloff(ear.distance(pos), &remote)
-                * remote.volume;
-            if loudness <= 0.0 {
                 continue;
             }
             commands.spawn((
                 StateScoped(AppState::InGame),
-                crate::RemoteSoundEmitter,
                 AudioPlayer::new(sounds.molotov_burst.clone()),
-                Transform::from_translation(pos),
-                // (`GlobalVolume` is multiplied in when the sound starts.)
-                crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
+                Transform::from_translation(Vec3::from_array(msg.point)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
             ));
         }
     }

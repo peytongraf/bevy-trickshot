@@ -1,7 +1,8 @@
 //! `Zombies` operator quotes, as heard: the server picks who says what
 //! ([`shared::QuoteSaid`], `server::quotes`), and every client plays that
 //! very line — from where its speaker is, following them about and fading
-//! with distance ("Remote sounds" range), or, our own, in our head.
+//! with distance (the "Voices" profile in the audio mixer), or, our own, in
+//! our head.
 //!
 //! Two things only this client knows of it asks the server to say for us
 //! ([`shared::RequestQuote`]): being down to our last magazine, and out of
@@ -9,9 +10,10 @@
 //!
 //! The lines are `audio/quotes/<operator>/…`, every one listed (with how
 //! long it runs) in `lines.txt` there — [`shared::quotes::lines`] — all
-//! loaded at startup. How loud they are (perk quotes too), and how long after
-//! a dog round begins and the exfil's called someone speaks up, is the
-//! debug panel's "Quotes (Zombies)" section ([`QuotesDebug`]).
+//! loaded at startup. How loud they are is the audio mixer's (the `quotes`
+//! folder); how long after a dog round begins and the exfil's called
+//! someone speaks up, the debug panel's "Quotes (Zombies)" section
+//! ([`QuotesDebug`]).
 //!
 //! The lines playing are `StateScoped(InGame)`; nothing else carries between
 //! games.
@@ -47,9 +49,6 @@ impl Plugin for QuotesPlugin {
 /// How the quotes sound — the "Quotes" debug section.
 #[derive(Resource, Clone, PartialEq)]
 pub(crate) struct QuoteSettings {
-    /// Every operator quote's volume (perk quotes' too, on top of their own
-    /// "perk quote" volume).
-    pub(crate) volume: f32,
     /// How long (s) after a dog round begins, and after the exfil's called,
     /// someone says so (the leader's count — the server's told).
     pub(crate) dog_round_delay: f32,
@@ -59,7 +58,6 @@ pub(crate) struct QuoteSettings {
 impl Default for QuoteSettings {
     fn default() -> Self {
         Self {
-            volume: 2.0,
             dog_round_delay: DOG_ROUND_DELAY_SECS,
             exfil_delay: EXFIL_DELAY_SECS,
         }
@@ -99,7 +97,6 @@ fn play_quotes(
     lobbies: Query<&Lobby>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     loaded: Option<Res<QuoteLines>>,
-    settings: Res<QuoteSettings>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -122,8 +119,8 @@ fn play_quotes(
                     Name::new("Quote"),
                     StateScoped(AppState::InGame),
                     AudioPlayer::new(clip.clone()),
-                    // (`GlobalVolume` is multiplied in at spawn.)
-                    PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume.max(0.0))),
+                    // (Its level, and the room's reverb, come from the mix.)
+                    PlaybackSettings::DESPAWN,
                 ));
             } else {
                 let at = poses
@@ -134,37 +131,24 @@ fn play_quotes(
                     Name::new("Quote"),
                     StateScoped(AppState::InGame),
                     SpokenQuote { speaker: said.speaker },
-                    // (Its loudness is ours to set — `follow_quotes`.)
-                    crate::RemoteSoundEmitter,
                     AudioPlayer::new(clip.clone()),
                     Transform::from_translation(at),
-                    crate::positional_playback(Volume::Linear(0.0)),
+                    crate::positional_playback(Volume::Linear(1.0)),
                 ));
             }
         }
     }
 }
 
-/// Keep each line someone else is saying with them, as loud as how far off
-/// they are.
+/// Keep each line someone else is saying with them (its distance fade is
+/// its profile's, in the mix).
 fn follow_quotes(
-    listener: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
     poses: Query<(&PlayerId, &PlayerPose)>,
-    settings: Res<QuoteSettings>,
-    remote: Res<crate::RemoteSoundSettings>,
-    global: Res<GlobalVolume>,
-    mut quotes: Query<(&SpokenQuote, &mut Transform, Option<&mut SpatialAudioSink>)>,
+    mut quotes: Query<(&SpokenQuote, &mut Transform)>,
 ) {
-    let Ok(ear) = listener.single() else {
-        return;
-    };
-    for (quote, mut tf, sink) in &mut quotes {
+    for (quote, mut tf) in &mut quotes {
         if let Some((_, pose)) = poses.iter().find(|(id, _)| id.0 == quote.speaker) {
             tf.translation = pose.translation;
-        }
-        if let Some(mut sink) = sink {
-            let loudness = settings.volume * crate::distance_falloff(ear.translation().distance(tf.translation), &remote);
-            sink.set_volume(Volume::Linear(loudness.max(0.0)) * global.volume);
         }
     }
 }
@@ -264,7 +248,7 @@ impl QuotesDebug<'_> {
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
         let settings = &mut *self.settings;
         let s = &mut *settings;
-        ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=5.0).text("volume (every quote, perk quotes too)"));
+        ui.label("(Their volume is the \"quotes\" folder in the audio mixer.)");
         ui.label("Party leader: how long after it starts someone says so");
         ui.add(egui::Slider::new(&mut s.dog_round_delay, 0.0f32..=20.0).text("dog round (s)"));
         ui.add(egui::Slider::new(&mut s.exfil_delay, 0.0f32..=20.0).text("exfil (s)"));

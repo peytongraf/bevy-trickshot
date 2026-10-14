@@ -17,11 +17,10 @@ use shared::GameMode;
 
 use crate::match_end::MatchEndFreeze;
 use crate::net::GameClient;
-use crate::settings::Settings;
 use crate::zombies_hud::my_lobby;
-use crate::{AppState, GameSounds, SoundVolumes};
+use crate::{AppState, GameSounds};
 
-/// Linear volume of the ambience loop (before its "Sound volumes" multiplier
+/// Linear volume of the ambience loop (before its level in the mix
 /// and master volume).
 const AMBIENT_VOLUME: f32 = 0.5;
 /// Linear volume of the game-over music (likewise).
@@ -45,9 +44,7 @@ impl Plugin for ZombiesAudioPlugin {
             .add_systems(OnEnter(AppState::InGame), reset_game_over)
             .add_systems(
                 Update,
-                (sync_zombies_audio, apply_zombies_audio_volume)
-                    .chain()
-                    .run_if(in_state(AppState::InGame)),
+                sync_zombies_audio.run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -64,7 +61,6 @@ fn sync_zombies_audio(
     lobbies: Query<&shared::Lobby>,
     freeze: Res<MatchEndFreeze>,
     sounds: Res<GameSounds>,
-    vols: Res<SoundVolumes>,
     mut played: ResMut<ZombiesGameOverPlayed>,
     ambient: Query<Entity, With<ZombiesAmbient>>,
     mut commands: Commands,
@@ -83,9 +79,8 @@ fn sync_zombies_audio(
                 ZombiesAmbient,
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(sounds.zombies_ambient.clone()),
-                // (`GlobalVolume` — master volume — is multiplied in at spawn.)
                 PlaybackSettings::LOOP
-                    .with_volume(Volume::Linear(AMBIENT_VOLUME * vols.zombies_ambient)),
+                    .with_volume(Volume::Linear(AMBIENT_VOLUME)),
             ));
         }
         return;
@@ -100,30 +95,8 @@ fn sync_zombies_audio(
             StateScoped(AppState::InGame),
             AudioPlayer::new(sounds.zombies_game_over.clone()),
             PlaybackSettings::DESPAWN
-                .with_volume(Volume::Linear(GAME_OVER_VOLUME * vols.zombies_game_over)),
+                .with_volume(Volume::Linear(GAME_OVER_VOLUME)),
         ));
     }
 }
 
-/// Follow master volume and the "Sound volumes" sliders while they play
-/// (`GlobalVolume` only applies when a sound starts).
-fn apply_zombies_audio_volume(
-    settings: Res<Settings>,
-    vols: Res<SoundVolumes>,
-    mut sinks: Query<
-        (&mut AudioSink, Has<ZombiesAmbient>),
-        Or<(With<ZombiesAmbient>, With<ZombiesGameOverMusic>)>,
-    >,
-) {
-    if !settings.is_changed() && !vols.is_changed() {
-        return;
-    }
-    for (mut sink, ambient) in &mut sinks {
-        let base = if ambient {
-            AMBIENT_VOLUME * vols.zombies_ambient
-        } else {
-            GAME_OVER_VOLUME * vols.zombies_game_over
-        };
-        sink.set_volume(Volume::Linear(base * settings.master_volume));
-    }
-}
