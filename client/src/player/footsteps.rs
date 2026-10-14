@@ -1,8 +1,9 @@
 //! Footstep cadence + audio for the local player (Call-of-Duty style: a
 //! distance accumulator that fires a step every `stride` metres).
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 
 use crate::killcam;
 use crate::util::rand01;
@@ -96,7 +97,7 @@ pub(crate) fn play_footstep(
     let pitch = 1.0 + (rand01(s ^ 0x5bd1_e995) * 2.0 - 1.0) * pitch_jitter;
     commands.spawn((
         AudioPlayer::new(clips[idx].clone()),
-        PlaybackSettings::DESPAWN
+        PlaybackSettings::DESPAWN.with_reverb(true)
             .with_volume(Volume::Linear(volume.max(0.0)))
             .with_speed(pitch.clamp(0.1, 4.0)),
     ));

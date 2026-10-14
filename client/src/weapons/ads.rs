@@ -2,6 +2,8 @@
 //! the pure FOV/pose blend helpers shared with the kill-cam replay.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
 use crate::keybinds::KeyBindings;
@@ -160,7 +162,7 @@ pub(crate) fn update_ads(
         } else {
             (sounds.aim_out.clone(), killcam::SND_AIM_OUT)
         };
-        commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+        commands.spawn((AudioPlayer::new(clip), PlaybackSettings::DESPAWN.with_reverb(true)));
         snd.note(bit);
         *was_aiming = aiming;
     }

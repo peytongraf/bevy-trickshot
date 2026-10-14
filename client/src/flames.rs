@@ -12,10 +12,11 @@
 //! layout being edited (`level_editor`, through [`sync_flames`]). Each set is
 //! rebuilt whenever its list changes, so nothing carries over between games.
 
-use bevy::audio::{SpatialAudioSink, Volume};
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy_egui::egui;
 use shared::level::Flame;
@@ -196,7 +197,6 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         // next frame.
                         PlaybackSettings::LOOP
                             .with_spatial(true)
-                            .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
                             .with_volume(Volume::Linear(0.0)),
                     ));
                 }

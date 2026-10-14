@@ -13,8 +13,9 @@
 //! full strength by [`HurtEffectSettings::full_at`] — half health. The
 //! damage indicator (`hud::damage_indicator`) tunes there too.
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::*;
 
 use shared::health::FULL_HEALTH;

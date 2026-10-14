@@ -18,11 +18,12 @@
 
 use bevy::math::Mat3;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::*;
 
 use shared::ThrownKnife;
 
-use bevy::audio::Volume;
 
 use crate::killcam::ActiveKillCam;
 use crate::net::GameClient;
@@ -257,7 +258,7 @@ fn receive_knife_hits(
                 RemoteSoundEmitter,
                 AudioPlayer::new(sounds.knife_hit.clone()),
                 Transform::from_translation(pos),
-                // (Bevy multiplies in `GlobalVolume` itself when the sound starts.)
+                // (`GlobalVolume` is multiplied in when the sound starts.)
                 positional_playback(Volume::Linear(loudness)),
             ));
         }

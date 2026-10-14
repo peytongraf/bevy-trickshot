@@ -15,6 +15,8 @@
 //! `StateScoped(InGame)` and keeps its own state, so each game starts fresh.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::LocalId;
 use shared::Lobby;
 

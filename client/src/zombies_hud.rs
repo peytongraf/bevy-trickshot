@@ -14,6 +14,8 @@
 //! spawned UI / machines are `StateScoped(InGame)`.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::perks::Perk;
 use shared::{GameMode, Lobby};
@@ -894,8 +896,8 @@ fn play_perk_jingles(
                     // Starts silent; the real volume is set from the next
                     // frame. Kept once it ends, for `play_perk_quotes`.
                     PlaybackSettings {
-                        mode: bevy::audio::PlaybackMode::Remove,
-                        ..crate::positional_playback(bevy::audio::Volume::Linear(0.0))
+                        mode: crate::audio_engine::PlaybackMode::Remove,
+                        ..crate::positional_playback(crate::audio_engine::Volume::Linear(0.0))
                     },
                 ));
             }
@@ -923,7 +925,7 @@ fn play_perk_quotes(
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(quote.clip.clone()),
                 // (`GlobalVolume` is multiplied in at spawn.)
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(
+                PlaybackSettings::DESPAWN.with_volume(crate::audio_engine::Volume::Linear(
                     sound_vol.perk_quote * quote_vol.volume * quote.volume,
                 )),
             ));
@@ -934,7 +936,7 @@ fn play_perk_quotes(
                 crate::RemoteSoundEmitter,
                 AudioPlayer::new(quote.clip.clone()),
                 *transform,
-                crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
             ));
         }
     }
@@ -963,7 +965,7 @@ fn update_perk_jingles(
     for (gt, mut sink, quote) in &mut jingles {
         let volume = quote.map_or(sound_vol.perk_jingle, |q| sound_vol.perk_quote * quote_vol.volume * q.0);
         let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

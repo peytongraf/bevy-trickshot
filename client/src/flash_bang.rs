@@ -32,6 +32,8 @@
 
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::view::{NoFrustumCulling, RenderLayers};
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::*;
@@ -646,7 +648,7 @@ fn spawn_flash(
             crate::RemoteSoundEmitter,
             AudioPlayer::new(sounds.flash_bang_detonate.clone()),
             Transform::from_translation(center),
-            crate::positional_playback(bevy::audio::Volume::Linear(loudness)),
+            crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
         ));
     }
 

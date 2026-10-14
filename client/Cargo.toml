@@ -4,15 +4,64 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `wav` / `mp3` are opt-in — Bevy only decodes ogg by default. `jpeg` is opt-in
-# the same way — Bevy only decodes PNG/KTX2/etc. by default — and map visual
-# models (e.g. `shipment_visual.glb`, a Sketchfab container pack) commonly
-# embed JPEG textures alongside PNGs to keep file size down; without this,
-# every JPEG texture in a glTF silently fails to load and drags the whole
-# scene down with it (see `bevy_gltf::loader`'s "invalid image mime type:
-# image/jpeg" warning). `serialize` gives serde impls for `KeyCode` /
-# `MouseButton`, used by the persisted keybinds.
-bevy = { version = "0.16", features = ["wav", "mp3", "jpeg", "webp", "serialize"] }
+# Bevy's default features minus `bevy_audio` / `vorbis` (and the Android-only
+# ones — `android_shared_stdcxx` switches `bevy_audio` back on): sound goes through
+# kira instead (`audio_engine`), and leaving bevy_audio on would open a second
+# output device through rodio. `jpeg` is opt-in — Bevy only decodes
+# PNG/KTX2/etc. by default — and map visual models (e.g.
+# `shipment_visual.glb`, a Sketchfab container pack) commonly embed JPEG
+# textures alongside PNGs to keep file size down; without this, every JPEG
+# texture in a glTF silently fails to load and drags the whole scene down with
+# it (see `bevy_gltf::loader`'s "invalid image mime type: image/jpeg"
+# warning). `serialize` gives serde impls for `KeyCode` / `MouseButton`, used
+# by the persisted keybinds.
+bevy = { version = "0.16", default-features = false, features = [
+    "std",
+    "async_executor",
+    "animation",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gilrs",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_input_focus",
+    "bevy_log",
+    "bevy_mesh_picking_backend",
+    "bevy_pbr",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_sprite_picking_backend",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    "custom_cursor",
+    "default_font",
+    "hdr",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "sysinfo_plugin",
+    "tonemapping_luts",
+    "webgl2",
+    "x11",
+    "jpeg",
+    "webp",
+    "serialize",
+] }
+# Audio (`audio_engine`): kira for the mixer, spatial tracks and effects, with
+# only its cpal output backend — clips are decoded by our own symphonia
+# decoder as they play (`audio_engine::decoder`) rather than kira's, which
+# would hold every clip fully decoded in memory. `mint` is the vector type
+# kira takes positions in.
+kira = { version = "0.12", default-features = false, features = ["cpal"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "wav", "pcm", "ogg", "vorbis", "flac", "all-meta"] }
+mint = "0.5"
 bevy_egui = "0.36"
 # Collision only: static colliders auto-generated from each map's `.glb` mesh
 # data (`AsyncSceneCollider`, wired up in `sync_map_model`) plus the raycasts/

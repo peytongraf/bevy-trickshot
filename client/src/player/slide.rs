@@ -4,6 +4,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
 use crate::keybinds::KeyBindings;
@@ -291,7 +293,7 @@ pub(crate) fn crouch_slide(
                     let clip = if phd { &sounds.phd_slide } else { &sounds.slide };
                     slide.sound = Some(
                         commands
-                            .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN))
+                            .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN.with_reverb(true)))
                             .id(),
                     );
                     snd.note(if phd { killcam::SND_PHD_SLIDE } else { killcam::SND_SLIDE });
@@ -354,7 +356,7 @@ pub(crate) fn crouch_slide(
                 slide.prone_from = Stance::Standing;
                 commands.spawn((
                     AudioPlayer::new(sounds.dive.clone()),
-                    PlaybackSettings::DESPAWN,
+                    PlaybackSettings::DESPAWN.with_reverb(true),
                 ));
                 snd.note(killcam::SND_DIVE);
             }

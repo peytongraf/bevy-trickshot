@@ -14,8 +14,9 @@
 //! remembers whether it's thrown on itself), and the fade level drops back
 //! to 0 whenever there are no lights — nothing carries into the next game.
 
-use bevy::audio::SpatialAudioSink;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::level::{PowerLight, SpotCone};
 use shared::{GameMode, Lobby};
@@ -449,7 +450,7 @@ fn sync_power_lever(
                     // From the lever itself.
                     Transform::from_translation(t.translation),
                     // Starts silent; the real volume is set from the next frame.
-                    crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                    crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
                 ));
             }
         }
@@ -479,7 +480,7 @@ fn fade_power_sound(
     let ear = ear.translation();
     for (gt, mut sink) in &mut sounds {
         let loudness = sound_vol.power_on * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 
@@ -568,8 +569,7 @@ fn sync_machine_hums(
             // Looped; starts silent, the real volume set from the next frame.
             PlaybackSettings::LOOP
                 .with_spatial(true)
-                .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
-                .with_volume(bevy::audio::Volume::Linear(0.0)),
+                .with_volume(crate::audio_engine::Volume::Linear(0.0)),
             ChildOf(machine),
         ));
     }
@@ -595,7 +595,7 @@ fn fade_machine_hums(
             1.0
         };
         let loudness = swell * settings.loudness(ear.distance(gt.translation()));
-        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

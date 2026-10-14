@@ -4,6 +4,8 @@
 
 use bevy::prelude::*;
 
+use crate::audio_engine::prelude::*;
+
 use crate::{AppState, GameSounds, HUD_FONT};
 
 /// Server told us a shot scored — the shooter's client pops a CoD-style yellow

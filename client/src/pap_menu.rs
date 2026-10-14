@@ -12,8 +12,9 @@
 //! `StateScoped(InGame)` and the menu is closed whenever it no longer makes
 //! sense (left the machine, died, game over), so nothing carries over.
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::pap::{PapWeapon, MAX_LEVEL};
 use shared::Lobby;

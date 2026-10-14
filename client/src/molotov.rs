@@ -36,6 +36,8 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
@@ -1129,7 +1131,7 @@ fn play_light_sound(
                 StateScoped(AppState::InGame),
                 LightSound,
                 AudioPlayer::new(sounds.molotov_light.clone()),
-                PlaybackSettings::LOOP,
+                PlaybackSettings::LOOP.with_reverb(true),
             ));
         }
         (false, Some(_)) => {
@@ -1172,8 +1174,8 @@ fn receive_bursts(
                 crate::RemoteSoundEmitter,
                 AudioPlayer::new(sounds.molotov_burst.clone()),
                 Transform::from_translation(pos),
-                // (Bevy multiplies in `GlobalVolume` itself when the sound starts.)
-                crate::positional_playback(bevy::audio::Volume::Linear(loudness)),
+                // (`GlobalVolume` is multiplied in when the sound starts.)
+                crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
             ));
         }
     }

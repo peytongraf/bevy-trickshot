@@ -26,6 +26,7 @@
 //! smoke, movement, weapon sway, camera shake and the sky.
 
 mod audio;
+mod audio_engine;
 mod avatars;
 mod changelog;
 mod death_effect;
@@ -121,7 +122,6 @@ pub enum AppState {
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::{
-    audio::SpatialListener,
     core_pipeline::bloom::Bloom,
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     math::Affine2,
@@ -187,6 +187,9 @@ fn main() {
             }),
             ..default()
         }))
+        // Sound playback (kira) — in place of DefaultPlugins' bevy_audio,
+        // which is switched off in `Cargo.toml`.
+        .add_plugins(audio_engine::AudioEnginePlugin)
         .add_plugins(EguiPlugin::default())
         // Egui lives on the HUD camera (`setup_ui_camera`), not whichever
         // camera egui finds first — on a 3D camera it's drawn before (and
@@ -497,7 +500,7 @@ fn main() {
                 (update_dog_round_fade, apply_sky_look).chain(),
             ),
         )
-        // In `Last`, so it sees `AudioSink`s that bevy_audio adds in this
+        // In `Last`, so it sees `AudioSink`s that `audio_engine` adds in this
         // frame's `PostUpdate` and can scale them before they've really played.
         .add_systems(Last, apply_sound_volumes)
         // Dev tuning panels — only in-game, and only while debug mode is on.
@@ -1062,17 +1065,9 @@ fn setup_player(
                                             intensity: 0.09,
                                             ..Bloom::NATURAL
                                         },
-                                        // The player's "ears" for remote-player
-                                        // positional sounds (`net::receive_remote_sounds`).
-                                        // Offsets deliberately reversed from
-                                        // `SpatialListener::new`'s default
-                                        // (left at +X, right at -X) — with the
-                                        // "correct" orientation, sounds panned
-                                        // opposite the source's actual side.
-                                        SpatialListener {
-                                            left_ear_offset: Vec3::X * 0.15,
-                                            right_ear_offset: Vec3::X * -0.15,
-                                        },
+                                        // The player's "ears" for every
+                                        // positional sound (`audio_engine`).
+                                        audio_engine::SpatialListener,
                                     ));
 
                                     // Scope camera: renders the world (layer 0) plus

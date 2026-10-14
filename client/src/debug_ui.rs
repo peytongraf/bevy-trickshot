@@ -138,6 +138,7 @@ pub(crate) fn ads_tuning_ui(
                     crate::rampage::RampageDebug,
                     crate::earthquake::EarthquakeDebug,
                     crate::flames::FlamesDebug,
+                    crate::audio_engine::ReverbDebug,
                 ),
             ),
         ),
@@ -155,7 +156,7 @@ pub(crate) fn ads_tuning_ui(
         mut remote_sound,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut flames_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut flames_dbg, mut reverb_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1595,6 +1596,9 @@ pub(crate) fn ads_tuning_ui(
                         *rs = RemoteSoundSettings::default();
                     }
                 });
+
+            ui.separator();
+                ui.collapsing("Reverb", |ui| reverb_dbg.ui(ui));
 
             ui.separator();
                 ui.collapsing("Footsteps", |ui| {

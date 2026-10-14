@@ -12,6 +12,8 @@
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::*;
 
 use crate::killcam::ActiveKillCam;

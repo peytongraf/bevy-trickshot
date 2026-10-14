@@ -3,6 +3,8 @@
 //! (slide, footsteps, teleport, camera) reads or drives.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_rapier3d::prelude::*;
 
@@ -809,7 +811,7 @@ pub(crate) fn apply_gravity(
     if !was_grounded && physics.grounded && !dive_landed {
         commands.spawn((
             AudioPlayer::new(sounds.jump_land.clone()),
-            PlaybackSettings::DESPAWN,
+            PlaybackSettings::DESPAWN.with_reverb(true),
         ));
         snd.note(killcam::SND_JUMP_LAND);
     }

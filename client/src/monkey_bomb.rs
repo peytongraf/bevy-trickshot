@@ -28,6 +28,8 @@
 //! carries into the next game.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_egui::egui;
 use lightyear::prelude::*;
@@ -272,7 +274,7 @@ fn monkey_sound(kind: MonkeySound, clip: Handle<AudioSource>) -> impl Bundle {
         AudioPlayer::new(clip),
         Transform::from_translation(Vec3::Y * 0.15),
         // Starts silent; the real volume is set from the next frame.
-        crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+        crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
     )
 }
 
@@ -417,7 +419,7 @@ fn fade_monkey_sounds(
             MonkeySound::Vox => sound_vol.monkey_bomb_explode_vox,
         };
         let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

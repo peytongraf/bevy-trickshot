@@ -10,8 +10,9 @@
 //! folder's name: `weapons/sniper/shot.wav`), with variations numbered
 //! `name_1`, `name_2`, …
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 
 use crate::environment::CurrentMap;
 use crate::player::FOOTSTEP_CLIPS;
@@ -716,15 +717,11 @@ impl RemoteSoundSettings {
 }
 
 /// Playback settings for a sound emitted from a point in the world: spatial
-/// (panned by where it is relative to the listener) with rodio's own
-/// `1 / distance²` curve shrunk to near-flat, so the loudness-by-distance is
-/// whatever `volume` already bakes in — see `net::receive_remote_sounds`, which
-/// explains why.
+/// (panned by where it is relative to the listener), with no distance
+/// attenuation of its own — the loudness-by-distance is whatever `volume`
+/// already bakes in (see `audio_engine`).
 pub(crate) fn positional_playback(volume: Volume) -> PlaybackSettings {
-    PlaybackSettings::DESPAWN
-        .with_spatial(true)
-        .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
-        .with_volume(volume)
+    PlaybackSettings::DESPAWN.with_spatial(true).with_volume(volume)
 }
 
 /// The `[0, 1]` loudness factor for a remote sound `distance` metres from the
@@ -915,7 +912,7 @@ pub(crate) fn sync_menu_music(
     }
 }
 
-/// Push `Settings::master_volume` onto Bevy's `GlobalVolume`, which scales
+/// Push `Settings::master_volume` onto `GlobalVolume`, which scales
 /// every one-shot sound spawned from here on (shots, footsteps, UI, ...) with
 /// no per-call-site changes needed. `GlobalVolume` doesn't retroactively touch
 /// audio that's already playing, though, so the looping ambience needs its own
@@ -948,7 +945,7 @@ pub(crate) fn apply_master_volume(
 }
 
 /// Scale each freshly-started one-shot to its "Sound volumes" multiplier.
-/// bevy_audio bakes `PlaybackSettings::volume * GlobalVolume` into the sink when
+/// `audio_engine` bakes `PlaybackSettings::volume * GlobalVolume` into the sink when
 /// it starts it, so we re-derive the same product with the per-sound factor
 /// mixed in. Sounds not covered here (footsteps, the ambient loop) are left be.
 pub(crate) fn apply_sound_volumes(

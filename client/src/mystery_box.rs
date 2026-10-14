@@ -22,6 +22,8 @@
 
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::mesh::skinning::SkinnedMesh;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
@@ -427,7 +429,7 @@ fn animate_mystery_box(
                 AudioPlayer::new(clip),
                 Transform::from_translation(Vec3::Y * HALF_EXTENTS.y),
                 // Starts silent; the real volume is set from the next frame.
-                crate::positional_playback(bevy::audio::Volume::Linear(0.0)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(0.0)),
             ));
         }
     }
@@ -513,7 +515,7 @@ fn fade_box_sounds(
             BoxSound::Close => sound_vol.mystery_box_close,
         };
         let loudness = volume * crate::distance_falloff(ear.distance(gt.translation()), &remote);
-        sink.set_volume(bevy::audio::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
+        sink.set_volume(crate::audio_engine::Volume::Linear(loudness.max(0.0)) * global_volume.volume);
     }
 }
 

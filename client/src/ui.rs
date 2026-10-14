@@ -8,6 +8,8 @@
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
+use crate::audio_engine::prelude::*;
+
 // ---- palette --------------------------------------------------------------
 /// In-game menus: black, but see-through enough that the world shows behind.
 pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.87);
@@ -153,7 +155,7 @@ fn play_ui_sfx(
         if let Some(clip) = clip {
             commands.spawn((
                 AudioPlayer::new(clip),
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(UI_SFX_VOLUME)),
+                PlaybackSettings::DESPAWN.with_volume(crate::audio_engine::Volume::Linear(UI_SFX_VOLUME)),
             ));
         }
         state.0 = *interaction;

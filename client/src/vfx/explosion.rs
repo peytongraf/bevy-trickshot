@@ -14,6 +14,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::math::Affine2;
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::render::view::NoFrustumCulling;
 use bevy_egui::egui;
@@ -498,7 +500,7 @@ fn spawn_explosions(
                 crate::RemoteSoundEmitter,
                 AudioPlayer::new(clip),
                 Transform::from_translation(center),
-                crate::positional_playback(bevy::audio::Volume::Linear(loudness)),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(loudness)),
             ));
         }
 

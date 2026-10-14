@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+use crate::audio_engine::prelude::*;
+
 use crate::keybinds::KeyBindings;
 use crate::{AppState, GameSounds, HUD_FONT};
 
@@ -60,7 +62,7 @@ pub(crate) fn teleport_home(
         physics.grounded = true;
         commands.spawn((
             AudioPlayer::new(sounds.teleport.clone()),
-            PlaybackSettings::DESPAWN,
+            PlaybackSettings::DESPAWN.with_reverb(true),
         ));
     }
 }

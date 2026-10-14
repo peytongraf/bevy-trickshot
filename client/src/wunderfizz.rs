@@ -17,8 +17,9 @@
 //! menu are `StateScoped(InGame)` and the menu closes whenever it stops
 //! making sense (walked off, died, out of the game), so nothing carries over.
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, TriggerSender};
 use shared::perks::{Perk, PerkSet};
 use shared::Lobby;

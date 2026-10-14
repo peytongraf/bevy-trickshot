@@ -14,6 +14,8 @@
 //! a `Zombies` game — nothing carries into the next one.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
 use shared::level::Placement;
 use shared::weapon::{SlotWeapon, WeaponId, WALL_BUY_WEAPONS};

@@ -6,42 +6,42 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 # Done
 
-- Juggernog no longer shows as damage
-- Far, unseen zombies respawn near players
-- Bullet penetration through zombies
-- Debris when doors open
-- Multiple ammo crates per map
-- Power-ups drop out of reach on knife kills
-- Forgiving Ray Gun hits
-- No bullet holes on placed objects, smaller holes
-- Bullet holes stay off edges
-- Smaller, centered "power first" popup
-- Dog speed retune
+- Kira audio engine
+- Automatic room reverb
+
+# Level editor
+
+- Add fires to 4 bowls around pyramid and remove 4 lights
+- Add lights to zone above lower tomb
 
 # Current todo
 
+- Cutouts in walls for zombies to climb through
+
 # Map
 
-- Add ledge to side area that is lowered with the 2 large stair cases
-- Add lights to zone above lower tomb
 - Add cut outs for zombies to climb through that can be repaired with boards and carpenter
 - Add fire bowls to wooden building
 - Add fire bowls to zone above temple
 
+# Map Done
+
+- Add ledge to side area that is lowered with the 2 large stair cases
+- Add large fire bowls at the four corners of the pyramid and just remove the lights
+
 # Added
 
+- Make perk machines already on before power is cut on, maybe make this an option
 - For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame
 - Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
 - Add short cut scene of a map screen shot that plays before zombies, just use one of der tempel for all for now. Don't play when debug mode is on unless this would affect time for match to start. Could just see it if any players don't have debug mode turned on. Show a few different screen shots with an intro music.
 - Could add a text near the top compass that shows the name of the curent zone
 - Add ability to add more power lights to a map
 
-- Use something like kira for reverb and complete handling of sounds
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
 - look into using different footstep sounds based on surface
-- Look into using reverb on sounds based on location like in the echoey tomb
 
 # Asset todo
 

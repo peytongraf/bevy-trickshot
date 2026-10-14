@@ -15,6 +15,8 @@
 //! next one.
 
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
 use shared::{GameMode, Lobby};
 

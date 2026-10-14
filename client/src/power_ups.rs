@@ -18,9 +18,10 @@
 //! go when their drop does, and they, the HUD row and any sound still
 //! playing are `StateScoped(InGame)` — nothing carries into the next game.
 
-use bevy::audio::Volume;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
@@ -435,7 +436,6 @@ fn sync_drop_avatars(
                     AudioPlayer::new(sounds.power_up_loop.clone()),
                     PlaybackSettings::LOOP
                         .with_spatial(true)
-                        .with_spatial_scale(bevy::audio::SpatialScale::new(0.01))
                         .with_volume(Volume::Linear(0.0)),
                     Transform::from_xyz(0.0, 1.0, 0.0),
                 ));

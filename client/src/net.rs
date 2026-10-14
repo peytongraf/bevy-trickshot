@@ -15,8 +15,9 @@ use core::time::Duration;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
-use bevy::audio::{SpatialScale, Volume};
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use lightyear::prelude::client::{ClientPlugins, NetcodeClient, NetcodeConfig};
 use lightyear::prelude::input::client::InputSet;
@@ -849,18 +850,9 @@ fn receive_remote_sounds(
                     AudioPlayer::new(clip),
                     Transform::from_translation(pos),
                     PlaybackSettings::DESPAWN
+                        // (Panning only — `falloff` above is the sole thing
+                        // deciding loudness by distance.)
                         .with_spatial(true)
-                        // rodio's spatial source attenuates each ear by
-                        // `1 / distance²` in *raw* world units (see
-                        // `rodio::source::spatial::Spatial::set_positions`),
-                        // uncapped below 1 unit — at our meter-scale world
-                        // that's already ~1% volume by 10m, drowning out the
-                        // falloff we actually want to control below. Shrink
-                        // the distance rodio sees so its own curve stays
-                        // near-flat (panning only) across the whole hearing
-                        // range, leaving `falloff` above as the sole thing
-                        // that actually decides loudness by distance.
-                        .with_spatial_scale(SpatialScale::new(0.01))
                         .with_volume(volume),
                 ));
             }

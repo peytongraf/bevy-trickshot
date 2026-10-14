@@ -7,8 +7,9 @@
 //! clip, so everyone hears the same one. (The equip sound is local-only and
 //! lives in `weapon_system`.)
 
-use bevy::audio::Volume;
 use bevy::prelude::*;
+
+use crate::audio_engine::prelude::*;
 use lightyear::prelude::*;
 
 use crate::killcam::ActiveKillCam;
