@@ -468,6 +468,7 @@ mod tests {
                 countdown_left: 0,
                 power_on: false,
                 doors_open: 0,
+                windows_torn: Vec::new(),
                 rampage: false,
                 mystery_box: None,
                 members: Vec::new(),
@@ -553,6 +554,7 @@ mod tests {
                 countdown_left: 0,
                 power_on: false,
                 doors_open: 0,
+                windows_torn: Vec::new(),
                 rampage: false,
                 mystery_box: None,
                 members: vec![shared::LobbyMember {

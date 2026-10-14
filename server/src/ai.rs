@@ -103,6 +103,15 @@ pub struct ZombieSwipeLanded {
     pub at: Vec3,
 }
 
+/// A zombie at window `window` (`shared::windows`) of `lobby`'s map tore a
+/// board off it — written by [`drive_bots`], applied to
+/// `Lobby::windows_torn` by `zombies::apply_board_tears`.
+#[derive(Event)]
+pub struct BoardTorn {
+    pub lobby: Entity,
+    pub window: usize,
+}
+
 /// A boss's smash landed on `victim`, throwing them along `dir` (unit,
 /// horizontal: away from the boss) — written by [`drive_bots`], sent on to
 /// the victim by `boss::send_knockbacks`.
@@ -165,6 +174,33 @@ struct MantleRun {
     from: Vec3,
     to: Vec3,
 }
+
+/// Coming in through a window (`shared::windows`): walking up to it from
+/// outside, tearing its boards off, then climbing over the sill — the bot
+/// doing nothing else meanwhile, and a zombie like any other once it's in.
+#[derive(Clone, Copy)]
+struct WindowEntry {
+    index: usize,
+    /// Where it stands to tear at it, off the window's own spot — across the
+    /// opening and back from it (m) — so a few can crowd round one.
+    offset: Vec2,
+    phase: WindowPhase,
+    /// When this phase started.
+    since: f32,
+}
+
+#[derive(Clone, Copy)]
+enum WindowPhase {
+    Approach,
+    /// At the wall, ripping a board off every `shared::windows::tear_secs`.
+    Tear { next_at: f32 },
+    /// Over the sill, from where it stood outside to the floor inside.
+    Climb { from: Vec3, to: Vec3, secs: f32 },
+}
+
+/// A zombie that hasn't reached its window's wall this long (s) after
+/// setting off tears at it from wherever it's got to.
+const WINDOW_APPROACH_GIVE_UP_SECS: f32 = 8.0;
 
 /// Seconds a mantle takes: a player's 0.45 s, plus a little per metre climbed.
 const MANTLE_BASE_SECS: f32 = 0.45;
@@ -311,6 +347,8 @@ pub struct BotBrain {
     rise: Option<Rise>,
     /// Mid-climb up a ledge.
     mantle: Option<MantleRun>,
+    /// On its way in through a window.
+    window: Option<WindowEntry>,
     /// Set on a `Zombies` zombie: melee instead of the sniper.
     zombie: Option<ZombieBody>,
     /// Feet position — the bot's authoritative place in the world (the pose
@@ -364,6 +402,7 @@ impl BotBrain {
             skill_override: None,
             rise: None,
             mantle: None,
+            window: None,
             zombie: None,
             feet,
             vertical_velocity: 0.0,
@@ -448,6 +487,23 @@ impl BotBrain {
         self
     }
 
+    /// Have it come in through window `index` of its lobby's map (if any):
+    /// up to the wall, the boards off, over the sill.
+    pub fn through_window(mut self, index: Option<usize>) -> Self {
+        self.window = index.map(|index| WindowEntry {
+            index,
+            offset: Vec2::new((self.roll() - 0.5) * 0.6, self.roll() * 0.5),
+            phase: WindowPhase::Approach,
+            since: 0.0,
+        });
+        self
+    }
+
+    /// The window it's coming in through, if it is.
+    pub fn window_index(&self) -> Option<usize> {
+        self.window.map(|w| w.index)
+    }
+
     /// Make it a boss (`shared::boss`), appearing at `now`: a zombie that
     /// walks at [`shared::boss::BOSS_SPEED`] and smashes or hurls blasts
     /// instead of swiping.
@@ -524,6 +580,7 @@ impl Plugin for BotAiPlugin {
             .add_event::<ZombieSwipeLanded>()
             .add_event::<BossBlastFired>()
             .add_event::<BossSmashed>()
+            .add_event::<BoardTorn>()
             .add_systems(
                 FixedUpdate,
                 drive_bots.before(crate::sim::apply_client_pose),
@@ -678,6 +735,7 @@ pub(crate) fn drive_bots(
     lures: Res<crate::monkey_bombs::MonkeyLures>,
     mut blasts: EventWriter<BossBlastFired>,
     mut smashes: EventWriter<BossSmashed>,
+    mut tears: EventWriter<BoardTorn>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -815,6 +873,121 @@ pub(crate) fn drive_bots(
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
                 yaw: brain.yaw,
                 pitch: brain.pitch,
+                ..default()
+            };
+            continue;
+        }
+        // Coming in through a window: up to it, the boards off, over the sill.
+        if let Some(mut entry) = brain.window {
+            let Some(window) = shared::windows::windows(lobby.map).get(entry.index).copied() else {
+                brain.window = None;
+                continue;
+            };
+            if entry.since == 0.0 {
+                entry.since = now;
+            }
+            let rot = window.rotation();
+            let inward = rot * Vec3::Z;
+            let face_in = f32::atan2(-inward.x, -inward.z);
+            let (runs, speed, stunned) = brain.zombie.as_ref().map_or((false, 2.0, false), |z| {
+                (z.runs(lobby.rampage), z.speed_now(now, lobby.rampage), now < z.stunned_until)
+            });
+            let mut climbing = false;
+            let anim = match entry.phase {
+                WindowPhase::Approach => {
+                    let target = window.approach_spot() + rot * Vec3::new(entry.offset.x, 0.0, -entry.offset.y);
+                    let to = (target - brain.feet).with_y(0.0);
+                    let len = to.length();
+                    let gave_up = now - entry.since > WINDOW_APPROACH_GIVE_UP_SECS;
+                    if len < 0.2 || gave_up {
+                        entry.phase = WindowPhase::Tear {
+                            next_at: now + shared::windows::tear_secs(lobby.round),
+                        };
+                        entry.since = now;
+                        brain.yaw = face_in;
+                        ZombieAnim::Attack
+                    } else if stunned {
+                        ZombieAnim::Idle
+                    } else {
+                        let wish = to / len;
+                        move_bot(world, &mut brain.feet, &mut brain.vertical_velocity, wish, speed.min(len / dt.max(1e-3)), dt);
+                        brain.yaw = f32::atan2(-wish.x, -wish.z);
+                        if runs { ZombieAnim::Run } else { ZombieAnim::WalkArmsUp }
+                    }
+                }
+                WindowPhase::Tear { next_at } => {
+                    brain.yaw = face_in;
+                    if shared::windows::boards_left(&lobby.windows_torn, entry.index) == 0 {
+                        // Nothing left: over the sill, onto the floor inside.
+                        let landing = window.landing();
+                        let floor = world
+                            .raycast(landing + Vec3::Y * (window.sill + 0.5), Vec3::NEG_Y, window.sill + 2.5)
+                            .map_or(landing.y, |hit| landing.y + window.sill + 0.5 - hit.distance);
+                        entry.phase = WindowPhase::Climb {
+                            from: brain.feet,
+                            to: landing.with_y(floor),
+                            secs: shared::windows::CLIMB_SECS * if runs { 0.75 } else { 1.0 },
+                        };
+                        entry.since = now;
+                        climbing = true;
+                        ZombieAnim::WalkArmsUp
+                    } else if stunned {
+                        entry.phase = WindowPhase::Tear { next_at: next_at + dt };
+                        ZombieAnim::Idle
+                    } else {
+                        if now >= next_at {
+                            tears.write(BoardTorn { lobby: lp.lobby, window: entry.index });
+                            entry.phase = WindowPhase::Tear {
+                                next_at: now + shared::windows::tear_secs(lobby.round),
+                            };
+                        }
+                        ZombieAnim::Attack
+                    }
+                }
+                WindowPhase::Climb { from, to, secs } => {
+                    climbing = true;
+                    brain.yaw = face_in;
+                    let t = ((now - entry.since) / secs.max(1e-3)).clamp(0.0, 1.0);
+                    // Up onto the sill, across it, down off it.
+                    let (over_out, over_in) = (window.sill_outside(), window.sill_inside());
+                    brain.feet = if t < 0.4 {
+                        let k = t / 0.4;
+                        let xz = from.lerp(over_out, ease(((k - 0.3) / 0.7).clamp(0.0, 1.0)));
+                        xz.with_y(from.y.lerp(over_out.y, ease(k)))
+                    } else if t < 0.7 {
+                        over_out.lerp(over_in, ease((t - 0.4) / 0.3))
+                    } else {
+                        let k = (t - 0.7) / 0.3;
+                        let xz = over_in.lerp(to, ease(k));
+                        xz.with_y(over_in.y.lerp(to.y, k * k))
+                    };
+                    if t >= 1.0 {
+                        brain.window = None;
+                        brain.vertical_velocity = 0.0;
+                        brain.stall_from = brain.feet;
+                        brain.stall_secs = 0.0;
+                        brain.path.clear();
+                        brain.repath_at = now;
+                    }
+                    if runs { ZombieAnim::Run } else { ZombieAnim::WalkArmsUp }
+                }
+            };
+            if brain.window.is_some() {
+                brain.window = Some(entry);
+            }
+            if let Some(z) = brain.zombie.as_mut() {
+                z.swing = None;
+                z.anim = anim;
+            }
+            brain.pitch = 0.0;
+            let eye = brain.feet + Vec3::Y * EYE_HEIGHT;
+            action.0 = PlayerInput {
+                translation: eye.to_array(),
+                yaw: brain.yaw,
+                pitch: 0.0,
+                fire_origin: eye.to_array(),
+                fire_dir: forward(brain.yaw, 0.0).to_array(),
+                jumping: climbing,
                 ..default()
             };
             continue;
@@ -1582,6 +1755,7 @@ mod tests {
             countdown_left: 0,
             power_on: false,
             doors_open: 0,
+            windows_torn: Vec::new(),
             rampage: false,
             mystery_box: None,
             members: Vec::new(),
@@ -1604,6 +1778,7 @@ mod tests {
         app.add_event::<ZombieSwipeLanded>();
         app.add_event::<BossBlastFired>();
         app.add_event::<BossSmashed>();
+        app.add_event::<BoardTorn>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app

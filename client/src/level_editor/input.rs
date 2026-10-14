@@ -670,7 +670,8 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
             | ObjectId::PlayerSpawn(i)
             | ObjectId::PowerLight(i)
             | ObjectId::Flame(i)
-            | ObjectId::Door(i) => *i as i32,
+            | ObjectId::Door(i)
+            | ObjectId::Window(i) => *i as i32,
             _ => -1,
         })
     });
@@ -699,6 +700,64 @@ pub(crate) fn add_at_view(editor: &mut Editor, id: ObjectId, rapier: &ReadRapier
     id.set(editor.doc_mut(), Placement::new(ground, yaw_deg).with_scale(size));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
+}
+
+/// Fit window `index` to the opening it's been put in: rays out from the
+/// middle of where it is now find the opening's sides, top and sill, and the
+/// wall's two faces under it — the window's re-centred in the opening and
+/// sized to it, its spot on the floor inside. `false` (leaving it as it
+/// was) if it isn't in an opening the rays can make out.
+pub(crate) fn fit_window_to_opening(editor: &mut Editor, index: usize, rapier: &ReadRapierContext) -> bool {
+    let Some(mut w) = editor.doc().layout.windows.get(index).copied() else {
+        return false;
+    };
+    let rot = w.rotation();
+    let to_world = |w: &shared::windows::Window, l: Vec3| w.at.pos + rot * l;
+    let reach = 4.0;
+    // Sideways from the middle of the opening: its jambs.
+    let mid = to_world(&w, Vec3::Y * (w.sill + w.size.y * 0.5));
+    let (Some(left), Some(right)) = (
+        hit_map(rapier, mid, rot * Vec3::NEG_X, reach),
+        hit_map(rapier, mid, rot * Vec3::X, reach),
+    ) else {
+        return false;
+    };
+    let (lx, rx) = (w.local(left).x, w.local(right).x);
+    let center_x = (lx + rx) * 0.5;
+    let mid = to_world(&w, Vec3::new(center_x, w.sill + w.size.y * 0.5, 0.0));
+    // Up and down from there: its top and sill.
+    let (Some(top), Some(sill)) = (
+        hit_map(rapier, mid, Vec3::Y, reach),
+        hit_map(rapier, mid, Vec3::NEG_Y, reach),
+    ) else {
+        return false;
+    };
+    // Into the wall under the sill from either side: its faces.
+    let below = sill - Vec3::Y * 0.25;
+    let (Some(inside), Some(outside)) = (
+        hit_map(rapier, below + rot * Vec3::Z * reach, rot * Vec3::NEG_Z, reach),
+        hit_map(rapier, below + rot * Vec3::NEG_Z * reach, rot * Vec3::Z, reach),
+    ) else {
+        return false;
+    };
+    let (zi, zo) = (w.local(inside).z, w.local(outside).z);
+    if zi <= zo {
+        return false;
+    }
+    // The floor inside, in front of the wall.
+    let floor = ground_below(rapier, to_world(&w, Vec3::new(center_x, w.sill, zi + 0.5))).map_or(w.at.pos.y, |p| p.y);
+    let center = to_world(&w, Vec3::new(center_x, 0.0, (zi + zo) * 0.5));
+    w.at.pos = Vec3::new(center.x, floor, center.z);
+    w.size = Vec2::new(rx - lx, top.y - sill.y);
+    w.sill = sill.y - floor;
+    w.depth = zi - zo;
+    if w.size.min_element() < 0.2 || w.depth < 0.05 || w.sill < -0.5 {
+        return false;
+    }
+    let before = editor.doc().layout.clone();
+    editor.doc_mut().layout.windows[index] = w;
+    editor.doc_mut().checkpoint(before);
+    true
 }
 
 /// How high (m) over the ground a new power light hangs.
@@ -1032,6 +1091,47 @@ pub(crate) fn draw_gizmos(
                 if selected || editor.view.ranges {
                     let (w, d) = (door.size.x * 0.5, door.size.z * 0.5 + shared::doors::USE_REACH);
                     let c = [Vec3::new(-w, 0.05, -d), Vec3::new(w, 0.05, -d), Vec3::new(w, 0.05, d), Vec3::new(-w, 0.05, d)]
+                        .map(|p| at.pos + rot * p);
+                    let line = id.color().with_alpha(if selected { 0.9 } else { 0.4 });
+                    for k in 0..4 {
+                        gizmos.line(c[k], c[(k + 1) % 4], line);
+                    }
+                }
+            }
+            continue;
+        }
+        // A window: its boards, the way zombies come in (up from outside, in
+        // over the sill) and — selected — where it's rebuilt from.
+        if let ObjectId::Window(i) = id {
+            if let Some(window) = doc.layout.windows.get(i as usize) {
+                let board = id.color().with_alpha(if selected { 0.9 } else { 0.5 });
+                let size = window.board_size();
+                for slot in 0..shared::windows::BOARDS {
+                    let (c, tilt) = window.board_local(slot);
+                    gizmos.cuboid(
+                        Transform::from_translation(at.pos + rot * c).with_rotation(rot * tilt).with_scale(size),
+                        board,
+                    );
+                }
+                let path = [
+                    window.outside_spot(),
+                    window.approach_spot(),
+                    window.sill_outside(),
+                    window.sill_inside(),
+                    window.landing(),
+                ];
+                let way = Color::srgb(0.9, 0.3, 0.3).with_alpha(if selected { 0.9 } else { 0.45 });
+                for pair in path.windows(2) {
+                    gizmos.line(pair[0], pair[1], way);
+                }
+                gizmos.circle(Isometry3d::new(window.outside_spot() + Vec3::Y * 0.05, flat), 0.35, way);
+                if selected || editor.view.ranges {
+                    let (w, near, far) = (
+                        window.size.x * 0.5 + 0.6,
+                        window.depth * 0.5 - 0.2,
+                        window.depth * 0.5 + shared::windows::REPAIR_REACH,
+                    );
+                    let c = [Vec3::new(-w, 0.05, near), Vec3::new(w, 0.05, near), Vec3::new(w, 0.05, far), Vec3::new(-w, 0.05, far)]
                         .map(|p| at.pos + rot * p);
                     let line = id.color().with_alpha(if selected { 0.9 } else { 0.4 });
                     for k in 0..4 {

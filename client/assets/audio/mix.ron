@@ -175,6 +175,12 @@
         "zombies/rounds": (
             bus: Some(Announcer),
         ),
+        "zombies/windows": (
+            volume_db: 4.0,
+            profile: Some("Machines"),
+            bus: Some(World),
+            reverb: Some(true),
+        ),
     },
     clips: {
         "ambient/fire_crackle.mp3": (
@@ -260,6 +266,39 @@
         "zombies/rounds/final_zombie.mp3": (
             profile: Some("Zombies"),
             bus: Some(Zombies),
+        ),
+        "zombies/windows/board_slam_1.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_slam_2.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_slam_3.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_slam_4.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_slam_5.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_slam_6.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_snap_1.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_snap_2.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_snap_3.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_snap_4.mp3": (
+            volume_db: 6.0,
+        ),
+        "zombies/windows/board_snap_5.mp3": (
+            volume_db: 6.0,
         ),
     },
 )

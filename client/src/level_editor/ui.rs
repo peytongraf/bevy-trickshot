@@ -200,6 +200,17 @@ fn menu_bar(
                     input::add_at_view(ed, ObjectId::Door(doors as u8), rapier);
                     ui.close();
                 }
+                // (Windows: up to a map's worth.)
+                let windows = ed.doc().layout.windows.len();
+                let max = shared::windows::MAX_WINDOWS;
+                if ui
+                    .add_enabled(windows < max, egui::Button::new(format!("Window  ({windows}/{max})")))
+                    .on_hover_text("An opening zombies tear the boards off and climb in through in a Zombies game — never players")
+                    .clicked()
+                {
+                    input::add_at_view(ed, ObjectId::Window(windows as u8), rapier);
+                    ui.close();
+                }
                 ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
@@ -438,6 +449,20 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                 }
                 if ed.doc().layout.doors.is_empty() {
                     ui.colored_label(DIM, "None — the whole map's open from the start");
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("WINDOWS").small().color(DIM));
+                    let n = ed.doc().layout.windows.len();
+                    if ui.add_enabled(n < shared::windows::MAX_WINDOWS, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_at_view(ed, ObjectId::Window(n as u8), rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::Window(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.windows.is_empty() {
+                    ui.colored_label(DIM, "None — zombies come up out of the ground");
                 }
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
@@ -722,6 +747,67 @@ fn properties(
                     ui.end_row();
                 });
             }
+            // A window's own settings.
+            let window_index = match id {
+                ObjectId::Window(i) => Some(i as usize),
+                _ => None,
+            };
+            let window_before = window_index.and_then(|i| ed.doc().layout.windows.get(i).copied());
+            let mut window = window_before;
+            let mut fit = false;
+            if let Some(w) = window.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Window");
+                egui::Grid::new("level_editor_window").num_columns(2).show(ui, |ui| {
+                    for (label, v, hover) in [
+                        ("Width", &mut w.size.x, "Across the opening"),
+                        ("Height", &mut w.size.y, "Sill to top of the opening"),
+                        ("Sill", &mut w.sill, "How high above the floor inside the opening starts"),
+                        ("Wall", &mut w.depth, "How thick the wall is"),
+                    ] {
+                        ui.label(label).on_hover_text(hover);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(0.01).range(0.05..=10.0).suffix(" m").max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!busy, egui::Button::new("Fit to opening"))
+                            .on_hover_text("Size and centre it to the opening it's in, from rays at the map — put it roughly in the opening first, arrow pointing inside")
+                            .clicked()
+                        {
+                            fit = true;
+                        }
+                        let default = shared::windows::Window { at: w.at, ..shared::windows::Window::new(w.at) };
+                        if ui
+                            .add_enabled(!busy && *w != default, egui::Button::new("Default size"))
+                            .on_hover_text("1.2 × 1.4 m, a 0.9 m sill, a 0.5 m wall")
+                            .clicked()
+                        {
+                            *w = default;
+                        }
+                    });
+                    ui.end_row();
+                });
+            }
+            let window_changed = window != window_before;
+            if let (true, Some(i), Some(w)) = (window_changed, window_index, window) {
+                if let Some(slot) = ed.doc_mut().layout.windows.get_mut(i) {
+                    // (Its spot and turn are the fields above.)
+                    *slot = shared::windows::Window { at: slot.at, ..w };
+                }
+            }
+            if let (true, Some(i)) = (fit, window_index) {
+                if input::fit_window_to_opening(ed, i, rapier) {
+                    ed.toast("Fitted to the opening", now);
+                } else {
+                    ed.toast("Couldn't make out an opening here — move it into one, arrow pointing inside", now);
+                }
+            }
             let door_changed = door != door_before;
             if let (true, Some(i), Some(d)) = (door_changed, door_index, door) {
                 if let Some(slot) = ed.doc_mut().layout.doors.get_mut(i) {
@@ -749,7 +835,7 @@ fn properties(
                     (area.width, area.depth) = size;
                 }
             }
-            if edited != at || resized || light_changed || flame_changed || door_changed {
+            if edited != at || resized || light_changed || flame_changed || door_changed || window_changed {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -767,6 +853,11 @@ fn properties(
                 ui.colored_label(
                     DIM,
                     "Zombies only: solid until bought open, and zombies don't path through or come up past it while it's shut. Its spot is the floor under its middle; the arrow's which way it slides",
+                );
+            } else if let ObjectId::Window(_) = id {
+                ui.colored_label(
+                    DIM,
+                    "Zombies only: zombies come up outside (the red circle), tear the boards off and climb in over the sill; players can't pass, but shots go through. Its spot is the floor inside, under the middle of the opening and halfway through the wall; the arrow points inside. Needs ground outside to stand on",
                 );
             } else if let ObjectId::Flame(_) = id {
                 ui.colored_label(DIM, "Always burning — power on or off, day or night, every mode. Its spot is the bottom of the flames: drag it onto the bowl");

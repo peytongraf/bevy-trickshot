@@ -9,6 +9,13 @@ Also, only do one todo at a time. I will test the changes by running the client 
 Positional vs nonpositional
 World vs dry (reverb or no reverb)
 
+# Windows
+
+width: 1.2m
+height: 1.4m
+1.1m above ground
+outside ground height the same as inside
+
 # Done
 
 - Kira audio engine
@@ -16,24 +23,24 @@ World vs dry (reverb or no reverb)
 
 # Level editor
 
-- Fix der tempel crafting table position
-- Add fires to 4 bowls around pyramid and remove 4 lights
 - Add lights to zone above lower tomb
 
 # Current todo
+
+- Add fires to all fire bowls like doors that have to be opened on left side
+- Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
+- Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
 
 - Cutouts in walls for zombies to climb through
 
 # Map
 
+- Fix in tomb top wall where power lever is bottom of wall where material is different
+- Add handrails to all stairs or just copy paste stairs
 - Add cut outs for zombies to climb through that can be repaired with boards and carpenter
-- Add fire bowls to wooden building
 - Add fire bowls to zone above temple
 
 # Map Done
-
-- Add ledge to side area that is lowered with the 2 large stair cases
-- Add large fire bowls at the four corners of the pyramid and just remove the lights
 
 # Added
 

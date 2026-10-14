@@ -1198,6 +1198,12 @@ pub struct Lobby {
     /// ([`crate::doors`]) — a bit per door, set as each is bought
     /// ([`BuyDoor`]). Cleared whenever a game starts or ends.
     pub doors_open: u32,
+    /// [`GameMode::Zombies`]: how many boards each of the map's windows has
+    /// lost ([`crate::windows`]), by window — a missing entry is a whole
+    /// window. Server-owned: zombies tear them off, [`RepairBarrier`] puts
+    /// them back. Cleared whenever a game starts or ends.
+    #[serde(default)]
+    pub windows_torn: Vec<u8>,
     /// [`GameMode::Zombies`]: the Mystery Box's spin, while there is one
     /// ([`crate::mystery_box`]). Server-owned; cleared whenever a game starts
     /// or ends.
@@ -2102,6 +2108,22 @@ pub struct ProneBonus {
     pub points: u32,
 }
 
+/// Client → server: put a board back on window `0` of the map's
+/// ([`crate::windows`]) — sent every [`crate::windows::REPAIR_SECS`] while
+/// interact's held at one. The server checks the sender is alive, inside
+/// and close to it, that it's missing a board and that they aren't going
+/// faster than that.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct RepairBarrier(pub u8);
+
+/// Server → the one player only: their [`RepairBarrier`] put a board back,
+/// for `points` (`0` once they're at the round's
+/// [`crate::windows::REPAIR_POINTS_PER_ROUND`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BarrierRepaired {
+    pub points: u32,
+}
+
 /// Client → server (debug): the party leader drops a `kind` power-up at
 /// their own feet — picked up at once, so it goes off for real. Only in a
 /// running `Zombies` game; ignored from anyone else.
@@ -2361,6 +2383,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ProneBonus>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<BarrierRepaired>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::revive::PlayerWentDown>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::revive::PlayerRevived>()
@@ -2467,6 +2491,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<BuyDoor>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<RepairBarrier>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<CallExfil>()
             .add_direction(NetworkDirection::ClientToServer);

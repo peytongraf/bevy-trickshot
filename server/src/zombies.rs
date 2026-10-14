@@ -45,8 +45,8 @@ use shared::bots::rand01;
 use shared::exfil::Exfil;
 use shared::map::CollisionWorld;
 use shared::{
-    AmmoBought, BuyAmmo, BuyDoor, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby, PlayerId, PlayerInput,
-    PlayerName, PlayerPose, ProneAtPerk, ProneBonus,
+    AmmoBought, BarrierRepaired, BuyAmmo, BuyDoor, BuyPap, BuyPerk, GameChannel, GameMode, TurnOnPower, Lobby,
+    PlayerId, PlayerInput, PlayerName, PlayerPose, ProneAtPerk, ProneBonus, RepairBarrier,
 };
 
 use crate::ai::{BotBrain, NextBotId};
@@ -190,6 +190,12 @@ pub(crate) struct ZombieRounds {
     /// Perk machines whose prone bonus has been claimed this game
     /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
     prone_claimed: Vec<shared::perks::Perk>,
+    /// Points each member's had for rebuilding windows this round (capped
+    /// at [`shared::windows::REPAIR_POINTS_PER_ROUND`]), and when each last
+    /// put a board back ([`on_repair_barrier`]) — the first cleared every
+    /// round, both going with this component when the game ends.
+    repair_points: std::collections::HashMap<PeerId, u32>,
+    repair_last: std::collections::HashMap<PeerId, f32>,
 }
 
 impl ZombieRounds {
@@ -210,6 +216,7 @@ impl Plugin for ZombiesPlugin {
             .add_observer(on_buy_door)
             .add_observer(on_buy_ammo)
             .add_observer(on_prone_at_perk)
+            .add_observer(on_repair_barrier)
             .add_systems(
                 FixedUpdate,
                 (run_rounds, recycle_far_zombies, clear_dead_zombies, cull_zombies)
@@ -221,6 +228,7 @@ impl Plugin for ZombiesPlugin {
                 (
                     publish_zombie_anims.after(crate::sim::apply_client_pose),
                     announce_zombie_swipes.after(crate::ai::drive_bots),
+                    apply_board_tears.after(crate::ai::drive_bots),
                 ),
             );
     }
@@ -238,6 +246,8 @@ pub(crate) fn run_rounds(
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
     zombies: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<crate::boss::Boss>), With<Zombie>>,
+    brains: Query<(&LobbyPlayer, &BotBrain), With<Zombie>>,
+    colliders: Res<crate::collision::MapColliders>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
@@ -311,6 +321,8 @@ pub(crate) fn run_rounds(
                 next_spawn_at: now,
                 break_until: now,
                 prone_claimed: Vec::new(),
+                repair_points: Default::default(),
+                repair_last: Default::default(),
             });
             if countdown > 0 {
                 info!("lobby {lobby_e:?}: zombies starts in {countdown} s");
@@ -327,10 +339,12 @@ pub(crate) fn run_rounds(
                 let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits() ^ 0x5e6e;
                 let nav = navs.graph(lobby.map);
                 let reach = nav.reachable_zones(lobby.doors_open);
-                match pick_spawn(nav, reach.as_deref(), &living, seed) {
-                    Some((feet, near)) => {
+                let waiting = waiting_at_windows(&brains, lobby_e, lobby.map);
+                let world = colliders.for_lobby(&lobby);
+                match pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed) {
+                    Some((feet, near, window)) => {
                         let round = rounds.enemy_round().max(lobby.start_round).max(1);
-                        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, seed, now);
+                        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, window, seed, now);
                         rounds.surge -= 1;
                     }
                     None => rounds.surge_next_at = now + SPAWN_RETRY_SECS,
@@ -473,6 +487,7 @@ pub(crate) fn run_rounds(
                     info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
                 }
                 rounds.round += 1;
+                rounds.repair_points.clear();
                 dog_round(lobby_e, rounds.round);
                 rounds.to_spawn = enemies_in_round(rounds.round, members);
                 rounds.break_until = now + ROUND_BREAK_SECS;
@@ -522,7 +537,20 @@ pub(crate) fn run_rounds(
         }
 
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
-        let Some((feet, near)) = pick_spot(seed) else {
+        let dog = match rounds.exfil {
+            Some(_) => rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
+            None => shared::dogs::is_dog_round(rounds.round),
+        };
+        // A zombie comes in through a window near the party if there's one
+        // (`pick_zombie_spawn`); a hellhound comes up out of the ground.
+        let spot = if dog {
+            pick_spot(seed).map(|(feet, near)| (feet, near, None))
+        } else {
+            let waiting = waiting_at_windows(&brains, lobby_e, lobby.map);
+            let world = colliders.for_lobby(&lobby);
+            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed)
+        };
+        let Some((feet, near, window)) = spot else {
             rounds.next_spawn_at = now + SPAWN_RETRY_SECS;
             continue;
         };
@@ -540,10 +568,6 @@ pub(crate) fn run_rounds(
         } else {
             interval
         };
-        let dog = match rounds.exfil {
-            Some(_) => rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
-            None => shared::dogs::is_dog_round(rounds.round),
-        };
         // A dog round: lightning strikes there first, and the hellhound
         // follows once it's done (`crate::dogs`).
         if dog {
@@ -559,7 +583,7 @@ pub(crate) fn run_rounds(
             continue;
         }
 
-        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, rounds.enemy_round(), feet, near, seed, now);
+        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, rounds.enemy_round(), feet, near, window, seed, now);
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + interval;
     }
@@ -594,8 +618,80 @@ fn pick_spawn(
         .map(|feet| (feet, near))
 }
 
+/// Furthest (m) a window's landing can be from the living member a zombie's
+/// sent at for it to come in through that window.
+const WINDOW_SPAWN_MAX_DIST: f32 = 40.0;
+/// Most zombies waiting at (or coming in through) one window at a time —
+/// past it the next tries another, or comes up out of the ground.
+const MAX_AT_WINDOW: usize = 4;
+/// How far (m) under a window's outside spot to look for ground to stand on.
+const WINDOW_GROUND_DROP: f32 = 6.0;
+
+/// How many of `lobby_e`'s zombies are at (or on their way in through) each
+/// of `map`'s windows.
+fn waiting_at_windows(brains: &Query<(&LobbyPlayer, &BotBrain), With<Zombie>>, lobby_e: Entity, map: shared::MapId) -> Vec<usize> {
+    let mut waiting = vec![0; shared::windows::windows(map).len()];
+    for (lp, brain) in brains {
+        if let Some(i) = brain.window_index().filter(|_| lp.lobby == lobby_e) {
+            if let Some(n) = waiting.get_mut(i) {
+                *n += 1;
+            }
+        }
+    }
+    waiting
+}
+
+/// Where a zombie comes in: outside one of `map`'s windows near a random
+/// living member — one whose inside is somewhere the party can reach
+/// (`reach`), that has ground outside to stand on and isn't crowded
+/// (`waiting`) — or, with none like that, up out of the ground
+/// ([`pick_spawn`]). Its feet, what to face, and the window.
+fn pick_zombie_spawn(
+    map: shared::MapId,
+    nav: &crate::nav::NavGraph,
+    reach: Option<&[bool]>,
+    living: &[Vec3],
+    waiting: &[usize],
+    world: &dyn CollisionWorld,
+    seed: u64,
+) -> Option<(Vec3, Vec3, Option<usize>)> {
+    if living.is_empty() {
+        return None;
+    }
+    let near = living[(rand01(seed ^ 0x3d) * living.len() as f32) as usize % living.len()];
+    let mut candidates: Vec<(f32, usize, Vec3)> = shared::windows::windows(map)
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| waiting.get(i).copied().unwrap_or(0) < MAX_AT_WINDOW)
+        .filter_map(|(i, w)| {
+            let landing = w.landing();
+            let dist = landing.distance(near);
+            if dist > WINDOW_SPAWN_MAX_DIST {
+                return None;
+            }
+            // Its inside has to be open to the party...
+            let node = nav.nearest_node(landing)?;
+            if !nav.spawn_allowed(reach, node) {
+                return None;
+            }
+            // ...and its outside somewhere to stand.
+            let above = w.outside_spot() + Vec3::Y * (w.sill + 1.0);
+            let hit = world.raycast(above, Vec3::NEG_Y, w.sill + 1.0 + WINDOW_GROUND_DROP)?;
+            Some((dist, i, above - Vec3::Y * hit.distance))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return pick_spawn(nav, reach, living, seed).map(|(feet, near)| (feet, near, None));
+    }
+    // One of the few nearest, at random.
+    candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let pick = (rand01(seed ^ 0x77d0) * candidates.len().min(3) as f32) as usize % candidates.len().min(3);
+    let (_, i, feet) = candidates[pick];
+    Some((feet, shared::windows::windows(map)[i].landing(), Some(i)))
+}
+
 /// A zombie as tough as `round`'s rising out of the ground at `feet`, facing
-/// `near`.
+/// `near` — outside window `window`, if it's coming in through one.
 #[allow(clippy::too_many_arguments)]
 fn spawn_zombie(
     commands: &mut Commands,
@@ -605,6 +701,7 @@ fn spawn_zombie(
     round: u32,
     feet: Vec3,
     near: Vec3,
+    window: Option<usize>,
     seed: u64,
     now: f32,
 ) -> Entity {
@@ -633,7 +730,8 @@ fn spawn_zombie(
             .facing(yaw)
             .with_skill(zombie_skill(round))
             .rising(now, RISE_SECS)
-            .zombie(runner, speed),
+            .zombie(runner, speed)
+            .through_window(window),
         // Tougher every round (`shared::zombies::zombie_health`).
         PlayerCombat::zombie(shared::zombies::zombie_health(round)),
         shared::PlayerHealth(shared::zombies::zombie_health(round)),
@@ -660,6 +758,7 @@ fn recycle_far_zombies(
     endings: Res<crate::killcam::EndingLobbies>,
     mut next_id: ResMut<NextBotId>,
     lobbies: Query<(&Lobby, &ZombieRounds)>,
+    brains: Query<(&LobbyPlayer, &BotBrain), With<Zombie>>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
     mut zombies: Query<
         (Entity, &PlayerPose, &LobbyPlayer, &PlayerCombat, &mut OutOfTouch),
@@ -719,13 +818,16 @@ fn recycle_far_zombies(
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ zombie_e.to_bits() ^ 0x7ec1;
         let nav = navs.graph(lobby.map);
         let reach = nav.reachable_zones(lobby.doors_open);
-        let Some((to, facing)) = pick_spawn(nav, reach.as_deref(), &living, seed) else {
+        let waiting = waiting_at_windows(&brains, lp.lobby, lobby.map);
+        let Some((to, facing, window)) =
+            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed)
+        else {
             // (Nowhere this time: tried again at the next check.)
             continue;
         };
         let round = rounds.enemy_round().max(lobby.start_round).max(1);
         commands.entity(zombie_e).despawn();
-        let fresh = spawn_zombie(&mut commands, &mut next_id, lp.lobby, lobby, round, to, facing, seed, now);
+        let fresh = spawn_zombie(&mut commands, &mut next_id, lp.lobby, lobby, round, to, facing, window, seed, now);
         // As hurt as it was.
         let max = shared::zombies::zombie_health(round);
         let health = combat.health.min(max);
@@ -1024,6 +1126,91 @@ fn on_buy_door(
     info!("{peer:?} opened door {index}");
 }
 
+/// A member wants to put a board back on one of the map's windows
+/// (`shared::windows`): they must be in a running `Zombies` game, alive,
+/// inside and close to it, it has to be missing a board, and they can't be
+/// going faster than one every [`shared::windows::REPAIR_SECS`] (give or take
+/// the network). Pays [`shared::windows::REPAIR_POINTS`] a board, up to the
+/// round's cap.
+#[allow(clippy::too_many_arguments)]
+fn on_repair_barrier(
+    trigger: Trigger<RemoteTrigger<RepairBarrier>>,
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&lightyear::prelude::server::Server>,
+    mut sender: lightyear::prelude::ServerMultiMessageSender,
+    mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+) {
+    use shared::windows::{boards_left, windows, BOARDS, REPAIR_POINTS, REPAIR_POINTS_PER_ROUND, REPAIR_SECS};
+    let peer = trigger.from;
+    let index = trigger.trigger.0 as usize;
+    let now = time.elapsed_secs();
+    let Some((lobby_e, mut lobby, mut rounds)) = lobbies
+        .iter_mut()
+        .find(|(_, l, _)| l.started && l.mode == GameMode::Zombies && l.has(peer))
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.paused {
+        return;
+    }
+    let Some(window) = windows(lobby.map).get(index) else {
+        return;
+    };
+    if boards_left(&lobby.windows_torn, index) >= BOARDS {
+        return;
+    }
+    let Some((_, pose, combat)) = players.iter().find(|(id, ..)| id.0 == peer) else {
+        return;
+    };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    if !combat.alive || !window.in_repair_range(feet, 0.75) {
+        return;
+    }
+    if rounds.repair_last.get(&peer).is_some_and(|&last| now - last < REPAIR_SECS * 0.75) {
+        return;
+    }
+    rounds.repair_last.insert(peer, now);
+    if let Some(torn) = lobby.windows_torn.get_mut(index) {
+        *torn = torn.saturating_sub(1);
+    }
+    let earned = rounds.repair_points.entry(peer).or_default();
+    let points = REPAIR_POINTS.min(REPAIR_POINTS_PER_ROUND.saturating_sub(*earned));
+    *earned += points;
+    if let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        member.score += points;
+    }
+    if let Err(e) = sender.send::<_, GameChannel>(
+        &BarrierRepaired { points },
+        server.into_inner(),
+        &NetworkTarget::Single(peer),
+    ) {
+        error!("failed to send barrier repaired: {e:?}");
+    }
+}
+
+/// Take a board off each window a zombie tore at this tick
+/// (`crate::ai::BoardTorn`) — never past none.
+fn apply_board_tears(mut tears: EventReader<crate::ai::BoardTorn>, mut lobbies: Query<&mut Lobby>) {
+    for tear in tears.read() {
+        let Ok(mut lobby) = lobbies.get_mut(tear.lobby) else {
+            continue;
+        };
+        let count = shared::windows::windows(lobby.map).len();
+        if tear.window >= count || !lobby.started {
+            continue;
+        }
+        if lobby.windows_torn.len() < count {
+            lobby.windows_torn.resize(count, 0);
+        }
+        let torn = &mut lobby.windows_torn[tear.window];
+        if *torn < shared::windows::BOARDS {
+            *torn += 1;
+        }
+    }
+}
+
 /// A member wants a sniper ammo refill at the ammo crate: they must be in a
 /// running `Zombies` game, alive, with the points. (Where the crate stands
 /// and whether they're already full are the client's to check — see
@@ -1120,6 +1307,7 @@ mod tests {
         ));
         let (colliders, _) = crate::nav::tests::built();
         app.insert_resource(NavGraphs::build(colliders));
+        app.insert_resource(crate::collision::MapColliders::load());
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<crate::killcam::ReplayClock>();
         app.add_event::<crate::pvp::ZombieKilled>();
@@ -1157,6 +1345,7 @@ mod tests {
                 countdown_left: 0,
                 power_on: false,
                 doors_open: 0,
+                windows_torn: Vec::new(),
                 rampage: false,
                 mystery_box: None,
                 members: vec![shared::LobbyMember {

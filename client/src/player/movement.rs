@@ -165,6 +165,34 @@ pub(crate) fn resolve_body_collisions(
     transform.translation.z += moved.z;
 }
 
+/// Keep the player's body out of every `Zombies` window's opening
+/// (`shared::windows`) — zombies climb through them, players never do.
+/// Pure maths, no colliders, like [`resolve_body_collisions`]: shots,
+/// grenades and every ray still go straight through. A body in an opening
+/// is put back out of it on the side it's on, and loses the part of its
+/// velocity heading in.
+pub(crate) fn resolve_window_blockers(
+    windows: Res<crate::windows::WindowBlockers>,
+    mut player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+) {
+    if windows.0.is_empty() {
+        return;
+    }
+    let (transform, physics) = &mut *player;
+    for window in &windows.0 {
+        let feet = transform.translation - Vec3::Y * EYE_HEIGHT;
+        let Some(push) = window.body_push(feet, BODY_CAPSULE_HEIGHT, BODY_CAPSULE_RADIUS) else {
+            continue;
+        };
+        transform.translation += push;
+        let out = push.normalize_or_zero();
+        let into = physics.horizontal_velocity.dot(out);
+        if into < 0.0 {
+            physics.horizontal_velocity -= out * into;
+        }
+    }
+}
+
 /// A shove the player's taking (a boss's smash — [`shared::KnockedBack`]):
 /// its velocity (m/s, horizontal), bled off by [`apply_knockback`].
 #[derive(Resource, Default)]

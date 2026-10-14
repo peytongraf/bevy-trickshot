@@ -87,6 +87,7 @@ impl Plugin for LevelEditorPlugin {
                         sync_objects,
                         sync_editor_lights,
                         sync_editor_flames,
+                        sync_editor_windows,
                         input::draw_gizmos,
                     )
                         .chain(),
@@ -150,6 +151,11 @@ pub(crate) enum ObjectId {
     /// index) — its own width, height and depth, cost, whether it needs the
     /// power and which way it slides are the properties panel's.
     Door(u8),
+    /// One of the windows zombies climb in through (`ZombiesLayout::windows`,
+    /// by index) — its spot is the floor under its opening, halfway through
+    /// the wall, its arrow pointing inside; its opening's size, sill and the
+    /// wall's thickness are the properties panel's.
+    Window(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -299,6 +305,42 @@ impl ObjectId {
         "Door 32",
     ];
 
+    /// Names for the windows ([`ObjectId::Window`]).
+    const WINDOW_LABELS: [&'static str; shared::windows::MAX_WINDOWS] = [
+        "Window 1",
+        "Window 2",
+        "Window 3",
+        "Window 4",
+        "Window 5",
+        "Window 6",
+        "Window 7",
+        "Window 8",
+        "Window 9",
+        "Window 10",
+        "Window 11",
+        "Window 12",
+        "Window 13",
+        "Window 14",
+        "Window 15",
+        "Window 16",
+        "Window 17",
+        "Window 18",
+        "Window 19",
+        "Window 20",
+        "Window 21",
+        "Window 22",
+        "Window 23",
+        "Window 24",
+        "Window 25",
+        "Window 26",
+        "Window 27",
+        "Window 28",
+        "Window 29",
+        "Window 30",
+        "Window 31",
+        "Window 32",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -322,6 +364,7 @@ impl ObjectId {
             ObjectId::PowerLight(i) => Self::LIGHT_LABELS[(i as usize).min(Self::LIGHT_LABELS.len() - 1)],
             ObjectId::Flame(i) => Self::FLAME_LABELS[(i as usize).min(Self::FLAME_LABELS.len() - 1)],
             ObjectId::Door(i) => Self::DOOR_LABELS[(i as usize).min(Self::DOOR_LABELS.len() - 1)],
+            ObjectId::Window(i) => Self::WINDOW_LABELS[(i as usize).min(Self::WINDOW_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -340,6 +383,7 @@ impl ObjectId {
                 | ObjectId::PowerLight(_)
                 | ObjectId::Flame(_)
                 | ObjectId::Door(_)
+                | ObjectId::Window(_)
         )
     }
 
@@ -364,7 +408,8 @@ impl ObjectId {
             | ObjectId::PlayerSpawn(_)
             | ObjectId::PowerLight(_)
             | ObjectId::Flame(_)
-            | ObjectId::Door(_) => None,
+            | ObjectId::Door(_)
+            | ObjectId::Window(_) => None,
         }
     }
 
@@ -384,6 +429,7 @@ impl ObjectId {
                     | ObjectId::PowerLight(_)
                     | ObjectId::Flame(_)
                     | ObjectId::Door(_)
+                    | ObjectId::Window(_)
             )
     }
 
@@ -443,6 +489,7 @@ impl ObjectId {
             ObjectId::PowerLight(i) => layout.power_lights.get(i as usize).map(|l| Placement::new(l.pos, 0.0)),
             ObjectId::Flame(i) => layout.flames.get(i as usize).map(|f| Placement::new(f.pos, 0.0)),
             ObjectId::Door(i) => layout.doors.get(i as usize).map(|d| d.at),
+            ObjectId::Window(i) => layout.windows.get(i as usize).map(|w| w.at),
         }
     }
 
@@ -492,6 +539,15 @@ impl ObjectId {
                     doors.push(shared::doors::Door::new(at));
                 }
             }
+            // (Its spot and turn; the rest is the properties panel's.)
+            ObjectId::Window(i) => {
+                let windows = &mut layout.windows;
+                if let Some(window) = windows.get_mut(i as usize) {
+                    window.at = at.with_scale(1.0);
+                } else if windows.len() < shared::windows::MAX_WINDOWS {
+                    windows.push(shared::windows::Window::new(at));
+                }
+            }
             // (The same: only its position here.)
             ObjectId::Flame(i) => {
                 let flames = &mut layout.flames;
@@ -537,6 +593,10 @@ impl ObjectId {
             let i = i as usize;
             return (i < layout.doors.len()).then(|| layout.doors.remove(i)).is_some();
         }
+        if let ObjectId::Window(i) = self {
+            let i = i as usize;
+            return (i < layout.windows.len()).then(|| layout.windows.remove(i)).is_some();
+        }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
             layout.wall_buys.retain(|w| w.weapon != gun);
@@ -568,6 +628,7 @@ impl ObjectId {
             ObjectId::PowerLight(_) => Color::srgb(1.0, 0.92, 0.45),
             ObjectId::Flame(_) => Color::srgb(1.0, 0.5, 0.12),
             ObjectId::Door(_) => Color::srgb(0.85, 0.72, 0.5),
+            ObjectId::Window(_) => Color::srgb(0.8, 0.62, 0.4),
         }
     }
 
@@ -590,6 +651,9 @@ impl ObjectId {
             // (Bought from in front of or behind it — a rectangle, drawn by
             // `input::draw_gizmos`.)
             ObjectId::Door(_) => shared::doors::USE_REACH,
+            // (Rebuilt from inside — a rectangle, drawn by
+            // `input::draw_gizmos`.)
+            ObjectId::Window(_) => shared::windows::REPAIR_REACH,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -620,6 +684,12 @@ impl ObjectId {
             ObjectId::Door(i) => standing(
                 doc.layout.doors.get(i as usize).map_or(shared::doors::MODEL_SIZE, |d| d.size) * 0.5,
             ),
+            // A window: its opening.
+            ObjectId::Window(i) => {
+                let w = doc.layout.windows.get(i as usize).copied().unwrap_or_else(|| shared::windows::Window::new(Placement::default()));
+                let half = Vec3::new(w.size.x * 0.5, w.size.y * 0.5, w.depth * 0.5);
+                (Vec3::Y * (w.sill + half.y), half)
+            }
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
             ObjectId::AmmoCrate(_) => standing(shared::ammo::CRATE_HALF_EXTENTS),
@@ -663,6 +733,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
     out.extend((0..doc.layout.flames.len() as u8).map(ObjectId::Flame));
     out.extend((0..doc.layout.doors.len() as u8).map(ObjectId::Door));
+    out.extend((0..doc.layout.windows.len() as u8).map(ObjectId::Window));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -1229,6 +1300,74 @@ fn sync_editor_flames(
     );
 }
 
+/// On the editor's windows' solid look (`sync_editor_windows`).
+#[derive(Component)]
+struct EditorWindow;
+
+/// Draw the shown layout's windows solid, to line up against the openings
+/// cut in the map: the opening as a see-through box, and the boards as the
+/// game has them (on the outside face). Rebuilt whenever a window changes.
+#[allow(clippy::too_many_arguments)]
+fn sync_editor_windows(
+    editor: Res<Editor>,
+    look: Option<Res<crate::windows::BoardLook>>,
+    existing: Query<Entity, With<EditorWindow>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut glass: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
+    mut shown: Local<Vec<shared::windows::Window>>,
+    mut commands: Commands,
+) {
+    let Some(look) = look else { return };
+    let wanted: &[shared::windows::Window] = if editor.docs.is_empty() { &[] } else { &editor.doc().layout.windows };
+    if wanted == shown.as_slice() && existing.iter().count() == wanted.len() {
+        return;
+    }
+    *shown = wanted.to_vec();
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    let (mesh, material) = glass
+        .get_or_insert_with(|| {
+            (
+                meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+                materials.add(StandardMaterial {
+                    base_color: Color::srgba(0.95, 0.75, 0.45, 0.28),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                }),
+            )
+        })
+        .clone();
+    for window in wanted {
+        let (opening, _, half) = window.opening();
+        let size = window.board_size();
+        commands
+            .spawn((
+                StateScoped(AppState::LevelEditor),
+                EditorWindow,
+                Transform::from_translation(window.at.pos).with_rotation(window.rotation()),
+                Visibility::default(),
+            ))
+            .with_children(|root| {
+                root.spawn((
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_translation(window.local(opening)).with_scale(half * 2.0),
+                    bevy::pbr::NotShadowCaster,
+                ));
+                for slot in 0..shared::windows::BOARDS {
+                    let (center, tilt) = window.board_local(slot);
+                    root.spawn((Transform::from_translation(center).with_rotation(tilt), Visibility::default()))
+                        .with_children(|b| crate::windows::board_visual(b, &look, size));
+                }
+            });
+    }
+}
+
 // --- the scene --------------------------------------------------------------------
 
 /// A placed thing's stand-in in the editor: its root is its placement, its
@@ -1259,7 +1398,9 @@ fn model_of(
         // (No model — just its marker and rectangle; a light, its marker and
         // reach.)
         // (A fire draws itself, live — `sync_editor_flames`.)
-        ObjectId::ExfilArea | ObjectId::PowerLight(_) | ObjectId::Flame(_) => return None,
+        // (A window's drawn by `input::draw_gizmos`: its opening, boards and
+        // the way zombies come in.)
+        ObjectId::ExfilArea | ObjectId::PowerLight(_) | ObjectId::Flame(_) | ObjectId::Window(_) => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // (Turned to face +Z at the model's own size — the root stretches it
         // to the door's, `root_transform_of`.)

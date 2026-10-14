@@ -309,6 +309,21 @@ impl crate::doors::Door {
     }
 }
 
+impl crate::windows::Window {
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32| ((v as f64 * 1000.0).round() / 1000.0) as f32;
+        format!(
+            "(at: {}, size: ({:?}, {:?}), sill: {:?}, depth: {:?})",
+            self.at.with_scale(1.0).to_ron(),
+            r(self.size.x),
+            r(self.size.y),
+            r(self.sill),
+            r(self.depth),
+        )
+    }
+}
+
 /// The exfil area (`crate::exfil`): a rectangle on the ground, `width` (m,
 /// along its own x) by `depth` (along its own z), its middle and turn
 /// `at`. Its size is the map's own — not [`ObjectSizes`]'.
@@ -459,6 +474,10 @@ pub struct ZombiesLayout {
     /// [`crate::doors::MAX_DOORS`].
     #[serde(default)]
     pub doors: Vec<crate::doors::Door>,
+    /// The windows zombies climb in through ([`crate::windows`]) — up to
+    /// [`crate::windows::MAX_WINDOWS`].
+    #[serde(default)]
+    pub windows: Vec<crate::windows::Window>,
     /// Where the players start a game: each is put on a different one, at
     /// random (`crate::spawns::zombies_start`) — up to
     /// [`MAX_PLAYER_SPAWNS`], one per player a lobby can hold. None, and
@@ -599,6 +618,11 @@ impl ZombiesLayout {
             out += &format!("        {},\n", door.to_ron());
         }
         out += "    ],\n";
+        out += "    windows: [\n";
+        for window in &self.windows {
+            out += &format!("        {},\n", window.to_ron());
+        }
+        out += "    ],\n";
         out += "    player_spawns: [\n";
         for at in &self.player_spawns {
             out += &format!("        {},\n", at.with_scale(1.0).to_ron());
@@ -726,6 +750,19 @@ mod tests {
         layout.doors.push(crate::doors::Door::new(Placement::new(Vec3::new(3.0, -4.0, 1.0), 0.0)));
         let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
         assert_eq!(back.doors, layout.doors);
+    }
+
+    #[test]
+    fn windows_survive_a_save_and_load() {
+        let mut layout = layout(MapId::DerTempel).clone();
+        let mut window = crate::windows::Window::new(Placement::new(Vec3::new(-20.5, 0.0, 33.25), 90.0));
+        window.size = bevy::math::Vec2::new(1.5, 1.25);
+        window.sill = 1.1;
+        window.depth = 0.75;
+        layout.windows.push(window);
+        layout.windows.push(crate::windows::Window::new(Placement::new(Vec3::new(3.0, -4.0, 1.0), -45.0)));
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.windows, layout.windows);
     }
 
     #[test]

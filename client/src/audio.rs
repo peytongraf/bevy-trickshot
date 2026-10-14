@@ -206,6 +206,14 @@ pub(crate) struct GameSounds {
     /// `audio/music/zombies_game_over.mp3` — played once when a `Zombies`
     /// game ends (`zombies_audio`).
     pub(crate) zombies_game_over: Handle<AudioSource>,
+    /// `audio/zombies/windows/` — a window's boards (`windows`): a zombie
+    /// snapping one off (one of `board_snaps` at random), one floating back
+    /// up into place and slamming home (`board_float`, then one of
+    /// `board_slams`), and the hammering while we rebuild.
+    pub(crate) board_snaps: Vec<Handle<AudioSource>>,
+    pub(crate) board_slams: Vec<Handle<AudioSource>>,
+    pub(crate) board_float: Handle<AudioSource>,
+    pub(crate) hammering: Handle<AudioSource>,
 }
 
 impl GameSounds {
@@ -477,6 +485,14 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         power_up_nuke: asset_server.load("audio/zombies/power_ups/nuke.mp3"),
         power_up_bonus_points: asset_server.load("audio/zombies/power_ups/bonus_points.mp3"),
         zombies_game_over: asset_server.load("audio/music/zombies_game_over.mp3"),
+        board_snaps: (1..=5)
+            .map(|i| asset_server.load(format!("audio/zombies/windows/board_snap_{i}.mp3")))
+            .collect(),
+        board_slams: (1..=6)
+            .map(|i| asset_server.load(format!("audio/zombies/windows/board_slam_{i}.mp3")))
+            .collect(),
+        board_float: asset_server.load("audio/zombies/windows/board_float.mp3"),
+        hammering: asset_server.load("audio/zombies/windows/hammering.mp3"),
     });
 }
 

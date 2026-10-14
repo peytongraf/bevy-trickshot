@@ -88,6 +88,7 @@ mod vfx;
 mod wall_buys;
 mod weapon_drops;
 mod weapons;
+mod windows;
 mod wunderfizz;
 mod zombie_sounds;
 mod zombies_hud;
@@ -272,6 +273,7 @@ fn main() {
         .add_plugins(earthquake::EarthquakePlugin)
         .add_plugins(flames::FlamesPlugin)
         .add_plugins(doors::DoorsPlugin)
+        .add_plugins(windows::WindowsPlugin)
         .add_plugins(pap::PapPlugin)
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
@@ -546,6 +548,8 @@ fn main() {
                     // A boss's smash throwing us back — after the move, kept
                     // out of the walls the same way.
                     apply_knockback,
+                    // And never into a `Zombies` window's opening.
+                    resolve_window_blockers,
                     // (Not while down or out in `Zombies`.)
                     teleport_home.run_if(revive::up),
                     jump,

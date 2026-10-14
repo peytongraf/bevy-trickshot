@@ -155,6 +155,7 @@ pub(crate) fn try_mantle(
     rapier: ReadRapierContext,
     mut mantle: ResMut<Mantle>,
     player: Single<(&Transform, &PlayerPhysics), With<Player>>,
+    windows: Res<crate::windows::WindowBlockers>,
 ) {
     if settings.auto_mantle == AutoMantle::Off {
         return;
@@ -182,6 +183,10 @@ pub(crate) fn try_mantle(
     let Some(landing_feet) = find_mantle(&rapier, feet, dir, &cfg) else {
         return;
     };
+    // (Never up onto a `Zombies` window's sill — players don't go through.)
+    if windows.0.iter().any(|w| w.blocks_mantle(landing_feet)) {
+        return;
+    }
     mantle.active = Some(MantleRun {
         start: transform.translation,
         end: landing_feet + Vec3::Y * EYE_HEIGHT,

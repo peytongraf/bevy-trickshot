@@ -187,6 +187,7 @@ fn on_create(
                 countdown_left: 0,
                 power_on: false,
                 doors_open: 0,
+                windows_torn: Vec::new(),
                 rampage: false,
                 mystery_box: None,
                 members: vec![LobbyMember {
@@ -304,6 +305,7 @@ fn on_start(
     lobby.paused = false;
     lobby.power_on = false;
     lobby.doors_open = 0;
+    lobby.windows_torn.clear();
     lobby.rampage = false;
     lobby.exfil = Default::default();
     lobby.mystery_box = None;
@@ -892,6 +894,7 @@ fn back_to_room(lobby: &mut Lobby) {
     lobby.paused = false;
     lobby.power_on = false;
     lobby.doors_open = 0;
+    lobby.windows_torn.clear();
     lobby.rampage = false;
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
@@ -975,6 +978,7 @@ mod tests {
             countdown_left: 0,
             power_on: false,
             doors_open: 0,
+            windows_torn: Vec::new(),
             rampage: false,
             mystery_box: None,
             members: vec![LobbyMember {
