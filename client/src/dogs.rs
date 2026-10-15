@@ -529,6 +529,7 @@ fn receive_dog_messages(
                 dog: true,
                 boss: false,
                 frag: false,
+                nuke: false,
             });
         }
     }
@@ -905,6 +906,7 @@ fn run_previews(
             dog: true,
             boss: false,
             frag: false,
+            nuke: false,
         });
     }
 }

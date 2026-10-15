@@ -1681,20 +1681,27 @@ pub(crate) fn ads_tuning_ui(
                                 tx.trigger::<shared::LobbyChannel>(shared::SetPowerUpTest { on });
                             }
                         }
-                        // Set one off now: dropped at the leader's feet, so
-                        // they pick it up at once (in a running Zombies game).
-                        ui.label("Set one off now (drops at your feet):");
-                        ui.add_enabled_ui(is_leader, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                for kind in shared::power_ups::PowerUp::ALL {
-                                    if ui.button(kind.label()).clicked() {
-                                        if let Ok(mut tx) = drop_power_up_tx.single_mut() {
-                                            tx.trigger::<shared::LobbyChannel>(shared::DropPowerUp { kind });
+                        // Drop one now (in a running Zombies game): at the
+                        // leader's feet, so they pick it up at once — or a
+                        // few metres in front of them, to look at and listen
+                        // to before walking into it.
+                        for (ahead, label) in [
+                            (false, "Set one off now (drops at your feet):"),
+                            (true, "Drop one in front of you (walk into it to set it off):"),
+                        ] {
+                            ui.label(label);
+                            ui.add_enabled_ui(is_leader, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    for kind in shared::power_ups::PowerUp::ALL {
+                                        if ui.button(kind.label()).clicked() {
+                                            if let Ok(mut tx) = drop_power_up_tx.single_mut() {
+                                                tx.trigger::<shared::LobbyChannel>(shared::DropPowerUp { kind, ahead });
+                                            }
                                         }
                                     }
-                                }
+                                });
                             });
-                        });
+                        }
                         if !is_leader {
                             ui.label("Only the party leader can change this.");
                         }

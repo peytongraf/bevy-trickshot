@@ -163,6 +163,10 @@
         "zombies/power_ups": (
             bus: Some(Announcer),
         ),
+        "zombies/power_ups/zombie_souls": (
+            profile: Some("Zombies"),
+            bus: Some(Zombies),
+        ),
         "zombies/purchases": (
             bus: Some(Interface),
         ),
@@ -259,7 +263,19 @@
         "zombies/perks/jingles/classic/stamin_up.mp3": (
             volume_db: 1.0,
         ),
-        "zombies/power_ups/drop_loop.mp3": (
+        "zombies/power_ups/loop.mp3": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/power_ups/spawn.mp3": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/power_ups/timer_end.mp3": (
+            profile: Some("Machines"),
+            bus: Some(World),
+        ),
+        "zombies/power_ups/timer_tick.mp3": (
             profile: Some("Machines"),
             bus: Some(World),
         ),

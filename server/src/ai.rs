@@ -1758,6 +1758,7 @@ mod tests {
             doors_open: 0,
             windows_torn: Vec::new(),
             rampage: false,
+            carpenter: false,
             mystery_box: None,
             members: Vec::new(),
         }

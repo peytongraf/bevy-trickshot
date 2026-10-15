@@ -536,6 +536,31 @@ struct PatchLight {
 #[derive(Resource, Default)]
 struct PendingCorpseFires(Vec<(PeerId, f32)>);
 
+/// Which zombie souls (`GameSounds::zombie_souls`, by index) haven't been
+/// screamed since the bag was last refilled: each nuked zombie that catches
+/// fire draws one at random, and only once all are used do they all go back
+/// in — so a Nuke's zombies don't keep repeating the same few.
+#[derive(Resource, Default)]
+struct SoulBag {
+    left: Vec<usize>,
+    draws: u32,
+}
+
+impl SoulBag {
+    fn draw(&mut self, count: usize, salt: u32) -> Option<usize> {
+        if count == 0 {
+            return None;
+        }
+        if self.left.is_empty() {
+            self.left = (0..count).collect();
+        }
+        self.draws = self.draws.wrapping_add(1);
+        let r = crate::util::rand01(salt ^ self.draws.wrapping_mul(0x9E37_79B9));
+        let i = (r * self.left.len() as f32) as usize % self.left.len();
+        Some(self.left.swap_remove(i))
+    }
+}
+
 /// The longest (s) a nuked zombie's fire waits for its body to fall.
 const CORPSE_FIRE_WAIT_SECS: f32 = 3.0;
 
@@ -578,9 +603,11 @@ impl Plugin for MolotovPlugin {
         .init_resource::<MolotovSettings>()
         .init_resource::<HeldMotion>()
         .init_resource::<PendingCorpseFires>()
+        .init_resource::<SoulBag>()
         .add_systems(Startup, setup_assets)
-        .add_systems(OnExit(AppState::InGame), |mut pending: ResMut<PendingCorpseFires>| {
+        .add_systems(OnExit(AppState::InGame), |mut pending: ResMut<PendingCorpseFires>, mut souls: ResMut<SoulBag>| {
             pending.0.clear();
+            *souls = SoulBag::default();
         })
         .add_systems(
             Update,
@@ -1195,13 +1222,16 @@ fn receive_nuked(mut receivers: Query<&mut MessageReceiver<ZombieNuked>>, mut pe
 
 /// Set each nuked zombie's body alight as soon as its avatar starts to fall:
 /// flames scattered over where the body will lie — ahead of the feet for a
-/// face-first fall, behind them for one onto its back — and a light.
+/// face-first fall, behind them for one onto its back — and a light, and
+/// its soul screams out ([`SoulBag`]).
 #[allow(clippy::too_many_arguments)]
 fn spawn_corpse_fires(
     time: Res<Time>,
     paused: Res<GamePaused>,
     settings: Res<MolotovSettings>,
     assets: Res<MolotovAssets>,
+    sounds: Res<GameSounds>,
+    mut souls: ResMut<SoulBag>,
     mut pending: ResMut<PendingCorpseFires>,
     avatars: Query<(&RemoteAvatar, &crate::ZombieMotion)>,
     poses: Query<(&PlayerPose, &PlayerId)>,
@@ -1241,6 +1271,14 @@ fn spawn_corpse_fires(
             params: settings.params(settings.corpse_brightness, settings.pull, 0.0, Vec3::ZERO),
         });
         let key = peer.to_bits() as u32 ^ (peer.to_bits() >> 32) as u32;
+        if let Some(i) = souls.draw(sounds.zombie_souls.len(), key) {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                AudioPlayer::new(sounds.zombie_souls[i].clone()),
+                Transform::from_translation(mid + Vec3::Y * 0.5),
+                crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
+            ));
+        }
         let hash = |i: u32, k: u32| crate::util::rand01(key.wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9));
         let tiny = Vec3::new(0.001, 0.001, 0.0015);
         let flames = settings.corpse_flames.max(1);

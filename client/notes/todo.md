@@ -22,6 +22,7 @@ outside ground height the same as inside
 - Automatic room reverb
 - F3 debug mode toggle
 - Perks-need-power lobby option
+- Carpenter power-up
 
 # Level editor
 
@@ -30,7 +31,6 @@ outside ground height the same as inside
 
 # Current todo
 
-- Add carpenter power up
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing

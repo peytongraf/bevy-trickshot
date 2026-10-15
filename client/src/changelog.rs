@@ -17,6 +17,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: new Cold War power-up sounds — spawn, pickup, timers, Nuke flash, burning zombie screams, Carpenter hammering.",
+        "Zombies: the Nuke goes off with a blast and a white flash, the nearest zombie burning first.",
+        "Zombies: Insta-Kill ticks down like Double Points.",
+        "Operators wait for the power-up announcer to finish before speaking.",
+        "Zombies: nuked zombies no longer give their normal death cry.",
+        "Zombies: new Carpenter power-up — rebuilds every window and gives everyone 200 points.",
         "Zombies: perk machines are on from the start — new lobby option to make them wait for the power.",
         "Press F3 to toggle debug mode; the DEBUG tab lists the function keys.",
         "Zombies: zombies killed outside a window save their power-up for the next kill inside.",

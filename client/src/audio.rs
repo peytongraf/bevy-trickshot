@@ -193,9 +193,33 @@ pub(crate) struct GameSounds {
     /// `audio/zombies/power_ups/grab.mp3` — walking into a power-up (only
     /// the one who grabbed it hears it).
     pub(crate) power_up_grab: Handle<AudioSource>,
-    /// `audio/zombies/power_ups/drop_loop.mp3` — looped from every power-up
+    /// `audio/zombies/power_ups/loop.mp3` — looped from every power-up
     /// lying on the ground (positional).
     pub(crate) power_up_loop: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/spawn.mp3` — a power-up appearing, from it.
+    pub(crate) power_up_spawn: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/timer_tick.mp3` / `timer_end.mp3` — a drop
+    /// about to go: a tick from it each blink, and the end as it goes.
+    pub(crate) power_up_timer_tick: Handle<AudioSource>,
+    pub(crate) power_up_timer_end: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/double_points_timer_tick.mp3` / `_end.mp3`
+    /// — Double Points (and Insta-Kill) running out, for everyone, with its
+    /// HUD icon.
+    pub(crate) double_points_tick: Handle<AudioSource>,
+    pub(crate) double_points_end: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/max_ammo_refill.mp3` — Max Ammo filling
+    /// everyone up, with its announcer.
+    pub(crate) max_ammo_refill: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/nuke_flash.mp3` — a Nuke going off, once the
+    /// announcer's said it.
+    pub(crate) nuke_flash: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/carpenter_loop.mp3` / `carpenter_end.mp3` —
+    /// the hammering while a Carpenter's at work, and its finish.
+    pub(crate) carpenter_loop: Handle<AudioSource>,
+    pub(crate) carpenter_end: Handle<AudioSource>,
+    /// `audio/zombies/power_ups/zombie_souls/zombie_soul_<n>.mp3` — a nuked
+    /// zombie's scream as it catches fire (`molotov::SoulBag` picks).
+    pub(crate) zombie_souls: Vec<Handle<AudioSource>>,
     /// `audio/zombies/power_ups/<name>.mp3` — the announcer for each
     /// power-up, for everyone when it's grabbed (`power_ups::announcer`).
     pub(crate) power_up_max_ammo: Handle<AudioSource>,
@@ -203,6 +227,7 @@ pub(crate) struct GameSounds {
     pub(crate) power_up_double_points: Handle<AudioSource>,
     pub(crate) power_up_nuke: Handle<AudioSource>,
     pub(crate) power_up_bonus_points: Handle<AudioSource>,
+    pub(crate) power_up_carpenter: Handle<AudioSource>,
     /// `audio/music/zombies_game_over.mp3` — played once when a `Zombies`
     /// game ends (`zombies_audio`).
     pub(crate) zombies_game_over: Handle<AudioSource>,
@@ -478,12 +503,25 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         buy_ammo: asset_server.load("audio/zombies/purchases/buy_ammo.mp3"),
         money_ching: asset_server.load("audio/zombies/purchases/money_ching.mp3"),
         power_up_grab: asset_server.load("audio/zombies/power_ups/grab.mp3"),
-        power_up_loop: asset_server.load("audio/zombies/power_ups/drop_loop.mp3"),
+        power_up_loop: asset_server.load("audio/zombies/power_ups/loop.mp3"),
+        power_up_spawn: asset_server.load("audio/zombies/power_ups/spawn.mp3"),
+        power_up_timer_tick: asset_server.load("audio/zombies/power_ups/timer_tick.mp3"),
+        power_up_timer_end: asset_server.load("audio/zombies/power_ups/timer_end.mp3"),
+        double_points_tick: asset_server.load("audio/zombies/power_ups/double_points_timer_tick.mp3"),
+        double_points_end: asset_server.load("audio/zombies/power_ups/double_points_timer_end.mp3"),
+        max_ammo_refill: asset_server.load("audio/zombies/power_ups/max_ammo_refill.mp3"),
+        nuke_flash: asset_server.load("audio/zombies/power_ups/nuke_flash.mp3"),
+        carpenter_loop: asset_server.load("audio/zombies/power_ups/carpenter_loop.mp3"),
+        carpenter_end: asset_server.load("audio/zombies/power_ups/carpenter_end.mp3"),
+        zombie_souls: (1..=11)
+            .map(|i| asset_server.load(format!("audio/zombies/power_ups/zombie_souls/zombie_soul_{i}.mp3")))
+            .collect(),
         power_up_max_ammo: asset_server.load("audio/zombies/power_ups/max_ammo.mp3"),
         power_up_insta_kill: asset_server.load("audio/zombies/power_ups/insta_kill.mp3"),
         power_up_double_points: asset_server.load("audio/zombies/power_ups/double_points.mp3"),
         power_up_nuke: asset_server.load("audio/zombies/power_ups/nuke.mp3"),
         power_up_bonus_points: asset_server.load("audio/zombies/power_ups/bonus_points.mp3"),
+        power_up_carpenter: asset_server.load("audio/zombies/power_ups/carpenter.mp3"),
         zombies_game_over: asset_server.load("audio/music/zombies_game_over.mp3"),
         board_snaps: (1..=5)
             .map(|i| asset_server.load(format!("audio/zombies/windows/board_snap_{i}.mp3")))

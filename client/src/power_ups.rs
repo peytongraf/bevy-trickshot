@@ -5,11 +5,17 @@
 //!   in shiny gold, floating over the spot, spinning and bobbing, wrapped in
 //!   a green glow ([`PowerUpGlowMaterial`], `assets/shaders/power_up_glow.wgsl`)
 //!   with a green light under it, and its loop sound playing from it
-//!   (positional, faded by distance); it blinks once the server says it's
-//!   about to go;
+//!   (positional, faded by distance) after the spawn sound; it blinks once
+//!   the server says it's about to go, slowly then quicker, ticking each
+//!   blink, and ends with the timer end if it runs out;
 //! * [`PowerUpGrabbed`]: everyone hears the announcer line (not positional),
-//!   the one who grabbed it also hears the grab sound, and Max Ammo fills
-//!   our ammo;
+//!   the one who grabbed it also hears the grab sound; Max Ammo plays its
+//!   refill and fills our ammo, a Nuke goes off once the line's said — its
+//!   flash sound, a blast where it lay and the screen whiting out
+//!   ([`NukeFlashes`]) — a Carpenter hammers away while it's at work, at
+//!   least [`CARPENTER_MIN_SECS`] ([`CarpenterHammering`]);
+//! * Double Points and Insta-Kill tick down with their HUD icons for
+//!   everyone, ending with the timer end ([`timed_countdowns`]);
 //! * Insta-Kill / Double Points running (`Lobby::active_power_ups`): their
 //!   icons with seconds left, in the order they started, above the perk
 //!   icons.
@@ -29,7 +35,7 @@ use bevy::render::render_resource::{
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver};
-use shared::power_ups::PowerUp;
+use shared::power_ups::{PowerUp, BLINK_SECS, NUKE_FLASH_DELAY_SECS};
 use shared::{GameMode, Lobby, PowerUpDrop, PowerUpGrabbed};
 
 use crate::net::GameClient;
@@ -111,6 +117,7 @@ fn model(kind: PowerUp) -> (&'static str, Vec3) {
         PowerUp::DoublePoints => ("models/props/power_ups/double_points.glb", Vec3::new(0.009, 0.056, 0.01)),
         PowerUp::Nuke => ("models/props/power_ups/nuke.glb", Vec3::new(1.0, 0.0, 0.0)),
         PowerUp::BonusPoints => ("models/props/power_ups/bonus_points.glb", Vec3::new(-0.005, 0.0, 0.0)),
+        PowerUp::Carpenter => ("models/props/power_ups/carpenter.glb", Vec3::new(0.0, 0.13, -0.005)),
     }
 }
 
@@ -136,7 +143,7 @@ pub(crate) struct PowerUpSettings {
     pub(crate) spin_deg: f32,
     /// Each model's scale — they're modelled at wildly different sizes, so
     /// these bring each to about 0.7 m across.
-    pub(crate) scale: [f32; 5],
+    pub(crate) scale: [f32; PowerUp::ALL.len()],
     /// The gold: sRGB colour, metalness, roughness and how much it glows by
     /// itself (so it still reads as gold on a dark map).
     pub(crate) gold_color: [f32; 3],
@@ -174,9 +181,9 @@ impl Default for PowerUpSettings {
             bob_height: 0.13,
             bob_speed: 0.5,
             spin_deg: 60.0,
-            // Max Ammo, Insta-Kill, Double Points, Nuke, Bonus Points
-            // (`PowerUp::ALL`'s order).
-            scale: [1.15, 0.35, 4.0, 0.024, 1.1],
+            // Max Ammo, Insta-Kill, Double Points, Nuke, Bonus Points,
+            // Carpenter (`PowerUp::ALL`'s order).
+            scale: [1.15, 0.35, 4.0, 0.024, 1.1, 2.6],
             gold_color: [0.3633843, 0.273065, 0.09241041],
             gold_metallic: 0.87,
             gold_roughness: 0.0,
@@ -257,7 +264,65 @@ struct DropAvatar {
     src: Entity,
     /// The drop's own phase, so several don't bob in step.
     phase: f32,
+    /// Seconds it's been blinking (not counting pauses) — near
+    /// [`BLINK_SECS`] when it goes, it timed out rather than being grabbed.
+    blink_age: f32,
+    /// Blinks it's been through (the fraction is the one under way: shown
+    /// for the first half, hidden for the second) — see [`blink_hz`].
+    blink_phase: f32,
+    /// Shown last frame (to tick as it blinks back on).
+    lit: bool,
 }
+
+/// Blinks a second `blink_age` seconds into a drop's blinking: slow for the
+/// first half of [`BLINK_SECS`], then at the full `hz`, Call of Duty style.
+fn blink_hz(hz: f32, blink_age: f32) -> f32 {
+    let hz = hz.max(0.1);
+    if blink_age < BLINK_SECS * 0.5 {
+        hz * 0.5
+    } else {
+        hz
+    }
+}
+
+/// The timed power-ups' HUD icons flicker off on this, in their last few
+/// seconds — Double Points' countdown ticks with it.
+fn hud_flicker_off(t: f32) -> bool {
+    (t * 6.0).floor() as i64 % 2 == 1
+}
+
+/// Double Points' countdown ticks once a second from this many seconds left
+/// (as its number counts down), then with its icon's flicker over the last
+/// [`HUD_FLICKER_SECS`].
+const DOUBLE_POINTS_TICK_SECS: u16 = 10;
+const HUD_FLICKER_SECS: u16 = 5;
+
+/// A Carpenter's hammering goes on at least this long (s), however quick
+/// the boards are.
+const CARPENTER_MIN_SECS: f32 = 3.0;
+
+/// The hammering, while a Carpenter's at work: when it (last) started.
+#[derive(Component)]
+struct CarpenterHammering {
+    started: f32,
+}
+
+/// Seconds (not counting pauses) till each grabbed Nuke's flash
+/// ([`NUKE_FLASH_DELAY_SECS`]), and where its drop was.
+#[derive(Resource, Default)]
+struct NukeFlashes(Vec<(f32, Vec3)>);
+
+/// A Nuke's white-out over the whole screen, Call of Duty style: up fast to
+/// [`NUKE_WHITE_PEAK`], held a moment, then faded away.
+#[derive(Component)]
+struct NukeWhiteout {
+    age: f32,
+}
+
+const NUKE_WHITE_PEAK: f32 = 0.9;
+const NUKE_WHITE_IN_SECS: f32 = 0.08;
+const NUKE_WHITE_HOLD_SECS: f32 = 0.2;
+const NUKE_WHITE_OUT_SECS: f32 = 1.2;
 
 /// The spinning, bobbing part of an avatar (the model under it).
 #[derive(Component)]
@@ -310,7 +375,9 @@ impl Plugin for PowerUpsPlugin {
             ..default()
         })
         .init_resource::<PowerUpSettings>()
+        .init_resource::<NukeFlashes>()
         .add_systems(OnEnter(AppState::InGame), spawn_timed_row)
+        .add_systems(OnExit(AppState::InGame), |mut n: ResMut<NukeFlashes>| n.0.clear())
         .add_systems(
             Update,
             (
@@ -319,6 +386,10 @@ impl Plugin for PowerUpsPlugin {
                 measure_drop_models,
                 apply_power_up_settings,
                 receive_grabs,
+                nuke_flashes,
+                fade_nuke_whiteouts,
+                carpenter_hammering,
+                timed_countdowns,
                 update_timed_row,
             )
                 .run_if(in_state(AppState::InGame)),
@@ -356,7 +427,7 @@ fn assets(
 #[allow(clippy::too_many_arguments)]
 fn sync_drop_avatars(
     drops: Query<(Entity, &PowerUpDrop)>,
-    avatars: Query<(Entity, &DropAvatar)>,
+    avatars: Query<(Entity, &DropAvatar, &Transform)>,
     settings: Res<PowerUpSettings>,
     have: Option<Res<PowerUpAssets>>,
     sounds: Res<GameSounds>,
@@ -366,15 +437,30 @@ fn sync_drop_avatars(
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    for (e, avatar) in &avatars {
+    for (e, avatar, tf) in &avatars {
         if drops.get(avatar.src).is_err() {
             commands.entity(e).despawn();
+            // Gone at the end of its blinking: it timed out.
+            if avatar.blink_age >= BLINK_SECS - 0.4 {
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    AudioPlayer::new(sounds.power_up_timer_end.clone()),
+                    Transform::from_translation(tf.translation + Vec3::Y * settings.height),
+                    crate::positional_playback(Volume::Linear(1.0)),
+                ));
+            }
         }
     }
     for (src, drop) in &drops {
-        if avatars.iter().any(|(_, a)| a.src == src) {
+        if avatars.iter().any(|(_, a, _)| a.src == src) {
             continue;
         }
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            AudioPlayer::new(sounds.power_up_spawn.clone()),
+            Transform::from_translation(drop.pos + Vec3::Y * settings.height),
+            crate::positional_playback(Volume::Linear(1.0)),
+        ));
         let (_, glow, quad) = assets(
             &mut commands,
             &have,
@@ -391,6 +477,9 @@ fn sync_drop_avatars(
                 DropAvatar {
                     src,
                     phase: (src.index() as f32 * 1.618).fract() * std::f32::consts::TAU,
+                    blink_age: 0.0,
+                    blink_phase: 0.0,
+                    lit: true,
                 },
                 Transform::from_translation(drop.pos),
                 Visibility::default(),
@@ -495,18 +584,38 @@ fn gild_model(
     }
 }
 
-/// Float, spin, bob — and blink once the server says it's about to go.
+/// Float, spin, bob — and blink once the server says it's about to go,
+/// slowly then quicker ([`blink_hz`]), ticking from it each time it comes
+/// back on.
+#[allow(clippy::type_complexity)]
 fn animate_drop_avatars(
     time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
     settings: Res<PowerUpSettings>,
+    sounds: Res<GameSounds>,
     drops: Query<&PowerUpDrop>,
-    mut avatars: Query<(&DropAvatar, &Children, &mut Visibility)>,
+    mut avatars: Query<(&mut DropAvatar, &Transform, &Children, &mut Visibility), Without<DropSpinner>>,
     mut spinners: Query<&mut Transform, With<DropSpinner>>,
+    mut commands: Commands,
 ) {
     let t = time.elapsed_secs();
-    for (avatar, children, mut vis) in &mut avatars {
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
+    for (mut avatar, tf, children, mut vis) in &mut avatars {
         let blinking = drops.get(avatar.src).is_ok_and(|d| d.blinking);
-        let on = !blinking || (t * settings.blink_hz.max(0.1) * 2.0).floor() as i64 % 2 == 0;
+        if blinking {
+            avatar.blink_age += dt;
+            avatar.blink_phase += dt * blink_hz(settings.blink_hz, avatar.blink_age);
+        }
+        let on = !blinking || avatar.blink_phase.fract() < 0.5;
+        if blinking && on && !avatar.lit {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                AudioPlayer::new(sounds.power_up_timer_tick.clone()),
+                Transform::from_translation(tf.translation + Vec3::Y * settings.height),
+                crate::positional_playback(Volume::Linear(1.0)),
+            ));
+        }
+        avatar.lit = on;
         vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
         for child in children.iter() {
             if let Ok(mut tf) = spinners.get_mut(child) {
@@ -564,7 +673,10 @@ fn receive_grabs(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
     sounds: Res<GameSounds>,
+    time: Res<Time>,
     mut weapon: ResMut<Weapon>,
+    mut nukes: ResMut<NukeFlashes>,
+    mut hammering: Query<&mut CarpenterHammering>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -576,6 +688,7 @@ fn receive_grabs(
                 PowerUp::DoublePoints => &sounds.power_up_double_points,
                 PowerUp::Nuke => &sounds.power_up_nuke,
                 PowerUp::BonusPoints => &sounds.power_up_bonus_points,
+                PowerUp::Carpenter => &sounds.power_up_carpenter,
             };
             commands.spawn((
                 StateScoped(AppState::InGame),
@@ -588,6 +701,31 @@ fn receive_grabs(
                     AudioPlayer::new(sounds.power_up_grab.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
+            }
+            match msg.kind {
+                PowerUp::MaxAmmo => {
+                    commands.spawn((
+                        StateScoped(AppState::InGame),
+                        AudioPlayer::new(sounds.max_ammo_refill.clone()),
+                        PlaybackSettings::DESPAWN,
+                    ));
+                }
+                PowerUp::Nuke => nukes.0.push((NUKE_FLASH_DELAY_SECS, msg.pos)),
+                PowerUp::Carpenter => {
+                    // (Another while one's at work: the hammering goes on.)
+                    let now = time.elapsed_secs();
+                    if let Ok(mut h) = hammering.single_mut() {
+                        h.started = now;
+                    } else {
+                        commands.spawn((
+                            StateScoped(AppState::InGame),
+                            CarpenterHammering { started: now },
+                            AudioPlayer::new(sounds.carpenter_loop.clone()),
+                            PlaybackSettings::LOOP,
+                        ));
+                    }
+                }
+                _ => {}
             }
             if msg.kind == PowerUp::MaxAmmo {
                 weapon.max_ammo(crate::pap::my_pap_levels(&local, &lobbies));
@@ -608,6 +746,159 @@ fn receive_grabs(
                     weapon.fill_lethal(tactical);
                 }
             }
+        }
+    }
+}
+
+/// Each grabbed Nuke going off, once the announcer's said it — when its
+/// first zombie catches fire (`server::power_ups::fire_nukes`): its flash
+/// sound, a big blast where the drop was (`vfx::Explosion`, just a look)
+/// and the screen whiting out.
+fn nuke_flashes(
+    time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
+    sounds: Res<GameSounds>,
+    mut nukes: ResMut<NukeFlashes>,
+    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut commands: Commands,
+) {
+    if nukes.0.is_empty() || paused.0 {
+        return;
+    }
+    let dt = time.delta_secs();
+    nukes.0.retain_mut(|(left, at)| {
+        *left -= dt;
+        if *left > 0.0 {
+            return true;
+        }
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            AudioPlayer::new(sounds.nuke_flash.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
+        boom.write(crate::vfx::Explosion {
+            feet: *at,
+            variant: 0,
+            phd: false,
+            dog: false,
+            boss: false,
+            frag: false,
+            nuke: true,
+        });
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            NukeWhiteout { age: 0.0 },
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::WHITE.with_alpha(0.0)),
+            GlobalZIndex(40),
+            Pickable::IGNORE,
+        ));
+        false
+    });
+}
+
+/// Fade each Nuke white-out up, hold it and fade it away.
+fn fade_nuke_whiteouts(
+    time: Res<Time>,
+    mut whiteouts: Query<(Entity, &mut NukeWhiteout, &mut BackgroundColor)>,
+    mut commands: Commands,
+) {
+    for (e, mut w, mut bg) in &mut whiteouts {
+        w.age += time.delta_secs();
+        let a = w.age;
+        let alpha = if a < NUKE_WHITE_IN_SECS {
+            a / NUKE_WHITE_IN_SECS
+        } else if a < NUKE_WHITE_IN_SECS + NUKE_WHITE_HOLD_SECS {
+            1.0
+        } else {
+            1.0 - (a - NUKE_WHITE_IN_SECS - NUKE_WHITE_HOLD_SECS) / NUKE_WHITE_OUT_SECS
+        };
+        if alpha <= 0.0 {
+            commands.entity(e).despawn();
+            continue;
+        }
+        bg.0 = Color::WHITE.with_alpha(alpha * NUKE_WHITE_PEAK);
+    }
+}
+
+/// Stop the hammering once the Carpenter's done (`Lobby::carpenter`) — but
+/// not before [`CARPENTER_MIN_SECS`] — with its finish. Out of the game:
+/// just stop.
+fn carpenter_hammering(
+    time: Res<Time>,
+    sounds: Res<GameSounds>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    hammering: Query<(Entity, &CarpenterHammering)>,
+    mut commands: Commands,
+) {
+    let Ok((e, h)) = hammering.single() else { return };
+    let Some(lobby) = zombies_game(&local, &lobbies) else {
+        commands.entity(e).despawn();
+        return;
+    };
+    if lobby.carpenter || time.elapsed_secs() - h.started < CARPENTER_MIN_SECS {
+        return;
+    }
+    commands.entity(e).despawn();
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        AudioPlayer::new(sounds.carpenter_end.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
+}
+
+/// Each timed power-up (Double Points, Insta-Kill) running out, for
+/// everyone, in step with its HUD icon: a tick each second its number counts
+/// down from [`DOUBLE_POINTS_TICK_SECS`], then one each time the icon
+/// flickers back on over the last [`HUD_FLICKER_SECS`] — and the end as it
+/// runs out (not when it's grabbed again, nor when the game's over). Both
+/// use Double Points' countdown sounds.
+#[allow(clippy::too_many_arguments)]
+fn timed_countdowns(
+    time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
+    sounds: Res<GameSounds>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    mut last: Local<Vec<(PowerUp, u16)>>,
+    mut was_off: Local<bool>,
+    mut commands: Commands,
+) {
+    let lobby = zombies_game(&local, &lobbies);
+    let running: Vec<(PowerUp, u16)> = lobby.map_or_else(Vec::new, |l| l.active_power_ups.clone());
+    let off = hud_flicker_off(time.elapsed_secs());
+    let flicked_on = *was_off && !off;
+    *was_off = off;
+    let before = std::mem::replace(&mut *last, running.clone());
+    let play = |clip: &Handle<AudioSource>, commands: &mut Commands| {
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            AudioPlayer::new(clip.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
+    };
+    for kind in PowerUp::ALL.into_iter().filter(|p| p.timed()) {
+        let find = |list: &[(PowerUp, u16)]| list.iter().find(|(p, _)| *p == kind).map(|&(_, s)| s);
+        match (find(&before), find(&running)) {
+            // Ran out (the server drops it after its last second).
+            (Some(b), None) if b <= 1 && lobby.is_some() => play(&sounds.double_points_end, &mut commands),
+            (b, Some(s)) if !paused.0 => {
+                let counted_down = b.is_some_and(|b| s < b);
+                if s <= HUD_FLICKER_SECS {
+                    if flicked_on {
+                        play(&sounds.double_points_tick, &mut commands);
+                    }
+                } else if s <= DOUBLE_POINTS_TICK_SECS && counted_down {
+                    play(&sounds.double_points_tick, &mut commands);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -686,7 +977,7 @@ fn update_timed_row(
     let running: &[(PowerUp, u16)] = zombies_game(&local, &lobbies)
         .map_or(&[], |l| l.active_power_ups.as_slice());
     let hud_up = !menu.is_open() && active_killcam.0.is_none();
-    let flicker_off = (time.elapsed_secs() * 6.0).floor() as i64 % 2 == 1;
+    let flicker_off = hud_flicker_off(time.elapsed_secs());
     for (mut slot, mut node) in &mut slots {
         let entry = running
             .get(slot.index)
@@ -711,7 +1002,7 @@ fn update_timed_row(
                     image.image = asset_server.load(path);
                 }
             }
-            let alpha = if secs <= 5 && flicker_off { 0.35 } else { 1.0 };
+            let alpha = if secs <= HUD_FLICKER_SECS && flicker_off { 0.35 } else { 1.0 };
             if image.color.alpha() != alpha {
                 image.color = Color::WHITE.with_alpha(alpha);
             }

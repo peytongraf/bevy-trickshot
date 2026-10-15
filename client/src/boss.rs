@@ -679,6 +679,7 @@ fn receive_boss_messages(
                 dog: false,
                 boss: true,
                 frag: false,
+                nuke: false,
             });
         }
     }

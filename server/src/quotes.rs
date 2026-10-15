@@ -15,7 +15,8 @@
 //!   they're still talking waits — said the moment they finish if that's
 //!   within [`GRACE_SECS`], never if not.
 //! * A dog round's and the exfil's lines come a few seconds after
-//!   ([`SetQuoteDelays`] — the leader can change how long).
+//!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
+//!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]).
 //!
 //! All of it is per game: a lobby that isn't running a `Zombies` game has
 //! its speakers and anything scheduled dropped.
@@ -78,6 +79,8 @@ pub enum QuoteDelay {
     /// The lobby's dog-round / exfil delay ([`SetQuoteDelays`]).
     DogRound,
     Exfil,
+    /// Once this power-up's announcer line is done.
+    Announcer(shared::power_ups::PowerUp),
 }
 
 /// One player's voice in a game.
@@ -214,6 +217,7 @@ fn direct_quotes(
             QuoteDelay::None => 0.0,
             QuoteDelay::DogRound => delay.0,
             QuoteDelay::Exfil => delay.1,
+            QuoteDelay::Announcer(p) => p.announcer_secs(),
         };
         if secs > 0.0 {
             director.scheduled.push((now + secs, SayQuote { delay: QuoteDelay::None, ..*q }));

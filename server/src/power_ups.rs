@@ -14,10 +14,17 @@
 //! them one by one, telling every client ([`ZombieNuked`]) to set the body
 //! alight.
 //!
+//! A Carpenter doesn't fix the windows at once either: [`run_carpenters`]
+//! puts a board back every [`CARPENTER_BOARD_SECS`], nearest window to the
+//! drop first, straight onto `Lobby::windows_torn` — so every client sees
+//! and hears each one fly in like a player's — and pays everyone
+//! [`CARPENTER_POINTS`] once they're all up.
+//!
 //! Everything resets with the game: drops are removed once their lobby's
-//! game isn't running, and the timers with it (`Lobby::active_power_ups` is
-//! also cleared when a game starts or ends); a [`NukeDeath`] lives on its
-//! zombie, which `zombies::cull_zombies` removes with the game.
+//! game isn't running, and the timers and Carpenters with it
+//! (`Lobby::active_power_ups` is also cleared when a game starts or ends); a
+//! [`NukeDeath`] lives on its zombie, which `zombies::cull_zombies` removes
+//! with the game.
 
 use std::collections::HashMap;
 
@@ -26,13 +33,14 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
+use shared::map::CollisionWorld;
 use shared::power_ups::{
-    drop_spot, in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, DROP_LIFETIME_SECS, NUKE_KILL_SECS,
-    NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
+    drop_spot, in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, CARPENTER_BOARD_SECS, CARPENTER_POINTS,
+    DROP_LIFETIME_SECS, NUKE_FLASH_DELAY_SECS, NUKE_KILL_SECS, NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
 };
 use shared::{
     DropPowerUp, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, PowerUpDrop, PowerUpGrabbed, ScoreLine,
-    TrickScore, ZombieNuked,
+    TrickScore, ZombieNuked, ZombiesDoomed,
 };
 
 use crate::lobby::LobbyPlayer;
@@ -67,16 +75,39 @@ struct PowerUpClocks(HashMap<Entity, Vec<(PowerUp, f32)>>);
 #[derive(Resource, Default)]
 struct PendingDrops(HashMap<Entity, PowerUp>);
 
+/// A Carpenter at work in a lobby ([`run_carpenters`]).
+struct CarpenterJob {
+    /// The map's windows, nearest the drop first — fixed in that order.
+    order: Vec<usize>,
+    /// Seconds (not counting pauses) till the next board goes back.
+    wait: f32,
+    /// Carpenters grabbed while it's been at work — each pays out once
+    /// it's done.
+    owed: u32,
+}
+
+/// Nukes grabbed but not yet gone off: each lobby's seconds (not counting
+/// pauses) till its flash ([`NUKE_FLASH_DELAY_SECS`]), and where the drop
+/// was — [`fire_nukes`].
+#[derive(Resource, Default)]
+struct PendingNukes(HashMap<Entity, (f32, Vec3)>);
+
+/// Each lobby's running Carpenter, if any.
+#[derive(Resource, Default)]
+struct Carpenters(HashMap<Entity, CarpenterJob>);
+
 pub struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PowerUpClocks>()
             .init_resource::<PendingDrops>()
+            .init_resource::<Carpenters>()
+            .init_resource::<PendingNukes>()
             .add_observer(on_drop_power_up)
             .add_systems(
             FixedUpdate,
-            (roll_drops, run_power_ups, run_nuke_deaths)
+            (roll_drops, run_power_ups, fire_nukes, run_nuke_deaths, run_carpenters)
                 .chain()
                 .after(crate::pvp::apply_player_hits),
         );
@@ -130,7 +161,8 @@ fn roll_drops(
             ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
         // One owed from a kill outside a window comes before a fresh roll.
         let owed = if ev.outside { None } else { pending.0.remove(&ev.lobby) };
-        let Some(kind) = owed.or_else(|| roll(shared::bots::rand01(seed), lobby.power_up_test)) else {
+        let torn = shared::windows::total_torn(lobby.map, &lobby.windows_torn);
+        let Some(kind) = owed.or_else(|| roll(shared::bots::rand01(seed), lobby.power_up_test, torn)) else {
             continue;
         };
         if ev.outside {
@@ -163,17 +195,23 @@ fn roll_drops(
     }
 }
 
+/// How far (m) in front of the leader a debug drop with `ahead` lands —
+/// brought in short of any wall.
+const DEBUG_DROP_AHEAD: f32 = 4.0;
+
 /// Debug: the leader drops a power-up at their own feet (picked up at once,
-/// so it goes off for real) — only in a running, unpaused `Zombies` game.
+/// so it goes off for real), or [`DEBUG_DROP_AHEAD`] in front of them on the
+/// ground there — only in a running, unpaused `Zombies` game.
 fn on_drop_power_up(
     trigger: Trigger<RemoteTrigger<DropPowerUp>>,
     endings: Res<crate::killcam::EndingLobbies>,
+    colliders: Res<crate::collision::MapColliders>,
     lobbies: Query<(Entity, &Lobby)>,
     players: Query<(&PlayerId, &PlayerPose)>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
-    let kind = trigger.trigger.kind;
+    let DropPowerUp { kind, ahead } = trigger.trigger;
     let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| {
         l.leader == peer && l.started && l.mode == GameMode::Zombies && !l.paused
     }) else {
@@ -185,11 +223,27 @@ fn on_drop_power_up(
     let Some((_, pose)) = players.iter().find(|(id, _)| id.0 == peer) else {
         return;
     };
+    let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+    let pos = if ahead {
+        let world = colliders.for_lobby(lobby);
+        let chest = feet + Vec3::Y;
+        let facing = Quat::from_rotation_y(pose.yaw) * Vec3::NEG_Z;
+        // Out to the full distance, or as far short of a wall as it takes,
+        // then down onto the ground there.
+        (1..=8)
+            .rev()
+            .map(|k| chest + facing * DEBUG_DROP_AHEAD * k as f32 / 8.0)
+            .find(|&at| !world.segment_blocked(chest, at))
+            .and_then(|at| world.raycast(at, Vec3::NEG_Y, 4.0).map(|hit| at - Vec3::Y * hit.distance))
+            .unwrap_or(feet)
+    } else {
+        feet
+    };
     commands.spawn((
         Name::from("PowerUpDrop"),
         PowerUpDrop {
             kind,
-            pos: pose.translation - Vec3::Y * EYE_HEIGHT,
+            pos,
             blinking: false,
         },
         DropSim { lobby: lobby_e, age: 0.0 },
@@ -206,10 +260,10 @@ fn run_power_ups(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut clocks: ResMut<PowerUpClocks>,
+    mut carpenters: ResMut<Carpenters>,
+    mut nukes: ResMut<PendingNukes>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
-    // (A boss, `shared::boss`, shrugs a Nuke off.)
-    zombies: Query<(Entity, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>), (With<Zombie>, Without<crate::boss::Boss>)>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
@@ -280,23 +334,7 @@ fn run_power_ups(
         let double = lobby.power_up_active(PowerUp::DoublePoints);
         let real = lobby.real_peers();
         let mut award = |lobby: &mut Lobby, peer: PeerId, label: &str, points: u32| {
-            if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
-                m.score += points;
-            }
-            if is_bot_peer(peer) {
-                return;
-            }
-            let trick = TrickScore {
-                shooter: peer,
-                total: points,
-                lines: vec![ScoreLine {
-                    label: label.into(),
-                    points,
-                }],
-            };
-            if let Err(e) = sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::Single(peer)) {
-                error!("failed to send power-up points: {e:?}");
-            }
+            award(&mut sender, server, lobby, peer, label, points);
         };
         match kind {
             PowerUp::InstaKill | PowerUp::DoublePoints => {
@@ -311,39 +349,198 @@ fn run_power_ups(
             // Ammo is client-side: every client fills its own on the message.
             PowerUp::MaxAmmo => {}
             PowerUp::Nuke => {
-                // Every zombie up is doomed, each dying at its own random
-                // moment over the next few seconds (`run_nuke_deaths`). One
-                // already doomed by an earlier Nuke keeps its moment.
-                let mut doomed = 0;
-                for (zombie_e, lp, combat, already) in &zombies {
-                    if lp.lobby == lobby_e && combat.alive && !already {
-                        let seed = (now.to_bits() as u64) << 32 ^ zombie_e.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
-                        let left = shared::bots::rand01(seed) * NUKE_KILL_SECS;
-                        commands.entity(zombie_e).insert(NukeDeath { left });
-                        doomed += 1;
-                    }
-                }
-                // No more rise while they drop (if the round goes on at all
-                // — clearing it starts the usual break instead).
+                // It goes off once the announcer's said it (`fire_nukes`) —
+                // a second one before then changes nothing.
+                nukes.0.entry(lobby_e).or_insert((NUKE_FLASH_DELAY_SECS, drop.pos));
+                // No more rise till they've dropped (if the round goes on at
+                // all — clearing it starts the usual break instead).
                 if let Some(mut rounds) = rounds {
-                    rounds.next_spawn_at = rounds.next_spawn_at.max(now + NUKE_SPAWN_PAUSE_SECS);
+                    rounds.next_spawn_at = rounds
+                        .next_spawn_at
+                        .max(now + NUKE_FLASH_DELAY_SECS + NUKE_SPAWN_PAUSE_SECS);
                 }
                 let points = if double { NUKE_POINTS * 2 } else { NUKE_POINTS };
                 let everyone: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
                 for peer in everyone {
                     award(&mut lobby, peer, "NUKE", points);
                 }
-                info!("lobby {lobby_e:?}: nuke dooms {doomed} zombies");
             }
             PowerUp::BonusPoints => award(&mut lobby, by, "BONUS POINTS", BONUS_POINTS),
+            PowerUp::Carpenter => {
+                let windows = shared::windows::windows(lobby.map);
+                let mut order: Vec<usize> = (0..windows.len()).collect();
+                let from = drop.pos;
+                order.sort_by(|&a, &b| {
+                    windows[a].opening().0.distance_squared(from).total_cmp(&windows[b].opening().0.distance_squared(from))
+                });
+                // Another while one's at work: it starts over from this
+                // drop, and pays out for both.
+                let owed = carpenters.0.get(&lobby_e).map_or(0, |j| j.owed);
+                carpenters.0.insert(lobby_e, CarpenterJob { order, wait: 0.0, owed: owed + 1 });
+                lobby.carpenter = true;
+            }
         }
-        let msg = PowerUpGrabbed { kind, by };
+        let msg = PowerUpGrabbed { kind, by, pos: drop.pos };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(real)) {
             error!("failed to send power-up grab: {e:?}");
         }
-        quotes.write(crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::PowerUp(kind)));
+        quotes.write(crate::quotes::SayQuote {
+            delay: crate::quotes::QuoteDelay::Announcer(kind),
+            ..crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::PowerUp(kind))
+        });
         info!("{by:?} grabbed {}", kind.label());
     }
+}
+
+/// Score `points` for `peer` in `lobby`, and show them the `label` line.
+fn award(
+    sender: &mut ServerMultiMessageSender,
+    server: &Server,
+    lobby: &mut Lobby,
+    peer: PeerId,
+    label: &str,
+    points: u32,
+) {
+    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        m.score += points;
+    }
+    if is_bot_peer(peer) {
+        return;
+    }
+    let trick = TrickScore {
+        shooter: peer,
+        total: points,
+        lines: vec![ScoreLine {
+            label: label.into(),
+            points,
+        }],
+    };
+    if let Err(e) = sender.send::<_, GameChannel>(&trick, server, &NetworkTarget::Single(peer)) {
+        error!("failed to send power-up points: {e:?}");
+    }
+}
+
+/// Put each running Carpenter's next boards back (holding still while its
+/// game is paused or ending): the first window in its order still missing
+/// any gets one. None missing: everyone's paid [`CARPENTER_POINTS`] for each
+/// Carpenter it owes, and it's done. Games that aren't running forget theirs.
+fn run_carpenters(
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut carpenters: ResMut<Carpenters>,
+    mut lobbies: Query<&mut Lobby>,
+) {
+    let dt = time.delta_secs();
+    let server = server.into_inner();
+    carpenters.0.retain(|lobby_e, job| {
+        let Ok(mut lobby) = lobbies.get_mut(*lobby_e) else {
+            return false;
+        };
+        if !lobby.started || lobby.mode != GameMode::Zombies {
+            return false;
+        }
+        if lobby.paused || endings.is_ending(*lobby_e) {
+            return true;
+        }
+        job.wait -= dt;
+        while job.wait <= 0.0 {
+            job.wait += CARPENTER_BOARD_SECS;
+            let next = job
+                .order
+                .iter()
+                .copied()
+                .find(|&i| shared::windows::boards_left(&lobby.windows_torn, i) < shared::windows::BOARDS);
+            let Some(i) = next else {
+                let points = CARPENTER_POINTS
+                    * job.owed
+                    * if lobby.power_up_active(PowerUp::DoublePoints) { 2 } else { 1 };
+                let everyone: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                for peer in everyone {
+                    award(&mut sender, server, &mut lobby, peer, "CARPENTER", points);
+                }
+                lobby.carpenter = false;
+                info!("lobby {lobby_e:?}: carpenter done");
+                return false;
+            };
+            // (Torn below `BOARDS`, so there's an entry.)
+            if let Some(torn) = lobby.windows_torn.get_mut(i) {
+                *torn = torn.saturating_sub(1);
+            }
+        }
+        true
+    });
+}
+
+/// Set off each Nuke whose moment's come (holding still while its game is
+/// paused or ending): every zombie up is doomed, each dying at its own
+/// random moment over the next few seconds (`run_nuke_deaths`). One already
+/// doomed by an earlier Nuke keeps its moment. Games that aren't running
+/// forget theirs.
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
+fn fire_nukes(
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut nukes: ResMut<PendingNukes>,
+    lobbies: Query<&Lobby>,
+    // (A boss, `shared::boss`, shrugs a Nuke off.)
+    zombies: Query<
+        (Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>),
+        (With<Zombie>, Without<crate::boss::Boss>),
+    >,
+    poses: Query<&PlayerPose>,
+    mut commands: Commands,
+) {
+    let now = time.elapsed_secs();
+    let dt = time.delta_secs();
+    let server = server.into_inner();
+    nukes.0.retain(|&lobby_e, (left, at)| {
+        let Ok(lobby) = lobbies.get(lobby_e) else {
+            return false;
+        };
+        if !lobby.started || lobby.mode != GameMode::Zombies {
+            return false;
+        }
+        if lobby.paused || endings.is_ending(lobby_e) {
+            return true;
+        }
+        *left -= dt;
+        if *left > 0.0 {
+            return true;
+        }
+        let victims: Vec<_> = zombies
+            .iter()
+            .filter(|(_, _, lp, combat, already)| lp.lobby == lobby_e && combat.alive && !already)
+            .collect();
+        // The one nearest where it went off burns with the flash; the rest
+        // at random moments over the next few seconds.
+        let first = victims
+            .iter()
+            .min_by(|a, b| {
+                let d = |z: Entity| poses.get(z).map_or(f32::INFINITY, |p| p.translation.distance_squared(*at));
+                d(a.0).total_cmp(&d(b.0))
+            })
+            .map(|v| v.0);
+        let mut doomed = Vec::new();
+        for &(zombie_e, id, ..) in &victims {
+            let seed = (now.to_bits() as u64) << 32 ^ zombie_e.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            let left = if Some(zombie_e) == first { 0.0 } else { shared::bots::rand01(seed) * NUKE_KILL_SECS };
+            commands.entity(zombie_e).insert(NukeDeath { left });
+            doomed.push(id.0);
+        }
+        info!("lobby {lobby_e:?}: nuke dooms {} zombies", doomed.len());
+        if !doomed.is_empty() {
+            let msg = ZombiesDoomed { peers: doomed };
+            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+                error!("failed to send zombies doomed: {e:?}");
+            }
+        }
+        false
+    });
 }
 
 /// Count down each Nuke-doomed zombie (holding still while its game is

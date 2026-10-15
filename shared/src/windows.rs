@@ -206,6 +206,12 @@ pub fn windows(map: MapId) -> &'static [Window] {
     &crate::level::layout(map).windows
 }
 
+/// Boards down across all of `map`'s windows, by
+/// [`crate::Lobby::windows_torn`].
+pub fn total_torn(map: MapId, torn: &[u8]) -> u32 {
+    (0..windows(map).len()).map(|i| (BOARDS - boards_left(torn, i)) as u32).sum()
+}
+
 /// Boards still up on window `index`, by [`crate::Lobby::windows_torn`].
 pub fn boards_left(torn: &[u8], index: usize) -> u8 {
     BOARDS - torn.get(index).copied().unwrap_or(0).min(BOARDS)

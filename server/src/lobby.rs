@@ -191,6 +191,7 @@ fn on_create(
                 doors_open: 0,
                 windows_torn: Vec::new(),
                 rampage: false,
+                carpenter: false,
                 mystery_box: None,
                 members: vec![LobbyMember {
                     peer,
@@ -309,6 +310,7 @@ fn on_start(
     lobby.doors_open = 0;
     lobby.windows_torn.clear();
     lobby.rampage = false;
+    lobby.carpenter = false;
     lobby.exfil = Default::default();
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
@@ -911,6 +913,7 @@ fn back_to_room(lobby: &mut Lobby) {
     lobby.doors_open = 0;
     lobby.windows_torn.clear();
     lobby.rampage = false;
+    lobby.carpenter = false;
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
     for m in &mut lobby.members {
@@ -996,6 +999,7 @@ mod tests {
             doors_open: 0,
             windows_torn: Vec::new(),
             rampage: false,
+            carpenter: false,
             mystery_box: None,
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),

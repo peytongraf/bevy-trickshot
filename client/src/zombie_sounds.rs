@@ -5,7 +5,9 @@
 //!   fast it's been moving, on a random min..max timer each, never too many
 //!   at once or too close together,
 //! * a death cry where it drops — cutting off whatever it was still saying
-//!   (groan, moan, final call), so the cry is all you hear,
+//!   (groan, moan, final call), so the cry is all you hear — except a zombie
+//!   a Nuke doomed ([`shared::ZombiesDoomed`], [`NukeDoomed`]), which only
+//!   screams its soul out as it burns (`molotov`),
 //! * the swipe landing on someone (the server's [`shared::ZombieSwipeLanded`]
 //!   — only it knows a swing connected), heard from where that player is,
 //! * and once a round is down to its last zombie, its "final zombie" call on
@@ -21,11 +23,24 @@ use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
 use lightyear::prelude::*;
-use shared::{Lobby, PlayerPose};
+use shared::{Lobby, PlayerId, PlayerPose};
 
 use crate::net::{GameClient, RemoteAvatar};
 use crate::util::rand01;
 use crate::{AppState, ZombieMotion, ZombieVisual};
+
+/// Zombies (by peer) a Nuke's doomed that haven't dropped yet: no death cry
+/// when they do. Forgotten on leaving the game.
+#[derive(Resource, Default)]
+struct NukeDoomed(std::collections::HashSet<PeerId>);
+
+fn receive_doomed(mut receivers: Query<&mut MessageReceiver<shared::ZombiesDoomed>>, mut doomed: ResMut<NukeDoomed>) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            doomed.0.extend(msg.peers);
+        }
+    }
+}
 
 /// Where on a zombie (m above its feet) its voice comes from.
 const MOUTH_HEIGHT: f32 = 1.6;
@@ -112,10 +127,13 @@ impl Plugin for ZombieSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZombieSoundSettings>()
             .init_resource::<FinalZombie>()
+            .init_resource::<NukeDoomed>()
             .add_systems(Startup, load_zombie_sounds)
+            .add_systems(OnExit(AppState::InGame), |mut d: ResMut<NukeDoomed>| d.0.clear())
             .add_systems(
                 Update,
                 (
+                    receive_doomed,
                     zombie_rise_and_fall,
                     zombie_moans,
                     receive_zombie_swipes,
@@ -176,6 +194,8 @@ fn zombie_rise_and_fall(
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
     poses: Query<&PlayerPose>,
+    ids: Query<&PlayerId>,
+    mut doomed: ResMut<NukeDoomed>,
     new: Query<(Entity, &RemoteAvatar), (With<ZombieVisual>, Without<ZombieVoice>)>,
     mut voices: Query<(Entity, &RemoteAvatar, &mut ZombieVoice)>,
     speaking: Query<(Entity, &VoiceOf)>,
@@ -184,6 +204,10 @@ fn zombie_rise_and_fall(
 ) {
     let Some(sounds) = sounds else { return };
     let now = time.elapsed_secs();
+    // (Doomed but gone without dying in sight — the game moved on.)
+    if !doomed.0.is_empty() && voices.is_empty() {
+        doomed.0.clear();
+    }
     let mut roll = || {
         *seq = seq.wrapping_add(1);
         rand01(seq.wrapping_mul(2_654_435_761) ^ now.to_bits())
@@ -213,8 +237,11 @@ fn zombie_rise_and_fall(
                 }
             }
             let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
-            if let Some(clip) = pick(&sounds.deaths, roll()) {
-                spawn_sound(&mut commands, clip, feet + Vec3::Y * MOUTH_HEIGHT);
+            let nuked = ids.get(avatar.src).is_ok_and(|id| doomed.0.remove(&id.0));
+            if !nuked {
+                if let Some(clip) = pick(&sounds.deaths, roll()) {
+                    spawn_sound(&mut commands, clip, feet + Vec3::Y * MOUTH_HEIGHT);
+                }
             }
         }
         voice.was_alive = pose.alive;

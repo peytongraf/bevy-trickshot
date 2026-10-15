@@ -119,6 +119,8 @@ impl Quote {
             Quote::PowerUp(PowerUp::DoublePoints) => "power_ups/double_points",
             Quote::PowerUp(PowerUp::Nuke) => "power_ups/nuke",
             Quote::PowerUp(PowerUp::BonusPoints) => "power_ups/bonus_points",
+            // (No operator lines for it yet — nothing's said.)
+            Quote::PowerUp(PowerUp::Carpenter) => "power_ups/carpenter",
             Quote::StunEnemy => "stun_enemy",
             Quote::TakeDamage => "take_damage",
             Quote::TakeMolotovDamage => "take_damage/take_molotov_damage",

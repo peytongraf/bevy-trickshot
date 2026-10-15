@@ -49,6 +49,10 @@ pub(crate) struct Explosion {
     pub(crate) boss: bool,
     /// A frag's (`frag`): the same blast, with the frag explosion sound.
     pub(crate) frag: bool,
+    /// A Nuke going off (`power_ups`): the same blast at
+    /// [`ExplosionSettings::nuke_scale`], silent (its flash sound plays for
+    /// everyone) and harmless — just a look.
+    pub(crate) nuke: bool,
 }
 
 /// On a PhD Flopper explosion's sprites: its fire, flash and sparks burn
@@ -123,6 +127,8 @@ pub(crate) struct ExplosionSettings {
     pub(crate) dog_scale: f32,
     /// ...and a boss blast's.
     pub(crate) boss_scale: f32,
+    /// A Nuke's blast, × the overall `scale`.
+    pub(crate) nuke_scale: f32,
 }
 
 impl Default for ExplosionSettings {
@@ -131,6 +137,7 @@ impl Default for ExplosionSettings {
             preview_requested: false,
             dog_scale: 0.6,
             boss_scale: 0.75,
+            nuke_scale: 1.8,
             scale: 1.0,
             height: 0.9,
 
@@ -395,6 +402,7 @@ fn receive_bomb_explosions(
                 dog: false,
                 boss: false,
                 frag: msg.frag,
+                nuke: false,
             });
         }
     }
@@ -424,6 +432,7 @@ fn fire_preview(
         dog: false,
         boss: false,
         frag: false,
+        nuke: false,
     });
 }
 
@@ -449,6 +458,8 @@ fn spawn_explosions(
             s.dog_scale
         } else if ev.boss {
             s.boss_scale
+        } else if ev.nuke {
+            s.nuke_scale
         } else {
             1.0
         };
@@ -464,7 +475,9 @@ fn spawn_explosions(
         shake.trauma = (shake.trauma + jolt * falloff * falloff).min(1.0);
 
         // The boom, from the blast (positional; faded by its profile).
-        let clip = if ev.dog {
+        let clip = if ev.nuke {
+            None
+        } else if ev.dog {
             sounds.as_ref().map(|snd| snd.dog_explosion.clone())
         } else if ev.boss {
             sounds.as_ref().map(|snd| snd.boss_blast_hit.clone())
@@ -884,6 +897,7 @@ pub(crate) fn explosion_section(ui: &mut egui::Ui, s: &mut ExplosionSettings) {
     ui.add(egui::Slider::new(&mut s.scale, 0.2f32..=3.0).text("overall scale"));
     ui.add(egui::Slider::new(&mut s.dog_scale, 0.1f32..=2.0).text("hellhound's size (× overall)"));
     ui.add(egui::Slider::new(&mut s.boss_scale, 0.1f32..=2.0).text("boss blast's size (× overall)"));
+    ui.add(egui::Slider::new(&mut s.nuke_scale, 0.1f32..=4.0).text("Nuke's size (× overall)"));
     ui.add(egui::Slider::new(&mut s.height, 0.0f32..=3.0).text("height above feet (m)"));
     ui.collapsing("Flash + light", |ui| {
         ui.add(egui::Slider::new(&mut s.flash_size, 0.0f32..=20.0).text("flash size (m)"));

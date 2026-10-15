@@ -1225,6 +1225,11 @@ pub struct Lobby {
     /// whenever a game starts or ends.
     #[serde(default)]
     pub rampage: bool,
+    /// [`GameMode::Zombies`]: a Carpenter's putting the windows' boards back
+    /// (`server::power_ups`) — clients hammer away while it is. Cleared
+    /// whenever a game starts or ends.
+    #[serde(default)]
+    pub carpenter: bool,
     pub members: Vec<LobbyMember>,
 }
 
@@ -2070,6 +2075,8 @@ pub struct PowerUpDrop {
 pub struct PowerUpGrabbed {
     pub kind: crate::power_ups::PowerUp,
     pub by: PeerId,
+    /// Where the drop was (its spot on the ground) — a Nuke goes off there.
+    pub pos: Vec3,
 }
 
 /// Server → everyone in a `Zombies` lobby: a Nuke just killed the zombie
@@ -2078,6 +2085,15 @@ pub struct PowerUpGrabbed {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct ZombieNuked {
     pub peer: PeerId,
+}
+
+/// Server → everyone in a `Zombies` lobby: a Nuke's flash just doomed these
+/// zombies — each dies within [`crate::power_ups::NUKE_KILL_SECS`]
+/// ([`ZombieNuked`]). Told ahead so no client gives them their usual death
+/// cry: a nuked zombie only screams its soul out as it burns.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ZombiesDoomed {
+    pub peers: Vec<PeerId>,
 }
 
 /// Client → server (debug): the party leader turns [`Lobby::power_up_test`]
@@ -2138,11 +2154,15 @@ pub struct BarrierRepaired {
 }
 
 /// Client → server (debug): the party leader drops a `kind` power-up at
-/// their own feet — picked up at once, so it goes off for real. Only in a
+/// their own feet — picked up at once, so it goes off for real — or, with
+/// `ahead`, a few metres in front of them, to look at first. Only in a
 /// running `Zombies` game; ignored from anyone else.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct DropPowerUp {
     pub kind: crate::power_ups::PowerUp,
+    /// A few metres in front of them (not picked up till they walk to it),
+    /// rather than at their feet.
+    pub ahead: bool,
 }
 
 /// Client → server: create a new lobby and join it as leader.
@@ -2391,6 +2411,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<WeaponPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<PowerUpGrabbed>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombiesDoomed>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieNuked>()
             .add_direction(NetworkDirection::ServerToClient);

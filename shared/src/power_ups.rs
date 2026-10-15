@@ -6,10 +6,16 @@
 //! * **Max Ammo** — everyone's ammo (sniper, throwing knives and any molotovs) full.
 //! * **Insta-Kill** — any hit kills a zombie, for [`TIMED_SECS`].
 //! * **Double Points** — zombie kills score double, for [`TIMED_SECS`].
-//! * **Nuke** — every zombie up dies, each at a random moment within
-//!   [`NUKE_KILL_SECS`] (bursting into flames), everyone gets [`NUKE_POINTS`],
-//!   and no more rise for [`NUKE_SPAWN_PAUSE_SECS`].
+//! * **Nuke** — once the announcer's said it ([`NUKE_FLASH_DELAY_SECS`],
+//!   when its flash goes off) every zombie up dies, each at a random moment
+//!   within [`NUKE_KILL_SECS`] (bursting into flames); everyone gets
+//!   [`NUKE_POINTS`], and no more rise till [`NUKE_SPAWN_PAUSE_SECS`] after
+//!   the flash.
 //! * **Bonus Points** — [`BONUS_POINTS`] for whoever grabbed it.
+//! * **Carpenter** — every window's boards go back up, nearest window to the
+//!   drop first, a board every [`CARPENTER_BOARD_SECS`]; once they're all up
+//!   everyone gets [`CARPENTER_POINTS`]. It only drops while at least
+//!   [`CARPENTER_MIN_TORN`] boards are down across the map ([`roll`]).
 //!
 //! A drop that would land within a player's reach — a zombie knifed, or shot
 //! point blank — is set down just out of it instead ([`drop_spot`]), so
@@ -31,6 +37,7 @@ pub enum PowerUp {
     DoublePoints,
     Nuke,
     BonusPoints,
+    Carpenter,
 }
 
 /// How long (s) Insta-Kill and Double Points last. Grabbing one while it's
@@ -44,8 +51,19 @@ pub const BLINK_SECS: f32 = 8.0;
 pub const NUKE_POINTS: u32 = 500;
 /// Points Bonus Points gives whoever grabbed it.
 pub const BONUS_POINTS: u32 = 500;
+/// Points every player gets once a Carpenter's put every board back
+/// (doubled by Double Points).
+pub const CARPENTER_POINTS: u32 = 200;
+/// Seconds between the boards a Carpenter puts back.
+pub const CARPENTER_BOARD_SECS: f32 = 0.12;
+/// A Carpenter only drops with at least this many boards down across all the
+/// map's windows — a whole window's worth.
+pub const CARPENTER_MIN_TORN: u32 = crate::windows::BOARDS as u32;
+/// Seconds from grabbing a Nuke to its flash — the announcer's line first —
+/// when its zombies start to die.
+pub const NUKE_FLASH_DELAY_SECS: f32 = 2.0;
 /// A Nuke's zombies die one by one, each at a random moment within this
-/// long (s) of it going off.
+/// long (s) of its flash.
 pub const NUKE_KILL_SECS: f32 = 5.0;
 /// After a Nuke, no zombie rises for this long (s) — the whole time its
 /// zombies are still dropping — unless it ended the round, whose own break
@@ -63,12 +81,13 @@ pub const DROP_CLEARANCE: f32 = 0.6;
 const DROP_STEP: f32 = 1.0;
 
 impl PowerUp {
-    pub const ALL: [PowerUp; 5] = [
+    pub const ALL: [PowerUp; 6] = [
         PowerUp::MaxAmmo,
         PowerUp::InstaKill,
         PowerUp::DoublePoints,
         PowerUp::Nuke,
         PowerUp::BonusPoints,
+        PowerUp::Carpenter,
     ];
 
     pub fn label(self) -> &'static str {
@@ -78,6 +97,7 @@ impl PowerUp {
             PowerUp::DoublePoints => "DOUBLE POINTS",
             PowerUp::Nuke => "NUKE",
             PowerUp::BonusPoints => "BONUS POINTS",
+            PowerUp::Carpenter => "CARPENTER",
         }
     }
 
@@ -89,8 +109,25 @@ impl PowerUp {
             PowerUp::MaxAmmo => 0.014,
             PowerUp::DoublePoints => 0.012,
             PowerUp::InstaKill => 0.010,
+            PowerUp::Carpenter => 0.009,
             PowerUp::Nuke => 0.008,
         }
+    }
+
+    /// How long (s) its announcer line (`audio/zombies/power_ups/<name>.mp3`)
+    /// talks for, and a breath after — an operator's quote about it waits
+    /// this long, so the two don't talk over each other.
+    pub fn announcer_secs(self) -> f32 {
+        const BREATH: f32 = 0.4;
+        BREATH
+            + match self {
+                PowerUp::MaxAmmo => 2.64,
+                PowerUp::InstaKill => 2.69,
+                PowerUp::DoublePoints => 2.24,
+                PowerUp::Nuke => 1.87,
+                PowerUp::BonusPoints => 3.19,
+                PowerUp::Carpenter => 1.68,
+            }
     }
 
     /// Runs for [`TIMED_SECS`] rather than happening at once.
@@ -102,19 +139,31 @@ impl PowerUp {
 /// What one zombie kill drops, from a uniform `r` in `[0, 1)`: at most one
 /// power-up, each with its own [`PowerUp::drop_chance`]. `always` (the
 /// debug "100% drops" toggle) makes every kill drop one, still weighted by
-/// those chances.
-pub fn roll(r: f32, always: bool) -> Option<PowerUp> {
-    let total: f32 = PowerUp::ALL.iter().map(|p| p.drop_chance()).sum();
+/// those chances. `boards_torn` is how many boards are down across the
+/// map's windows: under [`CARPENTER_MIN_TORN`] a Carpenter can't drop (its
+/// share drops nothing).
+pub fn roll(r: f32, always: bool, boards_torn: u32) -> Option<PowerUp> {
+    let allowed = |p: PowerUp| p != PowerUp::Carpenter || boards_torn >= CARPENTER_MIN_TORN;
+    let total: f32 = PowerUp::ALL.iter().filter(|p| allowed(**p)).map(|p| p.drop_chance()).sum();
     let scale = if always { 1.0 / total } else { 1.0 };
     let mut acc = 0.0;
+    let mut last = None;
     for p in PowerUp::ALL {
+        if !allowed(p) {
+            continue;
+        }
         acc += p.drop_chance() * scale;
         if r < acc {
             return Some(p);
         }
+        last = Some(p);
     }
     // (Floating-point slack at the very top of the range.)
-    always.then_some(PowerUp::ALL[PowerUp::ALL.len() - 1])
+    if always {
+        last
+    } else {
+        None
+    }
 }
 
 /// Whether feet at `feet` are close enough to grab a drop lying at `drop`
@@ -251,11 +300,11 @@ mod tests {
     #[test]
     fn a_roll_drops_at_most_one_at_about_the_set_rate() {
         let n = 100_000;
-        let mut counts = [0u32; 5];
+        let mut counts = [0u32; PowerUp::ALL.len()];
         let mut none = 0;
         for i in 0..n {
             let r = (i as f32 + 0.5) / n as f32;
-            match roll(r, false) {
+            match roll(r, false, CARPENTER_MIN_TORN) {
                 Some(p) => counts[PowerUp::ALL.iter().position(|q| *q == p).unwrap()] += 1,
                 None => none += 1,
             }
@@ -272,10 +321,20 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for i in 0..1000 {
             let r = i as f32 / 1000.0;
-            seen.insert(roll(r, true).expect("no drop with the test toggle on"));
+            seen.insert(roll(r, true, CARPENTER_MIN_TORN).expect("no drop with the test toggle on"));
         }
-        assert_eq!(seen.len(), 5);
-        assert!(roll(0.99999, true).is_some());
+        assert_eq!(seen.len(), PowerUp::ALL.len());
+        assert!(roll(0.99999, true, CARPENTER_MIN_TORN).is_some());
+    }
+
+    #[test]
+    fn no_carpenter_while_the_windows_are_mostly_boarded() {
+        for i in 0..10_000 {
+            let r = i as f32 / 10_000.0;
+            assert_ne!(roll(r, false, CARPENTER_MIN_TORN - 1), Some(PowerUp::Carpenter));
+            assert_ne!(roll(r, true, 0), Some(PowerUp::Carpenter));
+        }
+        assert!(roll(0.99999, true, 0).is_some());
     }
 
     #[test]
