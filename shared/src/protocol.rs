@@ -1184,6 +1184,12 @@ pub struct Lobby {
     /// [`GameMode::Zombies`]: which perks the machines sell — the custom
     /// ones or Call of Duty's ([`SetPerkSet`]).
     pub perk_set: crate::perks::PerkSet,
+    /// [`GameMode::Zombies`]: the perk machines stay off (no glow, no fog,
+    /// nothing for sale) until the power's on, like Call of Duty — set by
+    /// the leader ([`SetPerksNeedPower`]). Off by default: the machines are
+    /// on from the start. See [`crate::perks::machines_on`].
+    #[serde(default)]
+    pub perks_need_power: bool,
     /// [`GameMode::Zombies`]: seconds of free roaming before the first round
     /// (`0` = none), set by the leader ([`SetZombiesStart`]).
     pub countdown_secs: u32,
@@ -1841,6 +1847,13 @@ pub struct SpawnBoss;
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct SetPerkSet {
     pub set: crate::perks::PerkSet,
+}
+
+/// Client (party leader) → server: whether the `Zombies` perk machines wait
+/// for the power ([`Lobby::perks_need_power`]) — before starting only.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetPerksNeedPower {
+    pub on: bool,
 }
 
 /// Client → server: the sender, sliding with PhD Flopper, just slid into an
@@ -2503,6 +2516,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<ProneAtPerk>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetPerkSet>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetPerksNeedPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);

@@ -210,6 +210,19 @@ pub fn weapon_active(
         && !revive.blocks_weapon()
 }
 
+/// Toggles debug mode anywhere (`debug_key`).
+pub const DEBUG_MODE_KEY: KeyCode = KeyCode::F3;
+/// Opens / closes the audio editor while debug mode is on
+/// (`audio_engine::mixer`).
+pub const AUDIO_EDITOR_KEY: KeyCode = KeyCode::F9;
+
+/// The function-key shortcuts, listed on the DEBUG tab (they're fixed, so
+/// they stay out of KEYBINDS): `(key, what it does)`.
+const FUNCTION_KEYS: &[(&str, &str)] = &[
+    ("F3", "Turn debug mode on / off"),
+    ("F9", "Show / hide the audio editor (debug mode)"),
+];
+
 /// Run condition for the egui dev panels.
 pub fn debug_enabled(settings: Res<Settings>) -> bool {
     settings.debug_mode
@@ -229,6 +242,7 @@ impl Plugin for MenuPlugin {
                 Update,
                 (
                     (menu_toggle, rebind_capture).chain(),
+                    debug_key,
                     username_input,
                     menu_click,
                     slider_drag,
@@ -241,6 +255,18 @@ impl Plugin for MenuPlugin {
                     .chain(),
             )
             .add_systems(Update, scroll_hovered);
+    }
+}
+
+/// [`DEBUG_MODE_KEY`] flips debug mode — not while a key's being rebound.
+fn debug_key(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<Settings>, mut menu: ResMut<Menu>) {
+    if menu.rebinding.is_some() || !keys.just_pressed(DEBUG_MODE_KEY) {
+        return;
+    }
+    settings.debug_mode = !settings.debug_mode;
+    if menu.is_open() {
+        // (The Debug tab shows more with it on.)
+        menu.dirty = true;
     }
 }
 
@@ -2318,6 +2344,12 @@ fn build_debug(content: &mut ChildSpawnerCommands, asset_server: &AssetServer, s
         asset_server,
         "Shows the tuning panel (top-right) in a game, and the debug telemetry below.",
     );
+    section_heading(content, asset_server, "FUNCTION KEYS");
+    for (key, what) in FUNCTION_KEYS {
+        setting_row(content, asset_server, key, |row| {
+            row.spawn(label_body(asset_server, *what, 20.0, TEXT_DIM));
+        });
+    }
     if !settings.debug_mode {
         return;
     }

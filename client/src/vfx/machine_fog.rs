@@ -1,8 +1,9 @@
-//! The cold fog perk machines vent once the power's on, the way Call of Duty:
+//! The cold fog perk machines vent once they're on (from the start, or with
+//! the power if the lobby says so), the way Call of Duty:
 //! Cold War's do: puffs leave the dispenser slot on the front and both sides
 //! (all about 1 m up), get pushed out, sink,
 //! and roll out along the floor around the machine, growing and thinning as
-//! they go. It never stops while the power's on.
+//! they go. It never stops while the machine's on.
 //!
 //! Each puff is a camera-facing smoke sprite (`textures/vfx/smoke.png`, the
 //! barrel smoke's) in world space, lit — so the machine's own light tints
@@ -94,7 +95,8 @@ impl Default for MachineFog {
 }
 
 /// On a perk machine's root (on its ground, turned with it): it vents fog
-/// while the power's on. The vents' backlog of puffs owed lives here.
+/// while it's on (`shared::perks::machines_on`; the Pack-a-Punch's, while
+/// the power's on). The vents' backlog of puffs owed lives here.
 #[derive(Component, Default)]
 pub(crate) struct MachineFogEmitter {
     owed: f32,
@@ -161,8 +163,8 @@ fn emit_machine_fog(
     mut emitters: Query<(&GlobalTransform, &mut MachineFogEmitter)>,
     puffs: Query<Entity, With<FogPuff>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    // How far the fog's come in with the power (0..=1).
-    mut power: Local<f32>,
+    // How far the fog's come in (0..=1): [perk machines, Pack-a-Punch].
+    mut power: Local<[f32; 2]>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -171,20 +173,28 @@ fn emit_machine_fog(
         for e in &puffs {
             commands.entity(e).despawn();
         }
-        *power = 0.0;
+        *power = [0.0; 2];
         return;
     };
     let Some(assets) = assets else { return };
-    let powered = shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on;
+    // [perk machines, Pack-a-Punch]: perk machines can be on before the
+    // power (`shared::perks::machines_on`).
+    let powered = [
+        shared::perks::machines_on(lobby) || map_lights.force_on,
+        shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on,
+    ];
     let dt = time.delta_secs();
-    // Swells in over a couple of seconds once the power's on.
-    *power = (*power + if powered { dt / 2.0 } else { -dt }).clamp(0.0, 1.0);
+    // Each swells in over a couple of seconds once it's on.
+    for (p, on) in power.iter_mut().zip(powered) {
+        *p = (*p + if on { dt / 2.0 } else { -dt }).clamp(0.0, 1.0);
+    }
     let cam = camera.translation();
     let mut budget = MAX_PUFFS.saturating_sub(puffs.iter().count());
 
     for (gt, mut emitter) in &mut emitters {
         let (fog, half) = fog_for(emitter.pap, &settings, &pap_cfg);
-        if !fog.enabled || *power <= 0.0 || fog.rate <= 0.0 {
+        let power = power[emitter.pap as usize];
+        if !fog.enabled || power <= 0.0 || fog.rate <= 0.0 {
             emitter.owed = 0.0;
             continue;
         }
@@ -200,7 +210,7 @@ fn emit_machine_fog(
             emitter.owed = 0.0;
             continue;
         }
-        emitter.owed = (emitter.owed + dt * fog.rate * *power).min(MAX_BACKLOG);
+        emitter.owed = (emitter.owed + dt * fog.rate * power).min(MAX_BACKLOG);
         while emitter.owed >= 1.0 {
             emitter.owed -= 1.0;
             for (pos, dir) in vents {

@@ -949,13 +949,16 @@ fn sync_perk_machines(
         return;
     };
     let before = *power;
-    let target = if shared::power::has_power(lobby.map, lobby.power_on) || map_lights.force_on {
+    let target = if shared::perks::machines_on(lobby) || map_lights.force_on {
         1.0
     } else {
         0.0
     };
-    *power = if shared::power::switch_pos(lobby.map).is_none() || map_lights.fade_secs <= 0.0 {
-        // (No switch on this map: just on.)
+    *power = if shared::power::switch_pos(lobby.map).is_none()
+        || !lobby.perks_need_power
+        || map_lights.fade_secs <= 0.0
+    {
+        // (No switch on this map, or the machines don't wait for it: just on.)
         target
     } else {
         let step = time.delta_secs() / map_lights.fade_secs;
@@ -1017,7 +1020,7 @@ fn spawn_perk_machine(
             StateScoped(AppState::InGame),
             PerkMachine(perk),
             // (From about its middle — the root's on the ground.)
-            crate::power::PoweredHum(Vec3::Y * 1.2),
+            crate::power::PoweredHum { offset: Vec3::Y * 1.2, perk: true },
             crate::vfx::MachineFogEmitter::default(),
             machine_transform(settings, perk, map),
             Visibility::default(),
@@ -1618,7 +1621,8 @@ fn update_perk_icons(
 /// Where we stand with the perk at the machine we're at.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PerkStatus {
-    /// The power's off — nothing sells yet (`shared::power::has_power`).
+    /// The machines are waiting for the power — nothing sells yet
+    /// (`shared::perks::machines_on`).
     NoPower,
     Buyable,
     TooPoor,
@@ -1638,7 +1642,7 @@ fn perk_here(
         .perk_set
         .machine_perks()
         .find(|&p| shared::perks::in_range_of(machines.placement(p, lobby.map).0, feet, 0.0))?;
-    let status = if !shared::power::has_power(lobby.map, lobby.power_on) {
+    let status = if !shared::perks::machines_on(lobby) {
         PerkStatus::NoPower
     } else if member.perks.contains(&perk) {
         PerkStatus::Owned

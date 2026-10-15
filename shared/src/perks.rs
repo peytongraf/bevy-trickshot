@@ -453,6 +453,13 @@ pub const PERK_USE_RADIUS: f32 = 2.0;
 /// ...and within this much height of its base (not a floor above / below).
 pub const PERK_USE_HEIGHT: f32 = 1.5;
 
+/// Whether `lobby`'s perk machines are on — glowing, venting fog, selling:
+/// always, unless the leader made them wait for the power
+/// ([`crate::Lobby::perks_need_power`]).
+pub fn machines_on(lobby: &crate::Lobby) -> bool {
+    !lobby.perks_need_power || crate::power::has_power(lobby.map, lobby.power_on)
+}
+
 /// Whether feet position `feet` is close enough to `perk`'s machine on `map`
 /// to buy it. `slack` widens the radius (the server's check allows for the
 /// client's pose being a moment old).

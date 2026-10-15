@@ -128,7 +128,7 @@ fn toggle_mixer(
         }
         return;
     }
-    if keys.just_pressed(KeyCode::F9) {
+    if keys.just_pressed(crate::menu::AUDIO_EDITOR_KEY) {
         mixer.open = !mixer.open;
     }
 }

@@ -461,11 +461,17 @@ fn sync_power_lever(
 
 // --- the machines' hum ----------------------------------------------------
 
-/// On a machine (every perk machine, the Pack-a-Punch): once the power's on,
-/// it hums — `GameSounds::machine_hum` looped from this offset in its own
-/// space. The hum is a child, so it goes when the machine does.
+/// On a machine (every perk machine, the Pack-a-Punch): once it's on (the
+/// power — or for a perk machine, from the start unless the lobby makes
+/// perks wait for it, `shared::perks::machines_on`) it hums —
+/// `GameSounds::machine_hum` looped from `offset` in its own space. The hum
+/// is a child, so it goes when the machine does.
 #[derive(Component)]
-pub(crate) struct PoweredHum(pub(crate) Vec3);
+pub(crate) struct PoweredHum {
+    pub(crate) offset: Vec3,
+    /// A perk machine's, not the Pack-a-Punch's.
+    pub(crate) perk: bool,
+}
 
 /// On a [`PoweredHum`] machine once its hum is going.
 #[derive(Component)]
@@ -502,19 +508,21 @@ fn sync_machine_hums(
     mut commands: Commands,
 ) {
     let Some(sounds) = sounds else { return };
-    let powered = zombies_game(&local, &lobbies)
-        .is_some_and(|l| shared::power::has_power(l.map, l.power_on) || light_settings.force_on);
-    if !powered {
-        return;
-    }
+    let Some(lobby) = zombies_game(&local, &lobbies) else { return };
+    let force = light_settings.force_on;
+    let power = force || shared::power::has_power(lobby.map, lobby.power_on);
+    let perks = force || shared::perks::machines_on(lobby);
     for (machine, hum) in &machines {
+        if !(if hum.perk { perks } else { power }) {
+            continue;
+        }
         commands.entity(machine).insert(Humming);
         commands.spawn((
             MachineHum {
                 started: time.elapsed_secs(),
             },
             AudioPlayer::new(sounds.machine_hum.clone()),
-            Transform::from_translation(hum.0),
+            Transform::from_translation(hum.offset),
             // Looped; starts silent, swelling in (`swell_machine_hums`).
             PlaybackSettings::LOOP
                 .with_spatial(true)

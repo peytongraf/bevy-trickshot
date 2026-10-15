@@ -919,9 +919,10 @@ fn on_buy_perk(
     let at_seller = if wunderfizz {
         shared::wunderfizz::active(&lobby) && shared::wunderfizz::in_range(lobby.map, feet, 0.75)
     } else {
-        // (A machine sells nothing until the power's on.)
+        // (A machine sells nothing until it's on — the power, if the
+        // lobby made perks wait for it.)
         perk.has_machine()
-            && shared::power::has_power(lobby.map, lobby.power_on)
+            && shared::perks::machines_on(&lobby)
             && shared::perks::in_range(perk, lobby.map, feet, 0.75)
     };
     if !at_seller {
@@ -1341,6 +1342,7 @@ mod tests {
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                perks_need_power: false,
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
@@ -1579,7 +1581,7 @@ mod tests {
     }
 
     #[test]
-    fn no_perk_sells_until_the_power_is_on() {
+    fn perks_wait_for_the_power_only_if_the_lobby_says_so() {
         let (mut app, lobby) = game();
         app.add_observer(on_buy_perk);
         let me = PeerId::Netcode(1);
@@ -1589,6 +1591,7 @@ mod tests {
             let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
             l.map = map;
             l.members[0].score = 3000;
+            l.perks_need_power = true;
         }
         let player = app
             .world_mut()
@@ -1612,6 +1615,16 @@ mod tests {
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().power_on = true;
         buy(&mut app);
         assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].perks, vec![perk]);
+        // The default: on from the start, power or not.
+        {
+            let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+            l.power_on = false;
+            l.perks_need_power = false;
+            l.members[0].perks.clear();
+            l.members[0].score = 3000;
+        }
+        buy(&mut app);
+        assert_eq!(app.world().get::<Lobby>(lobby).unwrap().members[0].perks, vec![perk], "sold with the power off");
     }
 
     #[test]

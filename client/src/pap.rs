@@ -193,7 +193,7 @@ fn sync_pap_machine(
             .spawn((
                 StateScoped(AppState::InGame),
                 PapMachine,
-                crate::power::PoweredHum(Vec3::Y * 1.0),
+                crate::power::PoweredHum { offset: Vec3::Y * 1.0, perk: false },
                 crate::vfx::MachineFogEmitter::pap(),
                 root_transform(at),
                 Visibility::default(),

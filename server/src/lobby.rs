@@ -61,6 +61,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_loadout)
             .add_observer(on_set_operator)
             .add_observer(on_set_perk_set)
+            .add_observer(on_set_perks_need_power)
             .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
@@ -183,6 +184,7 @@ fn on_create(
                 start_round: 1,
                 start_points: 0,
                 perk_set: Default::default(),
+                perks_need_power: false,
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
@@ -820,6 +822,19 @@ fn on_set_perk_set(trigger: Trigger<RemoteTrigger<shared::SetPerkSet>>, mut lobb
     }
 }
 
+/// The leader picks whether a `Zombies` game's perk machines wait for the
+/// power while the lobby is still waiting.
+fn on_set_perks_need_power(trigger: Trigger<RemoteTrigger<shared::SetPerksNeedPower>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let on = trigger.trigger.on;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        if lobby.perks_need_power != on {
+            lobby.perks_need_power = on;
+            info!("lobby perks need power set to {on} by {peer:?}");
+        }
+    }
+}
+
 /// The leader picks what a `FreeForAll` match replays at the end while the
 /// lobby is still waiting.
 fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
@@ -974,6 +989,7 @@ mod tests {
             start_round: 1,
             start_points: 0,
             perk_set: Default::default(),
+            perks_need_power: false,
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,

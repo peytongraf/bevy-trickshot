@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: perk machines are on from the start — new lobby option to make them wait for the power.",
+        "Press F3 to toggle debug mode; the DEBUG tab lists the function keys.",
         "Zombies: zombies killed outside a window save their power-up for the next kill inside.",
         "Zombies: boarded-up windows — zombies rip the boards off to climb in; hold interact to rebuild them for points.",
         "Far-off sounds now get duller with distance, like they would through real air.",
