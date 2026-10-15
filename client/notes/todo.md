@@ -23,13 +23,7 @@ height: 3m
 
 # Done
 
-- Kira audio engine
-- Automatic room reverb
-- F3 debug mode toggle
-- Perks-need-power lobby option
-- Carpenter power-up
-- Molotov burning ground
-- Zombies intro cutscene
+- Boss zombie glow
 
 # Level editor
 
@@ -55,7 +49,6 @@ height: 3m
 
 # Added
 
-- Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
 - Add zombie animation for mantling through window
 - add sun flare when looking near sun on day maps
 - Add other zombie walk and attack animations

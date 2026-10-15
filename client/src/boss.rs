@@ -19,6 +19,11 @@
 //!   fireball at the boss's size (`vfx::Explosion::boss`), with the blast
 //!   hit sound.
 //!
+//! * **Aura** — so it stands out in a crowd: its body glows ([`BossBodyGlow`],
+//!   its skin lit from within), a soft orange halo radiates from behind it
+//!   ([`AuraPart`]) and it casts its own light — pulsing slowly, and fading
+//!   out as it dies.
+//!
 //! Every sound is positional and heard by the whole lobby. Look and feel
 //! are tuned in the "Boss (Zombies)" debug section ([`BossSettings`]).
 //! Everything here is `StateScoped(InGame)`, and a ball whose boss or
@@ -110,6 +115,26 @@ pub(crate) struct BossSettings {
     pub(crate) trail_size: f32,
     pub(crate) trail_spread: f32,
     pub(crate) smoke_rate: f32,
+
+    // --- its aura ---
+    /// Linear colour of its glow.
+    pub(crate) aura_color: [f32; 3],
+    /// How brightly its body glows (emissive × its own texture).
+    pub(crate) body_glow: f32,
+    /// The halo behind it: tight and wide layers' brightness, and sizes (m,
+    /// width × height).
+    pub(crate) aura_halo_brightness: f32,
+    pub(crate) aura_halo_size: (f32, f32),
+    pub(crate) aura_outer_brightness: f32,
+    pub(crate) aura_outer_size: (f32, f32),
+    /// How far behind its middle (from where we look) the halo sits (m).
+    pub(crate) aura_halo_depth: f32,
+    /// Its pulse: how much (0..=1) and how fast (Hz).
+    pub(crate) aura_pulse: f32,
+    pub(crate) aura_pulse_hz: f32,
+    /// Its light (lumens; range m).
+    pub(crate) aura_light: f32,
+    pub(crate) aura_light_range: f32,
 }
 
 impl Default for BossSettings {
@@ -148,6 +173,18 @@ impl Default for BossSettings {
             trail_size: 0.38,
             trail_spread: 1.2,
             smoke_rate: 18.0,
+
+            aura_color: [1.0, 0.32, 0.04],
+            body_glow: 2.5,
+            aura_halo_brightness: 1.4,
+            aura_halo_size: (2.4, 3.6),
+            aura_outer_brightness: 0.5,
+            aura_outer_size: (4.5, 6.0),
+            aura_halo_depth: 0.6,
+            aura_pulse: 0.2,
+            aura_pulse_hz: 0.8,
+            aura_light: 250_000.0,
+            aura_light_range: 6.0,
         }
     }
 }
@@ -197,6 +234,17 @@ impl std::fmt::Debug for DebugSettings<'_> {
             .field("trail_size", &s.trail_size)
             .field("trail_spread", &s.trail_spread)
             .field("smoke_rate", &s.smoke_rate)
+            .field("aura_color", &s.aura_color)
+            .field("body_glow", &s.body_glow)
+            .field("aura_halo_brightness", &s.aura_halo_brightness)
+            .field("aura_halo_size", &s.aura_halo_size)
+            .field("aura_outer_brightness", &s.aura_outer_brightness)
+            .field("aura_outer_size", &s.aura_outer_size)
+            .field("aura_halo_depth", &s.aura_halo_depth)
+            .field("aura_pulse", &s.aura_pulse)
+            .field("aura_pulse_hz", &s.aura_pulse_hz)
+            .field("aura_light", &s.aura_light)
+            .field("aura_light_range", &s.aura_light_range)
             .finish()
     }
 }
@@ -253,6 +301,28 @@ struct BossMotion {
     /// When it next growls (`Time::elapsed_secs`).
     next_growl: Option<f32>,
 }
+
+/// A boss's aura (spawned under it once it's in): its halo's materials, and
+/// how lit it is (0..=1 — in as it appears, out as it dies).
+#[derive(Component)]
+struct BossAura {
+    level: f32,
+    halo: Handle<StandardMaterial>,
+    outer: Handle<StandardMaterial>,
+}
+
+/// A part of a [`BossAura`], under its avatar.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum AuraPart {
+    Halo,
+    OuterHalo,
+    Light,
+}
+
+/// A boss's own copies of its model's materials, made to glow: each with
+/// the emissive it came with.
+#[derive(Component)]
+struct BossBodyGlow(Vec<(Handle<StandardMaterial>, LinearRgba)>);
 
 /// A playing boss sound: its loudness before the distance fade.
 #[derive(Component)]
@@ -343,6 +413,7 @@ impl Plugin for BossPlugin {
                     update_orbs,
                     update_orb_parts,
                     update_orb_particles,
+                    update_boss_auras,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -386,21 +457,38 @@ pub(crate) fn spawn_boss_avatar(commands: &mut Commands, asset_server: &AssetSer
         .observe(start_boss_animation);
 }
 
-/// Once a boss's scene is in: idle; remember its `AnimationPlayer` and hands.
+/// Once a boss's scene is in: idle; remember its `AnimationPlayer` and hands;
+/// give it its own glowing copies of its materials.
+#[allow(clippy::too_many_arguments)]
 fn start_boss_animation(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
     mut players: Query<&mut AnimationPlayer>,
+    mut meshes: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     assets: Res<BossAssets>,
 ) {
     let root = trigger.target();
     let mut player_entity = None;
     let mut hands = [None; 2];
+    let mut glow = Vec::new();
     for entity in children.iter_descendants(root) {
         // A skinned mesh is culled against its rest pose, not the animated one.
         commands.entity(entity).insert(NoFrustumCulling);
+        if let Ok(mut mesh_material) = meshes.get_mut(entity) {
+            if let Some(mut m) = materials.get(&mesh_material.0).cloned() {
+                // Lit from within: its glow follows its own skin's texture.
+                if m.emissive_texture.is_none() {
+                    m.emissive_texture = m.base_color_texture.clone();
+                }
+                let base = m.emissive;
+                let copy = materials.add(m);
+                mesh_material.0 = copy.clone();
+                glow.push((copy, base));
+            }
+        }
         if let Ok(name) = names.get(entity) {
             for (i, bone) in HAND_BONES.iter().enumerate() {
                 if name.as_str() == *bone {
@@ -422,6 +510,7 @@ fn start_boss_animation(
     if let Some(player) = player_entity {
         commands.entity(root).insert(BossRig { player, hands });
     }
+    commands.entity(root).insert(BossBodyGlow(glow));
 }
 
 /// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
@@ -1157,6 +1246,128 @@ fn update_orb_particles(
     }
 }
 
+/// Light each boss's aura: its halo radiating from behind it (facing us),
+/// its body glowing, its light — pulsing, in as it appears and out as it
+/// dies. (The halo's spawned under it the first time round.)
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn update_boss_auras(
+    time: Res<Time>,
+    settings: Res<BossSettings>,
+    fx: Option<Res<ExplosionAssets>>,
+    camera: Single<&GlobalTransform, With<WorldModelCamera>>,
+    new: Query<Entity, (With<BossVisual>, Without<BossAura>)>,
+    mut bosses: Query<
+        (&Transform, &BossMotion, &mut BossAura, Option<&BossBodyGlow>, Option<&Children>),
+        With<BossVisual>,
+    >,
+    mut parts: Query<(&AuraPart, &mut Transform, Option<&mut PointLight>), Without<BossVisual>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(fx) = fx else { return };
+    let s = &*settings;
+    let c = s.aura_color;
+    let color = |b: f32| LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b);
+
+    for entity in &new {
+        let halo = materials.add(glow_material(c, 0.0, Some(fx.glow.clone())));
+        let outer = materials.add(glow_material(c, 0.0, Some(fx.glow.clone())));
+        let sprite = |part: AuraPart, mat: &Handle<StandardMaterial>| {
+            (
+                part,
+                Mesh3d(fx.quad.clone()),
+                MeshMaterial3d(mat.clone()),
+                Transform::from_scale(Vec3::ZERO),
+                NotShadowCaster,
+                NoFrustumCulling,
+            )
+        };
+        commands
+            .entity(entity)
+            .insert(BossAura {
+                level: 0.0,
+                halo: halo.clone(),
+                outer: outer.clone(),
+            })
+            .with_children(|b| {
+                b.spawn(sprite(AuraPart::OuterHalo, &outer));
+                b.spawn(sprite(AuraPart::Halo, &halo));
+                b.spawn((
+                    AuraPart::Light,
+                    PointLight {
+                        color: Color::LinearRgba(color(1.0)),
+                        intensity: 0.0,
+                        range: s.aura_light_range,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::default(),
+                ));
+            });
+    }
+
+    let dt = time.delta_secs();
+    let t = time.elapsed_secs();
+    let cam = camera.into_inner();
+    let (cam_pos, cam_up, cam_right) = (cam.translation(), cam.up().as_vec3(), cam.right().as_vec3());
+
+    for (tf, motion, mut aura, body, children) in &mut bosses {
+        // In as it appears, out as it dies.
+        let (target, secs) = if motion.state == BossState::Dead { (0.0, 0.8) } else { (1.0, 0.5) };
+        let step = dt / secs;
+        aura.level = if aura.level < target { (aura.level + step).min(target) } else { (aura.level - step).max(target) };
+        let pulse = 1.0 + s.aura_pulse * (t * s.aura_pulse_hz * std::f32::consts::TAU).sin();
+        let k = aura.level * pulse;
+
+        if let Some(m) = materials.get_mut(&aura.halo) {
+            m.base_color = color(s.aura_halo_brightness * k).into();
+        }
+        if let Some(m) = materials.get_mut(&aura.outer) {
+            m.base_color = color(s.aura_outer_brightness * k).into();
+        }
+        if let Some(body) = body {
+            for (handle, base) in &body.0 {
+                if let Some(m) = materials.get_mut(handle) {
+                    m.emissive = *base + color(s.body_glow * k);
+                }
+            }
+        }
+
+        let Some(children) = children else { continue };
+        // Its middle, and the halo just behind it from where we look.
+        let middle = tf.translation + Vec3::Y * BOSS_HEIGHT * 0.5;
+        let away = (middle - cam_pos).with_y(0.0).normalize_or(Vec3::ZERO);
+        let at = middle + away * s.aura_halo_depth;
+        let facing = smoke_billboard_rotation(at, cam_pos, cam_up, cam_right, 0.0);
+        // (Its children are under its turn and scale.)
+        let inv_rot = tf.rotation.inverse();
+        let inv_scale = 1.0 / tf.scale.x.max(0.001);
+        let local = |world: Vec3| inv_rot * (world - tf.translation) * inv_scale;
+        for child in children.iter() {
+            let Ok((part, mut ptf, light)) = parts.get_mut(child) else { continue };
+            let size = match part {
+                AuraPart::Halo => s.aura_halo_size,
+                AuraPart::OuterHalo => s.aura_outer_size,
+                AuraPart::Light => {
+                    ptf.translation = local(middle + Vec3::Y * 0.3 - away * 0.8);
+                    if let Some(mut light) = light {
+                        light.intensity = s.aura_light * k;
+                        light.range = s.aura_light_range;
+                        light.color = Color::LinearRgba(color(1.0));
+                    }
+                    continue;
+                }
+            };
+            let grow = if aura.level > 0.0 { 1.0 } else { 0.0 };
+            *ptf = Transform {
+                translation: local(at),
+                rotation: inv_rot * facing,
+                scale: Vec3::new(size.0, size.1, 1.0) * inv_scale * grow,
+            };
+        }
+    }
+}
+
 /// The debug section's previews: the orange lightning 10 m ahead, or a ball
 /// thrown from in front of us, straight ahead.
 #[allow(clippy::too_many_arguments)]
@@ -1303,6 +1514,28 @@ impl BossDebug<'_, '_> {
             ui.add(egui::Slider::new(&mut s.trail_size, 0.02f32..=2.0).text("ember size (m)"));
             ui.add(egui::Slider::new(&mut s.trail_spread, 0.0f32..=5.0).text("ember scatter (m/s)"));
             ui.add(egui::Slider::new(&mut s.smoke_rate, 0.0f32..=100.0).text("smoke puffs / s"));
+        });
+        ui.collapsing("Aura", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("colour");
+                ui.color_edit_button_rgb(&mut s.aura_color);
+            });
+            ui.add(egui::Slider::new(&mut s.body_glow, 0.0f32..=20.0).text("body glow"));
+            ui.add(egui::Slider::new(&mut s.aura_halo_brightness, 0.0f32..=10.0).text("halo brightness"));
+            ui.add(egui::Slider::new(&mut s.aura_halo_size.0, 0.1f32..=10.0).text("halo width (m)"));
+            ui.add(egui::Slider::new(&mut s.aura_halo_size.1, 0.1f32..=10.0).text("halo height (m)"));
+            ui.add(egui::Slider::new(&mut s.aura_outer_brightness, 0.0f32..=10.0).text("outer halo brightness"));
+            ui.add(egui::Slider::new(&mut s.aura_outer_size.0, 0.1f32..=15.0).text("outer halo width (m)"));
+            ui.add(egui::Slider::new(&mut s.aura_outer_size.1, 0.1f32..=15.0).text("outer halo height (m)"));
+            ui.add(egui::Slider::new(&mut s.aura_halo_depth, -2.0f32..=3.0).text("halo behind it (m)"));
+            ui.add(egui::Slider::new(&mut s.aura_pulse, 0.0f32..=1.0).text("pulse"));
+            ui.add(egui::Slider::new(&mut s.aura_pulse_hz, 0.0f32..=5.0).text("pulse (Hz)"));
+            ui.add(
+                egui::Slider::new(&mut s.aura_light, 0.0f32..=10_000_000.0)
+                    .logarithmic(true)
+                    .text("light (lm)"),
+            );
+            ui.add(egui::Slider::new(&mut s.aura_light_range, 0.5f32..=30.0).text("light range (m)"));
         });
         ui.collapsing("Sounds", |ui| {
             ui.add(egui::Slider::new(&mut s.growl_every.0, 1.0f32..=60.0).text("growls every, min (s)"));
