@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: zombies climb through a window one at a time.",
         "Zombies: new Cold War power-up sounds — spawn, pickup, timers, Nuke flash, burning zombie screams, Carpenter hammering.",
         "Zombies: the Nuke goes off with a blast and a white flash, the nearest zombie burning first.",
         "Zombies: Insta-Kill ticks down like Double Points.",

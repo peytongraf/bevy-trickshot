@@ -751,6 +751,17 @@ pub(crate) fn drive_bots(
         .map(|(pid, pose, lp, _)| (pid.0, lp.lobby, pose.translation - Vec3::Y * EYE_HEIGHT))
         .collect();
 
+    // The windows (by lobby) a living zombie's climbing through right now —
+    // one at a time through each, the rest waiting their turn at the wall.
+    let mut climbing_through: std::collections::HashSet<(Entity, usize)> = bots
+        .iter()
+        .filter(|(_, _, combat, ..)| combat.alive)
+        .filter_map(|(_, lp, _, brain, ..)| {
+            let entry = brain.window?;
+            matches!(entry.phase, WindowPhase::Climb { .. }).then_some((lp.lobby, entry.index))
+        })
+        .collect();
+
     for (id, lp, combat, mut brain_ref, mut action, doomed) in &mut bots {
         // Plain `&mut` so its fields can be borrowed separately below.
         let brain = &mut *brain_ref;
@@ -917,8 +928,15 @@ pub(crate) fn drive_bots(
                 }
                 WindowPhase::Tear { next_at } => {
                     brain.yaw = face_in;
-                    if shared::windows::boards_left(&lobby.windows_torn, entry.index) == 0 {
-                        // Nothing left: over the sill, onto the floor inside.
+                    let open = shared::windows::boards_left(&lobby.windows_torn, entry.index) == 0;
+                    if open && climbing_through.contains(&(lp.lobby, entry.index)) {
+                        // Someone else is on the sill: wait for them.
+                        entry.phase = WindowPhase::Tear { next_at: next_at + dt };
+                        ZombieAnim::Idle
+                    } else if open {
+                        // Nothing left: over the sill, onto the floor inside
+                        // (the window's ours till we're down off it).
+                        climbing_through.insert((lp.lobby, entry.index));
                         let landing = window.landing();
                         let floor = world
                             .raycast(landing + Vec3::Y * (window.sill + 0.5), Vec3::NEG_Y, window.sill + 2.5)

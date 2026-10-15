@@ -31,12 +31,12 @@ outside ground height the same as inside
 
 # Current todo
 
+- For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
 - Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
 - Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
-
 - Cutouts in walls for zombies to climb through
 
 # Map
@@ -58,7 +58,6 @@ outside ground height the same as inside
 - add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
 - need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
 
-- For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame
 - Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
 - Add short cut scene of a map screen shot that plays before zombies, just use one of der tempel for all for now. Don't play when debug mode is on unless this would affect time for match to start. Could just see it if any players don't have debug mode turned on. Show a few different screen shots with an intro music.
 - Could add a text near the top compass that shows the name of the curent zone
