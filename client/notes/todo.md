@@ -27,6 +27,7 @@ outside ground height the same as inside
 
 # Current todo
 
+- Can add smoke efffect to boards on windows as the rebuild animation is playing
 - Add fires to all fire bowls like doors that have to be opened on left side
 - Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
 - Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
@@ -43,6 +44,15 @@ outside ground height the same as inside
 # Map Done
 
 # Added
+
+- add a f keybind to toggle debug mode
+- Add zombie animation for mantling through window
+- add sun flare when looking near sun on day maps
+- Add other zombie walk and attack animations
+- possibly add high and low pass filters to sounds if they are behind walls
+- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
+- add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
+- need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
 
 - Make perk machines already on before power is cut on, maybe make this an option
 - For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame

@@ -330,6 +330,7 @@ mod tests {
             victim: PeerId::Netcode(2),
             cause,
             anim,
+            outside: false,
         }
     }
 

@@ -241,6 +241,10 @@ pub struct ZombieKilled {
     /// for `crate::quotes`' kill lines.
     pub cause: HitCause,
     pub anim: shared::ZombieAnim,
+    /// It died before it was all the way in through its window (still
+    /// outside, tearing boards or climbing over the sill) — so nothing it
+    /// drops would land where the players can reach.
+    pub outside: bool,
 }
 
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
@@ -300,6 +304,7 @@ pub(crate) fn apply_player_hits(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
+    brains: Query<(&PlayerId, &crate::ai::BotBrain), With<crate::zombies::Zombie>>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
@@ -530,6 +535,9 @@ pub(crate) fn apply_player_hits(
                             victim: ev.victim,
                             cause: ev.cause,
                             anim: pose.zombie,
+                            outside: brains
+                                .iter()
+                                .any(|(id, brain)| id.0 == ev.victim && brain.window_index().is_some()),
                         });
                     }
                 }

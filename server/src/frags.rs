@@ -227,6 +227,10 @@ fn roll_drops(
     mut commands: Commands,
 ) {
     for (i, ev) in kills.read().enumerate() {
+        // (Killed outside its window: it'd land out of reach.)
+        if ev.outside {
+            continue;
+        }
         let Ok(lobby) = lobbies.get(ev.lobby) else { continue };
         let seed = (ev.feet.x.to_bits() as u64).rotate_left(17)
             ^ (ev.feet.z.to_bits() as u64).rotate_left(41)

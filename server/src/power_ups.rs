@@ -60,11 +60,19 @@ pub(crate) struct NukeDeath {
 #[derive(Resource, Default)]
 struct PowerUpClocks(HashMap<Entity, Vec<(PowerUp, f32)>>);
 
+/// Each lobby's drop that's owed: one a zombie rolled while still outside
+/// its window (out of reach), held over for the next zombie killed inside
+/// to drop instead — like CoD, which never wastes a drop on the far side
+/// of a barrier.
+#[derive(Resource, Default)]
+struct PendingDrops(HashMap<Entity, PowerUp>);
+
 pub struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PowerUpClocks>()
+            .init_resource::<PendingDrops>()
             .add_observer(on_drop_power_up)
             .add_systems(
             FixedUpdate,
@@ -92,15 +100,23 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
 
 /// Maybe drop a power-up where each zombie a player killed fell (never on
 /// a dog round) — or, if a player's close enough to grab it there at once,
-/// just out of their reach ([`drop_spot`]).
+/// just out of their reach ([`drop_spot`]). One rolled by a zombie still
+/// outside its window waits in [`PendingDrops`] for the next kill inside.
 fn roll_drops(
     time: Res<Time>,
     mut kills: EventReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
     colliders: Res<crate::collision::MapColliders>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
+    mut pending: ResMut<PendingDrops>,
     mut commands: Commands,
 ) {
+    // Forget what's owed in games that aren't running.
+    pending.0.retain(|e, _| {
+        lobbies
+            .get(*e)
+            .is_ok_and(|l| l.started && l.mode == GameMode::Zombies)
+    });
     for (i, ev) in kills.read().enumerate() {
         let Ok(lobby) = lobbies.get(ev.lobby) else {
             continue;
@@ -112,9 +128,15 @@ fn roll_drops(
             ^ (ev.feet.x.to_bits() as u64) << 32
             ^ ev.feet.z.to_bits() as u64
             ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        let Some(kind) = roll(shared::bots::rand01(seed), lobby.power_up_test) else {
+        // One owed from a kill outside a window comes before a fresh roll.
+        let owed = if ev.outside { None } else { pending.0.remove(&ev.lobby) };
+        let Some(kind) = owed.or_else(|| roll(shared::bots::rand01(seed), lobby.power_up_test)) else {
             continue;
         };
+        if ev.outside {
+            pending.0.entry(ev.lobby).or_insert(kind);
+            continue;
+        }
         // (Who could grab it — the same players `run_power_ups` lets.)
         let feet: Vec<Vec3> = players
             .iter()

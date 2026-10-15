@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: zombies killed outside a window save their power-up for the next kill inside.",
         "Zombies: boarded-up windows — zombies rip the boards off to climb in; hold interact to rebuild them for points.",
         "Far-off sounds now get duller with distance, like they would through real air.",
         "Sounds and operator voice lines now echo to fit where you are — tight in small rooms, big and ringing in large halls, open outdoors.",

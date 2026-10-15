@@ -315,6 +315,10 @@ fn roll_drops(
     mut commands: Commands,
 ) {
     for (i, ev) in kills.read().enumerate() {
+        // (Killed outside its window: it'd land out of reach.)
+        if ev.outside {
+            continue;
+        }
         let Ok(lobby) = lobbies.get(ev.lobby) else {
             continue;
         };
