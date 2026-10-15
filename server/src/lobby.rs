@@ -54,6 +54,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_leave)
             .add_observer(on_start)
             .add_observer(on_assets_ready)
+            .add_observer(on_intro_finished)
             .add_observer(on_end_game)
             .add_observer(on_set_paused)
             .add_observer(on_set_bots_passive)
@@ -198,6 +199,7 @@ fn on_create(
                     name: ev.player_name.clone(),
                     score: 0,
                     loaded: false,
+                    assets: false,
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),
@@ -257,6 +259,7 @@ fn on_join(
             name: player_name,
             score: 0,
             loaded: false,
+            assets: false,
             bot: None,
             kills: 0,
             perks: Vec::new(),
@@ -339,6 +342,7 @@ fn on_start(
         m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
+        m.assets = m.bot.is_some();
     }
     let mode = lobby.mode;
     let members: Vec<shared::LobbyMember> = lobby.members.clone();
@@ -471,14 +475,29 @@ fn on_start(
 }
 
 /// A client reports it's finished loading this match's assets — see
-/// [`shared::AssetsReady`]. Marks that member `loaded` in whichever started
-/// lobby they're in; a stray report from a lobby that hasn't started (or
-/// isn't theirs) is simply ignored.
+/// [`shared::AssetsReady`]. Marks that member's `assets` in whichever
+/// started lobby they're in; a stray report from a lobby that hasn't started
+/// (or isn't theirs) is simply ignored.
 fn on_assets_ready(trigger: Trigger<RemoteTrigger<AssetsReady>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     for mut lobby in &mut lobbies {
         if lobby.started && lobby.has(peer) {
             if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+                m.assets = true;
+            }
+            break;
+        }
+    }
+}
+
+/// A client's played the intro through (or had none) — see
+/// [`shared::IntroFinished`]: that member's ready to play (`loaded`), so
+/// long as its assets are in.
+fn on_intro_finished(trigger: Trigger<RemoteTrigger<shared::IntroFinished>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    for mut lobby in &mut lobbies {
+        if lobby.started && lobby.has(peer) {
+            if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer && m.assets) {
                 m.loaded = true;
             }
             break;
@@ -721,6 +740,7 @@ fn add_bots(
             name,
             score: 0,
             loaded: true,
+            assets: true,
             bot: Some(difficulty),
             kills: 0,
             perks: Vec::new(),
@@ -1006,6 +1026,7 @@ mod tests {
                 name: "Host".into(),
                 score: 0,
                 loaded: false,
+                assets: false,
                 bot: None,
                 kills: 0,
                 perks: Vec::new(),

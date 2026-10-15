@@ -846,6 +846,15 @@ pub(crate) fn edit_input(
     // what EXIT does.
     let back = mouse.just_pressed(MouseButton::Back);
     let esc = keys.just_pressed(KeyCode::Escape) && !typing;
+    // A clean view (just the map, for a screenshot): only the camera moves;
+    // H, Esc or back bring the editor back.
+    if editor.view.clean.is_some() {
+        if back || esc || keys.just_pressed(KeyCode::KeyH) {
+            editor.view.clean = None;
+        }
+        *press = None;
+        return;
+    }
     if back || esc {
         if editor.op.is_some() {
             cancel_op(&mut editor);
@@ -965,6 +974,10 @@ pub(crate) fn edit_input(
         // (Nothing else takes Ctrl.)
     } else if keys.just_pressed(KeyCode::F1) {
         editor.help_open = !editor.help_open;
+    } else if keys.just_pressed(KeyCode::KeyH) {
+        editor.view.clean = Some(now);
+        editor.box_from = None;
+        *press = None;
     } else if keys.just_pressed(KeyCode::KeyA) {
         if alt {
             editor.selected.clear();
@@ -1006,7 +1019,7 @@ pub(crate) fn draw_gizmos(
     mut grid: Gizmos,
     mut gizmos: Gizmos<EditorGizmos>,
 ) {
-    if editor.docs.is_empty() {
+    if editor.docs.is_empty() || editor.view.clean.is_some() {
         return;
     }
     let flat = Quat::from_rotation_x(-FRAC_PI_2);

@@ -27,6 +27,11 @@
 //! as a game does instead — its own light and fog — with the power off, or
 //! on (its power lights lit, [`sync_editor_lights`]).
 //!
+//! H (or View → Clean view) hides everything that's the editor's own — the
+//! panels, names, grid, boxes, arrows and ranges, and the reference / start
+//! spot people — leaving just the map as it renders, for a screenshot; the
+//! camera still moves. H, Esc or the mouse back button bring it all back.
+//!
 //! Esc (with nothing to cancel) and the mouse back button do what EXIT does:
 //! leave — asking first if there's anything unsaved.
 //!
@@ -852,6 +857,9 @@ pub(crate) struct ViewOptions {
     pub(crate) ranges: bool,
     /// How the map's lit (View → Look).
     pub(crate) look: Look,
+    /// Clean view (H): nothing of the editor's own shows, just the map —
+    /// since when (elapsed seconds), for the hint that it's on.
+    pub(crate) clean: Option<f32>,
 }
 
 /// How the editor lights the map.
@@ -886,6 +894,7 @@ impl Default for ViewOptions {
             labels: true,
             ranges: false,
             look: Look::Editor,
+            clean: None,
         }
     }
 }
@@ -1304,6 +1313,11 @@ fn sync_editor_flames(
 #[derive(Component)]
 struct EditorWindow;
 
+/// A window's see-through opening box — the editor's own, hidden in a
+/// clean view (its boards stay: the game has them).
+#[derive(Component)]
+struct EditorWindowGlass;
+
 /// Draw the shown layout's windows solid, to line up against the openings
 /// cut in the map: the opening as a see-through box, and the boards as the
 /// game has them (on the outside face). Rebuilt whenever a window changes.
@@ -1316,8 +1330,13 @@ fn sync_editor_windows(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut glass: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
     mut shown: Local<Vec<shared::windows::Window>>,
+    mut glasses: Query<&mut Visibility, With<EditorWindowGlass>>,
     mut commands: Commands,
 ) {
+    let glass_vis = if editor.view.clean.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+    for mut vis in &mut glasses {
+        vis.set_if_neq(glass_vis);
+    }
     let Some(look) = look else { return };
     let wanted: &[shared::windows::Window] = if editor.docs.is_empty() { &[] } else { &editor.doc().layout.windows };
     if wanted == shown.as_slice() && existing.iter().count() == wanted.len() {
@@ -1354,9 +1373,11 @@ fn sync_editor_windows(
             ))
             .with_children(|root| {
                 root.spawn((
+                    EditorWindowGlass,
                     Mesh3d(mesh.clone()),
                     MeshMaterial3d(material.clone()),
                     Transform::from_translation(window.local(opening)).with_scale(half * 2.0),
+                    glass_vis,
                     bevy::pbr::NotShadowCaster,
                 ));
                 for slot in 0..shared::windows::BOARDS {
@@ -1447,7 +1468,7 @@ fn sync_objects(
     wall_buys: Option<Res<crate::wall_buys::WallBuyAssets>>,
     avatars: (Res<crate::RemoteAvatarSettings>, Res<crate::ZombieAvatarSettings>),
     asset_server: Res<AssetServer>,
-    mut spawned: Query<(Entity, &EditorObject, &mut Transform)>,
+    mut spawned: Query<(Entity, &EditorObject, &mut Transform, &mut Visibility)>,
     mut commands: Commands,
 ) {
     if editor.docs.is_empty() {
@@ -1455,16 +1476,24 @@ fn sync_objects(
     }
     let doc = editor.doc();
     let wanted = editor.objects();
-    for (e, obj, mut t) in &mut spawned {
+    for (e, obj, mut t, mut vis) in &mut spawned {
         match obj.0.get(doc).filter(|_| wanted.contains(&obj.0)) {
             Some(at) => {
                 t.set_if_neq(root_transform_of(obj.0, doc, at));
+                // (The people standing in for a player / zombie and on the
+                // start spots are the editor's own — not in a clean view.)
+                let stand_in = matches!(obj.0, ObjectId::Reference(_) | ObjectId::PlayerSpawn(_));
+                vis.set_if_neq(if stand_in && editor.view.clean.is_some() {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                });
             }
             None => commands.entity(e).despawn(),
         }
     }
     for id in wanted {
-        if spawned.iter().any(|(_, o, _)| o.0 == id) {
+        if spawned.iter().any(|(_, o, ..)| o.0 == id) {
             continue;
         }
         let Some(at) = id.get(doc) else { continue };

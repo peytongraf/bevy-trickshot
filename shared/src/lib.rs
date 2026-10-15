@@ -56,7 +56,7 @@ pub mod zombies;
 use bevy::prelude::*;
 
 pub use protocol::{
-    AddBots, AmmoBought, AssetsReady, BuyAmmo, Bot, BuyPap, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
+    AddBots, AmmoBought, AssetsReady, IntroFinished, BuyAmmo, Bot, BuyPap, BuyPerk, ClearBots, CreateLobby, EndCam, EndGame, FallDeath, FallLanded, FellToDeath, GameChannel, GameMode, JoinLobby, KillCam,
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,

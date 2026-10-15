@@ -10,8 +10,12 @@
 //!   the request sent at the release point differs ([`send_throw_requests`]).
 //! * **Thrown** — every player sees each [`ThrownMolotov`] fly as
 //!   `models/weapons/molotov_1k.glb`, rag alight ([`MolotovAvatar`]).
-//! * **Burning** — where one broke, a patch of flames over the server's
-//!   fire spots ([`FirePatch`]), with a flickering light, fading in and out.
+//! * **Burning** — where one broke, a patch of fire over the server's fire
+//!   spots ([`FirePatch`]): a burning floor across the whole of it
+//!   ([`FireGroundMaterial`], `assets/shaders/fire_ground.wgsl`) joining it
+//!   into one fire, low flames standing on it (lower towards the edge) with a
+//!   few tall ones, their bases fading up out of the glow, smoke and a
+//!   flickering light, fading in and out.
 //! * **Nuked zombies** — a zombie a Nuke kills ([`shared::ZombieNuked`])
 //!   burns where it falls for a few seconds ([`CorpseFire`]): flames laid
 //!   along its body, which lies ahead of its feet when it falls face-first
@@ -58,6 +62,16 @@ use crate::{
 };
 
 const SHADER_ASSET_PATH: &str = "shaders/fire.wgsl";
+const GROUND_SHADER_ASSET_PATH: &str = "shaders/fire_ground.wgsl";
+
+/// A flame's base fades in over this fraction of its height (a molotov
+/// patch's flames get [`MolotovSettings::flame_base_fade`], softer, to rise
+/// out of the burning ground).
+const DEFAULT_BASE_FADE: f32 = 0.07;
+/// The burning ground's mesh: grid cells this size (m)...
+const GROUND_CELL: f32 = 0.18;
+/// ...and at most this many across either way.
+const GROUND_MAX_CELLS: usize = 90;
 const HELD_MODEL: &str = "models/weapons/molotov_2k.glb";
 const WORLD_MODEL: &str = "models/weapons/molotov_1k.glb";
 /// The bottle's radius in model units (`molotov_*.glb` is ~13 units tall,
@@ -76,7 +90,7 @@ const RAG_LAYERS: usize = 3;
 const RAG_LAYER_SHAPES: [(f32, f32, f32); RAG_LAYERS] =
     [(1.0, 1.0, 0.17), (0.72, 0.88, 0.53), (0.5, 0.68, 0.81)];
 
-use params::FireParams;
+use params::{FireParams, GroundParams};
 
 // Own module only so the allow covers the unused per-field layout checks
 // `ShaderType`'s derive generates next to the struct (as in `power_ups`).
@@ -102,6 +116,20 @@ mod params {
         pub(crate) sink: f32,
         pub(crate) pull: f32,
         pub(crate) mode: f32,
+        pub(crate) base_fade: f32,
+    }
+
+    /// Mirrors `GroundParams` in `fire_ground.wgsl`.
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(crate) struct GroundParams {
+        pub(crate) core: Vec4,
+        pub(crate) mid: Vec4,
+        pub(crate) tip: Vec4,
+        pub(crate) brightness: f32,
+        pub(crate) speed: f32,
+        pub(crate) detail: f32,
+        pub(crate) fade: f32,
+        pub(crate) ragged: f32,
     }
 }
 
@@ -143,6 +171,107 @@ impl Material for FireMaterial {
         }
         Ok(())
     }
+}
+
+/// The burning ground under a molotov's fire — see `fire_ground.wgsl`.
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct FireGroundMaterial {
+    #[uniform(0)]
+    params: GroundParams,
+}
+
+impl Material for FireGroundMaterial {
+    fn vertex_shader() -> ShaderRef {
+        GROUND_SHADER_ASSET_PATH.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        GROUND_SHADER_ASSET_PATH.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+
+    /// Light on the floor, not a surface: no depth write (walls in front
+    /// still hide it), seen from above or below.
+    fn specialize(
+        _pipeline: &MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.primitive.cull_mode = None;
+        if let Some(depth) = descriptor.depth_stencil.as_mut() {
+            depth.depth_write_enabled = false;
+        }
+        Ok(())
+    }
+}
+
+/// The burning ground's mesh over a fire's `spots` (world positions on the
+/// floor), in the space of a patch standing at `mid`: a grid over them, each
+/// vertex at the floor's height there (from the spots nearby) lifted
+/// `lift`, carrying how far into the fire it is (`uv.x`: 1 within `inner`
+/// of a spot, fading to 0 at `reach`) and the patch's `seed` (`uv.y`).
+/// Cells wholly outside the fire are left out.
+fn ground_mesh(spots: &[Vec3], mid: Vec3, inner: f32, reach: f32, lift: f32, seed: f32) -> Mesh {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::mesh::{Indices, PrimitiveTopology};
+    let reach = reach.max(inner + 0.05);
+    let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    for s in spots {
+        lo = lo.min(s.xz());
+        hi = hi.max(s.xz());
+    }
+    lo -= Vec2::splat(reach);
+    hi += Vec2::splat(reach);
+    let size = hi - lo;
+    let nx = ((size.x / GROUND_CELL).ceil() as usize).clamp(1, GROUND_MAX_CELLS);
+    let nz = ((size.y / GROUND_CELL).ceil() as usize).clamp(1, GROUND_MAX_CELLS);
+    let (mut positions, mut uvs, mut cover) = (Vec::new(), Vec::new(), Vec::new());
+    for iz in 0..=nz {
+        for ix in 0..=nx {
+            let p = lo + size * Vec2::new(ix as f32 / nx as f32, iz as f32 / nz as f32);
+            let (mut nearest, mut wsum, mut ysum) = (f32::MAX, 0.0, 0.0);
+            for s in spots {
+                let d2 = (s.xz() - p).length_squared();
+                nearest = nearest.min(d2);
+                // The floor's height: the spots' own, the nearest counting most.
+                let w = 1.0 / (d2 * d2 + 1e-3);
+                wsum += w;
+                ysum += w * s.y;
+            }
+            let c = 1.0 - smoothstep(inner, reach, nearest.sqrt());
+            let y = ysum / wsum + lift;
+            positions.push([p.x - mid.x, y - mid.y, p.y - mid.z]);
+            uvs.push([c, seed]);
+            cover.push(c);
+        }
+    }
+    let row = nx + 1;
+    let mut indices = Vec::new();
+    for iz in 0..nz {
+        for ix in 0..nx {
+            let a = (iz * row + ix) as u32;
+            let (b, c, d) = (a + 1, a + row as u32, a + row as u32 + 1);
+            if [a, b, c, d].iter().all(|&i| cover[i as usize] <= 0.0) {
+                continue;
+            }
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+    let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices))
+}
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// PhD Flopper's purple flames (its slide trail, `vfx::phd_trail`): linear
@@ -234,7 +363,29 @@ pub(crate) struct MolotovSettings {
     pub(crate) flames_per_spot: u32,
     /// How far (m) each flame may stray from its spot.
     pub(crate) flame_jitter: f32,
+    /// The share of flames that stand tall; the rest burn low (this × the
+    /// flame height)...
+    pub(crate) tall_chance: f32,
+    pub(crate) short_height: f32,
+    /// ...and out at the fire's edge they're this much of what they'd be in
+    /// the middle.
+    pub(crate) edge_height: f32,
+    /// How far up (fraction of height) each flame's base fades in, rising
+    /// out of the burning ground.
+    pub(crate) flame_base_fade: f32,
     pub(crate) fire_brightness: f32,
+    /// The burning ground under the flames: whether it's there, how bright,
+    /// how far (m) past the fire spots it reaches (full within `ground_inner`
+    /// of one, fading out by `ground_reach`), how high (m) it sits off the
+    /// floor, how busy and fast its heat is and how ragged its edge.
+    pub(crate) ground: bool,
+    pub(crate) ground_brightness: f32,
+    pub(crate) ground_inner: f32,
+    pub(crate) ground_reach: f32,
+    pub(crate) ground_lift: f32,
+    pub(crate) ground_detail: f32,
+    pub(crate) ground_speed: f32,
+    pub(crate) ground_ragged: f32,
     /// The fire's light (lumens; range m; height m above the ground).
     pub(crate) fire_light: f32,
     pub(crate) fire_light_range: f32,
@@ -315,7 +466,19 @@ impl Default for MolotovSettings {
             flame_height: 1.5,
             flames_per_spot: 2,
             flame_jitter: 0.35,
+            tall_chance: 0.22,
+            short_height: 0.5,
+            edge_height: 0.55,
+            flame_base_fade: 0.3,
             fire_brightness: 0.8,
+            ground: true,
+            ground_brightness: 1.1,
+            ground_inner: 0.35,
+            ground_reach: 1.0,
+            ground_lift: 0.04,
+            ground_detail: 1.6,
+            ground_speed: 1.0,
+            ground_ragged: 0.7,
             fire_light: 700_000.0,
             fire_light_range: 16.0,
             fire_light_height: 1.2,
@@ -391,6 +554,30 @@ impl MolotovSettings {
             sink: self.sink,
             pull,
             mode: 0.0,
+            base_fade: DEFAULT_BASE_FADE,
+        }
+    }
+
+    /// A molotov patch's flames, faded in to `fade`.
+    fn patch_params(&self, fade: f32) -> FireParams {
+        FireParams {
+            base_fade: self.flame_base_fade,
+            ..self.params(self.fire_brightness, self.pull, fade, Vec3::ZERO)
+        }
+    }
+
+    /// A molotov patch's burning ground, faded in to `fade`.
+    fn ground_params(&self, fade: f32) -> GroundParams {
+        let c = |v: [f32; 3]| Vec4::new(v[0], v[1], v[2], 1.0);
+        GroundParams {
+            core: c(self.core_color),
+            mid: c(self.mid_color),
+            tip: c(self.tip_color),
+            brightness: self.ground_brightness,
+            speed: self.speed * self.ground_speed,
+            detail: self.ground_detail,
+            fade,
+            ragged: self.ground_ragged,
         }
     }
 
@@ -506,6 +693,8 @@ struct FirePatch {
     src: Entity,
     material: Handle<FireMaterial>,
     smoke: Handle<FireMaterial>,
+    /// Its burning ground's mesh and material, if it has one.
+    ground: Option<(Handle<Mesh>, Handle<FireGroundMaterial>)>,
     /// Seconds it's been burning here (not counting pauses).
     age: f32,
 }
@@ -596,6 +785,11 @@ pub(crate) struct MolotovPlugin;
 impl Plugin for MolotovPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<FireMaterial> {
+            prepass_enabled: false,
+            shadows_enabled: false,
+            ..default()
+        })
+        .add_plugins(MaterialPlugin::<FireGroundMaterial> {
             prepass_enabled: false,
             shadows_enabled: false,
             ..default()
@@ -901,9 +1095,11 @@ fn update_rag_flames(
     }
 }
 
-/// Light a fire patch for each [`MolotovFire`] the server spreads: flames
-/// scattered over its spots, a few columns of smoke rising off it and a light
-/// over the middle; put it out once the server removes the fire.
+/// Light a fire patch for each [`MolotovFire`] the server spreads: the
+/// burning ground over where it burns ([`ground_mesh`]), flames standing on
+/// it — low across it, lower towards its edge, a few tall ones — a few
+/// columns of smoke rising off it and a light over the middle; put it out
+/// once the server removes the fire.
 #[allow(clippy::too_many_arguments)]
 fn sync_fire_patches(
     fires: Query<(Entity, &MolotovFire)>,
@@ -911,6 +1107,8 @@ fn sync_fire_patches(
     settings: Res<MolotovSettings>,
     assets: Res<MolotovAssets>,
     mut materials: ResMut<Assets<FireMaterial>>,
+    mut ground_materials: ResMut<Assets<FireGroundMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
 ) {
     let mut have = Vec::new();
@@ -920,6 +1118,10 @@ fn sync_fire_patches(
         } else {
             materials.remove(&patch.material);
             materials.remove(&patch.smoke);
+            if let Some((mesh, material)) = &patch.ground {
+                meshes.remove(mesh);
+                ground_materials.remove(material);
+            }
             commands.entity(entity).try_despawn();
         }
     }
@@ -929,7 +1131,7 @@ fn sync_fire_patches(
         }
         let mid = fire.spots.iter().copied().sum::<Vec3>() / fire.spots.len() as f32;
         let material = materials.add(FireMaterial {
-            params: settings.params(settings.fire_brightness, settings.pull, 0.0, Vec3::ZERO),
+            params: settings.patch_params(0.0),
         });
         let smoke = materials.add(FireMaterial {
             params: settings.smoke_params(0.0),
@@ -939,6 +1141,28 @@ fn sync_fire_patches(
             crate::util::rand01(src.index().wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9))
         };
         let tiny = Vec3::new(0.001, 0.001, 0.0015);
+        let ground = settings.ground.then(|| {
+            (
+                meshes.add(ground_mesh(
+                    &fire.spots,
+                    mid,
+                    settings.ground_inner,
+                    settings.ground_reach,
+                    settings.ground_lift,
+                    hash(0, 9),
+                )),
+                ground_materials.add(FireGroundMaterial {
+                    params: settings.ground_params(0.0),
+                }),
+            )
+        });
+        // How far out the fire reaches from its middle — flames burn lower
+        // towards its edge.
+        let spread = fire
+            .spots
+            .iter()
+            .map(|s| (*s - mid).xz().length())
+            .fold(0.5f32, f32::max);
         commands
             .spawn((
                 StateScoped(AppState::InGame),
@@ -946,12 +1170,16 @@ fn sync_fire_patches(
                     src,
                     material: material.clone(),
                     smoke: smoke.clone(),
+                    ground: ground.clone(),
                     age: 0.0,
                 },
                 Transform::from_translation(mid),
                 Visibility::default(),
             ))
             .with_children(|patch| {
+                if let Some((mesh, ground)) = ground {
+                    patch.spawn((Mesh3d(mesh), MeshMaterial3d(ground), Transform::default(), NotShadowCaster));
+                }
                 let mut i = 0u32;
                 for spot in &fire.spots {
                     for _ in 0..settings.flames_per_spot.max(1) {
@@ -960,10 +1188,16 @@ fn sync_fire_patches(
                         let r = hash(i, 2).sqrt() * settings.flame_jitter;
                         let at = *spot + Vec3::new(a.cos() * r, 0.0, a.sin() * r);
                         let k = 0.7 + 0.3 * hash(i, 3);
-                        let size = Vec2::new(
-                            settings.flame_width * k,
-                            settings.flame_height * (0.65 + 0.35 * hash(i, 4)) * k,
-                        );
+                        // Most burn low, a few stand tall; all lower out at
+                        // the edge.
+                        let tall = if hash(i, 6) < settings.tall_chance {
+                            0.85 + 0.3 * hash(i, 4)
+                        } else {
+                            settings.short_height * (0.7 + 0.3 * hash(i, 4))
+                        };
+                        let edge = ((at - mid).xz().length() / spread).clamp(0.0, 1.0);
+                        let low = 1.0 + (settings.edge_height - 1.0) * edge * edge;
+                        let size = Vec2::new(settings.flame_width * k, settings.flame_height * tall * low * k);
                         patch.spawn((
                             PatchFlame {
                                 size,
@@ -1023,6 +1257,7 @@ fn update_fire_patches(
     settings: Res<MolotovSettings>,
     killcam: Res<ActiveKillCam>,
     mut materials: ResMut<Assets<FireMaterial>>,
+    mut ground_materials: ResMut<Assets<FireGroundMaterial>>,
     mut patches: Query<(&mut FirePatch, &Children, &mut Visibility)>,
     mut flames: Query<(&PatchFlame, &mut Transform), (Without<PatchLight>, Without<PatchSmoke>)>,
     mut smokes: Query<(&PatchSmoke, &mut Transform), (Without<PatchLight>, Without<PatchFlame>)>,
@@ -1044,7 +1279,10 @@ fn update_fire_patches(
         let smoke_fade = (patch.age / 1.2).clamp(0.0, 1.0) * fade_out;
         vis.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
         if let Some(m) = materials.get_mut(&patch.material) {
-            m.params = settings.params(settings.fire_brightness, settings.pull, fade, Vec3::ZERO);
+            m.params = settings.patch_params(fade);
+        }
+        if let Some(m) = patch.ground.as_ref().and_then(|(_, g)| ground_materials.get_mut(g)) {
+            m.params = settings.ground_params(fade);
         }
         if let Some(m) = materials.get_mut(&patch.smoke) {
             m.params = settings.smoke_params(smoke_fade);
@@ -1442,7 +1680,20 @@ pub(crate) fn molotov_section(ui: &mut egui::Ui, d: &mut MolotovDebug, hold_key:
         ui.add(egui::Slider::new(&mut s.flame_height, 0.1f32..=5.0).text("flame height (m)"));
         ui.add(egui::Slider::new(&mut s.flames_per_spot, 1u32..=6).text("flames per spot"));
         ui.add(egui::Slider::new(&mut s.flame_jitter, 0.0f32..=1.0).text("flame scatter (m)"));
+        ui.add(egui::Slider::new(&mut s.tall_chance, 0.0f32..=1.0).text("share of tall flames"));
+        ui.add(egui::Slider::new(&mut s.short_height, 0.1f32..=1.0).text("low flames' height (× flame height)"));
+        ui.add(egui::Slider::new(&mut s.edge_height, 0.1f32..=1.0).text("height at the edge (× middle)"));
+        ui.add(egui::Slider::new(&mut s.flame_base_fade, 0.01f32..=0.8).text("flame base fade (× height)"));
         ui.add(egui::Slider::new(&mut s.fire_brightness, 0.0f32..=10.0).text("brightness"));
+        ui.separator();
+        ui.checkbox(&mut s.ground, "burning ground (next fire)");
+        ui.add(egui::Slider::new(&mut s.ground_brightness, 0.0f32..=10.0).text("ground brightness"));
+        ui.add(egui::Slider::new(&mut s.ground_inner, 0.0f32..=2.0).text("ground full within (m of a spot, next fire)"));
+        ui.add(egui::Slider::new(&mut s.ground_reach, 0.1f32..=3.0).text("ground reaches (m past a spot, next fire)"));
+        ui.add(egui::Slider::new(&mut s.ground_lift, 0.0f32..=0.3).text("ground lift off the floor (m, next fire)"));
+        ui.add(egui::Slider::new(&mut s.ground_detail, 0.1f32..=6.0).text("ground detail (per m)"));
+        ui.add(egui::Slider::new(&mut s.ground_speed, 0.0f32..=4.0).text("ground speed"));
+        ui.add(egui::Slider::new(&mut s.ground_ragged, 0.0f32..=2.0).text("ground edge raggedness"));
         ui.add(egui::Slider::new(&mut s.fire_light, 0.0f32..=10_000_000.0).text("light (lm)").logarithmic(true));
         ui.add(egui::Slider::new(&mut s.fire_light_range, 1.0f32..=60.0).text("light range (m)"));
         ui.add(egui::Slider::new(&mut s.fire_light_height, 0.0f32..=4.0).text("light height (m)"));

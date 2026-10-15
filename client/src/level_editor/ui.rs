@@ -27,6 +27,8 @@ fn color32(c: Color) -> egui::Color32 {
 
 const WARN: egui::Color32 = egui::Color32::from_rgb(255, 120, 90);
 const DIM: egui::Color32 = egui::Color32::from_gray(140);
+/// How long (s) the clean view's "how to leave" hint shows as it comes on.
+const CLEAN_HINT_SECS: f32 = 2.5;
 
 /// Every control, for the help window: `(keys, what they do)`.
 const CONTROLS: &[(&str, &str)] = &[
@@ -54,6 +56,7 @@ const CONTROLS: &[(&str, &str)] = &[
     ("X  /  Delete", "Remove (Pack-a-Punch, ammo crate, power switch, wall buys, lights)"),
     ("Ctrl + Z  /  Ctrl + Shift + Z", "Undo / redo"),
     ("Ctrl + S", "Save this map"),
+    ("H", "Clean view: just the map, for screenshots (H / Esc / mouse back to leave)"),
     ("Esc  /  mouse back", "Exit (asks first if anything's unsaved)"),
 ];
 
@@ -76,6 +79,24 @@ pub(crate) fn editor_ui(
     let ctx = contexts.ctx_mut()?;
     let now = time.elapsed_secs();
     let ed = &mut *editor;
+
+    // Clean view: nothing but the map — a hint for its first moments only,
+    // gone well before a screenshot.
+    if let Some(since) = ed.view.clean {
+        if now - since < CLEAN_HINT_SECS {
+            let alpha = (1.0 - (now - since) / CLEAN_HINT_SECS).clamp(0.0, 1.0);
+            let painter =
+                ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("level_editor_clean_hint")));
+            let pos = ctx.screen_rect().center_top() + egui::vec2(0.0, 24.0);
+            let text = "Clean view — H or Esc to bring the editor back";
+            let font = egui::FontId::proportional(16.0);
+            let a = (alpha * 255.0) as u8;
+            painter.text(pos + egui::vec2(1.0, 1.0), egui::Align2::CENTER_TOP, text, font.clone(), egui::Color32::from_black_alpha(a));
+            painter.text(pos, egui::Align2::CENTER_TOP, text, font, egui::Color32::from_white_alpha(a));
+        }
+        current.set_if_neq(CurrentMap(ed.map));
+        return Ok(());
+    }
 
     menu_bar(ctx, ed, &lever, &rapier, now, &mut next);
     status_bar(ctx, ed, &map_state, now);
@@ -226,6 +247,13 @@ fn menu_bar(
                 ui.checkbox(&mut ed.view.grid, "Floor grid");
                 ui.checkbox(&mut ed.view.labels, "Names");
                 ui.checkbox(&mut ed.view.ranges, "Every use range (not just the selection's)");
+                if ui
+                    .add(egui::Button::new("Clean view (just the map, for screenshots)").shortcut_text("H"))
+                    .clicked()
+                {
+                    ed.view.clean = Some(now);
+                    ui.close();
+                }
                 ui.separator();
                 ui.label("Look");
                 for look in Look::ALL {

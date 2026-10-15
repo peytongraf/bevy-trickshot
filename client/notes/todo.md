@@ -16,6 +16,11 @@ height: 1.4m
 1.1m above ground
 outside ground height the same as inside
 
+# Doors
+
+width: 2m
+height: 3m
+
 # Done
 
 - Kira audio engine
@@ -23,6 +28,8 @@ outside ground height the same as inside
 - F3 debug mode toggle
 - Perks-need-power lobby option
 - Carpenter power-up
+- Molotov burning ground
+- Zombies intro cutscene
 
 # Level editor
 
@@ -31,7 +38,6 @@ outside ground height the same as inside
 
 # Current todo
 
-- For the client rendering of molotovs, instead of several small flames, see if it is possible to make this shape look like one large realistic flame
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
@@ -41,7 +47,6 @@ outside ground height the same as inside
 
 # Map
 
-- Fix in tomb top wall where power lever is bottom of wall where material is different
 - Add handrails to all stairs or just copy paste stairs
 - Add cut outs for zombies to climb through that can be repaired with boards and carpenter
 - Add fire bowls to zone above temple
@@ -50,6 +55,7 @@ outside ground height the same as inside
 
 # Added
 
+- Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
 - Add zombie animation for mantling through window
 - add sun flare when looking near sun on day maps
 - Add other zombie walk and attack animations
@@ -57,12 +63,8 @@ outside ground height the same as inside
 - Could use exported eleven labs audio for radio then add distortion and high pass filter to it
 - add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
 - need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
-
-- Make boss zombie glow somehow so they stand out from regular zombies when looking at a crowd of them together
-- Add short cut scene of a map screen shot that plays before zombies, just use one of der tempel for all for now. Don't play when debug mode is on unless this would affect time for match to start. Could just see it if any players don't have debug mode turned on. Show a few different screen shots with an intro music.
 - Could add a text near the top compass that shows the name of the curent zone
 - Add ability to add more power lights to a map
-
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
 - mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
@@ -98,6 +100,7 @@ outside ground height the same as inside
 
 # Improve
 
+- Dial in molotov flame look
 - Dial in phd slider effect look ( trail and explosion )
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 

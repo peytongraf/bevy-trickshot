@@ -53,6 +53,9 @@ struct FireParams {
     pull: f32,
     // 0 = flame (additive), 1 = smoke (alpha blended).
     mode: f32,
+    // How far up (fraction of height) a flame's base fades in — soft, for
+    // flames rising out of a burning floor (`fire_ground.wgsl`).
+    base_fade: f32,
 }
 @group(2) @binding(0) var<uniform> p: FireParams;
 
@@ -162,7 +165,7 @@ fn flame(x: f32, y: f32, seed: f32) -> vec4<f32> {
     let body = exp(-r * r * 1.9);
     // The top is ragged: noise decides where the tongues end.
     let top = 1.0 - smoothstep(0.2, 1.05, y - n2 * 0.45 * turb);
-    let bottom = smoothstep(0.0, 0.07, y);
+    let bottom = smoothstep(0.0, max(p.base_fade, 0.01), y);
     var heat = body * top * bottom;
     // Inner structure: hotter streaks and cooler gaps.
     heat *= 0.65 + 0.9 * clamp(n2 + 0.5, 0.0, 1.0);

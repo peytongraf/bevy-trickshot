@@ -15,6 +15,12 @@
 //! more of what floats up is ash, a red glow throbs in from the edges like
 //! a heartbeat, and now and then the storm flashes cold light across it.
 //!
+//! [`intro_background`] is the `Zombies` backdrop over a map's own intro art
+//! (`textures/menu/intro/`, [`intro_art`]) for a `Zombies` game's opening
+//! seconds (`game_start`): instead of drifting, the art pans slowly across
+//! and pushes in over the intro ([`IntroPan`]), with a faint handheld
+//! shudder, rising out of black — and without the red heartbeat.
+//!
 //! [`results_backdrop`] is just the embers, and an amber glow in from the
 //! edges, over the world behind the end-of-game results — faded in, and
 //! tuned, by `end_screen_fx` ([`ResultsGlow`]).
@@ -41,6 +47,30 @@ const ART_SIZE: Vec2 = Vec2::new(1672.0, 940.0);
 /// ...and the `Zombies` intro's.
 const ZOMBIES_ART: &str = "textures/menu/zombies_loading_bg.png";
 const ZOMBIES_ART_SIZE: Vec2 = Vec2::new(1672.0, 941.0);
+/// Each map's `Zombies` intro art, and its size in pixels (to cover the
+/// screen without stretching) — the maps without their own get the
+/// `Zombies` loading art.
+const DER_TEMPEL_INTRO: &str = "textures/menu/intro/der_tempel.jpg";
+const DER_TEMPEL_INTRO_SIZE: Vec2 = Vec2::new(3840.0, 2160.0);
+
+pub(crate) fn intro_art(map: shared::MapId) -> (&'static str, Vec2) {
+    match map {
+        shared::MapId::DerTempel | shared::MapId::DerTempelDay => (DER_TEMPEL_INTRO, DER_TEMPEL_INTRO_SIZE),
+        _ => (ZOMBIES_ART, ZOMBIES_ART_SIZE),
+    }
+}
+
+/// The intro's pan: how far past covering the screen the art starts and
+/// ends (it pushes in between), and how much of the spare width it pans
+/// across.
+const INTRO_ZOOM_FROM: f32 = 1.1;
+const INTRO_ZOOM_TO: f32 = 1.16;
+const INTRO_PAN: f32 = 0.35;
+/// Its handheld shudder (px at 1080p), and how long (s) it takes to rise out
+/// of black.
+const INTRO_SHUDDER: f32 = 3.0;
+const INTRO_FROM_BLACK_SECS: f32 = 0.9;
+
 /// The art's scale past just covering the screen, so its drift never shows
 /// an edge...
 const ART_OVERSCAN: f32 = 1.18;
@@ -88,7 +118,7 @@ impl Plugin for MenuBackdropPlugin {
             .add_systems(Startup, make_backdrop_images)
             .add_systems(
             PostUpdate,
-            animate_menu_backdrop.before(bevy::ui::UiSystem::Layout),
+            (animate_menu_backdrop, pan_intro_art).before(bevy::ui::UiSystem::Layout),
         );
     }
 }
@@ -178,20 +208,39 @@ impl Theme {
 /// moment a zombies game starts loading rather than popping in.
 #[derive(Resource)]
 #[allow(dead_code)]
-struct KeepZombiesArt(Handle<Image>);
+struct KeepZombiesArt(Handle<Image>, Handle<Image>);
+
+/// An intro's art ([`intro_background`]): its size in pixels, when the
+/// intro started (`Time<Real>` seconds) and how long (s) it pans for.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct IntroPan {
+    pub(crate) size: Vec2,
+    pub(crate) started: f32,
+    pub(crate) secs: f32,
+}
+
+/// An intro's black, fading away as it starts.
+#[derive(Component)]
+struct IntroBlack(f32);
 
 /// Fill an out-of-game page root with the backdrop: the page's first
 /// children (so everything spawned after draws on top), pinned to its edges
 /// — padding included — whatever its layout. [`animate_menu_backdrop`] does
 /// the rest.
 pub fn menu_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
-    spawn_backdrop(parent, asset_server, Theme::Menu);
+    spawn_backdrop(parent, asset_server, Theme::Menu, None);
 }
 
 /// [`menu_background`], over the `Zombies` intro art and with its scarier
 /// layers (see the module docs).
 pub fn zombies_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer) {
-    spawn_backdrop(parent, asset_server, Theme::Zombies);
+    spawn_backdrop(parent, asset_server, Theme::Zombies, None);
+}
+
+/// [`zombies_background`] over `art` (a map's intro art — [`intro_art`]),
+/// panned across by `pan` instead of drifting, rising out of black.
+pub(crate) fn intro_background(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, art: &'static str, pan: IntroPan) {
+    spawn_backdrop(parent, asset_server, Theme::Zombies, Some((art, pan)));
 }
 
 /// The embers floating up and an amber glow in from the edges — for over
@@ -238,10 +287,16 @@ pub(crate) fn results_backdrop(parent: &mut ChildSpawnerCommands) {
         });
 }
 
-fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer, theme: Theme) {
-    let art = match theme {
-        Theme::Menu | Theme::Results => ART,
-        Theme::Zombies => ZOMBIES_ART,
+fn spawn_backdrop(
+    parent: &mut ChildSpawnerCommands,
+    asset_server: &AssetServer,
+    theme: Theme,
+    intro: Option<(&'static str, IntroPan)>,
+) {
+    let art = match (theme, intro) {
+        (_, Some((art, _))) => art,
+        (Theme::Menu | Theme::Results, None) => ART,
+        (Theme::Zombies, None) => ZOMBIES_ART,
     };
     let full = || Node {
         position_type: PositionType::Absolute,
@@ -264,7 +319,14 @@ fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer,
             ..default()
         })
         .with_children(|frame| {
-            frame.spawn((Backdrop::Art, theme, ImageNode::new(asset_server.load(art)), placed()));
+            match intro {
+                Some((_, pan)) => {
+                    frame.spawn((pan, ImageNode::new(asset_server.load(art)), placed()));
+                }
+                None => {
+                    frame.spawn((Backdrop::Art, theme, ImageNode::new(asset_server.load(art)), placed()));
+                }
+            }
             frame.spawn((
                 Backdrop::Shade,
                 theme,
@@ -312,7 +374,8 @@ fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer,
                 ));
             }
             frame.spawn((ImageNode::new(VIGNETTE_IMAGE).with_mode(NodeImageMode::Stretch), full()));
-            if theme == Theme::Zombies {
+            // (Not over an intro.)
+            if theme == Theme::Zombies && intro.is_none() {
                 frame.spawn((
                     Backdrop::Heartbeat,
                     theme,
@@ -325,7 +388,45 @@ fn spawn_backdrop(parent: &mut ChildSpawnerCommands, asset_server: &AssetServer,
                     full(),
                 ));
             }
+            if let Some((_, pan)) = intro {
+                frame.spawn((IntroBlack(pan.started), full(), BackgroundColor(Color::BLACK)));
+            }
         });
+}
+
+/// An intro's art: covering the screen, panning across from one side to the
+/// other and pushing in over its seconds (easing in and out, then holding),
+/// with a faint handheld shudder — and its black fading away at the start.
+fn pan_intro_art(
+    time: Res<Time<Real>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
+    mut arts: Query<(&IntroPan, &mut Node), Without<IntroBlack>>,
+    mut blacks: Query<(&IntroBlack, &mut BackgroundColor)>,
+) {
+    let t = time.elapsed_secs();
+    for (black, mut bg) in &mut blacks {
+        let a = 1.0 - ((t - black.0) / INTRO_FROM_BLACK_SECS).clamp(0.0, 1.0);
+        bg.0 = Color::BLACK.with_alpha(a * a);
+    }
+    if arts.is_empty() {
+        return;
+    }
+    let Ok(window) = window.single() else { return };
+    let screen = Vec2::new(window.width(), window.height()) / ui_scale.0.max(1e-3);
+    let unit = screen.y / 1080.0;
+    for (pan, mut node) in &mut arts {
+        let k = ((t - pan.started) / pan.secs.max(0.1)).clamp(0.0, 1.0);
+        let eased = k * k * (3.0 - 2.0 * k);
+        let zoom = INTRO_ZOOM_FROM + (INTRO_ZOOM_TO - INTRO_ZOOM_FROM) * eased;
+        let size = pan.size * (screen.x / pan.size.x).max(screen.y / pan.size.y) * zoom;
+        let spare = size - screen;
+        // Left to right across the spare width, centred up and down.
+        let across = 0.5 + (eased - 0.5) * INTRO_PAN;
+        let shudder = Vec2::new(noise(t * 2.3, 0x5bd1) - 0.5, noise(t * 1.9, 0x5bd2) - 0.5) * 2.0 * INTRO_SHUDDER * unit;
+        let at = -Vec2::new(spare.x * across, spare.y * 0.5) + shudder.clamp(-spare * 0.5, spare * 0.5);
+        place(&mut node, at, size);
+    }
 }
 
 /// The vignette: black, clear in the middle, darkening toward the edges —
@@ -335,7 +436,7 @@ fn make_backdrop_images(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    commands.insert_resource(KeepZombiesArt(asset_server.load(ZOMBIES_ART)));
+    commands.insert_resource(KeepZombiesArt(asset_server.load(ZOMBIES_ART), asset_server.load(DER_TEMPEL_INTRO)));
     let n = 128u32;
     for (handle, rgb) in [(VIGNETTE_IMAGE, 0u8), (GLOW_IMAGE, 255u8)] {
         let mut ring = Vec::with_capacity((n * n * 4) as usize);

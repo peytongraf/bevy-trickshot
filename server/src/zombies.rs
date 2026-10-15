@@ -1356,6 +1356,7 @@ mod tests {
                     name: "me".into(),
                     score: 0,
                     loaded: true,
+                    assets: true,
                     bot: None,
                     kills: 0,
                     perks: Vec::new(),

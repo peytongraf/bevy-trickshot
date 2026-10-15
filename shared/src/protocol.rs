@@ -1050,11 +1050,18 @@ pub struct LobbyMember {
     /// `Freestyle`: style points from bots this member has shot. `FreeForAll`:
     /// this member's kill count. Whichever the lobby's `mode` is.
     pub score: u32,
+    /// Whether this member's ready to play since the lobby last started: its
+    /// client has loaded the match's assets ([`Self::assets`]) and then —
+    /// once everyone had — played the `Zombies` intro through, if it plays
+    /// one ([`IntroFinished`]). The game waits for every member's. Reset to
+    /// `false` on `StartGame`; irrelevant, and left whatever it was, while
+    /// `Lobby::started` is `false`.
+    pub loaded: bool,
     /// Whether this member's client has finished loading the match's assets
     /// (the map, currently — see [`AssetsReady`]) since the lobby last
-    /// started. Reset to `false` on `StartGame`; irrelevant, and left
-    /// whatever it was, while `Lobby::started` is `false`.
-    pub loaded: bool,
+    /// started — what the loading screen shows. Reset with `loaded`.
+    #[serde(default)]
+    pub assets: bool,
     /// `Some` for a computer-controlled bot (`FreeForAll` only — see
     /// [`crate::bot_players`]) at that difficulty; `None` for a real player.
     /// A bot's `peer` is a fake one ([`crate::bot_players::is_bot_peer`]) with
@@ -2264,6 +2271,13 @@ pub struct StartGame;
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct AssetsReady;
 
+/// Client → server: with every member's assets in ([`AssetsReady`]), the
+/// sender's played its `Zombies` intro through (or had none to play) — it's
+/// ready to play ([`LobbyMember::loaded`]). Ignored if the sender isn't in a
+/// started lobby or hasn't loaded.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct IntroFinished;
+
 /// Client → server: the party leader ends the running game for the **whole**
 /// party ("leave with party") — the game's called off (every player entity
 /// despawned) but the lobby stays together, with the same leader and the
@@ -2434,6 +2448,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<LeaveLobby>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<StartGame>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<IntroFinished>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<AssetsReady>()
             .add_direction(NetworkDirection::ClientToServer);
