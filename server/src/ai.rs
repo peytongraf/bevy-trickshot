@@ -944,11 +944,11 @@ pub(crate) fn drive_bots(
                         entry.phase = WindowPhase::Climb {
                             from: brain.feet,
                             to: landing.with_y(floor),
-                            secs: shared::windows::CLIMB_SECS * if runs { 0.75 } else { 1.0 },
+                            secs: if runs { shared::windows::RUN_CLIMB_SECS } else { shared::windows::CLIMB_SECS },
                         };
                         entry.since = now;
                         climbing = true;
-                        ZombieAnim::WalkArmsUp
+                        if runs { ZombieAnim::ClimbRun } else { ZombieAnim::Climb }
                     } else if stunned {
                         entry.phase = WindowPhase::Tear { next_at: next_at + dt };
                         ZombieAnim::Idle
@@ -987,7 +987,7 @@ pub(crate) fn drive_bots(
                         brain.path.clear();
                         brain.repath_at = now;
                     }
-                    if runs { ZombieAnim::Run } else { ZombieAnim::WalkArmsUp }
+                    if runs { ZombieAnim::ClimbRun } else { ZombieAnim::Climb }
                 }
             };
             if brain.window.is_some() {

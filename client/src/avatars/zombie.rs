@@ -47,6 +47,10 @@ pub(crate) enum ZombieAnimState {
     /// `FallingBack` / `FallingForward`: dead, held on the last frame.
     FallBack,
     FallForward,
+    /// `Mantle`: climbing in through a window, once, in place (the server
+    /// moves it along the climb's path — `shared::windows`). Faster for a
+    /// runner.
+    Climb { run: bool },
 }
 
 impl ZombieAnimState {
@@ -59,6 +63,7 @@ impl ZombieAnimState {
             ZombieAnimState::Attack => "attack",
             ZombieAnimState::FallBack => "falling back",
             ZombieAnimState::FallForward => "falling forward",
+            ZombieAnimState::Climb { .. } => "climbing in",
         }
     }
 
@@ -81,6 +86,7 @@ pub(crate) struct ZombieAnimations {
     attack: AnimationNodeIndex,
     fall_back: AnimationNodeIndex,
     fall_forward: AnimationNodeIndex,
+    climb: AnimationNodeIndex,
 }
 
 impl ZombieAnimations {
@@ -93,6 +99,7 @@ impl ZombieAnimations {
             ZombieAnimState::Attack => self.attack,
             ZombieAnimState::FallBack => self.fall_back,
             ZombieAnimState::FallForward => self.fall_forward,
+            ZombieAnimState::Climb { .. } => self.climb,
         }
     }
 }
@@ -197,11 +204,12 @@ fn setup_zombie_assets(
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
     // `models/characters/zombie.glb`'s clips: 0 Idle, 1 Walk1_InPlace, 2 Walk_InPlace,
-    // 3 Run_InPlace, 4 Attack, 5 FallingBack, 6 FallingForward (7–9 unused).
+    // 3 Run_InPlace, 4 Attack, 5 FallingBack, 6 FallingForward, (7–9 unused,)
+    // 10 Mantle.
     let clip = |i: usize| -> Handle<AnimationClip> {
         asset_server.load(GltfAssetLabel::Animation(i).from_asset(ZOMBIE_MODEL))
     };
-    let (graph, nodes) = AnimationGraph::from_clips((0..7).map(clip));
+    let (graph, nodes) = AnimationGraph::from_clips((0..7).chain([10]).map(clip));
     commands.insert_resource(ZombieAnimations {
         graph: graphs.add(graph),
         idle: nodes[0],
@@ -211,6 +219,7 @@ fn setup_zombie_assets(
         attack: nodes[4],
         fall_back: nodes[5],
         fall_forward: nodes[6],
+        climb: nodes[7],
     });
 }
 
@@ -318,6 +327,8 @@ fn animate_zombie_avatars(
                 ZombieAnim::WalkArmsUp => ZombieAnimState::WalkArmsUp,
                 ZombieAnim::Run => ZombieAnimState::Run,
                 ZombieAnim::Attack => ZombieAnimState::Attack,
+                ZombieAnim::Climb => ZombieAnimState::Climb { run: false },
+                ZombieAnim::ClimbRun => ZombieAnimState::Climb { run: true },
                 // (A hellhound gets its own avatar — `dogs`.)
                 ZombieAnim::Idle
                 | ZombieAnim::Rising
@@ -350,12 +361,18 @@ fn animate_zombie_avatars(
         if state != motion.state {
             motion.state = state;
             let repeat = match state {
-                ZombieAnimState::FallBack | ZombieAnimState::FallForward => RepeatAnimation::Never,
+                ZombieAnimState::FallBack | ZombieAnimState::FallForward | ZombieAnimState::Climb { .. } => {
+                    RepeatAnimation::Never
+                }
                 _ => RepeatAnimation::Forever,
             };
-            transitions
+            let active = transitions
                 .play(&mut player, anims.node_for(state), blend)
                 .set_repeat(repeat);
+            // (From the top, each window — even one climbed a moment ago.)
+            if matches!(state, ZombieAnimState::Climb { .. }) {
+                active.replay();
+            }
         }
         // Every frame, so the panel's sliders and speed changes apply live.
         let speed = motion.speed;
@@ -366,6 +383,11 @@ fn animate_zombie_avatars(
             ZombieAnimState::Run => speed * settings.run_per_mps,
             ZombieAnimState::Attack => settings.attack_speed,
             ZombieAnimState::FallBack | ZombieAnimState::FallForward => settings.death_speed,
+            // (The clip is as long as a walker's climb.)
+            ZombieAnimState::Climb { run } => {
+                let secs = if run { shared::windows::RUN_CLIMB_SECS } else { shared::windows::CLIMB_SECS };
+                shared::windows::CLIMB_SECS / secs
+            }
         };
         if let Some(active) = player.animation_mut(anims.node_for(motion.state)) {
             active.set_speed(rate.max(0.01));

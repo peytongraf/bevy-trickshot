@@ -301,6 +301,11 @@ pub enum ZombieAnim {
     Run,
     /// Swinging at someone (see `crate::zombies::ZOMBIE_ATTACK_SECS`).
     Attack,
+    /// Climbing in through a window, over
+    /// [`crate::windows::CLIMB_SECS`]...
+    Climb,
+    /// ...or a runner's quicker climb ([`crate::windows::RUN_CLIMB_SECS`]).
+    ClimbRun,
     /// A dog-round hellhound (`crate::dogs`) — always running; the client
     /// matches its legs to how fast it's really going.
     Dog,

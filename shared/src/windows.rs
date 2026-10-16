@@ -51,8 +51,11 @@ pub const OUTSIDE_SPAWN_DIST: f32 = 2.5;
 pub const APPROACH_DIST: f32 = 0.55;
 /// Where it lands inside, climbing in: this far in from the wall.
 pub const LANDING_DIST: f32 = 0.8;
-/// Seconds the climb over the sill takes.
+/// Seconds the climb over the sill takes — the length of the zombie's
+/// `Mantle` clip, which is made to follow this path exactly...
 pub const CLIMB_SECS: f32 = 1.4;
+/// ...and a runner's (the clip played faster to fit).
+pub const RUN_CLIMB_SECS: f32 = CLIMB_SECS * 0.75;
 
 /// Seconds between a zombie's tears at a window's boards in round `round`
 /// — quicker every round, to a limit.

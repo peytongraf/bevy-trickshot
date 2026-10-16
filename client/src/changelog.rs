@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: zombies climb in through windows with a new animation.",
         "Zombies: bosses glow, so they stand out in a crowd.",
         "Zombies: games open with a short intro — the map, its name and your objectives, to music.",
         "Level editor: H toggles a clean view of just the map, for screenshots.",

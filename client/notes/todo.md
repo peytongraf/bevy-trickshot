@@ -24,6 +24,7 @@ height: 3m
 # Done
 
 - Boss zombie glow
+- Zombie window mantle animation
 
 # Level editor
 
@@ -49,7 +50,6 @@ height: 3m
 
 # Added
 
-- Add zombie animation for mantling through window
 - add sun flare when looking near sun on day maps
 - Add other zombie walk and attack animations
 - possibly add high and low pass filters to sounds if they are behind walls
