@@ -2099,7 +2099,7 @@ pub struct ZombieNuked {
     pub peer: PeerId,
 }
 
-/// Server → everyone in a `Zombies` lobby: a Nuke's flash just doomed these
+/// Server → everyone in a `Zombies` lobby: a Nuke just doomed these
 /// zombies — each dies within [`crate::power_ups::NUKE_KILL_SECS`]
 /// ([`ZombieNuked`]). Told ahead so no client gives them their usual death
 /// cry: a nuked zombie only screams its soul out as it burns.

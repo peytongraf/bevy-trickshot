@@ -10,10 +10,11 @@
 //!   blink, and ends with the timer end if it runs out;
 //! * [`PowerUpGrabbed`]: everyone hears the announcer line (not positional),
 //!   the one who grabbed it also hears the grab sound; Max Ammo plays its
-//!   refill and fills our ammo, a Nuke goes off once the line's said — its
-//!   flash sound, a blast where it lay and the screen whiting out
-//!   ([`NukeFlashes`]) — a Carpenter hammers away while it's at work, at
-//!   least [`CARPENTER_MIN_SECS`] ([`CarpenterHammering`]);
+//!   refill and fills our ammo, a Nuke goes off at once — its flash sound,
+//!   a blast where it lay and the screen whiting out ([`nuke_flash`]), its
+//!   announcer a beat later ([`NukeAnnouncers`]) — a Carpenter hammers
+//!   away while it's at work, at least [`CARPENTER_MIN_SECS`]
+//!   ([`CarpenterHammering`]);
 //! * Double Points and Insta-Kill tick down with their HUD icons for
 //!   everyone, ending with the timer end ([`timed_countdowns`]);
 //! * Insta-Kill / Double Points running (`Lobby::active_power_ups`): their
@@ -35,7 +36,7 @@ use bevy::render::render_resource::{
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver};
-use shared::power_ups::{PowerUp, BLINK_SECS, NUKE_FLASH_DELAY_SECS};
+use shared::power_ups::{PowerUp, BLINK_SECS, NUKE_ANNOUNCER_DELAY_SECS};
 use shared::{GameMode, Lobby, PowerUpDrop, PowerUpGrabbed};
 
 use crate::net::GameClient;
@@ -307,10 +308,10 @@ struct CarpenterHammering {
     started: f32,
 }
 
-/// Seconds (not counting pauses) till each grabbed Nuke's flash
-/// ([`NUKE_FLASH_DELAY_SECS`]), and where its drop was.
+/// Seconds (not counting pauses) till each grabbed Nuke's announcer line
+/// ([`NUKE_ANNOUNCER_DELAY_SECS`] — it flashes first).
 #[derive(Resource, Default)]
-struct NukeFlashes(Vec<(f32, Vec3)>);
+struct NukeAnnouncers(Vec<f32>);
 
 /// A Nuke's white-out over the whole screen, Call of Duty style: up fast to
 /// [`NUKE_WHITE_PEAK`], held a moment, then faded away.
@@ -375,9 +376,9 @@ impl Plugin for PowerUpsPlugin {
             ..default()
         })
         .init_resource::<PowerUpSettings>()
-        .init_resource::<NukeFlashes>()
+        .init_resource::<NukeAnnouncers>()
         .add_systems(OnEnter(AppState::InGame), spawn_timed_row)
-        .add_systems(OnExit(AppState::InGame), |mut n: ResMut<NukeFlashes>| n.0.clear())
+        .add_systems(OnExit(AppState::InGame), |mut n: ResMut<NukeAnnouncers>| n.0.clear())
         .add_systems(
             Update,
             (
@@ -386,7 +387,7 @@ impl Plugin for PowerUpsPlugin {
                 measure_drop_models,
                 apply_power_up_settings,
                 receive_grabs,
-                nuke_flashes,
+                nuke_announcers,
                 fade_nuke_whiteouts,
                 carpenter_hammering,
                 timed_countdowns,
@@ -665,9 +666,10 @@ fn apply_power_up_settings(
     }
 }
 
-/// Someone grabbed a power-up: its announcer for everyone, the grab sound
-/// for whoever it was, and Max Ammo fills our ammo — both guns, mags and
-/// all.
+/// Someone grabbed a power-up: its announcer for everyone (a Nuke's after
+/// its flash), the grab sound for whoever it was, and Max Ammo fills our
+/// ammo — both guns, mags and all.
+#[allow(clippy::too_many_arguments)]
 fn receive_grabs(
     mut receivers: Query<&mut MessageReceiver<PowerUpGrabbed>>,
     local: Query<&LocalId, With<GameClient>>,
@@ -675,13 +677,18 @@ fn receive_grabs(
     sounds: Res<GameSounds>,
     time: Res<Time>,
     mut weapon: ResMut<Weapon>,
-    mut nukes: ResMut<NukeFlashes>,
+    mut nukes: ResMut<NukeAnnouncers>,
+    mut boom: EventWriter<crate::vfx::Explosion>,
     mut hammering: Query<&mut CarpenterHammering>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            if msg.kind == PowerUp::Nuke {
+                nuke_flash(&mut commands, &sounds, &mut boom, msg.pos);
+                nukes.0.push(NUKE_ANNOUNCER_DELAY_SECS);
+            }
             let announcer = match msg.kind {
                 PowerUp::MaxAmmo => &sounds.power_up_max_ammo,
                 PowerUp::InstaKill => &sounds.power_up_insta_kill,
@@ -690,11 +697,13 @@ fn receive_grabs(
                 PowerUp::BonusPoints => &sounds.power_up_bonus_points,
                 PowerUp::Carpenter => &sounds.power_up_carpenter,
             };
-            commands.spawn((
-                StateScoped(AppState::InGame),
-                AudioPlayer::new(announcer.clone()),
-                PlaybackSettings::DESPAWN,
-            ));
+            if msg.kind != PowerUp::Nuke {
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    AudioPlayer::new(announcer.clone()),
+                    PlaybackSettings::DESPAWN,
+                ));
+            }
             if Some(msg.by) == me {
                 commands.spawn((
                     StateScoped(AppState::InGame),
@@ -710,7 +719,6 @@ fn receive_grabs(
                         PlaybackSettings::DESPAWN,
                     ));
                 }
-                PowerUp::Nuke => nukes.0.push((NUKE_FLASH_DELAY_SECS, msg.pos)),
                 PowerUp::Carpenter => {
                     // (Another while one's at work: the hammering goes on.)
                     let now = time.elapsed_secs();
@@ -750,56 +758,69 @@ fn receive_grabs(
     }
 }
 
-/// Each grabbed Nuke going off, once the announcer's said it — when its
-/// first zombie catches fire (`server::power_ups::fire_nukes`): its flash
-/// sound, a big blast where the drop was (`vfx::Explosion`, just a look)
-/// and the screen whiting out.
-fn nuke_flashes(
+/// Each grabbed Nuke's announcer line, once it's due.
+fn nuke_announcers(
     time: Res<Time>,
     paused: Res<crate::pause::GamePaused>,
     sounds: Res<GameSounds>,
-    mut nukes: ResMut<NukeFlashes>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut nukes: ResMut<NukeAnnouncers>,
     mut commands: Commands,
 ) {
     if nukes.0.is_empty() || paused.0 {
         return;
     }
     let dt = time.delta_secs();
-    nukes.0.retain_mut(|(left, at)| {
+    nukes.0.retain_mut(|left| {
         *left -= dt;
         if *left > 0.0 {
             return true;
         }
         commands.spawn((
             StateScoped(AppState::InGame),
-            AudioPlayer::new(sounds.nuke_flash.clone()),
+            AudioPlayer::new(sounds.power_up_nuke.clone()),
             PlaybackSettings::DESPAWN,
-        ));
-        boom.write(crate::vfx::Explosion {
-            feet: *at,
-            variant: 0,
-            phd: false,
-            dog: false,
-            boss: false,
-            frag: false,
-            nuke: true,
-        });
-        commands.spawn((
-            StateScoped(AppState::InGame),
-            NukeWhiteout { age: 0.0 },
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            },
-            BackgroundColor(Color::WHITE.with_alpha(0.0)),
-            GlobalZIndex(40),
-            Pickable::IGNORE,
         ));
         false
     });
+}
+
+/// A Nuke going off, the moment it's grabbed: its flash sound, a big blast
+/// where the drop was (`vfx::Explosion`, just a look) and the screen
+/// whiting out. Its zombies start burning a moment later
+/// (`server::power_ups::fire_nukes`).
+fn nuke_flash(
+    commands: &mut Commands,
+    sounds: &GameSounds,
+    boom: &mut EventWriter<crate::vfx::Explosion>,
+    at: Vec3,
+) {
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        AudioPlayer::new(sounds.nuke_flash.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
+    boom.write(crate::vfx::Explosion {
+        feet: at,
+        variant: 0,
+        phd: false,
+        dog: false,
+        boss: false,
+        frag: false,
+        nuke: true,
+    });
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        NukeWhiteout { age: 0.0 },
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        BackgroundColor(Color::WHITE.with_alpha(0.0)),
+        GlobalZIndex(40),
+        Pickable::IGNORE,
+    ));
 }
 
 /// Fade each Nuke white-out up, hold it and fade it away.

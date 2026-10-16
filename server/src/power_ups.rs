@@ -9,8 +9,9 @@
 //! the lobby, and Max Ammo's refill, which each client does itself on
 //! [`PowerUpGrabbed`] (ammo is client-side).
 //!
-//! A Nuke doesn't kill at once: each zombie up gets a [`NukeDeath`] — a
-//! random moment within [`NUKE_KILL_SECS`] — and [`run_nuke_deaths`] drops
+//! A Nuke doesn't kill at once: [`NUKE_KILL_DELAY_SECS`] after the grab
+//! each zombie up gets a [`NukeDeath`] — a random moment within
+//! [`NUKE_KILL_SECS`] — and [`run_nuke_deaths`] drops
 //! them one by one, telling every client ([`ZombieNuked`]) to set the body
 //! alight.
 //!
@@ -36,7 +37,7 @@ use shared::bot_players::is_bot_peer;
 use shared::map::CollisionWorld;
 use shared::power_ups::{
     drop_spot, in_pickup_range, roll, PowerUp, BLINK_SECS, BONUS_POINTS, CARPENTER_BOARD_SECS, CARPENTER_POINTS,
-    DROP_LIFETIME_SECS, NUKE_FLASH_DELAY_SECS, NUKE_KILL_SECS, NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
+    DROP_LIFETIME_SECS, NUKE_KILL_DELAY_SECS, NUKE_KILL_SECS, NUKE_POINTS, NUKE_SPAWN_PAUSE_SECS, TIMED_SECS,
 };
 use shared::{
     DropPowerUp, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, PowerUpDrop, PowerUpGrabbed, ScoreLine,
@@ -86,9 +87,9 @@ struct CarpenterJob {
     owed: u32,
 }
 
-/// Nukes grabbed but not yet gone off: each lobby's seconds (not counting
-/// pauses) till its flash ([`NUKE_FLASH_DELAY_SECS`]), and where the drop
-/// was — [`fire_nukes`].
+/// Nukes grabbed whose zombies haven't started dying yet: each lobby's
+/// seconds (not counting pauses) till they do ([`NUKE_KILL_DELAY_SECS`]),
+/// and where the drop was — [`fire_nukes`].
 #[derive(Resource, Default)]
 struct PendingNukes(HashMap<Entity, (f32, Vec3)>);
 
@@ -349,15 +350,15 @@ fn run_power_ups(
             // Ammo is client-side: every client fills its own on the message.
             PowerUp::MaxAmmo => {}
             PowerUp::Nuke => {
-                // It goes off once the announcer's said it (`fire_nukes`) —
+                // Its zombies start dying a moment later (`fire_nukes`) —
                 // a second one before then changes nothing.
-                nukes.0.entry(lobby_e).or_insert((NUKE_FLASH_DELAY_SECS, drop.pos));
+                nukes.0.entry(lobby_e).or_insert((NUKE_KILL_DELAY_SECS, drop.pos));
                 // No more rise till they've dropped (if the round goes on at
                 // all — clearing it starts the usual break instead).
                 if let Some(mut rounds) = rounds {
                     rounds.next_spawn_at = rounds
                         .next_spawn_at
-                        .max(now + NUKE_FLASH_DELAY_SECS + NUKE_SPAWN_PAUSE_SECS);
+                        .max(now + NUKE_KILL_DELAY_SECS + NUKE_SPAWN_PAUSE_SECS);
                 }
                 let points = if double { NUKE_POINTS * 2 } else { NUKE_POINTS };
                 let everyone: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
@@ -475,7 +476,7 @@ fn run_carpenters(
 
 /// Set off each Nuke whose moment's come (holding still while its game is
 /// paused or ending): every zombie up is doomed, each dying at its own
-/// random moment over the next few seconds (`run_nuke_deaths`). One already
+/// random moment over the next [`NUKE_KILL_SECS`] (`run_nuke_deaths`). One already
 /// doomed by an earlier Nuke keeps its moment. Games that aren't running
 /// forget theirs.
 #[allow(clippy::type_complexity)]
@@ -516,8 +517,8 @@ fn fire_nukes(
             .iter()
             .filter(|(_, _, lp, combat, already)| lp.lobby == lobby_e && combat.alive && !already)
             .collect();
-        // The one nearest where it went off burns with the flash; the rest
-        // at random moments over the next few seconds.
+        // The one nearest where it went off burns first, at once; the rest
+        // at random moments after.
         let first = victims
             .iter()
             .min_by(|a, b| {

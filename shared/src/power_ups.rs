@@ -6,11 +6,12 @@
 //! * **Max Ammo** — everyone's ammo (sniper, throwing knives and any molotovs) full.
 //! * **Insta-Kill** — any hit kills a zombie, for [`TIMED_SECS`].
 //! * **Double Points** — zombie kills score double, for [`TIMED_SECS`].
-//! * **Nuke** — once the announcer's said it ([`NUKE_FLASH_DELAY_SECS`],
-//!   when its flash goes off) every zombie up dies, each at a random moment
-//!   within [`NUKE_KILL_SECS`] (bursting into flames); everyone gets
-//!   [`NUKE_POINTS`], and no more rise till [`NUKE_SPAWN_PAUSE_SECS`] after
-//!   the flash.
+//! * **Nuke** — its flash goes off the moment it's grabbed, the announcer
+//!   a beat later ([`NUKE_ANNOUNCER_DELAY_SECS`]); [`NUKE_KILL_DELAY_SECS`]
+//!   after the grab every zombie up starts dying, each at a random moment
+//!   within [`NUKE_KILL_SECS`] (bursting into flames) — Cold War's timing.
+//!   Everyone gets [`NUKE_POINTS`], and no more rise till
+//!   [`NUKE_SPAWN_PAUSE_SECS`] after the first dies.
 //! * **Bonus Points** — [`BONUS_POINTS`] for whoever grabbed it.
 //! * **Carpenter** — every window's boards go back up, nearest window to the
 //!   drop first, a board every [`CARPENTER_BOARD_SECS`]; once they're all up
@@ -59,12 +60,14 @@ pub const CARPENTER_BOARD_SECS: f32 = 0.12;
 /// A Carpenter only drops with at least this many boards down across all the
 /// map's windows — a whole window's worth.
 pub const CARPENTER_MIN_TORN: u32 = crate::windows::BOARDS as u32;
-/// Seconds from grabbing a Nuke to its flash — the announcer's line first —
-/// when its zombies start to die.
-pub const NUKE_FLASH_DELAY_SECS: f32 = 2.0;
-/// A Nuke's zombies die one by one, each at a random moment within this
-/// long (s) of its flash.
-pub const NUKE_KILL_SECS: f32 = 5.0;
+/// A Nuke flashes the moment it's grabbed; its announcer line starts this
+/// long (s) after.
+pub const NUKE_ANNOUNCER_DELAY_SECS: f32 = 0.65;
+/// Seconds from grabbing a Nuke to its first zombie dying...
+pub const NUKE_KILL_DELAY_SECS: f32 = 2.2;
+/// ...and the rest die one by one, each at a random moment within this long
+/// (s) of the first.
+pub const NUKE_KILL_SECS: f32 = 1.5;
 /// After a Nuke, no zombie rises for this long (s) — the whole time its
 /// zombies are still dropping — unless it ended the round, whose own break
 /// then follows.
@@ -114,9 +117,11 @@ impl PowerUp {
         }
     }
 
-    /// How long (s) its announcer line (`audio/zombies/power_ups/<name>.mp3`)
-    /// talks for, and a breath after — an operator's quote about it waits
-    /// this long, so the two don't talk over each other.
+    /// How long (s) from the grab its announcer line
+    /// (`audio/zombies/power_ups/<name>.mp3`) is done talking, and a breath
+    /// after — an operator's quote about it waits this long, so the two
+    /// don't talk over each other. (A Nuke's line starts late,
+    /// [`NUKE_ANNOUNCER_DELAY_SECS`].)
     pub fn announcer_secs(self) -> f32 {
         const BREATH: f32 = 0.4;
         BREATH
@@ -124,7 +129,7 @@ impl PowerUp {
                 PowerUp::MaxAmmo => 2.64,
                 PowerUp::InstaKill => 2.69,
                 PowerUp::DoublePoints => 2.24,
-                PowerUp::Nuke => 1.87,
+                PowerUp::Nuke => NUKE_ANNOUNCER_DELAY_SECS + 1.87,
                 PowerUp::BonusPoints => 3.19,
                 PowerUp::Carpenter => 1.68,
             }
