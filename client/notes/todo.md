@@ -50,18 +50,18 @@ height: 3m
 
 # Added
 
-- add sun flare when looking near sun on day maps
+- Add sun flare when looking near sun on day maps
 - Add other zombie walk and attack animations
-- possibly add high and low pass filters to sounds if they are behind walls
+- Possibly add high and low pass filters to sounds if they are behind walls
 - Could use exported eleven labs audio for radio then add distortion and high pass filter to it
-- add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
+- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
 - need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
 - Could add a text near the top compass that shows the name of the curent zone
 - Add ability to add more power lights to a map
 - On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
 - Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
-- mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
-- look into using different footstep sounds based on surface
+- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
+- Look into using different footstep sounds based on surface
 
 # Asset todo
 
@@ -69,8 +69,7 @@ height: 3m
 - add red lights in tomb
 - Add more fire pits
 - Make a better blood overlay
-- could update pap camos
-- Add underground connection where speed color is to other parts of the map
+- Could update pap camos
 - Finish other side of map but could keep it dark to keep fog look or at least allow the player to go out in the fog for something like a trap
 
 # Performance
