@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Zombies: power-ups burn with green fire and stand in a column of light.",
         "Zombies: power-ups wobble slowly as they spin.",
         "Zombies: power-ups shine like polished dark gold.",
         "Zombies: the Nuke flashes the moment it's grabbed, and its zombies die quicker.",

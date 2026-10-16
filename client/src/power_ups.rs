@@ -6,7 +6,12 @@
 //!   a green glow ([`PowerUpGlowMaterial`], `assets/shaders/power_up_glow.wgsl`)
 //!   — the gold polished with a made-up studio reflection and a bright rim
 //!   ([`GoldShine`], `assets/shaders/power_up_gold.wgsl`), the game having
-//!   no reflections of its own for it to shine with
+//!   no reflections of its own for it to shine with — and, Cold War style,
+//!   bursts of green fire drawn in to it from all round and wisps of smoke
+//!   drifting away ([`DropPuff`], `assets/shaders/power_up_puff.wgsl`), all
+//!   of it standing in a column of streaked green light with thin strands of
+//!   energy hanging from it ([`DropColumn`],
+//!   `assets/shaders/power_up_column.wgsl`)
 //!   with a green light under it, and its loop sound playing from it
 //!   (positional, faded by distance) after the spawn sound; it blinks once
 //!   the server says it's about to go, slowly then quicker, ticking each
@@ -51,8 +56,10 @@ use crate::{
 
 const SHADER_ASSET_PATH: &str = "shaders/power_up_glow.wgsl";
 const GOLD_SHADER_ASSET_PATH: &str = "shaders/power_up_gold.wgsl";
+const PUFF_SHADER_ASSET_PATH: &str = "shaders/power_up_puff.wgsl";
+const COLUMN_SHADER_ASSET_PATH: &str = "shaders/power_up_column.wgsl";
 
-use params::{GlowParams, GoldShineParams};
+use params::{ColumnParams, GlowParams, GoldShineParams, PuffParams};
 
 // Own module only so the allow covers the unused per-field layout checks
 // `ShaderType`'s derive generates next to the struct (as in `shroom_xray`).
@@ -89,6 +96,98 @@ mod params {
         pub(crate) rim: f32,
         pub(crate) rim_power: f32,
         pub(crate) detail: f32,
+    }
+
+    /// Mirrors `PuffParams` in `power_up_puff.wgsl`.
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(crate) struct PuffParams {
+        pub(crate) color: Vec4,
+        pub(crate) age: f32,
+        pub(crate) seed: f32,
+        pub(crate) smoke: f32,
+        pub(crate) heat: f32,
+        pub(crate) model: Vec4,
+    }
+
+    /// Mirrors `ColumnParams` in `power_up_column.wgsl`.
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(crate) struct ColumnParams {
+        pub(crate) color: Vec4,
+        pub(crate) streaks: f32,
+        pub(crate) flow: f32,
+        pub(crate) strands: f32,
+        pub(crate) model_at: f32,
+    }
+}
+
+/// A camera-facing (or, the column, upright) quad drawn additively that
+/// never writes depth: both faces, depth-tested where it is.
+fn additive_quad(descriptor: &mut RenderPipelineDescriptor) {
+    descriptor.primitive.cull_mode = None;
+    if let Some(depth) = descriptor.depth_stencil.as_mut() {
+        depth.depth_write_enabled = false;
+    }
+}
+
+/// One burst of fire or wisp of smoke off a drop ([`DropPuff`]).
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct PowerUpPuffMaterial {
+    #[uniform(0)]
+    params: PuffParams,
+}
+
+impl Material for PowerUpPuffMaterial {
+    fn vertex_shader() -> ShaderRef {
+        PUFF_SHADER_ASSET_PATH.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        PUFF_SHADER_ASSET_PATH.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        additive_quad(descriptor);
+        Ok(())
+    }
+}
+
+/// The column of light every drop stands in ([`DropColumn`]).
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct PowerUpColumnMaterial {
+    #[uniform(0)]
+    params: ColumnParams,
+}
+
+impl Material for PowerUpColumnMaterial {
+    fn vertex_shader() -> ShaderRef {
+        COLUMN_SHADER_ASSET_PATH.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        COLUMN_SHADER_ASSET_PATH.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        additive_quad(descriptor);
+        Ok(())
     }
 }
 
@@ -225,6 +324,31 @@ pub(crate) struct PowerUpSettings {
     /// the model covers the glow — positive starts letting it over the
     /// model's back).
     pub(crate) glow_depth_pull: f32,
+    /// Bursts of green fire drawn in to the model: how many a
+    /// second, how big (m), how long each lasts (s), how bright, and how
+    /// white-hot their middles burn.
+    pub(crate) puff_rate: f32,
+    pub(crate) puff_size: f32,
+    pub(crate) puff_life: f32,
+    pub(crate) puff_brightness: f32,
+    pub(crate) puff_heat: f32,
+    /// How far (m) off the surface they're born, before being drawn in.
+    pub(crate) puff_spawn_dist: f32,
+    /// Wisps of green smoke drifting off it: how many a second, how big
+    /// (m), how long each lasts (s) and how bright.
+    pub(crate) smoke_rate: f32,
+    pub(crate) smoke_size: f32,
+    pub(crate) smoke_life: f32,
+    pub(crate) smoke_brightness: f32,
+    /// The column of light it stands in: brightness, width (m), how far it
+    /// reaches past the model's middle (m), how streaked and how fast the
+    /// streaks flow, and how bright the strands hanging under it are.
+    pub(crate) column_brightness: f32,
+    pub(crate) column_width: f32,
+    pub(crate) column_above: f32,
+    pub(crate) column_streaks: f32,
+    pub(crate) column_flow: f32,
+    pub(crate) column_strands: f32,
     /// The green light under it: lumens and range (m).
     pub(crate) light_lumens: f32,
     pub(crate) light_range: f32,
@@ -270,6 +394,22 @@ impl Default for PowerUpSettings {
             glow_pull: 0.0,
             glow_core: 0.26,
             glow_depth_pull: -0.3,
+            puff_rate: 22.0,
+            puff_size: 0.45,
+            puff_life: 0.25,
+            puff_brightness: 5.0,
+            puff_heat: 0.63,
+            puff_spawn_dist: 0.1,
+            smoke_rate: 6.0,
+            smoke_size: 0.5,
+            smoke_life: 1.3,
+            smoke_brightness: 6.0,
+            column_brightness: 6.0,
+            column_width: 1.6,
+            column_above: 0.9,
+            column_streaks: 0.8,
+            column_flow: 0.25,
+            column_strands: 2.5,
             light_lumens: 10_000.0,
             light_range: 4.7,
             blink_hz: 4.0,
@@ -305,6 +445,35 @@ impl PowerUpSettings {
         }
     }
 
+    /// The glow's green, linear.
+    fn green(&self) -> Vec3 {
+        let [r, g, b] = self.glow_color;
+        let lin = Color::srgb(r, g, b).to_linear();
+        Vec3::new(lin.red, lin.green, lin.blue)
+    }
+
+    /// The column's height (m, ground to top).
+    fn column_height(&self) -> f32 {
+        (self.height + self.column_above).max(0.1)
+    }
+
+    fn column(&self) -> ColumnParams {
+        ColumnParams {
+            color: self.green().extend(self.column_brightness),
+            streaks: self.column_streaks,
+            flow: self.column_flow,
+            strands: self.column_strands,
+            model_at: (self.height / self.column_height()).clamp(0.0, 1.0),
+        }
+    }
+
+    /// Where the column stands and its size; its z scale carries the
+    /// model's bounding `radius` to the shader.
+    fn column_transform(&self, radius: f32) -> Transform {
+        let h = self.column_height();
+        Transform::from_xyz(0.0, h * 0.5, 0.0).with_scale(Vec3::new(self.column_width.max(0.01), h, radius.max(0.01)))
+    }
+
     fn gold(&self, m: &mut GoldMaterial) {
         let [r, g, b] = self.gold_color;
         let c = Color::srgb(r, g, b);
@@ -338,10 +507,11 @@ impl PowerUpSettings {
 }
 
 /// The shared assets every avatar uses (built on first use).
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct PowerUpAssets {
     gold: Handle<GoldMaterial>,
     glow: Handle<PowerUpGlowMaterial>,
+    column: Handle<PowerUpColumnMaterial>,
     quad: Handle<Mesh>,
 }
 
@@ -359,6 +529,34 @@ struct DropAvatar {
     blink_phase: f32,
     /// Shown last frame (to tick as it blinks back on).
     lit: bool,
+    /// Fire bursts / smoke wisps owed (fractions carried over), and its own
+    /// running random seed for where they come from.
+    owed: [f32; 2],
+    seed: u32,
+    /// Its model's middle (what it spins about) and bounding radius, as
+    /// last measured — no effect draws in front of the model
+    /// ([`measure_drop_models`]).
+    middle: Vec3,
+    radius: f32,
+}
+
+/// The column of light a drop stands in (under its avatar, not spinning).
+#[derive(Component)]
+struct DropColumn;
+
+/// A burst of fire or wisp of smoke off a drop — on its own, left where it
+/// came off the model, drifting.
+#[derive(Component)]
+struct DropPuff {
+    /// The drop it came off (its model's never drawn over).
+    avatar: Entity,
+    vel: Vec3,
+    /// 0 at birth … 1 when it's gone.
+    age: f32,
+    life: f32,
+    size: f32,
+    smoke: bool,
+    material: Handle<PowerUpPuffMaterial>,
 }
 
 /// Blinks a second `blink_age` seconds into a drop's blinking: slow for the
@@ -457,6 +655,16 @@ pub(crate) struct PowerUpsPlugin;
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<GoldMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpPuffMaterial> {
+            prepass_enabled: false,
+            shadows_enabled: false,
+            ..default()
+        })
+        .add_plugins(MaterialPlugin::<PowerUpColumnMaterial> {
+            prepass_enabled: false,
+            shadows_enabled: false,
+            ..default()
+        })
         .add_plugins(MaterialPlugin::<PowerUpGlowMaterial> {
             prepass_enabled: false,
             shadows_enabled: false,
@@ -474,6 +682,8 @@ impl Plugin for PowerUpsPlugin {
                 measure_drop_models,
                 apply_power_up_settings,
                 receive_grabs,
+                emit_drop_puffs,
+                update_drop_puffs,
                 nuke_announcers,
                 fade_nuke_whiteouts,
                 carpenter_hammering,
@@ -491,10 +701,11 @@ fn assets(
     settings: &PowerUpSettings,
     gold_materials: &mut Assets<GoldMaterial>,
     glow_materials: &mut Assets<PowerUpGlowMaterial>,
+    column_materials: &mut Assets<PowerUpColumnMaterial>,
     meshes: &mut Assets<Mesh>,
-) -> (Handle<GoldMaterial>, Handle<PowerUpGlowMaterial>, Handle<Mesh>) {
+) -> PowerUpAssets {
     if let Some(a) = have {
-        return (a.gold.clone(), a.glow.clone(), a.quad.clone());
+        return (**a).clone();
     }
     let mut gold = GoldMaterial {
         base: StandardMaterial::default(),
@@ -508,11 +719,13 @@ fn assets(
         glow: glow_materials.add(PowerUpGlowMaterial {
             params: settings.glow(),
         }),
+        column: column_materials.add(PowerUpColumnMaterial {
+            params: settings.column(),
+        }),
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
     };
-    let out = (a.gold.clone(), a.glow.clone(), a.quad.clone());
-    commands.insert_resource(a);
-    out
+    commands.insert_resource(a.clone());
+    a
 }
 
 /// An avatar for every drop that hasn't one; drop the avatars whose drop is
@@ -527,6 +740,7 @@ fn sync_drop_avatars(
     asset_server: Res<AssetServer>,
     mut gold_materials: ResMut<Assets<GoldMaterial>>,
     mut glow_materials: ResMut<Assets<PowerUpGlowMaterial>>,
+    mut column_materials: ResMut<Assets<PowerUpColumnMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
 ) {
@@ -554,12 +768,13 @@ fn sync_drop_avatars(
             Transform::from_translation(drop.pos + Vec3::Y * settings.height),
             crate::positional_playback(Volume::Linear(1.0)),
         ));
-        let (_, glow, quad) = assets(
+        let PowerUpAssets { glow, column, quad, .. } = assets(
             &mut commands,
             &have,
             &settings,
             &mut gold_materials,
             &mut glow_materials,
+            &mut column_materials,
             &mut meshes,
         );
         let (path, centre) = model(drop.kind);
@@ -573,6 +788,10 @@ fn sync_drop_avatars(
                     blink_age: 0.0,
                     blink_phase: 0.0,
                     lit: true,
+                    owed: [0.0; 2],
+                    seed: src.to_bits() as u32 ^ (src.to_bits() >> 32) as u32,
+                    middle: drop.pos + Vec3::Y * settings.height,
+                    radius: FALLBACK_MODEL_RADIUS,
                 },
                 Transform::from_translation(drop.pos),
                 Visibility::default(),
@@ -591,7 +810,7 @@ fn sync_drop_avatars(
                             .observe(gild_model);
                         spinner.spawn((
                             DropGlow,
-                            Mesh3d(quad),
+                            Mesh3d(quad.clone()),
                             MeshMaterial3d(glow),
                             Transform::from_scale(Vec3::splat(FALLBACK_MODEL_RADIUS)),
                             NoFrustumCulling,
@@ -609,6 +828,16 @@ fn sync_drop_avatars(
                             Transform::default(),
                         ));
                     });
+                // The column of light it stands in (not spinning or bobbing
+                // with the model).
+                avatar.spawn((
+                    DropColumn,
+                    Mesh3d(quad.clone()),
+                    MeshMaterial3d(column),
+                    settings.column_transform(FALLBACK_MODEL_RADIUS),
+                    NoFrustumCulling,
+                    NotShadowCaster,
+                ));
                 // (Faded by distance by its profile in the mix.)
                 avatar.spawn((
                     DropLoop,
@@ -620,18 +849,26 @@ fn sync_drop_avatars(
     }
 }
 
-/// Keep each glow's [`DropGlow`] radius at its model's bounding radius about
-/// the spin centre — measured off the model's meshes as they are (so a scale
-/// change in the panel follows; the spin doesn't change it).
+/// Keep each drop's model's bounding radius about the spin centre — measured
+/// off the model's meshes as they are (so a scale change in the panel
+/// follows; the spin doesn't change it) — and its middle, where every
+/// effect needs them so none draws in front of the model: on its glow
+/// ([`DropGlow`]) and column ([`DropColumn`]) transforms, and its avatar
+/// (for its fire and smoke).
+#[allow(clippy::type_complexity)]
 fn measure_drop_models(
-    spinners: Query<(&GlobalTransform, &Children), With<DropSpinner>>,
+    spinners: Query<(&GlobalTransform, &Children, &ChildOf), With<DropSpinner>>,
     models: Query<(), With<DropModel>>,
     children: Query<&Children>,
     meshes: Query<(&bevy::render::primitives::Aabb, &GlobalTransform)>,
-    mut glows: Query<&mut Transform, With<DropGlow>>,
+    mut glows: Query<&mut Transform, (With<DropGlow>, Without<DropColumn>)>,
+    mut columns: Query<&mut Transform, (With<DropColumn>, Without<DropGlow>)>,
+    mut avatars: Query<(&mut DropAvatar, &Children)>,
 ) {
-    for (spinner_gt, kids) in &spinners {
+    for (spinner_gt, kids, parent) in &spinners {
         let centre = spinner_gt.translation();
+        let Ok((mut avatar, avatar_kids)) = avatars.get_mut(parent.parent()) else { continue };
+        avatar.middle = centre;
         let mut radius: Option<f32> = None;
         for model in kids.iter().filter(|&k| models.contains(k)) {
             for e in children.iter_descendants(model) {
@@ -649,11 +886,20 @@ fn measure_drop_models(
             }
         }
         let Some(radius) = radius else { continue };
+        let radius = radius.max(0.01);
+        avatar.radius = radius;
         for glow in kids.iter() {
             if let Ok(mut tf) = glows.get_mut(glow) {
-                let want = Vec3::splat(radius.max(0.01));
+                let want = Vec3::splat(radius);
                 if tf.scale != want {
                     tf.scale = want;
+                }
+            }
+        }
+        for column in avatar_kids.iter() {
+            if let Ok(mut tf) = columns.get_mut(column) {
+                if tf.scale.z != radius {
+                    tf.scale.z = radius;
                 }
             }
         }
@@ -738,8 +984,10 @@ fn apply_power_up_settings(
     assets: Option<Res<PowerUpAssets>>,
     mut gold_materials: ResMut<Assets<GoldMaterial>>,
     mut glow_materials: ResMut<Assets<PowerUpGlowMaterial>>,
+    mut column_materials: ResMut<Assets<PowerUpColumnMaterial>>,
     mut lights: Query<&mut PointLight, With<DropLight>>,
-    mut models: Query<(&DropModel, &mut Transform)>,
+    mut models: Query<(&DropModel, &mut Transform), Without<DropColumn>>,
+    mut columns: Query<&mut Transform, (With<DropColumn>, Without<DropModel>)>,
 ) {
     if !settings.is_changed() {
         return;
@@ -754,6 +1002,15 @@ fn apply_power_up_settings(
                 m.params = want;
             }
         }
+        let want = settings.column();
+        if column_materials.get(&a.column).is_some_and(|m| m.params != want) {
+            if let Some(m) = column_materials.get_mut(&a.column) {
+                m.params = want;
+            }
+        }
+    }
+    for mut tf in &mut columns {
+        *tf = settings.column_transform(tf.scale.z);
     }
     for mut light in &mut lights {
         light.color = settings.light_color();
@@ -764,6 +1021,164 @@ fn apply_power_up_settings(
         let scale = settings.scale(m.0);
         tf.translation = -model(m.0).1 * scale;
         tf.scale = Vec3::splat(scale);
+    }
+}
+
+/// Each shown drop's bursts of green fire — each born a little way out from
+/// a random point on the model's own mesh and drawn in toward the model's
+/// middle, burning out as it reaches it, Cold War style — and wisps of
+/// smoke drifting off its surface. Off the real mesh, so they hug its shape
+/// however it's turned (none while it's blinked off or the game's paused).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn emit_drop_puffs(
+    time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
+    settings: Res<PowerUpSettings>,
+    have: Option<Res<PowerUpAssets>>,
+    mut avatars: Query<(Entity, &mut DropAvatar)>,
+    children: Query<&Children>,
+    spinners: Query<&GlobalTransform, With<DropSpinner>>,
+    shapes: Query<(&Mesh3d, &GlobalTransform), With<MeshMaterial3d<GoldMaterial>>>,
+    meshes: Res<Assets<Mesh>>,
+    mut puff_materials: ResMut<Assets<PowerUpPuffMaterial>>,
+    mut commands: Commands,
+) {
+    let Some(assets) = have else { return };
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
+    if dt <= 0.0 {
+        return;
+    }
+    let s = &*settings;
+    let green = s.green();
+    for (avatar_e, mut avatar) in &mut avatars {
+        if !avatar.lit {
+            continue;
+        }
+        let parts: Vec<_> = children
+            .iter_descendants(avatar_e)
+            .filter_map(|e| shapes.get(e).ok())
+            .filter_map(|(mesh, gt)| {
+                let positions = meshes.get(&mesh.0)?.attribute(Mesh::ATTRIBUTE_POSITION)?.as_float3()?;
+                (!positions.is_empty()).then_some((mesh, gt))
+            })
+            .collect();
+        if parts.is_empty() {
+            continue;
+        }
+        // (The model's middle: what it spins about.)
+        let Some(middle) = children
+            .iter_descendants(avatar_e)
+            .find_map(|e| spinners.get(e).ok())
+            .map(|g| g.translation())
+        else {
+            continue;
+        };
+        for (kind, rate) in [(0, s.puff_rate), (1, s.smoke_rate)] {
+            avatar.owed[kind] += rate.max(0.0) * dt;
+            while avatar.owed[kind] >= 1.0 {
+                avatar.owed[kind] -= 1.0;
+                let mut roll = || {
+                    avatar.seed = avatar.seed.wrapping_add(0x9E37_79B9);
+                    crate::util::rand01(avatar.seed)
+                };
+                let (mesh, gt) = parts[((roll() * parts.len() as f32) as usize).min(parts.len() - 1)];
+                let Some(mesh) = meshes.get(&mesh.0) else { continue };
+                let Some(positions) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()) else {
+                    continue;
+                };
+                let i = ((roll() * positions.len() as f32) as usize).min(positions.len() - 1);
+                let at = gt.transform_point(Vec3::from_array(positions[i]));
+                let out = mesh
+                    .attribute(Mesh::ATTRIBUTE_NORMAL)
+                    .and_then(|a| a.as_float3())
+                    .and_then(|n| n.get(i))
+                    .map(|n| gt.affine().transform_vector3(Vec3::from_array(*n)).normalize_or_zero())
+                    .unwrap_or(Vec3::Y);
+                let smoke = kind == 1;
+                let (size, life, brightness) = if smoke {
+                    (s.smoke_size, s.smoke_life, s.smoke_brightness)
+                } else {
+                    (s.puff_size, s.puff_life, s.puff_brightness)
+                };
+                let size = size * (0.7 + 0.6 * roll());
+                let seed = roll();
+                let life = (life * (0.75 + 0.5 * roll())).max(0.05);
+                // Fire is born out off the surface and drawn in toward the
+                // middle, reaching the surface about as it burns out; smoke
+                // drifts off the surface and up.
+                let (from, vel) = if smoke {
+                    (at + out * size * 0.25, out * (0.15 + 0.2 * roll()) + Vec3::Y * (0.25 + 0.25 * roll()))
+                } else {
+                    let away = s.puff_spawn_dist * (0.6 + 0.8 * roll());
+                    let from = at + out * away;
+                    let inward = (middle - from).normalize_or(-out);
+                    (from, inward * away / life)
+                };
+                let material = puff_materials.add(PowerUpPuffMaterial {
+                    params: PuffParams {
+                        color: green.extend(brightness),
+                        age: 0.0,
+                        seed,
+                        smoke: if smoke { 1.0 } else { 0.0 },
+                        heat: s.puff_heat,
+                        model: avatar.middle.extend(avatar.radius),
+                    },
+                });
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    DropPuff {
+                        avatar: avatar_e,
+                        vel,
+                        age: 0.0,
+                        life,
+                        size,
+                        smoke,
+                        material: material.clone(),
+                    },
+                    Mesh3d(assets.quad.clone()),
+                    MeshMaterial3d(material),
+                    Transform::from_translation(from).with_scale(Vec3::splat(size * 0.7)),
+                    NoFrustumCulling,
+                    NotShadowCaster,
+                ));
+            }
+        }
+    }
+}
+
+/// Age, drift and grow every fire burst and smoke wisp, and clear each (and
+/// its material) once it's burnt out.
+fn update_drop_puffs(
+    time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
+    mut puffs: Query<(Entity, &mut DropPuff, &mut Transform)>,
+    avatars: Query<&DropAvatar>,
+    mut puff_materials: ResMut<Assets<PowerUpPuffMaterial>>,
+    mut commands: Commands,
+) {
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
+    for (e, mut puff, mut tf) in &mut puffs {
+        puff.age += dt / puff.life;
+        if puff.age >= 1.0 {
+            puff_materials.remove(&puff.material);
+            commands.entity(e).despawn();
+            continue;
+        }
+        // (Fire's drawn in steadily; smoke slows as it drifts.)
+        if puff.smoke {
+            puff.vel *= (-dt * 0.8).exp();
+        }
+        tf.translation += puff.vel * dt;
+        let grow = if puff.smoke { 0.6 + 0.9 * puff.age } else { 0.7 + 0.5 * puff.age };
+        tf.scale = Vec3::splat(puff.size * grow);
+        if let Some(m) = puff_materials.get_mut(&puff.material) {
+            m.params.age = puff.age;
+            // (Its model bobs and its size can change; one whose drop's
+            // gone keeps the last.)
+            if let Ok(a) = avatars.get(puff.avatar) {
+                m.params.model = a.middle.extend(a.radius);
+            }
+        }
     }
 }
 

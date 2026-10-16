@@ -1765,6 +1765,25 @@ pub(crate) fn ads_tuning_ui(
                     egui::Slider::new(&mut p.glow_depth_pull, -1.0f32..=1.0)
                         .text("depth-tested at (m toward camera from drop)"),
                 );
+                ui.label("Fire bursts (off the model)");
+                ui.add(egui::Slider::new(&mut p.puff_rate, 0.0f32..=120.0).text("per second"));
+                ui.add(egui::Slider::new(&mut p.puff_size, 0.02f32..=1.5).text("size (m)"));
+                ui.add(egui::Slider::new(&mut p.puff_life, 0.05f32..=2.0).text("life (s)"));
+                ui.add(egui::Slider::new(&mut p.puff_brightness, 0.0f32..=150.0).logarithmic(true).text("brightness"));
+                ui.add(egui::Slider::new(&mut p.puff_heat, 0.0f32..=2.0).text("white-hot middle"));
+                ui.add(egui::Slider::new(&mut p.puff_spawn_dist, 0.0f32..=2.0).text("born out from the surface (m)"));
+                ui.label("Smoke wisps");
+                ui.add(egui::Slider::new(&mut p.smoke_rate, 0.0f32..=60.0).text("per second"));
+                ui.add(egui::Slider::new(&mut p.smoke_size, 0.05f32..=3.0).text("size (m)"));
+                ui.add(egui::Slider::new(&mut p.smoke_life, 0.1f32..=5.0).text("life (s)"));
+                ui.add(egui::Slider::new(&mut p.smoke_brightness, 0.0f32..=60.0).logarithmic(true).text("brightness"));
+                ui.label("Light column");
+                ui.add(egui::Slider::new(&mut p.column_brightness, 0.0f32..=60.0).logarithmic(true).text("brightness"));
+                ui.add(egui::Slider::new(&mut p.column_width, 0.1f32..=6.0).text("width (m)"));
+                ui.add(egui::Slider::new(&mut p.column_above, 0.0f32..=5.0).text("reaches above the model (m)"));
+                ui.add(egui::Slider::new(&mut p.column_streaks, 0.0f32..=1.0).text("streaks"));
+                ui.add(egui::Slider::new(&mut p.column_flow, -2.0f32..=2.0).text("streak flow (+ up)"));
+                ui.add(egui::Slider::new(&mut p.column_strands, 0.0f32..=20.0).text("hanging strands"));
                 ui.add(egui::Slider::new(&mut p.light_lumens, 0.0f32..=200_000.0).logarithmic(true).text("light (lm)"));
                 ui.add(egui::Slider::new(&mut p.light_range, 0.5f32..=20.0).text("light range (m)"));
                 if ui.button("Copy power-up settings to console").clicked() {
@@ -1772,7 +1791,9 @@ pub(crate) fn ads_tuning_ui(
                         "power-ups: height {:.2}, bob {:.2} @ {:.2}, spin {:.0}, wobble {:.1} @ {:.2}, blink {:.1}, scale {:?}, \
                          gold {:?} metallic {:.2} roughness {:.2} emissive {:.2}, \
                          shine {:.2} sky {:.2} floor {:.2} horizon {:.1} streaks {:.2} x{:.0} narrow {:.1} rim {:.2}^{:.1} detail {:.2}, glow {:?} x{:.2} size {:.2} \
-                         core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2} depth {:.2}, light {:.0} lm {:.1} m",
+                         core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2} depth {:.2}, light {:.0} lm {:.1} m, \
+                         fire {:.1}/s {:.2} m {:.2} s x{:.1} heat {:.2} from {:.2} m, smoke {:.1}/s {:.2} m {:.2} s x{:.1}, \
+                         column x{:.1} {:.2} m +{:.2} m streaks {:.2} flow {:.2} strands {:.2}",
                         p.height, p.bob_height, p.bob_speed, p.spin_deg, p.wobble_deg, p.wobble_speed, p.blink_hz, p.scale,
                         p.gold_color, p.gold_metallic, p.gold_roughness, p.gold_emissive,
                         p.shine, p.shine_sky, p.shine_ground, p.shine_horizon, p.shine_streaks,
@@ -1780,6 +1801,10 @@ pub(crate) fn ads_tuning_ui(
                         p.glow_color, p.glow_brightness, p.glow_size, p.glow_core,
                         p.glow_pulse_speed, p.glow_pulse_amount, p.glow_swirl, p.glow_swirl_speed,
                         p.glow_sparks, p.glow_pull, p.glow_depth_pull, p.light_lumens, p.light_range,
+                        p.puff_rate, p.puff_size, p.puff_life, p.puff_brightness, p.puff_heat, p.puff_spawn_dist,
+                        p.smoke_rate, p.smoke_size, p.smoke_life, p.smoke_brightness,
+                        p.column_brightness, p.column_width, p.column_above, p.column_streaks, p.column_flow,
+                        p.column_strands,
                     );
                 }
                 if ui.button("Reset power-ups").clicked() {
