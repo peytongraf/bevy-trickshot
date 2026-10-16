@@ -1717,6 +1717,8 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut p.bob_height, 0.0f32..=0.6).text("bob height (m)"));
                 ui.add(egui::Slider::new(&mut p.bob_speed, 0.0f32..=3.0).text("bob speed (cycles/s)"));
                 ui.add(egui::Slider::new(&mut p.spin_deg, -360.0f32..=360.0).text("spin (deg/s)"));
+                ui.add(egui::Slider::new(&mut p.wobble_deg, 0.0f32..=30.0).text("wobble (deg)"));
+                ui.add(egui::Slider::new(&mut p.wobble_speed, 0.0f32..=1.0).text("wobble speed (cycles/s)"));
                 ui.add(egui::Slider::new(&mut p.blink_hz, 0.5f32..=12.0).text("blink when expiring (per s)"));
                 ui.label("Model scale");
                 for kind in shared::power_ups::PowerUp::ALL {
@@ -1734,6 +1736,17 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut p.gold_metallic, 0.0f32..=1.0).text("metallic"));
                 ui.add(egui::Slider::new(&mut p.gold_roughness, 0.0f32..=1.0).text("roughness"));
                 ui.add(egui::Slider::new(&mut p.gold_emissive, 0.0f32..=3.0).text("self-glow"));
+                ui.label("Shine (made-up reflection)");
+                ui.add(egui::Slider::new(&mut p.shine, 0.0f32..=10.0).text("strength"));
+                ui.add(egui::Slider::new(&mut p.shine_sky, 0.0f32..=10.0).text("sky brightness"));
+                ui.add(egui::Slider::new(&mut p.shine_ground, 0.0f32..=2.0).text("floor brightness"));
+                ui.add(egui::Slider::new(&mut p.shine_horizon, 0.5f32..=60.0).logarithmic(true).text("horizon sharpness"));
+                ui.add(egui::Slider::new(&mut p.shine_streaks, 0.0f32..=10.0).text("streak brightness"));
+                ui.add(egui::Slider::new(&mut p.shine_streak_count, 1.0f32..=8.0).text("streaks"));
+                ui.add(egui::Slider::new(&mut p.shine_streak_width, 1.0f32..=80.0).logarithmic(true).text("streak narrowness"));
+                ui.add(egui::Slider::new(&mut p.shine_rim, 0.0f32..=5.0).text("rim"));
+                ui.add(egui::Slider::new(&mut p.shine_rim_power, 0.5f32..=10.0).text("rim tightness"));
+                ui.add(egui::Slider::new(&mut p.shine_detail, 0.0f32..=2.0).text("reflection detail (skyline)"));
                 ui.label("Green glow");
                 ui.horizontal(|ui| {
                     ui.color_edit_button_rgb(&mut p.glow_color);
@@ -1756,11 +1769,14 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut p.light_range, 0.5f32..=20.0).text("light range (m)"));
                 if ui.button("Copy power-up settings to console").clicked() {
                     info!(
-                        "power-ups: height {:.2}, bob {:.2} @ {:.2}, spin {:.0}, blink {:.1}, scale {:?}, \
-                         gold {:?} metallic {:.2} roughness {:.2} emissive {:.2}, glow {:?} x{:.2} size {:.2} \
+                        "power-ups: height {:.2}, bob {:.2} @ {:.2}, spin {:.0}, wobble {:.1} @ {:.2}, blink {:.1}, scale {:?}, \
+                         gold {:?} metallic {:.2} roughness {:.2} emissive {:.2}, \
+                         shine {:.2} sky {:.2} floor {:.2} horizon {:.1} streaks {:.2} x{:.0} narrow {:.1} rim {:.2}^{:.1} detail {:.2}, glow {:?} x{:.2} size {:.2} \
                          core {:.2} pulse {:.2}/{:.2} wisps {:.2}/{:.2} sparks {:.2} pull {:.2} depth {:.2}, light {:.0} lm {:.1} m",
-                        p.height, p.bob_height, p.bob_speed, p.spin_deg, p.blink_hz, p.scale,
+                        p.height, p.bob_height, p.bob_speed, p.spin_deg, p.wobble_deg, p.wobble_speed, p.blink_hz, p.scale,
                         p.gold_color, p.gold_metallic, p.gold_roughness, p.gold_emissive,
+                        p.shine, p.shine_sky, p.shine_ground, p.shine_horizon, p.shine_streaks,
+                        p.shine_streak_count, p.shine_streak_width, p.shine_rim, p.shine_rim_power, p.shine_detail,
                         p.glow_color, p.glow_brightness, p.glow_size, p.glow_core,
                         p.glow_pulse_speed, p.glow_pulse_amount, p.glow_swirl, p.glow_swirl_speed,
                         p.glow_sparks, p.glow_pull, p.glow_depth_pull, p.light_lumens, p.light_range,

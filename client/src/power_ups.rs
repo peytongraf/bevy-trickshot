@@ -4,6 +4,9 @@
 //! * every [`PowerUpDrop`] the server replicates gets an avatar: its model
 //!   in shiny gold, floating over the spot, spinning and bobbing, wrapped in
 //!   a green glow ([`PowerUpGlowMaterial`], `assets/shaders/power_up_glow.wgsl`)
+//!   — the gold polished with a made-up studio reflection and a bright rim
+//!   ([`GoldShine`], `assets/shaders/power_up_gold.wgsl`), the game having
+//!   no reflections of its own for it to shine with
 //!   with a green light under it, and its loop sound playing from it
 //!   (positional, faded by distance) after the spawn sound; it blinks once
 //!   the server says it's about to go, slowly then quicker, ticking each
@@ -25,7 +28,7 @@
 //! go when their drop does, and they, the HUD row and any sound still
 //! playing are `StateScoped(InGame)` — nothing carries into the next game.
 
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
@@ -47,8 +50,9 @@ use crate::{
 };
 
 const SHADER_ASSET_PATH: &str = "shaders/power_up_glow.wgsl";
+const GOLD_SHADER_ASSET_PATH: &str = "shaders/power_up_gold.wgsl";
 
-use params::GlowParams;
+use params::{GlowParams, GoldShineParams};
 
 // Own module only so the allow covers the unused per-field layout checks
 // `ShaderType`'s derive generates next to the struct (as in `shroom_xray`).
@@ -71,7 +75,42 @@ mod params {
         pub(crate) core: f32,
         pub(crate) depth_pull: f32,
     }
+
+    /// Mirrors `GoldShine` in `power_up_gold.wgsl`.
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(crate) struct GoldShineParams {
+        pub(crate) strength: f32,
+        pub(crate) sky: f32,
+        pub(crate) ground: f32,
+        pub(crate) horizon: f32,
+        pub(crate) streaks: f32,
+        pub(crate) streak_count: f32,
+        pub(crate) streak_width: f32,
+        pub(crate) rim: f32,
+        pub(crate) rim_power: f32,
+        pub(crate) detail: f32,
+    }
 }
+
+/// The shine over a power-up's gold ([`GoldMaterial`]).
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct GoldShine {
+    #[uniform(100)]
+    params: GoldShineParams,
+}
+
+impl MaterialExtension for GoldShine {
+    fn fragment_shader() -> ShaderRef {
+        GOLD_SHADER_ASSET_PATH.into()
+    }
+
+    fn deferred_fragment_shader() -> ShaderRef {
+        GOLD_SHADER_ASSET_PATH.into()
+    }
+}
+
+/// Every power-up model's material: the gold, lit as usual, and its shine.
+pub(crate) type GoldMaterial = ExtendedMaterial<StandardMaterial, GoldShine>;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct PowerUpGlowMaterial {
@@ -142,6 +181,10 @@ pub(crate) struct PowerUpSettings {
     pub(crate) bob_speed: f32,
     /// Turn rate (degrees/s).
     pub(crate) spin_deg: f32,
+    /// A slow wobble off upright, Cold War style: how far it tips (degrees,
+    /// each way) and how fast (cycles/s).
+    pub(crate) wobble_deg: f32,
+    pub(crate) wobble_speed: f32,
     /// Each model's scale — they're modelled at wildly different sizes, so
     /// these bring each to about 0.7 m across.
     pub(crate) scale: [f32; PowerUp::ALL.len()],
@@ -151,6 +194,20 @@ pub(crate) struct PowerUpSettings {
     pub(crate) gold_metallic: f32,
     pub(crate) gold_roughness: f32,
     pub(crate) gold_emissive: f32,
+    /// Its shine ([`GoldShine`]): overall strength; the sky and floor it
+    /// reflects and how sharp the horizon between them is; the softbox
+    /// streaks' brightness, number and narrowness; the rim's strength and
+    /// tightness; and how busy the reflected scene is.
+    pub(crate) shine: f32,
+    pub(crate) shine_sky: f32,
+    pub(crate) shine_ground: f32,
+    pub(crate) shine_horizon: f32,
+    pub(crate) shine_streaks: f32,
+    pub(crate) shine_streak_count: f32,
+    pub(crate) shine_streak_width: f32,
+    pub(crate) shine_rim: f32,
+    pub(crate) shine_rim_power: f32,
+    pub(crate) shine_detail: f32,
     /// The glow: sRGB colour and brightness, width (m), pulse, swirl, sparks,
     /// how far it's pulled toward the camera (m) and its core's size.
     pub(crate) glow_color: [f32; 3],
@@ -180,15 +237,28 @@ impl Default for PowerUpSettings {
         Self {
             height: 1.3,
             bob_height: 0.13,
-            bob_speed: 0.5,
-            spin_deg: 60.0,
+            bob_speed: 0.25,
+            spin_deg: 30.0,
+            wobble_deg: 11.0,
+            wobble_speed: 0.24,
             // Max Ammo, Insta-Kill, Double Points, Nuke, Bonus Points,
             // Carpenter (`PowerUp::ALL`'s order).
             scale: [1.15, 0.35, 4.0, 0.024, 1.1, 2.6],
-            gold_color: [0.3633843, 0.273065, 0.09241041],
-            gold_metallic: 0.87,
+            // A dark amber: Cold War's gold, more copper than yellow.
+            gold_color: [0.58, 0.39, 0.21],
+            gold_metallic: 1.0,
             gold_roughness: 0.0,
             gold_emissive: 0.0,
+            shine: 1.0,
+            shine_sky: 1.1,
+            shine_ground: 0.012,
+            shine_horizon: 30.0,
+            shine_streaks: 4.0,
+            shine_streak_count: 4.0,
+            shine_streak_width: 60.0,
+            shine_rim: 0.25,
+            shine_rim_power: 4.0,
+            shine_detail: 1.0,
             glow_color: [0.011099039, 0.26902723, 0.028294351],
             glow_brightness: 1.0,
             glow_size: 2.2,
@@ -235,14 +305,30 @@ impl PowerUpSettings {
         }
     }
 
-    fn gold(&self, m: &mut StandardMaterial) {
+    fn gold(&self, m: &mut GoldMaterial) {
         let [r, g, b] = self.gold_color;
         let c = Color::srgb(r, g, b);
-        m.base_color = c;
-        m.base_color_texture = None;
-        m.metallic = self.gold_metallic;
-        m.perceptual_roughness = self.gold_roughness;
-        m.emissive = c.to_linear() * self.gold_emissive;
+        m.base.base_color = c;
+        m.base.base_color_texture = None;
+        m.base.metallic = self.gold_metallic;
+        m.base.perceptual_roughness = self.gold_roughness;
+        m.base.emissive = c.to_linear() * self.gold_emissive;
+        m.extension.params = self.shine();
+    }
+
+    fn shine(&self) -> GoldShineParams {
+        GoldShineParams {
+            strength: self.shine,
+            sky: self.shine_sky,
+            ground: self.shine_ground,
+            horizon: self.shine_horizon,
+            streaks: self.shine_streaks,
+            streak_count: self.shine_streak_count,
+            streak_width: self.shine_streak_width,
+            rim: self.shine_rim,
+            rim_power: self.shine_rim_power,
+            detail: self.shine_detail,
+        }
     }
 
     fn light_color(&self) -> Color {
@@ -254,7 +340,7 @@ impl PowerUpSettings {
 /// The shared assets every avatar uses (built on first use).
 #[derive(Resource)]
 struct PowerUpAssets {
-    gold: Handle<StandardMaterial>,
+    gold: Handle<GoldMaterial>,
     glow: Handle<PowerUpGlowMaterial>,
     quad: Handle<Mesh>,
 }
@@ -370,7 +456,8 @@ pub(crate) struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<PowerUpGlowMaterial> {
+        app.add_plugins(MaterialPlugin::<GoldMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpGlowMaterial> {
             prepass_enabled: false,
             shadows_enabled: false,
             ..default()
@@ -402,17 +489,22 @@ fn assets(
     commands: &mut Commands,
     have: &Option<Res<PowerUpAssets>>,
     settings: &PowerUpSettings,
-    std_materials: &mut Assets<StandardMaterial>,
+    gold_materials: &mut Assets<GoldMaterial>,
     glow_materials: &mut Assets<PowerUpGlowMaterial>,
     meshes: &mut Assets<Mesh>,
-) -> (Handle<StandardMaterial>, Handle<PowerUpGlowMaterial>, Handle<Mesh>) {
+) -> (Handle<GoldMaterial>, Handle<PowerUpGlowMaterial>, Handle<Mesh>) {
     if let Some(a) = have {
         return (a.gold.clone(), a.glow.clone(), a.quad.clone());
     }
-    let mut gold = StandardMaterial::default();
+    let mut gold = GoldMaterial {
+        base: StandardMaterial::default(),
+        extension: GoldShine {
+            params: settings.shine(),
+        },
+    };
     settings.gold(&mut gold);
     let a = PowerUpAssets {
-        gold: std_materials.add(gold),
+        gold: gold_materials.add(gold),
         glow: glow_materials.add(PowerUpGlowMaterial {
             params: settings.glow(),
         }),
@@ -433,7 +525,7 @@ fn sync_drop_avatars(
     have: Option<Res<PowerUpAssets>>,
     sounds: Res<GameSounds>,
     asset_server: Res<AssetServer>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
+    mut gold_materials: ResMut<Assets<GoldMaterial>>,
     mut glow_materials: ResMut<Assets<PowerUpGlowMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
@@ -466,7 +558,7 @@ fn sync_drop_avatars(
             &mut commands,
             &have,
             &settings,
-            &mut std_materials,
+            &mut gold_materials,
             &mut glow_materials,
             &mut meshes,
         );
@@ -568,19 +660,22 @@ fn measure_drop_models(
     }
 }
 
-/// Swap every material in a freshly spawned model for the shared gold.
+/// Swap every material in a freshly spawned model (the models carry none of
+/// their own — glTF's plain default) for the shared gold.
 fn gild_model(
     trigger: Trigger<SceneInstanceReady>,
     assets: Option<Res<PowerUpAssets>>,
     children: Query<&Children>,
-    mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mats: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
     mut commands: Commands,
 ) {
     let Some(assets) = assets else { return };
     for e in children.iter_descendants(trigger.target()) {
-        if let Ok(mut m) = mats.get_mut(e) {
-            m.0 = assets.gold.clone();
-            commands.entity(e).insert(NotShadowCaster);
+        if mats.contains(e) {
+            commands
+                .entity(e)
+                .remove::<MeshMaterial3d<StandardMaterial>>()
+                .insert((MeshMaterial3d(assets.gold.clone()), NotShadowCaster));
         }
     }
 }
@@ -623,7 +718,13 @@ fn animate_drop_avatars(
                 let bob = (t * settings.bob_speed * std::f32::consts::TAU + avatar.phase).sin()
                     * settings.bob_height;
                 tf.translation = Vec3::Y * (settings.height + bob);
-                tf.rotation = Quat::from_rotation_y(t * settings.spin_deg.to_radians() + avatar.phase);
+                // Tipped a few degrees about the two level axes, each on its
+                // own slow beat (so it never settles into a simple rock),
+                // under the spin.
+                let w = t * settings.wobble_speed * std::f32::consts::TAU + avatar.phase;
+                let tip = settings.wobble_deg.to_radians();
+                let tilt = Quat::from_rotation_x(w.sin() * tip) * Quat::from_rotation_z((w * 0.77 + 1.3).sin() * tip);
+                tf.rotation = tilt * Quat::from_rotation_y(t * settings.spin_deg.to_radians() + avatar.phase);
             }
         }
     }
@@ -635,7 +736,7 @@ fn animate_drop_avatars(
 fn apply_power_up_settings(
     settings: Res<PowerUpSettings>,
     assets: Option<Res<PowerUpAssets>>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
+    mut gold_materials: ResMut<Assets<GoldMaterial>>,
     mut glow_materials: ResMut<Assets<PowerUpGlowMaterial>>,
     mut lights: Query<&mut PointLight, With<DropLight>>,
     mut models: Query<(&DropModel, &mut Transform)>,
@@ -644,7 +745,7 @@ fn apply_power_up_settings(
         return;
     }
     if let Some(a) = assets {
-        if let Some(m) = std_materials.get_mut(&a.gold) {
+        if let Some(m) = gold_materials.get_mut(&a.gold) {
             settings.gold(m);
         }
         let want = settings.glow();
