@@ -1043,7 +1043,12 @@ fn grip_controls(
         vec3_row(ui, "Reach", &mut grip.stab_reach, 0.002, " m", ["right", "up", "fwd"]);
         vec3_row(ui, "Turn", &mut grip.stab_turn_deg, 0.25, "°", ["pitch", "yaw", "roll"]);
         vec3_row(ui, "Lean", &mut grip.stab_lean_deg, 0.25, "°", ["pitch", "yaw", "roll"]);
+        ui.horizontal(|ui| {
+            ui.label("Lunge");
+            ui.add(egui::DragValue::new(&mut grip.stab_lunge).speed(0.002).range(0.0..=1.5).max_decimals(3).suffix(" m"));
+        });
         ui.colored_label(DIM, "Lean: the chest, into the thrust — yaw left brings the right shoulder forward.");
+        ui.colored_label(DIM, "Lunge: the whole body, forward — the tip should just reach a zombie 1.6 m out.");
         ui.horizontal(|ui| {
             if ui.button("Play stab").clicked() {
                 ed.play_stab = true;

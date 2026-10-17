@@ -51,10 +51,10 @@ use crate::zombies::{Zombie, ZombieRounds};
 
 /// The server's side of one [`PowerUpDrop`].
 #[derive(Component)]
-struct DropSim {
-    lobby: Entity,
+pub(crate) struct DropSim {
+    pub(crate) lobby: Entity,
     /// Seconds it's been lying there (not counting pauses).
-    age: f32,
+    pub(crate) age: f32,
 }
 
 /// A zombie a Nuke has doomed: it stands frozen (`ai::drive_bots`) and dies

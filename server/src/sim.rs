@@ -296,7 +296,10 @@ fn resolve_shots(
             } else {
                 1.0
             };
-            let hit = shared::melee::resolve_melee(origin, dir, &targets);
+            // Never through a wall — only an opening (a window) it reaches
+            // through.
+            let hit = shared::melee::resolve_melee(origin, dir, &targets)
+                .filter(|h| !colliders.for_lobby(lobby).segment_blocked(origin, h.point));
             match hit.and_then(|h| kind.get(&h.target).map(|k| (h, k))) {
                 Some((hit, HitKind::Bot(bot))) => {
                     stabbed_at = Some(hit.point);

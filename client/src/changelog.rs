@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Knife reaches about twice as far (through windows too) with a lunging stab.",
+        "Zombies: teammate bots spread out instead of bunching up, open doors when nobody does, and grab power-ups.",
         "Zombies: the whole team's points and health in the bottom left, Cold War style — a red cross on anyone down.",
         "Zombies: add teammate bots (up to a team of four) — they fight, revive, buy perks and more.",
         "Other players drink their perks — the right-coloured bottle, for exactly as long as yours takes.",

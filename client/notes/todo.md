@@ -30,14 +30,15 @@ height: 3m
 
 # Last play
 
+- Player who is downed should see a progress bar as they are being revived for their revive percentage like the reviver sees. This should work even if a bot is reviving the player.
 - Player can mantle over spawn door on handrail. Wall needs to be raised.
-- Knife attack distance should be roughly doubled and should at least be able to stab zombies through windows but animation should be changed so that it looks like the player is actually knifing the enemy when a hit occurs.
 - Exfil model inside lower tomb in wrong place
 - During exfil bosses took forever to get to the exfil zone. All enemies need to respawn when the player goes to it because I didn't even have a chance to kill the bosses.
 - Probably twice as many dogs as there should be on exfil.
 - Deadshot perk jingle seems too quiet
 
 # Done
+- Doubled knife reach + lunging stab
 
 # Level editor
 

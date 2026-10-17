@@ -1004,7 +1004,6 @@ impl NavGraph {
     }
 
     /// Whether `a` and `b` (feet positions) are on the same connected region.
-    #[cfg(test)]
     pub fn connected(&self, a: Vec3, b: Vec3) -> bool {
         match (self.nearest_node(a), self.nearest_node(b)) {
             (Some(x), Some(y)) => self.region[x as usize] == self.region[y as usize],

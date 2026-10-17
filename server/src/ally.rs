@@ -21,10 +21,17 @@
 //!   if it's better), an AK-74 off the wall to start, ammo when low, boards
 //!   back on a nearby window, and equipment lying about — only what it has
 //!   none of, that's lain a while with no player nearer. Always keeping a
-//!   few points back. Doors only when a player's been waiting at one they
-//!   can't afford, or now and then when it's flush and nobody's opened one
-//!   in a while — never every door.
-//! * **Otherwise** it keeps up with its human teammates.
+//!   few points back. Doors when a player's been waiting at one they can't
+//!   afford, or once nobody's opened one for a while (its own patience,
+//!   [`AllyBrain::door_patience`]) — never every door. A power-up dropped,
+//!   it goes for — at once, or after giving the players a chance at it.
+//!   Whether it does a thing first or holds off to let a player is up to
+//!   chance each time ([`AllyBrain::ready`]).
+//! * **Otherwise** it keeps up with its human teammates, each bot at its own
+//!   spot round them ([`AllyBrain::slot_angle`]), moving about now and then.
+//!
+//! It never walks through anyone: it steers round them, and anyone it's
+//! pressed into pushes it back out ([`spacing`]).
 //!
 //! Every purchase and pickup is the real one: it fires the same handler a
 //! client's message does ([`RemoteTrigger`]) under its own peer, so the
@@ -95,9 +102,19 @@ const FOLLOW_FAR: f32 = 7.0;
 /// Farther than this (m) from the goal, it runs (if its difficulty does).
 const RUN_FROM: f32 = 12.0;
 /// A zombie this close (m) and in the way is knifed.
-const STAB_REACH: f32 = 1.3;
-/// How long (s) a player stood at a shut door before the bot pays for it.
-const DOOR_WAIT_SECS: f32 = 5.0;
+const STAB_REACH: f32 = 1.7;
+/// How close (m) another body can be before it's steered round...
+const AVOID_RADIUS: f32 = 1.4;
+/// ...and how close before it's pushed back out of them.
+const MIN_SPACING: f32 = 0.8;
+/// The most it's pushed out at (m/s).
+const PUSH_MAX_SPEED: f32 = 3.0;
+/// The chance it goes for a power-up the moment it drops (else it gives the
+/// players a few seconds' chance at it first).
+const POWER_UP_AT_ONCE: f32 = 0.3;
+/// The chance it does a thing it's worked out it wants at once (else it
+/// holds off a while — [`AllyBrain::ready`]).
+const ERRAND_AT_ONCE: f32 = 0.45;
 /// Equipment lying this long (s) with no player nearer is fair game.
 const DROP_WAIT_SECS: f32 = 6.0;
 /// An errand farther than this (m, walking) isn't worth the trip.
@@ -201,6 +218,8 @@ enum Errand {
     Ammo(Vec3),
     Repair(u8),
     PickUp(Entity, LethalKind, Vec3),
+    /// A power-up lying about — walked onto, which grabs it.
+    PowerUp(Entity),
 }
 
 /// An errand under way: what, where it's walking to, when it started, and
@@ -268,6 +287,26 @@ pub struct AllyBrain {
     /// How long (s) a player's been standing at each shut door.
     waited_at_door: HashMap<u8, f32>,
     low_ammo_said: bool,
+    /// Where round the player it's keeping up with it stands — this way
+    /// (radians) and this far (m), picked afresh at `slot_until`.
+    slot_angle: f32,
+    slot_dist: f32,
+    slot_until: f32,
+    /// How long (s) it'll wait for anyone to open a door before it does...
+    door_patience: f32,
+    /// ...since the doors last changed (`Lobby::doors_open`, and when — `<
+    /// 0` before it's looked).
+    doors_seen: u32,
+    doors_changed_at: f32,
+    /// How long (s) a player stands at a shut door they can't afford before
+    /// it pays for it.
+    door_wait: f32,
+    /// Errands it's wanted, and from when it'll do them ([`Self::ready`]).
+    hesitate: Vec<(Errand, f32)>,
+    /// Power-ups it's seen dropped, and from when it'll go for each.
+    power_ups: Vec<(Entity, f32)>,
+    /// How long (s) the current target has to be in view before it fires.
+    reaction: f32,
     // Up / down / out.
     was_alive: bool,
     perks_seen: usize,
@@ -312,9 +351,31 @@ impl AllyBrain {
             gave_up: Vec::new(),
             waited_at_door: HashMap::new(),
             low_ammo_said: false,
+            slot_angle: rand01(seed ^ 0x51) * core::f32::consts::TAU,
+            slot_dist: 2.0 + rand01(seed ^ 0x52) * 3.0,
+            slot_until: 0.0,
+            door_patience: 45.0 + rand01(seed ^ 0x53) * 105.0,
+            doors_seen: 0,
+            doors_changed_at: -1.0,
+            door_wait: 3.0 + rand01(seed ^ 0x54) * 6.0,
+            hesitate: Vec::new(),
+            power_ups: Vec::new(),
+            reaction: difficulty.skill().reaction_secs,
             was_alive: true,
             perks_seen: 0,
         }
+    }
+
+    /// Whether to do `errand` now: the first time it's wanted, it's decided
+    /// whether to go at once ([`ERRAND_AT_ONCE`]) or hold off a while —
+    /// leaving a player the chance — and it's done from then on.
+    fn ready(&mut self, errand: Errand, now: f32) -> bool {
+        if let Some(&(_, at)) = self.hesitate.iter().find(|(e, _)| *e == errand) {
+            return now >= at;
+        }
+        let at = if self.roll() < ERRAND_AT_ONCE { now } else { now + 8.0 + self.roll() * 35.0 };
+        self.hesitate.push((errand, at));
+        now >= at
     }
 
     fn roll(&mut self) -> f32 {
@@ -370,10 +431,10 @@ impl AllyBrain {
     }
 }
 
-/// When the team's bots last opened a door, by lobby (round) — so they
-/// don't go through the map's doors one after the other.
+/// When (`Time::elapsed_secs`) the team's bots last went to open a door, by
+/// lobby — so two don't open doors at once.
 #[derive(Resource, Default)]
-struct TeamDoors(HashMap<Entity, u32>);
+struct TeamDoors(HashMap<Entity, f32>);
 
 /// One other player (or zombie), as this tick's sees them.
 #[derive(Clone, Copy)]
@@ -481,6 +542,7 @@ fn drive_allies(
         Query<(Entity, &shared::MonkeyDrop, &crate::monkey_bombs::DropSim)>,
         Query<(Entity, &shared::FlashBangDrop, &crate::flash_bangs::DropSim)>,
         Query<(Entity, &crate::knives::KnifeSim)>,
+        Query<(Entity, &shared::PowerUpDrop, &crate::power_ups::DropSim)>,
     ),
     mut team_doors: ResMut<TeamDoors>,
     mut quotes: EventWriter<SayQuote>,
@@ -505,7 +567,9 @@ fn drive_allies(
         })
         .collect();
     let mut lying: Vec<Lying> = Vec::new();
-    let (frags, molotovs, monkeys, flashes, knives) = &drops;
+    let (frags, molotovs, monkeys, flashes, knives, power_ups) = &drops;
+    // Power-ups lying about: where, by lobby, and how long they've been there.
+    let power_ups: Vec<(Entity, Entity, Vec3, f32)> = power_ups.iter().map(|(e, d, s)| (e, s.lobby, d.pos, s.age)).collect();
     lying.extend(frags.iter().map(|(e, d, s)| Lying { entity: e, lobby: s.lobby, kind: LethalKind::Frag, pos: d.pos, age: s.age }));
     lying.extend(molotovs.iter().map(|(e, d, s)| Lying { entity: e, lobby: s.lobby, kind: LethalKind::Molotov, pos: d.pos, age: s.age }));
     lying.extend(monkeys.iter().map(|(e, d, s)| Lying { entity: e, lobby: s.lobby, kind: LethalKind::MonkeyBomb, pos: d.pos, age: s.age }));
@@ -640,10 +704,34 @@ fn drive_allies(
         if target.map(|t| t.peer) != brain.target {
             brain.target = target.map(|t| t.peer);
             brain.seen_for = 0.0;
+            // (Quicker to some than others.)
+            brain.reaction = skill.reaction_secs * (0.7 + brain.roll() * 0.6);
         } else if target.is_some() {
             brain.seen_for += dt;
         }
-        let engaged = target.is_some() && brain.seen_for >= skill.reaction_secs;
+        let engaged = target.is_some() && brain.seen_for >= brain.reaction;
+
+        // The doors last changed (anyone opening one) — its patience with them
+        // starts over.
+        if brain.doors_changed_at < 0.0 || brain.doors_seen != lobby.doors_open {
+            brain.doors_seen = lobby.doors_open;
+            brain.doors_changed_at = now;
+            brain.door_patience = 45.0 + brain.roll() * 105.0;
+        }
+        // Power-ups: each one new, whether to go at once or give the players
+        // a moment first.
+        brain.power_ups.retain(|(e, _)| power_ups.iter().any(|(p, ..)| p == e));
+        for &(e, lobby_of, ..) in &power_ups {
+            if lobby_of == lobby_e && !brain.power_ups.iter().any(|(p, _)| *p == e) {
+                let at = if brain.roll() < POWER_UP_AT_ONCE { now } else { now + 4.0 + brain.roll() * 14.0 };
+                brain.power_ups.push((e, at));
+            }
+        }
+        if let Some(Doing { errand: Errand::PowerUp(e), .. }) = brain.doing {
+            if !power_ups.iter().any(|(p, ..)| *p == e) {
+                brain.doing = None; // (Taken — by it, or someone.)
+            }
+        }
 
         // --- what to do ------------------------------------------------------
         // A teammate down, and nothing right on top of it: go and get them up.
@@ -657,6 +745,23 @@ fn drive_allies(
             let crowded = zombies.iter().filter(|z| z.feet.distance(d.feet) < 2.5).count();
             crowded == 0 || brain.difficulty == BotDifficulty::Veteran
         });
+
+        // A power-up it's due to go for (or that's running out) within reach.
+        if brain.doing.is_none() && reviving.is_none() {
+            let due = power_ups
+                .iter()
+                .filter(|(e, lobby_of, pos, age)| {
+                    *lobby_of == lobby_e
+                        && pos.distance(brain.feet) < 30.0
+                        && (brain.power_ups.iter().any(|(p, at)| p == e && now >= *at)
+                            || *age > shared::power_ups::DROP_LIFETIME_SECS - 9.0)
+                })
+                .min_by(|a, b| a.2.distance_squared(brain.feet).total_cmp(&b.2.distance_squared(brain.feet)));
+            if let Some(&(e, _, pos, _)) = due {
+                brain.doing = Some(Doing { errand: Errand::PowerUp(e), spot: pos, since: now, asked_at: None, points_before: member.score });
+                brain.repath_at = now;
+            }
+        }
 
         // Think over what to spend on, every so often, when nothing's on it.
         if brain.doing.is_none() && reviving.is_none() && !pressed && now >= brain.think_at && brain.act == Act::Ready {
@@ -698,6 +803,9 @@ fn drive_allies(
                     match errand_result(brain, &view, doing, now, &mut commands) {
                         Some(true) => {
                             brain.doing = None;
+                            // (Wanted again — another level, say — it's
+                            // decided afresh.)
+                            brain.hesitate.retain(|(e, _)| *e != doing.errand);
                         }
                         Some(false) => brain.give_up(now),
                         None => {}
@@ -709,7 +817,7 @@ fn drive_allies(
                 doing.points_before = member.score;
                 brain.doing = Some(doing);
                 if let Errand::Door(_) = doing.errand {
-                    team_doors.0.insert(lobby_e, lobby.round);
+                    team_doors.0.insert(lobby_e, now);
                 }
             } else {
                 goal = Some(doing.spot);
@@ -729,9 +837,20 @@ fn drive_allies(
                 })
                 .copied();
             if let Some(lead) = lead {
+                // Its own spot round them, moved about now and then.
+                if now >= brain.slot_until {
+                    brain.slot_angle = brain.roll() * core::f32::consts::TAU;
+                    brain.slot_dist = FOLLOW_NEAR * 0.7 + brain.roll() * (FOLLOW_FAR - FOLLOW_NEAR);
+                    brain.slot_until = now + 6.0 + brain.roll() * 8.0;
+                }
+                let around = lead.feet + Vec3::new(brain.slot_angle.cos(), 0.0, brain.slot_angle.sin()) * brain.slot_dist;
+                let spot = nav
+                    .nearest_spot(around)
+                    .filter(|s| (s.y - lead.feet.y).abs() < 1.5 && nav.connected(*s, lead.feet))
+                    .unwrap_or(lead.feet);
                 let d = lead.feet.distance(brain.feet);
-                if d > FOLLOW_FAR || (d > FOLLOW_NEAR && !engaged) {
-                    goal = Some(lead.feet);
+                if d > FOLLOW_FAR || (spot.distance(brain.feet) > 1.2 && !engaged) {
+                    goal = Some(spot);
                 }
             }
         }
@@ -846,7 +965,15 @@ fn drive_allies(
             if engaged && hands_free {
                 speed = speed.min(WALK_SPEED * 0.5);
             }
-            let moved = move_bot(world, &mut brain.feet, &mut brain.vertical_velocity, wish, speed, dt);
+            // Round anyone in the way, and out of anyone it's pressed into.
+            let (steer, push) = spacing(brain.feet, me, lobby_e, &bodies, dt);
+            if wish != Vec3::ZERO {
+                wish = (wish + steer).with_y(0.0).normalize_or(wish);
+            }
+            let velocity = wish * speed + push;
+            let move_speed = velocity.length();
+            let move_dir = if move_speed > 1e-4 { velocity / move_speed } else { Vec3::ZERO };
+            let moved = move_bot(world, &mut brain.feet, &mut brain.vertical_velocity, move_dir, move_speed, dt);
             jumping = !moved.grounded;
             unstick(brain, nav, wish, moved.blocked, now, dt);
             if moved.grounded && wish != Vec3::ZERO {
@@ -948,6 +1075,36 @@ fn drive_allies(
 const SND_SHOT: u16 = 1 << 0;
 const SND_RELOAD: u16 = 1 << 1;
 const SND_FOOTSTEP: u16 = 1 << 7;
+
+/// Keeping clear of the rest of the team at `feet`: a steer away from
+/// anyone close (`AVOID_RADIUS`), and a push (a velocity) out of anyone it's
+/// pressed into (`MIN_SPACING`) — all of it from a player, who won't move
+/// for it; half from another bot, which takes the other half.
+fn spacing(feet: Vec3, me: PeerId, lobby: Entity, bodies: &[Body], dt: f32) -> (Vec3, Vec3) {
+    let (mut steer, mut push) = (Vec3::ZERO, Vec3::ZERO);
+    for b in bodies.iter().filter(|b| b.lobby == lobby && b.peer != me && !b.zombie && (b.alive || b.down)) {
+        if (b.feet.y - feet.y).abs() > 1.5 {
+            continue;
+        }
+        let away = (feet - b.feet).with_y(0.0);
+        let d = away.length();
+        if d >= AVOID_RADIUS {
+            continue;
+        }
+        // (Right on top of each other: apart any old way, each its own.)
+        let dir = away.try_normalize().unwrap_or_else(|| {
+            let a = (me.to_bits() % 628) as f32 / 100.0;
+            Vec3::new(a.cos(), 0.0, a.sin())
+        });
+        steer += dir * (1.0 - d / AVOID_RADIUS);
+        if d < MIN_SPACING {
+            push += dir * (MIN_SPACING - d) * if b.bot { 0.5 } else { 1.0 };
+        }
+    }
+    let len = push.length();
+    let push = if len > 1e-4 { push / len * (len / dt.max(1e-3)).min(PUSH_MAX_SPEED) } else { Vec3::ZERO };
+    (steer * 0.8, push)
+}
 
 /// The way to walk toward `goal` this tick, along a route around the map
 /// (never through a shut door), climbing any ledge on it.
@@ -1069,7 +1226,7 @@ fn think(
             .iter()
             .filter(|p| door.in_range(p.feet, 1.5))
             .all(|p| v.lobby.members.iter().find(|m| m.peer == p.peer).is_none_or(|m| m.score < door.cost));
-        if waited >= DOOR_WAIT_SECS && broke && points >= door.cost + reserve / 2 && ok(brain, Errand::Door(i)) {
+        if waited >= brain.door_wait && broke && points >= door.cost + reserve / 2 && ok(brain, Errand::Door(i)) {
             if near(door.at.pos).is_some() {
                 return Some((Errand::Door(i), door.at.pos));
             }
@@ -1088,7 +1245,7 @@ fn think(
             continue;
         }
         let errand = Errand::PickUp(l.entity, l.kind, l.pos);
-        if ok(brain, errand) && near(l.pos).is_some() {
+        if ok(brain, errand) && near(l.pos).is_some() && brain.ready(errand, now) {
             return Some((errand, l.pos));
         }
     }
@@ -1099,7 +1256,7 @@ fn think(
         let cost = shared::weapon::wall_buy_cost(WeaponId::Ak74);
         if let Some(at) = shared::level::layout(map).wall_buy(WeaponId::Ak74) {
             let spot = shared::wall_buy::use_spot(at);
-            if points >= cost + reserve / 2 && ok(brain, Errand::WallBuy(WeaponId::Ak74)) && near(spot).is_some() {
+            if points >= cost + reserve / 2 && ok(brain, Errand::WallBuy(WeaponId::Ak74)) && near(spot).is_some() && brain.ready(Errand::WallBuy(WeaponId::Ak74), now) {
                 return Some((Errand::WallBuy(WeaponId::Ak74), spot));
             }
         }
@@ -1119,7 +1276,7 @@ fn think(
                 continue;
             }
             let at = perk.machine_pos(map);
-            if ok(brain, Errand::Perk(perk)) && near(at).is_some() {
+            if ok(brain, Errand::Perk(perk)) && near(at).is_some() && brain.ready(Errand::Perk(perk), now) {
                 return Some((Errand::Perk(perk), at));
             }
             break;
@@ -1129,7 +1286,7 @@ fn think(
     // The power, from round 2.
     if !v.lobby.power_on && v.lobby.round >= 2 && points >= shared::power::POWER_COST + reserve {
         if let Some(at) = shared::power::switch_pos(map) {
-            if ok(brain, Errand::Power) && near(at).is_some() {
+            if ok(brain, Errand::Power) && near(at).is_some() && brain.ready(Errand::Power, now) {
                 return Some((Errand::Power, at));
             }
         }
@@ -1157,7 +1314,7 @@ fn think(
             let weapon = shared::pap::PapWeapon::gun(gun);
             let level = v.member.pap.get(weapon);
             let cost = shared::pap::cost_to(level, level + 1);
-            if level < shared::pap::MAX_LEVEL && points >= cost + reserve && ok(brain, Errand::Pap) && near(at).is_some() {
+            if level < shared::pap::MAX_LEVEL && points >= cost + reserve && ok(brain, Errand::Pap) && near(at).is_some() && brain.ready(Errand::Pap, now) {
                 return Some((Errand::Pap, at));
             }
         }
@@ -1173,22 +1330,23 @@ fn think(
     {
         if let Some(at) = shared::mystery_box::placement(map) {
             let spot = shared::mystery_box::use_spot(at);
-            if ok(brain, Errand::Box) && near(spot).is_some() {
+            if ok(brain, Errand::Box) && near(spot).is_some() && brain.ready(Errand::Box, now) {
                 brain.box_round = Some(v.lobby.round);
                 return Some((Errand::Box, spot));
             }
         }
     }
 
-    // Now and then, flush, a door no one's opened — the cheapest in reach —
-    // when the team's bots haven't opened one for a couple of rounds.
-    let doors_due = v.team_doors.0.get(&v.lobby_e).is_none_or(|r| v.lobby.round >= r + 2);
-    if doors_due && v.lobby.round >= 3 {
+    // Nobody's opened a door for longer than it'll wait: the cheapest in
+    // reach it can afford (unless another of the team's bots just went for
+    // one).
+    let bot_went = v.team_doors.0.get(&v.lobby_e).is_some_and(|t| now - t < 20.0);
+    if now - brain.doors_changed_at >= brain.door_patience && !bot_went {
         let pick = shared::doors::doors(map)
             .iter()
             .enumerate()
             .filter(|(i, _)| shared::doors::can_open(map, *i, v.lobby.doors_open, v.lobby.power_on).is_ok())
-            .filter(|(_, d)| points >= d.cost + reserve + 2500)
+            .filter(|(_, d)| points >= d.cost + reserve / 3)
             .filter_map(|(i, d)| near(d.at.pos).map(|dist| (i, d, dist)))
             .min_by(|a, b| (a.1.cost, a.2 as u32).cmp(&(b.1.cost, b.2 as u32)));
         if let Some((i, d, _)) = pick {
@@ -1228,6 +1386,8 @@ fn at_errand(errand: Errand, lobby: &Lobby, feet: Vec3, lying: &[Lying]) -> bool
             lying.iter().any(|l| l.entity == entity)
                 && shared::throwing_knife::in_server_pickup_range(feet, feet + Vec3::Y * EYE_HEIGHT, pos)
         }
+        // (Walking onto it is grabbing it — see `drive_allies`.)
+        Errand::PowerUp(_) => false,
     }
 }
 
@@ -1270,6 +1430,7 @@ fn ask(errand: Errand, brain: &AllyBrain, member: &shared::LobbyMember, me: Peer
             LethalKind::FlashBang => from(commands, me, shared::PickUpFlashBang { dropping: None }),
             LethalKind::ThrowingKnife => from(commands, me, shared::PickUpKnife { dropping: None }),
         },
+        Errand::PowerUp(_) => {}
     }
 }
 
@@ -1325,6 +1486,7 @@ fn errand_result(brain: &mut AllyBrain, v: &View, doing: Doing, now: f32, comman
             }
             None
         }
+        Errand::PowerUp(_) => Some(true),
         Errand::PickUp(entity, kind, _) => {
             let gone = !v.lying.iter().any(|l| l.entity == entity);
             if gone {
@@ -1507,7 +1669,9 @@ mod tests {
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<TeamDoors>();
         app.add_event::<SayQuote>();
-        app.add_systems(Update, drive_allies);
+        // (Each bot's input published as its pose, as `sim::apply_client_pose`
+        // does — what the others see of it.)
+        app.add_systems(Update, (drive_allies, publish_poses).chain());
         let lobby = app.world_mut().spawn(lobby()).id();
         let bot = app
             .world_mut()
@@ -1530,6 +1694,28 @@ mod tests {
             ))
             .id();
         (app, lobby, bot, player)
+    }
+
+    fn publish_poses(mut q: Query<(&ActionState<PlayerInput>, &mut PlayerPose)>) {
+        for (input, mut pose) in &mut q {
+            pose.translation = Vec3::from_array(input.0.translation);
+        }
+    }
+
+    /// Another veteran teammate bot (`n`th), at `feet`.
+    fn add_bot(app: &mut App, lobby: Entity, n: u64, feet: Vec3) -> Entity {
+        let peer = ally_peer(n);
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().members.push(member(peer, true));
+        app.world_mut()
+            .spawn((
+                PlayerId(peer),
+                LobbyPlayer { lobby },
+                PlayerCombat::default(),
+                PlayerPose { translation: feet + Vec3::Y * EYE_HEIGHT, ..default() },
+                AllyBrain::new(BotDifficulty::Veteran, feet, 0.0, 1000 + n * 77),
+                ActionState::<PlayerInput>::default(),
+            ))
+            .id()
     }
 
     fn input(app: &App, bot: Entity) -> PlayerInput {
@@ -1599,6 +1785,63 @@ mod tests {
         let after = app.world().get::<AllyBrain>(bot).unwrap().feet;
         assert!(after.distance(before) < 0.5, "jumped from {before} to {after}");
         assert!(!input(&app, bot).prone);
+    }
+
+    #[test]
+    fn teammate_bots_spread_round_their_player_and_never_stand_in_each_other() {
+        let player = Vec3::new(-20.0, 0.0, -40.0);
+        let (mut app, lobby, first, _) = world(Vec3::new(-30.0, 0.0, -40.0), player);
+        let bots = [first, add_bot(&mut app, lobby, 1, Vec3::new(-30.5, 0.0, -40.0)), add_bot(&mut app, lobby, 2, Vec3::new(-30.0, 0.0, -40.5))];
+        let feet = |app: &App, e: Entity| app.world().get::<AllyBrain>(e).unwrap().feet;
+        let mut worst = f32::MAX;
+        // (Settled in after a few seconds, then watched while they move about.)
+        run(&mut app, 4.0, |_| {});
+        run(&mut app, 12.0, |app| {
+            for (i, a) in bots.iter().enumerate() {
+                let fa = feet(app, *a);
+                worst = worst.min(fa.with_y(0.0).distance(player.with_y(0.0)));
+                for b in &bots[i + 1..] {
+                    worst = worst.min(fa.with_y(0.0).distance(feet(app, *b).with_y(0.0)));
+                }
+            }
+        });
+        assert!(worst >= MIN_SPACING * 0.75, "two of them were {worst} m apart");
+        // Not all on one spot: each round the player its own way.
+        let spots: Vec<Vec3> = bots.iter().map(|b| feet(&app, *b)).collect();
+        assert!(spots[0].distance(spots[1]) > 1.0 || spots[1].distance(spots[2]) > 1.0, "{spots:?}");
+    }
+
+    #[test]
+    fn a_teammate_bot_goes_for_a_power_up_before_it_runs_out() {
+        let (mut app, lobby, bot, _) = world(Vec3::new(-30.0, 0.0, -40.0), Vec3::new(-31.0, 0.0, -40.0));
+        let at = Vec3::new(-22.0, 0.0, -40.0);
+        app.world_mut().spawn((
+            shared::PowerUpDrop { kind: shared::power_ups::PowerUp::ALL[0], pos: at, blinking: false },
+            crate::power_ups::DropSim { lobby, age: 0.0 },
+        ));
+        let mut reached = false;
+        run(&mut app, shared::power_ups::DROP_LIFETIME_SECS - 2.0, |app| {
+            let f = app.world().get::<AllyBrain>(bot).unwrap().feet;
+            reached |= f.with_y(0.0).distance(at.with_y(0.0)) < shared::power_ups::PICKUP_RADIUS;
+        });
+        assert!(reached, "never got to it");
+    }
+
+    #[test]
+    fn bots_sometimes_go_at_once_and_sometimes_hold_off_and_stick_to_it() {
+        let (mut now_, mut later) = (0, 0);
+        for seed in 0..200 {
+            let mut b = AllyBrain::new(BotDifficulty::Regular, Vec3::ZERO, 0.0, seed);
+            if b.ready(Errand::Power, 10.0) {
+                now_ += 1;
+            } else {
+                later += 1;
+                // (Still waiting a moment later, done once its time's come.)
+                assert!(!b.ready(Errand::Power, 10.5));
+                assert!(b.ready(Errand::Power, 60.0));
+            }
+        }
+        assert!(now_ > 40 && later > 40, "{now_} at once, {later} later");
     }
 
     #[test]

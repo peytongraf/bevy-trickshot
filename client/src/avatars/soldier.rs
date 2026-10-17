@@ -11,7 +11,7 @@ use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
 use super::held_weapon::{
-    Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES, RIGHT_THIGH_BONE, SPINE_BONES,
+    Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES, RIGHT_THIGH_BONE, ROOT_BONE, SPINE_BONES,
 };
 
 /// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
@@ -756,7 +756,7 @@ pub(crate) fn start_soldier_animation(
     };
     let mut right = [None; 3];
     let mut left = [None; 3];
-    let (mut left_shoulder, mut right_thigh) = (None, None);
+    let (mut left_shoulder, mut right_thigh, mut skeleton) = (None, None, None);
     let mut spine = [None; 3];
     let mut baked_gun = None;
     for entity in children.iter_descendants(root) {
@@ -773,6 +773,9 @@ pub(crate) fn start_soldier_animation(
             }
             if name == RIGHT_THIGH_BONE {
                 right_thigh = Some(entity);
+            }
+            if name == ROOT_BONE {
+                skeleton = Some(entity);
             }
             if let Some(i) = SPINE_BONES.iter().position(|&b| b == name) {
                 spine[i] = Some(entity);
@@ -807,10 +810,11 @@ pub(crate) fn start_soldier_animation(
     if let (Some(spine), Some(graph)) = (spine[0], graphs.get_mut(anims.graph())) {
         soldier_mask_groups(graph, root, spine, &children, &targets, &parents);
     }
-    if let (Some(right), Some(left), Some(left_shoulder), Some(spine), Some(right_thigh)) =
-        (bones(right), bones(left), left_shoulder, bones(spine), right_thigh)
+    if let (Some(right), Some(left), Some(left_shoulder), Some(spine), Some(right_thigh), Some(skeleton)) =
+        (bones(right), bones(left), left_shoulder, bones(spine), right_thigh, skeleton)
     {
         commands.entity(root).insert(SoldierRig {
+            root: skeleton,
             right,
             left,
             left_shoulder,

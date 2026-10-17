@@ -176,6 +176,9 @@ pub(crate) struct Grip {
     /// ...and how far the chest leans and twists into it there (degrees:
     /// pitch up, yaw left — the right shoulder forward — roll).
     pub(crate) stab_lean_deg: [f32; 3],
+    /// ...and how far the whole body lunges forward into it there (m) — what
+    /// gets the tip out to [`shared::melee::KNIFE_REACH_M`].
+    pub(crate) stab_lunge: f32,
     /// Its muzzle, in its own frame (m) — where a shot's tracer starts.
     pub(crate) muzzle: [f32; 3],
     /// Its scope's lens, in its own frame (m) — where the sniper glint
@@ -208,9 +211,10 @@ impl Default for Grip {
             hand_turn_deg: [0.0; 3],
             left_hand: None,
             left_arm_down: false,
-            stab_reach: [0.0, 0.06, 0.42],
-            stab_turn_deg: [-20.0, 0.0, 0.0],
-            stab_lean_deg: [-10.0, 15.0, 0.0],
+            stab_reach: [0.0, 0.08, 0.7],
+            stab_turn_deg: [0.0, -40.0, 0.0],
+            stab_lean_deg: [-28.0, 32.0, 0.0],
+            stab_lunge: 0.65,
             muzzle: [-0.5, 0.0, 0.0],
             scope: None,
             stow_on: StowOn::Back,
@@ -396,6 +400,7 @@ impl WeaponGrips {
             stab_reach: m(g.stab_reach),
             stab_turn_deg: d(g.stab_turn_deg),
             stab_lean_deg: d(g.stab_lean_deg),
+            stab_lunge: r(g.stab_lunge, 1000.0),
             muzzle: m(g.muzzle),
             scope: g.scope.map(m),
             stow_on: g.stow_on,
@@ -447,6 +452,8 @@ const MODEL_FORWARD: Vec3 = Vec3::Z;
 /// `start_soldier_animation` once the scene's in.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct SoldierRig {
+    /// The skeleton's root — moved forward by a knife stab's lunge.
+    pub(crate) root: Entity,
     /// Upper arm, forearm, hand.
     pub(crate) right: [Entity; 3],
     pub(crate) left: [Entity; 3],
@@ -469,6 +476,7 @@ pub(crate) const LEFT_ARM_BONES: [&str; 3] = ["Bind_LeftArm_016_017", "Bind_Left
 pub(crate) const LEFT_SHOULDER_BONE: &str = "Bind_LeftShoulder_015_016";
 pub(crate) const SPINE_BONES: [&str; 3] = ["Bind_Spine_010_011", "Bind_Spine1_011_012", "Bind_Spine2_012_013"];
 pub(crate) const RIGHT_THIGH_BONE: &str = "Bind_RightUpLeg_01_07";
+pub(crate) const ROOT_BONE: &str = "Bind_Root_00_02";
 
 /// How much of the look up or down each of [`SPINE_BONES`] takes — all of it
 /// between them, so the chest (and the weapon) end up at the full angle.
@@ -990,8 +998,8 @@ fn pose_held_weapons(
         if stab.is_some_and(|p| p >= 1.0) {
             held.stab_from = None;
         }
-        let mut animated = Vec::with_capacity(10);
-        for e in rig.right.into_iter().chain(rig.left).chain([rig.left_shoulder]).chain(rig.spine) {
+        let mut animated = Vec::with_capacity(11);
+        for e in rig.right.into_iter().chain(rig.left).chain([rig.left_shoulder, rig.root]).chain(rig.spine) {
             if let Ok(t) = transforms.get(e) {
                 animated.push((e, *t));
             }
@@ -1067,6 +1075,14 @@ fn pose_held_weapons(
                 _ => 0.0,
             };
             if thrust != 0.0 && w > 1e-3 {
+                // ...the whole body lunging forward into it...
+                if let Ok(above) = parents.get(rig.root).map(|p| p.parent()) {
+                    let above = from_root(above, root, &parents, &transforms);
+                    let lunge = above.inverse().transform_vector3(MODEL_FORWARD * (grip.stab_lunge * thrust * w * per_m));
+                    if let Ok(mut t) = transforms.get_mut(rig.root) {
+                        t.translation += lunge;
+                    }
+                }
                 let chest_bone = rig.spine[2];
                 if let Ok(above) = parents.get(chest_bone).map(|p| p.parent()) {
                     let above = from_root(above, root, &parents, &transforms).to_scale_rotation_translation().1;

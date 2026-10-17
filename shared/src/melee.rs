@@ -12,9 +12,10 @@ use bevy::math::Vec3;
 use crate::ballistics::Target;
 
 /// How far ahead of the eye (m, along the ground) the knife's tip gets at
-/// the thrust's full stretch — measured off the soldier model, arm straight
-/// out (0.70–0.84 m standing still or walking).
-pub const KNIFE_REACH_M: f32 = 0.8;
+/// the thrust's full stretch — measured off the soldier model lunging into
+/// it, arm straight out (1.53–1.62 m standing still or walking): far enough
+/// to knife a zombie at a window from right up against it on the inside.
+pub const KNIFE_REACH_M: f32 = 1.6;
 
 /// How far below the eye (m) the tip goes — chest height on the model.
 pub const KNIFE_TIP_DROP_M: f32 = 0.35;
@@ -158,10 +159,21 @@ mod tests {
 
     #[test]
     fn whiffs_just_past_where_the_tip_gets() {
-        // Its middle 1.05 m off: the tip (0.8 m) stops short of its chest
+        // Its middle 1.85 m off: the tip (1.6 m) stops short of its chest
         // (0.2 m in front of that).
-        let t = target(1, Vec3::new(0.0, 0.0, -1.05));
+        let t = target(1, Vec3::new(0.0, 0.0, -1.85));
         assert!(resolve_melee(EYE, Vec3::NEG_Z, &[t]).is_none());
+    }
+
+    #[test]
+    fn reaches_a_zombie_at_a_window_from_right_up_against_it() {
+        // Pressed to the inside of a window (a 0.5 m wall, a 0.25 m body:
+        // the eye 0.5 m from its middle), a zombie tearing at the boards
+        // (0.8 – 1.3 m out the other side) — 1.3 – 1.8 m off.
+        for out in [1.3, 1.55, 1.75] {
+            let t = target(1, Vec3::new(0.0, 0.0, -out));
+            assert!(resolve_melee(EYE, Vec3::NEG_Z, &[t]).is_some(), "missed at {out} m");
+        }
     }
 
     #[test]
