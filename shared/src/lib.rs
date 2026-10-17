@@ -61,7 +61,7 @@ pub use protocol::{
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
-    RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
+    RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, DrinkProgress, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, BuyDoor, CallExfil, ToggleRampage, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
@@ -82,7 +82,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002b;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002c;
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

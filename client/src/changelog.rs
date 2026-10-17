@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Other players drink their perks — the right-coloured bottle, for exactly as long as yours takes.",
         "Other players put their weapon away and throw lethals and tacticals overhand, in time with their own throw.",
         "Other players lie down when they go prone, and crawl forward and back.",
         "Other players' weapon swaps finish exactly when theirs do on their screen — perks included.",

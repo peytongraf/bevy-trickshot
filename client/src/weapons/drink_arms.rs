@@ -40,8 +40,12 @@ const CLIP_FPS: f32 = 30.0;
 const CLIP_START: f32 = CLIP_START_FRAME / CLIP_FPS;
 const CLIP_END: f32 = CLIP_END_FRAME / CLIP_FPS;
 
-/// The glb's bottle mesh node.
-const BOTTLE_NODE: &str = "Object_15";
+/// The glb's bottle mesh node...
+pub(crate) const BOTTLE_NODE: &str = "Object_15";
+/// ...and its label's.
+pub(crate) const BOTTLE_LABEL_NODE: &str = "Object_16";
+/// The arms (and bottle) model.
+pub(crate) const DRINK_ARMS_MODEL: &str = "models/characters/arms_drinking.glb";
 
 pub(crate) struct DrinkArmsPlugin;
 
@@ -289,9 +293,40 @@ pub(crate) fn play_perk_drink(
     }
 }
 
+/// How far (`0..1`) through drinking a perk we are, and which — for
+/// everyone else's view of us (`PlayerPose::drink`): read off the arms'
+/// clip, so theirs lasts exactly as long as ours.
+pub(crate) fn drink_progress(
+    drink: &PerkDrink,
+    players: &Query<&AnimationPlayer, With<DrinkArmsAnimationPlayer>>,
+    anims: &Query<&DrinkArmsAnimation>,
+) -> Option<shared::DrinkProgress> {
+    if drink.phase != DrinkPhase::Drinking || !drink.started {
+        return None;
+    }
+    let (player, anim) = players.iter().next().zip(anims.iter().next())?;
+    let t = player.animation(anim.index)?.seek_time();
+    Some(shared::DrinkProgress {
+        perk: drink.perk?,
+        t: ((t - CLIP_START) / (CLIP_END - CLIP_START)).clamp(0.0, 1.0),
+    })
+}
+
+/// Make `mat` a bottle of `perk`'s colour — glass of it, glowing only as
+/// much as [`DrinkArmsSettings::glow`] says (ours, and other players' in
+/// their soldiers' hands).
+pub(crate) fn tint_bottle_glass(mat: &mut StandardMaterial, perk: Perk, settings: &DrinkArmsSettings) {
+    let perk = perk_color(perk).to_srgba();
+    let shade = settings.bottle_shade.max(0.0);
+    let color = Color::srgb(perk.red * shade, perk.green * shade, perk.blue * shade);
+    mat.base_color = color;
+    mat.emissive = color.to_linear() * settings.glow;
+    mat.perceptual_roughness = settings.bottle_roughness.clamp(0.0, 1.0);
+    mat.metallic = 0.0;
+}
+
 /// Keep the bottle the colour of the perk being drunk (Shroom Tea's when
-/// none is, for the debug loop) — as glass of that colour, glowing only as
-/// much as [`DrinkArmsSettings::glow`] says.
+/// none is, for the debug loop) — [`tint_bottle_glass`].
 fn tint_drink_bottle(
     settings: Res<DrinkArmsSettings>,
     drink: Res<PerkDrink>,
@@ -302,15 +337,10 @@ fn tint_drink_bottle(
     if !settings.is_changed() && !drink.is_changed() && added.is_empty() {
         return;
     }
-    let perk = perk_color(drink.perk.unwrap_or(Perk::ShroomTea)).to_srgba();
-    let shade = settings.bottle_shade.max(0.0);
-    let color = Color::srgb(perk.red * shade, perk.green * shade, perk.blue * shade);
+    let perk = drink.perk.unwrap_or(Perk::ShroomTea);
     for bottle in &bottles {
         if let Some(mat) = materials.get_mut(&bottle.0) {
-            mat.base_color = color;
-            mat.emissive = color.to_linear() * settings.glow;
-            mat.perceptual_roughness = settings.bottle_roughness.clamp(0.0, 1.0);
-            mat.metallic = 0.0;
+            tint_bottle_glass(mat, perk, &settings);
         }
     }
 }

@@ -17,6 +17,11 @@ are — `avatars::soldier` looks them up by index and name):
   over whatever the legs are doing): cocked back ready (held there while a
   throw's being cooked), the arm over the top to the release at
   `THROW_RELEASE_SECS` (the first-person throw's), and the follow-through.
+* `drink` (22) — drinking a perk, for the upper body: the bottle drawn up
+  from the right hip, its neck to the mouth, tipped up as it's drunk with
+  the head back, and put back at the hip; `DRINK_SECS` long (the
+  first-person drink's). The bottle's the game's own, in the hand where
+  `DRINK_HOLD_*` (printed) says — the game's `WeaponGrips::drink_hold`.
 
 Every pose is built off the model's own `shooting` clip (its aimed rifle)
 by turning bones — whole-body forward onto the ground, the spine arched up
@@ -34,7 +39,7 @@ import sys
 import numpy as np
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "models", "characters", "soldier.glb")
-CLIP_NAMES = ("prone", "proneCrawl", "proneCrawlBack", "throw")
+CLIP_NAMES = ("prone", "proneCrawl", "proneCrawlBack", "throw", "drink")
 
 AV = 21.0
 def qmat(q):
@@ -314,6 +319,60 @@ THROW_KEYS = [
 ]
 THROW_RELEASE_SECS = 0.25
 
+
+DRINK_SECS = 1.667          # the first-person drink: frames 160..410 at 30 fps, played 5x
+BOTTLE_HALF = 0.12          # half the bottle's height (m) — the game's `BOTTLE_HEIGHT` / 2
+DRINK_HOLD_POS = np.array([0.0, 0.08, 0.035])  # the bottle's middle from the hand bone (m, its axes)
+
+def bottle_frame(axis):
+    """A turn whose +Y is `axis` (the bottle's bottom-to-neck), its +X as near the body's right as can be."""
+    y = np.asarray(axis, float); y = y / np.linalg.norm(y)
+    x = RIGHT - y * np.dot(RIGHT, y); x = x / np.linalg.norm(x)
+    return np.c_[x, y, np.cross(x, y)]
+
+def drink_hold():
+    """The bottle's turn in the hand: standing upright in the hand as it hangs at the hip."""
+    p = Pose(g, 17, 0.0)
+    return p.rot("Bind_RightHand_037_038").T @ bottle_frame(UP)
+
+def drink_at(key, hold):
+    p = Pose(g, 17, 0.0)  # `idleWithoutGun`
+    for b, share in zip(["Bind_Spine_010_011", "Bind_Spine1_011_012", "Bind_Spine2_012_013"], [0.3, 0.35, 0.35]):
+        turn_about(p, b, aa(RIGHT, deg(key["lean"] * share)))
+    for b, share in (("Bind_Neck_013_014", 0.4), ("Bind_Head_014_015", 0.6)):
+        turn_about(p, b, aa(RIGHT, deg(key["head"] * share)))
+    if key.get("bottle") is None:
+        return p  # at the hip, as the clip has the hand
+    head = p.pos("Bind_Head_014_015")
+    # (The mouth: forward of the head joint and a little down, tipped back with it.)
+    mouth = head + aa(RIGHT, deg(key["head"])) @ (FWD * 0.11 - UP * 0.06)
+    axis = np.asarray(key["axis"], float); axis = axis / np.linalg.norm(axis)
+    body = lambda v: RIGHT * v[0] + UP * v[1] + FWD * v[2]
+    if key["bottle"] == "mouth":
+        middle = mouth - axis * BOTTLE_HALF   # its neck at the lips
+    else:
+        middle = mouth + body(key["bottle"])
+    hand_rot = bottle_frame(axis) @ hold.T
+    wrist = middle - hand_rot @ DRINK_HOLD_POS
+    two_bone_reach(p, "Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038",
+                   wrist, RIGHT * 1.0 - UP * 0.8)
+    p.set_global_rot("Bind_RightHand_037_038", hand_rot)
+    return p
+
+# The drink's keys: the chest's lean and the head's tip back (degrees, +
+# back); where the bottle is — at the hip as the hand hangs (None), its neck
+# at the lips ("mouth"), or its middle from the mouth (m: right, up,
+# forward) — and the way its neck points.
+DRINK_KEYS = [
+    (0.00, dict(lean=0, head=0, bottle=None)),
+    (0.14, dict(lean=0, head=0, bottle=(0.06, -0.3, 0.26), axis=(0, 1, -0.25))),
+    (0.28, dict(lean=2, head=12, bottle="mouth", axis=(0, -0.25, -1))),
+    (0.48, dict(lean=5, head=26, bottle="mouth", axis=(0, -0.65, -0.75))),
+    (0.66, dict(lean=6, head=30, bottle="mouth", axis=(0, -0.85, -0.5))),
+    (0.80, dict(lean=1, head=6, bottle=(0.06, -0.3, 0.26), axis=(0, 1, -0.25))),
+    (1.00, dict(lean=0, head=0, bottle=None)),
+]
+
 CRAWL_SECS = 1.4
 def build(path):
     j, b = fresh()
@@ -326,6 +385,10 @@ def build(path):
     add_clip('proneCrawl', times, fwd, j, b)
     add_clip('proneCrawlBack', times, list(reversed(fwd)), j, b)
     add_clip('throw', [t for t, _ in THROW_KEYS], [throw_at(k) for _, k in THROW_KEYS], j, b)
+    hold = drink_hold()
+    add_clip('drink', [t * DRINK_SECS for t, _ in DRINK_KEYS], [drink_at(k, hold) for _, k in DRINK_KEYS], j, b)
+    x, y, z = (math.degrees(a) for a in (math.atan2(-hold[1, 2], hold[2, 2]), math.asin(max(-1, min(1, hold[0, 2]))), math.atan2(-hold[0, 1], hold[0, 0])))
+    print(f"DRINK_HOLD: pos {tuple(DRINK_HOLD_POS)}, turn_deg ({x:.2f}, {y:.2f}, {z:.2f})")
     write_glb(path, j, b)
 
 def main():

@@ -33,6 +33,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use shared::lethal::LethalKind;
+use shared::perks::Perk;
 
 use crate::avatars::held_weapon::{
     euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, StowOn, WeaponGrips,
@@ -185,7 +186,15 @@ struct GripEditor {
     throw_clock: Option<f32>,
     /// ...or the arm held up ready, to place what's in the hand by.
     throw_ready: bool,
-    throw_layer: crate::ThrowLayer,
+    throw_layer: crate::UpperLayer,
+    /// The perk the drink section drinks...
+    drink_perk: Perk,
+    /// ...a drink playing, this long (s) since the weapon started going
+    /// away...
+    drink_clock: Option<f32>,
+    /// ...or held at this moment of it (`0..1`), to place the bottle by.
+    drink_hold_at: Option<f32>,
+    drink_layer: crate::UpperLayer,
     /// Play the knife's stab once...
     play_stab: bool,
     /// ...or over and over.
@@ -217,7 +226,11 @@ impl Default for GripEditor {
             throw_kind: LethalKind::Frag,
             throw_clock: None,
             throw_ready: false,
-            throw_layer: crate::ThrowLayer::default(),
+            throw_layer: crate::UpperLayer::default(),
+            drink_perk: Perk::SpeedCola,
+            drink_clock: None,
+            drink_hold_at: None,
+            drink_layer: crate::UpperLayer::default(),
             play_stab: false,
             loop_stab: false,
         }
@@ -535,7 +548,16 @@ fn drive_soldier(
     held.throwing = stage.map(|s| {
         (editor.throw_kind, !matches!(s, shared::ThrowStage::Throwing { released: true, .. }))
     });
-    let item = throw.is_none().then(|| editor.weapon.weapon());
+    // A perk drink, likewise: the weapon put away, the drink, the weapon back.
+    let drink = match editor.drink_clock.map(|c| c + dt) {
+        Some(c) if c < PUT_AWAY_SECS => Some(None),
+        Some(c) if c < PUT_AWAY_SECS + crate::DRINK_SECS => Some(Some((c - PUT_AWAY_SECS) / crate::DRINK_SECS)),
+        _ => editor.drink_hold_at.map(Some),
+    };
+    editor.drink_clock = editor.drink_clock.map(|c| c + dt).filter(|c| *c < PUT_AWAY_SECS + crate::DRINK_SECS);
+    let drinking = drink.flatten();
+    held.drinking = drinking.map(|t| (editor.drink_perk, t));
+    let item = (throw.is_none() && drink.is_none()).then(|| editor.weapon.weapon());
     if held.item != item {
         held.item = item;
     }
@@ -566,6 +588,9 @@ fn drive_soldier(
     let mut layer = editor.throw_layer;
     crate::drive_throw_layer(&mut player, &anims, &mut layer, stage, dt, 0.2);
     editor.throw_layer = layer;
+    let mut layer = editor.drink_layer;
+    crate::drive_drink_layer(&mut player, &anims, &mut layer, drinking, dt, 0.2);
+    editor.drink_layer = layer;
     let node = anims.node_for(editor.clip);
     if editor.playing_clip != Some(editor.clip) {
         editor.playing_clip = Some(editor.clip);
@@ -734,8 +759,11 @@ fn editor_ui(
                     knife,
                     arm_down,
                     throw_hold,
+                    drink_hold,
                 } = &mut *grips;
                 throw_controls(ui, ed, throw_hold);
+                ui.separator();
+                drink_controls(ui, ed, drink_hold);
                 ui.separator();
                 let grip = match ed.weapon {
                     GripKey::Sniper => sniper,
@@ -912,6 +940,42 @@ fn throw_controls(ui: &mut egui::Ui, ed: &mut GripEditor, hold: &mut HandTarget)
             .on_hover_text("The arm up and cocked back, as while a throw's cooked — to place it in the hand by.");
     });
     ui.colored_label(DIM, "In the hand: its middle from the hand bone, in its axes.");
+    vec3_row(ui, "Place", &mut hold.pos, 0.001, " m", ["x", "y", "z"]);
+    vec3_row(ui, "Turn", &mut hold.turn_deg, 0.25, "°", ["x", "y", "z"]);
+}
+
+/// A perk drink: which perk, playing it, holding a moment of it, and where
+/// the bottle sits in the hand.
+fn drink_controls(ui: &mut egui::Ui, ed: &mut GripEditor, hold: &mut HandTarget) {
+    ui.heading("Drinking a perk");
+    egui::ComboBox::from_id_salt("weapon_editor_perk")
+        .selected_text(ed.drink_perk.label())
+        .show_ui(ui, |ui| {
+            for perk in Perk::ALL {
+                ui.selectable_value(&mut ed.drink_perk, perk, perk.label());
+            }
+        });
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(ed.drink_clock.is_none(), egui::Button::new("Drink"))
+            .on_hover_text("Put the weapon away and drink — as other players see it, as long as ours takes.")
+            .clicked()
+        {
+            ed.drink_clock = Some(0.0);
+        }
+        let mut holding = ed.drink_hold_at.is_some();
+        if ui
+            .checkbox(&mut holding, "Hold")
+            .on_hover_text("Stop on one moment of the drink — to place the bottle in the hand by.")
+            .changed()
+        {
+            ed.drink_hold_at = holding.then_some(0.5);
+        }
+        if let Some(at) = ed.drink_hold_at.as_mut() {
+            ui.add(egui::Slider::new(at, 0.0..=1.0).fixed_decimals(2));
+        }
+    });
+    ui.colored_label(DIM, "In the hand: its middle from the hand bone, in its axes (neck up its +y).");
     vec3_row(ui, "Place", &mut hold.pos, 0.001, " m", ["x", "y", "z"]);
     vec3_row(ui, "Turn", &mut hold.turn_deg, 0.25, "°", ["x", "y", "z"]);
 }

@@ -144,7 +144,7 @@ pub(crate) fn root_from(
 /// The weapon's main directions through `points`: the middle, then the
 /// axes its points spread along most (the barrel), next (its height) and
 /// least (its thickness) — each with the points' extent along it.
-fn principal_axes(points: &[Vec3]) -> (Vec3, [(Vec3, f32, f32); 3]) {
+pub(crate) fn principal_axes(points: &[Vec3]) -> (Vec3, [(Vec3, f32, f32); 3]) {
     let n = points.len().max(1) as f32;
     let mean = points.iter().copied().sum::<Vec3>() / n;
     let mut cov = Mat3::ZERO;
@@ -232,6 +232,59 @@ pub(crate) fn fit_upright(points: &[Vec3], length: f32) -> Option<Transform> {
     })
 }
 
+/// `entity`'s mesh's vertices (up to a few thousand of them), posed as the
+/// scene stands — skinned to its rig, or not — in `root`'s frame, onto
+/// `points`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn posed_points(
+    root: Entity,
+    entity: Entity,
+    mesh: &Handle<Mesh>,
+    skinned: Option<&SkinnedMesh>,
+    meshes: &Assets<Mesh>,
+    bindposes: &Assets<SkinnedMeshInverseBindposes>,
+    parents: &Query<&ChildOf>,
+    transforms: &Query<&Transform>,
+    points: &mut Vec<Vec3>,
+) {
+    let Some(mesh) = meshes.get(mesh) else { return };
+    let Some(positions) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()) else {
+        return;
+    };
+    let step = (positions.len() / 4000).max(1);
+    match skinned {
+        Some(skin) => {
+            let (Some(VertexAttributeValues::Uint16x4(joints)), Some(VertexAttributeValues::Float32x4(weights))) = (
+                mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX),
+                mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT),
+            ) else {
+                return;
+            };
+            let Some(inverse) = bindposes.get(&skin.inverse_bindposes) else { return };
+            let mats: Vec<Affine3A> = skin
+                .joints
+                .iter()
+                .zip(inverse.iter())
+                .map(|(&joint, inv)| root_from(joint, root, parents, transforms) * Affine3A::from_mat4(*inv))
+                .collect();
+            for i in (0..positions.len()).step_by(step) {
+                let v = Vec3::from_array(positions[i]);
+                let posed: Vec3 = (0..4)
+                    .filter_map(|k| {
+                        let m = mats.get(joints[i][k] as usize)?;
+                        Some(m.transform_point3(v) * weights[i][k])
+                    })
+                    .sum();
+                points.push(posed);
+            }
+        }
+        None => {
+            let m = root_from(entity, root, parents, transforms);
+            points.extend((0..positions.len()).step_by(step).map(|i| m.transform_point3(Vec3::from_array(positions[i]))));
+        }
+    }
+}
+
 /// A dropped weapon's scene is in: hide everything but the weapon (the
 /// arms), and lay it down by its shape — the weapon's vertices, posed as
 /// the scene stands (the AK-74's skinned to its rig), give its size and
@@ -263,43 +316,10 @@ fn fit_dropped_model(
             commands.entity(entity).insert(Visibility::Hidden);
             continue;
         }
-        let Some(mesh) = meshes.get(&mesh3d.0) else { continue };
-        let Some(positions) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|a| a.as_float3()) else {
-            continue;
-        };
-        let step = (positions.len() / 4000).max(1);
-        match skinned {
-            Some(skin) => {
-                commands.entity(entity).insert(NoFrustumCulling);
-                let (Some(VertexAttributeValues::Uint16x4(joints)), Some(VertexAttributeValues::Float32x4(weights))) = (
-                    mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX),
-                    mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT),
-                ) else {
-                    continue;
-                };
-                let Some(inverse) = bindposes.get(&skin.inverse_bindposes) else { continue };
-                let mats: Vec<Affine3A> = skin
-                    .joints
-                    .iter()
-                    .zip(inverse.iter())
-                    .map(|(&joint, inv)| root_from(joint, root, &parents, &transforms) * Affine3A::from_mat4(*inv))
-                    .collect();
-                for i in (0..positions.len()).step_by(step) {
-                    let v = Vec3::from_array(positions[i]);
-                    let posed: Vec3 = (0..4)
-                        .filter_map(|k| {
-                            let m = mats.get(joints[i][k] as usize)?;
-                            Some(m.transform_point3(v) * weights[i][k])
-                        })
-                        .sum();
-                    points.push(posed);
-                }
-            }
-            None => {
-                let m = root_from(entity, root, &parents, &transforms);
-                points.extend((0..positions.len()).step_by(step).map(|i| m.transform_point3(Vec3::from_array(positions[i]))));
-            }
+        if skinned.is_some() {
+            commands.entity(entity).insert(NoFrustumCulling);
         }
+        posed_points(root, entity, &mesh3d.0, skinned, &meshes, &bindposes, &parents, &transforms, &mut points);
     }
     let fit = if model.upright {
         fit_upright(&points, real_length(model.weapon))

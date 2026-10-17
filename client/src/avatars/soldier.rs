@@ -99,8 +99,10 @@ pub(crate) struct SoldierAnimations {
     /// ...under `shooting`, the upper body only.
     shot_upper: AnimationNodeIndex,
     /// `throw`, the upper body only — over whatever the legs are doing
-    /// ([`drive_throw_layer`]).
+    /// ([`drive_throw_layer`])...
     throw_upper: AnimationNodeIndex,
+    /// ...and `drink` ([`drive_drink_layer`]).
+    drink_upper: AnimationNodeIndex,
     crouch: AnimationNodeIndex,
     crouch_walk: AnimationNodeIndex,
     reload: AnimationNodeIndex,
@@ -505,7 +507,7 @@ pub(crate) fn setup_soldier_assets(
     // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 14 melee,
     // 15 death, 17 idleWithoutGun — and the three `client/tools/
     // soldier_prone_clips.py` adds after them: 18 prone, 19 proneCrawl,
-    // 20 proneCrawlBack, 21 throw.
+    // 20 proneCrawlBack, 21 throw, 22 drink.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/characters/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -544,6 +546,8 @@ pub(crate) fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(20).from_asset("models/characters/soldier.glb"));
     let throw_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(21).from_asset("models/characters/soldier.glb"));
+    let drink_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(22).from_asset("models/characters/soldier.glb"));
     let (mut graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
@@ -568,6 +572,7 @@ pub(crate) fn setup_soldier_assets(
     let aim_move_legs = graph.add_clip_with_mask(aim_move_clip, 1 << UPPER_BODY, 1.0, root);
     let shot_upper = graph.add_clip_with_mask(aim_idle_clip, 1 << LOWER_BODY, 1.0, root);
     let throw_upper = graph.add_clip_with_mask(throw_clip, 1 << LOWER_BODY, 1.0, root);
+    let drink_upper = graph.add_clip_with_mask(drink_clip, 1 << LOWER_BODY, 1.0, root);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
         graph,
@@ -578,6 +583,7 @@ pub(crate) fn setup_soldier_assets(
         aim_move_legs,
         shot_upper,
         throw_upper,
+        drink_upper,
         crouch: indices[4],
         crouch_walk: indices[5],
         reload: indices[6],
@@ -601,10 +607,15 @@ pub(crate) const THROW_SECS: f32 = 0.667;
 /// default (`ThrowArmsSettings::throw_release_secs`).
 pub(crate) const THROW_RELEASE_SECS: f32 = 0.25;
 
-/// How much of the upper body the throw has, and where in it it is — kept
-/// on whoever drives a soldier ([`drive_throw_layer`]).
+/// `drink`'s length (s) — the first-person drink's (its clip's frames
+/// 160..410 at 30 fps, played 5×), so a soldier's ends just as theirs does.
+pub(crate) const DRINK_SECS: f32 = 1.667;
+
+/// A clip over a soldier's upper body (a throw, a drink): how much of it the
+/// clip has, and where in it it is — kept on whoever drives a soldier
+/// ([`drive_throw_layer`], [`drive_drink_layer`]).
 #[derive(Clone, Copy, Default)]
-pub(crate) struct ThrowLayer {
+pub(crate) struct UpperLayer {
     share: f32,
     at: f32,
 }
@@ -612,36 +623,66 @@ pub(crate) struct ThrowLayer {
 /// Play the throw over a soldier's upper body as `stage` says (a player's
 /// `PlayerPose::throw`): the arm coming up ready as theirs does — and held
 /// there while they cook it — then the throw in step with theirs, easing off
-/// over `fade_secs` once it's done. The layer takes over the upper body from
-/// whatever else is playing there: Bevy blends clips by their share of the
-/// total weight, so it gets `share / (1 - share)` against the rest's ~1.
+/// over `fade_secs` once it's done.
 pub(crate) fn drive_throw_layer(
     player: &mut AnimationPlayer,
     anims: &SoldierAnimations,
-    layer: &mut ThrowLayer,
+    layer: &mut UpperLayer,
     stage: Option<shared::ThrowStage>,
     dt: f32,
     fade_secs: f32,
 ) {
-    let (target, at) = match stage {
-        Some(shared::ThrowStage::Raising(s)) => (s.clamp(0.0, 1.0), 0.0),
-        Some(shared::ThrowStage::Throwing { t, .. }) => (1.0, t.clamp(0.0, 1.0)),
-        None => (0.0, layer.at),
-    };
+    let want = stage.map(|stage| match stage {
+        shared::ThrowStage::Raising(s) => (s.clamp(0.0, 1.0), 0.0),
+        shared::ThrowStage::Throwing { t, .. } => (1.0, t.clamp(0.0, 1.0) * THROW_SECS),
+    });
+    drive_upper_layer(player, anims.throw_upper, layer, want, dt, fade_secs);
+}
+
+/// Play the drink over a soldier's upper body, `t` (`0..1`, a player's
+/// `PlayerPose::drink`) of the way through: taking over as the bottle comes
+/// off the hip, in step with theirs, easing off over `fade_secs` after.
+pub(crate) fn drive_drink_layer(
+    player: &mut AnimationPlayer,
+    anims: &SoldierAnimations,
+    layer: &mut UpperLayer,
+    t: Option<f32>,
+    dt: f32,
+    fade_secs: f32,
+) {
+    let want = t.map(|t| {
+        let t = t.clamp(0.0, 1.0);
+        ((t / 0.08).min(1.0), t * DRINK_SECS)
+    });
+    drive_upper_layer(player, anims.drink_upper, layer, want, dt, fade_secs);
+}
+
+/// Play `node` (masked to the upper body) at `want`'s `(share, seconds into
+/// it)`, or ease it off over `fade_secs` — rising with `share`, never
+/// snapping off. It takes over the upper body from whatever else is playing
+/// there: Bevy blends clips by their share of the total weight, so it gets
+/// `share / (1 - share)` against the rest's ~1.
+fn drive_upper_layer(
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    layer: &mut UpperLayer,
+    want: Option<(f32, f32)>,
+    dt: f32,
+    fade_secs: f32,
+) {
+    let (target, at) = want.unwrap_or((0.0, layer.at));
     layer.at = at;
-    // (Up with their arm; off at its own pace.)
     layer.share = if target >= layer.share {
         target
     } else {
         (layer.share - dt / fade_secs.max(1e-3)).max(target)
     };
-    let node = anims.throw_upper;
     if layer.share <= 0.0 {
         player.stop(node);
         return;
     }
     let active = player.play(node);
-    active.pause().seek_to(layer.at * THROW_SECS);
+    active.pause().seek_to(layer.at);
     let share = layer.share.min(0.995);
     active.set_weight(share / (1.0 - share));
 }

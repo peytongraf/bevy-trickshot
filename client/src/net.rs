@@ -321,6 +321,7 @@ pub(crate) fn write_input(
         time,
         mut stabbed_at,
         mut shot_hits,
+        (drink, drink_players, drink_anims),
     ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
@@ -339,6 +340,11 @@ pub(crate) fn write_input(
         // the next one — and whether it's gone to the server yet.
         Local<Option<(f32, bool)>>,
         ResMut<crate::hit_detection::ShotHits>,
+        (
+            Res<crate::PerkDrink>,
+            Query<&AnimationPlayer, With<crate::DrinkArmsAnimationPlayer>>,
+            Query<&crate::DrinkArmsAnimation>,
+        ),
     ),
 ) {
     let (Ok(pt), Ok(ht), Ok(mut action)) = (player.single(), head.single(), q.single_mut()) else {
@@ -417,6 +423,7 @@ pub(crate) fn write_input(
     action.arms_slide = knife.slide;
     action.arms_anim_time = crate::throw_arms_anim_time(&arms_players, &arms_anims);
     action.throw = knife.remote_throw(action.arms_anim_time);
+    action.drink = crate::weapons::drink_progress(&drink, &drink_players, &drink_anims);
     action.arms_knife_in_hand = knife.knife_in_hand();
     // What everyone else sees in our hands: the gun while it's drawn, the
     // knife while that is (a quick stab with the gun out included), and
@@ -911,8 +918,10 @@ pub(crate) struct RemoteAvatarMotion {
     /// The weight of the upper-body aim over the aiming-on-the-move legs
     /// (`SoldierAnimations::shot_upper`) — eased in and out with the state.
     aim_upper: f32,
-    /// A throw over the upper body (`PlayerPose::throw`).
-    throw: crate::ThrowLayer,
+    /// A throw over the upper body (`PlayerPose::throw`)...
+    throw: crate::UpperLayer,
+    /// ...and a perk drink (`PlayerPose::drink`).
+    drink: crate::UpperLayer,
 }
 
 /// Another player fired (from the server's word: `ShotResolved`, or for the
@@ -1531,6 +1540,15 @@ fn animate_remote_avatars(
             dt,
             BLEND_DURATION.as_secs_f32(),
         );
+        // Drinking a perk: the drink over the upper body, in step with theirs.
+        crate::drive_drink_layer(
+            &mut player,
+            &anims,
+            &mut motion.drink,
+            pose.drink.map(|d| d.t),
+            dt,
+            BLEND_DURATION.as_secs_f32(),
+        );
 
         // They fired: one kick, at their gun's pace, from wherever the last
         // one had got to.
@@ -1595,6 +1613,7 @@ fn sync_held_weapons(
         let pap = |item: shared::weapon::SlotWeapon| member.map_or(0, |m| m.pap.get(shared::pap::PapWeapon::of(item)));
         held.item = pose.held;
         held.swap_progress = pose.swap;
+        held.drinking = pose.drink.map(|d| (d.perk, d.t));
         held.throwing = pose.throw.map(|t| {
             (t.kind, !matches!(t.stage, shared::ThrowStage::Throwing { released: true, .. }))
         });

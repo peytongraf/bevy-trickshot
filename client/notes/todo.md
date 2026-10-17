@@ -23,7 +23,6 @@ height: 3m
 
 # Remote player animations
 
-- Knife needs its own idle and stab animations
 - Need to add a way to set the barrel position relative to the model for each gun so that shots coming out of it look correct.
 - Idle with gun or whatever animation that shows the player hip fire should have the gun more level. Maybe create a totally new pose for this.
 - Sniper that is used should still have the lenses. If the sniper model has these removed then instead use the model that doesn't have them removed and have bevy remove them just when in fps mode.

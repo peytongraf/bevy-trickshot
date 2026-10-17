@@ -30,6 +30,11 @@
 //!   weapons swaps it over as Call of Duty does ([`Swap`], [`swap_motion`]):
 //!   the right hand takes the weapon there and lets it go, then reaches for
 //!   the next and brings it round, the left hand off it meanwhile.
+//! * **A perk being drunk** is in the right hand as the drink plays (`drink`,
+//!   `avatars::soldier`): the first-person bottle (`arms_drinking.glb`'s,
+//!   fitted by its shape — [`BottleModel`]) in the perk's colour, coming off
+//!   the hip as it grows in and going back to it as it shrinks away
+//!   ([`bottle_size`]) — never just appearing in a raised hand.
 //! * **A knife stab** is the right hand's own thrust ([`stab_curve`],
 //!   [`Grip::stab_reach`]), the chest leaning and twisting into it
 //!   ([`Grip::stab_lean_deg`]), over whatever the legs are doing —
@@ -44,7 +49,9 @@ use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use bevy::transform::TransformSystem;
 use serde::{Deserialize, Serialize};
+use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use shared::lethal::LethalKind;
+use shared::perks::Perk;
 use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::SoldierAnimState;
@@ -56,7 +63,8 @@ impl Plugin for HeldWeaponPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(WeaponGrips::load())
             .add_observer(tag_held_weapon_parts)
-            .add_systems(Update, attach_held_weapons)
+            .add_observer(fit_bottle_model)
+            .add_systems(Update, (attach_held_weapons, tint_remote_bottles))
             .add_systems(
                 PostUpdate,
                 (
@@ -311,6 +319,19 @@ pub(crate) struct WeaponGrips {
     /// every kind.
     #[serde(default = "default_throw_hold")]
     pub(crate) throw_hold: HandTarget,
+    /// Where a perk bottle sits in the right hand (its middle from the hand
+    /// bone, m, in its axes — and its turn; neck up its +Y) — the drink clip's
+    /// made with it there (`client/tools/soldier_prone_clips.py`, which
+    /// prints it).
+    #[serde(default = "default_drink_hold")]
+    pub(crate) drink_hold: HandTarget,
+}
+
+fn default_drink_hold() -> HandTarget {
+    HandTarget {
+        pos: [0.0, 0.08, 0.035],
+        turn_deg: [14.35, -66.36, 177.25],
+    }
 }
 
 fn default_throw_hold() -> HandTarget {
@@ -396,6 +417,10 @@ impl WeaponGrips {
             throw_hold: HandTarget {
                 pos: m(self.throw_hold.pos),
                 turn_deg: d(self.throw_hold.turn_deg),
+            },
+            drink_hold: HandTarget {
+                pos: m(self.drink_hold.pos),
+                turn_deg: d(self.drink_hold.turn_deg),
             },
         }
     }
@@ -524,6 +549,10 @@ pub(crate) struct HeldWeapon {
     pub(crate) throwing: Option<(LethalKind, bool)>,
     /// Its model in the right hand, while there's one.
     throwable: Option<(LethalKind, Entity)>,
+    /// A perk being drunk, and how far through (`0..1`) — `PlayerPose::drink`.
+    pub(crate) drinking: Option<(Perk, f32)>,
+    /// The bottle's holder, once there's been one.
+    bottle: Option<Entity>,
     swap: Swap,
     /// `in_hand` has been set going in (a new soldier starts with it in
     /// hand — no swap).
@@ -567,6 +596,8 @@ impl HeldWeapon {
             in_hand: None,
             throwing: None,
             throwable: None,
+            drinking: None,
+            bottle: None,
             swap: Swap::Holding,
             started: false,
             ik_wanted: 1.0,
@@ -668,6 +699,10 @@ fn attach_held_weapons(
                 holder: spawn_holder(weapon, pap, rig, &asset_server, &mut commands),
             });
         }
+        // A perk bottle, once one's drunk (kept for the next, hidden).
+        if held.drinking.is_some() && held.bottle.is_none() {
+            held.bottle = Some(spawn_bottle(rig, &asset_server, &mut commands));
+        }
         // What's being thrown, in the hand — kept until the next throw is
         // something else.
         if let Some((kind, _)) = held.throwing {
@@ -712,6 +747,156 @@ fn spawn_throwable(kind: LethalKind, rig: &SoldierRig, asset_server: &AssetServe
 
 /// How tall (m) a monkey bomb is in a thrower's hand.
 const MONKEY_IN_HAND_HEIGHT: f32 = 0.22;
+
+/// How tall (m) a perk bottle is.
+const BOTTLE_HEIGHT: f32 = 0.24;
+
+/// A perk bottle's model ([`spawn_bottle`]): the drinking arms' scene, all
+/// but the bottle hidden, fitted by its shape once it's in
+/// ([`fit_bottle_model`]).
+#[derive(Component)]
+struct BottleModel;
+
+/// A [`BottleModel`]'s glass — its own copies of the material, to tint the
+/// colour of `perk` ([`tint_remote_bottles`]).
+#[derive(Component)]
+struct BottleGlass {
+    materials: Vec<Handle<StandardMaterial>>,
+    perk: Option<Perk>,
+}
+
+/// A holder for a perk bottle in the right hand, and the bottle on it.
+fn spawn_bottle(rig: &SoldierRig, asset_server: &AssetServer, commands: &mut Commands) -> Entity {
+    let holder = commands
+        .spawn((HeldWeaponHolder, Transform::default(), Visibility::Hidden, ChildOf(rig.right[2])))
+        .id();
+    commands.spawn((
+        ChildOf(holder),
+        HeldWeaponModel,
+        BottleModel,
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::weapons::DRINK_ARMS_MODEL))),
+        // (Shown once it's fitted.)
+        Visibility::Hidden,
+    ));
+    holder
+}
+
+/// How big a perk bottle is (`0..1`) `t` of the way through its drink: grown
+/// in over the first moments, as the hand takes it off the hip, and shrunk
+/// away over the last, as it's put back there.
+pub(crate) fn bottle_size(t: f32) -> f32 {
+    let s = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    s(t / 0.07) * s((1.0 - t) / 0.07)
+}
+
+/// A perk bottle's scene is in: hide everything but the bottle and its
+/// label (the arms), give its glass its own material, and stand it up by its
+/// shape — neck (its narrower end) up its +Y, its middle at the origin,
+/// [`BOTTLE_HEIGHT`] tall.
+#[allow(clippy::too_many_arguments)]
+fn fit_bottle_model(
+    trigger: Trigger<SceneInstanceReady>,
+    models: Query<(), With<BottleModel>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    parents: Query<&ChildOf>,
+    transforms: Query<&Transform>,
+    mesh_entities: Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<StandardMaterial>)>,
+    meshes: Res<Assets<Mesh>>,
+    bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
+    let root = trigger.target();
+    if !models.contains(root) {
+        return;
+    }
+    // (A mesh is its node's child — one per primitive.)
+    let named = |e: Entity, name: &str| {
+        names.get(e).is_ok_and(|n| n.as_str() == name) || parents.get(e).is_ok_and(|p| names.get(p.parent()).is_ok_and(|n| n.as_str() == name))
+    };
+    let mut points = Vec::new();
+    let mut glass = Vec::new();
+    for entity in children.iter_descendants(root) {
+        let Ok((mesh, skinned, material)) = mesh_entities.get(entity) else { continue };
+        let is_glass = named(entity, crate::weapons::BOTTLE_NODE);
+        if !is_glass && !named(entity, crate::weapons::BOTTLE_LABEL_NODE) {
+            commands.entity(entity).insert(Visibility::Hidden);
+            continue;
+        }
+        crate::weapon_drops::posed_points(root, entity, &mesh.0, skinned, &meshes, &bindposes, &parents, &transforms, &mut points);
+        if is_glass {
+            if let Some(own) = materials.get(&material.0).cloned() {
+                let own = materials.add(own);
+                commands.entity(entity).insert(MeshMaterial3d(own.clone()));
+                glass.push(own);
+            }
+        }
+    }
+    if points.len() < 3 {
+        warn!("perk bottle: no bottle meshes to fit");
+        return;
+    }
+    let (center, [(along, lo, hi), (across, ..), _]) = crate::weapon_drops::principal_axes(&points);
+    let length = hi - lo;
+    if length <= 1e-6 {
+        return;
+    }
+    // Its neck's the narrower end.
+    let girth = |from: f32, to: f32| {
+        let (sum, n) = points
+            .iter()
+            .map(|p| *p - center)
+            .filter(|d| (from..to).contains(&d.dot(along)))
+            .fold((0.0, 0), |(sum, n), d| (sum + (d - along * d.dot(along)).length(), n + 1));
+        sum / n.max(1) as f32
+    };
+    let up = if girth(hi - 0.25 * length, hi + 1e-3) > girth(lo, lo + 0.25 * length) { -along } else { along };
+    let right = (across - up * across.dot(up)).normalize_or(up.any_orthonormal_vector());
+    let turn = Quat::from_mat3(&Mat3::from_cols(right, up, right.cross(up)).transpose());
+    let scale = BOTTLE_HEIGHT / length;
+    commands.entity(root).insert((
+        Transform {
+            translation: -(turn * (center * scale)),
+            rotation: turn,
+            scale: Vec3::splat(scale),
+        },
+        Visibility::Inherited,
+        BottleGlass {
+            materials: glass,
+            perk: None,
+        },
+    ));
+}
+
+/// Keep each soldier's bottle the colour of the perk they're drinking — the
+/// same glass as our own (`drink_arms::tint_bottle_glass`).
+fn tint_remote_bottles(
+    settings: Res<crate::weapons::DrinkArmsSettings>,
+    soldiers: Query<&HeldWeapon>,
+    children: Query<&Children>,
+    mut glasses: Query<&mut BottleGlass>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for held in &soldiers {
+        let (Some(holder), Some((perk, _))) = (held.bottle, held.drinking) else { continue };
+        for model in children.iter_descendants(holder) {
+            let Ok(mut glass) = glasses.get_mut(model) else { continue };
+            if glass.perk == Some(perk) && !settings.is_changed() {
+                continue;
+            }
+            glass.perk = Some(perk);
+            for handle in &glass.materials {
+                if let Some(mat) = materials.get_mut(handle) {
+                    crate::weapons::tint_bottle_glass(mat, perk, &settings);
+                }
+            }
+        }
+    }
+}
 
 /// A holder for `weapon` under the right-hand bone, and its model on it.
 fn spawn_holder(weapon: SlotWeapon, pap: u8, rig: &SoldierRig, asset_server: &AssetServer, commands: &mut Commands) -> Entity {
@@ -972,6 +1157,27 @@ fn pose_held_weapons(
                 *t = Transform::from_matrix((hand * at).into());
             }
         }
+        // A perk being drunk: its bottle in the hand, grown in and shrunk
+        // away at the hip.
+        if let Some(holder) = held.bottle {
+            let size = held.drinking.map_or(0.0, |(_, t)| bottle_size(t));
+            if let Ok(mut vis) = visibility.get_mut(holder) {
+                vis.set_if_neq(if size > 0.0 { Visibility::Inherited } else { Visibility::Hidden });
+            }
+            if size > 0.0 {
+                let hand = from_root(rig.right[2], root, &parents, &transforms);
+                let (_, rot, pos) = hand.to_scale_rotation_translation();
+                let hold = grips.drink_hold;
+                let at = Affine3A::from_scale_rotation_translation(
+                    Vec3::splat(per_m * size),
+                    rot * hold.rotation(),
+                    pos + rot * (Vec3::from_array(hold.pos) * per_m),
+                );
+                if let Ok(mut t) = transforms.get_mut(holder) {
+                    *t = Transform::from_matrix((hand.inverse() * at).into());
+                }
+            }
+        }
         // What's being thrown, in the hand until it's let go.
         if let Some((_, holder)) = held.throwable {
             let in_hand = held.throwing.is_some_and(|(_, in_hand)| in_hand);
@@ -1165,6 +1371,24 @@ mod tests {
         assert_eq!(swap_motion(Swap::Drawing(0.0)), (0.0, 1.0));
         let end = swap_motion(Swap::Drawing(1.0));
         assert!(end.0.abs() < 1e-6 && end.1.abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_bottle_grows_in_and_shrinks_away_only_at_the_hip() {
+        assert_eq!(bottle_size(0.0), 0.0);
+        assert!(bottle_size(1.0).abs() < 1e-6);
+        // Whole the whole time it's up off the hip...
+        for i in 0..=100 {
+            let t = 0.07 + 0.86 * i as f32 / 100.0;
+            assert!((bottle_size(t) - 1.0).abs() < 1e-6, "{t}");
+        }
+        // ...and never jumping.
+        let mut last = 0.0;
+        for i in 1..=1000 {
+            let now = bottle_size(i as f32 / 1000.0);
+            assert!((now - last).abs() < 0.05, "jump at {i}");
+            last = now;
+        }
     }
 
     #[test]

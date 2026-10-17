@@ -298,6 +298,31 @@ pub struct PlayerPose {
     /// (copied from `PlayerInput::throw`), so their avatar's throw is in
     /// step with it. `None` otherwise.
     pub throw: Option<ThrowProgress>,
+    /// Drinking a perk — as their own first-person drink goes (copied from
+    /// `PlayerInput::drink`), so their avatar drinks for just as long.
+    /// `None` otherwise.
+    pub drink: Option<DrinkProgress>,
+}
+
+/// A perk being drunk ([`PlayerPose::drink`]): which (its bottle's colour),
+/// and `t` (`0..1`) of the way through.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DrinkProgress {
+    pub perk: crate::perks::Perk,
+    pub t: f32,
+}
+
+impl DrinkProgress {
+    /// `t` of the way from `a` to `b`: blended for the same perk, else `b`.
+    fn ease(a: Option<Self>, b: Option<Self>, t: f32) -> Option<Self> {
+        match (a, b) {
+            (Some(a), Some(b)) if a.perk == b.perk => Some(Self {
+                perk: b.perk,
+                t: a.t + (b.t - a.t) * t,
+            }),
+            _ => b,
+        }
+    }
 }
 
 /// A throw under way ([`PlayerPose::throw`]): what's being thrown, and how
@@ -431,6 +456,7 @@ impl Default for PlayerPose {
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             swap: None,
             throw: None,
+            drink: None,
         }
     }
 }
@@ -453,6 +479,7 @@ impl Ease for PlayerPose {
             held: end.held,
             swap: SwapProgress::ease(start.swap, end.swap, t),
             throw: ThrowProgress::ease(start.throw, end.throw, t),
+            drink: DrinkProgress::ease(start.drink, end.drink, t),
         })
     }
 }
@@ -601,6 +628,9 @@ pub struct PlayerInput {
     /// A throw under way — see `PlayerPose::throw`.
     #[reflect(ignore)]
     pub throw: Option<ThrowProgress>,
+    /// A perk being drunk — see `PlayerPose::drink`.
+    #[reflect(ignore)]
+    pub drink: Option<DrinkProgress>,
     /// With `fire`: every enemy this client saw the shot strike — tested
     /// against their actual animated models as drawn on its screen, an arm or
     /// a finger included — for the server to check over and apply
@@ -711,6 +741,7 @@ impl Default for PlayerInput {
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             swap: None,
             throw: None,
+            drink: None,
             fire_hits: None,
         }
     }
