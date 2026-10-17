@@ -170,6 +170,7 @@ impl Plugin for ClientNetPlugin {
                 // its pose.
                 follow_remote_avatars.after(spawn_remote_avatars),
                 animate_remote_avatars,
+                sync_held_weapons.after(animate_remote_avatars),
                 hide_remote_avatars_during_killcam,
                 spawn_sniper_glints,
                 (update_sniper_glints, draw_remote_muzzle_markers),
@@ -402,6 +403,17 @@ pub(crate) fn write_input(
     action.arms_slide = knife.slide;
     action.arms_anim_time = crate::throw_arms_anim_time(&arms_players, &arms_anims);
     action.arms_knife_in_hand = knife.knife_in_hand();
+    // What everyone else sees in our hands: the gun while it's drawn, the
+    // knife while that is (a quick stab with the gun out included), and
+    // nothing while neither is — the throwing arms or a perk bottle up,
+    // downed, mid-swap.
+    action.held = if action.weapon_visible && weapon.slot == crate::WeaponSlot::Primary {
+        Some(shared::weapon::SlotWeapon::Gun(weapon.primary))
+    } else if action.knife_visible {
+        Some(shared::weapon::SlotWeapon::Knife)
+    } else {
+        None
+    };
     action.reloading = weapon
         .busy
         .as_ref()
@@ -706,12 +718,13 @@ fn receive_killcam(
 fn receive_shots(
     local: Query<&LocalId, With<GameClient>>,
     active: Res<ActiveKillCam>,
-    (avatars, sources, transforms, glint, muzzle): (
-        Query<(&RemoteAvatar, Option<&SniperGlintBone>), With<crate::SoldierVisual>>,
+    (avatars, sources, transforms, glint, muzzle, grips): (
+        Query<(&RemoteAvatar, Option<&SniperGlintBone>, Option<&crate::HeldWeapon>), With<crate::SoldierVisual>>,
         Query<(&PlayerPose, Option<&PlayerId>)>,
         Query<&GlobalTransform>,
         Res<SniperGlintSettings>,
         Res<crate::RemoteMuzzleSettings>,
+        Res<crate::avatars::held_weapon::WeaponGrips>,
     ),
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut fired: Query<&mut MessageReceiver<shared::RayGunFired>>,
@@ -725,11 +738,12 @@ fn receive_shots(
     let killcam_playing = active.0.is_some();
     // From the shooter's barrel (their soldier's gun), not their eye.
     let barrel = |shooter: PeerId| {
-        avatars.iter().find_map(|(avatar, bone)| {
+        avatars.iter().find_map(|(avatar, bone, held)| {
             let (pose, id) = sources.get(avatar.src).ok()?;
             (id?.0 == shooter).then(|| {
                 let bone = bone.and_then(|b| transforms.get(b.0).ok());
-                crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle)
+                let held = crate::avatars::held_weapon::held_gun(held, &transforms, &grips);
+                crate::avatars::soldier_muzzle_point(pose, bone, held, &glint, &muzzle)
             })
         })
     };
@@ -911,6 +925,7 @@ fn spawn_soldier_avatar(
             RemoteAvatar { src },
             RemoteAvatarMotion::default(),
             crate::SoldierVisual,
+            crate::HeldWeapon::default(),
             Transform::from_scale(Vec3::splat(scale)),
             Visibility::default(),
             SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
@@ -1062,9 +1077,10 @@ fn spawn_sniper_glints(
 fn update_sniper_glints(
     poses: Query<(&PlayerPose, Option<&PlayerId>)>,
     lobbies: Query<&shared::Lobby>,
-    bones: Query<Option<&SniperGlintBone>, With<RemoteAvatar>>,
+    bones: Query<(Option<&SniperGlintBone>, Option<&crate::HeldWeapon>), With<RemoteAvatar>>,
     transforms: Query<&GlobalTransform>,
     settings: Res<SniperGlintSettings>,
+    grips: Res<crate::avatars::held_weapon::WeaponGrips>,
     killcam: Res<killcam::ActiveKillCam>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     mut glints: Query<(
@@ -1084,20 +1100,24 @@ fn update_sniper_glints(
             commands.entity(entity).try_despawn();
             continue;
         };
-        // Only a scope glints — not someone carrying the AK-74.
-        let iron_sights = id.is_some_and(|id| {
-            lobbies
-                .iter()
-                .flat_map(|l| l.members.iter())
-                .any(|m| m.peer == id.0 && m.primary != shared::weapon::WeaponId::Sniper)
-        });
+        let (bone, held) = bones.get(glint.avatar).unwrap_or((None, None));
+        let held = crate::avatars::held_weapon::held_gun(held, &transforms, &grips);
+        // Only a scope glints — not someone carrying the AK-74 (or nothing).
+        let iron_sights = match held {
+            Some((_, grip)) => grip.scope.is_none(),
+            None => {
+                pose.held.and_then(|h| h.gun()).is_none()
+                    || id.is_some_and(|id| {
+                        lobbies
+                            .iter()
+                            .flat_map(|l| l.members.iter())
+                            .any(|m| m.peer == id.0 && m.primary != shared::weapon::WeaponId::Sniper)
+                    })
+            }
+        };
 
-        let anchor = bones
-            .get(glint.avatar)
-            .ok()
-            .flatten()
-            .and_then(|bone| transforms.get(bone.0).ok());
-        let pos = crate::avatars::soldier_scope_point(pose, anchor, &settings);
+        let anchor = bone.and_then(|bone| transforms.get(bone.0).ok());
+        let pos = crate::avatars::soldier_scope_point(pose, anchor, held, &settings);
 
         // Always face the local player dead-on, regardless of the gun's own
         // orientation — `looking_at`'s `up` only matters when the look
@@ -1132,7 +1152,8 @@ fn update_sniper_glints(
 fn draw_remote_muzzle_markers(
     muzzle: Res<crate::RemoteMuzzleSettings>,
     glint: Res<SniperGlintSettings>,
-    avatars: Query<(&RemoteAvatar, Option<&SniperGlintBone>), With<crate::SoldierVisual>>,
+    grips: Res<crate::avatars::held_weapon::WeaponGrips>,
+    avatars: Query<(&RemoteAvatar, Option<&SniperGlintBone>, Option<&crate::HeldWeapon>), With<crate::SoldierVisual>>,
     poses: Query<&PlayerPose>,
     transforms: Query<&GlobalTransform>,
     mut gizmos: Gizmos,
@@ -1140,10 +1161,11 @@ fn draw_remote_muzzle_markers(
     if !muzzle.show_marker {
         return;
     }
-    for (avatar, bone) in &avatars {
+    for (avatar, bone, held) in &avatars {
         let Ok(pose) = poses.get(avatar.src) else { continue };
         let bone = bone.and_then(|b| transforms.get(b.0).ok());
-        let p = crate::avatars::soldier_muzzle_point(pose, bone, &glint, &muzzle);
+        let held = crate::avatars::held_weapon::held_gun(held, &transforms, &grips);
+        let p = crate::avatars::soldier_muzzle_point(pose, bone, held, &glint, &muzzle);
         gizmos.sphere(Isometry3d::from_translation(p), 0.04, Color::srgb(1.0, 0.2, 0.2));
     }
 }
@@ -1389,6 +1411,31 @@ fn animate_remote_avatars(
                 crate::SoldierAnimState::Dead => anim_settings.death_speed,
             });
         }
+    }
+}
+
+/// What each soldier avatar holds ([`crate::HeldWeapon`]): what its player
+/// has in their hands (`PlayerPose::held`), at their Pack-a-Punch level for
+/// it — with the hands left to the animation while it needs them (a reload,
+/// a stab, dying).
+fn sync_held_weapons(
+    poses: Query<(&PlayerPose, Option<&PlayerId>)>,
+    lobbies: Query<&shared::Lobby>,
+    mut avatars: Query<(&RemoteAvatar, &RemoteAvatarMotion, &mut crate::HeldWeapon)>,
+) {
+    for (avatar, motion, mut held) in &mut avatars {
+        let Ok((pose, id)) = poses.get(avatar.src) else { continue };
+        let pap = match (pose.held, id) {
+            (Some(item), Some(id)) => lobbies
+                .iter()
+                .flat_map(|l| l.members.iter())
+                .find(|m| m.peer == id.0)
+                .map_or(0, |m| m.pap.get(shared::pap::PapWeapon::of(item))),
+            _ => 0,
+        };
+        held.item = pose.held;
+        held.pap = pap;
+        held.ik_wanted = crate::avatars::held_weapon::ik_wanted(motion.state);
     }
 }
 

@@ -87,6 +87,7 @@ mod util;
 mod vfx;
 mod wall_buys;
 mod weapon_drops;
+mod weapon_editor;
 mod weapons;
 mod windows;
 mod wunderfizz;
@@ -118,6 +119,9 @@ pub enum AppState {
     /// The `Zombies` level editor (`level_editor`) — offline, no lobby or
     /// game.
     LevelEditor,
+    /// The weapon editor (`weapon_editor`) — lining each weapon up in a
+    /// remote player's hands; offline, no lobby or game.
+    WeaponEditor,
 }
 
 use std::f32::consts::{FRAC_PI_2, PI};
@@ -279,6 +283,8 @@ fn main() {
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
+        .add_plugins(avatars::held_weapon::HeldWeaponPlugin)
+        .add_plugins(weapon_editor::WeaponEditorPlugin)
         .add_plugins((wall_buys::WallBuysPlugin, weapon_drops::WeaponDropsPlugin, mystery_box::MysteryBoxPlugin))
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)

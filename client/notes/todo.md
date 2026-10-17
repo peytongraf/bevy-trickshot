@@ -21,10 +21,14 @@ outside ground height the same as inside
 width: 2m
 height: 3m
 
-# Done
+# Last play
 
-- Boss zombie glow
-- Zombie window mantle animation
+- Exfil model inside lower tomb in wrong place
+- During exfil bosses took forever to get to the exfil zone. All enemies need to respawn when the player goes to it because I didn't even have a chance to kill the bosses.
+- Probably twice as many dogs as there should be on exfil.
+- Deadshot perk jingle seems too quiet
+
+# Done
 
 # Level editor
 

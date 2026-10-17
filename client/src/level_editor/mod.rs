@@ -1511,7 +1511,13 @@ fn sync_objects(
         match id {
             ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) => {
                 object.with_children(|o| {
-                    o.spawn((crate::SoldierVisual, scene, offset)).observe(crate::start_soldier_animation);
+                    o.spawn((
+                        crate::SoldierVisual,
+                        crate::HeldWeapon::new(Some(shared::weapon::SlotWeapon::Gun(WeaponId::Sniper))),
+                        scene,
+                        offset,
+                    ))
+                    .observe(crate::start_soldier_animation);
                 });
             }
             ObjectId::Reference(RefKind::Zombie) => {

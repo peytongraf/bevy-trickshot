@@ -44,6 +44,7 @@ impl Plugin for LobbyUiPlugin {
             .add_systems(OnEnter(AppState::MainMenu), mark_dirty_now)
             .add_systems(OnEnter(AppState::InLobby), mark_dirty_now)
             .add_systems(OnEnter(AppState::LevelEditor), despawn_lobby_ui)
+            .add_systems(OnEnter(AppState::WeaponEditor), despawn_lobby_ui)
             .add_systems(
                 OnEnter(AppState::InGame),
                 (
@@ -514,6 +515,8 @@ enum MenuBtn {
     OpenChangelog,
     /// Opens the `Zombies` level editor (`AppState::LevelEditor`).
     OpenLevelEditor,
+    /// Opens the weapon editor (`AppState::WeaponEditor`).
+    OpenWeaponEditor,
     CreateLobby,
     Join(Entity),
     Start,
@@ -1253,6 +1256,14 @@ fn build_browser(
                     "LEVEL EDITOR",
                     "Place the Zombies machines on each map",
                     MenuBtn::OpenLevelEditor,
+                    false,
+                );
+                menu_tile(
+                    col,
+                    asset_server,
+                    "WEAPON EDITOR",
+                    "Line up each weapon in the players' hands",
+                    MenuBtn::OpenWeaponEditor,
                     false,
                 );
                 col.spawn(Node {
@@ -2029,6 +2040,7 @@ fn handle_clicks(
             MenuBtn::CountdownUp => set_start(&|r| r, &|p| p, &|c| c + COUNTDOWN_STEP_SECS),
             MenuBtn::OpenLoadout => menu.open_loadout(None),
             MenuBtn::OpenLevelEditor => next_state.set(AppState::LevelEditor),
+            MenuBtn::OpenWeaponEditor => next_state.set(AppState::WeaponEditor),
             MenuBtn::OpenChangelog => {
                 menu.screen = crate::menu::Screen::Changelog;
                 menu.dirty = true;

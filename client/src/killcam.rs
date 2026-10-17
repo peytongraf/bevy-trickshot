@@ -636,6 +636,7 @@ fn start_killcam(
                 crate::net::RemoteAvatarMotion::default(),
                 KillCamPlayerGhost,
                 crate::SoldierVisual,
+                crate::HeldWeapon::default(),
                 StateScoped(AppState::InGame),
                 Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
                 Visibility::default(),
@@ -1373,6 +1374,7 @@ impl ActorPose {
             sliding: self.sample.has(shared::ActorSample::SLIDING),
             stabbing: self.sample.has(shared::ActorSample::STABBING),
             alive: self.alive,
+            held: self.sample.held,
             ..default()
         }
     }
@@ -1492,6 +1494,7 @@ mod tests {
                 yaw,
                 ads: 0,
                 flags,
+                held: None,
             },
         )
     }

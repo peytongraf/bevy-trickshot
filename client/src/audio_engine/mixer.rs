@@ -121,7 +121,7 @@ fn toggle_mixer(
     state: Res<State<AppState>>,
     mut mixer: ResMut<AudioMixer>,
 ) {
-    let allowed = settings.debug_mode && *state.get() != AppState::LevelEditor;
+    let allowed = settings.debug_mode && !matches!(state.get(), AppState::LevelEditor | AppState::WeaponEditor);
     if !allowed {
         if mixer.open {
             mixer.open = false;

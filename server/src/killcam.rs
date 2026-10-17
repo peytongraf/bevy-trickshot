@@ -861,6 +861,7 @@ mod tests {
                 yaw: 0.0,
                 ads: 0,
                 flags: if alive { ActorSample::ALIVE } else { 0 },
+                held: None,
             },
         }
     }

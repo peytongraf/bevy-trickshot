@@ -300,8 +300,9 @@ pub(crate) fn menu_toggle(
     state: Res<State<AppState>>,
     mut mixer: ResMut<crate::audio_engine::AudioMixer>,
 ) {
-    // (The level editor has its own: `level_editor::input::edit_input`.)
-    if *state.get() == AppState::LevelEditor {
+    // (The level and weapon editors have their own:
+    // `level_editor::input::edit_input`, `weapon_editor::keys`.)
+    if matches!(state.get(), AppState::LevelEditor | AppState::WeaponEditor) {
         return;
     }
     // The audio mixer's open over everything: both close it, and that's all.

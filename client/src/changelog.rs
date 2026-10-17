@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "New WEAPON EDITOR on the main menu: line up each weapon in the players' hands.",
+        "Other players hold the weapon they're really using — sniper, AK-74, Ray Gun or knife.",
         "Zombies: power-ups burn with green fire and stand in a column of light.",
         "Zombies: power-ups wobble slowly as they spin.",
         "Zombies: power-ups shine like polished dark gold.",

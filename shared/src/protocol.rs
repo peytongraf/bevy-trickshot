@@ -279,6 +279,12 @@ pub struct PlayerPose {
     /// input. [`ZombieAnim::None`] on everyone who isn't a zombie, which is
     /// also how a client tells a zombie apart. Discrete, same as `crouching`.
     pub zombie: ZombieAnim,
+    /// What's in their hands, as other players see it — copied from
+    /// `PlayerInput::held`, so a remote avatar holds the right weapon
+    /// (`client::avatars::held_weapon`). `None` while nothing is: the
+    /// throwing arms or a perk bottle up, or downed. Discrete, same as
+    /// `crouching`.
+    pub held: Option<SlotWeapon>,
 }
 
 /// A `Zombies` zombie's animation state ([`PlayerPose::zombie`]). Its death
@@ -353,6 +359,7 @@ impl Default for PlayerPose {
             stabbing: false,
             alive: true,
             zombie: ZombieAnim::None,
+            held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
         }
     }
 }
@@ -371,6 +378,7 @@ impl Ease for PlayerPose {
             stabbing: end.stabbing,
             alive: end.alive,
             zombie: end.zombie,
+            held: end.held,
         })
     }
 }
@@ -507,6 +515,9 @@ pub struct PlayerInput {
     /// `Zombies`: the interact key's held down to revive a downed teammate
     /// (`server::revive` picks the nearest one in reach).
     pub revive: bool,
+    /// What's in the player's hands this tick — see `PlayerPose::held`.
+    #[reflect(ignore)]
+    pub held: Option<SlotWeapon>,
     /// With `fire`: every enemy this client saw the shot strike — tested
     /// against their actual animated models as drawn on its screen, an arm or
     /// a finger included — for the server to check over and apply
@@ -613,6 +624,7 @@ impl Default for PlayerInput {
             stabbing: false,
             crouch_drop: 0.0,
             revive: false,
+            held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             fire_hits: None,
         }
     }
@@ -825,6 +837,8 @@ pub struct ActorSample {
     pub ads: u8,
     /// `ActorSample::ALIVE` and friends.
     pub flags: u8,
+    /// What was in their hands ([`PlayerPose::held`]).
+    pub held: Option<SlotWeapon>,
 }
 
 impl ActorSample {
@@ -864,6 +878,7 @@ impl ActorSample {
             yaw: pose.yaw,
             ads: (pose.ads_t.clamp(0.0, 1.0) * 255.0).round() as u8,
             flags,
+            held: pose.held,
         }
     }
 
@@ -875,6 +890,7 @@ impl ActorSample {
             yaw: bot.yaw,
             ads: 0,
             flags: if bot.alive { Self::ALIVE } else { 0 },
+            held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
         }
     }
 }

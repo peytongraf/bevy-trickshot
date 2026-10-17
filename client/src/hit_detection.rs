@@ -101,10 +101,6 @@ const RAYGUN_NEAR_MISS_M: f32 = 0.4;
 /// Most claims one shot sends (nearest first).
 const MAX_CLAIMS: usize = 16;
 
-/// `soldier.glb`'s gun: skinned to the right hand like the body, but no
-/// part of the player — a shot that clips it doesn't count.
-const SOLDIER_GUN_MESH: &str = "Mesh1/Primitive0";
-
 /// A sphere (centre above the feet, radius, in m — generous) every pose of
 /// each kind of model stays inside, to skip skinning one the shot comes
 /// nowhere near.
@@ -153,7 +149,7 @@ pub(crate) struct Models<'w, 's> {
     sources: Query<'w, 's, (&'static PlayerPose, Option<&'static PlayerId>, Option<&'static BotPose>)>,
     bots: Query<'w, 's, &'static Bot>,
     children: Query<'w, 's, &'static Children>,
-    skinned: Query<'w, 's, (&'static Mesh3d, &'static SkinnedMesh)>,
+    skinned: Query<'w, 's, (&'static Mesh3d, &'static SkinnedMesh), Without<crate::avatars::held_weapon::HeldWeaponPart>>,
     bones: Query<'w, 's, &'static GlobalTransform>,
     names: Query<'w, 's, &'static Name>,
     meshes: Res<'w, Assets<Mesh>>,
@@ -207,7 +203,9 @@ impl Models<'_, '_> {
                 let Ok((mesh3d, skin)) = self.skinned.get(e) else {
                     continue;
                 };
-                if soldier && mesh3d.0.path().and_then(|p| p.label()) == Some(SOLDIER_GUN_MESH) {
+                // (Not its gun — the model's own, or the one in its hands: a
+                // shot that clips that doesn't count.)
+                if soldier && mesh3d.0.path().and_then(|p| p.label()) == Some(crate::SOLDIER_GUN_MESH) {
                     continue;
                 }
                 let (Some(mesh), Some(inverse)) = (self.meshes.get(&mesh3d.0), self.bindposes.get(&skin.inverse_bindposes))

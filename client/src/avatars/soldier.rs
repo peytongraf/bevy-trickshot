@@ -9,6 +9,8 @@ use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
+use super::held_weapon::{Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, RIGHT_ARM_BONES};
+
 /// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
 /// `start_soldier_animation` can tell it apart from any other spawned scene.
 #[derive(Component)]
@@ -83,6 +85,10 @@ pub(crate) struct SoldierAnimations {
 }
 
 impl SoldierAnimations {
+    pub(crate) fn graph(&self) -> &Handle<AnimationGraph> {
+        &self.graph
+    }
+
     pub(crate) fn node_for(&self, state: SoldierAnimState) -> AnimationNodeIndex {
         match state {
             SoldierAnimState::Idle => self.idle,
@@ -381,15 +387,21 @@ impl Default for SniperGlintSettings {
 }
 
 /// The scope on a remote soldier's gun right now — where the sniper glint
-/// sits: `glint.offset` off the gun bone's animated pose (`bone`), or off
-/// the replicated pose for the frame or so before the scene's found the
-/// bone. (The bone's `GlobalTransform` carries the avatar's big scale, so
-/// only its translation / rotation are used — the offset stays in metres.)
+/// sits: the scope of the gun in their hands (`held`, its holder and grip —
+/// `held_weapon`), else `glint.offset` off the gun bone's animated pose
+/// (`bone`), or off the replicated pose for the frame or so before the
+/// scene's found the bone. (The bone's `GlobalTransform` carries the
+/// avatar's big scale, so only its translation / rotation are used — the
+/// offset stays in metres.)
 pub(crate) fn soldier_scope_point(
     pose: &shared::PlayerPose,
     bone: Option<&GlobalTransform>,
+    held: Option<(&GlobalTransform, &Grip)>,
     glint: &SniperGlintSettings,
 ) -> Vec3 {
+    if let Some((at, scope)) = held.and_then(|(at, grip)| Some((at, grip.scope?))) {
+        return at.transform_point(Vec3::from_array(scope));
+    }
     let (origin, rotation) = match bone {
         Some(gt) => (gt.translation(), gt.rotation()),
         None => (pose.translation, Quat::from_rotation_y(pose.yaw)),
@@ -401,8 +413,8 @@ pub(crate) fn soldier_scope_point(
 }
 
 /// Where a remote soldier's barrel ends — their shot tracers start here
-/// (`net::receive_shots`). The soldier model is the same whichever primary
-/// they carry, so one placement serves the sniper and the AK-74 alike.
+/// (`net::receive_shots`) — when there's no gun in their hands to take it
+/// from (`held_weapon::Grip::muzzle`).
 #[derive(Resource)]
 pub(crate) struct RemoteMuzzleSettings {
     /// Offset (m) from the scope ([`soldier_scope_point`]) along where
@@ -422,15 +434,20 @@ impl Default for RemoteMuzzleSettings {
     }
 }
 
+/// The muzzle of the gun in a soldier's hands (`held`) — or, without one,
 /// [`RemoteMuzzleSettings`]' point for a soldier at `pose`.
 pub(crate) fn soldier_muzzle_point(
     pose: &shared::PlayerPose,
     bone: Option<&GlobalTransform>,
+    held: Option<(&GlobalTransform, &Grip)>,
     glint: &SniperGlintSettings,
     muzzle: &RemoteMuzzleSettings,
 ) -> Vec3 {
+    if let Some((at, grip)) = held {
+        return at.transform_point(Vec3::from_array(grip.muzzle));
+    }
     let aim = Quat::from_euler(EulerRot::YXZ, pose.yaw, pose.pitch, 0.0);
-    soldier_scope_point(pose, bone, glint) + aim * Vec3::new(muzzle.offset.x, muzzle.offset.y, -muzzle.offset.z)
+    soldier_scope_point(pose, bone, None, glint) + aim * Vec3::new(muzzle.offset.x, muzzle.offset.y, -muzzle.offset.z)
 }
 
 /// Build the remote-player animation graph. Part of `main.rs`'s one
@@ -508,26 +525,53 @@ pub(crate) fn setup_soldier_assets(
     });
 }
 
+/// `soldier.glb`'s own rifle's mesh (by its asset label): skinned to the
+/// right hand like the body, but no part of the player. Hidden on a soldier
+/// that holds a real weapon instead (`held_weapon`).
+pub(crate) const SOLDIER_GUN_MESH: &str = "Mesh1/Primitive0";
+
 /// Fires once a remote-player avatar's `SceneRoot` (tagged [`SoldierVisual`])
 /// finishes spawning: starts the idle animation looping, remembers which
-/// descendant holds the `AnimationPlayer` via [`SoldierAnimationPlayer`], and
+/// descendant holds the `AnimationPlayer` via [`SoldierAnimationPlayer`],
 /// remembers the right-hand bone the gun mesh is skinned to
 /// ([`SNIPER_GLINT_BONE_NAME`]) via [`SniperGlintBone`] so the sniper glint
-/// can ride along with it.
+/// can ride along with it, and finds the arm bones and the model's own rifle
+/// ([`SoldierRig`]) — hiding the rifle on one that holds a [`HeldWeapon`].
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn start_soldier_animation(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
-    soldiers: Query<(), With<SoldierVisual>>,
+    soldiers: Query<Has<HeldWeapon>, With<SoldierVisual>>,
     mut players: Query<&mut AnimationPlayer>,
     names: Query<&Name>,
+    meshes: Query<&Mesh3d>,
     anims: Res<SoldierAnimations>,
 ) {
     let root = trigger.target();
-    if !soldiers.contains(root) {
+    let Ok(holds) = soldiers.get(root) else {
         return;
-    }
+    };
+    let mut right = [None; 3];
+    let mut left = [None; 3];
+    let mut baked_gun = None;
     for entity in children.iter_descendants(root) {
+        if let Ok(name) = names.get(entity) {
+            let name = name.as_str();
+            if let Some(i) = RIGHT_ARM_BONES.iter().position(|&b| b == name) {
+                right[i] = Some(entity);
+            }
+            if let Some(i) = LEFT_ARM_BONES.iter().position(|&b| b == name) {
+                left[i] = Some(entity);
+            }
+        }
+        if meshes.get(entity).is_ok_and(|m| m.0.path().and_then(|p| p.label()) == Some(SOLDIER_GUN_MESH)) {
+            baked_gun = Some(entity);
+            if holds {
+                commands.entity(entity).insert(Visibility::Hidden);
+            }
+        }
+
         // Same fix as the bot / sniper view model: a skinned mesh is
         // frustum-culled against its *rest-pose* AABB, not the animated one.
         commands.entity(entity).insert(NoFrustumCulling);
@@ -547,4 +591,13 @@ pub(crate) fn start_soldier_animation(
             commands.entity(root).insert(SniperGlintBone(entity));
         }
     }
+    if let (Some(right), Some(left)) = (bones(right), bones(left)) {
+        commands.entity(root).insert(SoldierRig { right, left, baked_gun });
+    } else {
+        warn!("soldier.glb: arm bones not found — its weapon won't show");
+    }
+}
+
+fn bones(found: [Option<Entity>; 3]) -> Option<[Entity; 3]> {
+    Some([found[0]?, found[1]?, found[2]?])
 }
