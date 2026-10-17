@@ -1,4 +1,5 @@
-# blender -b -P render.py -- <glb> <action name> <time s> <out.png> [view: side|front|top|three]
+# blender -b -P render_clip.py -- <glb> <action name> <time s> <out.png> [views: side,front,top,three,low] [look-at height m]
+# Renders one moment of one of a glb's clips (soldier.glb drawn at its in-game 21x), for checking a clip by eye.
 import bpy, sys, math, mathutils
 argv = sys.argv[sys.argv.index('--')+1:]
 glb, action_name, t, out = argv[0], argv[1], float(argv[2]), argv[3]
@@ -36,7 +37,7 @@ scene.render.resolution_x = 640; scene.render.resolution_y = 480
 cam_data = bpy.data.cameras.new('cam'); cam_data.lens = 35
 cam = bpy.data.objects.new('cam', cam_data); scene.collection.objects.link(cam); scene.camera = cam
 # Blender is Z-up: glTF +Y up -> Blender +Z; glTF +Z (model forward) -> Blender -Y
-target = mathutils.Vector((0, 0.5, 0.25))
+target = mathutils.Vector((0, 0.5, float(argv[5]) if len(argv) > 5 else 0.25))
 spots = {
     'side': mathutils.Vector((3.2, 0, 0.9)),     # from the model's left (+X in Blender? glTF -X is right -> Blender -X right)
     'front': mathutils.Vector((0, -3.2, 0.35)),

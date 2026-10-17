@@ -44,6 +44,7 @@ use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use bevy::transform::TransformSystem;
 use serde::{Deserialize, Serialize};
+use shared::lethal::LethalKind;
 use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::SoldierAnimState;
@@ -305,6 +306,19 @@ pub(crate) struct WeaponGrips {
     /// EDITOR's taken another.
     #[serde(default)]
     pub(crate) arm_down: ArmPose,
+    /// Where a lethal or tactical sits in the right hand as it's thrown
+    /// (its middle from the hand bone, m, in its axes — and its turn), for
+    /// every kind.
+    #[serde(default = "default_throw_hold")]
+    pub(crate) throw_hold: HandTarget,
+}
+
+fn default_throw_hold() -> HandTarget {
+    // (In the palm: the fingers run along the hand bone's +Y.)
+    HandTarget {
+        pos: [0.0, 0.08, 0.035],
+        turn_deg: [0.0; 3],
+    }
 }
 
 impl WeaponGrips {
@@ -378,6 +392,10 @@ impl WeaponGrips {
                 upper: q(self.arm_down.upper),
                 fore: q(self.arm_down.fore),
                 hand: q(self.arm_down.hand),
+            },
+            throw_hold: HandTarget {
+                pos: m(self.throw_hold.pos),
+                turn_deg: d(self.throw_hold.turn_deg),
             },
         }
     }
@@ -501,6 +519,11 @@ pub(crate) struct HeldWeapon {
     pub(crate) swap_progress: Option<shared::SwapProgress>,
     /// What's really in hand — `item`, once a swap's played out.
     in_hand: Option<SlotWeapon>,
+    /// A lethal or tactical being thrown, and whether it's still in the hand
+    /// (not yet let go) — `PlayerPose::throw`.
+    pub(crate) throwing: Option<(LethalKind, bool)>,
+    /// Its model in the right hand, while there's one.
+    throwable: Option<(LethalKind, Entity)>,
     swap: Swap,
     /// `in_hand` has been set going in (a new soldier starts with it in
     /// hand — no swap).
@@ -542,6 +565,8 @@ impl HeldWeapon {
             carried: Vec::new(),
             swap_progress: None,
             in_hand: None,
+            throwing: None,
+            throwable: None,
             swap: Swap::Holding,
             started: false,
             ik_wanted: 1.0,
@@ -643,8 +668,50 @@ fn attach_held_weapons(
                 holder: spawn_holder(weapon, pap, rig, &asset_server, &mut commands),
             });
         }
+        // What's being thrown, in the hand — kept until the next throw is
+        // something else.
+        if let Some((kind, _)) = held.throwing {
+            if held.throwable.is_none_or(|(k, _)| k != kind) {
+                if let Some((_, old)) = held.throwable.take() {
+                    if let Ok(mut e) = commands.get_entity(old) {
+                        e.despawn();
+                    }
+                }
+                held.throwable = Some((kind, spawn_throwable(kind, rig, &asset_server, &mut commands)));
+            }
+        }
     }
 }
+
+/// A holder for a lethal or tactical in the right hand, and its model on it
+/// — at its real size, its middle at the holder.
+fn spawn_throwable(kind: LethalKind, rig: &SoldierRig, asset_server: &AssetServer, commands: &mut Commands) -> Entity {
+    let holder = commands
+        .spawn((HeldWeaponHolder, Transform::default(), Visibility::Hidden, ChildOf(rig.right[2])))
+        .id();
+    if kind == LethalKind::MonkeyBomb {
+        commands.spawn((
+            ChildOf(holder),
+            HeldWeaponModel,
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::monkey_bomb::MONKEY_MODEL))),
+            crate::monkey_bomb::centered_transform(MONKEY_IN_HAND_HEIGHT),
+        ));
+    } else {
+        let (path, length) = crate::mystery_box::lethal_model(kind);
+        commands.spawn((
+            ChildOf(holder),
+            HeldWeaponModel,
+            crate::mystery_box::LethalModel { length },
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+            // (Shown once it's fitted — `mystery_box::fit_lethal_model`.)
+            Visibility::Hidden,
+        ));
+    }
+    holder
+}
+
+/// How tall (m) a monkey bomb is in a thrower's hand.
+const MONKEY_IN_HAND_HEIGHT: f32 = 0.22;
 
 /// A holder for `weapon` under the right-hand bone, and its model on it.
 fn spawn_holder(weapon: SlotWeapon, pap: u8, rig: &SoldierRig, asset_server: &AssetServer, commands: &mut Commands) -> Entity {
@@ -723,6 +790,7 @@ fn pose_held_weapons(
     mut soldiers: Query<(Entity, &mut HeldWeapon, &SoldierRig)>,
     parents: Query<&ChildOf>,
     mut transforms: Query<&mut Transform>,
+    mut visibility: Query<&mut Visibility, With<HeldWeaponHolder>>,
 ) {
     let ease = 1.0 - (-time.delta_secs() * 10.0).exp();
     let pitch_ease = 1.0 - (-time.delta_secs() * 25.0).exp();
@@ -902,6 +970,26 @@ fn pose_held_weapons(
             let at = stowed(grips.get(GripKey::of(shown.item)), rig, root, per_m, &parents, &transforms);
             if let Ok(mut t) = transforms.get_mut(shown.holder) {
                 *t = Transform::from_matrix((hand * at).into());
+            }
+        }
+        // What's being thrown, in the hand until it's let go.
+        if let Some((_, holder)) = held.throwable {
+            let in_hand = held.throwing.is_some_and(|(_, in_hand)| in_hand);
+            if let Ok(mut vis) = visibility.get_mut(holder) {
+                vis.set_if_neq(if in_hand { Visibility::Inherited } else { Visibility::Hidden });
+            }
+            if in_hand {
+                let hand = from_root(rig.right[2], root, &parents, &transforms);
+                let (_, rot, pos) = hand.to_scale_rotation_translation();
+                let hold = grips.throw_hold;
+                let at = Affine3A::from_scale_rotation_translation(
+                    Vec3::splat(per_m),
+                    rot * hold.rotation(),
+                    pos + rot * (Vec3::from_array(hold.pos) * per_m),
+                );
+                if let Ok(mut t) = transforms.get_mut(holder) {
+                    *t = Transform::from_matrix((hand.inverse() * at).into());
+                }
             }
         }
         held.animated = animated;

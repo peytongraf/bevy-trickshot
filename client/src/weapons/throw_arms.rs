@@ -29,6 +29,9 @@ use crate::VIEW_MODEL_RENDER_LAYER;
 
 use super::weapon::ThrowingKnife;
 
+/// The arms' `throw` clip's length (s).
+pub(crate) const THROW_CLIP_SECS: f32 = 0.667;
+
 /// The loaded `models/characters/arms_throwing.glb` scene root.
 #[derive(Component)]
 pub(crate) struct ThrowArmsViewModel;

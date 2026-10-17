@@ -32,6 +32,7 @@ use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use shared::lethal::LethalKind;
 
 use crate::avatars::held_weapon::{
     euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, StowOn, WeaponGrips,
@@ -177,6 +178,14 @@ struct GripEditor {
     help_open: bool,
     /// A message for the status bar, and when it goes (elapsed seconds).
     toast: Option<(String, f32)>,
+    /// What the throw section throws...
+    throw_kind: LethalKind,
+    /// ...a throw playing, this long (s) since its weapon started going
+    /// away...
+    throw_clock: Option<f32>,
+    /// ...or the arm held up ready, to place what's in the hand by.
+    throw_ready: bool,
+    throw_layer: crate::ThrowLayer,
     /// Play the knife's stab once...
     play_stab: bool,
     /// ...or over and over.
@@ -205,6 +214,10 @@ impl Default for GripEditor {
             exit_prompt: false,
             help_open: false,
             toast: None,
+            throw_kind: LethalKind::Frag,
+            throw_clock: None,
+            throw_ready: false,
+            throw_layer: crate::ThrowLayer::default(),
             play_stab: false,
             loop_stab: false,
         }
@@ -491,11 +504,38 @@ fn drive_soldier(
     mut soldiers: Query<(&mut HeldWeapon, Option<&SoldierRig>, Option<&SoldierAnimationPlayer>), With<StandSoldier>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut visibility: Query<&mut Visibility>,
+    time: Res<Time>,
 ) {
     let Ok((mut held, rig, anim_player)) = soldiers.single_mut() else {
         return;
     };
-    let item = Some(editor.weapon.weapon());
+    // A throw, as a game plays it: the weapon put away, the arm up, the
+    // throw — let go of at its release — and the weapon back out.
+    const PUT_AWAY_SECS: f32 = 0.45;
+    const RAISE_SECS: f32 = 0.2;
+    let dt = time.delta_secs();
+    let throw = match editor.throw_clock.map(|c| c + dt) {
+        Some(c) if c < PUT_AWAY_SECS => Some(None),
+        Some(c) if c < PUT_AWAY_SECS + RAISE_SECS => Some(Some(shared::ThrowStage::Raising((c - PUT_AWAY_SECS) / RAISE_SECS))),
+        Some(c) if c < PUT_AWAY_SECS + RAISE_SECS + crate::THROW_SECS => {
+            let t = (c - PUT_AWAY_SECS - RAISE_SECS) / crate::THROW_SECS;
+            Some(Some(shared::ThrowStage::Throwing {
+                t,
+                released: t * crate::THROW_SECS >= crate::THROW_RELEASE_SECS,
+            }))
+        }
+        _ if editor.throw_ready => Some(Some(shared::ThrowStage::Raising(1.0))),
+        _ => None,
+    };
+    editor.throw_clock = editor
+        .throw_clock
+        .map(|c| c + dt)
+        .filter(|c| *c < PUT_AWAY_SECS + RAISE_SECS + crate::THROW_SECS);
+    let stage = throw.flatten();
+    held.throwing = stage.map(|s| {
+        (editor.throw_kind, !matches!(s, shared::ThrowStage::Throwing { released: true, .. }))
+    });
+    let item = throw.is_none().then(|| editor.weapon.weapon());
     if held.item != item {
         held.item = item;
     }
@@ -523,6 +563,9 @@ fn drive_soldier(
     let Some(Ok((mut player, mut transitions))) = anim_player.map(|p| players.get_mut(p.0)) else {
         return;
     };
+    let mut layer = editor.throw_layer;
+    crate::drive_throw_layer(&mut player, &anims, &mut layer, stage, dt, 0.2);
+    editor.throw_layer = layer;
     let node = anims.node_for(editor.clip);
     if editor.playing_clip != Some(editor.clip) {
         editor.playing_clip = Some(editor.clip);
@@ -690,7 +733,10 @@ fn editor_ui(
                     raygun,
                     knife,
                     arm_down,
+                    throw_hold,
                 } = &mut *grips;
+                throw_controls(ui, ed, throw_hold);
+                ui.separator();
                 let grip = match ed.weapon {
                     GripKey::Sniper => sniper,
                     GripKey::Ak74 => ak74,
@@ -837,6 +883,37 @@ fn vec3_row(ui: &mut egui::Ui, label: &str, v: &mut [f32; 3], speed: f64, suffix
         }
     });
     changed
+}
+
+/// The throw (a lethal or tactical): what's thrown, playing it, and where
+/// it sits in the hand — the same for every kind.
+fn throw_controls(ui: &mut egui::Ui, ed: &mut GripEditor, hold: &mut HandTarget) {
+    ui.heading("Throwing");
+    ui.horizontal_wrapped(|ui| {
+        for (kind, label) in [
+            (LethalKind::Frag, "Frag"),
+            (LethalKind::FlashBang, "Flash bang"),
+            (LethalKind::MonkeyBomb, "Monkey bomb"),
+            (LethalKind::Molotov, "Molotov"),
+            (LethalKind::ThrowingKnife, "Throwing knife"),
+        ] {
+            ui.selectable_value(&mut ed.throw_kind, kind, label);
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(ed.throw_clock.is_none(), egui::Button::new("Throw"))
+            .on_hover_text("Put the weapon away, bring the arm up and throw — as other players see it.")
+            .clicked()
+        {
+            ed.throw_clock = Some(0.0);
+        }
+        ui.checkbox(&mut ed.throw_ready, "Hold ready")
+            .on_hover_text("The arm up and cocked back, as while a throw's cooked — to place it in the hand by.");
+    });
+    ui.colored_label(DIM, "In the hand: its middle from the hand bone, in its axes.");
+    vec3_row(ui, "Place", &mut hold.pos, 0.001, " m", ["x", "y", "z"]);
+    vec3_row(ui, "Turn", &mut hold.turn_deg, 0.25, "°", ["x", "y", "z"]);
 }
 
 /// Where the left arm goes ([`grip_controls`]).

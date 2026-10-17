@@ -13,6 +13,10 @@ are — `avatars::soldier` looks them up by index and name):
   the hips swaying to it, the shoulders reaching forward in turn; one cycle
   `CRAWL_SECS` long, looped.
 * `proneCrawlBack` (20) — the same, played backwards.
+* `throw` (21) — an overhand throw, for the upper body (the game plays it
+  over whatever the legs are doing): cocked back ready (held there while a
+  throw's being cooked), the arm over the top to the release at
+  `THROW_RELEASE_SECS` (the first-person throw's), and the follow-through.
 
 Every pose is built off the model's own `shooting` clip (its aimed rifle)
 by turning bones — whole-body forward onto the ground, the spine arched up
@@ -30,7 +34,7 @@ import sys
 import numpy as np
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "models", "characters", "soldier.glb")
-CLIP_NAMES = ("prone", "proneCrawl", "proneCrawlBack")
+CLIP_NAMES = ("prone", "proneCrawl", "proneCrawlBack", "throw")
 
 AV = 21.0
 def qmat(q):
@@ -255,6 +259,61 @@ def crawl_at(phase):
     place_hips(p, HIPS_Y + 0.02 * abs(s), HEAD_Z)
     return p
 
+
+def two_bone_reach(p, upper, fore, hand, target, pole):
+    """Turn the upper arm and forearm so the wrist's at `target` (m) — or as near as the arm reaches —
+    the elbow bent toward `pole`; the hand keeps its turn on the forearm."""
+    a, b, c = p.pos(upper), p.pos(fore), p.pos(hand)
+    lab, lbc = np.linalg.norm(b - a), np.linalg.norm(c - b)
+    to = np.asarray(target, float) - a
+    dist = min(max(np.linalg.norm(to), abs(lab - lbc) + 1e-4), (lab + lbc) * 0.999)
+    d = to / np.linalg.norm(to)
+    side = np.asarray(pole, float) - d * np.dot(pole, d); side /= np.linalg.norm(side)
+    along = (lab * lab - lbc * lbc + dist * dist) / (2 * dist)
+    elbow = a + d * along + side * math.sqrt(max(lab * lab - along * along, 0))
+    turn_about(p, upper, arc(b - a, elbow - a))
+    turn_about(p, fore, arc(p.pos(hand) - p.pos(fore), a + d * dist - elbow))
+
+def throw_at(key):
+    """One key of the overhand throw (`key`: its numbers, below)."""
+    p = Pose(g, 17, 0.0)  # `idleWithoutGun`: no weapon in hand
+    yaw, lean = key["yaw"], key["lean"]
+    for b, share in zip(["Bind_Spine_010_011", "Bind_Spine1_011_012", "Bind_Spine2_012_013"], [0.3, 0.35, 0.35]):
+        turn_about(p, b, aa(UP, deg(yaw * share)) @ aa(RIGHT, deg(lean * share)))
+    # (Eyes kept on where it's going.)
+    for b, share in (("Bind_Neck_013_014", 0.5), ("Bind_Head_014_015", 0.5)):
+        turn_about(p, b, aa(UP, deg(-yaw * share)) @ aa(RIGHT, deg(-lean * share)))
+    body = lambda v: RIGHT * v[0] + UP * v[1] + FWD * v[2]
+    rs = p.pos("Bind_RightArm_035_036")
+    two_bone_reach(p, "Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038",
+                   rs + body(key["right"]), body(key["right_elbow"]))
+    ls = p.pos("Bind_LeftArm_016_017")
+    two_bone_reach(p, "Bind_LeftArm_016_017", "Bind_LeftForeArm_017_018", "Bind_LeftHand_018_019",
+                   ls + body(key["left"]), body(key["left_elbow"]))
+    return p
+
+# The throw's keys: the chest's turn (yaw, + to the left) and lean (+ back),
+# degrees; each wrist from its shoulder and the way its elbow points (m:
+# right, up, forward from the body).
+THROW_KEYS = [
+    # ready: cocked back behind the head, the other arm pointing where it's going
+    (0.0, dict(yaw=-30, lean=6, right=(0.12, 0.14, -0.2), right_elbow=(1, -0.2, -0.3),
+               left=(0.05, 0.08, 0.5), left_elbow=(-1, -0.5, 0))),
+    # wound up further
+    (0.12, dict(yaw=-38, lean=10, right=(0.14, 0.12, -0.28), right_elbow=(1, -0.1, -0.4),
+                left=(0.0, 0.05, 0.48), left_elbow=(-1, -0.6, 0))),
+    # the release: over the top and out in front, the chest coming round
+    (0.25, dict(yaw=12, lean=-10, right=(-0.02, 0.3, 0.42), right_elbow=(0.6, 0.2, -0.5),
+                left=(-0.1, -0.3, 0.1), left_elbow=(-1, -0.2, -0.6))),
+    # the follow-through: down across the body
+    (0.42, dict(yaw=28, lean=-16, right=(-0.32, -0.38, 0.28), right_elbow=(1, -0.3, 0.2),
+                left=(-0.12, -0.42, -0.08), left_elbow=(-1, 0, -0.5))),
+    # easing back up
+    (0.667, dict(yaw=12, lean=-6, right=(-0.15, -0.45, 0.12), right_elbow=(1, -0.6, 0),
+                 left=(-0.1, -0.5, -0.02), left_elbow=(-1, 0, -0.3))),
+]
+THROW_RELEASE_SECS = 0.25
+
 CRAWL_SECS = 1.4
 def build(path):
     j, b = fresh()
@@ -266,6 +325,7 @@ def build(path):
     fwd = [crawl_at(i / n) for i in range(n + 1)]
     add_clip('proneCrawl', times, fwd, j, b)
     add_clip('proneCrawlBack', times, list(reversed(fwd)), j, b)
+    add_clip('throw', [t for t, _ in THROW_KEYS], [throw_at(k) for _, k in THROW_KEYS], j, b)
     write_glb(path, j, b)
 
 def main():

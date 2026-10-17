@@ -967,6 +967,25 @@ pub(crate) struct ThrowingKnife {
 }
 
 impl ThrowingKnife {
+    /// The throw as everyone else sees it (`PlayerPose::throw`): the arm up
+    /// as our arms come up, held while it's cooked (or a monkey bomb
+    /// primes), then the throw in step with our arms' clip (`arms_time`
+    /// into it) — gone once they're on their way back down.
+    pub(crate) fn remote_throw(&self, arms_time: f32) -> Option<shared::ThrowProgress> {
+        let stage = match self.phase {
+            ThrowPhase::Held | ThrowPhase::Priming => shared::ThrowStage::Raising(self.slide.clamp(0.0, 1.0)),
+            ThrowPhase::Throwing => shared::ThrowStage::Throwing {
+                t: (arms_time / super::THROW_CLIP_SECS).clamp(0.0, 1.0),
+                released: self.throw_sent,
+            },
+            ThrowPhase::Idle | ThrowPhase::Stowing | ThrowPhase::Returning => return None,
+        };
+        Some(shared::ThrowProgress {
+            kind: self.kind.kind()?,
+            stage,
+        })
+    }
+
     /// Whether a lethal's sequence is under way — from the key press until
     /// the gun's back up. No aiming in meanwhile (`ads::update_ads`).
     pub(crate) fn in_use(&self) -> bool {

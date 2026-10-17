@@ -416,6 +416,7 @@ pub(crate) fn write_input(
         .is_none_or(|v| *v != Visibility::Hidden);
     action.arms_slide = knife.slide;
     action.arms_anim_time = crate::throw_arms_anim_time(&arms_players, &arms_anims);
+    action.throw = knife.remote_throw(action.arms_anim_time);
     action.arms_knife_in_hand = knife.knife_in_hand();
     // What everyone else sees in our hands: the gun while it's drawn, the
     // knife while that is (a quick stab with the gun out included), and
@@ -910,6 +911,8 @@ pub(crate) struct RemoteAvatarMotion {
     /// The weight of the upper-body aim over the aiming-on-the-move legs
     /// (`SoldierAnimations::shot_upper`) — eased in and out with the state.
     aim_upper: f32,
+    /// A throw over the upper body (`PlayerPose::throw`).
+    throw: crate::ThrowLayer,
 }
 
 /// Another player fired (from the server's word: `ShotResolved`, or for the
@@ -1518,6 +1521,17 @@ fn animate_remote_avatars(
             active.set_weight(motion.aim_upper);
         }
 
+        // Throwing a lethal or tactical: the throw over the upper body, in
+        // step with theirs.
+        crate::drive_throw_layer(
+            &mut player,
+            &anims,
+            &mut motion.throw,
+            pose.throw.map(|t| t.stage),
+            dt,
+            BLEND_DURATION.as_secs_f32(),
+        );
+
         // They fired: one kick, at their gun's pace, from wherever the last
         // one had got to.
         let shot = ids.get(avatar.src).ok().and_then(|id| shots.get(&id.0)).copied();
@@ -1581,6 +1595,9 @@ fn sync_held_weapons(
         let pap = |item: shared::weapon::SlotWeapon| member.map_or(0, |m| m.pap.get(shared::pap::PapWeapon::of(item)));
         held.item = pose.held;
         held.swap_progress = pose.swap;
+        held.throwing = pose.throw.map(|t| {
+            (t.kind, !matches!(t.stage, shared::ThrowStage::Throwing { released: true, .. }))
+        });
         held.pap = pose.held.map_or(0, pap);
         // (Both their weapons — the one not in hand shows where it's carried.)
         let carried: Vec<_> = member.map_or(Vec::new(), |m| m.weapons.iter().map(|&w| (w, pap(w))).collect());

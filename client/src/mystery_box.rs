@@ -64,6 +64,19 @@ const BOB_SPEED: f32 = 2.2;
 const KNIFE_LENGTH: f32 = 0.34;
 const MOLOTOV_LENGTH: f32 = 0.32;
 
+/// A lethal's (or tactical's) world model and its real size end to end (m),
+/// fitted by [`LethalModel`] — the monkey bomb aside (its own
+/// `monkey_bomb::centered_transform`).
+pub(crate) fn lethal_model(kind: shared::lethal::LethalKind) -> (&'static str, f32) {
+    use shared::lethal::LethalKind as K;
+    match kind {
+        K::Molotov => ("models/weapons/molotov_1k.glb", MOLOTOV_LENGTH),
+        K::Frag => (crate::frag::WORLD_MODEL, crate::frag::BOX_LENGTH),
+        K::FlashBang => (crate::flash_bang::WORLD_MODEL, crate::flash_bang::BOX_LENGTH),
+        K::ThrowingKnife | K::MonkeyBomb => ("models/weapons/throwing_knife.glb", KNIFE_LENGTH),
+    }
+}
+
 /// Least time (s) between requests, so a double press before the server's
 /// answer can't spin twice.
 const PRESS_COOLDOWN_SECS: f32 = 0.6;
@@ -154,8 +167,8 @@ struct PrizeModel(BoxPrize);
 /// [`fit_lethal_model`] once it's in (a gun's is `weapon_drops`' upright
 /// [`DropModel`]).
 #[derive(Component)]
-struct LethalModel {
-    length: f32,
+pub(crate) struct LethalModel {
+    pub(crate) length: f32,
 }
 
 /// The box standing on our `Zombies` game's map, if it has one.

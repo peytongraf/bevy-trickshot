@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Other players put their weapon away and throw lethals and tacticals overhand, in time with their own throw.",
         "Other players lie down when they go prone, and crawl forward and back.",
         "Other players' weapon swaps finish exactly when theirs do on their screen — perks included.",
         "Other players carry their other weapon on their back (the knife on their thigh) and swap weapons like in Call of Duty.",

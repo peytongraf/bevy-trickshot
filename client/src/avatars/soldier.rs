@@ -98,6 +98,9 @@ pub(crate) struct SoldierAnimations {
     aim_move_legs: AnimationNodeIndex,
     /// ...under `shooting`, the upper body only.
     shot_upper: AnimationNodeIndex,
+    /// `throw`, the upper body only — over whatever the legs are doing
+    /// ([`drive_throw_layer`]).
+    throw_upper: AnimationNodeIndex,
     crouch: AnimationNodeIndex,
     crouch_walk: AnimationNodeIndex,
     reload: AnimationNodeIndex,
@@ -502,7 +505,7 @@ pub(crate) fn setup_soldier_assets(
     // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 14 melee,
     // 15 death, 17 idleWithoutGun — and the three `client/tools/
     // soldier_prone_clips.py` adds after them: 18 prone, 19 proneCrawl,
-    // 20 proneCrawlBack.
+    // 20 proneCrawlBack, 21 throw.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/characters/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -539,6 +542,8 @@ pub(crate) fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(19).from_asset("models/characters/soldier.glb"));
     let prone_crawl_back_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(20).from_asset("models/characters/soldier.glb"));
+    let throw_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(21).from_asset("models/characters/soldier.glb"));
     let (mut graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
@@ -562,6 +567,7 @@ pub(crate) fn setup_soldier_assets(
     let root = graph.root;
     let aim_move_legs = graph.add_clip_with_mask(aim_move_clip, 1 << UPPER_BODY, 1.0, root);
     let shot_upper = graph.add_clip_with_mask(aim_idle_clip, 1 << LOWER_BODY, 1.0, root);
+    let throw_upper = graph.add_clip_with_mask(throw_clip, 1 << LOWER_BODY, 1.0, root);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
         graph,
@@ -571,6 +577,7 @@ pub(crate) fn setup_soldier_assets(
         aim_idle: indices[3],
         aim_move_legs,
         shot_upper,
+        throw_upper,
         crouch: indices[4],
         crouch_walk: indices[5],
         reload: indices[6],
@@ -585,6 +592,58 @@ pub(crate) fn setup_soldier_assets(
         prone_crawl: indices[15],
         prone_crawl_back: indices[16],
     });
+}
+
+/// `throw`'s length (s) — the first-person throw's (`THROW_CLIP_SECS`), its
+/// release on the same moment of it.
+pub(crate) const THROW_SECS: f32 = 0.667;
+/// When (s into `throw`) it leaves the hand — the first-person throw's
+/// default (`ThrowArmsSettings::throw_release_secs`).
+pub(crate) const THROW_RELEASE_SECS: f32 = 0.25;
+
+/// How much of the upper body the throw has, and where in it it is — kept
+/// on whoever drives a soldier ([`drive_throw_layer`]).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ThrowLayer {
+    share: f32,
+    at: f32,
+}
+
+/// Play the throw over a soldier's upper body as `stage` says (a player's
+/// `PlayerPose::throw`): the arm coming up ready as theirs does — and held
+/// there while they cook it — then the throw in step with theirs, easing off
+/// over `fade_secs` once it's done. The layer takes over the upper body from
+/// whatever else is playing there: Bevy blends clips by their share of the
+/// total weight, so it gets `share / (1 - share)` against the rest's ~1.
+pub(crate) fn drive_throw_layer(
+    player: &mut AnimationPlayer,
+    anims: &SoldierAnimations,
+    layer: &mut ThrowLayer,
+    stage: Option<shared::ThrowStage>,
+    dt: f32,
+    fade_secs: f32,
+) {
+    let (target, at) = match stage {
+        Some(shared::ThrowStage::Raising(s)) => (s.clamp(0.0, 1.0), 0.0),
+        Some(shared::ThrowStage::Throwing { t, .. }) => (1.0, t.clamp(0.0, 1.0)),
+        None => (0.0, layer.at),
+    };
+    layer.at = at;
+    // (Up with their arm; off at its own pace.)
+    layer.share = if target >= layer.share {
+        target
+    } else {
+        (layer.share - dt / fade_secs.max(1e-3)).max(target)
+    };
+    let node = anims.throw_upper;
+    if layer.share <= 0.0 {
+        player.stop(node);
+        return;
+    }
+    let active = player.play(node);
+    active.pause().seek_to(layer.at * THROW_SECS);
+    let share = layer.share.min(0.995);
+    active.set_weight(share / (1.0 - share));
 }
 
 /// `shooting`'s length (s): one shot — the kick at 0.07 s, back on aim by

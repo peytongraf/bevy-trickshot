@@ -294,6 +294,46 @@ pub struct PlayerPose {
     /// `PlayerInput::swap`), so their avatar's swap ends as theirs does,
     /// whatever their weapon or perks. `None` otherwise.
     pub swap: Option<SwapProgress>,
+    /// Throwing a lethal or tactical — as their own first-person throw goes
+    /// (copied from `PlayerInput::throw`), so their avatar's throw is in
+    /// step with it. `None` otherwise.
+    pub throw: Option<ThrowProgress>,
+}
+
+/// A throw under way ([`PlayerPose::throw`]): what's being thrown, and how
+/// far along.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ThrowProgress {
+    pub kind: crate::lethal::LethalKind,
+    pub stage: ThrowStage,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum ThrowStage {
+    /// The arm coming up ready (`0..1`) — and held there, at `1`, while
+    /// it's cooked.
+    Raising(f32),
+    /// The throw itself, `t` (`0..1`) of the way through; `released` once
+    /// it's left the hand.
+    Throwing { t: f32, released: bool },
+}
+
+impl ThrowProgress {
+    /// `t` of the way from `a` to `b`: blended within one stage, else `b`.
+    fn ease(a: Option<Self>, b: Option<Self>, t: f32) -> Option<Self> {
+        let (Some(a), Some(b)) = (a, b) else { return b };
+        if a.kind != b.kind {
+            return Some(b);
+        }
+        let stage = match (a.stage, b.stage) {
+            (ThrowStage::Raising(x), ThrowStage::Raising(y)) => ThrowStage::Raising(x + (y - x) * t),
+            (ThrowStage::Throwing { t: x, .. }, ThrowStage::Throwing { t: y, released }) => {
+                ThrowStage::Throwing { t: x + (y - x) * t, released }
+            }
+            (_, stage) => stage,
+        };
+        Some(Self { kind: b.kind, stage })
+    }
 }
 
 /// How far (`0..1`) through putting a weapon away, or getting one out, a
@@ -390,6 +430,7 @@ impl Default for PlayerPose {
             zombie: ZombieAnim::None,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             swap: None,
+            throw: None,
         }
     }
 }
@@ -411,6 +452,7 @@ impl Ease for PlayerPose {
             zombie: end.zombie,
             held: end.held,
             swap: SwapProgress::ease(start.swap, end.swap, t),
+            throw: ThrowProgress::ease(start.throw, end.throw, t),
         })
     }
 }
@@ -556,6 +598,9 @@ pub struct PlayerInput {
     /// `PlayerPose::swap`.
     #[reflect(ignore)]
     pub swap: Option<SwapProgress>,
+    /// A throw under way — see `PlayerPose::throw`.
+    #[reflect(ignore)]
+    pub throw: Option<ThrowProgress>,
     /// With `fire`: every enemy this client saw the shot strike — tested
     /// against their actual animated models as drawn on its screen, an arm or
     /// a finger included — for the server to check over and apply
@@ -665,6 +710,7 @@ impl Default for PlayerInput {
             revive: false,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             swap: None,
+            throw: None,
             fire_hits: None,
         }
     }
