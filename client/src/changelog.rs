@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Knife stabs only land once the knife actually reaches someone — much shorter range.",
+        "Other players stab with their knife, and hold the Ray Gun and knife one-handed.",
         "New WEAPON EDITOR on the main menu: line up each weapon in the players' hands.",
         "Other players hold the weapon they're really using — sniper, AK-74, Ray Gun or knife.",
         "Zombies: power-ups burn with green fire and stand in a column of light.",

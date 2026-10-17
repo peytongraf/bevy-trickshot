@@ -17,7 +17,14 @@
 //!   ([`pose_held_weapons`]), after the animation and before transforms
 //!   propagate — keeping each elbow bent the way the animation bends it.
 //!   It eases out while the animation needs the arms for itself (a reload,
-//!   a stab, dying — [`ik_wanted`]).
+//!   a stab, dying — [`ik_wanted`]). A one-handed weapon's left arm hangs
+//!   down by the side instead ([`Grip::left_arm_down`], the pose
+//!   [`WeaponGrips::arm_down`] — `idleWithoutGun`'s unless the WEAPON
+//!   EDITOR's taken another).
+//! * **A knife stab** is the right hand's own thrust ([`stab_curve`],
+//!   [`Grip::stab_reach`]), the chest leaning and twisting into it
+//!   ([`Grip::stab_lean_deg`]), over whatever the legs are doing —
+//!   `soldier.glb` has no stab of its own (its `melee` is a rifle's).
 //!
 //! Everything here hangs off the avatar it's on, so it goes with it; the
 //! grips are config, the same in every game.
@@ -140,6 +147,17 @@ pub(crate) struct Grip {
     /// Where the left hand goes on it — `None` leaves the left hand where
     /// the animation has it.
     pub(crate) left_hand: Option<HandTarget>,
+    /// The left arm hangs down by the side instead ([`WeaponGrips::arm_down`])
+    /// — a one-handed weapon. Wins over `left_hand`.
+    pub(crate) left_arm_down: bool,
+    /// A stab with it in hand (the knife's): how far the right hand thrusts
+    /// at its furthest (m: right, up, forward from the body)...
+    pub(crate) stab_reach: [f32; 3],
+    /// ...and turns there (degrees: pitch up, yaw left, roll)...
+    pub(crate) stab_turn_deg: [f32; 3],
+    /// ...and how far the chest leans and twists into it there (degrees:
+    /// pitch up, yaw left — the right shoulder forward — roll).
+    pub(crate) stab_lean_deg: [f32; 3],
     /// Its muzzle, in its own frame (m) — where a shot's tracer starts.
     pub(crate) muzzle: [f32; 3],
     /// Its scope's lens, in its own frame (m) — where the sniper glint
@@ -156,6 +174,10 @@ impl Default for Grip {
             hand_shift: [0.0; 3],
             hand_turn_deg: [0.0; 3],
             left_hand: None,
+            left_arm_down: false,
+            stab_reach: [0.0, 0.06, 0.42],
+            stab_turn_deg: [-20.0, 0.0, 0.0],
+            stab_lean_deg: [-10.0, 15.0, 0.0],
             muzzle: [-0.5, 0.0, 0.0],
             scope: None,
         }
@@ -167,15 +189,71 @@ impl Grip {
         euler_deg(self.turn_deg)
     }
 
-    /// The right hand's turn ([`Grip::hand_turn_deg`]) in the model's frame.
-    fn hand_turn(&self) -> Quat {
-        let [pitch, yaw, roll] = self.hand_turn_deg.map(f32::to_radians);
-        Quat::from_axis_angle(Vec3::Y, yaw) * Quat::from_axis_angle(MODEL_RIGHT, pitch) * Quat::from_axis_angle(MODEL_FORWARD, roll)
+    /// How far the right hand's moved from the animation's (m: right, up,
+    /// forward) and turned (in the model's frame), `thrust` of the way into
+    /// a stab ([`stab_curve`]) — `None` for not at all.
+    fn hand_move(&self, thrust: f32) -> Option<(Vec3, Quat)> {
+        let stab = |v: [f32; 3]| v.map(|x| x * thrust);
+        let shift = Vec3::from_array(self.hand_shift) + Vec3::from_array(stab(self.stab_reach));
+        let turn = body_turn(self.hand_turn_deg) * body_turn(stab(self.stab_turn_deg));
+        (self.hand_shift != [0.0; 3] || self.hand_turn_deg != [0.0; 3] || thrust != 0.0).then_some((shift, turn))
     }
+}
 
-    /// Whether the right hand's moved from the animation's at all.
-    fn moves_hand(&self) -> bool {
-        self.hand_shift != [0.0; 3] || self.hand_turn_deg != [0.0; 3]
+/// A turn in the model's frame (degrees: pitch up, yaw left, roll — about
+/// the body's right, up and forward).
+fn body_turn(deg: [f32; 3]) -> Quat {
+    let [pitch, yaw, roll] = deg.map(f32::to_radians);
+    Quat::from_axis_angle(Vec3::Y, yaw) * Quat::from_axis_angle(MODEL_RIGHT, pitch) * Quat::from_axis_angle(MODEL_FORWARD, roll)
+}
+
+/// How far into its thrust a knife stab `p` (`0..1`) of the way through is:
+/// a little wind-up back, a quick lunge to full reach (`1`), a moment there,
+/// then back. The stab lands as it reaches full stretch
+/// (`shared::melee::KNIFE_HIT_SECS` in — keep the two together).
+pub(crate) fn stab_curve(p: f32) -> f32 {
+    const WIND_UP: f32 = 0.15;
+    let smooth = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    match p {
+        p if p < 0.15 => -WIND_UP * smooth(p / 0.15),
+        p if p < 0.32 => -WIND_UP + (1.0 + WIND_UP) * smooth((p - 0.15) / 0.17),
+        p if p < 0.5 => 1.0,
+        p => 1.0 - smooth((p - 0.5) / 0.5),
+    }
+}
+
+/// The left arm's turns (shoulder, upper arm, forearm, hand — each from its
+/// parent, as quaternions) hanging down by the side —
+/// [`WeaponGrips::arm_down`].
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub(crate) struct ArmPose {
+    pub(crate) shoulder: [f32; 4],
+    pub(crate) upper: [f32; 4],
+    pub(crate) fore: [f32; 4],
+    pub(crate) hand: [f32; 4],
+}
+
+impl ArmPose {
+    /// `soldier.glb`'s `idleWithoutGun`, its first frame — the arm relaxed
+    /// at the side (read off the file's keys).
+    pub(crate) const IDLE_NO_GUN: ArmPose = ArmPose {
+        shoulder: [0.61328, 0.33109, -0.60466, 0.38555],
+        upper: [0.26526, 0.07946, -0.12997, 0.95207],
+        fore: [0.09365, -0.02649, 0.36103, 0.92746],
+        hand: [0.05759, 0.29399, -0.01775, 0.95391],
+    };
+
+    fn turns(&self) -> [[f32; 4]; 4] {
+        [self.shoulder, self.upper, self.fore, self.hand]
+    }
+}
+
+impl Default for ArmPose {
+    fn default() -> Self {
+        Self::IDLE_NO_GUN
     }
 }
 
@@ -195,6 +273,11 @@ pub(crate) struct WeaponGrips {
     pub(crate) ak74: Grip,
     pub(crate) raygun: Grip,
     pub(crate) knife: Grip,
+    /// The left arm down by the side, for every one-handed weapon
+    /// ([`Grip::left_arm_down`]) — `idleWithoutGun`'s, unless the WEAPON
+    /// EDITOR's taken another.
+    #[serde(default)]
+    pub(crate) arm_down: ArmPose,
 }
 
 impl WeaponGrips {
@@ -204,15 +287,6 @@ impl WeaponGrips {
             GripKey::Ak74 => &self.ak74,
             GripKey::RayGun => &self.raygun,
             GripKey::Knife => &self.knife,
-        }
-    }
-
-    pub(crate) fn get_mut(&mut self, key: GripKey) -> &mut Grip {
-        match key {
-            GripKey::Sniper => &mut self.sniper,
-            GripKey::Ak74 => &mut self.ak74,
-            GripKey::RayGun => &mut self.raygun,
-            GripKey::Knife => &mut self.knife,
         }
     }
 
@@ -256,14 +330,25 @@ impl WeaponGrips {
                 pos: m(h.pos),
                 turn_deg: d(h.turn_deg),
             }),
+            left_arm_down: g.left_arm_down,
+            stab_reach: m(g.stab_reach),
+            stab_turn_deg: d(g.stab_turn_deg),
+            stab_lean_deg: d(g.stab_lean_deg),
             muzzle: m(g.muzzle),
             scope: g.scope.map(m),
         };
+        let q = |a: [f32; 4]| a.map(|v| r(v, 100_000.0));
         Self {
             sniper: grip(&self.sniper),
             ak74: grip(&self.ak74),
             raygun: grip(&self.raygun),
             knife: grip(&self.knife),
+            arm_down: ArmPose {
+                shoulder: q(self.arm_down.shoulder),
+                upper: q(self.arm_down.upper),
+                fore: q(self.arm_down.fore),
+                hand: q(self.arm_down.hand),
+            },
         }
     }
 }
@@ -285,13 +370,17 @@ pub(crate) fn to_euler_deg(q: Quat) -> [f32; 3] {
 const MODEL_RIGHT: Vec3 = Vec3::NEG_X;
 const MODEL_FORWARD: Vec3 = Vec3::Z;
 
-/// The arm bones IK moves, and the rifle the model comes with — found by
+/// The bones moved here, and the rifle the model comes with — found by
 /// `start_soldier_animation` once the scene's in.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct SoldierRig {
     /// Upper arm, forearm, hand.
     pub(crate) right: [Entity; 3],
     pub(crate) left: [Entity; 3],
+    /// The left collarbone — lowered with the arm, down by the side.
+    pub(crate) left_shoulder: Entity,
+    /// The chest — leaning into a knife stab.
+    pub(crate) chest: Entity,
     /// `soldier.glb`'s own rifle mesh — hidden on a soldier that holds a
     /// [`HeldWeapon`] (shown again by the WEAPON EDITOR, to line one up
     /// against).
@@ -301,6 +390,8 @@ pub(crate) struct SoldierRig {
 /// `soldier.glb`'s arm bones, by glTF name: upper arm, forearm, hand.
 pub(crate) const RIGHT_ARM_BONES: [&str; 3] = ["Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038"];
 pub(crate) const LEFT_ARM_BONES: [&str; 3] = ["Bind_LeftArm_016_017", "Bind_LeftForeArm_017_018", "Bind_LeftHand_018_019"];
+pub(crate) const LEFT_SHOULDER_BONE: &str = "Bind_LeftShoulder_015_016";
+pub(crate) const CHEST_BONE: &str = "Bind_Spine2_012_013";
 
 /// On a soldier avatar: what it's holding (set every frame by whoever
 /// drives it — `net` from the player's pose, or the WEAPON EDITOR).
@@ -320,6 +411,13 @@ pub(crate) struct HeldWeapon {
     /// Where the animation had the left hand this frame (before IK), in the
     /// weapon's frame — what the WEAPON EDITOR snaps the left hand to.
     pub(crate) anim_left: Option<HandTarget>,
+    /// Their player's stabbing (`PlayerPose::stabbing`) — with the knife in
+    /// hand, its rising edge starts a thrust ([`stab_curve`]), which plays out
+    /// in full.
+    pub(crate) stabbing: bool,
+    stab_was: bool,
+    /// When (`Time::elapsed_secs`) the thrust playing started.
+    stab_from: Option<f32>,
     /// The arm bones as the animation left them, before IK changed them
     /// ([`unpose_held_weapons`]).
     animated: Vec<(Entity, Transform)>,
@@ -335,8 +433,28 @@ impl HeldWeapon {
             shown: None,
             holder: None,
             anim_left: None,
+            stabbing: false,
+            stab_was: false,
+            stab_from: None,
             animated: Vec::new(),
         }
+    }
+
+    /// A knife thrust is playing.
+    pub(crate) fn stab_playing(&self) -> bool {
+        self.stab_from.is_some()
+    }
+
+    /// The left arm as the animation had it last frame (before IK) — what
+    /// the WEAPON EDITOR takes the "down by the side" pose from.
+    pub(crate) fn animated_left_arm(&self, rig: &SoldierRig) -> Option<ArmPose> {
+        let local = |e: Entity| self.animated.iter().find(|(b, _)| *b == e).map(|(_, t)| t.rotation.normalize().to_array());
+        Some(ArmPose {
+            shoulder: local(rig.left_shoulder)?,
+            upper: local(rig.left[0])?,
+            fore: local(rig.left[1])?,
+            hand: local(rig.left[2])?,
+        })
     }
 }
 
@@ -465,8 +583,17 @@ fn pose_held_weapons(
     mut transforms: Query<&mut Transform>,
 ) {
     let ease = 1.0 - (-time.delta_secs() * 10.0).exp();
+    let now = time.elapsed_secs();
     for (root, mut held, rig) in &mut soldiers {
         held.ik += (held.ik_wanted.clamp(0.0, 1.0) - held.ik) * ease;
+        if held.stabbing && !held.stab_was {
+            held.stab_from = Some(now);
+        }
+        held.stab_was = held.stabbing;
+        let stab = held.stab_from.map(|from| (now - from) / crate::net::STAB_ANIM_SECS);
+        if stab.is_some_and(|p| p >= 1.0) {
+            held.stab_from = None;
+        }
         let (Some(item), Some(holder)) = (held.item, held.holder) else {
             held.anim_left = None;
             continue;
@@ -475,21 +602,36 @@ fn pose_held_weapons(
         // Metres per unit of the model's own frame (the avatar's scale).
         let per_m = 1.0 / transforms.get(root).map_or(1.0, |t| t.scale.x).max(1e-4);
         let w = held.ik;
-        let mut animated = Vec::with_capacity(6);
-        for e in rig.right.into_iter().chain(rig.left) {
+        let mut animated = Vec::with_capacity(8);
+        for e in rig.right.into_iter().chain(rig.left).chain([rig.left_shoulder, rig.chest]) {
             if let Ok(t) = transforms.get(e) {
                 animated.push((e, *t));
             }
         }
 
-        // The right hand, moved from the animation's.
+        // Mid-stab with the knife: the chest leans into it...
+        let thrust = match (item, stab) {
+            (SlotWeapon::Knife, Some(p)) if p < 1.0 => stab_curve(p),
+            _ => 0.0,
+        };
+        if thrust != 0.0 && w > 1e-3 {
+            if let Ok(above) = parents.get(rig.chest).map(|p| p.parent()) {
+                let above = from_root(above, root, &parents, &transforms).to_scale_rotation_translation().1;
+                let chest = from_root(rig.chest, root, &parents, &transforms).to_scale_rotation_translation().1;
+                let lean = body_turn(grip.stab_lean_deg.map(|d| d * thrust * w));
+                if let Ok(mut t) = transforms.get_mut(rig.chest) {
+                    t.rotation = (above.inverse() * lean * chest).normalize();
+                }
+            }
+        }
+
+        // ...and the right hand's moved from the animation's — and thrust.
         let hand = from_root(rig.right[2], root, &parents, &transforms);
-        if w > 1e-3 && grip.moves_hand() {
+        if let Some((shift, turn)) = grip.hand_move(thrust).filter(|_| w > 1e-3) {
             let (_, rot, pos) = hand.to_scale_rotation_translation();
-            let [x, y, z] = grip.hand_shift;
-            let shift = (MODEL_RIGHT * x + Vec3::Y * y + MODEL_FORWARD * z) * per_m;
+            let shift = (MODEL_RIGHT * shift.x + Vec3::Y * shift.y + MODEL_FORWARD * shift.z) * per_m;
             let to = pos + shift * w;
-            let to_rot = rot.slerp(grip.hand_turn() * rot, w);
+            let to_rot = rot.slerp(turn * rot, w);
             reach(rig.right, root, to, to_rot, &parents, &mut transforms);
         }
 
@@ -514,7 +656,16 @@ fn pose_held_weapons(
             pos: on_weapon.transform_point3(left_pos).to_array(),
             turn_deg: to_euler_deg(weapon_rot.inverse() * left_rot),
         });
-        if let Some(target) = grip.left_hand.filter(|_| w > 1e-3) {
+        if grip.left_arm_down {
+            if w > 1e-3 {
+                let bones = [rig.left_shoulder, rig.left[0], rig.left[1], rig.left[2]];
+                for (e, q) in bones.into_iter().zip(grips.arm_down.turns()) {
+                    if let Ok(mut t) = transforms.get_mut(e) {
+                        t.rotation = t.rotation.slerp(Quat::from_array(q).normalize(), w);
+                    }
+                }
+            }
+        } else if let Some(target) = grip.left_hand.filter(|_| w > 1e-3) {
             let to = left_pos.lerp(weapon.transform_point3(Vec3::from_array(target.pos)), w);
             let to_rot = left_rot.slerp(weapon_rot * target.rotation(), w);
             reach(rig.left, root, to, to_rot, &parents, &mut transforms);
@@ -616,6 +767,28 @@ mod tests {
         let elbow = a + tu * (b - a);
         let wrist = elbow + tf * (tu * (c - b));
         assert!((wrist.length() - 0.6).abs() < 1e-3 && wrist.z > 0.59, "{wrist}");
+    }
+
+    #[test]
+    fn a_stab_winds_up_lunges_and_comes_back_smoothly() {
+        assert_eq!(stab_curve(0.0), 0.0);
+        assert!(stab_curve(0.1) < 0.0);
+        assert_eq!(stab_curve(0.4), 1.0);
+        assert!(stab_curve(1.0).abs() < 1e-6);
+        // No jumps between its pieces.
+        let mut last = stab_curve(0.0);
+        for i in 1..=1000 {
+            let now = stab_curve(i as f32 / 1000.0);
+            assert!((now - last).abs() < 0.03, "jump at {i}");
+            last = now;
+        }
+    }
+
+    #[test]
+    fn a_stab_lands_as_the_thrust_reaches_full_stretch() {
+        let p = shared::melee::KNIFE_HIT_SECS / crate::net::STAB_ANIM_SECS;
+        assert!(stab_curve(p) > 0.99, "{}", stab_curve(p));
+        assert!(stab_curve(p - 0.05) < 0.95, "lands no later than it reaches");
     }
 
     #[test]

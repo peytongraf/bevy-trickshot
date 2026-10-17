@@ -34,7 +34,7 @@ use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::avatars::held_weapon::{
-    grips_source_path, ik_wanted, to_euler_deg, Grip, GripKey, HandTarget, WeaponGrips, BAKED_GUN_CENTER,
+    grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, WeaponGrips, BAKED_GUN_CENTER,
     BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
 };
 use crate::player::{PlayerBodyCapsule, PlayerHead, ViewModelCamera, WorldModelCamera};
@@ -73,8 +73,9 @@ const STUDIO: Vec3 = Vec3::new(0.0, 600.0, 0.0);
 const ORBIT_PER_PX: f32 = 0.006;
 
 /// The clips there are to pick, as the game plays them.
-const CLIPS: [(SoldierAnimState, &str); 14] = [
+const CLIPS: [(SoldierAnimState, &str); 15] = [
     (SoldierAnimState::Idle, "Idle"),
+    (SoldierAnimState::IdleNoGun, "Idle, no gun"),
     (SoldierAnimState::Aim, "Aiming"),
     (SoldierAnimState::Walk, "Walk"),
     (SoldierAnimState::AimWalk, "Aiming, moving"),
@@ -168,6 +169,10 @@ struct GripEditor {
     help_open: bool,
     /// A message for the status bar, and when it goes (elapsed seconds).
     toast: Option<(String, f32)>,
+    /// Play the knife's stab once...
+    play_stab: bool,
+    /// ...or over and over.
+    loop_stab: bool,
 }
 
 impl Default for GripEditor {
@@ -190,6 +195,8 @@ impl Default for GripEditor {
             exit_prompt: false,
             help_open: false,
             toast: None,
+            play_stab: false,
+            loop_stab: false,
         }
     }
 }
@@ -463,7 +470,8 @@ fn drive_camera(
 // --- the soldier ----------------------------------------------------------------------
 
 /// Keep the soldier holding the weapon picked, playing (or paused in) the
-/// clip picked, with the model's own rifle shown or not.
+/// clip picked, with the model's own rifle shown or not — and stabbing when
+/// asked.
 #[allow(clippy::too_many_arguments)]
 fn drive_soldier(
     mut editor: ResMut<GripEditor>,
@@ -485,6 +493,7 @@ fn drive_soldier(
         held.pap = editor.pap;
     }
     held.ik_wanted = if editor.hands { ik_wanted(editor.clip) } else { 0.0 };
+    held.stabbing = std::mem::take(&mut editor.play_stab) || (editor.loop_stab && !held.stab_playing());
 
     if let Some(gun) = rig.and_then(|r| r.baked_gun) {
         if let Ok(mut v) = visibility.get_mut(gun) {
@@ -578,14 +587,16 @@ fn editor_ui(
     mut contexts: EguiContexts,
     mut editor: ResMut<GripEditor>,
     mut grips: ResMut<WeaponGrips>,
-    soldiers: Query<&HeldWeapon, With<StandSoldier>>,
+    soldiers: Query<(&HeldWeapon, Option<&SoldierRig>), With<StandSoldier>>,
     time: Res<Time>,
     mut next: ResMut<NextState<AppState>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     let now = time.elapsed_secs();
     let ed = &mut *editor;
-    let anim_left = soldiers.single().ok().and_then(|h| h.anim_left);
+    let soldier = soldiers.single().ok();
+    let anim_left = soldier.and_then(|(h, _)| h.anim_left);
+    let anim_arm = soldier.and_then(|(h, rig)| h.animated_left_arm(rig?));
 
     egui::TopBottomPanel::top("weapon_editor_menu").show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -643,8 +654,20 @@ fn editor_ui(
                 ui.separator();
                 clip_controls(ui, ed);
                 ui.separator();
-                let weapon = ed.weapon;
-                grip_controls(ui, grips.get_mut(weapon), anim_left);
+                let WeaponGrips {
+                    sniper,
+                    ak74,
+                    raygun,
+                    knife,
+                    arm_down,
+                } = &mut *grips;
+                let grip = match ed.weapon {
+                    GripKey::Sniper => sniper,
+                    GripKey::Ak74 => ak74,
+                    GripKey::RayGun => raygun,
+                    GripKey::Knife => knife,
+                };
+                grip_controls(ui, ed, grip, arm_down, anim_left, anim_arm);
             });
         });
 
@@ -755,7 +778,22 @@ fn vec3_row(ui: &mut egui::Ui, label: &str, v: &mut [f32; 3], speed: f64, suffix
     changed
 }
 
-fn grip_controls(ui: &mut egui::Ui, grip: &mut Grip, anim_left: Option<HandTarget>) {
+/// Where the left arm goes ([`grip_controls`]).
+#[derive(Clone, Copy, PartialEq)]
+enum LeftArm {
+    Animated,
+    OnWeapon,
+    Down,
+}
+
+fn grip_controls(
+    ui: &mut egui::Ui,
+    ed: &mut GripEditor,
+    grip: &mut Grip,
+    arm_down: &mut ArmPose,
+    anim_left: Option<HandTarget>,
+    anim_arm: Option<ArmPose>,
+) {
     const XYZ: [&str; 3] = ["x", "y", "z"];
 
     ui.heading("In the right hand");
@@ -796,27 +834,88 @@ fn grip_controls(ui: &mut egui::Ui, grip: &mut Grip, anim_left: Option<HandTarge
         grip.hand_turn_deg = [0.0; 3];
     }
 
+    if ed.weapon == GripKey::Knife {
+        ui.separator();
+        ui.heading("Stab");
+        ui.colored_label(DIM, "The right hand's thrust at its furthest — on top of its move above.");
+        vec3_row(ui, "Reach", &mut grip.stab_reach, 0.002, " m", ["right", "up", "fwd"]);
+        vec3_row(ui, "Turn", &mut grip.stab_turn_deg, 0.25, "°", ["pitch", "yaw", "roll"]);
+        vec3_row(ui, "Lean", &mut grip.stab_lean_deg, 0.25, "°", ["pitch", "yaw", "roll"]);
+        ui.colored_label(DIM, "Lean: the chest, into the thrust — yaw left brings the right shoulder forward.");
+        ui.horizontal(|ui| {
+            if ui.button("Play stab").clicked() {
+                ed.play_stab = true;
+            }
+            ui.checkbox(&mut ed.loop_stab, "Loop");
+        });
+    }
+
     ui.separator();
-    ui.heading("Left hand");
-    let mut on = grip.left_hand.is_some();
-    if ui
-        .checkbox(&mut on, "On the weapon")
-        .on_hover_text("Off: where the animation has it.")
-        .changed()
-    {
-        grip.left_hand = on.then(|| anim_left.unwrap_or(HandTarget { pos: [-0.3, -0.03, 0.0], turn_deg: [0.0; 3] }));
+    ui.heading("Left arm");
+    let was = if grip.left_arm_down {
+        LeftArm::Down
+    } else if grip.left_hand.is_some() {
+        LeftArm::OnWeapon
+    } else {
+        LeftArm::Animated
+    };
+    let mut mode = was;
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut mode, LeftArm::Animated, "As animated");
+        ui.radio_value(&mut mode, LeftArm::OnWeapon, "Hand on the weapon");
+        ui.radio_value(&mut mode, LeftArm::Down, "Down by the side");
+    });
+    if mode != was {
+        grip.left_arm_down = mode == LeftArm::Down;
+        match mode {
+            LeftArm::Animated => grip.left_hand = None,
+            LeftArm::OnWeapon if grip.left_hand.is_none() => {
+                grip.left_hand = Some(anim_left.unwrap_or(HandTarget { pos: [-0.3, -0.03, 0.0], turn_deg: [0.0; 3] }));
+            }
+            _ => {}
+        }
     }
-    if let Some(left) = grip.left_hand.as_mut() {
-        ui.colored_label(DIM, "The wrist, in the weapon's frame: barrel along -x, sights up +y.");
-        vec3_row(ui, "Place", &mut left.pos, 0.001, " m", XYZ);
-        vec3_row(ui, "Turn", &mut left.turn_deg, 0.25, "°", XYZ);
-    }
-    if ui
-        .add_enabled(anim_left.is_some(), egui::Button::new("Snap to where the animation has it now"))
-        .on_hover_text("Pause on a moment where the hand's right (Idle or Aiming, with the soldier's rifle shown to judge), then snap.")
-        .clicked()
-    {
-        grip.left_hand = anim_left;
+    match mode {
+        LeftArm::Animated => {
+            ui.colored_label(DIM, "Where the animation has it.");
+        }
+        LeftArm::OnWeapon => {
+            if let Some(left) = grip.left_hand.as_mut() {
+                ui.colored_label(DIM, "The wrist, in the weapon's frame: barrel along -x, sights up +y.");
+                vec3_row(ui, "Place", &mut left.pos, 0.001, " m", XYZ);
+                vec3_row(ui, "Turn", &mut left.turn_deg, 0.25, "°", XYZ);
+            }
+            if ui
+                .add_enabled(anim_left.is_some(), egui::Button::new("Snap to where the animation has it now"))
+                .on_hover_text("Pause on a moment where the hand's right (Idle or Aiming, with the soldier's rifle shown to judge), then snap.")
+                .clicked()
+            {
+                grip.left_hand = anim_left;
+            }
+        }
+        LeftArm::Down => {
+            ui.colored_label(
+                DIM,
+                "As in the \"Idle, no gun\" clip — one pose, shared by every weapon with its left arm down.",
+            );
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(anim_arm.is_some(), egui::Button::new("Take the pose from this frame"))
+                    .on_hover_text("The left arm (and collarbone) as the clip playing has it now.")
+                    .clicked()
+                {
+                    if let Some(pose) = anim_arm {
+                        *arm_down = pose;
+                    }
+                }
+                if ui
+                    .add_enabled(*arm_down != ArmPose::IDLE_NO_GUN, egui::Button::new("Back to \"Idle, no gun\""))
+                    .clicked()
+                {
+                    *arm_down = ArmPose::IDLE_NO_GUN;
+                }
+            });
+        }
     }
 
     ui.separator();

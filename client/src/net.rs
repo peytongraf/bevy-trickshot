@@ -278,7 +278,7 @@ fn mark_local_input(
 
 /// How long (s) a stab shows as `PlayerInput::stabbing` — the remote
 /// avatar's `melee` clip's length.
-const STAB_ANIM_SECS: f32 = 0.67;
+pub(crate) const STAB_ANIM_SECS: f32 = 0.67;
 
 /// Copy this frame's local pose (client-authoritative) into the input packet,
 /// and — if `weapon_system` pulled the trigger — the fire request too.
@@ -335,8 +335,8 @@ pub(crate) fn write_input(
         Res<Time>,
         // When (`Time::elapsed_secs`) we last stabbed, for `stabbing` — a
         // timestamp, so a stab cut short by leaving a match is long over by
-        // the next one.
-        Local<Option<f32>>,
+        // the next one — and whether it's gone to the server yet.
+        Local<Option<(f32, bool)>>,
         ResMut<crate::hit_detection::ShotHits>,
     ),
 ) {
@@ -351,17 +351,29 @@ pub(crate) fn write_input(
     action.weapon = weapon.primary.as_u8();
     action.fire = false;
     action.fire_hits = None;
-    // A knife stab this frame (`weapon_system` filed it) rides the same
-    // origin/dir fields a shot uses — the two are never both pending, since
-    // the knife and the sniper aren't drawn at once.
+    // A knife stab (`weapon_system` filed it this frame) shows at once
+    // (`stabbing`: everyone else sees our soldier's thrust start), but lands
+    // when that thrust gets there (`shared::melee::KNIFE_HIT_SECS`) — from
+    // where we are and the way we face then. It rides the same origin/dir
+    // fields a shot uses, so never in a tick with a shot; and a stab begun
+    // long ago (a match left mid-stab) never goes.
     action.melee = false;
-    if let Some((origin, dir)) = pending_melee.0.take() {
-        action.melee = true;
-        action.fire_origin = origin.to_array();
-        action.fire_dir = dir.to_array();
-        *stabbed_at = Some(time.elapsed_secs());
+    let now = time.elapsed_secs();
+    if pending_melee.0.take().is_some() {
+        *stabbed_at = Some((now, false));
     }
-    action.stabbing = stabbed_at.is_some_and(|t| time.elapsed_secs() - t < STAB_ANIM_SECS);
+    if let Some((at, sent)) = stabbed_at.as_mut() {
+        let since = now - *at;
+        if !*sent && since >= shared::melee::KNIFE_HIT_SECS && pending.0.is_none() {
+            *sent = true;
+            if let (true, Ok(cam)) = (since < shared::melee::KNIFE_HIT_SECS + 0.25, cam.single()) {
+                action.melee = true;
+                action.fire_origin = cam.translation().to_array();
+                action.fire_dir = cam.forward().as_vec3().to_array();
+            }
+        }
+    }
+    action.stabbing = stabbed_at.is_some_and(|(at, _)| now - at < STAB_ANIM_SECS);
     // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
     // FOV, so a replay can reproduce shake / recoil / sway and render at this
     // player's FOV instead of re-deriving an absolute camera transform that
@@ -1303,8 +1315,10 @@ fn animate_remote_avatars(
         // motion.
         let new_state = if !pose.alive {
             crate::SoldierAnimState::Dead
-        } else if pose.stabbing {
-            // A stab mid-jump or mid-reload still shows the swing.
+        } else if pose.stabbing && pose.held != Some(shared::weapon::SlotWeapon::Knife) {
+            // A stab mid-jump or mid-reload still shows the swing. (A knife's
+            // is the hand's own thrust, over whatever the legs are doing —
+            // `held_weapon::stab_curve`.)
             crate::SoldierAnimState::Melee
         } else if pose.jumping {
             crate::SoldierAnimState::Jump
@@ -1398,7 +1412,8 @@ fn animate_remote_avatars(
                 | crate::SoldierAnimState::Crouch
                 | crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
-                | crate::SoldierAnimState::Melee => 1.0,
+                | crate::SoldierAnimState::Melee
+                | crate::SoldierAnimState::IdleNoGun => 1.0,
                 crate::SoldierAnimState::Walk => walk_anim_speed,
                 crate::SoldierAnimState::Sprint => sprint_anim_speed,
                 crate::SoldierAnimState::AimWalk => aim_walk_anim_speed,
@@ -1435,6 +1450,7 @@ fn sync_held_weapons(
         };
         held.item = pose.held;
         held.pap = pap;
+        held.stabbing = pose.stabbing;
         held.ik_wanted = crate::avatars::held_weapon::ik_wanted(motion.state);
     }
 }

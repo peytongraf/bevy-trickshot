@@ -22,8 +22,8 @@
 //!   counts, burst on its line beside them ([`Models::hits_along_near`]).
 //!
 //! The server checks every claim over before anything takes damage. (A knife
-//! stab is the server's own, a Call-of-Duty lunge: whoever's close and
-//! roughly under the crosshair.)
+//! stab is the server's own: whoever the knife's tip touches as the thrust
+//! reaches out — `shared::melee`.)
 //!
 //! Enemies: other players and `FreeForAll` bots (the soldier — not its gun),
 //! `Freestyle` target bots, and `Zombies` zombies, hellhounds and bosses.

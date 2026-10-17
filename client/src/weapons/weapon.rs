@@ -109,9 +109,11 @@ pub(crate) fn stash_interrupted(weapon: &mut Weapon, mut busy: WeaponBusy) {
 pub(crate) struct PendingShot(pub Option<Vec3>);
 
 /// Set by `weapon_system` on the frame a knife stab starts; consumed by
-/// `net::write_input`, which turns it into the tick's melee request. Carries
-/// the camera's `(eye position, forward direction)` — the server resolves the
-/// stab with `shared::melee::resolve_melee` from exactly that ray.
+/// `net::write_input`, which shows the stab at once and sends the melee
+/// request when the thrust lands (`shared::melee::KNIFE_HIT_SECS` on) — from
+/// where the camera is then (the server resolves it with
+/// `shared::melee::resolve_melee`). Carries the camera's `(eye position,
+/// forward direction)` as the stab started.
 #[derive(Resource, Default)]
 pub(crate) struct PendingMelee(pub Option<(Vec3, Vec3)>);
 

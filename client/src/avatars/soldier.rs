@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
-use super::held_weapon::{Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, RIGHT_ARM_BONES};
+use super::held_weapon::{Grip, HeldWeapon, SoldierRig, CHEST_BONE, LEFT_ARM_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES};
 
 /// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
 /// `start_soldier_animation` can tell it apart from any other spawned scene.
@@ -59,12 +59,17 @@ pub(crate) enum SoldierAnimState {
     /// back to `true` on respawn — outranks every other state, including
     /// `Jump`.
     Dead,
+    /// Standing with no gun: `idleWithoutGun`, looped. Never picked in a
+    /// game — it's where the WEAPON EDITOR takes the left arm's "down by the
+    /// side" pose from (`held_weapon::ArmPose`).
+    IdleNoGun,
 }
 
 /// Graph + node indices for `models/characters/soldier.glb`'s `idleWgun` / `walk` /
 /// `run` / `shooting` / `runAndShooting` / `crouch` / `crouchWalk` / `reload`
 /// / `jump` / `strafeRight` / `strafeLeft` / `backpaddle` / `melee` / `death`
-/// clips — 14 of its 18 animations wired up so far. Built once at startup.
+/// / `idleWithoutGun` clips — 15 of its 18 animations wired up so far. Built
+/// once at startup.
 #[derive(Resource, Clone)]
 pub(crate) struct SoldierAnimations {
     graph: Handle<AnimationGraph>,
@@ -82,6 +87,7 @@ pub(crate) struct SoldierAnimations {
     backward: AnimationNodeIndex,
     melee: AnimationNodeIndex,
     death: AnimationNodeIndex,
+    idle_no_gun: AnimationNodeIndex,
 }
 
 impl SoldierAnimations {
@@ -105,6 +111,7 @@ impl SoldierAnimations {
             SoldierAnimState::Backward => self.backward,
             SoldierAnimState::Melee => self.melee,
             SoldierAnimState::Dead => self.death,
+            SoldierAnimState::IdleNoGun => self.idle_no_gun,
         }
     }
 }
@@ -460,7 +467,7 @@ pub(crate) fn setup_soldier_assets(
     // Indices into `models/characters/soldier.glb`'s 18 animations: 0 idleWgun, 1 walk,
     // 3 run, 4 shooting, 6 runAndShooting, 7 strafeRight, 8 strafeLeft,
     // 9 backpaddle, 10 jump, 11 crouch, 12 crouchWalk, 13 reload, 14 melee,
-    // 15 death.
+    // 15 death, 17 idleWithoutGun.
     let idle_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/characters/soldier.glb"));
     let walk_clip: Handle<AnimationClip> =
@@ -489,6 +496,8 @@ pub(crate) fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(14).from_asset("models/characters/soldier.glb"));
     let death_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/characters/soldier.glb"));
+    let idle_no_gun_clip: Handle<AnimationClip> =
+        asset_server.load(GltfAssetLabel::Animation(17).from_asset("models/characters/soldier.glb"));
     let (graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
@@ -504,6 +513,7 @@ pub(crate) fn setup_soldier_assets(
         backward_clip,
         death_clip,
         melee_clip,
+        idle_no_gun_clip,
     ]);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
@@ -522,6 +532,7 @@ pub(crate) fn setup_soldier_assets(
         backward: indices[11],
         death: indices[12],
         melee: indices[13],
+        idle_no_gun: indices[14],
     });
 }
 
@@ -554,6 +565,7 @@ pub(crate) fn start_soldier_animation(
     };
     let mut right = [None; 3];
     let mut left = [None; 3];
+    let (mut left_shoulder, mut chest) = (None, None);
     let mut baked_gun = None;
     for entity in children.iter_descendants(root) {
         if let Ok(name) = names.get(entity) {
@@ -563,6 +575,12 @@ pub(crate) fn start_soldier_animation(
             }
             if let Some(i) = LEFT_ARM_BONES.iter().position(|&b| b == name) {
                 left[i] = Some(entity);
+            }
+            if name == LEFT_SHOULDER_BONE {
+                left_shoulder = Some(entity);
+            }
+            if name == CHEST_BONE {
+                chest = Some(entity);
             }
         }
         if meshes.get(entity).is_ok_and(|m| m.0.path().and_then(|p| p.label()) == Some(SOLDIER_GUN_MESH)) {
@@ -591,8 +609,14 @@ pub(crate) fn start_soldier_animation(
             commands.entity(root).insert(SniperGlintBone(entity));
         }
     }
-    if let (Some(right), Some(left)) = (bones(right), bones(left)) {
-        commands.entity(root).insert(SoldierRig { right, left, baked_gun });
+    if let (Some(right), Some(left), Some(left_shoulder), Some(chest)) = (bones(right), bones(left), left_shoulder, chest) {
+        commands.entity(root).insert(SoldierRig {
+            right,
+            left,
+            left_shoulder,
+            chest,
+            baked_gun,
+        });
     } else {
         warn!("soldier.glb: arm bones not found — its weapon won't show");
     }
