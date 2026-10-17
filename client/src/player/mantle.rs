@@ -1,8 +1,9 @@
 //! Ledge mantling (Call of Duty style): if the player is airborne and would
 //! otherwise just bonk into a wall and fall, but there's a walkable ledge
 //! within reach right above the impact point, catch them and lift them up
-//! onto it instead. Purely a movement/physics feature for now — no climb
-//! animation; the view model just rides along however it normally would.
+//! onto it instead. What it looks like — the weapon dipping away and the
+//! hands planting on the ledge — is `weapons::mantle_arms`'s, off the
+//! ledge each climb remembers ([`MantleRun::grab`]).
 //!
 //! [`try_mantle`] looks for one every frame the player is airborne and moving
 //! toward something (gated by [`crate::settings::AutoMantle`]); once found,
@@ -46,6 +47,8 @@ pub(crate) struct MantleSettings {
     pub(crate) forward_dist: f32,
     pub(crate) ledge_probe_forward: f32,
     pub(crate) duration: f32,
+    /// The first-person climb (`weapons::mantle_arms`).
+    pub(crate) arms: crate::weapons::MantleArmsLook,
 }
 
 impl Default for MantleSettings {
@@ -57,6 +60,7 @@ impl Default for MantleSettings {
             forward_dist: MANTLE_FORWARD_DIST,
             ledge_probe_forward: MANTLE_LEDGE_PROBE_FORWARD,
             duration: MANTLE_DURATION,
+            arms: default(),
         }
     }
 }
@@ -68,12 +72,19 @@ pub(crate) struct MantleRun {
     start: Vec3,
     end: Vec3,
     elapsed: f32,
+    /// The ledge's edge (world) — the top of the wall face, where it was
+    /// caught — that the hands grab...
+    pub(crate) grab: Vec3,
+    /// ...and the way into the wall (horizontal, unit).
+    pub(crate) facing: Vec3,
 }
 
 /// `Some` for the whole duration of a climb — see [`not_mantling`].
 #[derive(Resource, Default)]
 pub(crate) struct Mantle {
     pub(crate) active: Option<MantleRun>,
+    /// Climbs started so far — tells one climb from the next.
+    pub(crate) count: u32,
 }
 
 /// Run condition: every other movement/gravity/firing system pauses for the
@@ -85,10 +96,10 @@ pub(crate) fn not_mantling(mantle: Res<Mantle>) -> bool {
 
 /// Looks for a valid mantle from `feet` toward `dir` (a normalized
 /// horizontal direction) and, if found, returns the landing feet position
-/// (world space). Standard three-probe ledge check: a forward probe finds
+/// (world space), the ledge's edge and the way into the wall. Standard three-probe ledge check: a forward probe finds
 /// the wall to catch on, a downward probe finds its top, and an upward probe
 /// at the landing spot confirms there's room to actually stand there.
-fn find_mantle(rapier: &RapierContext, feet: Vec3, dir: Vec3, cfg: &MantleSettings) -> Option<Vec3> {
+fn find_mantle(rapier: &RapierContext, feet: Vec3, dir: Vec3, cfg: &MantleSettings) -> Option<(Vec3, Vec3, Vec3)> {
     let filter = QueryFilter::default();
 
     // Chest-height probe: something to catch on ahead, and — via its hit
@@ -136,7 +147,12 @@ fn find_mantle(rapier: &RapierContext, feet: Vec3, dir: Vec3, cfg: &MantleSettin
         return None;
     }
 
-    Some(Vec3::new(past_wall.x, ledge_y, past_wall.z))
+    let facing = Vec3::new(-wall_hit.normal.x, 0.0, -wall_hit.normal.z).try_normalize().unwrap_or(dir);
+    Some((
+        Vec3::new(past_wall.x, ledge_y, past_wall.z),
+        Vec3::new(wall_hit.point.x, ledge_y, wall_hit.point.z),
+        facing,
+    ))
 }
 
 /// Looks for a mantle opportunity while airborne and, if one's found, hands
@@ -180,7 +196,7 @@ pub(crate) fn try_mantle(
         transform.translation.y - EYE_HEIGHT,
         transform.translation.z,
     );
-    let Some(landing_feet) = find_mantle(&rapier, feet, dir, &cfg) else {
+    let Some((landing_feet, grab, facing)) = find_mantle(&rapier, feet, dir, &cfg) else {
         return;
     };
     // (Never up onto a `Zombies` window's sill — players don't go through.)
@@ -191,7 +207,10 @@ pub(crate) fn try_mantle(
         start: transform.translation,
         end: landing_feet + Vec3::Y * EYE_HEIGHT,
         elapsed: 0.0,
+        grab,
+        facing,
     });
+    mantle.count = mantle.count.wrapping_add(1);
 }
 
 /// Eases the player up and onto the ledge [`try_mantle`] found — rising over

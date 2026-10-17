@@ -329,6 +329,50 @@ pub(crate) struct WeaponGrips {
     /// prints it).
     #[serde(default = "default_drink_hold")]
     pub(crate) drink_hold: HandTarget,
+    /// Which of each weapon's objects wear the Pack-a-Punch camo once it's
+    /// packed (`pap`) — the WEAPON EDITOR's toggles.
+    #[serde(default)]
+    pub(crate) camo: CamoObjects,
+}
+
+/// The objects (glTF node names — [`crate::pap::object_name`]) of each
+/// weapon's model that wear the Pack-a-Punch camo, everywhere it's drawn: in
+/// our hands, other players' and on the ground. `None` keeps the built-in
+/// ones (`pap::camo_parts`).
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct CamoObjects {
+    pub(crate) sniper: Option<Vec<String>>,
+    pub(crate) ak74: Option<Vec<String>>,
+    pub(crate) raygun: Option<Vec<String>>,
+    pub(crate) knife: Option<Vec<String>>,
+}
+
+impl CamoObjects {
+    pub(crate) fn get(&self, key: GripKey) -> Option<&[String]> {
+        match key {
+            GripKey::Sniper => &self.sniper,
+            GripKey::Ak74 => &self.ak74,
+            GripKey::RayGun => &self.raygun,
+            GripKey::Knife => &self.knife,
+        }
+        .as_deref()
+    }
+
+    pub(crate) fn get_mut(&mut self, key: GripKey) -> &mut Option<Vec<String>> {
+        match key {
+            GripKey::Sniper => &mut self.sniper,
+            GripKey::Ak74 => &mut self.ak74,
+            GripKey::RayGun => &mut self.raygun,
+            GripKey::Knife => &mut self.knife,
+        }
+    }
+
+    /// Whether `key`'s object `name` wears the camo — `built_in` if it's
+    /// never been picked.
+    pub(crate) fn wears(&self, key: GripKey, name: &str, built_in: bool) -> bool {
+        self.get(key).map_or(built_in, |picked| picked.iter().any(|n| n == name))
+    }
 }
 
 fn default_drink_hold() -> HandTarget {
@@ -427,6 +471,7 @@ impl WeaponGrips {
                 pos: m(self.drink_hold.pos),
                 turn_deg: d(self.drink_hold.turn_deg),
             },
+            camo: self.camo.clone(),
         }
     }
 }
@@ -464,6 +509,10 @@ pub(crate) struct SoldierRig {
     pub(crate) spine: [Entity; 3],
     /// The right thigh — where the knife's carried.
     pub(crate) right_thigh: Entity,
+    /// Each hand's index, middle and little finger knuckles, left then right
+    /// — which way the hand points, and which way it's turned (a mantle's
+    /// hands, flat on the ledge).
+    pub(crate) knuckles: [[Entity; 3]; 2],
     /// `soldier.glb`'s own rifle mesh — hidden on a soldier that holds a
     /// [`HeldWeapon`] (shown again by the WEAPON EDITOR, to line one up
     /// against).
@@ -473,6 +522,11 @@ pub(crate) struct SoldierRig {
 /// `soldier.glb`'s arm bones, by glTF name: upper arm, forearm, hand.
 pub(crate) const RIGHT_ARM_BONES: [&str; 3] = ["Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038"];
 pub(crate) const LEFT_ARM_BONES: [&str; 3] = ["Bind_LeftArm_016_017", "Bind_LeftForeArm_017_018", "Bind_LeftHand_018_019"];
+/// ...and each hand's index, middle and little finger knuckles.
+pub(crate) const LEFT_KNUCKLE_BONES: [&str; 3] =
+    ["Bind_LeftHandIndex1_022_023", "Bind_LeftHandMiddle1_025_026", "Bind_LeftHandPinky1_031_032"];
+pub(crate) const RIGHT_KNUCKLE_BONES: [&str; 3] =
+    ["Bind_RightHandIndex1_041_042", "Bind_RightHandMiddle1_044_045", "Bind_RightHandPinky1_050_051"];
 pub(crate) const LEFT_SHOULDER_BONE: &str = "Bind_LeftShoulder_015_016";
 pub(crate) const SPINE_BONES: [&str; 3] = ["Bind_Spine_010_011", "Bind_Spine1_011_012", "Bind_Spine2_012_013"];
 pub(crate) const RIGHT_THIGH_BONE: &str = "Bind_RightUpLeg_01_07";
@@ -589,6 +643,9 @@ pub(crate) struct HeldWeapon {
     stab_was: bool,
     /// When (`Time::elapsed_secs`) the thrust playing started.
     stab_from: Option<f32>,
+    /// Their player climbing onto a ledge (`PlayerPose::mantle`), and what
+    /// that looks like now ([`mantle_look`]) — the hands on it.
+    pub(crate) mantle: Option<(shared::MantleProgress, MantleLook)>,
     /// The arm bones as the animation left them, before IK changed them
     /// ([`unpose_held_weapons`]).
     animated: Vec<(Entity, Transform)>,
@@ -618,6 +675,7 @@ impl HeldWeapon {
             stabbing: false,
             stab_was: false,
             stab_from: None,
+            mantle: None,
             animated: Vec::new(),
         }
     }
@@ -655,6 +713,49 @@ pub(crate) fn ik_wanted(state: SoldierAnimState) -> f32 {
         _ => 1.0,
     }
 }
+
+/// A soldier mantling, `clock` seconds into it ([`HeldWeapon::mantle`]) —
+/// in step with its player's own first-person climb
+/// (`weapons::mantle_arms`): the weapon put away (onto the back, as for a
+/// swap), the left hand reaching for the ledge meanwhile and the right once
+/// it's let the weapon go, both on it as the body rises past them, letting
+/// go as theirs do — and the weapon got out again as theirs comes back up.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct MantleLook {
+    /// Putting the weapon away, this far through (`0..=1`)...
+    pub(crate) stow: f32,
+    /// ...or getting it out again, once they're up.
+    pub(crate) draw: Option<f32>,
+    /// How far (`0..1`) each hand (left, right) is on the ledge.
+    pub(crate) grip: [f32; 2],
+}
+
+pub(crate) fn mantle_look(m: &shared::MantleProgress, look: &crate::weapons::MantleArmsLook) -> MantleLook {
+    let s = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    let (c, d) = (m.clock, m.duration.max(0.01));
+    let stow_end = d * MANTLE_STOW_FRAC;
+    let let_go = d * look.let_go_frac;
+    let release = look.release_secs.max(1e-3);
+    let raise_from = let_go + release * 0.5;
+    let on = |from: f32, to: f32| {
+        if c < let_go {
+            s((c - from) / (to - from).max(1e-3))
+        } else {
+            1.0 - s((c - let_go) / release)
+        }
+    };
+    MantleLook {
+        stow: (c / stow_end).clamp(0.0, 1.0),
+        draw: (c >= raise_from).then(|| ((c - raise_from) / look.raise_secs.max(1e-3)).clamp(0.0, 1.0)),
+        grip: [on(0.0, d * look.reach_frac), on(stow_end, stow_end + d * look.reach_frac)],
+    }
+}
+
+/// How far into a climb (of its duration) a soldier's weapon is away.
+const MANTLE_STOW_FRAC: f32 = 0.3;
 
 /// The holder, under the right-hand bone: placed by [`pose_held_weapons`].
 #[derive(Component)]
@@ -980,6 +1081,7 @@ fn unpose_held_weapons(mut soldiers: Query<&mut HeldWeapon>, mut transforms: Que
 fn pose_held_weapons(
     time: Res<Time>,
     grips: Res<WeaponGrips>,
+    cfg: Res<crate::MantleSettings>,
     mut soldiers: Query<(Entity, &mut HeldWeapon, &SoldierRig)>,
     parents: Query<&ChildOf>,
     mut transforms: Query<&mut Transform>,
@@ -1214,7 +1316,72 @@ fn pose_held_weapons(
                 }
             }
         }
+        // Mantling: the hands on the ledge.
+        if let Some((m, look)) = held.mantle {
+            mantle_hands(&m, &look, &cfg.arms, rig, root, &parents, &mut transforms);
+        }
         held.animated = animated;
+    }
+}
+
+/// `e`'s transform in the world as of this frame — every local transform up
+/// the hierarchy, before they've propagated.
+fn world_now(e: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Affine3A {
+    let mut m = Affine3A::IDENTITY;
+    let mut at = e;
+    loop {
+        if let Ok(t) = transforms.get(at) {
+            m = t.compute_affine() * m;
+        }
+        let Ok(parent) = parents.get(at) else { break };
+        at = parent.parent();
+    }
+    m
+}
+
+/// A mantling soldier's hands on the ledge, as much as [`MantleLook::grip`]
+/// says: each knuckle on its spot along the edge, the palm flat on top and
+/// the fingers over it — as its player's own first-person hands are
+/// (`weapons::mantle_arms`).
+fn mantle_hands(
+    m: &shared::MantleProgress,
+    look: &MantleLook,
+    arms: &crate::weapons::MantleArmsLook,
+    rig: &SoldierRig,
+    root: Entity,
+    parents: &Query<&ChildOf>,
+    transforms: &mut Query<&mut Transform>,
+) {
+    // (The ledge, in the soldier's own frame.)
+    let to_root = world_now(root, parents, transforms).inverse();
+    let facing = Quat::from_rotation_y(m.facing_yaw) * Vec3::NEG_Z;
+    let right = facing.cross(Vec3::Y).normalize_or(Vec3::X);
+    let tip = arms.fingers_down_deg.to_radians().clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+    let fingers = to_root.transform_vector3(facing * tip.cos() - Vec3::Y * tip.sin()).normalize_or(MODEL_FORWARD);
+    let grab = Vec3::from_array(m.grab);
+    for (side, (bones, knuckles)) in [rig.left, rig.right].into_iter().zip(rig.knuckles).enumerate() {
+        let grip = look.grip[side];
+        if grip <= 0.0 {
+            continue;
+        }
+        // (Left hand: its thumb side points right, palm down; the right
+        // hand's, left.)
+        let outward = if side == 0 { -1.0 } else { 1.0 };
+        let spot = grab + right * (outward * arms.hand_spread * 0.5) + facing * arms.grab_inset;
+        let spot = to_root.transform_point3(spot);
+        let want_across = to_root.transform_vector3(right * -outward).reject_from(fingers).normalize_or(MODEL_RIGHT);
+
+        let (_, hand_rot, wrist) = from_root(bones[2], root, parents, transforms).to_scale_rotation_translation();
+        let at = |e: Entity| from_root(e, root, parents, transforms).translation.into();
+        let [index, middle, pinky]: [Vec3; 3] = knuckles.map(at);
+        let Some(along) = (middle - wrist).try_normalize() else { continue };
+        let Some(across) = (index - pinky).reject_from(along).try_normalize() else { continue };
+        let basis = |a: Vec3, b: Vec3| Quat::from_mat3(&Mat3::from_cols(a, b, a.cross(b)));
+        let flat = basis(fingers, want_across) * basis(along, across).inverse() * hand_rot;
+        // (The wrist, so that the knuckles land on the spot.)
+        let knuckle = hand_rot.inverse() * (middle - wrist);
+        let to = wrist.lerp(spot - flat * knuckle, grip);
+        reach(bones, root, to, hand_rot.slerp(flat, grip), parents, transforms);
     }
 }
 
@@ -1404,6 +1571,30 @@ mod tests {
             let now = bottle_size(i as f32 / 1000.0);
             assert!((now - last).abs() < 0.05, "jump at {i}");
             last = now;
+        }
+    }
+
+    #[test]
+    fn a_mantle_puts_the_weapon_away_grabs_the_ledge_and_gets_it_back_as_ours_ends() {
+        let arms = crate::weapons::MantleArmsLook::default();
+        let at = |clock: f32| {
+            mantle_look(&shared::MantleProgress { grab: [0.0; 3], facing_yaw: 0.0, clock, duration: 0.45 }, &arms)
+        };
+        let start = at(0.0);
+        assert_eq!((start.stow, start.draw, start.grip), (0.0, None, [0.0, 0.0]));
+        // The weapon's away before the right hand goes for the ledge...
+        let stowed = at(0.45 * MANTLE_STOW_FRAC);
+        assert!(stowed.stow >= 1.0 && stowed.grip[1] < 1e-3 && stowed.grip[0] > 0.5);
+        // ...both hands on it mid-climb...
+        assert!(at(0.3).grip.iter().all(|g| *g > 0.999));
+        // ...and the weapon all the way out just as ours is back up.
+        let end = 0.45 * arms.let_go_frac + arms.release_secs * 0.5 + arms.raise_secs;
+        assert!(at(end).draw.is_some_and(|d| d > 0.999) && at(end).grip.iter().all(|g| *g < 1e-3));
+        let mut last = 0.0;
+        for i in 0..=100 {
+            let look = at(end * i as f32 / 100.0);
+            assert!(look.stow >= last);
+            last = look.stow;
         }
     }
 

@@ -2,7 +2,8 @@
 //! (`net::LocalPlayerRespawned`, after the kill cam), everything transient that
 //! belongs to the life that just ended is reset here, so none of it carries
 //! over to the new one: camera shake and recoil, aiming, sprint / jump / slide /
-//! mantle state, the in-progress trick (spin) tracking, and a queued-but-unfired
+//! mantle state (and how it looks — the weapon dipped, the arms on the
+//! ledge), the in-progress trick (spin) tracking, and a queued-but-unfired
 //! shot or stab. Health, the red tint / blood overlay and the heartbeat are
 //! reset in `health` (which follows the server's health), the death and fall
 //! effects clear themselves in `death_effect` / `fall_death`, ammo is refilled
@@ -34,6 +35,7 @@ struct LifeState<'w> {
     wall_jump: ResMut<'w, crate::WallJump>,
     slide: ResMut<'w, Slide>,
     mantle: ResMut<'w, Mantle>,
+    mantle_view: ResMut<'w, crate::MantleView>,
     trick: ResMut<'w, TrickState>,
     shot: ResMut<'w, PendingShot>,
     melee: ResMut<'w, PendingMelee>,
@@ -52,6 +54,7 @@ fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: 
     *life.wall_jump = crate::WallJump::default();
     *life.slide = Slide::default();
     *life.mantle = Mantle::default();
+    *life.mantle_view = crate::MantleView::default();
     *life.trick = TrickState::default();
     *life.shot = PendingShot::default();
     *life.melee = PendingMelee::default();

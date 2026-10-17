@@ -61,7 +61,7 @@ pub use protocol::{
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
     PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
-    RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, DrinkProgress, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
+    RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, DrinkProgress, MantleProgress, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, BuyDoor, CallExfil, ToggleRampage, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,

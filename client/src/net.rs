@@ -321,7 +321,7 @@ pub(crate) fn write_input(
         time,
         mut stabbed_at,
         mut shot_hits,
-        (drink, drink_players, drink_anims),
+        (drink, drink_players, drink_anims, mantle_view),
     ): (
         Query<&Visibility, With<crate::ViewModel>>,
         Res<crate::ThrowingKnife>,
@@ -344,6 +344,7 @@ pub(crate) fn write_input(
             Res<crate::PerkDrink>,
             Query<&AnimationPlayer, With<crate::DrinkArmsAnimationPlayer>>,
             Query<&crate::DrinkArmsAnimation>,
+            Res<crate::MantleView>,
         ),
     ),
 ) {
@@ -424,6 +425,7 @@ pub(crate) fn write_input(
     action.arms_anim_time = crate::throw_arms_anim_time(&arms_players, &arms_anims);
     action.throw = knife.remote_throw(action.arms_anim_time);
     action.drink = crate::weapons::drink_progress(&drink, &drink_players, &drink_anims);
+    action.mantle = mantle_view.remote();
     action.arms_knife_in_hand = knife.knife_in_hand();
     // What everyone else sees in our hands: the gun while it's drawn, the
     // knife while that is (a quick stab with the gun out included), and
@@ -1414,7 +1416,8 @@ fn animate_remote_avatars(
             // is the hand's own thrust, over whatever the legs are doing —
             // `held_weapon::stab_curve`.)
             crate::SoldierAnimState::Melee
-        } else if pose.jumping {
+        } else if pose.jumping || pose.mantle.is_some_and(|m| m.clock < m.duration) {
+            // (Mid-mantle too — the legs tucked as the body goes up and over.)
             crate::SoldierAnimState::Jump
         } else if pose.reloading {
             crate::SoldierAnimState::Reload
@@ -1605,6 +1608,7 @@ fn animate_remote_avatars(
 fn sync_held_weapons(
     poses: Query<(&PlayerPose, Option<&PlayerId>)>,
     lobbies: Query<&shared::Lobby>,
+    mantle_cfg: Res<crate::MantleSettings>,
     mut avatars: Query<(&RemoteAvatar, &RemoteAvatarMotion, &mut crate::HeldWeapon)>,
 ) {
     for (avatar, motion, mut held) in &mut avatars {
@@ -1618,6 +1622,21 @@ fn sync_held_weapons(
             (t.kind, !matches!(t.stage, shared::ThrowStage::Throwing { released: true, .. }))
         });
         held.pap = pose.held.map_or(0, pap);
+        // Mantling: the weapon put away (onto the back) as the hands go for
+        // the ledge, and got out again once they're up — in step with their
+        // own climb.
+        held.mantle = pose
+            .mantle
+            .filter(|_| pose.alive && pose.held.is_some())
+            .map(|m| (m, crate::avatars::held_weapon::mantle_look(&m, &mantle_cfg.arms)));
+        if let Some((_, look)) = held.mantle {
+            if let Some(draw) = look.draw {
+                held.swap_progress = (draw < 1.0).then_some(shared::SwapProgress::Drawing(draw));
+            } else {
+                held.item = None;
+                held.swap_progress = (look.stow < 1.0).then_some(shared::SwapProgress::Stowing(look.stow));
+            }
+        }
         // (Both their weapons — the one not in hand shows where it's carried.)
         let carried: Vec<_> = member.map_or(Vec::new(), |m| m.weapons.iter().map(|&w| (w, pap(w))).collect());
         if held.carried != carried {

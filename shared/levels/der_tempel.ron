@@ -32,7 +32,7 @@
     mystery_box: Some((pos: (0.0, -15.0, 0.0), yaw_deg: 180.0)),
     armor_station: Some((pos: (16.43, -15.0, -15.965), yaw_deg: 0.0)),
     crafting_table: Some((pos: (29.45, -4.0, 69.15), yaw_deg: -90.0)),
-    exfil_radio: Some((pos: (-9.415, -5.7, 53.15), yaw_deg: 0.0)),
+    exfil_radio: Some((pos: (-11.5, -4.0, 56.45), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, -67.36), yaw_deg: 0.0), width: 62.6, depth: 41.9)),
     rampage_inducer: Some((pos: (27.606, -4.0, 58.668), yaw_deg: 0.0)),
     power_lights: [
@@ -84,6 +84,8 @@
     ],
     windows: [
         (at: (pos: (0.0, -3.9, 74.95), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (-17.0, -3.9, 74.95), yaw_deg: 180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (17.0, -3.9, 74.95), yaw_deg: 180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
     ],
     player_spawns: [
         (pos: (-1.154, -4.0, 64.736), yaw_deg: -180.0),

@@ -856,6 +856,19 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(
                         egui::Slider::new(&mut m.duration, 0.1f32..=1.5).text("climb duration (s)"),
                     );
+                    ui.label("First person (the hands on the ledge, the weapon dipped away)");
+                    let a = &mut m.arms;
+                    ui.add(egui::Slider::new(&mut a.world_scale, 0.1f32..=1.0).text("arms' world scale"));
+                    ui.add(egui::Slider::new(&mut a.hand_spread, 0.1f32..=1.0).text("hands apart (m)"));
+                    ui.add(egui::Slider::new(&mut a.grab_inset, -0.2f32..=0.3).text("knuckles onto the ledge (m)"));
+                    ui.add(egui::Slider::new(&mut a.fingers_down_deg, -45.0f32..=80.0).text("fingers tipped down (°)"));
+                    ui.add(egui::Slider::new(&mut a.reach_frac, 0.05f32..=0.9).text("hands on by (of the climb)"));
+                    ui.add(egui::Slider::new(&mut a.let_go_frac, 0.1f32..=1.0).text("let go at (of the climb)"));
+                    ui.add(egui::Slider::new(&mut a.release_secs, 0.02f32..=0.6).text("hands drop away (s)"));
+                    ui.add(egui::Slider::new(&mut a.stow_secs, 0.02f32..=0.6).text("weapon dips away (s)"));
+                    ui.add(egui::Slider::new(&mut a.raise_secs, 0.02f32..=0.8).text("weapon comes back (s)"));
+                    ui.add(egui::Slider::new(&mut a.weapon_drop, 0.0f32..=0.8).text("weapon drop (m)"));
+                    ui.add(egui::Slider::new(&mut a.weapon_tip_deg, 0.0f32..=90.0).text("weapon tip (°)"));
                     if ui.button("Reset mantle").clicked() {
                         *m = MantleSettings::default();
                     }

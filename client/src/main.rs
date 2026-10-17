@@ -289,6 +289,7 @@ fn main() {
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
         .add_plugins(DrinkArmsPlugin)
+        .add_plugins(MantleArmsPlugin)
         .add_plugins(ExplosionPlugin)
         .add_plugins(PhdTrailPlugin)
         .add_plugins(ZombieAvatarPlugin)
@@ -589,7 +590,9 @@ fn main() {
                     menu::weapon_active
                         .and(killcam::no_killcam)
                         .and(fall_death::no_fall_death)
-                        .and(not_mantling),
+                        .and(not_mantling)
+                        // (Nor while the weapon's coming back up after one.)
+                        .and(weapons::weapon_ready),
                 ),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
@@ -678,6 +681,8 @@ fn main() {
                 )
                     .chain(),
                 aim_idle_sway,
+                // A mantle's dip goes on top of all of it.
+                dip_weapon_for_mantle.after(weapon_recoil_shudder),
             )
                 .after(look_around)
                 .after(apply_ads)
@@ -933,6 +938,8 @@ fn setup_player(
         .load(GltfAssetLabel::Animation(0).from_asset("models/characters/arms_drinking.glb"));
     let (drink_graph, drink_index) = AnimationGraph::from_clip(drink_clip);
     let drink_graph = graphs.add(drink_graph);
+    // (The mantle's arms are another pair of them, held on its first frame.)
+    let mantle_arms_graph = drink_graph.clone();
     let knife_graph = graphs.add(knife_graph);
 
     // Image the scope camera renders into and the scope lens samples.
@@ -1223,6 +1230,24 @@ fn setup_player(
                                 Visibility::Hidden,
                             ))
                             .observe(start_drink_arms_animation);
+
+                            // The arms that grab the ledge in a mantle
+                            // (`weapons::mantle_arms`) — the drinking arms
+                            // again, without the bottle.
+                            rig.spawn((
+                                MantleArmsViewModel,
+                                MantleArmsAnimation {
+                                    graph: mantle_arms_graph,
+                                    index: drink_index,
+                                },
+                                SceneRoot(asset_server.load(
+                                    GltfAssetLabel::Scene(0).from_asset("models/characters/arms_drinking.glb"),
+                                )),
+                                drink_settings.transform(),
+                                RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                Visibility::Hidden,
+                            ))
+                            .observe(start_mantle_arms);
 
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.

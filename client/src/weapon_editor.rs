@@ -25,9 +25,11 @@ use std::time::Duration;
 use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::graph::AnimationNodeType;
 use bevy::animation::RepeatAnimation;
+use bevy::gltf::GltfMaterialName;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
+use bevy::render::mesh::MeshAabb;
 use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::EguiWantsInput;
@@ -36,9 +38,10 @@ use shared::lethal::LethalKind;
 use shared::perks::Perk;
 
 use crate::avatars::held_weapon::{
-    euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, StowOn, WeaponGrips,
-    BAKED_GUN_CENTER, BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
+    euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, CamoObjects, Grip, GripKey, HandTarget, StowOn,
+    WeaponGrips, BAKED_GUN_CENTER, BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
 };
+use crate::pap::PapCamoPart;
 use crate::player::{PlayerBodyCapsule, PlayerHead, ViewModelCamera, WorldModelCamera};
 use crate::weapons::{CameraRecoil, CameraShake};
 use crate::{
@@ -155,6 +158,8 @@ struct GripEditor {
     also: Option<GripKey>,
     /// The Pack-a-Punch camo shown.
     pap: u8,
+    /// The weapon object hovered in the camo list — outlined on the weapon.
+    camo_hover: Option<String>,
     clip: SoldierAnimState,
     /// The clip the soldier's been set playing.
     playing_clip: Option<SoldierAnimState>,
@@ -207,6 +212,7 @@ impl Default for GripEditor {
             weapon: GripKey::Sniper,
             also: Some(GripKey::Knife),
             pap: 0,
+            camo_hover: None,
             clip: SoldierAnimState::Aim,
             playing_clip: None,
             playing: false,
@@ -628,17 +634,36 @@ fn drive_soldier(
 
 /// The muzzle (red), scope (white) and left hand's spot (green) on the
 /// weapon, and the right-hand bone's axes.
+#[allow(clippy::too_many_arguments)]
 fn draw_markers(
     editor: Res<GripEditor>,
     grips: Res<WeaponGrips>,
     soldiers: Query<(&HeldWeapon, Option<&SoldierRig>), With<StandSoldier>>,
     transforms: Query<&GlobalTransform>,
+    children: Query<&Children>,
+    parts: Query<(&PapCamoPart, &Mesh3d)>,
+    meshes: Res<Assets<Mesh>>,
     mut gizmos: Gizmos<GripGizmos>,
 ) {
+    let Ok((held, rig)) = soldiers.single() else { return };
+    // The object hovered in the camo list, boxed (shown with or without
+    // the markers).
+    if let (Some(hover), Some(holder)) = (&editor.camo_hover, held.holder) {
+        for e in children.iter_descendants(holder) {
+            let Ok((part, mesh)) = parts.get(e) else { continue };
+            if part.object.as_ref().is_none_or(|o| o.name != *hover) {
+                continue;
+            }
+            let (Some(aabb), Ok(at)) = (meshes.get(&mesh.0).and_then(|m| m.compute_aabb()), transforms.get(e)) else {
+                continue;
+            };
+            let local = Transform::from_translation(aabb.center.into()).with_scale((aabb.half_extents * 2.0).into());
+            gizmos.cuboid(at.mul_transform(local), Color::srgb(1.0, 0.9, 0.1));
+        }
+    }
     if !editor.show_markers {
         return;
     }
-    let Ok((held, rig)) = soldiers.single() else { return };
     let grip = grips.get(editor.weapon);
     if let Some(at) = held.holder.and_then(|h| transforms.get(h).ok()) {
         let p = |v: [f32; 3]| at.transform_point(Vec3::from_array(v));
@@ -686,6 +711,8 @@ fn editor_ui(
     mut editor: ResMut<GripEditor>,
     mut grips: ResMut<WeaponGrips>,
     soldiers: Query<(&HeldWeapon, Option<&SoldierRig>), With<StandSoldier>>,
+    children: Query<&Children>,
+    parts: Query<(&PapCamoPart, Option<&GltfMaterialName>)>,
     time: Res<Time>,
     mut next: ResMut<NextState<AppState>>,
 ) -> Result {
@@ -695,6 +722,21 @@ fn editor_ui(
     let soldier = soldiers.single().ok();
     let anim_left = soldier.and_then(|(h, _)| h.anim_left);
     let anim_arm = soldier.and_then(|(h, rig)| h.animated_left_arm(rig?));
+    // The objects of the weapon in hand, for the camo list.
+    let mut objects: Vec<CamoListed> = Vec::new();
+    if let Some(holder) = soldier.and_then(|(h, _)| h.holder) {
+        for e in children.iter_descendants(holder) {
+            let Ok((part, material)) = parts.get(e) else { continue };
+            let Some(object) = part.object.as_ref().filter(|o| o.key == ed.weapon) else { continue };
+            if !objects.iter().any(|o| o.name == object.name) {
+                objects.push(CamoListed {
+                    name: object.name.clone(),
+                    built_in: object.built_in,
+                    material: material.map(|m| m.0.clone()),
+                });
+            }
+        }
+    }
 
     egui::TopBottomPanel::top("weapon_editor_menu").show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -748,10 +790,6 @@ fn editor_ui(
         .resizable(true)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                weapon_and_view(ui, ed);
-                ui.separator();
-                clip_controls(ui, ed);
-                ui.separator();
                 let WeaponGrips {
                     sniper,
                     ak74,
@@ -760,7 +798,14 @@ fn editor_ui(
                     arm_down,
                     throw_hold,
                     drink_hold,
+                    camo,
                 } = &mut *grips;
+                weapon_and_view(ui, ed);
+                ui.separator();
+                camo_controls(ui, ed, camo, &objects);
+                ui.separator();
+                clip_controls(ui, ed);
+                ui.separator();
                 throw_controls(ui, ed, throw_hold);
                 ui.separator();
                 drink_controls(ui, ed, drink_hold);
@@ -865,6 +910,78 @@ fn weapon_and_view(ui: &mut egui::Ui, ed: &mut GripEditor) {
         .on_hover_text("The rifle soldier.glb comes with — what the animations were made around.");
     ui.checkbox(&mut ed.show_markers, "Show markers")
         .on_hover_text("Muzzle (red), scope (white), the left hand's spot (green, with its axes), the weapon's barrel (orange) and top (blue), the right hand's axes.");
+}
+
+/// One object of the weapon in hand, in the camo list.
+struct CamoListed {
+    name: String,
+    built_in: bool,
+    material: Option<String>,
+}
+
+/// Which of the weapon's objects wear the Pack-a-Punch camo once it's
+/// packed — a toggle each, hovering one boxes it on the weapon.
+fn camo_controls(ui: &mut egui::Ui, ed: &mut GripEditor, camo: &mut CamoObjects, objects: &[CamoListed]) {
+    ui.heading("Pack-a-Punch camo on");
+    ui.colored_label(
+        DIM,
+        "Which of its objects wear the camo once it's packed — in our hands, other players' and on the ground. \
+         Hover one to box it on the weapon.",
+    );
+    if ed.pap == 0 {
+        ui.colored_label(DIM, "Turn the Pack-a-Punch camo up (above) to see it.");
+    }
+    ed.camo_hover = None;
+    if objects.is_empty() {
+        ui.colored_label(DIM, "Loading… (the weapon has to be in hand)");
+        return;
+    }
+    let picked = camo.get_mut(ed.weapon);
+    let wears = |picked: &Option<Vec<String>>, o: &CamoListed| {
+        picked.as_ref().map_or(o.built_in, |p| p.iter().any(|n| *n == o.name))
+    };
+    ui.horizontal(|ui| {
+        if ui.button("All").clicked() {
+            *picked = Some(objects.iter().map(|o| o.name.clone()).collect());
+        }
+        if ui.button("None").clicked() {
+            *picked = Some(Vec::new());
+        }
+        if ui
+            .add_enabled(picked.is_some(), egui::Button::new("Built-in"))
+            .on_hover_text("Back to the parts the game had wearing it before any were picked.")
+            .clicked()
+        {
+            *picked = None;
+        }
+        let on = objects.iter().filter(|o| wears(picked, o)).count();
+        ui.colored_label(DIM, format!("{on} of {} on", objects.len()));
+    });
+    egui::ScrollArea::vertical()
+        .id_salt("weapon_editor_camo_objects")
+        .max_height(240.0)
+        .show(ui, |ui| {
+            for o in objects {
+                let mut on = wears(picked, o);
+                let label = match &o.material {
+                    Some(m) => format!("{}  ({m})", o.name),
+                    None => o.name.clone(),
+                };
+                let response = ui.checkbox(&mut on, label);
+                if response.hovered() {
+                    ed.camo_hover = Some(o.name.clone());
+                }
+                if response.changed() {
+                    let list = picked.get_or_insert_with(|| {
+                        objects.iter().filter(|o| o.built_in).map(|o| o.name.clone()).collect()
+                    });
+                    list.retain(|n| *n != o.name);
+                    if on {
+                        list.push(o.name.clone());
+                    }
+                }
+            }
+        });
 }
 
 fn clip_controls(ui: &mut egui::Ui, ed: &mut GripEditor) {

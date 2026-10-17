@@ -21,16 +21,18 @@ outside ground height the same as inside
 width: 2m
 height: 3m
 
+# First person animations
+
 # Remote player animations
 
-- Need to add a way to set the barrel position relative to the model for each gun so that shots coming out of it look correct.
+- Add dolphin dive animation
 - Idle with gun or whatever animation that shows the player hip fire should have the gun more level. Maybe create a totally new pose for this.
 - Sniper that is used should still have the lenses. If the sniper model has these removed then instead use the model that doesn't have them removed and have bevy remove them just when in fps mode.
 - Sniper and maybe other guns should not have the pap camo on some objects.
 
 # Last play
 
-- Player who is downed should see a progress bar as they are being revived for their revive percentage like the reviver sees. This should work even if a bot is reviving the player.
+- Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
 - Player can mantle over spawn door on handrail. Wall needs to be raised.
 - Exfil model inside lower tomb in wrong place
 - During exfil bosses took forever to get to the exfil zone. All enemies need to respawn when the player goes to it because I didn't even have a chance to kill the bosses.
@@ -38,6 +40,9 @@ height: 3m
 - Deadshot perk jingle seems too quiet
 
 # Done
+
+- Remote player mantle animation
+- First person mantle animation
 - Doubled knife reach + lunging stab
 
 # Level editor

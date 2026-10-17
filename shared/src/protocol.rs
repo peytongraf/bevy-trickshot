@@ -302,6 +302,36 @@ pub struct PlayerPose {
     /// `PlayerInput::drink`), so their avatar drinks for just as long.
     /// `None` otherwise.
     pub drink: Option<DrinkProgress>,
+    /// Climbing up onto a ledge — as their own first-person climb goes
+    /// (copied from `PlayerInput::mantle`), so their avatar puts its weapon
+    /// away and plants its hands on the same ledge. `None` otherwise.
+    pub mantle: Option<MantleProgress>,
+}
+
+/// A mantle being shown ([`PlayerPose::mantle`]): the ledge's edge its hands
+/// grab (world), the way into the wall (yaw, radians, as `PlayerPose::yaw`),
+/// and `clock` seconds into a climb that takes `duration` — the clock runs
+/// on past it while the weapon comes back out.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct MantleProgress {
+    pub grab: [f32; 3],
+    pub facing_yaw: f32,
+    pub clock: f32,
+    pub duration: f32,
+}
+
+impl MantleProgress {
+    /// `t` of the way from `a` to `b`: the clock blended within one climb
+    /// (the same ledge), else `b`.
+    fn ease(a: Option<Self>, b: Option<Self>, t: f32) -> Option<Self> {
+        match (a, b) {
+            (Some(a), Some(b)) if a.grab == b.grab && b.clock >= a.clock => Some(Self {
+                clock: a.clock + (b.clock - a.clock) * t,
+                ..b
+            }),
+            _ => b,
+        }
+    }
 }
 
 /// A perk being drunk ([`PlayerPose::drink`]): which (its bottle's colour),
@@ -457,6 +487,7 @@ impl Default for PlayerPose {
             swap: None,
             throw: None,
             drink: None,
+            mantle: None,
         }
     }
 }
@@ -480,6 +511,7 @@ impl Ease for PlayerPose {
             swap: SwapProgress::ease(start.swap, end.swap, t),
             throw: ThrowProgress::ease(start.throw, end.throw, t),
             drink: DrinkProgress::ease(start.drink, end.drink, t),
+            mantle: MantleProgress::ease(start.mantle, end.mantle, t),
         })
     }
 }
@@ -631,6 +663,9 @@ pub struct PlayerInput {
     /// A perk being drunk — see `PlayerPose::drink`.
     #[reflect(ignore)]
     pub drink: Option<DrinkProgress>,
+    /// A mantle being shown — see `PlayerPose::mantle`.
+    #[reflect(ignore)]
+    pub mantle: Option<MantleProgress>,
     /// With `fire`: every enemy this client saw the shot strike — tested
     /// against their actual animated models as drawn on its screen, an arm or
     /// a finger included — for the server to check over and apply
@@ -742,6 +777,7 @@ impl Default for PlayerInput {
             swap: None,
             throw: None,
             drink: None,
+            mantle: None,
             fire_hits: None,
         }
     }

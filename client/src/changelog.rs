@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Other players mantle too — weapon on their back, hands on the ledge as they climb up.",
+        "Mantling: your weapon dips away and your hands grab the ledge and push you up over it.",
+        "Weapon editor: pick which parts of each weapon wear the Pack-a-Punch camo.",
         "Knife reaches about twice as far (through windows too) with a lunging stab.",
         "Zombies: teammate bots spread out instead of bunching up, open doors when nobody does, and grab power-ups.",
         "Zombies: the whole team's points and health in the bottom left, Cold War style — a red cross on anyone down.",

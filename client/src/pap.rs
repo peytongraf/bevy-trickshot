@@ -16,12 +16,14 @@
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine2;
 use bevy::prelude::*;
+use bevy::render::mesh::skinning::SkinnedMesh;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::LocalId;
 use shared::pap::{PapLevels, PapWeapon};
 use shared::weapon::SlotWeapon;
 use shared::{GameMode, Lobby};
 
+use crate::avatars::held_weapon::{GripKey, WeaponGrips};
 use crate::net::GameClient;
 use crate::weapons::{KnifeViewModel, ViewModel, Weapon};
 use crate::zombies_hud::zombies_game;
@@ -366,17 +368,53 @@ enum CamoOwner {
     Fixed(u8),
 }
 
-/// On a weapon mesh that wears the camo when packed: whose level it follows,
-/// and the material it came with (worn again while unpacked).
-#[derive(Component)]
-struct PapCamoPart {
-    owner: CamoOwner,
-    original: Handle<StandardMaterial>,
+/// One object of a weapon's model ([`object_name`]) — which the WEAPON
+/// EDITOR picks to wear the camo or not (`held_weapon::CamoObjects`).
+#[derive(Clone)]
+pub(crate) struct CamoObject {
+    pub(crate) key: GripKey,
+    pub(crate) name: String,
+    /// One of the weapon's built-in camo parts ([`camo_parts`]).
+    pub(crate) built_in: bool,
 }
 
-/// Once the sniper or knife view model's scene, or a remote player's
-/// soldier, has spawned, find its camo parts (by glTF name — the mesh
-/// entity's own, or its node's) and remember their own materials.
+/// On a weapon mesh that can wear the camo when packed: whose level it
+/// follows, the material it came with (worn again while unpacked), and the
+/// object it's part of — `None` (the soldier's own rifle) always wears it.
+#[derive(Component)]
+pub(crate) struct PapCamoPart {
+    owner: CamoOwner,
+    original: Handle<StandardMaterial>,
+    pub(crate) object: Option<CamoObject>,
+    /// Whether it wears the camo, as picked (kept up to date with the grips).
+    wears: bool,
+}
+
+/// The name of the object a weapon mesh is part of: its glTF node's —
+/// with the primitive's place among the node's meshes (`"barrel #3"`) if
+/// it has more than one.
+pub(crate) fn object_name(
+    mesh: Entity,
+    names: &Query<&Name>,
+    parents: &Query<&ChildOf>,
+    children: &Query<&Children>,
+    meshes: &Query<(), With<Mesh3d>>,
+) -> Option<String> {
+    let node = parents.get(mesh).ok()?.parent();
+    let node_name = names.get(node).ok()?.as_str().to_owned();
+    let siblings: Vec<Entity> = children.get(node).map_or(Vec::new(), |c| c.iter().filter(|e| meshes.contains(*e)).collect());
+    Some(match siblings.iter().position(|e| *e == mesh) {
+        Some(i) if siblings.len() > 1 => format!("{node_name} #{i}"),
+        _ => node_name,
+    })
+}
+
+/// Once a weapon's scene — the sniper, AK-74, Ray Gun or knife view model,
+/// a dropped or held one — or a remote player's soldier has spawned, find
+/// the meshes that can wear the camo and remember their own materials: on a
+/// weapon, every one of the weapon's own (its built-in camo parts, by glTF
+/// name — the mesh entity's own or its node's — and whatever isn't skinned
+/// to the arms); on a soldier, its rifle.
 #[allow(clippy::too_many_arguments)]
 fn tag_camo_parts(
     trigger: Trigger<SceneInstanceReady>,
@@ -387,37 +425,51 @@ fn tag_camo_parts(
     children: Query<&Children>,
     names: Query<&Name>,
     parents: Query<&ChildOf>,
-    mats: Query<&MeshMaterial3d<StandardMaterial>>,
+    mats: Query<(&MeshMaterial3d<StandardMaterial>, Has<SkinnedMesh>)>,
+    meshes: Query<(), With<Mesh3d>>,
     mut commands: Commands,
 ) {
     let root = trigger.target();
-    let (owner, parts): (_, &[&str]) = if let Ok(anim) = primary.get(root) {
-        (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(SlotWeapon::Gun(anim.weapon)))
+    let (owner, parts, key): (_, &[&str], _) = if let Ok(anim) = primary.get(root) {
+        let weapon = SlotWeapon::Gun(anim.weapon);
+        (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(weapon), Some(GripKey::of(weapon)))
     } else if let Ok(drop) = drops.get(root) {
-        (CamoOwner::Fixed(drop.pap), camo_parts(drop.weapon))
+        (CamoOwner::Fixed(drop.pap), camo_parts(drop.weapon), Some(GripKey::of(drop.weapon)))
     } else if knife.contains(root) {
-        (CamoOwner::Mine(PapWeapon::Knife), &KNIFE_CAMO_PARTS)
+        (CamoOwner::Mine(PapWeapon::Knife), &KNIFE_CAMO_PARTS, Some(GripKey::Knife))
     } else if avatars.contains(root) {
-        (CamoOwner::Avatar(root), &AVATAR_CAMO_PARTS)
+        (CamoOwner::Avatar(root), &AVATAR_CAMO_PARTS, None)
     } else {
         return;
     };
     let is_part = |e: Entity| names.get(e).is_ok_and(|n| is_camo_part(parts, n.as_str()));
     let mut tagged = 0;
     for entity in children.iter_descendants(root) {
-        let Ok(mat) = mats.get(entity) else {
+        let Ok((mat, skinned)) = mats.get(entity) else {
             continue;
         };
-        if is_part(entity) || parents.get(entity).is_ok_and(|p| is_part(p.parent())) {
-            commands.entity(entity).insert(PapCamoPart {
-                owner,
-                original: mat.0.clone(),
-            });
-            tagged += 1;
-        }
+        let built_in = is_part(entity) || parents.get(entity).is_ok_and(|p| is_part(p.parent()));
+        let object = match key {
+            // (The arms aren't the weapon's.)
+            Some(_) if !built_in && skinned => continue,
+            Some(key) => object_name(entity, &names, &parents, &children, &meshes).map(|name| CamoObject {
+                key,
+                name,
+                built_in,
+            }),
+            None if built_in => None,
+            None => continue,
+        };
+        commands.entity(entity).insert(PapCamoPart {
+            owner,
+            original: mat.0.clone(),
+            object,
+            wears: built_in,
+        });
+        tagged += built_in as usize;
     }
     if matches!(owner, CamoOwner::Mine(_)) || tagged == 0 {
-        info!("pap camo: tagged {tagged} mesh(es) on {parts:?}");
+        info!("pap camo: tagged {tagged} built-in mesh(es) on {parts:?}");
     }
 }
 
@@ -432,8 +484,9 @@ fn apply_pap_camo(
     lobbies: Query<&Lobby>,
     avatars: Query<&crate::net::RemoteAvatar>,
     ids: Query<&shared::PlayerId>,
+    grips: Res<WeaponGrips>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut parts: Query<(&PapCamoPart, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut parts: Query<(&mut PapCamoPart, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
     let mine = my_pap_levels(&local, &lobbies);
     let lobby = zombies_game(&local, &lobbies);
@@ -449,16 +502,26 @@ fn apply_pap_camo(
         CamoOwner::Fixed(level) => level,
     };
     let mut in_use = false;
-    for (part, mut mat) in &mut parts {
+    for (mut part, mut mat) in &mut parts {
+        if grips.is_changed() || part.is_added() {
+            let wears = part.object.as_ref().is_none_or(|o| grips.camo.wears(o.key, &o.name, o.built_in));
+            if part.wears != wears {
+                part.wears = wears;
+            }
+        }
         let level = level_of(part.owner).min(shared::pap::MAX_LEVEL);
-        let wanted = if level == 0 {
-            &part.original
+        if level == 0 || !part.wears {
+            // (Only ever taking our camo off — whatever else a part's
+            // material is, it's someone else's.)
+            if camo.levels.contains(&mat.0) {
+                mat.0 = part.original.clone();
+            }
         } else {
             in_use = true;
-            &camo.levels[level as usize - 1]
-        };
-        if mat.0 != *wanted {
-            mat.0 = wanted.clone();
+            let wanted = &camo.levels[level as usize - 1];
+            if mat.0 != *wanted {
+                mat.0 = wanted.clone();
+            }
         }
     }
     if !in_use {
