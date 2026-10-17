@@ -17,6 +17,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.7",
     &[
+        "Other players' weapon swaps finish exactly when theirs do on their screen — perks included.",
+        "Other players carry their other weapon on their back (the knife on their thigh) and swap weapons like in Call of Duty.",
+        "Other players aiming hold still and only kick when they really fire — fast for the AK-74, one at a time for the sniper.",
+        "Other players lean to look up and down — you can see exactly where they're aiming.",
         "Knife stabs only land once the knife actually reaches someone — much shorter range.",
         "Other players stab with their knife, and hold the Ray Gun and knife one-handed.",
         "New WEAPON EDITOR on the main menu: line up each weapon in the players' hands.",

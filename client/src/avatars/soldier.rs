@@ -4,12 +4,15 @@
 use std::time::Duration;
 
 use bevy::animation::prelude::AnimationTransitions;
+use bevy::animation::AnimationTarget;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
 use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
-use super::held_weapon::{Grip, HeldWeapon, SoldierRig, CHEST_BONE, LEFT_ARM_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES};
+use super::held_weapon::{
+    Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES, RIGHT_THIGH_BONE, SPINE_BONES,
+};
 
 /// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
 /// `start_soldier_animation` can tell it apart from any other spawned scene.
@@ -27,11 +30,15 @@ pub(crate) enum SoldierAnimState {
     Idle,
     Walk,
     Sprint,
-    /// Aiming, not moving: `shooting`, looped.
+    /// Aiming, not moving: `shooting` — held on its last frame (the gun up,
+    /// still), and played once through for each shot their player fires
+    /// ([`SHOT_CLIP_SECS`]).
     Aim,
-    /// Aiming while walking: `runAndShooting`, looped at the walk speed.
+    /// Aiming while walking: `runAndShooting`'s legs, looped at the walk
+    /// speed, under the standing aim's upper body — held, and kicked with
+    /// each shot, as `Aim` is ([`SoldierAnimations::shot_upper`]).
     AimWalk,
-    /// Aiming while sprinting: `runAndShooting`, looped at the sprint speed.
+    /// Aiming while sprinting: as `AimWalk`, at the sprint speed.
     AimSprint,
     /// Crouched, not moving: `crouch`, looped.
     Crouch,
@@ -77,7 +84,11 @@ pub(crate) struct SoldierAnimations {
     walk: AnimationNodeIndex,
     sprint: AnimationNodeIndex,
     aim_idle: AnimationNodeIndex,
-    aim_move: AnimationNodeIndex,
+    /// `runAndShooting`, the legs only (its own upper body fires a shot
+    /// every step)...
+    aim_move_legs: AnimationNodeIndex,
+    /// ...under `shooting`, the upper body only.
+    shot_upper: AnimationNodeIndex,
     crouch: AnimationNodeIndex,
     crouch_walk: AnimationNodeIndex,
     reload: AnimationNodeIndex,
@@ -95,13 +106,20 @@ impl SoldierAnimations {
         &self.graph
     }
 
+    /// `shooting` on the upper body alone, over the aiming-while-moving
+    /// legs (`AimWalk` / `AimSprint`) — played alongside them, its own
+    /// weight eased in and out (`net::animate_remote_avatars`).
+    pub(crate) fn shot_upper(&self) -> AnimationNodeIndex {
+        self.shot_upper
+    }
+
     pub(crate) fn node_for(&self, state: SoldierAnimState) -> AnimationNodeIndex {
         match state {
             SoldierAnimState::Idle => self.idle,
             SoldierAnimState::Walk => self.walk,
             SoldierAnimState::Sprint => self.sprint,
             SoldierAnimState::Aim => self.aim_idle,
-            SoldierAnimState::AimWalk | SoldierAnimState::AimSprint => self.aim_move,
+            SoldierAnimState::AimWalk | SoldierAnimState::AimSprint => self.aim_move_legs,
             SoldierAnimState::Crouch => self.crouch,
             SoldierAnimState::CrouchWalk => self.crouch_walk,
             SoldierAnimState::Reload => self.reload,
@@ -498,12 +516,11 @@ pub(crate) fn setup_soldier_assets(
         asset_server.load(GltfAssetLabel::Animation(15).from_asset("models/characters/soldier.glb"));
     let idle_no_gun_clip: Handle<AnimationClip> =
         asset_server.load(GltfAssetLabel::Animation(17).from_asset("models/characters/soldier.glb"));
-    let (graph, indices) = AnimationGraph::from_clips([
+    let (mut graph, indices) = AnimationGraph::from_clips([
         idle_clip,
         walk_clip,
         sprint_clip,
-        aim_idle_clip,
-        aim_move_clip,
+        aim_idle_clip.clone(),
         crouch_clip,
         crouch_walk_clip,
         reload_clip,
@@ -515,6 +532,10 @@ pub(crate) fn setup_soldier_assets(
         melee_clip,
         idle_no_gun_clip,
     ]);
+    // (The two halves of aiming on the move — see `soldier_mask_groups`.)
+    let root = graph.root;
+    let aim_move_legs = graph.add_clip_with_mask(aim_move_clip, 1 << UPPER_BODY, 1.0, root);
+    let shot_upper = graph.add_clip_with_mask(aim_idle_clip, 1 << LOWER_BODY, 1.0, root);
     let graph = graphs.add(graph);
     commands.insert_resource(SoldierAnimations {
         graph,
@@ -522,18 +543,58 @@ pub(crate) fn setup_soldier_assets(
         walk: indices[1],
         sprint: indices[2],
         aim_idle: indices[3],
-        aim_move: indices[4],
-        crouch: indices[5],
-        crouch_walk: indices[6],
-        reload: indices[7],
-        jump: indices[8],
-        strafe_right: indices[9],
-        strafe_left: indices[10],
-        backward: indices[11],
-        death: indices[12],
-        melee: indices[13],
-        idle_no_gun: indices[14],
+        aim_move_legs,
+        shot_upper,
+        crouch: indices[4],
+        crouch_walk: indices[5],
+        reload: indices[6],
+        jump: indices[7],
+        strafe_right: indices[8],
+        strafe_left: indices[9],
+        backward: indices[10],
+        death: indices[11],
+        melee: indices[12],
+        idle_no_gun: indices[13],
     });
+}
+
+/// `shooting`'s length (s): one shot — the kick at 0.07 s, back on aim by
+/// the end (its last frame and its first are the same pose).
+pub(crate) const SHOT_CLIP_SECS: f32 = 0.667;
+
+/// The animation graph's mask groups: the spine and everything on it (arms,
+/// head)...
+const UPPER_BODY: u32 = 0;
+/// ...and the hips and legs.
+const LOWER_BODY: u32 = 1;
+
+/// Sort every animated bone into [`UPPER_BODY`] or [`LOWER_BODY`], once —
+/// the graph's shared by every soldier, so the first one in does it.
+fn soldier_mask_groups(
+    graph: &mut AnimationGraph,
+    root: Entity,
+    spine: Entity,
+    children: &Query<&Children>,
+    targets: &Query<&AnimationTarget>,
+    parents: &Query<&ChildOf>,
+) {
+    if !graph.mask_groups.is_empty() {
+        return;
+    }
+    for entity in children.iter_descendants(root) {
+        let Ok(target) = targets.get(entity) else { continue };
+        let mut at = entity;
+        let upper = loop {
+            if at == spine {
+                break true;
+            }
+            match parents.get(at) {
+                Ok(p) if at != root => at = p.parent(),
+                _ => break false,
+            }
+        };
+        graph.add_target_to_mask_group(target.id, if upper { UPPER_BODY } else { LOWER_BODY });
+    }
 }
 
 /// `soldier.glb`'s own rifle's mesh (by its asset label): skinned to the
@@ -558,6 +619,7 @@ pub(crate) fn start_soldier_animation(
     names: Query<&Name>,
     meshes: Query<&Mesh3d>,
     anims: Res<SoldierAnimations>,
+    (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTarget>, Query<&ChildOf>),
 ) {
     let root = trigger.target();
     let Ok(holds) = soldiers.get(root) else {
@@ -565,7 +627,8 @@ pub(crate) fn start_soldier_animation(
     };
     let mut right = [None; 3];
     let mut left = [None; 3];
-    let (mut left_shoulder, mut chest) = (None, None);
+    let (mut left_shoulder, mut right_thigh) = (None, None);
+    let mut spine = [None; 3];
     let mut baked_gun = None;
     for entity in children.iter_descendants(root) {
         if let Ok(name) = names.get(entity) {
@@ -579,8 +642,11 @@ pub(crate) fn start_soldier_animation(
             if name == LEFT_SHOULDER_BONE {
                 left_shoulder = Some(entity);
             }
-            if name == CHEST_BONE {
-                chest = Some(entity);
+            if name == RIGHT_THIGH_BONE {
+                right_thigh = Some(entity);
+            }
+            if let Some(i) = SPINE_BONES.iter().position(|&b| b == name) {
+                spine[i] = Some(entity);
             }
         }
         if meshes.get(entity).is_ok_and(|m| m.0.path().and_then(|p| p.label()) == Some(SOLDIER_GUN_MESH)) {
@@ -609,12 +675,18 @@ pub(crate) fn start_soldier_animation(
             commands.entity(root).insert(SniperGlintBone(entity));
         }
     }
-    if let (Some(right), Some(left), Some(left_shoulder), Some(chest)) = (bones(right), bones(left), left_shoulder, chest) {
+    if let (Some(spine), Some(graph)) = (spine[0], graphs.get_mut(anims.graph())) {
+        soldier_mask_groups(graph, root, spine, &children, &targets, &parents);
+    }
+    if let (Some(right), Some(left), Some(left_shoulder), Some(spine), Some(right_thigh)) =
+        (bones(right), bones(left), left_shoulder, bones(spine), right_thigh)
+    {
         commands.entity(root).insert(SoldierRig {
             right,
             left,
             left_shoulder,
-            chest,
+            spine,
+            right_thigh,
             baked_gun,
         });
     } else {

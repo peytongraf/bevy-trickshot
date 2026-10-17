@@ -21,6 +21,15 @@
 //!   down by the side instead ([`Grip::left_arm_down`], the pose
 //!   [`WeaponGrips::arm_down`] — `idleWithoutGun`'s unless the WEAPON
 //!   EDITOR's taken another).
+//! * **Where they're looking**, up or down (`PlayerPose::pitch`), is shown
+//!   whatever the animation, as Call of Duty does: the spine bends by it
+//!   ([`SPINE_PITCH_SHARE`]), so the chest — and the arms, the weapon and
+//!   the head on it — point where they aim.
+//! * **Everything else they carry** shows where it's carried — a gun on the
+//!   back, the knife on the right thigh ([`Grip::stow_on`]) — and changing
+//!   weapons swaps it over as Call of Duty does ([`Swap`], [`swap_motion`]):
+//!   the right hand takes the weapon there and lets it go, then reaches for
+//!   the next and brings it round, the left hand off it meanwhile.
 //! * **A knife stab** is the right hand's own thrust ([`stab_curve`],
 //!   [`Grip::stab_reach`]), the chest leaning and twisting into it
 //!   ([`Grip::stab_lean_deg`]), over whatever the legs are doing —
@@ -163,6 +172,21 @@ pub(crate) struct Grip {
     /// Its scope's lens, in its own frame (m) — where the sniper glint
     /// shows. `None`: no scope, no glint.
     pub(crate) scope: Option<[f32; 3]>,
+    /// Where it's carried while not in hand...
+    pub(crate) stow_on: StowOn,
+    /// ...its middle from that bone (m, in the bone's own axes)...
+    pub(crate) stow_offset: [f32; 3],
+    /// ...and its turn there (degrees, X then Y then Z).
+    pub(crate) stow_turn_deg: [f32; 3],
+}
+
+/// Where a weapon's carried while it isn't in hand ([`Grip::stow_on`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub(crate) enum StowOn {
+    /// Across the back (the chest bone).
+    Back,
+    /// On the outside of the right thigh.
+    RightThigh,
 }
 
 impl Default for Grip {
@@ -180,6 +204,9 @@ impl Default for Grip {
             stab_lean_deg: [-10.0, 15.0, 0.0],
             muzzle: [-0.5, 0.0, 0.0],
             scope: None,
+            stow_on: StowOn::Back,
+            stow_offset: [-0.0867, -0.0101, -0.1473],
+            stow_turn_deg: [-139.31, 45.82, 47.02],
         }
     }
 }
@@ -336,6 +363,9 @@ impl WeaponGrips {
             stab_lean_deg: d(g.stab_lean_deg),
             muzzle: m(g.muzzle),
             scope: g.scope.map(m),
+            stow_on: g.stow_on,
+            stow_offset: m(g.stow_offset),
+            stow_turn_deg: d(g.stow_turn_deg),
         };
         let q = |a: [f32; 4]| a.map(|v| r(v, 100_000.0));
         Self {
@@ -379,8 +409,11 @@ pub(crate) struct SoldierRig {
     pub(crate) left: [Entity; 3],
     /// The left collarbone — lowered with the arm, down by the side.
     pub(crate) left_shoulder: Entity,
-    /// The chest — leaning into a knife stab.
-    pub(crate) chest: Entity,
+    /// The spine, bottom to top — bent by where they're looking up or down;
+    /// the last (the chest) leans into a knife stab too.
+    pub(crate) spine: [Entity; 3],
+    /// The right thigh — where the knife's carried.
+    pub(crate) right_thigh: Entity,
     /// `soldier.glb`'s own rifle mesh — hidden on a soldier that holds a
     /// [`HeldWeapon`] (shown again by the WEAPON EDITOR, to line one up
     /// against).
@@ -391,26 +424,104 @@ pub(crate) struct SoldierRig {
 pub(crate) const RIGHT_ARM_BONES: [&str; 3] = ["Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038"];
 pub(crate) const LEFT_ARM_BONES: [&str; 3] = ["Bind_LeftArm_016_017", "Bind_LeftForeArm_017_018", "Bind_LeftHand_018_019"];
 pub(crate) const LEFT_SHOULDER_BONE: &str = "Bind_LeftShoulder_015_016";
-pub(crate) const CHEST_BONE: &str = "Bind_Spine2_012_013";
+pub(crate) const SPINE_BONES: [&str; 3] = ["Bind_Spine_010_011", "Bind_Spine1_011_012", "Bind_Spine2_012_013"];
+pub(crate) const RIGHT_THIGH_BONE: &str = "Bind_RightUpLeg_01_07";
 
-/// On a soldier avatar: what it's holding (set every frame by whoever
-/// drives it — `net` from the player's pose, or the WEAPON EDITOR).
+/// How much of the look up or down each of [`SPINE_BONES`] takes — all of it
+/// between them, so the chest (and the weapon) end up at the full angle.
+pub(crate) const SPINE_PITCH_SHARE: [f32; 3] = [0.3, 0.35, 0.35];
+
+/// How long (s) putting a weapon away takes, and getting one out.
+pub(crate) const STOW_SECS: f32 = 0.4;
+pub(crate) const DRAW_SECS: f32 = 0.4;
+
+/// How high (m) the hand arcs on its way between the grip and where a weapon's
+/// carried — up over the shoulder, round the hip.
+const SWAP_LIFT_M: f32 = 0.12;
+
+/// Where the weapon in hand is in being swapped ([`HeldWeapon`]).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) enum Swap {
+    #[default]
+    Holding,
+    /// Putting it away, this far through (`0..1`)...
+    Stowing(f32),
+    /// ...or getting it out.
+    Drawing(f32),
+}
+
+/// Mid-swap: how far the right hand's gone toward where the weapon in hand
+/// is carried (`0` at its grip, `1` there), and how far the weapon's settled
+/// there (`0` in hand, `1` carried). Putting it away, the hand reaches back,
+/// lets it go as it gets there and comes back empty; getting it out, it
+/// reaches, takes it and brings it round.
+pub(crate) fn swap_motion(swap: Swap) -> (f32, f32) {
+    let s = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    match swap {
+        Swap::Holding => (0.0, 0.0),
+        Swap::Stowing(t) => (
+            if t < 0.7 { s(t / 0.55) } else { 1.0 - s((t - 0.7) / 0.3) },
+            s((t - 0.45) / 0.25),
+        ),
+        Swap::Drawing(t) => (
+            if t < 0.45 { s(t / 0.35) } else { 1.0 - s((t - 0.45) / 0.55) },
+            1.0 - s((t - 0.3) / 0.25),
+        ),
+    }
+}
+
+/// One weapon a soldier carries, and its holder (under the right-hand bone,
+/// placed in hand or where it's carried by [`pose_held_weapons`]).
+struct Shown {
+    item: SlotWeapon,
+    pap: u8,
+    holder: Entity,
+}
+
+/// On a soldier avatar: what it's holding and carrying (set every frame by
+/// whoever drives it — `net` from the player's pose and lobby, or the WEAPON
+/// EDITOR).
 #[derive(Component)]
 pub(crate) struct HeldWeapon {
+    /// What should be in hand — a change swaps it in ([`Swap`]).
     pub(crate) item: Option<SlotWeapon>,
     /// Its Pack-a-Punch level (its camo).
     pub(crate) pap: u8,
+    /// Everything they carry, at its Pack-a-Punch level — what isn't in hand
+    /// shows where it's carried.
+    pub(crate) carried: Vec<(SlotWeapon, u8)>,
+    /// How far through putting the weapon in hand away, or getting `item`
+    /// out, their own first-person view is (`PlayerPose::swap`) — the swap
+    /// follows it exactly, so it ends as theirs does. `None` (no swap on
+    /// their screen, or no word of it — a kill-cam ghost) plays the swap at
+    /// its own pace ([`STOW_SECS`], [`DRAW_SECS`]).
+    pub(crate) swap_progress: Option<shared::SwapProgress>,
+    /// What's really in hand — `item`, once a swap's played out.
+    in_hand: Option<SlotWeapon>,
+    swap: Swap,
+    /// `in_hand` has been set going in (a new soldier starts with it in
+    /// hand — no swap).
+    started: bool,
     /// How much the hands should be on it now (`0..=1`) — `0` hands the arms
     /// back to the animation ([`ik_wanted`]); eased toward.
     pub(crate) ik_wanted: f32,
     ik: f32,
-    /// What's on the holder now.
-    shown: Option<(SlotWeapon, u8)>,
-    /// The weapon's holder, under the right-hand bone.
+    /// Every weapon on show, in hand or carried.
+    shown: Vec<Shown>,
+    /// The holder of the weapon in hand, while it's held (not mid-swap) —
+    /// where its muzzle and scope are.
     pub(crate) holder: Option<Entity>,
     /// Where the animation had the left hand this frame (before IK), in the
     /// weapon's frame — what the WEAPON EDITOR snaps the left hand to.
     pub(crate) anim_left: Option<HandTarget>,
+    /// Where they're looking up (+) or down (radians, `PlayerPose::pitch`)...
+    pub(crate) pitch: f32,
+    /// ...and the look shown, eased toward it (so dying, which drops it to
+    /// `0`, straightens up rather than snapping).
+    shown_pitch: f32,
     /// Their player's stabbing (`PlayerPose::stabbing`) — with the knife in
     /// hand, its rising edge starts a thrust ([`stab_curve`]), which plays out
     /// in full.
@@ -428,11 +539,18 @@ impl HeldWeapon {
         Self {
             item,
             pap: 0,
+            carried: Vec::new(),
+            swap_progress: None,
+            in_hand: None,
+            swap: Swap::Holding,
+            started: false,
             ik_wanted: 1.0,
             ik: 1.0,
-            shown: None,
+            shown: Vec::new(),
             holder: None,
             anim_left: None,
+            pitch: 0.0,
+            shown_pitch: 0.0,
             stabbing: false,
             stab_was: false,
             stab_from: None,
@@ -487,41 +605,65 @@ struct HeldWeaponModel;
 #[derive(Component)]
 pub(crate) struct HeldWeaponPart;
 
-/// Keep each soldier's holder holding what it's meant to.
+/// Keep a holder for every weapon each soldier carries — and for what's in
+/// hand, or on its way there — and none for one they've let go of.
 fn attach_held_weapons(
     mut soldiers: Query<(&mut HeldWeapon, &SoldierRig)>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
 ) {
     for (mut held, rig) in &mut soldiers {
-        let want = held.item.map(|item| (item, held.pap));
-        if want == held.shown && (want.is_none() || held.holder.is_some()) {
-            continue;
-        }
-        if let Some(old) = held.holder.take() {
-            if let Ok(mut e) = commands.get_entity(old) {
-                e.despawn();
+        let held = &mut *held;
+        let mut want = held.carried.clone();
+        let in_hand_pap = |item: SlotWeapon| held.shown.iter().find(|s| s.item == item).map_or(0, |s| s.pap);
+        for (item, pap) in [held.item.map(|i| (i, held.pap)), held.in_hand.map(|i| (i, in_hand_pap(i)))]
+            .into_iter()
+            .flatten()
+        {
+            if !want.iter().any(|(w, _)| *w == item) {
+                want.push((item, pap));
             }
         }
-        held.shown = want;
-        let Some((weapon, pap)) = want else { continue };
-        let holder = commands
-            .spawn((HeldWeaponHolder, Transform::default(), Visibility::Inherited, ChildOf(rig.right[2])))
-            .id();
-        commands.spawn((
-            ChildOf(holder),
-            HeldWeaponModel,
-            DropModel {
-                weapon,
+        held.shown.retain(|s| {
+            let keep = want.contains(&(s.item, s.pap));
+            if !keep {
+                if let Ok(mut e) = commands.get_entity(s.holder) {
+                    e.despawn();
+                }
+            }
+            keep
+        });
+        for (weapon, pap) in want {
+            if held.shown.iter().any(|s| s.item == weapon) {
+                continue;
+            }
+            held.shown.push(Shown {
+                item: weapon,
                 pap,
-                upright: true,
-            },
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model_path(weapon)))),
-            // (Shown once it's fitted — `weapon_drops::fit_dropped_model`.)
-            Visibility::Hidden,
-        ));
-        held.holder = Some(holder);
+                holder: spawn_holder(weapon, pap, rig, &asset_server, &mut commands),
+            });
+        }
     }
+}
+
+/// A holder for `weapon` under the right-hand bone, and its model on it.
+fn spawn_holder(weapon: SlotWeapon, pap: u8, rig: &SoldierRig, asset_server: &AssetServer, commands: &mut Commands) -> Entity {
+    let holder = commands
+        .spawn((HeldWeaponHolder, Transform::default(), Visibility::Inherited, ChildOf(rig.right[2])))
+        .id();
+    commands.spawn((
+        ChildOf(holder),
+        HeldWeaponModel,
+        DropModel {
+            weapon,
+            pap,
+            upright: true,
+        },
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model_path(weapon)))),
+        // (Shown once it's fitted — `weapon_drops::fit_dropped_model`.)
+        Visibility::Hidden,
+    ));
+    holder
 }
 
 /// A held weapon's scene is in: mark its meshes as not the player's.
@@ -583,6 +725,7 @@ fn pose_held_weapons(
     mut transforms: Query<&mut Transform>,
 ) {
     let ease = 1.0 - (-time.delta_secs() * 10.0).exp();
+    let pitch_ease = 1.0 - (-time.delta_secs() * 25.0).exp();
     let now = time.elapsed_secs();
     for (root, mut held, rig) in &mut soldiers {
         held.ik += (held.ik_wanted.clamp(0.0, 1.0) - held.ik) * ease;
@@ -594,84 +737,203 @@ fn pose_held_weapons(
         if stab.is_some_and(|p| p >= 1.0) {
             held.stab_from = None;
         }
-        let (Some(item), Some(holder)) = (held.item, held.holder) else {
-            held.anim_left = None;
-            continue;
-        };
-        let grip = *grips.get(GripKey::of(item));
-        // Metres per unit of the model's own frame (the avatar's scale).
-        let per_m = 1.0 / transforms.get(root).map_or(1.0, |t| t.scale.x).max(1e-4);
-        let w = held.ik;
-        let mut animated = Vec::with_capacity(8);
-        for e in rig.right.into_iter().chain(rig.left).chain([rig.left_shoulder, rig.chest]) {
+        let mut animated = Vec::with_capacity(10);
+        for e in rig.right.into_iter().chain(rig.left).chain([rig.left_shoulder]).chain(rig.spine) {
             if let Ok(t) = transforms.get(e) {
                 animated.push((e, *t));
             }
         }
 
-        // Mid-stab with the knife: the chest leans into it...
-        let thrust = match (item, stab) {
-            (SlotWeapon::Knife, Some(p)) if p < 1.0 => stab_curve(p),
-            _ => 0.0,
-        };
-        if thrust != 0.0 && w > 1e-3 {
-            if let Ok(above) = parents.get(rig.chest).map(|p| p.parent()) {
+        // Where they're looking, up or down: the spine bends by it, about
+        // the body's right — square to where they look, however the clip
+        // twists the chest — each bone its share, about its own joint.
+        held.shown_pitch += (held.pitch - held.shown_pitch) * pitch_ease;
+        if held.shown_pitch.abs() > 1e-4 {
+            for (bone, share) in rig.spine.into_iter().zip(SPINE_PITCH_SHARE) {
+                let Ok(above) = parents.get(bone).map(|p| p.parent()) else { continue };
                 let above = from_root(above, root, &parents, &transforms).to_scale_rotation_translation().1;
-                let chest = from_root(rig.chest, root, &parents, &transforms).to_scale_rotation_translation().1;
-                let lean = body_turn(grip.stab_lean_deg.map(|d| d * thrust * w));
-                if let Ok(mut t) = transforms.get_mut(rig.chest) {
-                    t.rotation = (above.inverse() * lean * chest).normalize();
+                let own = from_root(bone, root, &parents, &transforms).to_scale_rotation_translation().1;
+                let turn = Quat::from_axis_angle(MODEL_RIGHT, held.shown_pitch * share);
+                if let Ok(mut t) = transforms.get_mut(bone) {
+                    t.rotation = (above.inverse() * turn * own).normalize();
                 }
             }
         }
 
-        // ...and the right hand's moved from the animation's — and thrust.
-        let hand = from_root(rig.right[2], root, &parents, &transforms);
-        if let Some((shift, turn)) = grip.hand_move(thrust).filter(|_| w > 1e-3) {
-            let (_, rot, pos) = hand.to_scale_rotation_translation();
-            let shift = (MODEL_RIGHT * shift.x + Vec3::Y * shift.y + MODEL_FORWARD * shift.z) * per_m;
-            let to = pos + shift * w;
-            let to_rot = rot.slerp(turn * rot, w);
-            reach(rig.right, root, to, to_rot, &parents, &mut transforms);
-        }
+        // Metres per unit of the model's own frame (the avatar's scale).
+        let per_m = 1.0 / transforms.get(root).map_or(1.0, |t| t.scale.x).max(1e-4);
+        let w = held.ik;
 
-        // The weapon, in that hand.
-        let hand = from_root(rig.right[2], root, &parents, &transforms);
-        let (_, hand_rot, hand_pos) = hand.to_scale_rotation_translation();
-        let weapon_rot = hand_rot * grip.rotation();
-        let weapon = Affine3A::from_scale_rotation_translation(
-            Vec3::splat(grip.scale.max(1e-3) * per_m),
-            weapon_rot,
-            hand_pos + hand_rot * (Vec3::from_array(grip.offset) * per_m),
-        );
-        if let Ok(mut t) = transforms.get_mut(holder) {
-            *t = Transform::from_matrix((hand.inverse() * weapon).into());
+        // What's in hand: swapped over as Call of Duty does when it changes.
+        let dt = time.delta_secs();
+        if !held.started {
+            held.in_hand = held.item;
+            held.started = true;
         }
+        held.swap = match (held.swap_progress, held.swap) {
+            // As their own screen has it: what's in hand going away...
+            (Some(shared::SwapProgress::Stowing(t)), _) if held.in_hand.is_some() => Swap::Stowing(t.clamp(0.0, 1.0)),
+            // ...and what's coming out.
+            (Some(shared::SwapProgress::Drawing(t)), _) if held.item.is_some() => {
+                held.in_hand = held.item;
+                Swap::Drawing(t.clamp(0.0, 1.0))
+            }
+            // Otherwise at its own pace — or finishing the last sliver of one
+            // their screen's just done.
+            (_, swap) => match swap {
+            Swap::Holding if held.in_hand != held.item => {
+                if held.in_hand.is_some() {
+                    Swap::Stowing(0.0)
+                } else {
+                    held.in_hand = held.item;
+                    Swap::Drawing(0.0)
+                }
+            }
+            Swap::Stowing(t) if t + dt / STOW_SECS >= 1.0 => {
+                held.in_hand = held.item;
+                if held.item.is_some() { Swap::Drawing(0.0) } else { Swap::Holding }
+            }
+            Swap::Stowing(t) => Swap::Stowing(t + dt / STOW_SECS),
+            Swap::Drawing(t) if t + dt / DRAW_SECS >= 1.0 => Swap::Holding,
+            Swap::Drawing(t) => Swap::Drawing(t + dt / DRAW_SECS),
+            holding => holding,
+            },
+        };
+        let (fetch, let_go) = swap_motion(held.swap);
+        let in_hand = held
+            .in_hand
+            .and_then(|item| held.shown.iter().find(|s| s.item == item).map(|s| (item, s.holder)));
+        held.holder = in_hand.filter(|_| held.swap == Swap::Holding).map(|(_, h)| h);
 
-        // The left hand, on it.
-        let left = from_root(rig.left[2], root, &parents, &transforms);
-        let (_, left_rot, left_pos) = left.to_scale_rotation_translation();
-        let on_weapon = weapon.inverse();
-        held.anim_left = Some(HandTarget {
-            pos: on_weapon.transform_point3(left_pos).to_array(),
-            turn_deg: to_euler_deg(weapon_rot.inverse() * left_rot),
-        });
-        if grip.left_arm_down {
-            if w > 1e-3 {
-                let bones = [rig.left_shoulder, rig.left[0], rig.left[1], rig.left[2]];
-                for (e, q) in bones.into_iter().zip(grips.arm_down.turns()) {
-                    if let Ok(mut t) = transforms.get_mut(e) {
-                        t.rotation = t.rotation.slerp(Quat::from_array(q).normalize(), w);
+        if let Some((item, holder)) = in_hand {
+            let grip = *grips.get(GripKey::of(item));
+
+            // Mid-stab with the knife: the chest leans into it...
+            let thrust = match (item, stab, held.swap) {
+                (SlotWeapon::Knife, Some(p), Swap::Holding) if p < 1.0 => stab_curve(p),
+                _ => 0.0,
+            };
+            if thrust != 0.0 && w > 1e-3 {
+                let chest_bone = rig.spine[2];
+                if let Ok(above) = parents.get(chest_bone).map(|p| p.parent()) {
+                    let above = from_root(above, root, &parents, &transforms).to_scale_rotation_translation().1;
+                    let chest = from_root(chest_bone, root, &parents, &transforms).to_scale_rotation_translation().1;
+                    let lean = body_turn(grip.stab_lean_deg.map(|d| d * thrust * w));
+                    if let Ok(mut t) = transforms.get_mut(chest_bone) {
+                        t.rotation = (above.inverse() * lean * chest).normalize();
                     }
                 }
             }
-        } else if let Some(target) = grip.left_hand.filter(|_| w > 1e-3) {
-            let to = left_pos.lerp(weapon.transform_point3(Vec3::from_array(target.pos)), w);
-            let to_rot = left_rot.slerp(weapon_rot * target.rotation(), w);
-            reach(rig.left, root, to, to_rot, &parents, &mut transforms);
+
+            // ...and the right hand's moved from the animation's — and
+            // thrust; and mid-swap, off to where the weapon's carried, over
+            // the shoulder or round the hip.
+            let hand = from_root(rig.right[2], root, &parents, &transforms);
+            let (_, rot, pos) = hand.to_scale_rotation_translation();
+            let (mut to, mut to_rot) = (pos, rot);
+            if let Some((shift, turn)) = grip.hand_move(thrust).filter(|_| w > 1e-3) {
+                let shift = (MODEL_RIGHT * shift.x + Vec3::Y * shift.y + MODEL_FORWARD * shift.z) * per_m;
+                to = pos + shift * w;
+                to_rot = rot.slerp(turn * rot, w);
+            }
+            if fetch > 0.0 {
+                // (The hand that would hold it right where it's carried.)
+                let (_, carried_rot, carried_pos) = stowed(&grip, rig, root, per_m, &parents, &transforms)
+                    .to_scale_rotation_translation();
+                let hand_rot = carried_rot * grip.rotation().inverse();
+                let hand_pos = carried_pos - hand_rot * (Vec3::from_array(grip.offset) * per_m);
+                to = to.lerp(hand_pos, fetch) + Vec3::Y * (SWAP_LIFT_M * per_m * (fetch * std::f32::consts::PI).sin());
+                to_rot = to_rot.slerp(hand_rot, fetch);
+            }
+            if to != pos || to_rot != rot {
+                reach(rig.right, root, to, to_rot, &parents, &mut transforms);
+            }
+
+            // The weapon, in that hand — or settling where it's carried.
+            let hand = from_root(rig.right[2], root, &parents, &transforms);
+            let (_, hand_rot, hand_pos) = hand.to_scale_rotation_translation();
+            let weapon_rot = hand_rot * grip.rotation();
+            let in_grip = Affine3A::from_scale_rotation_translation(
+                Vec3::splat(grip.scale.max(1e-3) * per_m),
+                weapon_rot,
+                hand_pos + hand_rot * (Vec3::from_array(grip.offset) * per_m),
+            );
+            let weapon = if let_go > 0.0 {
+                blend(in_grip, stowed(&grip, rig, root, per_m, &parents, &transforms), let_go)
+            } else {
+                in_grip
+            };
+            if let Ok(mut t) = transforms.get_mut(holder) {
+                *t = Transform::from_matrix((hand.inverse() * weapon).into());
+            }
+
+            // The left hand, on it — off it mid-swap.
+            let left = from_root(rig.left[2], root, &parents, &transforms);
+            let (_, left_rot, left_pos) = left.to_scale_rotation_translation();
+            held.anim_left = Some(HandTarget {
+                pos: in_grip.inverse().transform_point3(left_pos).to_array(),
+                turn_deg: to_euler_deg(weapon_rot.inverse() * left_rot),
+            });
+            let on = w * (1.0 - fetch.max(let_go));
+            if grip.left_arm_down {
+                if w > 1e-3 {
+                    let bones = [rig.left_shoulder, rig.left[0], rig.left[1], rig.left[2]];
+                    for (e, q) in bones.into_iter().zip(grips.arm_down.turns()) {
+                        if let Ok(mut t) = transforms.get_mut(e) {
+                            t.rotation = t.rotation.slerp(Quat::from_array(q).normalize(), w);
+                        }
+                    }
+                }
+            } else if let Some(target) = grip.left_hand.filter(|_| on > 1e-3) {
+                let to = left_pos.lerp(in_grip.transform_point3(Vec3::from_array(target.pos)), on);
+                let to_rot = left_rot.slerp(weapon_rot * target.rotation(), on);
+                reach(rig.left, root, to, to_rot, &parents, &mut transforms);
+            }
+        } else {
+            held.anim_left = None;
+        }
+
+        // Everything else they carry, where it's carried.
+        let hand = from_root(rig.right[2], root, &parents, &transforms).inverse();
+        for shown in &held.shown {
+            if Some(shown.item) == held.in_hand {
+                continue;
+            }
+            let at = stowed(grips.get(GripKey::of(shown.item)), rig, root, per_m, &parents, &transforms);
+            if let Ok(mut t) = transforms.get_mut(shown.holder) {
+                *t = Transform::from_matrix((hand * at).into());
+            }
         }
         held.animated = animated;
     }
+}
+
+/// Where a weapon held by `grip` sits while it's carried, in `root`'s frame.
+fn stowed(
+    grip: &Grip,
+    rig: &SoldierRig,
+    root: Entity,
+    per_m: f32,
+    parents: &Query<&ChildOf>,
+    transforms: &Query<&mut Transform>,
+) -> Affine3A {
+    let bone = match grip.stow_on {
+        StowOn::Back => rig.spine[2],
+        StowOn::RightThigh => rig.right_thigh,
+    };
+    let (_, rot, pos) = from_root(bone, root, parents, transforms).to_scale_rotation_translation();
+    Affine3A::from_scale_rotation_translation(
+        Vec3::splat(grip.scale.max(1e-3) * per_m),
+        rot * euler_deg(grip.stow_turn_deg),
+        pos + rot * (Vec3::from_array(grip.stow_offset) * per_m),
+    )
+}
+
+/// `t` of the way from `a` to `b` (moved, turned and sized between them).
+fn blend(a: Affine3A, b: Affine3A, t: f32) -> Affine3A {
+    let (sa, ra, pa) = a.to_scale_rotation_translation();
+    let (sb, rb, pb) = b.to_scale_rotation_translation();
+    Affine3A::from_scale_rotation_translation(sa.lerp(sb, t), ra.slerp(rb, t), pa.lerp(pb, t))
 }
 
 /// Two-bone IK: turn `bones` (upper arm, forearm, hand — each the one
@@ -733,7 +995,7 @@ pub(crate) fn held_gun<'a>(
     grips: &'a WeaponGrips,
 ) -> Option<(&'a GlobalTransform, &'a Grip)> {
     let held = held?;
-    let item = held.item.filter(|i| i.gun().is_some())?;
+    let item = held.in_hand.filter(|i| i.gun().is_some())?;
     Some((transforms.get(held.holder?).ok()?, grips.get(GripKey::of(item))))
 }
 
@@ -789,6 +1051,32 @@ mod tests {
         let p = shared::melee::KNIFE_HIT_SECS / crate::net::STAB_ANIM_SECS;
         assert!(stab_curve(p) > 0.99, "{}", stab_curve(p));
         assert!(stab_curve(p - 0.05) < 0.95, "lands no later than it reaches");
+    }
+
+    #[test]
+    fn a_swap_hands_the_weapon_over_where_its_carried_without_jumps() {
+        assert_eq!(swap_motion(Swap::Holding), (0.0, 0.0));
+        for phase in [Swap::Stowing as fn(f32) -> Swap, Swap::Drawing] {
+            let mut last = swap_motion(phase(0.0));
+            for i in 1..=1000 {
+                let now = swap_motion(phase(i as f32 / 1000.0));
+                assert!((now.0 - last.0).abs() < 0.02 && (now.1 - last.1).abs() < 0.02, "jump at {i}");
+                // The weapon only moves between hand and carried with the
+                // hand (nearly) there.
+                if now.1 > 0.0 && now.1 < 1.0 {
+                    assert!(now.0 > 0.85, "handed over away from the hand at {i}: {now:?}");
+                }
+                last = now;
+            }
+        }
+        // Put away: starts in hand, ends carried, the hand back.
+        assert_eq!(swap_motion(Swap::Stowing(0.0)), (0.0, 0.0));
+        let end = swap_motion(Swap::Stowing(1.0));
+        assert!(end.0.abs() < 1e-6 && (end.1 - 1.0).abs() < 1e-6);
+        // Got out: starts carried, ends in hand.
+        assert_eq!(swap_motion(Swap::Drawing(0.0)), (0.0, 1.0));
+        let end = swap_motion(Swap::Drawing(1.0));
+        assert!(end.0.abs() < 1e-6 && end.1.abs() < 1e-6);
     }
 
     #[test]

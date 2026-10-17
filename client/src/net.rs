@@ -120,6 +120,7 @@ impl Plugin for ClientNetPlugin {
         app.init_resource::<PendingMatchEnd>();
         app.init_resource::<PendingRespawn>();
         app.add_event::<LocalPlayerRespawned>();
+        app.add_event::<RemoteFired>();
         // Not gated on `InGame`: the server sends our match-start spot the
         // moment the game starts, which can land a frame before we've
         // switched into it — and lightyear drops any message left unread
@@ -169,7 +170,7 @@ impl Plugin for ClientNetPlugin {
                 // `Transform` — the middle of the map — before snapping to
                 // its pose.
                 follow_remote_avatars.after(spawn_remote_avatars),
-                animate_remote_avatars,
+                animate_remote_avatars.after(receive_shots),
                 sync_held_weapons.after(animate_remote_avatars),
                 hide_remote_avatars_during_killcam,
                 spawn_sniper_glints,
@@ -426,6 +427,20 @@ pub(crate) fn write_input(
     } else {
         None
     };
+    // ...and how far through putting it away, or getting it out, we are — so
+    // their view of the swap ends just as ours does.
+    action.swap = crate::weapons::swap_progress(
+        anim_players
+            .iter()
+            .next()
+            .zip(view_models.iter().next())
+            .filter(|_| action.weapon_visible),
+        knife_players
+            .iter()
+            .next()
+            .zip(knife_anims.iter().next())
+            .filter(|_| action.knife_visible),
+    );
     action.reloading = weapon
         .busy
         .as_ref()
@@ -745,6 +760,7 @@ fn receive_shots(
     mut tracers: EventWriter<crate::FireTracer>,
     (mut bolts, mut landed): (EventWriter<crate::RayGunBolt>, EventWriter<crate::RayGunLanded>),
     mut enemy_fired: EventWriter<crate::minimap::SomeoneFired>,
+    mut remote_fired: EventWriter<RemoteFired>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let killcam_playing = active.0.is_some();
@@ -766,6 +782,10 @@ fn receive_shots(
             if killcam_playing || Some(msg.shooter) == me {
                 continue;
             }
+            remote_fired.write(RemoteFired {
+                shooter: msg.shooter,
+                weapon: shared::weapon::WeaponId::RayGun,
+            });
             bolts.write(crate::RayGunBolt {
                 start: barrel(msg.shooter).unwrap_or(Vec3::from_array(msg.origin)),
                 end: Vec3::from_array(msg.end),
@@ -799,6 +819,9 @@ fn receive_shots(
             }
             if killcam_playing || Some(msg.shooter) == me {
                 continue;
+            }
+            if let Some(weapon) = shared::weapon::WeaponId::from_u8(msg.weapon) {
+                remote_fired.write(RemoteFired { shooter: msg.shooter, weapon });
             }
             if let ShotOutcome::Ground { point, normal } = msg.outcome {
                 impacts.write(GroundImpact(Vec3::from_array(point)));
@@ -881,6 +904,33 @@ pub(crate) struct RemoteAvatar {
 pub(crate) struct RemoteAvatarMotion {
     prev_translation: Option<Vec3>,
     state: crate::SoldierAnimState,
+    /// How fast the last shot's kick played ([`shot_anim_speed`]).
+    shot_speed: f32,
+    /// The weight of the upper-body aim over the aiming-on-the-move legs
+    /// (`SoldierAnimations::shot_upper`) — eased in and out with the state.
+    aim_upper: f32,
+}
+
+/// Another player fired (from the server's word: `ShotResolved`, or for the
+/// Ray Gun its `RayGunFired`) — their soldier kicks with it
+/// ([`animate_remote_avatars`]).
+#[derive(Event, Clone, Copy)]
+pub(crate) struct RemoteFired {
+    pub(crate) shooter: PeerId,
+    pub(crate) weapon: shared::weapon::WeaponId,
+}
+
+/// How fast a soldier's one-shot kick (`shooting`, `SHOT_CLIP_SECS` long)
+/// plays for `weapon`: fast enough to be back on aim by its next round when
+/// it fires quicker than that (the AK-74's full auto, the Ray Gun) — never
+/// slower than as made (the bolt-action sniper).
+fn shot_anim_speed(weapon: shared::weapon::WeaponId, ak: &crate::AkSettings, raygun: &crate::RayGunSettings) -> f32 {
+    let interval = match weapon {
+        shared::weapon::WeaponId::Ak74 => ak.fire_interval,
+        shared::weapon::WeaponId::RayGun => raygun.fire_interval,
+        _ => return 1.0,
+    };
+    (crate::SHOT_CLIP_SECS / interval.max(0.01)).max(1.0)
 }
 
 /// Spawn an avatar for every interpolated (i.e. *other*-player)
@@ -1230,10 +1280,20 @@ fn animate_remote_avatars(
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     killcam: Res<killcam::ActiveKillCam>,
+    (ids, mut fired, ak, raygun): (
+        Query<&PlayerId>,
+        EventReader<RemoteFired>,
+        Res<crate::AkSettings>,
+        Res<crate::RayGunSettings>,
+    ),
 ) {
     const BLEND_DURATION: Duration = Duration::from_millis(200);
     /// `ads_t` at or above this counts as "aiming" for animation purposes.
     const AIM_THRESHOLD: f32 = 0.5;
+
+    // Who fired since last frame, and with what.
+    let shots: std::collections::HashMap<PeerId, shared::weapon::WeaponId> =
+        fired.read().map(|f| (f.shooter, f.weapon)).collect();
 
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -1392,23 +1452,70 @@ fn animate_remote_avatars(
                 crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
                 | crate::SoldierAnimState::Melee
-                | crate::SoldierAnimState::Dead => RepeatAnimation::Never,
+                | crate::SoldierAnimState::Dead
+                | crate::SoldierAnimState::Aim => RepeatAnimation::Never,
                 _ => RepeatAnimation::Forever,
             };
             // `AnimationTransitions::play` fades the previous node's weight
             // down to 0 over `BLEND_DURATION` (and stops it once it reaches
             // 0) while the new node fades in, instead of a hard cut.
-            transitions
+            let active = transitions
                 .play(&mut player, anims.node_for(new_state), BLEND_DURATION)
                 .set_repeat(repeat);
+            // Aiming holds the gun up, still — the shot clip's last frame —
+            // until they fire.
+            if new_state == crate::SoldierAnimState::Aim {
+                active.seek_to(crate::SHOT_CLIP_SECS);
+            }
+        }
+
+        // Aiming on the move: the standing aim's upper body over the legs,
+        // eased in and out with the state, held as `Aim` is.
+        let aiming_on_the_move = matches!(
+            motion.state,
+            crate::SoldierAnimState::AimWalk | crate::SoldierAnimState::AimSprint
+        );
+        let step = dt / BLEND_DURATION.as_secs_f32();
+        motion.aim_upper = if aiming_on_the_move {
+            (motion.aim_upper + step).min(1.0)
+        } else {
+            (motion.aim_upper - step).max(0.0)
+        };
+        let upper = anims.shot_upper();
+        if aiming_on_the_move && player.animation(upper).is_none() {
+            player
+                .start(upper)
+                .set_repeat(RepeatAnimation::Never)
+                .seek_to(crate::SHOT_CLIP_SECS);
+        }
+        if motion.aim_upper <= 0.0 {
+            player.stop(upper);
+        } else if let Some(active) = player.animation_mut(upper) {
+            active.set_weight(motion.aim_upper);
+        }
+
+        // They fired: one kick, at their gun's pace, from wherever the last
+        // one had got to.
+        let shot = ids.get(avatar.src).ok().and_then(|id| shots.get(&id.0)).copied();
+        if let Some(weapon) = shot {
+            motion.shot_speed = shot_anim_speed(weapon, &ak, &raygun);
+            let kick = match motion.state {
+                crate::SoldierAnimState::Aim => Some(anims.node_for(crate::SoldierAnimState::Aim)),
+                _ if aiming_on_the_move => Some(upper),
+                _ => None,
+            };
+            if let Some(active) = kick.and_then(|node| player.animation_mut(node)) {
+                active.replay();
+                active.set_speed(motion.shot_speed);
+            }
         }
 
         // Re-applied every frame (not just on a state change) so a live edit
         // to the "Movement" walk/sprint sliders takes effect immediately.
         if let Some(active) = player.animation_mut(anims.node_for(motion.state)) {
             active.set_speed(match motion.state {
+                crate::SoldierAnimState::Aim => motion.shot_speed.max(1.0),
                 crate::SoldierAnimState::Idle
-                | crate::SoldierAnimState::Aim
                 | crate::SoldierAnimState::Crouch
                 | crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
@@ -1432,7 +1539,8 @@ fn animate_remote_avatars(
 /// What each soldier avatar holds ([`crate::HeldWeapon`]): what its player
 /// has in their hands (`PlayerPose::held`), at their Pack-a-Punch level for
 /// it — with the hands left to the animation while it needs them (a reload,
-/// a stab, dying).
+/// a stab, dying) — what else they carry (their lobby's two weapons), and
+/// where they're looking up or down.
 fn sync_held_weapons(
     poses: Query<(&PlayerPose, Option<&PlayerId>)>,
     lobbies: Query<&shared::Lobby>,
@@ -1440,17 +1548,19 @@ fn sync_held_weapons(
 ) {
     for (avatar, motion, mut held) in &mut avatars {
         let Ok((pose, id)) = poses.get(avatar.src) else { continue };
-        let pap = match (pose.held, id) {
-            (Some(item), Some(id)) => lobbies
-                .iter()
-                .flat_map(|l| l.members.iter())
-                .find(|m| m.peer == id.0)
-                .map_or(0, |m| m.pap.get(shared::pap::PapWeapon::of(item))),
-            _ => 0,
-        };
+        let member = id.and_then(|id| lobbies.iter().flat_map(|l| l.members.iter()).find(|m| m.peer == id.0));
+        let pap = |item: shared::weapon::SlotWeapon| member.map_or(0, |m| m.pap.get(shared::pap::PapWeapon::of(item)));
         held.item = pose.held;
-        held.pap = pap;
+        held.swap_progress = pose.swap;
+        held.pap = pose.held.map_or(0, pap);
+        // (Both their weapons — the one not in hand shows where it's carried.)
+        let carried: Vec<_> = member.map_or(Vec::new(), |m| m.weapons.iter().map(|&w| (w, pap(w))).collect());
+        if held.carried != carried {
+            held.carried = carried;
+        }
         held.stabbing = pose.stabbing;
+        // (A body falling dead isn't looking anywhere.)
+        held.pitch = if pose.alive { pose.pitch } else { 0.0 };
         held.ik_wanted = crate::avatars::held_weapon::ik_wanted(motion.state);
     }
 }

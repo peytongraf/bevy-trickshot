@@ -11,6 +11,9 @@
         )),
         muzzle: (-0.625, 0.0, 0.0),
         scope: Some((0.081, 0.083, -0.01)),
+        stow_on: Back,
+        stow_offset: (-0.0867, -0.0101, -0.1473),
+        stow_turn_deg: (-139.31, 45.82, 47.02),
     ),
     ak74: (
         offset: (0.011, 0.317, 0.033),
@@ -21,6 +24,9 @@
         left_hand: None,
         muzzle: (-0.475, 0.0, 0.0),
         scope: None,
+        stow_on: Back,
+        stow_offset: (-0.1071, -0.0367, -0.1769),
+        stow_turn_deg: (115.84, 45.81, 132.99),
     ),
     raygun: (
         offset: (0.075, 0.215, 0.03),
@@ -32,6 +38,9 @@
         left_arm_down: true,
         muzzle: (-0.225, 0.0, 0.0),
         scope: None,
+        stow_on: Back,
+        stow_offset: (-0.0816, -0.3413, -0.0697),
+        stow_turn_deg: (-11.73, 30.65, -0.01),
     ),
     knife: (
         offset: (0.113, 0.168, 0.018),
@@ -43,5 +52,8 @@
         left_arm_down: true,
         muzzle: (-0.16, 0.0, 0.0),
         scope: None,
+        stow_on: RightThigh,
+        stow_offset: (0.0229, 0.2312, 0.054),
+        stow_turn_deg: (156.91, -33.15, 73.26),
     ),
 )

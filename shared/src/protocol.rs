@@ -285,6 +285,30 @@ pub struct PlayerPose {
     /// throwing arms or a perk bottle up, or downed. Discrete, same as
     /// `crouching`.
     pub held: Option<SlotWeapon>,
+    /// Partway through putting the weapon in hand away, or getting `held`
+    /// out — exactly as their own first-person view is (copied from
+    /// `PlayerInput::swap`), so their avatar's swap ends as theirs does,
+    /// whatever their weapon or perks. `None` otherwise.
+    pub swap: Option<SwapProgress>,
+}
+
+/// How far (`0..1`) through putting a weapon away, or getting one out, a
+/// player's first-person view is ([`PlayerPose::swap`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum SwapProgress {
+    Stowing(f32),
+    Drawing(f32),
+}
+
+impl SwapProgress {
+    /// `t` of the way from `a` to `b`: blended within one phase, else `b`.
+    fn ease(a: Option<Self>, b: Option<Self>, t: f32) -> Option<Self> {
+        match (a, b) {
+            (Some(Self::Stowing(x)), Some(Self::Stowing(y))) => Some(Self::Stowing(x + (y - x) * t)),
+            (Some(Self::Drawing(x)), Some(Self::Drawing(y))) => Some(Self::Drawing(x + (y - x) * t)),
+            _ => b,
+        }
+    }
 }
 
 /// A `Zombies` zombie's animation state ([`PlayerPose::zombie`]). Its death
@@ -360,6 +384,7 @@ impl Default for PlayerPose {
             alive: true,
             zombie: ZombieAnim::None,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
+            swap: None,
         }
     }
 }
@@ -379,6 +404,7 @@ impl Ease for PlayerPose {
             alive: end.alive,
             zombie: end.zombie,
             held: end.held,
+            swap: SwapProgress::ease(start.swap, end.swap, t),
         })
     }
 }
@@ -518,6 +544,10 @@ pub struct PlayerInput {
     /// What's in the player's hands this tick — see `PlayerPose::held`.
     #[reflect(ignore)]
     pub held: Option<SlotWeapon>,
+    /// How far through a weapon swap their first-person view is — see
+    /// `PlayerPose::swap`.
+    #[reflect(ignore)]
+    pub swap: Option<SwapProgress>,
     /// With `fire`: every enemy this client saw the shot strike — tested
     /// against their actual animated models as drawn on its screen, an arm or
     /// a finger included — for the server to check over and apply
@@ -625,6 +655,7 @@ impl Default for PlayerInput {
             crouch_drop: 0.0,
             revive: false,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
+            swap: None,
             fire_hits: None,
         }
     }
@@ -839,6 +870,8 @@ pub struct ActorSample {
     pub flags: u8,
     /// What was in their hands ([`PlayerPose::held`]).
     pub held: Option<SlotWeapon>,
+    /// Where they were looking up or down ([`PlayerPose::pitch`], radians).
+    pub pitch: f32,
 }
 
 impl ActorSample {
@@ -879,6 +912,7 @@ impl ActorSample {
             ads: (pose.ads_t.clamp(0.0, 1.0) * 255.0).round() as u8,
             flags,
             held: pose.held,
+            pitch: pose.pitch,
         }
     }
 
@@ -891,6 +925,7 @@ impl ActorSample {
             ads: 0,
             flags: if bot.alive { Self::ALIVE } else { 0 },
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
+            pitch: 0.0,
         }
     }
 }

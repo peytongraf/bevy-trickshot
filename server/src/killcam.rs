@@ -862,6 +862,7 @@ mod tests {
                 ads: 0,
                 flags: if alive { ActorSample::ALIVE } else { 0 },
                 held: None,
+                pitch: 0.0,
             },
         }
     }

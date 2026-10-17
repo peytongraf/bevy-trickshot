@@ -1356,6 +1356,7 @@ fn stop_killcam(
 struct ActorPose {
     pos: Vec3,
     yaw: f32,
+    pitch: f32,
     ads: f32,
     sample: shared::ActorSample,
     alive: bool,
@@ -1367,6 +1368,7 @@ impl ActorPose {
         shared::PlayerPose {
             translation: self.pos,
             yaw: self.yaw,
+            pitch: self.pitch,
             ads_t: self.ads,
             crouching: self.sample.has(shared::ActorSample::CROUCHING),
             reloading: self.sample.has(shared::ActorSample::RELOADING),
@@ -1390,14 +1392,15 @@ const ACTOR_TELEPORT_M: f32 = 3.0;
 /// sample outside the recorded range.
 fn actor_pose_at(samples: &[(f32, shared::ActorSample)], t: f32) -> Option<ActorPose> {
     let (&(_, first), &(_, last)) = (samples.first()?, samples.last()?);
-    let pose = |s: shared::ActorSample, pos: Vec3, yaw: f32, ads: f32| ActorPose {
+    let pose = |s: shared::ActorSample, pos: Vec3, yaw: f32, pitch: f32, ads: f32| ActorPose {
         pos,
         yaw,
+        pitch,
         ads,
         sample: s,
         alive: s.has(shared::ActorSample::ALIVE),
     };
-    let at = |s: shared::ActorSample| pose(s, Vec3::from_array(s.pos), s.yaw, s.ads_amount());
+    let at = |s: shared::ActorSample| pose(s, Vec3::from_array(s.pos), s.yaw, s.pitch, s.ads_amount());
     if t <= samples[0].0 {
         return Some(at(first));
     }
@@ -1416,7 +1419,13 @@ fn actor_pose_at(samples: &[(f32, shared::ActorSample)], t: f32) -> Option<Actor
         .slerp(Quat::from_rotation_y(b.yaw), f)
         .to_euler(EulerRot::YXZ)
         .0;
-    Some(pose(a, pa.lerp(pb, f), yaw, a.ads_amount() + (b.ads_amount() - a.ads_amount()) * f))
+    Some(pose(
+        a,
+        pa.lerp(pb, f),
+        yaw,
+        a.pitch + (b.pitch - a.pitch) * f,
+        a.ads_amount() + (b.ads_amount() - a.ads_amount()) * f,
+    ))
 }
 
 /// Poses every bot and other player ghost from its recorded timeline at the
@@ -1495,6 +1504,7 @@ mod tests {
                 ads: 0,
                 flags,
                 held: None,
+                pitch: 0.0,
             },
         )
     }

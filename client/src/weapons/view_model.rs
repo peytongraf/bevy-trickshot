@@ -202,11 +202,7 @@ impl<'a> PrimaryRig<'a> {
 
     /// This weapon's segment for `act`.
     pub(crate) fn seg(&self, act: SegAct) -> AnimationSegment {
-        match self.weapon {
-            WeaponId::Ak74 => super::ak::ak_seg(act),
-            WeaponId::RayGun => super::raygun::raygun_seg(act),
-            _ => sniper_seg(act),
-        }
+        primary_seg(self.weapon, act)
     }
 
     /// Play `seg` once from its start at normal speed.
@@ -278,6 +274,49 @@ impl<'a> PrimaryRig<'a> {
             active.pause();
         }
     }
+}
+
+/// `weapon`'s view-model segment for `act`.
+pub(crate) fn primary_seg(weapon: WeaponId, act: SegAct) -> AnimationSegment {
+    match weapon {
+        WeaponId::Ak74 => super::ak::ak_seg(act),
+        WeaponId::RayGun => super::raygun::raygun_seg(act),
+        _ => sniper_seg(act),
+    }
+}
+
+/// How far through putting the weapon in hand away, or getting one out, the
+/// first-person view is — read off the Hide / Show segment playing on the
+/// primary's or the knife's clip, so it's exactly as long as it really is
+/// (per weapon, sped up by the swap perk, cut short or not) — for everyone
+/// else's view of us (`PlayerPose::swap`). Only a weapon showing counts.
+pub(crate) fn swap_progress(
+    primary: Option<(&AnimationPlayer, &ViewModelAnimation)>,
+    knife: Option<(&AnimationPlayer, &super::KnifeAnimation)>,
+) -> Option<shared::SwapProgress> {
+    // (How far into `seg` `node`'s playing, while it's in it.)
+    let through = |player: &AnimationPlayer, node: AnimationNodeIndex, seg: AnimationSegment| {
+        let active = player.animation(node)?;
+        let t = active.seek_time();
+        let (start, end) = (seg.start_secs(), seg.end_secs());
+        (!active.is_finished() && !active.is_paused() && end > start && (start..end).contains(&t))
+            .then(|| (t - start) / (end - start))
+    };
+    let primary = |act: SegAct| {
+        let (player, anim) = primary?;
+        let seg = primary_seg(anim.weapon, act);
+        let node = anim.nodes.get(seg.clip).or(anim.nodes.first()).copied()?;
+        through(player, node, seg)
+    };
+    let knife = |seg: usize| {
+        let (player, anim) = knife?;
+        through(player, anim.index, super::KNIFE_SEGMENTS[seg])
+    };
+    // (Getting one out wins a frame where one's put away as the next comes.)
+    primary(SegAct::Show)
+        .or_else(|| knife(super::KNIFE_SEG_SHOW))
+        .map(shared::SwapProgress::Drawing)
+        .or_else(|| primary(SegAct::Hide).or_else(|| knife(super::KNIFE_SEG_HIDE)).map(shared::SwapProgress::Stowing))
 }
 
 /// The sniper's segment for `act`.

@@ -34,8 +34,8 @@ use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::avatars::held_weapon::{
-    grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, WeaponGrips, BAKED_GUN_CENTER,
-    BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
+    euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, Grip, GripKey, HandTarget, StowOn, WeaponGrips,
+    BAKED_GUN_CENTER, BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
 };
 use crate::player::{PlayerBodyCapsule, PlayerHead, ViewModelCamera, WorldModelCamera};
 use crate::weapons::{CameraRecoil, CameraShake};
@@ -145,6 +145,9 @@ impl Orbit {
 #[derive(Resource)]
 struct GripEditor {
     weapon: GripKey,
+    /// The other weapon carried — where it's carried shows, and SWAP plays
+    /// the swap to it.
+    also: Option<GripKey>,
     /// The Pack-a-Punch camo shown.
     pap: u8,
     clip: SoldierAnimState,
@@ -156,6 +159,8 @@ struct GripEditor {
     /// The clip's length (s), once it's in.
     length: f32,
     speed: f32,
+    /// Where the soldier's looking, up (+) or down (degrees).
+    look_deg: f32,
     /// The hands on the weapon (IK) — off shows the animation's own.
     hands: bool,
     /// `soldier.glb`'s own rifle shown, to line a weapon up against.
@@ -179,6 +184,7 @@ impl Default for GripEditor {
     fn default() -> Self {
         Self {
             weapon: GripKey::Sniper,
+            also: Some(GripKey::Knife),
             pap: 0,
             clip: SoldierAnimState::Aim,
             playing_clip: None,
@@ -186,6 +192,7 @@ impl Default for GripEditor {
             time: 0.0,
             length: 0.0,
             speed: 1.0,
+            look_deg: 0.0,
             hands: true,
             show_rifle: false,
             show_markers: true,
@@ -492,7 +499,16 @@ fn drive_soldier(
     if held.pap != editor.pap {
         held.pap = editor.pap;
     }
+    let carried: Vec<_> = [Some(editor.weapon), editor.also]
+        .into_iter()
+        .flatten()
+        .map(|k| (k.weapon(), editor.pap))
+        .collect();
+    if held.carried != carried {
+        held.carried = carried;
+    }
     held.ik_wanted = if editor.hands { ik_wanted(editor.clip) } else { 0.0 };
+    held.pitch = editor.look_deg.to_radians();
     held.stabbing = std::mem::take(&mut editor.play_stab) || (editor.loop_stab && !held.stab_playing());
 
     if let Some(gun) = rig.and_then(|r| r.baked_gun) {
@@ -508,8 +524,19 @@ fn drive_soldier(
     if editor.playing_clip != Some(editor.clip) {
         editor.playing_clip = Some(editor.clip);
         editor.time = 0.0;
+        // (Everything else stops first: a transition never fades out a
+        // paused clip, which would play on under the new one.)
+        player.stop_all();
         // (Every clip loops here, to look at any moment of it.)
         transitions.play(&mut player, node, Duration::ZERO).set_repeat(RepeatAnimation::Forever);
+        // Aiming on the move is the legs only — the standing aim's upper body
+        // goes over them, held, as in a game.
+        if matches!(editor.clip, SoldierAnimState::AimWalk | SoldierAnimState::AimSprint) {
+            player
+                .start(anims.shot_upper())
+                .set_repeat(RepeatAnimation::Never)
+                .seek_to(crate::SHOT_CLIP_SECS);
+        }
     }
     editor.length = graphs
         .get(anims.graph())
@@ -721,9 +748,34 @@ fn editor_ui(
 
 fn weapon_and_view(ui: &mut egui::Ui, ed: &mut GripEditor) {
     ui.heading("Weapon");
+    let was = ed.weapon;
     ui.horizontal_wrapped(|ui| {
         for key in GripKey::ALL {
             ui.selectable_value(&mut ed.weapon, key, key.label());
+        }
+    });
+    // (Never the same one twice — picking the other one swaps them round.)
+    if ed.also == Some(ed.weapon) {
+        ed.also = Some(was);
+    }
+    ui.horizontal(|ui| {
+        ui.label("Also carrying");
+        egui::ComboBox::from_id_salt("weapon_editor_also")
+            .selected_text(ed.also.map_or("Nothing", GripKey::label))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut ed.also, None, "Nothing");
+                for key in GripKey::ALL.into_iter().filter(|&k| k != ed.weapon) {
+                    ui.selectable_value(&mut ed.also, Some(key), key.label());
+                }
+            });
+        if ui
+            .add_enabled(ed.also.is_some(), egui::Button::new("Swap"))
+            .on_hover_text("Put this one away and get the other out, as other players see it.")
+            .clicked()
+        {
+            if let Some(other) = ed.also.replace(ed.weapon) {
+                ed.weapon = other;
+            }
         }
     });
     ui.horizontal(|ui| {
@@ -752,6 +804,12 @@ fn clip_controls(ui: &mut egui::Ui, ed: &mut GripEditor) {
             ed.playing = !ed.playing;
         }
         ui.add(egui::Slider::new(&mut ed.speed, 0.05..=2.0).text("speed"));
+    });
+    ui.horizontal(|ui| {
+        ui.add(egui::Slider::new(&mut ed.look_deg, -89.0..=89.0).text("look up / down").suffix("°"));
+        if ui.small_button("Level").clicked() {
+            ed.look_deg = 0.0;
+        }
     });
     let length = ed.length.max(0.001);
     let mut t = ed.time.clamp(0.0, length);
@@ -917,6 +975,28 @@ fn grip_controls(
             });
         }
     }
+
+    ui.separator();
+    ui.heading("Carried");
+    ui.colored_label(DIM, "Where it goes while it isn't in hand — from the bone, in its axes.");
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut grip.stow_on, StowOn::Back, "On the back");
+        ui.radio_value(&mut grip.stow_on, StowOn::RightThigh, "On the right thigh");
+    });
+    vec3_row(ui, "Place", &mut grip.stow_offset, 0.001, " m", XYZ);
+    vec3_row(ui, "Turn", &mut grip.stow_turn_deg, 0.25, "°", XYZ);
+    ui.horizontal_wrapped(|ui| {
+        let carried = euler_deg(grip.stow_turn_deg);
+        if ui.button("Flip front / back").clicked() {
+            grip.stow_turn_deg = to_euler_deg(carried * Quat::from_rotation_y(PI));
+        }
+        if ui.button("Flip upside down").clicked() {
+            grip.stow_turn_deg = to_euler_deg(carried * Quat::from_rotation_x(PI));
+        }
+        if ui.button("Roll 90°").clicked() {
+            grip.stow_turn_deg = to_euler_deg(carried * Quat::from_rotation_x(FRAC_PI_2));
+        }
+    });
 
     ui.separator();
     ui.heading("Muzzle and scope");
