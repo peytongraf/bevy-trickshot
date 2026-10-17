@@ -67,9 +67,10 @@ struct FireSim {
 
 /// The server side of one [`MolotovDrop`].
 #[derive(Component)]
-struct DropSim {
-    lobby: Entity,
-    age: f32,
+pub(crate) struct DropSim {
+    pub(crate) lobby: Entity,
+    /// Seconds it's been lying there.
+    pub(crate) age: f32,
 }
 
 /// When each player last threw one (`Time::elapsed_secs`).

@@ -72,10 +72,10 @@ const MIN_IMPACT_SOUND_INTERVAL_SECS: f32 = 0.08;
 
 /// The server-side simulation state of one [`ThrownKnife`].
 #[derive(Component)]
-struct KnifeSim {
-    body: KnifeBody,
+pub(crate) struct KnifeSim {
+    pub(crate) body: KnifeBody,
     owner: PeerId,
-    lobby: Entity,
+    pub(crate) lobby: Entity,
     /// `KnifeBody::age` at this knife's last announced impact sound.
     last_impact_sound: f32,
     /// Where the thrower said it was thrown from (which their claims name

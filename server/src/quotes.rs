@@ -68,7 +68,7 @@ impl SayQuote {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Speaker {
     Player(PeerId),
-    /// A real member of the lobby, picked at random.
+    /// A member of the lobby (a teammate bot included), picked at random.
     Anyone,
 }
 
@@ -245,7 +245,8 @@ fn direct_quotes(
             Speaker::Player(peer) if lobby.has(peer) && !is_bot_peer(peer) => peer,
             Speaker::Player(_) => continue,
             Speaker::Anyone => {
-                let real: Vec<PeerId> = lobby.real_peers();
+                // (Teammate bots too — they've an operator's voice.)
+                let real: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
                 let up: Vec<PeerId> = real.iter().copied().filter(|p| alive(*p)).collect();
                 let pool = if up.is_empty() { real } else { up };
                 if pool.is_empty() {

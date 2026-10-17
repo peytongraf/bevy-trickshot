@@ -8,6 +8,13 @@
 //! Each bot is a lobby member with a fake [`PeerId`] (see [`bot_peer`]) and a
 //! [`BotDifficulty`]; the server (`server::ai`) drives one player entity per
 //! bot through the very same input path a real client uses.
+//!
+//! [`crate::GameMode::Zombies`] has bots too — *teammates*, on the players'
+//! side ([`ally_peer`], `server::ally`), up to a team of [`MAX_ZOMBIES_TEAM`].
+//! Their fake peers are their own range, so everything that tells a zombie
+//! from a player by [`is_bot_peer`] (the zombies are bot peers) counts them
+//! as players; [`has_no_client`] is the one to ask before sending anyone a
+//! message.
 
 use lightyear::prelude::PeerId;
 use serde::{Deserialize, Serialize};
@@ -24,12 +31,35 @@ pub fn bot_peer(n: u64) -> PeerId {
     PeerId::Local(BOT_PEER_BASE + n)
 }
 
-/// Whether `peer` is a bot (as opposed to a real connected player). Anything
-/// that sends a message to a peer must skip these — there's no client behind
-/// them.
+/// Whether `peer` is a bot (as opposed to a real connected player) — a
+/// `FreeForAll` bot, or a `Zombies` zombie. Not a `Zombies` teammate bot
+/// ([`is_ally_peer`]), which plays on the players' side.
 pub fn is_bot_peer(peer: PeerId) -> bool {
     matches!(peer, PeerId::Local(n) if n >= BOT_PEER_BASE)
 }
+
+/// A `Zombies` teammate bot's fake peer id is `PeerId::Local(ALLY_PEER_BASE
+/// + n)` — below [`BOT_PEER_BASE`], so never taken for a zombie.
+pub const ALLY_PEER_BASE: u64 = 0xA11_0000_0000;
+
+/// The fake peer id for the `n`th teammate bot the server has created.
+pub fn ally_peer(n: u64) -> PeerId {
+    PeerId::Local(ALLY_PEER_BASE + n)
+}
+
+/// Whether `peer` is a `Zombies` teammate bot.
+pub fn is_ally_peer(peer: PeerId) -> bool {
+    matches!(peer, PeerId::Local(n) if (ALLY_PEER_BASE..BOT_PEER_BASE).contains(&n))
+}
+
+/// Whether there's no client behind `peer` — any kind of bot. Anything that
+/// sends a message to a peer, or waits on one from it, must skip these.
+pub fn has_no_client(peer: PeerId) -> bool {
+    is_bot_peer(peer) || is_ally_peer(peer)
+}
+
+/// The most a `Zombies` party holds, teammate bots included.
+pub const MAX_ZOMBIES_TEAM: usize = 4;
 
 /// One basic name for each of the [`MAX_BOTS`] possible bots — a bot gets a
 /// random one nobody else in its lobby is using.
@@ -122,6 +152,60 @@ impl BotDifficulty {
     }
 }
 
+/// How a `Zombies` teammate bot plays, beyond its aim
+/// ([`BotDifficulty::ally`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AllySkill {
+    /// Points it keeps back from anything it buys (but a revive's worth, a
+    /// perk's worth...) — a better one spends more sensibly, not less.
+    pub reserve_points: u32,
+    /// How often (s) it thinks over what to spend on.
+    pub think_secs: f32,
+    /// How close (m) it lets a zombie get before backing off from it.
+    pub keep_away: f32,
+    /// Whether it throws its lethals and tacticals.
+    pub throws: bool,
+    /// How much faster than its gun's slowest it fires (`1` = as fast as the
+    /// gun goes).
+    pub trigger_speed: f32,
+}
+
+impl BotDifficulty {
+    /// How it plays as a `Zombies` teammate.
+    pub fn ally(self) -> AllySkill {
+        match self {
+            BotDifficulty::Recruit => AllySkill {
+                reserve_points: 1500,
+                think_secs: 4.0,
+                keep_away: 1.2,
+                throws: false,
+                trigger_speed: 0.5,
+            },
+            BotDifficulty::Regular => AllySkill {
+                reserve_points: 1000,
+                think_secs: 3.0,
+                keep_away: 1.8,
+                throws: true,
+                trigger_speed: 0.7,
+            },
+            BotDifficulty::Hardened => AllySkill {
+                reserve_points: 750,
+                think_secs: 2.0,
+                keep_away: 2.4,
+                throws: true,
+                trigger_speed: 0.85,
+            },
+            BotDifficulty::Veteran => AllySkill {
+                reserve_points: 500,
+                think_secs: 1.5,
+                keep_away: 3.0,
+                throws: true,
+                trigger_speed: 1.0,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +237,16 @@ mod tests {
         assert!(!is_bot_peer(PeerId::Netcode(12345)));
         assert!(!is_bot_peer(PeerId::Local(3)));
         assert!(!is_bot_peer(PeerId::Server));
+    }
+
+    #[test]
+    fn teammate_bots_are_neither_zombies_nor_players_with_a_client() {
+        for n in [0, 3, 1_000] {
+            let p = ally_peer(n);
+            assert!(is_ally_peer(p) && !is_bot_peer(p) && has_no_client(p));
+        }
+        assert!(!is_ally_peer(bot_peer(0)) && has_no_client(bot_peer(0)));
+        assert!(!is_ally_peer(PeerId::Netcode(7)) && !has_no_client(PeerId::Netcode(7)));
     }
 
     #[test]

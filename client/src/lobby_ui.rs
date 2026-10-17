@@ -1749,6 +1749,39 @@ fn build_room(
                     }
                 }
 
+                // `Zombies`: teammate bots, one at a time, up to a team of four.
+                if lobby.mode == shared::GameMode::Zombies && can_edit {
+                    col.spawn(Node {
+                        height: Val::Px(18.0),
+                        flex_shrink: 0.0,
+                        ..default()
+                    });
+                    section_heading(col, asset_server, "TEAMMATE BOTS");
+                    setting_row(col, asset_server, "DIFFICULTY", |row| {
+                        for d in shared::bot_players::BotDifficulty::ALL {
+                            option_button(row, asset_server, d.label(), MenuBtn::BotDifficulty(d), d == bot_selection.difficulty);
+                        }
+                    });
+                    setting_row(col, asset_server, "", |row| {
+                        if lobby.members.len() < shared::bot_players::MAX_ZOMBIES_TEAM {
+                            spawn_button_hud(
+                                row,
+                                asset_server,
+                                &format!("ADD {} TEAMMATE", bot_selection.difficulty.label()),
+                                18.0,
+                                MenuBtn::AddBots,
+                                ACCENT,
+                                ROW_HOVER,
+                                PANEL_SOLID,
+                                UiSound::MENU,
+                            );
+                        }
+                        if lobby.bot_count() > 0 {
+                            spawn_button_hud(row, asset_server, "CLEAR ALL BOTS", 18.0, MenuBtn::ClearBots, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+                        }
+                    });
+                }
+
                 // Our own primary — everyone picks theirs.
                 if lobby.mode.has_loadout() {
                     col.spawn(Node {

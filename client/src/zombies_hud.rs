@@ -1297,130 +1297,209 @@ const HEALTH_BAR_W: f32 = 240.0;
 const HEALTH_BAR_H: f32 = 7.0;
 pub(crate) const MONEY_YELLOW: Color = Color::srgb(1.0, 0.82, 0.1);
 
-/// One member's panel: a yellow `$` and their points; a bar for each armor
-/// plate they own (`shared::armor` — blue over half-clear black, three
-/// across the health bar's width, only the owned ones shown, from the
-/// left); a white health bar over a grey track, the number beside it; their
-/// name.
+/// Each member's colour (by their place in the lobby, the same on every
+/// screen) — the stripe down their panel's side, as Cold War has them.
+const PARTY_COLORS: [Color; 4] = [
+    Color::srgb(0.45, 0.78, 0.25),
+    Color::srgb(0.95, 0.62, 0.15),
+    Color::srgb(0.58, 0.3, 0.9),
+    Color::srgb(0.25, 0.62, 0.95),
+];
+
+/// How big everyone else's panel is, from ours.
+const OTHERS_SCALE: f32 = 0.7;
+
+/// The red cross beside a downed member's panel.
+#[derive(Component)]
+struct PartyDownCross(lightyear::prelude::PeerId);
+
+/// One member's panel (ours `own`, full size and with our health number;
+/// everyone else's smaller — [`OTHERS_SCALE`]): a stripe of their `color`
+/// down the side; a yellow `$` and their points; a bar for each armor plate
+/// they own (`shared::armor` — blue over half-clear black, three across the
+/// health bar's width, only the owned ones shown, from the left); a white
+/// health bar over a grey track; their name, after a square of their colour;
+/// and, while they're down, a red cross to the right.
 fn spawn_party_panel(
     root: &mut bevy::ecs::hierarchy::ChildSpawnerCommands,
     font: &Handle<Font>,
     peer: lightyear::prelude::PeerId,
     name: &str,
+    own: bool,
+    color: Color,
 ) {
+    let k = if own { 1.0 } else { OTHERS_SCALE };
     let text = |size: f32| TextFont {
         font: font.clone(),
-        font_size: size,
+        font_size: size * k,
         ..default()
     };
     let shadow = TextShadow {
         offset: Vec2::splat(1.5),
         color: Color::srgba(0.0, 0.0, 0.0, 0.75),
     };
+    let bar_w = HEALTH_BAR_W * k;
     root.spawn(Node {
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(4.0),
+        align_items: AlignItems::Center,
+        column_gap: Val::Px(10.0 * k),
         ..default()
     })
-    .with_children(|panel| {
-        panel
-            .spawn(Node {
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(6.0),
+    .with_children(|outer| {
+        // Their colour, down the side.
+        outer.spawn((
+            Node {
+                width: Val::Px(3.0),
+                align_self: AlignSelf::Stretch,
                 ..default()
-            })
-            .with_children(|row| {
-                row.spawn((Text::new("$"), text(26.0), TextColor(MONEY_YELLOW), shadow));
-                row.spawn((
-                    PartyMoney(peer),
-                    Text::new("0"),
-                    text(26.0),
-                    TextColor(Color::WHITE),
-                    shadow,
-                ));
-            });
-        // The armor plates' bars, over the health bar.
-        panel
-            .spawn(Node {
-                width: Val::Px(HEALTH_BAR_W),
-                height: Val::Px(ARMOR_BAR_H),
-                column_gap: Val::Px(ARMOR_BAR_GAP),
-                ..default()
-            })
-            .with_children(|row| {
-                let plates = shared::armor::MAX_LEVEL;
-                let width = (HEALTH_BAR_W - ARMOR_BAR_GAP * (plates - 1) as f32) / plates as f32;
-                for plate in 0..plates {
-                    row.spawn((
-                        PartyArmorBar(peer, plate),
-                        Node {
-                            width: Val::Px(width),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-                        BorderRadius::all(Val::Px(2.0)),
-                        Visibility::Hidden,
-                    ))
-                    .with_child((
-                        PartyArmorFill(peer, plate),
-                        Node {
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        BackgroundColor(crate::armor::ARMOR_BLUE),
-                        BorderRadius::all(Val::Px(2.0)),
-                    ));
-                }
-            });
-        panel
-            .spawn(Node {
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(14.0),
-                ..default()
-            })
-            .with_children(|row| {
-                // The grey track, with the white fill inside it.
-                row.spawn((
-                    Node {
-                        width: Val::Px(HEALTH_BAR_W),
-                        height: Val::Px(HEALTH_BAR_H),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.45, 0.45, 0.45, 0.8)),
-                    BorderRadius::all(Val::Px(2.0)),
-                ))
-                .with_child((
-                    PartyHealthFill(peer),
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::WHITE),
-                    BorderRadius::all(Val::Px(2.0)),
-                ));
-                row.spawn((
-                    PartyHealthText(peer),
-                    Text::new("100"),
-                    text(28.0),
-                    TextColor(Color::WHITE),
-                    shadow,
-                ));
-            });
-        panel.spawn((
-            Text::new(name.to_string()),
-            text(20.0),
-            TextColor(Color::WHITE),
-            shadow,
+            },
+            BackgroundColor(color),
         ));
+        outer
+            .spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(4.0 * k),
+                ..default()
+            })
+            .with_children(|panel| {
+                panel
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(6.0 * k),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn((Text::new("$"), text(26.0), TextColor(MONEY_YELLOW), shadow));
+                        row.spawn((PartyMoney(peer), Text::new("0"), text(26.0), TextColor(Color::WHITE), shadow));
+                    });
+                // The armor plates' bars, over the health bar.
+                panel
+                    .spawn(Node {
+                        width: Val::Px(bar_w),
+                        height: Val::Px(ARMOR_BAR_H * k),
+                        column_gap: Val::Px(ARMOR_BAR_GAP * k),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        let plates = shared::armor::MAX_LEVEL;
+                        let width = (bar_w - ARMOR_BAR_GAP * k * (plates - 1) as f32) / plates as f32;
+                        for plate in 0..plates {
+                            row.spawn((
+                                PartyArmorBar(peer, plate),
+                                Node {
+                                    width: Val::Px(width),
+                                    height: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+                                BorderRadius::all(Val::Px(2.0)),
+                                Visibility::Hidden,
+                            ))
+                            .with_child((
+                                PartyArmorFill(peer, plate),
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    height: Val::Percent(100.0),
+                                    ..default()
+                                },
+                                BackgroundColor(crate::armor::ARMOR_BLUE),
+                                BorderRadius::all(Val::Px(2.0)),
+                            ));
+                        }
+                    });
+                panel
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(14.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        // The grey track, with the white fill inside it.
+                        row.spawn((
+                            Node {
+                                width: Val::Px(bar_w),
+                                height: Val::Px((HEALTH_BAR_H * k).max(4.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.45, 0.45, 0.45, 0.8)),
+                            BorderRadius::all(Val::Px(2.0)),
+                        ))
+                        .with_child((
+                            PartyHealthFill(peer),
+                            Node {
+                                width: Val::Percent(100.0),
+                                height: Val::Percent(100.0),
+                                ..default()
+                            },
+                            BackgroundColor(Color::WHITE),
+                            BorderRadius::all(Val::Px(2.0)),
+                        ));
+                        // (Only ours has the number.)
+                        if own {
+                            row.spawn((PartyHealthText(peer), Text::new("100"), text(28.0), TextColor(Color::WHITE), shadow));
+                        }
+                    });
+                panel
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(6.0 * k),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn((
+                            Node {
+                                width: Val::Px(9.0 * k),
+                                height: Val::Px(9.0 * k),
+                                ..default()
+                            },
+                            BackgroundColor(color),
+                            BorderRadius::all(Val::Px(if own { 5.0 } else { 0.0 })),
+                        ));
+                        row.spawn((Text::new(name.to_string()), text(20.0), TextColor(Color::WHITE), shadow));
+                    });
+            });
+        // Down: a red cross beside it.
+        let (arm, thick) = (34.0 * k, 9.0 * k);
+        outer
+            .spawn((
+                PartyDownCross(peer),
+                Node {
+                    width: Val::Px(arm),
+                    height: Val::Px(arm),
+                    margin: UiRect::left(Val::Px(18.0 * k)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|cross| {
+                let red = BackgroundColor(Color::srgb(0.9, 0.08, 0.08));
+                cross.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(arm),
+                        height: Val::Px(thick),
+                        ..default()
+                    },
+                    red,
+                ));
+                cross.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(thick),
+                        height: Val::Px(arm),
+                        ..default()
+                    },
+                    red,
+                ));
+            });
     });
 }
 
-/// Keep the party's panels matching the lobby — rebuilt only when who's in it
-/// (or their names) changes, ours always last so it sits at the bottom — and
-/// fill in everyone's points and health every frame.
+/// Keep the party's panels matching the lobby — teammate bots too — rebuilt
+/// only when who's in it (or their names) changes, ours always last so it
+/// sits at the bottom — and fill in everyone's points, health and whether
+/// they're down every frame.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_party_panels(
     menu: Res<menu::Menu>,
@@ -1428,10 +1507,11 @@ fn update_party_panels(
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    health: Query<(&shared::PlayerId, &shared::PlayerHealth)>,
+    health: Query<(&shared::PlayerId, &shared::PlayerHealth, Has<shared::revive::Downed>)>,
     // Which column the panels were last built into, and for whom — the column
     // is respawned every game, so a new one always gets rebuilt.
-    mut layout: Local<(Option<Entity>, Vec<(lightyear::prelude::PeerId, String)>)>,
+    mut layout: Local<(Option<Entity>, Vec<(lightyear::prelude::PeerId, String, usize)>)>,
+    mut crosses: Query<(&PartyDownCross, &mut Visibility), (Without<PartyRoot>, Without<PartyArmorBar>)>,
     root: Single<(Entity, &mut Visibility), With<PartyRoot>>,
     mut money: Query<(&PartyMoney, &mut Text), Without<PartyHealthText>>,
     mut fills: Query<(&PartyHealthFill, &mut Node), Without<PartyArmorFill>>,
@@ -1452,26 +1532,19 @@ fn update_party_panels(
         Visibility::Hidden
     });
 
-    // Everyone else in lobby order, then us.
-    let mut wanted: Vec<(lightyear::prelude::PeerId, String)> = lobby
-        .members
-        .iter()
-        .filter(|m| m.bot.is_none() && Some(m.peer) != me)
-        .map(|m| (m.peer, m.name.clone()))
-        .collect();
-    wanted.extend(
-        lobby
-            .members
-            .iter()
-            .filter(|m| Some(m.peer) == me)
-            .map(|m| (m.peer, m.name.clone())),
-    );
+    // Everyone else (teammate bots too) in lobby order, then us — each with
+    // their place in the lobby, for their colour.
+    let placed = lobby.members.iter().enumerate().map(|(i, m)| (m.peer, m.name.clone(), i));
+    let mut wanted: Vec<(lightyear::prelude::PeerId, String, usize)> =
+        placed.clone().filter(|(peer, ..)| Some(*peer) != me).collect();
+    wanted.extend(placed.filter(|(peer, ..)| Some(*peer) == me));
     if layout.0 != Some(root) || layout.1 != wanted {
         let font = asset_server.load(HUD_FONT);
         commands.entity(root).despawn_related::<Children>();
         commands.entity(root).with_children(|col| {
-            for (peer, name) in &wanted {
-                spawn_party_panel(col, &font, *peer, name);
+            for (peer, name, place) in &wanted {
+                let color = PARTY_COLORS[place % PARTY_COLORS.len()];
+                spawn_party_panel(col, &font, *peer, name, Some(*peer) == me, color);
             }
         });
         *layout = (Some(root), wanted);
@@ -1500,10 +1573,14 @@ fn update_party_panels(
     let hp = |peer| {
         health
             .iter()
-            .find(|(id, _)| id.0 == peer)
-            .map_or(max_hp(peer), |(_, h)| h.0)
+            .find(|(id, ..)| id.0 == peer)
+            .map_or(max_hp(peer), |(_, h, _)| h.0)
             .clamp(0.0, max_hp(peer))
     };
+    for (cross, mut v) in &mut crosses {
+        let down = health.iter().any(|(id, _, down)| id.0 == cross.0 && down);
+        v.set_if_neq(if down { Visibility::Inherited } else { Visibility::Hidden });
+    }
     for (f, mut node) in &mut fills {
         let pct = Val::Percent(hp(f.0) / max_hp(f.0) * 100.0);
         if node.width != pct {

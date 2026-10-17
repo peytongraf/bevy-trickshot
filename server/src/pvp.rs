@@ -567,7 +567,8 @@ pub(crate) fn apply_player_hits(
                     .find(|m| m.peer == ev.victim)
                     .map(|m| m.perks.clone())
                     .unwrap_or_default();
-                combat.go_down(perks, lobby.real_count() == 1);
+                // (Solo is nobody else at all — teammate bots revive you.)
+                combat.go_down(perks, lobby.members.len() == 1);
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.victim) {
                     m.downs += 1;
                 }
@@ -963,7 +964,8 @@ fn fall_kill(
                     .find(|m| m.peer == peer)
                     .map(|m| m.perks.clone())
                     .unwrap_or_default();
-                combat.go_down(perks, lobby.real_count() == 1);
+                // (Solo is nobody else at all — teammate bots revive you.)
+                combat.go_down(perks, lobby.members.len() == 1);
                 info!("{peer:?} is down from a fall");
             } else {
                 combat.bleed_out(lobby.round);

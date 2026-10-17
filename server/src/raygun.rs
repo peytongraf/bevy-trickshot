@@ -99,7 +99,8 @@ pub(crate) fn fire(
         left,
         surface,
         reach: left,
-        claimed_by_client: !is_bot_peer(shooter),
+        // (A teammate bot has no client to claim it either.)
+        claimed_by_client: !shared::bot_players::has_no_client(shooter),
         claim: None,
         held: 0.0,
     });

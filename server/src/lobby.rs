@@ -12,7 +12,7 @@ use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::bot_players::{bot_peer, BOT_NAMES, MAX_BOTS};
+use shared::bot_players::{ally_peer, bot_peer, is_ally_peer, is_bot_peer, BOT_NAMES, MAX_BOTS, MAX_ZOMBIES_TEAM};
 use shared::bots::rand01;
 use shared::{
     AddBots, AssetsReady, ClearBots, CreateLobby, EndGame, GameChannel, GameMode, JoinLobby,
@@ -247,12 +247,24 @@ fn on_join(
         reject(&mut sender, &server, peer, "That lobby is full.");
         return;
     }
+    // (A `Zombies` party's a team of four at most — teammate bots give up
+    // their place to a real player.)
+    if lobby.mode == GameMode::Zombies && lobby.real_count() >= MAX_ZOMBIES_TEAM && !lobby.has(peer) {
+        reject(&mut sender, &server, peer, "That team is full.");
+        return;
+    }
 
     remove_peer(peer, Some(target), &mut lobbies, &players, &mut commands);
 
     let Ok((_, mut lobby)) = lobbies.get_mut(target) else {
         return;
     };
+    if lobby.mode == GameMode::Zombies && !lobby.has(peer) && lobby.members.len() >= MAX_ZOMBIES_TEAM {
+        if let Some(i) = lobby.members.iter().rposition(|m| m.bot.is_some()) {
+            let bot = lobby.members.remove(i);
+            info!("{} left lobby {target:?} to make room for {peer:?}", bot.name);
+        }
+    }
     if !lobby.has(peer) {
         lobby.members.push(LobbyMember {
             peer,
@@ -345,6 +357,9 @@ fn on_start(
         m.assets = m.bot.is_some();
     }
     let mode = lobby.mode;
+    if mode == GameMode::Zombies {
+        pick_bot_operators(&mut lobby, time.elapsed().as_nanos() as u64);
+    }
     let members: Vec<shared::LobbyMember> = lobby.members.clone();
     info!(
         "lobby {lobby_entity:?} started by {peer:?} with {} member(s) ({} bot), {}s limit, mode {mode:?}",
@@ -454,12 +469,17 @@ fn on_start(
                     },
                 ));
             }
-            // A bot: driven by `ai::drive_bots`, standing where `pose` put it
-            // (the pose holds the eye position; the brain wants the feet).
+            // A bot: driven by `ai::drive_bots` — or a `Zombies` teammate, by
+            // `ally::drive_allies` — standing where `pose` put it (the pose
+            // holds the eye position; the brain wants the feet).
             (None, Some(difficulty)) => {
                 let (feet, yaw) = spawn.unwrap_or((Vec3::ZERO, 0.0));
                 let seed = time.elapsed().as_nanos() as u64 ^ member.peer.to_bits();
-                ec.insert(BotBrain::new(difficulty, feet, seed).facing(yaw));
+                if mode == GameMode::Zombies {
+                    ec.insert(crate::ally::AllyBrain::new(difficulty, feet, yaw, seed));
+                } else {
+                    ec.insert(BotBrain::new(difficulty, feet, seed).facing(yaw));
+                }
             }
             (None, None) => {}
         }
@@ -702,9 +722,21 @@ fn on_set_game_mode(trigger: Trigger<RemoteTrigger<SetGameMode>>, mut lobbies: Q
     let mode = trigger.trigger.mode;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.mode = mode;
-        // Bots only exist in `FreeForAll`.
-        if mode != GameMode::FreeForAll {
-            lobby.members.retain(|m| m.bot.is_none());
+        // Bots only exist in `FreeForAll` (opponents) and `Zombies`
+        // (teammates, a team of four at most) — each its own kind.
+        lobby.members.retain(|m| match m.bot {
+            None => true,
+            Some(_) => match mode {
+                GameMode::FreeForAll => is_bot_peer(m.peer),
+                GameMode::Zombies => is_ally_peer(m.peer),
+                _ => false,
+            },
+        });
+        if mode == GameMode::Zombies {
+            while lobby.members.len() > MAX_ZOMBIES_TEAM {
+                let Some(i) = lobby.members.iter().rposition(|m| m.bot.is_some()) else { break };
+                lobby.members.remove(i);
+            }
         }
         info!("lobby mode set to {mode:?} by {peer:?}");
     }
@@ -721,7 +753,13 @@ fn add_bots(
     next_id: &mut u64,
     seed: u64,
 ) -> usize {
-    let room = MAX_BOTS.saturating_sub(lobby.bot_count());
+    // (`Zombies`: teammates, filling the team up to four.)
+    let zombies = lobby.mode == GameMode::Zombies;
+    let room = if zombies {
+        MAX_ZOMBIES_TEAM.saturating_sub(lobby.members.len())
+    } else {
+        MAX_BOTS.saturating_sub(lobby.bot_count())
+    };
     let count = count.min(room);
     for n in 0..count {
         let free: Vec<&str> = BOT_NAMES
@@ -736,7 +774,7 @@ fn add_bots(
             free[(roll * free.len() as f32) as usize % free.len()].to_string()
         };
         lobby.members.push(LobbyMember {
-            peer: bot_peer(*next_id),
+            peer: if zombies { ally_peer(*next_id) } else { bot_peer(*next_id) },
             name,
             score: 0,
             loaded: true,
@@ -761,9 +799,9 @@ fn add_bots(
     count
 }
 
-/// The leader adds bots to a `FreeForAll` lobby that's still waiting: `count`
-/// of them at one difficulty (call it again for another difficulty) — see
-/// [`add_bots`].
+/// The leader adds bots to a `FreeForAll` lobby that's still waiting —
+/// opponents — or a `Zombies` one — teammates: `count` of them at one
+/// difficulty (call it again for another difficulty) — see [`add_bots`].
 fn on_add_bots(
     trigger: Trigger<RemoteTrigger<AddBots>>,
     time: Res<Time>,
@@ -775,7 +813,7 @@ fn on_add_bots(
     let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) else {
         return;
     };
-    if lobby.mode != GameMode::FreeForAll {
+    if !matches!(lobby.mode, GameMode::FreeForAll | GameMode::Zombies) {
         return;
     }
     let seed = time.elapsed().as_nanos() as u64;
@@ -785,6 +823,22 @@ fn on_add_bots(
         req.difficulty,
         lobby.bot_count()
     );
+}
+
+/// Who each `Zombies` teammate bot plays as: a random operator — but with
+/// just one player and one bot, the one the player isn't.
+fn pick_bot_operators(lobby: &mut Lobby, seed: u64) {
+    use shared::operator::Operator;
+    let players: Vec<Operator> = lobby.members.iter().filter(|m| m.bot.is_none()).map(|m| m.operator).collect();
+    let pair = players.len() == 1 && lobby.bot_count() == 1;
+    for (i, m) in lobby.members.iter_mut().filter(|m| m.bot.is_some()).enumerate() {
+        m.operator = if pair {
+            *Operator::ALL.iter().find(|o| **o != players[0]).unwrap_or(&players[0])
+        } else {
+            let r = rand01(seed ^ m.peer.to_bits().wrapping_mul(0x9e37_79b9) ^ (i as u64) << 32);
+            Operator::ALL[((r * Operator::ALL.len() as f32) as usize).min(Operator::ALL.len() - 1)]
+        };
+    }
 }
 
 /// The leader removes every bot from a waiting lobby.
@@ -1093,6 +1147,30 @@ mod tests {
         let mut next = 0;
         add_bots(&mut l, 19, BotDifficulty::Recruit, &mut next, 11);
         assert_eq!(l.members.iter().filter(|m| m.name == "Alex").count(), 1);
+    }
+
+    #[test]
+    fn one_player_and_one_teammate_bot_play_different_operators() {
+        use shared::operator::Operator;
+        for op in Operator::ALL {
+            let mut l = lobby();
+            l.mode = GameMode::Zombies;
+            l.members[0].operator = op;
+            let mut next = 0;
+            add_bots(&mut l, 1, BotDifficulty::Regular, &mut next, 3);
+            pick_bot_operators(&mut l, 99);
+            assert_ne!(l.members[1].operator, op);
+            assert!(is_ally_peer(l.members[1].peer));
+        }
+    }
+
+    #[test]
+    fn a_zombies_team_never_grows_past_four() {
+        let mut l = lobby();
+        l.mode = GameMode::Zombies;
+        let mut next = 0;
+        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Regular, &mut next, 3), MAX_ZOMBIES_TEAM - 1);
+        assert_eq!(l.members.len(), MAX_ZOMBIES_TEAM);
     }
 
     #[test]

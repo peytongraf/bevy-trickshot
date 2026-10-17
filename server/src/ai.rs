@@ -57,7 +57,7 @@ const SND_FOOTSTEP: u16 = 1 << 7;
 /// defaults, so a bot's remote model plays the right animation (the client
 /// picks walk vs. sprint from how fast the avatar actually moves).
 pub(crate) const WALK_SPEED: f32 = 5.0;
-const SPRINT_SPEED: f32 = 9.0;
+pub(crate) const SPRINT_SPEED: f32 = 9.0;
 /// A bot sprints toward a target farther than this (if its difficulty sprints).
 const SPRINT_MIN_DISTANCE: f32 = 30.0;
 
@@ -72,24 +72,24 @@ const DEPENETRATE_MAX: f32 = 0.2;
 /// Downward acceleration while airborne (m/s²).
 const GRAVITY: f32 = 20.0;
 /// A bot that ends up this far below the map is put back at a spawn point.
-const VOID_Y: f32 = -40.0;
+pub(crate) const VOID_Y: f32 = -40.0;
 
 /// Aiming counts as "on target" within this many degrees.
-const AIM_TOLERANCE_DEG: f32 = 2.0;
+pub(crate) const AIM_TOLERANCE_DEG: f32 = 2.0;
 /// How often (s) a bot reconsiders who to go after.
 const RETARGET_SECS: f32 = 1.0;
 /// Blocked this long (s) while trying to move → pick a detour.
-const STUCK_SECS: f32 = 0.6;
+pub(crate) const STUCK_SECS: f32 = 0.6;
 /// Trying to move for this long (s) without getting [`UNSTICK_PROGRESS`] m
 /// from where it started → it's wedged somewhere, so it's put back on the
 /// nearest walkable spot (`nav`) — a last resort if detours don't free it.
-const UNSTICK_SECS: f32 = 3.0;
-const UNSTICK_PROGRESS: f32 = 0.75;
+pub(crate) const UNSTICK_SECS: f32 = 3.0;
+pub(crate) const UNSTICK_PROGRESS: f32 = 0.75;
 /// How long (s) a detour lasts.
-const DETOUR_SECS: f32 = 1.2;
+pub(crate) const DETOUR_SECS: f32 = 1.2;
 /// A route is re-planned about this often (s), plus a little jitter so 20 bots
 /// don't all search on the same tick...
-const REPATH_SECS: f32 = 1.2;
+pub(crate) const REPATH_SECS: f32 = 1.2;
 /// ...or as soon as the target has moved this far (m) from where the route was
 /// planned to.
 const REPATH_TARGET_MOVED: f32 = 4.0;
@@ -203,10 +203,10 @@ enum WindowPhase {
 const WINDOW_APPROACH_GIVE_UP_SECS: f32 = 8.0;
 
 /// Seconds a mantle takes: a player's 0.45 s, plus a little per metre climbed.
-const MANTLE_BASE_SECS: f32 = 0.45;
-const MANTLE_SECS_PER_M: f32 = 0.15;
+pub(crate) const MANTLE_BASE_SECS: f32 = 0.45;
+pub(crate) const MANTLE_SECS_PER_M: f32 = 0.15;
 /// A mantle starts once the feet are this close (m, horizontally) to its foot.
-const MANTLE_START_DIST: f32 = 0.6;
+pub(crate) const MANTLE_START_DIST: f32 = 0.6;
 
 /// How far under the ground (m) a rising bot starts — a whole body.
 const RISE_DEPTH: f32 = shared::zombies::ZOMBIE_RISE_DEPTH;
@@ -681,7 +681,7 @@ pub(crate) fn move_bot(
 }
 
 /// Smoothstep — the client's `util::ease`, for the mantle's rise / advance.
-fn ease(t: f32) -> f32 {
+pub(crate) fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
@@ -708,7 +708,7 @@ pub(crate) fn look_angles(dir: Vec3) -> (f32, f32) {
     (f32::atan2(-dir.x, -dir.z), dir.y.clamp(-1.0, 1.0).asin())
 }
 
-fn forward(yaw: f32, pitch: f32) -> Vec3 {
+pub(crate) fn forward(yaw: f32, pitch: f32) -> Vec3 {
     Vec3::new(-yaw.sin() * pitch.cos(), pitch.sin(), -yaw.cos() * pitch.cos())
 }
 

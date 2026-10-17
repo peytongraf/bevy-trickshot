@@ -17,6 +17,7 @@
 //! | `RUST_LOG`              | log filter                             | `info`               |
 
 mod ai;
+mod ally;
 mod armor;
 mod boss;
 mod bots;
@@ -84,6 +85,7 @@ fn main() {
         .add_plugins(knives::KnivesPlugin)
         .add_plugins(molotovs::MolotovsPlugin)
         .add_plugins(ai::BotAiPlugin)
+        .add_plugins(ally::AllyPlugin)
         .add_plugins(zombies::ZombiesPlugin)
         .add_plugins(dogs::DogsPlugin)
         .add_plugins(boss::BossPlugin)
