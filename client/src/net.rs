@@ -393,6 +393,7 @@ pub(crate) fn write_input(
     action.ads_t = ads.t;
     action.crouching = slide.stance == crate::Stance::Crouching;
     action.sliding = slide.stance == crate::Stance::Sliding;
+    action.prone = slide.stance == crate::Stance::Prone;
     action.crouch_drop = slide.drop;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
     action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
@@ -1288,6 +1289,16 @@ fn animate_remote_avatars(
     ),
 ) {
     const BLEND_DURATION: Duration = Duration::from_millis(200);
+    /// Getting down onto the ground, or up off it.
+    const PRONE_BLEND: Duration = Duration::from_millis(400);
+    /// Moving slower than this (m/s) lying down is lying still.
+    const PRONE_CRAWL_ENTER: f32 = 0.15;
+    let lying = |s: crate::SoldierAnimState| {
+        matches!(
+            s,
+            crate::SoldierAnimState::Prone | crate::SoldierAnimState::ProneCrawl | crate::SoldierAnimState::ProneCrawlBack
+        )
+    };
     /// `ads_t` at or above this counts as "aiming" for animation purposes.
     const AIM_THRESHOLD: f32 = 0.5;
 
@@ -1375,6 +1386,17 @@ fn animate_remote_avatars(
         // motion.
         let new_state = if !pose.alive {
             crate::SoldierAnimState::Dead
+        } else if pose.prone {
+            // Lying down outranks everything a standing clip would show (a
+            // reload, a jump, a rifle's melee would stand them up) — still,
+            // or crawling the way they're going.
+            if speed < PRONE_CRAWL_ENTER {
+                crate::SoldierAnimState::Prone
+            } else if forward_speed < 0.0 && -forward_speed >= right_speed.abs() {
+                crate::SoldierAnimState::ProneCrawlBack
+            } else {
+                crate::SoldierAnimState::ProneCrawl
+            }
         } else if pose.stabbing && pose.held != Some(shared::weapon::SlotWeapon::Knife) {
             // A stab mid-jump or mid-reload still shows the swing. (A knife's
             // is the hand's own thrust, over whatever the legs are doing —
@@ -1447,7 +1469,6 @@ fn animate_remote_avatars(
         };
 
         if new_state != motion.state {
-            motion.state = new_state;
             let repeat = match new_state {
                 crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
@@ -1458,15 +1479,18 @@ fn animate_remote_avatars(
             };
             // `AnimationTransitions::play` fades the previous node's weight
             // down to 0 over `BLEND_DURATION` (and stops it once it reaches
-            // 0) while the new node fades in, instead of a hard cut.
+            // 0) while the new node fades in, instead of a hard cut — longer
+            // getting down onto the ground or up off it.
+            let blend = if lying(new_state) != lying(motion.state) { PRONE_BLEND } else { BLEND_DURATION };
             let active = transitions
-                .play(&mut player, anims.node_for(new_state), BLEND_DURATION)
+                .play(&mut player, anims.node_for(new_state), blend)
                 .set_repeat(repeat);
             // Aiming holds the gun up, still — the shot clip's last frame —
             // until they fire.
             if new_state == crate::SoldierAnimState::Aim {
                 active.seek_to(crate::SHOT_CLIP_SECS);
             }
+            motion.state = new_state;
         }
 
         // Aiming on the move: the standing aim's upper body over the legs,
@@ -1520,7 +1544,12 @@ fn animate_remote_avatars(
                 | crate::SoldierAnimState::Reload
                 | crate::SoldierAnimState::Jump
                 | crate::SoldierAnimState::Melee
-                | crate::SoldierAnimState::IdleNoGun => 1.0,
+                | crate::SoldierAnimState::IdleNoGun
+                | crate::SoldierAnimState::Prone => 1.0,
+                // (Its cycle's made for the stance's own speed.)
+                crate::SoldierAnimState::ProneCrawl | crate::SoldierAnimState::ProneCrawlBack => {
+                    (speed / crate::PRONE_SPEED).clamp(0.3, 2.5)
+                }
                 crate::SoldierAnimState::Walk => walk_anim_speed,
                 crate::SoldierAnimState::Sprint => sprint_anim_speed,
                 crate::SoldierAnimState::AimWalk => aim_walk_anim_speed,
@@ -1559,8 +1588,15 @@ fn sync_held_weapons(
             held.carried = carried;
         }
         held.stabbing = pose.stabbing;
-        // (A body falling dead isn't looking anywhere.)
-        held.pitch = if pose.alive { pose.pitch } else { 0.0 };
+        // (A body falling dead isn't looking anywhere; one lying down only
+        // lifts or dips its chest a little.)
+        held.pitch = if !pose.alive {
+            0.0
+        } else if pose.prone {
+            (pose.pitch * 0.35).clamp(-0.35, 0.35)
+        } else {
+            pose.pitch
+        };
         held.ik_wanted = crate::avatars::held_weapon::ik_wanted(motion.state);
     }
 }

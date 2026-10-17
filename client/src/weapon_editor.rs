@@ -73,7 +73,7 @@ const STUDIO: Vec3 = Vec3::new(0.0, 600.0, 0.0);
 const ORBIT_PER_PX: f32 = 0.006;
 
 /// The clips there are to pick, as the game plays them.
-const CLIPS: [(SoldierAnimState, &str); 15] = [
+const CLIPS: [(SoldierAnimState, &str); 18] = [
     (SoldierAnimState::Idle, "Idle"),
     (SoldierAnimState::IdleNoGun, "Idle, no gun"),
     (SoldierAnimState::Aim, "Aiming"),
@@ -85,6 +85,9 @@ const CLIPS: [(SoldierAnimState, &str); 15] = [
     (SoldierAnimState::Backward, "Backward"),
     (SoldierAnimState::Crouch, "Crouch"),
     (SoldierAnimState::CrouchWalk, "Crouch walk"),
+    (SoldierAnimState::Prone, "Prone"),
+    (SoldierAnimState::ProneCrawl, "Prone, crawling forward"),
+    (SoldierAnimState::ProneCrawlBack, "Prone, crawling back"),
     (SoldierAnimState::Jump, "Jump"),
     (SoldierAnimState::Reload, "Reload (hands free)"),
     (SoldierAnimState::Melee, "Melee (hands free)"),
