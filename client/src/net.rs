@@ -861,6 +861,7 @@ fn receive_remote_sounds(
     local: Query<&LocalId, With<GameClient>>,
     mut receivers: Query<&mut MessageReceiver<shared::RemoteSound>>,
     sounds: Res<crate::GameSounds>,
+    current_map: Res<crate::CurrentMap>,
     mut footstep_seed: Local<u32>,
     mut footstep_last: Local<std::collections::HashMap<PeerId, usize>>,
     mut commands: Commands,
@@ -883,7 +884,14 @@ fn receive_remote_sounds(
                 let clip = if bit == killcam::SND_FOOTSTEP {
                     *footstep_seed = footstep_seed.wrapping_add(1);
                     let last = footstep_last.entry(msg.player).or_default();
-                    killcam::pick_footstep(&sounds.footsteps, last, *footstep_seed)
+                    let clips = if crate::water::wading(current_map.0, pos) {
+                        &sounds.water_footsteps
+                    } else {
+                        &sounds.footsteps
+                    };
+                    killcam::pick_footstep(clips, last, *footstep_seed)
+                } else if bit == killcam::SND_SLIDE && crate::water::wading(current_map.0, pos) {
+                    Some(sounds.water_slide.clone())
                 } else {
                     killcam::sound_for(&sounds, bit).cloned()
                 };

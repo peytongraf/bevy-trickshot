@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use crate::audio_engine::prelude::*;
 
 use crate::environment::CurrentMap;
-use crate::player::FOOTSTEP_CLIPS;
+use crate::player::{FOOTSTEP_CLIPS, WATER_FOOTSTEP_CLIPS};
 use crate::settings::Settings;
 use crate::AppState;
 
@@ -47,6 +47,9 @@ pub(crate) struct GameSounds {
     /// `audio/movement/phd_slider_slide.mp3` — a slide with PhD Flopper, in
     /// place of `slide`.
     pub(crate) phd_slide: Handle<AudioSource>,
+    /// `audio/movement/water_slide.mp3` — a slide through a map's water, in
+    /// place of `slide`.
+    pub(crate) water_slide: Handle<AudioSource>,
     pub(crate) dive: Handle<AudioSource>,
     pub(crate) kill_enemy: Handle<AudioSource>,
     pub(crate) jump_land: Handle<AudioSource>,
@@ -149,6 +152,10 @@ pub(crate) struct GameSounds {
     /// `audio/ambient/fire_crackle.mp3` — looped from every fire the map
     /// keeps burning (`flames`).
     pub(crate) fire_crackle: Handle<AudioSource>,
+    /// `audio/ambient/waterfall_loop.mp3` — looped from where every
+    /// waterfall the map has lands, each from its own point in the clip
+    /// (`water`).
+    pub(crate) waterfall_loop: Handle<AudioSource>,
     /// `audio/zombies/rounds/round_start.wav` — a `Zombies` round starting, for
     /// everyone (`round_counter`).
     pub(crate) round_start: Handle<AudioSource>,
@@ -178,6 +185,9 @@ pub(crate) struct GameSounds {
     /// `audio/movement/footsteps/footstep_1..N.wav` — `footsteps` picks one at random
     /// per step.
     pub(crate) footsteps: Vec<Handle<AudioSource>>,
+    /// `audio/movement/water_footsteps/water_footstep_1..N.mp3` — played
+    /// instead of `footsteps` while wading through a map's water.
+    pub(crate) water_footsteps: Vec<Handle<AudioSource>>,
     /// `audio/music/main_menu.wav` — looped on the main menu and in lobbies
     /// (`sync_menu_music`).
     menu_music: Handle<AudioSource>,
@@ -418,6 +428,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         out_of_ammo: asset_server.load("audio/weapons/sniper/out_of_ammo.mp3"),
         slide: asset_server.load("audio/movement/slide.mp3"),
         phd_slide: asset_server.load("audio/movement/phd_slider_slide.mp3"),
+        water_slide: asset_server.load("audio/movement/water_slide.mp3"),
         dive: asset_server.load("audio/movement/dive.mp3"),
         kill_enemy: asset_server.load("audio/combat/kill_enemy.mp3"),
         jump_land: asset_server.load("audio/movement/jump_land.mp3"),
@@ -486,6 +497,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         boss_blast_hit: asset_server.load("audio/zombies/boss/blast_hit.mp3"),
         machine_hum: asset_server.load("audio/zombies/machines/pap_buzzing.mp3"),
         fire_crackle: asset_server.load("audio/ambient/fire_crackle.mp3"),
+        waterfall_loop: asset_server.load("audio/ambient/waterfall_loop.mp3"),
         round_start: asset_server.load("audio/zombies/rounds/round_start.wav"),
         dog_round_start: asset_server.load("audio/zombies/rounds/dog_round_start.mp3"),
         dog_round_end: asset_server.load("audio/zombies/rounds/dog_round_end.mp3"),
@@ -500,6 +512,9 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .collect(),
         footsteps: (1..=FOOTSTEP_CLIPS)
             .map(|i| asset_server.load(format!("audio/movement/footsteps/footstep_{i}.wav")))
+            .collect(),
+        water_footsteps: (1..=WATER_FOOTSTEP_CLIPS)
+            .map(|i| asset_server.load(format!("audio/movement/water_footsteps/water_footstep_{i}.mp3")))
             .collect(),
         menu_music: asset_server.load("audio/music/main_menu.wav"),
         zombies_ambient: asset_server.load("audio/ambient/zombies.mp3"),

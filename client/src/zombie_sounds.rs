@@ -1,6 +1,7 @@
 //! `Zombies` zombie voices, all positional (`audio/zombies/enemy/`):
 //!
-//! * a spawn groan as each one climbs out of the ground,
+//! * a spawn groan as each one climbs out of the ground — or, coming up
+//!   out of a map's water, a splash (`GameSounds::water_slide`, for now),
 //! * moans now and then while it's up — low / medium / high intensity by how
 //!   fast it's been moving, on a random min..max timer each, never too many
 //!   at once or too close together,
@@ -186,13 +187,14 @@ fn after(now: f32, min: f32, max: f32, roll: f32) -> f32 {
     now + min.max(0.0) + (max - min).max(0.0) * roll
 }
 
-/// A new zombie avatar: its spawn groan (it's climbing out of the ground),
-/// and a voice. A zombie that just dropped: its death cry.
+/// A new zombie avatar: its spawn groan (it's climbing out of the ground)
+/// or splash (out of water), and a voice. A zombie that just dropped: its death cry.
 #[allow(clippy::type_complexity)]
 fn zombie_rise_and_fall(
     time: Res<Time>,
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
+    (game_sounds, current_map): (Option<Res<crate::GameSounds>>, Res<crate::CurrentMap>),
     poses: Query<&PlayerPose>,
     ids: Query<&PlayerId>,
     mut doomed: ResMut<NukeDoomed>,
@@ -215,7 +217,18 @@ fn zombie_rise_and_fall(
     for (entity, avatar) in &new {
         let Ok(pose) = poses.get(avatar.src) else { continue };
         let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
-        if pose.alive {
+        // (Its feet start this far under the floor it's rising out of.)
+        let floor = if pose.zombie == shared::ZombieAnim::Rising {
+            feet + Vec3::Y * shared::zombies::ZOMBIE_RISE_DEPTH
+        } else {
+            feet
+        };
+        let water = crate::water::surface_over(current_map.0, floor);
+        if let (true, Some(surface), Some(game_sounds)) = (pose.alive, water, game_sounds.as_deref()) {
+            let at = Vec3::new(floor.x, surface, floor.z);
+            let id = spawn_sound(&mut commands, game_sounds.water_slide.clone(), at);
+            commands.entity(id).insert(VoiceOf(entity));
+        } else if pose.alive {
             if let Some(clip) = pick(&sounds.spawns, roll()) {
                 let id = spawn_sound(&mut commands, clip, feet + Vec3::Y * 0.5);
                 commands.entity(id).insert(VoiceOf(entity));

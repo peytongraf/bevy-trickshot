@@ -25,7 +25,7 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::units::Timestamp;
+use symphonia::core::units::{Time, Timestamp};
 
 /// A clip opened for decoding from the start: its format reader and decoder.
 pub(super) struct OpenClip {
@@ -33,6 +33,8 @@ pub(super) struct OpenClip {
     decoder: Box<dyn AudioDecoder>,
     track_id: u32,
     sample_rate: u32,
+    /// How many frames long it is, when its header says.
+    frames: Option<u64>,
 }
 
 /// Open `bytes` (a whole mp3 / wav / ogg / flac file) for decoding. Cheap —
@@ -57,12 +59,38 @@ pub(super) fn open(bytes: &Arc<[u8]>) -> Result<OpenClip, SymphoniaError> {
         .ok_or(SymphoniaError::Unsupported("unknown sample rate"))?;
     let decoder = symphonia::default::get_codecs().make_audio_decoder(params, &Default::default())?;
     let track_id = track.id;
+    let frames = track.num_frames;
     Ok(OpenClip {
         reader,
         decoder,
         track_id,
         sample_rate,
+        frames,
     })
+}
+
+impl OpenClip {
+    /// Start `fraction` (0..1) of the way in rather than at the top. Does
+    /// nothing for a clip whose length isn't known.
+    pub(super) fn skip_to(&mut self, fraction: f32) {
+        let Some(frames) = self.frames.filter(|&f| f > 0) else {
+            return;
+        };
+        let secs = frames as f64 * fraction.clamp(0.0, 1.0) as f64 / self.sample_rate as f64;
+        let Some(time) = Time::try_from_secs_f64(secs) else {
+            return;
+        };
+        let seek = self.reader.seek(
+            SeekMode::Accurate,
+            SeekTo::Time {
+                time,
+                track_id: Some(self.track_id),
+            },
+        );
+        if seek.is_ok() {
+            self.decoder.reset();
+        }
+    }
 }
 
 /// The controls and state one playing sound shares between the game (its
@@ -406,5 +434,17 @@ mod tests {
             }
         }
         assert!(checked > 0);
+    }
+
+    /// The waterfall loop knows its length, so each waterfall can start it
+    /// somewhere different (`OpenClip::skip_to`).
+    #[test]
+    fn waterfall_loop_can_start_partway() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/audio/ambient/waterfall_loop.mp3");
+        let bytes: Arc<[u8]> = std::fs::read(&path).unwrap().into();
+        let mut clip = open(&bytes).unwrap();
+        assert!(clip.frames.is_some_and(|f| f > 0));
+        clip.skip_to(0.5);
+        assert!(clip.reader.next_packet().unwrap().is_some());
     }
 }

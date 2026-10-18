@@ -523,9 +523,10 @@ fn update_op(
             (None, _) => {
                 // Onto whatever's under the cursor (kept where it was on
                 // screen); missing the map, across the height it started at.
-                // A light hangs in the air: across its own height, always
-                // (lock to Y to raise or lower it).
-                let light = matches!(op.starts.last(), Some((ObjectId::PowerLight(_), _)));
+                // A light hangs in the air, and water lies level over the
+                // floor under it: across its own height, always (lock to Y
+                // to raise or lower it).
+                let light = matches!(op.starts.last(), Some((ObjectId::PowerLight(_) | ObjectId::Water(_), _)));
                 if let Ok(ray) = camera.viewport_to_world(&cam, cursor + op.grab_offset) {
                     let dir = *ray.direction;
                     let surface = if light { None } else { hit_map(rapier, ray.origin, dir, RAY_M) };
@@ -671,7 +672,9 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
             | ObjectId::PowerLight(i)
             | ObjectId::Flame(i)
             | ObjectId::Door(i)
-            | ObjectId::Window(i) => *i as i32,
+            | ObjectId::Window(i)
+            | ObjectId::Water(i)
+            | ObjectId::Waterfall(i) => *i as i32,
             _ => -1,
         })
     });
@@ -796,6 +799,79 @@ pub(crate) fn add_flame_at_view(editor: &mut Editor, rapier: &ReadRapierContext)
     id.set(editor.doc_mut(), Placement::new(at, 0.0));
     editor.doc_mut().checkpoint(before);
     editor.selected = vec![id];
+}
+
+/// How high (m) over the floor a new pool's surface starts.
+const NEW_WATER_DEPTH: f32 = 0.4;
+
+/// Lay a new pool over the floor at the middle of the view, and select it.
+pub(crate) fn add_water_at_view(editor: &mut Editor, rapier: &ReadRapierContext) {
+    let index = editor.doc().layout.waters.len();
+    if index >= shared::level::MAX_WATERS {
+        return;
+    }
+    let focus = editor.cam.focus;
+    let ground = hit_map(rapier, focus + Vec3::Y * 50.0, Vec3::NEG_Y, 500.0).unwrap_or(focus);
+    let id = ObjectId::Water(index as u8);
+    let before = editor.doc().layout.clone();
+    id.set(editor.doc_mut(), Placement::new(ground + Vec3::Y * NEW_WATER_DEPTH, 0.0));
+    editor.doc_mut().checkpoint(before);
+    editor.selected = vec![id];
+}
+
+/// Put a new waterfall's lip on whatever's at the middle of the view (a
+/// wall, say), pouring toward the camera, falling as far as what's under
+/// it ([`fit_waterfall_drop`]), and select it.
+pub(crate) fn add_waterfall_at_view(editor: &mut Editor, rapier: &ReadRapierContext) {
+    let index = editor.doc().layout.waterfalls.len();
+    if index >= shared::level::MAX_WATERFALLS {
+        return;
+    }
+    let (eye, focus) = (editor.cam.eye(), editor.cam.focus);
+    let dir = (focus - eye).normalize_or(Vec3::NEG_Y);
+    let at = hit_map(rapier, eye, dir, RAY_M).unwrap_or(focus);
+    let to_camera = eye - at;
+    let yaw_deg = f32::atan2(to_camera.x, to_camera.z).to_degrees();
+    let id = ObjectId::Waterfall(index as u8);
+    let before = editor.doc().layout.clone();
+    // (Just off the wall, so it doesn't start inside it.)
+    let rot = Quat::from_rotation_y(yaw_deg.to_radians());
+    id.set(editor.doc_mut(), Placement::new(at + rot * Vec3::Z * 0.05, yaw_deg));
+    fit_waterfall_drop(editor, index, rapier);
+    editor.doc_mut().checkpoint(before);
+    editor.selected = vec![id];
+}
+
+/// Make waterfall `index` fall as far as what it lands on: a pool's surface
+/// under it, or else the map. `false` (leaving it as it was) with nothing
+/// under it. (Not an undo step of its own.)
+pub(crate) fn fit_waterfall_drop(editor: &mut Editor, index: usize, rapier: &ReadRapierContext) -> bool {
+    let Some(mut fall) = editor.doc().layout.waterfalls.get(index).copied() else {
+        return false;
+    };
+    let lip = fall.at.pos;
+    // (Where it lands moves out as it falls further — a few rounds settle it.)
+    let mut found = false;
+    for _ in 0..4 {
+        let foot = fall.foot();
+        let probe = Vec3::new(foot.x, lip.y - 0.05, foot.z);
+        let pool = editor
+            .doc()
+            .layout
+            .waters
+            .iter()
+            .filter(|w| w.covers(probe) && w.at.pos.y < lip.y)
+            .map(|w| w.at.pos.y)
+            .reduce(f32::max);
+        let ground = hit_map(rapier, probe, Vec3::NEG_Y, 200.0).map(|p| p.y);
+        let Some(land) = [pool, ground].into_iter().flatten().reduce(f32::max) else { break };
+        fall.drop = (lip.y - land).max(0.1);
+        found = true;
+    }
+    if found {
+        editor.doc_mut().layout.waterfalls[index] = fall;
+    }
+    found
 }
 
 /// Select `id` — added to (or, if it's there, taken out of) the selection
@@ -1086,6 +1162,37 @@ pub(crate) fn draw_gizmos(
                     own.with_alpha(if selected { 0.5 } else { 0.2 }),
                 );
             }
+            continue;
+        }
+        // A pool: its surface's edge.
+        if let ObjectId::Water(i) = id {
+            let Some(water) = doc.layout.waters.get(i as usize) else { continue };
+            let (w, d) = (water.size.x * 0.5, water.size.y * 0.5);
+            let c = [Vec3::new(-w, 0.0, -d), Vec3::new(w, 0.0, -d), Vec3::new(w, 0.0, d), Vec3::new(-w, 0.0, d)]
+                .map(|p| at.pos + at.rotation() * p);
+            let line = if selected { color } else { id.color().with_alpha(0.6) };
+            for k in 0..4 {
+                gizmos.line(c[k], c[(k + 1) % 4], line);
+            }
+            gizmos.circle(Isometry3d::new(at.pos, flat), 0.25, line);
+            continue;
+        }
+        // A waterfall: its lip, the arc it falls along and where it lands.
+        if let ObjectId::Waterfall(i) = id {
+            let Some(fall) = doc.layout.waterfalls.get(i as usize) else { continue };
+            let rot = fall.rotation();
+            let line = if selected { color } else { id.color().with_alpha(0.6) };
+            let half = rot * Vec3::X * fall.width * 0.5;
+            gizmos.line(at.pos - half, at.pos + half, line);
+            let total = fall.fall_time();
+            let mut prev = at.pos;
+            for k in 1..=12 {
+                let p = at.pos + rot * fall.local_at(total * k as f32 / 12.0);
+                gizmos.line(prev, p, line);
+                prev = p;
+            }
+            gizmos.arrow(at.pos, at.pos + rot * Vec3::Z * 0.8, line);
+            gizmos.circle(Isometry3d::new(fall.foot() + Vec3::Y * 0.02, flat), fall.width * 0.5 + 0.3, line);
             continue;
         }
         let (center, rot, half) = id.world_box(doc, at, &lever);

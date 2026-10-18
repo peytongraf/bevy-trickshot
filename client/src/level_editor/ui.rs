@@ -232,6 +232,27 @@ fn menu_bar(
                     input::add_at_view(ed, ObjectId::Window(windows as u8), rapier);
                     ui.close();
                 }
+                // (Water: up to a map's worth of pools and waterfalls.)
+                let waters = ed.doc().layout.waters.len();
+                let max = shared::level::MAX_WATERS;
+                if ui
+                    .add_enabled(waters < max, egui::Button::new(format!("Water  ({waters}/{max})")))
+                    .on_hover_text("A pool of shallow water — a rectangle of rippling, see-through surface. Just looks: it doesn't slow anyone")
+                    .clicked()
+                {
+                    input::add_water_at_view(ed, rapier);
+                    ui.close();
+                }
+                let falls = ed.doc().layout.waterfalls.len();
+                let max = shared::level::MAX_WATERFALLS;
+                if ui
+                    .add_enabled(falls < max, egui::Button::new(format!("Waterfall  ({falls}/{max})")))
+                    .on_hover_text("Water pouring off a wall, splashing and misting where it lands — aim the view at the wall where it comes out")
+                    .clicked()
+                {
+                    input::add_waterfall_at_view(ed, rapier);
+                    ui.close();
+                }
                 ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
@@ -491,6 +512,34 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                 }
                 if ed.doc().layout.windows.is_empty() {
                     ui.colored_label(DIM, "None — zombies come up out of the ground");
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("WATER").small().color(DIM));
+                    let n = ed.doc().layout.waters.len();
+                    if ui.add_enabled(n < shared::level::MAX_WATERS, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_water_at_view(ed, rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::Water(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.waters.is_empty() {
+                    ui.colored_label(DIM, "None");
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("WATERFALLS").small().color(DIM));
+                    let n = ed.doc().layout.waterfalls.len();
+                    if ui.add_enabled(n < shared::level::MAX_WATERFALLS, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_waterfall_at_view(ed, rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::Waterfall(_))) {
+                    row(ui, ed, id);
+                }
+                if ed.doc().layout.waterfalls.is_empty() {
+                    ui.colored_label(DIM, "None");
                 }
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("REFERENCES (NOT SAVED)").small().color(DIM));
@@ -822,6 +871,100 @@ fn properties(
                     ui.end_row();
                 });
             }
+            // A pool's own settings.
+            let water_index = match id {
+                ObjectId::Water(i) => Some(i as usize),
+                _ => None,
+            };
+            let water_before = water_index.and_then(|i| ed.doc().layout.waters.get(i).copied());
+            let mut water = water_before;
+            if let Some(w) = water.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Water");
+                egui::Grid::new("level_editor_water").num_columns(2).show(ui, |ui| {
+                    for (label, v, speed, range, suffix, hover) in [
+                        ("Width", &mut w.size.x, 0.05, 0.2..=200.0, " m", "Across its surface, along its own x"),
+                        ("Length", &mut w.size.y, 0.05, 0.2..=200.0, " m", "Along its surface, along its own z"),
+                        ("Depth", &mut w.depth, 0.01, 0.0..=10.0, " m", "How deep it looks — how far the floor under it seems bent, and where the caustics land"),
+                        ("Clarity", &mut w.clarity, 0.01, 0.05..=50.0, " m", "How far down light goes before it takes on the colour — bigger is clearer"),
+                        ("Waves", &mut w.waves, 0.01, 0.0..=3.0, "×", "How rough the surface is (0 = mirror flat)"),
+                        ("Caustics", &mut w.caustics, 0.01, 0.0..=3.0, "×", "How strongly the light it bends dances on the floor under it"),
+                    ] {
+                        ui.label(label).on_hover_text(hover);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(speed).range(range).suffix(suffix).max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                    ui.label("Colour").on_hover_text("The tint it gives what's under it, the deeper the more");
+                    let r = ui.add_enabled_ui(!busy, |ui| ui.color_edit_button_rgb(&mut w.color)).inner;
+                    editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                });
+            }
+            let water_changed = water != water_before;
+            if let (true, Some(i), Some(w)) = (water_changed, water_index, water) {
+                if let Some(slot) = ed.doc_mut().layout.waters.get_mut(i) {
+                    // (Its spot and turn are the fields above.)
+                    *slot = shared::level::Water { at: slot.at, ..w };
+                }
+            }
+            // A waterfall's own settings.
+            let fall_index = match id {
+                ObjectId::Waterfall(i) => Some(i as usize),
+                _ => None,
+            };
+            let fall_before = fall_index.and_then(|i| ed.doc().layout.waterfalls.get(i).copied());
+            let mut fall = fall_before;
+            let mut fit_drop = false;
+            if let Some(f) = fall.as_mut() {
+                ui.add_space(6.0);
+                ui.strong("Waterfall");
+                egui::Grid::new("level_editor_waterfall").num_columns(2).show(ui, |ui| {
+                    for (label, v, speed, range, suffix, hover) in [
+                        ("Width", &mut f.width, 0.01, 0.05..=20.0, " m", "How wide it is at the lip"),
+                        ("Drop", &mut f.drop, 0.01, 0.1..=100.0, " m", "How far it falls — where it lands is this far below the lip"),
+                        ("Flow", &mut f.flow, 0.01, 0.0..=10.0, " m/s", "How fast it comes off the lip — how far out from the wall it arcs (0 = straight down the wall)"),
+                        ("Spray", &mut f.spray, 0.01, 0.0..=3.0, "×", "How much it churns and mists up where it lands (0 = none)"),
+                        ("Opacity", &mut f.opacity, 0.01, 0.0..=1.0, "", "How solid the falling sheet looks"),
+                    ] {
+                        ui.label(label).on_hover_text(hover);
+                        let r = ui.add_enabled(
+                            !busy,
+                            egui::DragValue::new(v).speed(speed).range(range).suffix(suffix).max_decimals(3),
+                        );
+                        editing |= r.dragged() || r.has_focus();
+                        ui.end_row();
+                    }
+                    ui.label("");
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("Fit drop"))
+                        .on_hover_text("Make it fall as far as what's under where it lands — a pool's surface, or else the floor")
+                        .clicked()
+                    {
+                        fit_drop = true;
+                    }
+                    ui.end_row();
+                });
+            }
+            let fall_changed = fall != fall_before;
+            if let (true, Some(i), Some(f)) = (fall_changed, fall_index, fall) {
+                if let Some(slot) = ed.doc_mut().layout.waterfalls.get_mut(i) {
+                    // (Its spot and turn are the fields above.)
+                    *slot = shared::level::Waterfall { at: slot.at, ..f };
+                }
+            }
+            if let (true, Some(i)) = (fit_drop, fall_index) {
+                let before = ed.doc().layout.clone();
+                if input::fit_waterfall_drop(ed, i, rapier) {
+                    ed.doc_mut().checkpoint(before);
+                    ed.toast("Fitted the drop to where it lands", now);
+                } else {
+                    ed.toast("Nothing under where it lands", now);
+                }
+            }
             let window_changed = window != window_before;
             if let (true, Some(i), Some(w)) = (window_changed, window_index, window) {
                 if let Some(slot) = ed.doc_mut().layout.windows.get_mut(i) {
@@ -863,7 +1006,7 @@ fn properties(
                     (area.width, area.depth) = size;
                 }
             }
-            if edited != at || resized || light_changed || flame_changed || door_changed || window_changed {
+            if edited != at || resized || light_changed || flame_changed || door_changed || window_changed || water_changed || fall_changed {
                 id.set(ed.doc_mut(), edited);
                 // One undo step for a whole drag / typed value.
                 if !ed.inspector_editing {
@@ -887,6 +1030,10 @@ fn properties(
                     DIM,
                     "Zombies only: zombies come up outside (the red circle), tear the boards off and climb in over the sill; players can't pass, but shots go through. Its spot is the floor inside, under the middle of the opening and halfway through the wall; the arrow points inside. Needs ground outside to stand on",
                 );
+            } else if let ObjectId::Water(_) = id {
+                ui.colored_label(DIM, "Just looks — shallow water to wade through, it doesn't slow anyone. Its spot is the middle of its surface: put it over a sunken floor and raise it to the water line (moving it keeps its height — lock to Y to raise it)");
+            } else if let ObjectId::Waterfall(_) = id {
+                ui.colored_label(DIM, "Just looks. Its spot is the middle of its lip, where the water leaves the wall; the arrow's the way it pours. Land it in a pool for rings and foam where it hits");
             } else if let ObjectId::Flame(_) = id {
                 ui.colored_label(DIM, "Always burning — power on or off, day or night, every mode. Its spot is the bottom of the flames: drag it onto the bowl");
             } else if let ObjectId::PlayerSpawn(_) = id {

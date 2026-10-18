@@ -21,6 +21,12 @@ outside ground height the same as inside
 width: 2m
 height: 3m
 
+# Water
+
+- Bullet holes are showing on waters surface or slightly above it at ground level.
+- Water should reflect the map. There should be settings for how much reflection it has.
+- Add splash and wave effect effect around enemies and players including self when moving thorugh the water.
+
 # First person animations
 
 # Remote player animations

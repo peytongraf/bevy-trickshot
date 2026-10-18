@@ -2,7 +2,8 @@
 //! ([`AppState::LevelEditor`]). It places everything a `Zombies` game puts on
 //! a map (the perk machines, Der Wunderfizz, the Pack-a-Punch, the ammo crate,
 //! the power switch, the wall buys, the exfil radio and area, the Rampage
-//! Inducer, the lights the power turns on, the players' start spots) and
+//! Inducer, the lights the power turns on, the fires, doors, windows, water
+//! and waterfalls, the players' start spots) and
 //! saves each map's layout to its file in
 //! `shared/levels/` (`shared::level`), which the client and the server both
 //! build in — rebuild them to play the new layout.
@@ -92,6 +93,7 @@ impl Plugin for LevelEditorPlugin {
                         sync_objects,
                         sync_editor_lights,
                         sync_editor_flames,
+                        sync_editor_water,
                         sync_editor_windows,
                         input::draw_gizmos,
                     )
@@ -161,6 +163,14 @@ pub(crate) enum ObjectId {
     /// the wall, its arrow pointing inside; its opening's size, sill and the
     /// wall's thickness are the properties panel's.
     Window(u8),
+    /// One of the pools of water (`ZombiesLayout::waters`, by index) — its
+    /// spot is the middle of its surface; its size and look are the
+    /// properties panel's.
+    Water(u8),
+    /// One of the waterfalls (`ZombiesLayout::waterfalls`, by index) — its
+    /// spot is the middle of its lip, its arrow the way it pours; its
+    /// width, drop and look are the properties panel's.
+    Waterfall(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -346,6 +356,46 @@ impl ObjectId {
         "Window 32",
     ];
 
+    /// Names for the pools ([`ObjectId::Water`]).
+    const WATER_LABELS: [&'static str; shared::level::MAX_WATERS] = [
+        "Water 1",
+        "Water 2",
+        "Water 3",
+        "Water 4",
+        "Water 5",
+        "Water 6",
+        "Water 7",
+        "Water 8",
+        "Water 9",
+        "Water 10",
+        "Water 11",
+        "Water 12",
+        "Water 13",
+        "Water 14",
+        "Water 15",
+        "Water 16",
+    ];
+
+    /// Names for the waterfalls ([`ObjectId::Waterfall`]).
+    const WATERFALL_LABELS: [&'static str; shared::level::MAX_WATERFALLS] = [
+        "Waterfall 1",
+        "Waterfall 2",
+        "Waterfall 3",
+        "Waterfall 4",
+        "Waterfall 5",
+        "Waterfall 6",
+        "Waterfall 7",
+        "Waterfall 8",
+        "Waterfall 9",
+        "Waterfall 10",
+        "Waterfall 11",
+        "Waterfall 12",
+        "Waterfall 13",
+        "Waterfall 14",
+        "Waterfall 15",
+        "Waterfall 16",
+    ];
+
     /// The stand-ins.
     pub(crate) const REFERENCES: [ObjectId; 2] =
         [ObjectId::Reference(RefKind::Player), ObjectId::Reference(RefKind::Zombie)];
@@ -370,6 +420,8 @@ impl ObjectId {
             ObjectId::Flame(i) => Self::FLAME_LABELS[(i as usize).min(Self::FLAME_LABELS.len() - 1)],
             ObjectId::Door(i) => Self::DOOR_LABELS[(i as usize).min(Self::DOOR_LABELS.len() - 1)],
             ObjectId::Window(i) => Self::WINDOW_LABELS[(i as usize).min(Self::WINDOW_LABELS.len() - 1)],
+            ObjectId::Water(i) => Self::WATER_LABELS[(i as usize).min(Self::WATER_LABELS.len() - 1)],
+            ObjectId::Waterfall(i) => Self::WATERFALL_LABELS[(i as usize).min(Self::WATERFALL_LABELS.len() - 1)],
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -389,6 +441,8 @@ impl ObjectId {
                 | ObjectId::Flame(_)
                 | ObjectId::Door(_)
                 | ObjectId::Window(_)
+                | ObjectId::Water(_)
+                | ObjectId::Waterfall(_)
         )
     }
 
@@ -414,7 +468,9 @@ impl ObjectId {
             | ObjectId::PowerLight(_)
             | ObjectId::Flame(_)
             | ObjectId::Door(_)
-            | ObjectId::Window(_) => None,
+            | ObjectId::Window(_)
+            | ObjectId::Water(_)
+            | ObjectId::Waterfall(_) => None,
         }
     }
 
@@ -435,6 +491,8 @@ impl ObjectId {
                     | ObjectId::Flame(_)
                     | ObjectId::Door(_)
                     | ObjectId::Window(_)
+                    | ObjectId::Water(_)
+                    | ObjectId::Waterfall(_)
             )
     }
 
@@ -495,6 +553,8 @@ impl ObjectId {
             ObjectId::Flame(i) => layout.flames.get(i as usize).map(|f| Placement::new(f.pos, 0.0)),
             ObjectId::Door(i) => layout.doors.get(i as usize).map(|d| d.at),
             ObjectId::Window(i) => layout.windows.get(i as usize).map(|w| w.at),
+            ObjectId::Water(i) => layout.waters.get(i as usize).map(|w| w.at),
+            ObjectId::Waterfall(i) => layout.waterfalls.get(i as usize).map(|f| f.at),
         }
     }
 
@@ -553,6 +613,24 @@ impl ObjectId {
                     windows.push(shared::windows::Window::new(at));
                 }
             }
+            // (Its spot and turn; the rest is the properties panel's.)
+            ObjectId::Water(i) => {
+                let waters = &mut layout.waters;
+                if let Some(water) = waters.get_mut(i as usize) {
+                    water.at = at.with_scale(1.0);
+                } else if waters.len() < shared::level::MAX_WATERS {
+                    waters.push(shared::level::Water::new(at));
+                }
+            }
+            // (Its spot and turn; the rest is the properties panel's.)
+            ObjectId::Waterfall(i) => {
+                let falls = &mut layout.waterfalls;
+                if let Some(fall) = falls.get_mut(i as usize) {
+                    fall.at = at.with_scale(1.0);
+                } else if falls.len() < shared::level::MAX_WATERFALLS {
+                    falls.push(shared::level::Waterfall::new(at));
+                }
+            }
             // (The same: only its position here.)
             ObjectId::Flame(i) => {
                 let flames = &mut layout.flames;
@@ -602,6 +680,14 @@ impl ObjectId {
             let i = i as usize;
             return (i < layout.windows.len()).then(|| layout.windows.remove(i)).is_some();
         }
+        if let ObjectId::Water(i) = self {
+            let i = i as usize;
+            return (i < layout.waters.len()).then(|| layout.waters.remove(i)).is_some();
+        }
+        if let ObjectId::Waterfall(i) = self {
+            let i = i as usize;
+            return (i < layout.waterfalls.len()).then(|| layout.waterfalls.remove(i)).is_some();
+        }
         if let ObjectId::WallBuy(gun) = self {
             let before = layout.wall_buys.len();
             layout.wall_buys.retain(|w| w.weapon != gun);
@@ -634,6 +720,8 @@ impl ObjectId {
             ObjectId::Flame(_) => Color::srgb(1.0, 0.5, 0.12),
             ObjectId::Door(_) => Color::srgb(0.85, 0.72, 0.5),
             ObjectId::Window(_) => Color::srgb(0.8, 0.62, 0.4),
+            ObjectId::Water(_) => Color::srgb(0.2, 0.75, 0.85),
+            ObjectId::Waterfall(_) => Color::srgb(0.55, 0.9, 1.0),
         }
     }
 
@@ -659,6 +747,8 @@ impl ObjectId {
             // (Rebuilt from inside — a rectangle, drawn by
             // `input::draw_gizmos`.)
             ObjectId::Window(_) => shared::windows::REPAIR_REACH,
+            // (Not used — just looked at.)
+            ObjectId::Water(_) | ObjectId::Waterfall(_) => 0.0,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -694,6 +784,23 @@ impl ObjectId {
                 let w = doc.layout.windows.get(i as usize).copied().unwrap_or_else(|| shared::windows::Window::new(Placement::default()));
                 let half = Vec3::new(w.size.x * 0.5, w.size.y * 0.5, w.depth * 0.5);
                 (Vec3::Y * (w.sill + half.y), half)
+            }
+            // A pool: its surface (a thin slab, its spot in the middle).
+            ObjectId::Water(i) => {
+                let size = doc.layout.waters.get(i as usize).map_or(Vec2::splat(6.0), |w| w.size);
+                (Vec3::ZERO, Vec3::new(size.x * 0.5, 0.05, size.y * 0.5))
+            }
+            // A waterfall: from its lip down to where it lands.
+            ObjectId::Waterfall(i) => {
+                let f = doc
+                    .layout
+                    .waterfalls
+                    .get(i as usize)
+                    .copied()
+                    .unwrap_or_else(|| shared::level::Waterfall::new(Placement::default()));
+                let foot = f.local_at(f.fall_time());
+                let half = Vec3::new(f.width * 0.6, (f.drop * 0.5).max(0.1), (foot.z * 0.5).max(0.1) + 0.05);
+                (Vec3::new(0.0, -f.drop * 0.5, foot.z * 0.5), half)
             }
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
@@ -739,6 +846,8 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     out.extend((0..doc.layout.flames.len() as u8).map(ObjectId::Flame));
     out.extend((0..doc.layout.doors.len() as u8).map(ObjectId::Door));
     out.extend((0..doc.layout.windows.len() as u8).map(ObjectId::Window));
+    out.extend((0..doc.layout.waters.len() as u8).map(ObjectId::Water));
+    out.extend((0..doc.layout.waterfalls.len() as u8).map(ObjectId::Waterfall));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -1309,6 +1418,31 @@ fn sync_editor_flames(
     );
 }
 
+/// On the editor's water.
+#[derive(Component)]
+struct EditorWater;
+
+/// Keep the shown layout's pools and waterfalls as a game has them,
+/// matching it as it's edited.
+fn sync_editor_water(
+    editor: Res<Editor>,
+    existing: Query<(Entity, &crate::water::MapWater), With<EditorWater>>,
+    mut builder: crate::water::WaterBuilder,
+    mut commands: Commands,
+    mut shown: Local<crate::water::ShownWater>,
+) {
+    let (waters, falls): (&[shared::level::Water], &[shared::level::Waterfall]) = if editor.docs.is_empty() {
+        (&[], &[])
+    } else {
+        let layout = &editor.doc().layout;
+        (&layout.waters, &layout.waterfalls)
+    };
+    // (Silent in the editor.)
+    builder.sync(waters, falls, &mut shown, &existing, None, &mut commands, || {
+        (StateScoped(AppState::LevelEditor), EditorWater)
+    });
+}
+
 /// On the editor's windows' solid look (`sync_editor_windows`).
 #[derive(Component)]
 struct EditorWindow;
@@ -1421,7 +1555,13 @@ fn model_of(
         // (A fire draws itself, live — `sync_editor_flames`.)
         // (A window's drawn by `input::draw_gizmos`: its opening, boards and
         // the way zombies come in.)
-        ObjectId::ExfilArea | ObjectId::PowerLight(_) | ObjectId::Flame(_) | ObjectId::Window(_) => return None,
+        // (The water draws itself, live — `sync_editor_water`.)
+        ObjectId::ExfilArea
+        | ObjectId::PowerLight(_)
+        | ObjectId::Flame(_)
+        | ObjectId::Window(_)
+        | ObjectId::Water(_)
+        | ObjectId::Waterfall(_) => return None,
         ObjectId::WallBuy(_) => (crate::wall_buys::SIGN_MODEL, Transform::IDENTITY),
         // (Turned to face +Z at the model's own size — the root stretches it
         // to the door's, `root_transform_of`.)

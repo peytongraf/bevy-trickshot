@@ -198,6 +198,11 @@ pub(crate) fn body_capsule_pose(drop: f32, cfg: &SlideSettings) -> Transform {
 /// * still → toggle **prone** ⇄ whatever you were (standing or crouched);
 /// * standing + moving → **dolphin dive**: a forward hop that lands prone, the
 ///   dive-sound firing on impact. Can't dive while crouched.
+///
+/// Wading in the map's water there's no going prone (the camera would dip
+/// under the surface): the key says so instead ([`ProneBlocked`]), a dive
+/// into it lands crouched, and crawling into it gets you up. A slide
+/// through it splashes (`water_slide`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn crouch_slide(
     time: Res<Time>,
@@ -206,10 +211,12 @@ pub(crate) fn crouch_slide(
     binds: Res<KeyBindings>,
     window: Single<&Window, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
-    (classic, revive, mut was_down): (
+    (classic, revive, mut was_down, current_map, mut prone_blocked): (
         Res<crate::zombies_hud::ClassicPerks>,
         Res<crate::revive::LocalRevive>,
         Local<bool>,
+        Res<crate::CurrentMap>,
+        EventWriter<ProneBlocked>,
     ),
     sounds: Res<GameSounds>,
     weapon: Res<Weapon>,
@@ -250,6 +257,7 @@ pub(crate) fn crouch_slide(
 
     let (transform, mut physics) = player.into_inner();
     let grounded = physics.grounded;
+    let wading = crate::water::wading(current_map.0, transform.translation);
     let planar = Vec3::new(
         physics.horizontal_velocity.x,
         0.0,
@@ -288,9 +296,16 @@ pub(crate) fn crouch_slide(
                     if let Some(e) = slide.sound.take() {
                         commands.entity(e).try_despawn();
                     }
-                    // PhD Flopper has its own slide sound.
+                    // PhD Flopper has its own slide sound, and so does
+                    // water.
                     let phd = classic.has(shared::perks::Perk::PhdFlopper);
-                    let clip = if phd { &sounds.phd_slide } else { &sounds.slide };
+                    let clip = if phd {
+                        &sounds.phd_slide
+                    } else if wading {
+                        &sounds.water_slide
+                    } else {
+                        &sounds.slide
+                    };
                     slide.sound = Some(
                         commands
                             .spawn((AudioPlayer::new(clip.clone()), PlaybackSettings::DESPAWN))
@@ -300,6 +315,8 @@ pub(crate) fn crouch_slide(
                 } else {
                     slide.stance = Stance::Crouching;
                 }
+            } else if grounded && prone_pressed && wading {
+                prone_blocked.write(ProneBlocked);
             } else if grounded && prone_pressed {
                 if moving {
                     // Dolphin dive: leap forward, land prone (sound on impact).
@@ -319,6 +336,8 @@ pub(crate) fn crouch_slide(
             if sprint_pressed {
                 // Stand up and take off — sprint is already on from `toggle_sprint`.
                 slide.stance = Stance::Standing;
+            } else if prone_pressed && wading {
+                prone_blocked.write(ProneBlocked);
             } else if prone_pressed {
                 // No diving out of a crouch — just drop prone.
                 slide.stance = Stance::Prone;
@@ -351,8 +370,9 @@ pub(crate) fn crouch_slide(
         }
         Stance::Diving => {
             if grounded {
-                // Belly hit the ground: settle prone and thump.
-                slide.stance = Stance::Prone;
+                // Belly hit the ground: settle prone and thump — or, in
+                // water, crouched.
+                slide.stance = if wading { Stance::Crouching } else { Stance::Prone };
                 slide.prone_from = Stance::Standing;
                 commands.spawn((
                     AudioPlayer::new(sounds.dive.clone()),
@@ -362,7 +382,11 @@ pub(crate) fn crouch_slide(
             }
         }
         Stance::Prone => {
-            if sprint_pressed {
+            if wading && !down {
+                // Crawled into the water: up out of it.
+                slide.stance = Stance::Crouching;
+                prone_blocked.write(ProneBlocked);
+            } else if sprint_pressed {
                 // Stand straight up and take off.
                 slide.stance = Stance::Standing;
             } else if prone_pressed || jump_pressed || crouch_pressed {
@@ -397,4 +421,77 @@ pub(crate) fn crouch_slide(
     // The (invisible, shadow-only) body capsule follows the same drop, so its
     // shadow reads as crouched / prone instead of always standing tall.
     **capsule = body_capsule_pose(slide.drop, &cfg);
+}
+
+/// The prone key pressed where there's no going prone (wading in water) —
+/// [`prone_blocked_notice`] says so.
+#[derive(Event)]
+pub(crate) struct ProneBlocked;
+
+/// The "can't go prone here" message.
+#[derive(Component)]
+pub(crate) struct ProneBlockedNotice {
+    age: f32,
+}
+
+const PRONE_NOTICE_TEXT: &str = "Cannot go prone here";
+const PRONE_NOTICE_HOLD: f32 = 1.2;
+const PRONE_NOTICE_TTL: f32 = 1.8;
+
+/// Show (or restart) the message on a [`ProneBlocked`], hold it a moment,
+/// then fade it out.
+pub(crate) fn prone_blocked_notice(
+    time: Res<Time>,
+    asset_server: Res<AssetServer>,
+    mut blocked: EventReader<ProneBlocked>,
+    mut notices: Query<(Entity, &mut ProneBlockedNotice, &Children)>,
+    mut texts: Query<&mut TextColor>,
+    mut commands: Commands,
+) {
+    if blocked.read().count() > 0 {
+        if let Some((_, mut notice, _)) = notices.iter_mut().next() {
+            notice.age = 0.0;
+        } else {
+            commands
+                .spawn((
+                    ProneBlockedNotice { age: 0.0 },
+                    StateScoped(crate::AppState::InGame),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(0.0),
+                        right: Val::Percent(0.0),
+                        top: Val::Percent(64.0),
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                ))
+                .with_child((
+                    Text::new(PRONE_NOTICE_TEXT),
+                    TextFont {
+                        font: asset_server.load(crate::HUD_FONT),
+                        font_size: 26.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            return;
+        }
+    }
+    for (entity, mut notice, children) in &mut notices {
+        notice.age += time.delta_secs();
+        if notice.age >= PRONE_NOTICE_TTL {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let a = if notice.age < PRONE_NOTICE_HOLD {
+            1.0
+        } else {
+            1.0 - (notice.age - PRONE_NOTICE_HOLD) / (PRONE_NOTICE_TTL - PRONE_NOTICE_HOLD)
+        };
+        for child in children {
+            if let Ok(mut tc) = texts.get_mut(*child) {
+                tc.0 = Color::WHITE.with_alpha(a.clamp(0.0, 1.0));
+            }
+        }
+    }
 }

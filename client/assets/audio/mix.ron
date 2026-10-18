@@ -81,6 +81,14 @@
             width: 0.75,
             air_hz: 8000.0,
         ),
+        "Waterfall": (
+            volume_db: 0.0,
+            near: 2.0,
+            far: 25.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 20000.0,
+        ),
         "Zombies": (
             volume_db: 0.0,
             near: 0.0,
@@ -101,6 +109,9 @@
             profile: Some("Players"),
             bus: Some(Movement),
             reverb: Some(true),
+        ),
+        "movement/water_footsteps": (
+            volume_db: -12.0,
         ),
         "music": (
             bus: Some(Music),
@@ -196,6 +207,10 @@
         ),
         "ambient/shipment.ogg": (
             volume_db: 7.96,
+        ),
+        "ambient/waterfall_loop.mp3": (
+            profile: Some("Waterfall"),
+            bus: Some(World),
         ),
         "combat/kill_enemy.mp3": (
             volume_db: 9.54,

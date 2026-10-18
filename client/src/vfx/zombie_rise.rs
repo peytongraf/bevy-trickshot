@@ -11,6 +11,9 @@
 //! as it spawned — and corrected upward if it ever turns out higher.
 //! [`RiseFx`] lives on the avatar, so it goes with it; the particles are
 //! `StateScoped(InGame)` — nothing to reset between games.
+//!
+//! Coming up out of a pool (`shared::level::Water`), it throws up water
+//! instead, from the surface (`water::spawn_splash`).
 
 use bevy::prelude::*;
 use shared::zombies::ZOMBIE_RISE_DEPTH;
@@ -19,7 +22,8 @@ use shared::{PlayerPose, ZombieAnim};
 use super::impacts::{spawn_debris, DebrisBurst, DustSettings, ImpactAssets, ImpactParticle, RockSettings, IMPACT_MAX};
 use crate::net::RemoteAvatar;
 use crate::util::rand01;
-use crate::ZombieVisual;
+use crate::water::{spawn_splash, surface_over, SplashParticle, WaterAssets, WaterRipples};
+use crate::{CurrentMap, ZombieVisual};
 
 /// How far through the climb (0..1) the effect reaches full strength — just
 /// before the zombie's head breaks the surface — and holds from there.
@@ -40,13 +44,15 @@ const RADIUS: (f32, f32) = (0.2, 0.6);
 pub(crate) struct RiseFx {
     ground_y: f32,
     owed: f32,
+    /// The surface of the water it's coming up through, if it is.
+    water: Option<f32>,
 }
 
 fn lerp((a, b): (f32, f32), t: f32) -> f32 {
     a + (b - a) * t
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn zombie_rise_debris(
     time: Res<Time>,
     assets: Res<ImpactAssets>,
@@ -55,12 +61,19 @@ pub(crate) fn zombie_rise_debris(
     poses: Query<&PlayerPose>,
     mut avatars: Query<(Entity, &RemoteAvatar, Option<&mut RiseFx>), With<ZombieVisual>>,
     existing: Query<(), With<ImpactParticle>>,
+    (current_map, water_assets, splashes, mut ripples): (
+        Res<CurrentMap>,
+        Option<Res<WaterAssets>>,
+        Query<(), With<SplashParticle>>,
+        ResMut<WaterRipples>,
+    ),
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
     mut seq: Local<u32>,
 ) {
     let dt = time.delta_secs();
     let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
+    let mut splashed = splashes.iter().count();
     for (entity, avatar, fx) in &mut avatars {
         let pose = poses.get(avatar.src).ok();
         let rising = pose.is_some_and(|p| p.alive && p.zombie == ZombieAnim::Rising);
@@ -72,9 +85,11 @@ pub(crate) fn zombie_rise_debris(
         };
         let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
         let Some(mut fx) = fx else {
+            let ground_y = feet.y + ZOMBIE_RISE_DEPTH;
             commands.entity(entity).insert(RiseFx {
-                ground_y: feet.y + ZOMBIE_RISE_DEPTH,
+                ground_y,
                 owed: 0.0,
+                water: surface_over(current_map.0, Vec3::new(feet.x, ground_y, feet.z)),
             });
             continue;
         };
@@ -91,6 +106,15 @@ pub(crate) fn zombie_rise_debris(
             let angle = rand01(s ^ 0x1) * core::f32::consts::TAU;
             let r = lerp(RADIUS, t) * rand01(s ^ 0x2).sqrt();
             let at = Vec3::new(feet.x + r * angle.cos(), fx.ground_y, feet.z + r * angle.sin());
+            if let (Some(surface), Some(water)) = (fx.water, water_assets.as_deref()) {
+                let at = Vec3::new(at.x, surface, at.z);
+                splashed += spawn_splash(&mut commands, water, splashed, at, lerp(POWER, t), Vec3::ZERO, s);
+                // (Now and then a ring too — the water heaving over it.)
+                if rand01(s ^ 0x5) < 0.2 {
+                    ripples.add(at, time.elapsed_secs_wrapped(), lerp((0.3, 1.0), t));
+                }
+                continue;
+            }
             // (Rounding the counts randomly, so e.g. 1.5 is one or two.)
             let count = |range: (f32, f32), salt: u32| {
                 let n = lerp(range, t);

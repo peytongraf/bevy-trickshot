@@ -255,6 +255,9 @@ pub(crate) struct PlaybackSettings {
     /// Panned from the entity's `GlobalTransform` around the
     /// [`SpatialListener`], following it as it moves.
     pub(crate) spatial: bool,
+    /// How far into the clip (0..1) it starts — so several copies of one
+    /// loop don't all play the same thing at once.
+    pub(crate) start: f32,
 }
 
 impl Default for PlaybackSettings {
@@ -270,6 +273,7 @@ impl PlaybackSettings {
         speed: 1.0,
         paused: false,
         spatial: false,
+        start: 0.0,
     };
     pub(crate) const LOOP: Self = Self {
         mode: PlaybackMode::Loop,
@@ -290,6 +294,10 @@ impl PlaybackSettings {
 
     pub(crate) const fn with_spatial(self, spatial: bool) -> Self {
         Self { spatial, ..self }
+    }
+
+    pub(crate) const fn with_start(self, start: f32) -> Self {
+        Self { start, ..self }
     }
 }
 
@@ -413,7 +421,7 @@ fn play_queued(
             end_playback(commands.entity(entity), settings.mode);
             continue;
         }
-        let clip = match decoder::open(&source.bytes) {
+        let mut clip = match decoder::open(&source.bytes) {
             Ok(clip) => clip,
             Err(e) => {
                 warn!("can't decode {:?}: {e}", player.0.path());
@@ -421,6 +429,9 @@ fn play_queued(
                 continue;
             }
         };
+        if settings.start > 0.0 {
+            clip.skip_to(settings.start);
+        }
         let reverb = resolved.reverb.unwrap_or(settings.spatial);
         let looping = settings.mode == PlaybackMode::Loop;
         let playback = Arc::new(Playback::new(

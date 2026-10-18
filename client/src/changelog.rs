@@ -15,6 +15,15 @@
 /// this will ship under — keep it in sync with the workspace `Cargo.toml`
 /// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.8",
+    &[
+        "Wading, falling and blasts splash the water; ripples and a waterline around anything in it.",
+        "Zombies rising from water splash up out of it.",
+        "Can't go prone in water; slides splash.",
+        "Splashy footsteps in water, and waterfalls you can hear.",
+        "Level editor: add water and waterfalls — rippling, see-through pools, splashing and misting where they land.",
+    ],
+), (
     "0.4.7",
     &[
         "Other players mantle too — weapon on their back, hands on the ledge as they climb up.",

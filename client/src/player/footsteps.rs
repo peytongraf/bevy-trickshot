@@ -14,6 +14,9 @@ use super::slide::{Slide, Stance};
 
 /// How many `audio/movement/footsteps/footstep_N.wav` clips there are (1-indexed).
 pub(crate) const FOOTSTEP_CLIPS: usize = 10;
+/// How many `audio/movement/water_footsteps/water_footstep_N.mp3` clips
+/// there are (1-indexed) — played instead while wading.
+pub(crate) const WATER_FOOTSTEP_CLIPS: usize = 7;
 
 /// Panel-adjustable footstep audio ("Footsteps" panel section). One step plays
 /// every `*_stride` metres travelled on foot, so cadence rises with speed and
@@ -108,18 +111,21 @@ pub(crate) fn play_footstep(
 /// player's actual speed and each stance (crouch-walk / walk / sprint / prone)
 /// gets its own stride length and loudness. No steps while airborne, sliding,
 /// diving or standing still; the first step after a standstill fires at once.
+/// Wading through the map's water, they splash (`water_footsteps`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn footsteps(
     time: Res<Time>,
     cfg: Res<FootstepSettings>,
     sounds: Res<GameSounds>,
+    current_map: Res<crate::CurrentMap>,
     slide: Res<Slide>,
     sprinting: Res<Sprinting>,
-    physics: Single<&PlayerPhysics, With<Player>>,
+    player: Single<(&PlayerPhysics, &Transform), With<Player>>,
     mut state: ResMut<FootstepState>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
     mut commands: Commands,
 ) {
+    let (physics, transform) = *player;
     let planar = Vec3::new(
         physics.horizontal_velocity.x,
         0.0,
@@ -144,13 +150,18 @@ pub(crate) fn footsteps(
     };
     let stride = stride.max(0.1);
     let volume = (stance_vol * cfg.volume).max(0.0);
+    let clips = if crate::water::wading(current_map.0, transform.translation) {
+        &sounds.water_footsteps
+    } else {
+        &sounds.footsteps
+    };
 
     if !state.was_moving {
         state.was_moving = true;
         state.accum = 0.0;
         play_footstep(
             &mut commands,
-            &sounds.footsteps,
+            clips,
             &mut state,
             volume,
             cfg.pitch_jitter,
@@ -168,7 +179,7 @@ pub(crate) fn footsteps(
         budget -= 1;
         play_footstep(
             &mut commands,
-            &sounds.footsteps,
+            clips,
             &mut state,
             volume,
             cfg.pitch_jitter,

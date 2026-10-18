@@ -85,6 +85,8 @@ mod ui;
 mod updater;
 mod util;
 mod vfx;
+mod water;
+mod water_wake;
 mod wall_buys;
 mod weapon_drops;
 mod weapon_editor;
@@ -276,6 +278,7 @@ fn main() {
         .add_plugins(power::PowerPlugin)
         .add_plugins(earthquake::EarthquakePlugin)
         .add_plugins(flames::FlamesPlugin)
+        .add_plugins((water::WaterPlugin, water_wake::WaterWakePlugin))
         .add_plugins(doors::DoorsPlugin)
         .add_plugins(windows::WindowsPlugin)
         .add_plugins(pap::PapPlugin)
@@ -393,6 +396,8 @@ fn main() {
         .init_resource::<MantleSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
+        .add_event::<ProneBlocked>()
+        .add_systems(Update, prone_blocked_notice.run_if(in_state(AppState::InGame)))
         .init_resource::<MapLooks>()
         .init_resource::<CurrentMap>()
         .init_resource::<MapLoadState>()
@@ -1080,6 +1085,11 @@ fn setup_player(
                                         // The player's "ears" for every
                                         // positional sound (`audio_engine`).
                                         audio_engine::SpatialListener,
+                                        // What's behind the water at each pixel —
+                                        // how deep it is there, the waterline on
+                                        // anything standing in it, and what its
+                                        // refraction mustn't pick up (`water.wgsl`).
+                                        bevy::core_pipeline::prepass::DepthPrepass,
                                     ));
 
                                     // Scope camera: renders the world (layer 0) plus

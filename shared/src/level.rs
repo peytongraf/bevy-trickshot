@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use bevy::math::{Quat, Vec3};
+use bevy::math::{Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::perks::Perk;
@@ -291,6 +291,199 @@ impl Flame {
     }
 }
 
+/// A pool of still water on the map — a flooded floor, a basin — its
+/// surface a flat rectangle (the client's `water`: rippling, see-through and
+/// bending what's under it). Only how it looks: shallow enough to wade, it
+/// doesn't slow or stop anything. Placed and tuned in the level editor.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Water {
+    /// The middle of its surface (m, world) and its turn.
+    pub at: Placement,
+    /// Its surface's `width × length` (m, along its own x and z).
+    pub size: Vec2,
+    /// The colour the water tints what's under it, deeper down (sRGB).
+    #[serde(default = "default_water_color")]
+    pub color: [f32; 3],
+    /// How far (m) down light goes before it takes on [`Self::color`] —
+    /// bigger, clearer water.
+    #[serde(default = "default_water_clarity")]
+    pub clarity: f32,
+    /// How deep it looks (m): how far the floor under it seems bent.
+    #[serde(default = "default_water_depth")]
+    pub depth: f32,
+    /// How rough its surface is (0 = a mirror-flat millpond).
+    #[serde(default = "default_water_waves")]
+    pub waves: f32,
+    /// How strongly the light it bends dances on the floor under it.
+    #[serde(default = "default_water_caustics")]
+    pub caustics: f32,
+}
+
+fn default_water_color() -> [f32; 3] {
+    [0.1, 0.62, 0.6]
+}
+
+fn default_water_clarity() -> f32 {
+    1.2
+}
+
+fn default_water_depth() -> f32 {
+    0.6
+}
+
+fn default_water_waves() -> f32 {
+    0.5
+}
+
+fn default_water_caustics() -> f32 {
+    0.6
+}
+
+/// Most pools a map keeps.
+/// Deepest (m) under a [`Water`]'s surface that feet count as wading in it.
+pub const WADE_DEPTH: f32 = 1.5;
+
+pub const MAX_WATERS: usize = 16;
+
+impl Water {
+    /// A fresh one, its surface's middle at `at`.
+    pub fn new(at: Placement) -> Self {
+        Self {
+            at: at.with_scale(1.0),
+            size: Vec2::new(6.0, 6.0),
+            color: default_water_color(),
+            clarity: default_water_clarity(),
+            depth: default_water_depth(),
+            waves: default_water_waves(),
+            caustics: default_water_caustics(),
+        }
+    }
+
+    /// Whether `p` is over (or under) its surface, across the ground.
+    pub fn covers(&self, p: Vec3) -> bool {
+        let local = self.at.rotation().inverse() * (p - self.at.pos);
+        local.x.abs() <= self.size.x * 0.5 && local.z.abs() <= self.size.y * 0.5
+    }
+
+    /// Whether someone with their feet at `feet` is wading in it: over it
+    /// and under its surface — but not a floor well below it, under a
+    /// bridge, say.
+    pub fn wading(&self, feet: Vec3) -> bool {
+        let below = self.at.pos.y - feet.y;
+        self.covers(feet) && below > 0.0 && below < WADE_DEPTH
+    }
+
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
+        format!(
+            "(at: {}, size: ({:?}, {:?}), color: ({:?}, {:?}, {:?}), clarity: {:?}, depth: {:?}, waves: {:?}, caustics: {:?})",
+            self.at.with_scale(1.0).to_ron(),
+            r(self.size.x, 1000.0),
+            r(self.size.y, 1000.0),
+            r(self.color[0], 1000.0),
+            r(self.color[1], 1000.0),
+            r(self.color[2], 1000.0),
+            r(self.clarity, 100.0),
+            r(self.depth, 100.0),
+            r(self.waves, 100.0),
+            r(self.caustics, 100.0),
+        )
+    }
+}
+
+/// A waterfall pouring off a wall — out of a spout or over a ledge — down
+/// into a pool (a [`Water`]) or onto the floor: a falling sheet of water
+/// that breaks up into strands as it drops, and a churning, misty splash
+/// where it lands (the client's `water`). Only how it looks. Placed and
+/// tuned in the level editor.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Waterfall {
+    /// The middle of its lip — where the water leaves the wall — and its
+    /// turn: it pours out along its front (+Z).
+    pub at: Placement,
+    /// How wide (m) it is at the lip.
+    pub width: f32,
+    /// How far (m) it falls — where it lands is this far below the lip.
+    pub drop: f32,
+    /// How fast (m/s) the water comes off the lip — how far out from the
+    /// wall it arcs (0 = straight down the wall).
+    #[serde(default = "default_waterfall_flow")]
+    pub flow: f32,
+    /// How much it churns and mists up where it lands (0 = none).
+    #[serde(default = "default_waterfall_spray")]
+    pub spray: f32,
+    /// How solid the sheet looks (0 = see-through strands only).
+    #[serde(default = "default_waterfall_opacity")]
+    pub opacity: f32,
+}
+
+fn default_waterfall_flow() -> f32 {
+    1.2
+}
+
+fn default_waterfall_spray() -> f32 {
+    1.0
+}
+
+fn default_waterfall_opacity() -> f32 {
+    0.8
+}
+
+/// Most waterfalls a map keeps.
+pub const MAX_WATERFALLS: usize = 16;
+
+/// Gravity (m/s²) a waterfall falls with.
+const WATERFALL_G: f32 = 9.81;
+
+impl Waterfall {
+    /// A fresh one, its lip at `at`.
+    pub fn new(at: Placement) -> Self {
+        Self {
+            at: at.with_scale(1.0),
+            width: 1.2,
+            drop: 3.0,
+            flow: default_waterfall_flow(),
+            spray: default_waterfall_spray(),
+            opacity: default_waterfall_opacity(),
+        }
+    }
+
+    pub fn rotation(&self) -> Quat {
+        self.at.rotation()
+    }
+
+    /// How long (s) the water takes to fall from the lip to where it lands.
+    pub fn fall_time(&self) -> f32 {
+        (2.0 * self.drop.max(0.0) / WATERFALL_G).sqrt()
+    }
+
+    /// Where the water is `t` seconds after leaving the lip, in its own
+    /// frame (x across it, y up, z out from the wall).
+    pub fn local_at(&self, t: f32) -> Vec3 {
+        Vec3::new(0.0, -0.5 * WATERFALL_G * t * t, self.flow * t)
+    }
+
+    /// Where (the middle of) it lands, in the world.
+    pub fn foot(&self) -> Vec3 {
+        self.at.pos + self.rotation() * self.local_at(self.fall_time())
+    }
+
+    /// As RON, on one line, rounded like a [`Placement`].
+    fn to_ron(self) -> String {
+        let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
+        format!(
+            "(at: {}, width: {:?}, drop: {:?}, flow: {:?}, spray: {:?}, opacity: {:?})",
+            self.at.with_scale(1.0).to_ron(),
+            r(self.width, 1000.0),
+            r(self.drop, 1000.0),
+            r(self.flow, 100.0),
+            r(self.spray, 100.0),
+            r(self.opacity, 100.0),
+        )
+    }
+}
+
 impl crate::doors::Door {
     /// As RON, on one line, rounded like a [`Placement`].
     fn to_ron(self) -> String {
@@ -470,6 +663,12 @@ pub struct ZombiesLayout {
     /// [`MAX_FLAMES`].
     #[serde(default)]
     pub flames: Vec<Flame>,
+    /// The pools of water on the map — up to [`MAX_WATERS`].
+    #[serde(default)]
+    pub waters: Vec<Water>,
+    /// The waterfalls pouring into them — up to [`MAX_WATERFALLS`].
+    #[serde(default)]
+    pub waterfalls: Vec<Waterfall>,
     /// The doors in the map's doorways ([`crate::doors`]) — up to
     /// [`crate::doors::MAX_DOORS`].
     #[serde(default)]
@@ -611,6 +810,16 @@ impl ZombiesLayout {
         out += "    flames: [\n";
         for flame in &self.flames {
             out += &format!("        {},\n", flame.to_ron());
+        }
+        out += "    ],\n";
+        out += "    waters: [\n";
+        for water in &self.waters {
+            out += &format!("        {},\n", water.to_ron());
+        }
+        out += "    ],\n";
+        out += "    waterfalls: [\n";
+        for fall in &self.waterfalls {
+            out += &format!("        {},\n", fall.to_ron());
         }
         out += "    ],\n";
         out += "    doors: [\n";
@@ -776,6 +985,48 @@ mod tests {
         layout.flames.push(Flame::new(Vec3::new(4.0, 2.0, -7.5)));
         let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
         assert_eq!(back.flames, layout.flames);
+    }
+
+    #[test]
+    fn water_and_waterfalls_survive_a_save_and_load() {
+        let mut layout = layout(MapId::DerTempel).clone();
+        let mut water = Water::new(Placement::new(Vec3::new(-10.0, 0.4, 22.5), 30.0));
+        water.size = Vec2::new(8.5, 12.25);
+        water.color = [0.2, 0.5, 0.45];
+        water.waves = 0.8;
+        layout.waters.push(water);
+        let mut fall = Waterfall::new(Placement::new(Vec3::new(-10.0, 3.5, 17.0), 0.0));
+        fall.width = 2.0;
+        fall.drop = 3.1;
+        fall.spray = 1.5;
+        layout.waterfalls.push(fall);
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.waters, layout.waters);
+        assert_eq!(back.waterfalls, layout.waterfalls);
+    }
+
+    #[test]
+    fn wading_is_only_in_the_water() {
+        let water = Water::new(Placement::new(Vec3::new(10.0, 1.0, 0.0), 0.0));
+        // Ankle-deep, in the middle and near an edge.
+        assert!(water.wading(Vec3::new(10.0, 0.75, 0.0)));
+        assert!(water.wading(Vec3::new(12.9, 0.75, -2.9)));
+        // Beside it, above it, and on a floor well below it.
+        assert!(!water.wading(Vec3::new(13.5, 0.75, 0.0)));
+        assert!(!water.wading(Vec3::new(10.0, 1.2, 0.0)));
+        assert!(!water.wading(Vec3::new(10.0, -2.0, 0.0)));
+    }
+
+    #[test]
+    fn a_waterfall_lands_out_from_its_wall() {
+        let fall = Waterfall::new(Placement::new(Vec3::new(0.0, 4.0, 0.0), 90.0));
+        let foot = fall.foot();
+        assert!((foot.y - (4.0 - fall.drop)).abs() < 1e-4);
+        // (Turned to face +X, it lands out along +X.)
+        assert!(foot.x > 0.1 && foot.z.abs() < 1e-4);
+        let water = Water::new(Placement::new(Vec3::new(foot.x, 1.0, 0.0), 0.0));
+        assert!(water.covers(foot));
+        assert!(!water.covers(Vec3::new(10.0, 1.0, 0.0)));
     }
 
     #[test]

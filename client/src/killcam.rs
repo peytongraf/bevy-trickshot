@@ -732,6 +732,7 @@ fn drive_killcam(
         Res<crate::ShakeSettings>,
         Res<crate::AdsTuning>,
         Res<crate::FootstepSettings>,
+        Res<crate::CurrentMap>,
         // Replay writes the recorded sway here, so `update_scope`'s reticle
         // counter-sway follows the replayed gun instead of frozen live state.
         ResMut<crate::WeaponSwayState>,
@@ -781,7 +782,7 @@ fn drive_killcam(
     if !run.setup {
         return; // start_killcam hasn't run yet
     }
-    let (shake_cfg, tuning, footstep_cfg, mut sway_state) = cfg;
+    let (shake_cfg, tuning, footstep_cfg, current_map, mut sway_state) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
     let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
     let (mut world_projection, view_model_single, knife_single) = cams;
@@ -1020,7 +1021,13 @@ fn drive_killcam(
             SND_RAYGUN_RELOAD,
         ] {
             if bits & bit != 0 {
-                if let Some(clip) = sound_for(&sounds, bit) {
+                let eye = Vec3::from_array(run.frames[run.sound_cursor].1.translation);
+                let clip = if bit == SND_SLIDE && crate::water::wading(current_map.0, eye) {
+                    Some(&sounds.water_slide)
+                } else {
+                    sound_for(&sounds, bit)
+                };
+                if let Some(clip) = clip {
                     // During "best play"'s slow-mo dip, `speed_mult` < 1 both
                     // stretches the clip out and drops its pitch — the
                     // playback-speed control resamples rather than just
@@ -1034,11 +1041,18 @@ fn drive_killcam(
             }
         }
         // Footsteps aren't one fixed clip (live play picks randomly from
-        // `sounds.footsteps`), so they don't go through `sound_for` — replay
-        // the same random-pick-without-repeat + pitch-jitter live play does.
+        // `sounds.footsteps`, or `water_footsteps` wading), so they don't go
+        // through `sound_for` — replay the same random-pick-without-repeat +
+        // pitch-jitter live play does.
         if bits & SND_FOOTSTEP != 0 {
             let seed = run.sound_cursor as u32;
-            if let Some(clip) = pick_footstep(&sounds.footsteps, &mut run.footstep_last, seed) {
+            let eye = Vec3::from_array(run.frames[run.sound_cursor].1.translation);
+            let clips = if crate::water::wading(current_map.0, eye) {
+                &sounds.water_footsteps
+            } else {
+                &sounds.footsteps
+            };
+            if let Some(clip) = pick_footstep(clips, &mut run.footstep_last, seed) {
                 let pitch = 1.0 + (rand_roll(seed ^ 0x5bd1_e995) / PI) * footstep_cfg.pitch_jitter;
                 commands.spawn((
                     AudioPlayer::new(clip),
