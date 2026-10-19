@@ -1782,8 +1782,9 @@ fn build_room(
                     });
                 }
 
-                // Our own primary — everyone picks theirs.
-                if lobby.mode.has_loadout() {
+                // Our own primary — everyone picks theirs (only `FreeForAll`:
+                // `Zombies` always starts with the M17).
+                if lobby.mode.picks_loadout() {
                     col.spawn(Node {
                         height: Val::Px(18.0),
                         flex_shrink: 0.0,

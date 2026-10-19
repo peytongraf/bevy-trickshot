@@ -22,6 +22,7 @@ use shared::weapon::{SlotWeapon, WeaponId};
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
 use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZE, AK_ZOMBIES_TOTAL_MAGS};
 use super::raygun::{raygun_hold_seg, raygun_idle_seg, RayGunSettings, RAYGUN_MAG_SIZE, RAYGUN_ZOMBIES_TOTAL_MAGS};
+use super::m17::{m17_locomotion, M17Loco, M17LocoState, M17Motion, M17Settings, M17_MAG_SIZE, M17_ZOMBIES_TOTAL_MAGS};
 use super::drink_arms::{DrinkPhase, PerkDrink};
 use super::knife_view_model::{
     KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, KNIFE_SEGMENTS, KNIFE_SEG_ADJUST_GRIP,
@@ -57,7 +58,8 @@ pub(crate) fn mag_size(primary: WeaponId) -> u32 {
     match primary {
         WeaponId::Ak74 => AK_MAG_SIZE,
         WeaponId::RayGun => RAYGUN_MAG_SIZE,
-        _ => MAG_SIZE,
+        WeaponId::M17 => M17_MAG_SIZE,
+        WeaponId::Sniper | WeaponId::Marksman => MAG_SIZE,
     }
 }
 
@@ -70,6 +72,7 @@ fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
         shared::GameMode::FreeForAll => mag * (TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::RayGun => mag * (RAYGUN_ZOMBIES_TOTAL_MAGS - 1),
+        shared::GameMode::Zombies if primary == WeaponId::M17 => mag * (M17_ZOMBIES_TOTAL_MAGS - 1),
         shared::GameMode::Zombies => mag * (ZOMBIES_TOTAL_MAGS - 1),
     }
 }
@@ -308,6 +311,8 @@ pub(crate) struct Weapon {
     next_shot_at: f32,
     /// The AK's walk / jump animation state (`ak::ak_locomotion`).
     ak_loco: AkLoco,
+    /// The M17's idle / walk / jump state (`m17::m17_locomotion`).
+    m17_loco: M17LocoState,
     /// The two weapons carried — a gun and the knife to start with; in
     /// `Zombies` a wall buy or a pickup replaces the one in hand
     /// ([`Weapon::take_into_slot`]), so it can be two guns, or a gun and the
@@ -451,6 +456,7 @@ impl Default for Weapon {
             primary: WeaponId::Sniper,
             next_shot_at: 0.0,
             ak_loco: AkLoco::Idle,
+            m17_loco: M17LocoState::default(),
             slots: SlotWeapon::starting(WeaponId::Sniper),
             held: 0,
             other_ammo: (0, 0),
@@ -478,6 +484,11 @@ impl Weapon {
         self.ak_loco
     }
 
+    /// The M17's rest clip (the debug panel shows it).
+    pub(crate) fn m17_loco(&self) -> M17Loco {
+        self.m17_loco.clip
+    }
+
     /// The primary's magazine capacity.
     pub(crate) fn mag_size(&self) -> u32 {
         mag_size(self.primary)
@@ -497,6 +508,7 @@ impl Weapon {
         self.interrupted = None;
         self.next_shot_at = 0.0;
         self.ak_loco = AkLoco::Idle;
+        self.m17_loco = M17LocoState::default();
         self.loadout_pending = true;
     }
 
@@ -705,6 +717,7 @@ impl Weapon {
         self.interrupted = None;
         self.next_shot_at = 0.0;
         self.ak_loco = AkLoco::Idle;
+        self.m17_loco = M17LocoState::default();
     }
 
     /// `weapon` (with `ammo` if it's a gun; a full load if `None`) goes in
@@ -810,12 +823,12 @@ pub(crate) fn apply_loadout(
         }
     } else {
         // A new game (or any other mode's life): what the server says we
-        // start with — in `Zombies` our loadout pick, which can't change
-        // mid-game.
-        let gun = member.map_or(weapon.primary, |m| {
-            if lobby.mode == shared::GameMode::Zombies { m.loadout } else { m.primary }
-        });
-        let gun = if lobby.mode.has_loadout() { gun } else { WeaponId::Sniper };
+        // start with — in `Zombies` always the M17, and the sniper in
+        // `Freestyle`.
+        let gun = match lobby.mode {
+            shared::GameMode::FreeForAll => member.map_or(weapon.primary, |m| m.primary),
+            mode => mode.starting_primary(weapon.primary),
+        };
         weapon.slots = SlotWeapon::starting(gun);
         weapon.held = if weapon.slot == WeaponSlot::Secondary { 1 } else { 0 };
         weapon.other_ammo = (0, 0);
@@ -1362,6 +1375,7 @@ struct SegCtx<'a> {
     rechamber_speed: f32,
     ak: &'a AkSettings,
     ray: &'a RayGunSettings,
+    m17: &'a M17Settings,
 }
 
 /// Start `seg` on the primary, with its sound (heard by us, and — via the
@@ -1377,7 +1391,15 @@ fn begin_segment(
 ) {
     let ak = rig.weapon == WeaponId::Ak74;
     let raygun = rig.weapon == WeaponId::RayGun;
+    let m17 = rig.weapon == WeaponId::M17;
     let (sound, bit, sound_speed, anim_speed) = match seg.act {
+        // (For now the AK's fast reload sound, for either reload.)
+        SegAct::Reload | SegAct::ReloadEmpty if m17 => (
+            &ctx.sounds.ak_reload_fast,
+            killcam::SND_AK_RELOAD_FAST,
+            ctx.reload_speed * ctx.m17.reload_speed,
+            ctx.reload_speed * ctx.m17.reload_speed,
+        ),
         // (One reload, full or not.)
         SegAct::Reload | SegAct::ReloadEmpty if raygun => (
             &ctx.sounds.raygun_reload,
@@ -1504,12 +1526,13 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, ak_cfg, classic, menu, ray_cfg): (
+    (physics, ak_cfg, classic, menu, ray_cfg, m17_cfg): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
         Res<AkSettings>,
         Res<crate::zombies_hud::ClassicPerks>,
         Res<crate::menu::Menu>,
         Res<RayGunSettings>,
+        Res<M17Settings>,
     ),
     mut commands: Commands,
 ) {
@@ -1531,12 +1554,13 @@ pub(crate) fn weapon_system(
     let primary_swap = match weapon.primary {
         WeaponId::Ak74 => swap_speed * ak_cfg.draw_speed,
         WeaponId::RayGun => swap_speed * ray_cfg.draw_speed,
-        _ => swap_speed,
+        WeaponId::M17 => swap_speed * m17_cfg.draw_speed,
+        WeaponId::Sniper | WeaponId::Marksman => swap_speed,
     };
-    let blend_secs = if weapon.primary == WeaponId::RayGun {
-        ray_cfg.blend_secs
-    } else {
-        ak_cfg.blend_secs
+    let blend_secs = match weapon.primary {
+        WeaponId::RayGun => ray_cfg.blend_secs,
+        WeaponId::M17 => m17_cfg.blend_secs,
+        _ => ak_cfg.blend_secs,
     };
     let stow_speed = arms_settings.weapon_hide_speed * swap_speed;
     // (Just after a gun swap the old gun's scene can linger a frame: the
@@ -1555,6 +1579,7 @@ pub(crate) fn weapon_system(
         rechamber_speed,
         ak: &ak_cfg,
         ray: &ray_cfg,
+        m17: &m17_cfg,
     };
     let knife_node = knife_anim.index;
     let Some(mut knife_player) = knife_players.iter_mut().next() else {
@@ -2305,6 +2330,25 @@ pub(crate) fn weapon_system(
         }
     }
 
+    // The M17, out and free: its idle / walk / jump clips — or, aimed down
+    // sights, held still — unless a shot's still playing out.
+    if weapon.slot == WeaponSlot::Primary && rig.weapon == WeaponId::M17 {
+        let shot = rig.seg(SegAct::Shoot);
+        let shooting = rig.is_main(shot) && !rig.reached(shot, shot.end_secs());
+        if !shooting {
+            let motion = physics.single().map_or(
+                M17Motion { grounded: true, rising: false, speed: 0.0, aiming: false },
+                |p| M17Motion {
+                    grounded: p.grounded,
+                    rising: p.vertical_velocity > 0.0,
+                    speed: Vec3::new(p.horizontal_velocity.x, 0.0, p.horizontal_velocity.z).length(),
+                    aiming: ads.t > 0.05,
+                },
+            );
+            m17_locomotion(&mut rig, &mut weapon.m17_loco, motion, &m17_cfg);
+        }
+    }
+
     // The Ray Gun, out and free: its idle clip, looping — or, aimed down
     // sights, held still in its rest pose — unless a shot's still playing
     // out.
@@ -2417,6 +2461,71 @@ pub(crate) fn weapon_system(
             && weapon.mag < weapon.mag_size()
         {
             let seg = rig.seg(SegAct::Reload);
+            begin_segment(&mut rig, seg, &seg_ctx, &mut commands, &mut snd);
+            weapon.busy = Some(WeaponBusy {
+                remaining: vec![seg],
+                seg_end: seg.end_secs(),
+                on_finish: WeaponFinish::Reload,
+            });
+        }
+        return;
+    }
+
+    // The M17: semi-auto — a round each pull of the trigger (no sooner than
+    // `fire_interval` after the last), each restarting its Fire clip. The
+    // last one out goes straight into the full reload (auto-reload on).
+    if rig.weapon == WeaponId::M17 {
+        let now = time.elapsed_secs();
+        if binds.fire.just_pressed(&keys, &mouse) && weapon.mag > 0 && now >= weapon.next_shot_at {
+            weapon.next_shot_at = now + (m17_cfg.fire_interval / classic.fire_rate()).max(0.02);
+            weapon.mag -= 1;
+            shake.trauma = (shake.trauma + m17_cfg.trauma_per_shot).min(1.0);
+            shake.recoil = m17_cfg.recoil_kick;
+            muzzle.shots = muzzle.shots.wrapping_add(1);
+            muzzle.roll = rand_roll(muzzle.shots);
+            muzzle.intensity = 1.0;
+            commands.spawn((AudioPlayer::new(sounds.m17_shot.clone()), PlaybackSettings::DESPAWN));
+            snd.note(killcam::SND_M17_SHOT);
+            let cam_gt = cam.single().ok();
+            let dir = cam_gt
+                .map(|cam| {
+                    let max = m17_cfg.spread_rad(ads.t);
+                    let yaw = (rand01(muzzle.shots.wrapping_mul(0x9E37_79B9)) * 2.0 - 1.0) * max;
+                    let pitch = (rand01(muzzle.shots.wrapping_mul(0x85EB_CA6B) ^ 0xDEAD_BEEF) * 2.0 - 1.0) * max;
+                    cam.rotation() * Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0) * Vec3::NEG_Z
+                })
+                .unwrap_or(Vec3::NEG_Z);
+            pending_shot.0 = Some(dir);
+            if let Some(cam) = cam_gt {
+                shots.write(LocalShot {
+                    origin: cam.translation(),
+                    dir,
+                    weapon: WeaponId::M17,
+                });
+            }
+            let shot = rig.seg(SegAct::Shoot);
+            rig.play_with(
+                shot,
+                m17_cfg.shot_speed,
+                RepeatAnimation::Never,
+                std::time::Duration::from_secs_f32(m17_cfg.shot_blend_secs.max(0.0)),
+            );
+            if weapon.mag == 0 && settings.auto_reload && weapon.reserve > 0 {
+                weapon.busy = Some(WeaponBusy {
+                    remaining: vec![shot, rig.seg(SegAct::ReloadEmpty)],
+                    seg_end: shot.end_secs(),
+                    on_finish: WeaponFinish::Reload,
+                });
+            }
+        } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
+            commands.spawn((AudioPlayer::new(sounds.out_of_ammo.clone()), PlaybackSettings::DESPAWN));
+        } else if binds.reload.just_pressed(&keys, &mouse)
+            && weapon.reserve > 0
+            && weapon.mag < weapon.mag_size()
+        {
+            // From empty: a fresh mag and the slide racked; otherwise just
+            // the mag swap.
+            let seg = rig.seg(if weapon.mag == 0 { SegAct::ReloadEmpty } else { SegAct::Reload });
             begin_segment(&mut rig, seg, &seg_ctx, &mut commands, &mut snd);
             weapon.busy = Some(WeaponBusy {
                 remaining: vec![seg],

@@ -503,13 +503,18 @@ pub(crate) fn spawn_blood_impact(
 
 /// `Zombies`: the server's [`shared::ZombieBlood`] — a zombie, hellhound or
 /// boss hit (anyone's) — squirts that enemy's blood out along the shot.
+/// (Not our own knife stab's: that bled as it landed — `melee_predict`.)
 pub(crate) fn receive_zombie_blood(
     mut receivers: Query<&mut MessageReceiver<shared::ZombieBlood>>,
     settings: Res<EnemyBloodSettings>,
+    mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut blood: EventWriter<BloodImpact>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            if predicted.blood(Vec3::from_array(msg.point)) {
+                continue;
+            }
             let enemy = match msg.target {
                 shared::BloodTarget::Zombie => &settings.zombie,
                 shared::BloodTarget::Dog => &settings.dog,

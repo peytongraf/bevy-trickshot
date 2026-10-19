@@ -29,6 +29,12 @@ impl Default for MuzzleFlashSettings {
     }
 }
 
+/// Debug: keep the muzzle flash showing, still (no fade, no random roll),
+/// whatever gun's out — to line it up on the barrel (the debug panel's M17
+/// and Ray Gun sections).
+#[derive(Resource, Default)]
+pub(crate) struct MuzzleFlashHold(pub(crate) bool);
+
 /// Live state of the flash: `intensity` snaps to 1 on a shot and decays to 0
 /// over `MUZZLE_FLASH_TIME`; `roll` is a fresh random angle per shot.
 #[derive(Resource, Default)]
@@ -49,18 +55,20 @@ pub(crate) struct MuzzlePoint(pub(crate) Option<Vec3>);
 /// Decay the muzzle flash and push its state onto the sprite: full alpha the
 /// frame a shot fires, then a quick fade; a fresh random roll each shot.
 /// Each primary's muzzle (`MuzzleFlashSettings` for the sniper,
-/// `AkSettings` for the AK-74) is tuned against its hip pose and carried from
+/// `AkSettings` for the AK-74, and so on) is tuned against its hip pose and carried from
 /// there to wherever the view model actually is this frame, so it stays on
 /// the barrel at any ADS amount, mid-transition, and through bob / sway /
 /// recoil.
 pub(crate) fn update_muzzle_flash(
     time: Res<Time>,
     settings: Res<MuzzleFlashSettings>,
-    (weapon, ak, poses, ray): (
+    (weapon, ak, poses, ray, m17, hold): (
         Res<crate::Weapon>,
         Res<crate::AkSettings>,
         Res<crate::ViewModelPoses>,
         Res<crate::RayGunSettings>,
+        Res<crate::M17Settings>,
+        Res<MuzzleFlashHold>,
     ),
     view_model: Single<&Transform, (With<crate::weapons::ViewModel>, Without<MuzzleFlash>)>,
     mut state: ResMut<MuzzleFlashState>,
@@ -76,6 +84,10 @@ pub(crate) fn update_muzzle_flash(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     state.intensity = (state.intensity - time.delta_secs() / MUZZLE_FLASH_TIME).max(0.0);
+    if hold.0 {
+        state.intensity = 1.0;
+        state.roll = 0.0;
+    }
 
     let (mut transform, material, mut visibility) = flash.into_inner();
 
@@ -89,7 +101,10 @@ pub(crate) fn update_muzzle_flash(
     let (hip, muzzle, size) = match weapon.primary {
         shared::weapon::WeaponId::Ak74 => (ak.hip.transform(), ak.muzzle_translation, ak.muzzle_size),
         shared::weapon::WeaponId::RayGun => (ray.hip.transform(), ray.muzzle_translation, ray.muzzle_size),
-        _ => (poses.hip.transform(), settings.translation, settings.size),
+        shared::weapon::WeaponId::M17 => (m17.hip.transform(), m17.muzzle_translation, m17.muzzle_size),
+        shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => {
+            (poses.hip.transform(), settings.translation, settings.size)
+        }
     };
     // Both are children of the same rig: hip pose → the pose right now.
     let rel = view_model.compute_affine() * hip.compute_affine().inverse();

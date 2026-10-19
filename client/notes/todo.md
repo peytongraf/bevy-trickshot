@@ -4,6 +4,10 @@ Also, only do one todo at a time. I will test the changes by running the client 
 
 - Note - P logs position to client console *
 
+# Black triangles from window cutouts fix
+
+A quicker check: in edit mode, select the whole wall, run Face → Triangulate Faces, then Mesh → Clean Up → Degenerate Dissolve, and look again. The grid of four-sided faces is still the more reliable fix.
+
 # Sound Terms
 
 Positional vs nonpositional
@@ -58,6 +62,8 @@ height: 3m
 
 # Current todo
 
+- Raise right arm some on drink perk remote player animation so that cap is at mouth level
+- Client side hit prediction
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing

@@ -21,9 +21,10 @@
 //!   that just misses a zombie, within [`RAYGUN_NEAR_MISS_M`] of it, still
 //!   counts, burst on its line beside them ([`Models::hits_along_near`]).
 //!
-//! The server checks every claim over before anything takes damage. (A knife
-//! stab is the server's own: whoever the knife's tip touches as the thrust
-//! reaches out — `shared::melee`.)
+//! * Our knife's stab (`melee_predict`): the tip's line out ahead of us as
+//!   the thrust reaches out — what it strikes is claimed, and shown at once.
+//!
+//! The server checks every claim over before anything takes damage.
 //!
 //! Enemies: other players and `FreeForAll` bots (the soldier — not its gun),
 //! `Freestyle` target bots, and `Zombies` zombies, hellhounds and bosses.
@@ -130,6 +131,14 @@ pub(crate) struct ModelHit {
     pub(crate) along: f32,
     pub(crate) kind: Kind,
     pub(crate) claim: ShotClaim,
+    /// Their avatar, the entity it stands in for (`PlayerPose` etc.), and
+    /// their peer id (`None` for a `Freestyle` target).
+    pub(crate) avatar: Entity,
+    pub(crate) src: Entity,
+    pub(crate) victim: Option<lightyear::prelude::PeerId>,
+    /// A hellhound's / a boss's.
+    pub(crate) dog: bool,
+    pub(crate) boss: bool,
 }
 
 /// Every enemy's model, as drawn — for testing what we fire against them.
@@ -144,6 +153,8 @@ pub(crate) struct Models<'w, 's> {
             &'static GlobalTransform,
             Has<crate::SoldierVisual>,
             Has<crate::boss::BossVisual>,
+            Has<crate::dogs::DogVisual>,
+            Has<crate::melee_predict::PredictedDeath>,
         ),
     >,
     sources: Query<'w, 's, (&'static PlayerPose, Option<&'static PlayerId>, Option<&'static BotPose>)>,
@@ -170,11 +181,12 @@ impl Models<'_, '_> {
     pub(crate) fn hits_along_near(&self, path: &[Vec3], near: f32) -> Vec<ModelHit> {
         let legs = path_legs(path);
         let mut hits = Vec::new();
-        for (avatar_e, avatar, avatar_tf, soldier, boss) in &self.avatars {
+        for (avatar_e, avatar, avatar_tf, soldier, boss, dog, predicted_death) in &self.avatars {
             let Ok((pose, id, stand_in)) = self.sources.get(avatar.src) else {
                 continue;
             };
-            if !pose.alive {
+            // (Nor one our knife's just killed, here — its body.)
+            if !crate::melee_predict::alive(pose, predicted_death) {
                 continue;
             }
             let (target, kind) = match (id, stand_in) {
@@ -248,6 +260,11 @@ impl Models<'_, '_> {
                     zone,
                     point: point.to_array(),
                 },
+                avatar: avatar_e,
+                src: avatar.src,
+                victim: id.map(|id| id.0),
+                dog,
+                boss,
             });
         }
         hits.sort_by(|a, b| a.along.total_cmp(&b.along));
@@ -390,7 +407,7 @@ fn track_own_projectiles(
 /// Whether `projectile` can hurt a `kind` of enemy in `mode` — what the
 /// server allows (a Ray Gun only zombies; a knife only the mode's enemies),
 /// so one passes through anyone it can't, as it does there.
-fn may_hit(projectile: Projectile, mode: Option<GameMode>, kind: Kind) -> bool {
+pub(crate) fn may_hit(projectile: Projectile, mode: Option<GameMode>, kind: Kind) -> bool {
     match (projectile, mode) {
         (Projectile::RayGun, _) => kind == Kind::Zombie,
         (Projectile::Knife, Some(GameMode::Zombies)) => kind == Kind::Zombie,

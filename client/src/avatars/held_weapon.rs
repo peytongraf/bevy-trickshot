@@ -96,17 +96,19 @@ pub(crate) enum GripKey {
     Sniper,
     Ak74,
     RayGun,
+    M17,
     Knife,
 }
 
 impl GripKey {
-    pub(crate) const ALL: [GripKey; 4] = [GripKey::Sniper, GripKey::Ak74, GripKey::RayGun, GripKey::Knife];
+    pub(crate) const ALL: [GripKey; 5] = [GripKey::Sniper, GripKey::Ak74, GripKey::RayGun, GripKey::M17, GripKey::Knife];
 
     pub(crate) fn of(weapon: SlotWeapon) -> GripKey {
         match weapon {
             SlotWeapon::Gun(WeaponId::Ak74) => GripKey::Ak74,
             SlotWeapon::Gun(WeaponId::RayGun) => GripKey::RayGun,
-            SlotWeapon::Gun(_) => GripKey::Sniper,
+            SlotWeapon::Gun(WeaponId::M17) => GripKey::M17,
+            SlotWeapon::Gun(WeaponId::Sniper | WeaponId::Marksman) => GripKey::Sniper,
             SlotWeapon::Knife => GripKey::Knife,
         }
     }
@@ -116,6 +118,7 @@ impl GripKey {
             GripKey::Sniper => SlotWeapon::Gun(WeaponId::Sniper),
             GripKey::Ak74 => SlotWeapon::Gun(WeaponId::Ak74),
             GripKey::RayGun => SlotWeapon::Gun(WeaponId::RayGun),
+            GripKey::M17 => SlotWeapon::Gun(WeaponId::M17),
             GripKey::Knife => SlotWeapon::Knife,
         }
     }
@@ -125,6 +128,7 @@ impl GripKey {
             GripKey::Sniper => "Sniper",
             GripKey::Ak74 => "AK-74",
             GripKey::RayGun => "Ray Gun",
+            GripKey::M17 => "M17",
             GripKey::Knife => "Knife",
         }
     }
@@ -312,6 +316,7 @@ pub(crate) struct WeaponGrips {
     pub(crate) sniper: Grip,
     pub(crate) ak74: Grip,
     pub(crate) raygun: Grip,
+    pub(crate) m17: Grip,
     pub(crate) knife: Grip,
     /// The left arm down by the side, for every one-handed weapon
     /// ([`Grip::left_arm_down`]) — `idleWithoutGun`'s, unless the WEAPON
@@ -345,6 +350,7 @@ pub(crate) struct CamoObjects {
     pub(crate) sniper: Option<Vec<String>>,
     pub(crate) ak74: Option<Vec<String>>,
     pub(crate) raygun: Option<Vec<String>>,
+    pub(crate) m17: Option<Vec<String>>,
     pub(crate) knife: Option<Vec<String>>,
 }
 
@@ -354,6 +360,7 @@ impl CamoObjects {
             GripKey::Sniper => &self.sniper,
             GripKey::Ak74 => &self.ak74,
             GripKey::RayGun => &self.raygun,
+            GripKey::M17 => &self.m17,
             GripKey::Knife => &self.knife,
         }
         .as_deref()
@@ -364,6 +371,7 @@ impl CamoObjects {
             GripKey::Sniper => &mut self.sniper,
             GripKey::Ak74 => &mut self.ak74,
             GripKey::RayGun => &mut self.raygun,
+            GripKey::M17 => &mut self.m17,
             GripKey::Knife => &mut self.knife,
         }
     }
@@ -396,6 +404,7 @@ impl WeaponGrips {
             GripKey::Sniper => &self.sniper,
             GripKey::Ak74 => &self.ak74,
             GripKey::RayGun => &self.raygun,
+            GripKey::M17 => &self.m17,
             GripKey::Knife => &self.knife,
         }
     }
@@ -456,6 +465,7 @@ impl WeaponGrips {
             sniper: grip(&self.sniper),
             ak74: grip(&self.ak74),
             raygun: grip(&self.raygun),
+            m17: grip(&self.m17),
             knife: grip(&self.knife),
             arm_down: ArmPose {
                 shoulder: q(self.arm_down.shoulder),

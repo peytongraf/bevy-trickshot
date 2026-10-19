@@ -40,6 +40,7 @@ pub(crate) struct AimRecoilSettings {
     pub(crate) sniper: WeaponRecoil,
     pub(crate) ak: WeaponRecoil,
     pub(crate) raygun: WeaponRecoil,
+    pub(crate) m17: WeaponRecoil,
 }
 
 impl Default for AimRecoilSettings {
@@ -72,6 +73,14 @@ impl Default for AimRecoilSettings {
                 horizontal_bias: 0.0,
                 ads_mult: 0.6,
             },
+            // A pistol's snap: a quick hop up each shot, a little to either
+            // side, settled enough to follow up fast.
+            m17: WeaponRecoil {
+                vertical_deg: 1.0,
+                horizontal_deg: 0.3,
+                horizontal_bias: 0.0,
+                ads_mult: 0.65,
+            },
         }
     }
 }
@@ -81,7 +90,8 @@ impl AimRecoilSettings {
         match weapon {
             WeaponId::Ak74 => self.ak,
             WeaponId::RayGun => self.raygun,
-            _ => self.sniper,
+            WeaponId::M17 => self.m17,
+            WeaponId::Sniper | WeaponId::Marksman => self.sniper,
         }
     }
 }

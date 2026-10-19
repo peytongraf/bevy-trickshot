@@ -47,11 +47,11 @@ use crate::sim::EYE_HEIGHT;
 
 /// The client's one-shot sound bits (`client::killcam::SND_*`) that a bot
 /// triggers, so real players hear it: the sniper's shot and its footsteps.
-const SND_SHOT: u16 = 1 << 0;
-const SND_RECHAMBER: u16 = 1 << 2;
-const SND_AIM_IN: u16 = 1 << 5;
-const SND_AIM_OUT: u16 = 1 << 6;
-const SND_FOOTSTEP: u16 = 1 << 7;
+const SND_SHOT: u32 = 1 << 0;
+const SND_RECHAMBER: u32 = 1 << 2;
+const SND_AIM_IN: u32 = 1 << 5;
+const SND_AIM_OUT: u32 = 1 << 6;
+const SND_FOOTSTEP: u32 = 1 << 7;
 
 /// Walking / sprinting speeds (m/s) — the client's `WALK_SPEED` / `SPRINT_SPEED`
 /// defaults, so a bot's remote model plays the right animation (the client
@@ -2211,7 +2211,7 @@ mod tests {
         );
         app.update(); // (the first update has no time delta)
         let max_step = 1.0 / 64.0 / sniper_feel::ADS_SECS + 1e-4;
-        let (mut prev_ads, mut sum_bits) = (0.0_f32, 0u16);
+        let (mut prev_ads, mut sum_bits) = (0.0_f32, 0u32);
         let (mut saw_partial, mut saw_anim, mut saw_shake) = (false, false, false);
         for _ in 0..(8 * 64) {
             app.update();

@@ -199,7 +199,7 @@ fn zombie_rise_and_fall(
     ids: Query<&PlayerId>,
     mut doomed: ResMut<NukeDoomed>,
     new: Query<(Entity, &RemoteAvatar), (With<ZombieVisual>, Without<ZombieVoice>)>,
-    mut voices: Query<(Entity, &RemoteAvatar, &mut ZombieVoice)>,
+    mut voices: Query<(Entity, &RemoteAvatar, &mut ZombieVoice, Has<crate::melee_predict::PredictedDeath>)>,
     speaking: Query<(Entity, &VoiceOf)>,
     mut seq: Local<u32>,
     mut commands: Commands,
@@ -241,9 +241,11 @@ fn zombie_rise_and_fall(
             was_alive: pose.alive,
         });
     }
-    for (zombie, avatar, mut voice) in &mut voices {
+    for (zombie, avatar, mut voice, predicted_death) in &mut voices {
         let Ok(pose) = poses.get(avatar.src) else { continue };
-        if voice.was_alive && !pose.alive {
+        // (Dead the moment our knife killed it, here — `melee_predict`.)
+        let alive = crate::melee_predict::alive(pose, predicted_death);
+        if voice.was_alive && !alive {
             for (sound, owner) in &speaking {
                 if owner.0 == zombie {
                     commands.entity(sound).try_despawn();
@@ -257,7 +259,7 @@ fn zombie_rise_and_fall(
                 }
             }
         }
-        voice.was_alive = pose.alive;
+        voice.was_alive = alive;
     }
 }
 

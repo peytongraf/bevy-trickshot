@@ -204,7 +204,12 @@ pub(crate) fn update_scope(
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
     lens_cfg: Res<LensSettings>,
-    (weapon, ak, ray): (Res<super::Weapon>, Res<super::AkSettings>, Res<super::RayGunSettings>),
+    (weapon, ak, ray, m17): (
+        Res<super::Weapon>,
+        Res<super::AkSettings>,
+        Res<super::RayGunSettings>,
+        Res<super::M17Settings>,
+    ),
     scope_camera: Single<
         (&mut Camera, &mut Projection, &mut Transform),
         (With<ScopeCamera>, Without<ScopeReticle>),
@@ -231,7 +236,7 @@ pub(crate) fn update_scope(
     // Before the picture comes in, keep the scope camera at the world FOV so the
     // render target matches the view *behind* the glass 1:1; converge to the
     // real scope magnification as the picture arrives.
-    let optic = Optic::current(&settings, &killcam, &weapon, &ak, &ray);
+    let optic = Optic::current(&settings, &killcam, &weapon, &ak, &ray, &m17);
     let world_fov = ads_fov_rad(optic, &tuning, ads.t);
     let scope_fov = world_fov.lerp(full_scope_fov_rad(optic, &tuning), picture);
     if let Projection::Perspective(perspective) = projection.as_mut() {

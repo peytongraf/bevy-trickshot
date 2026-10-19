@@ -297,10 +297,22 @@ fn resolve_shots(
             } else {
                 1.0
             };
-            // Never through a wall — only an opening (a window) it reaches
-            // through.
-            let hit = shared::melee::resolve_melee(origin, dir, &targets)
-                .filter(|h| !colliders.for_lobby(lobby).segment_blocked(origin, h.point));
+            // What their client saw the thrust strike, on the model as drawn
+            // there (it's already shown it landing), if that holds up —
+            // failing that, whoever the tip touches here. Never through a
+            // wall — only an opening (a window) it reaches through.
+            let clear = |h: &shared::melee::MeleeHit| !colliders.for_lobby(lobby).segment_blocked(origin, h.point);
+            let claimed = i.melee_hit.as_ref().and_then(|c| {
+                let id = match c.target {
+                    ClaimTarget::Player(bits) => bits,
+                    ClaimTarget::Bot(at) => nearest_bot_target(&targets, &kind, Vec3::from_array(at))?,
+                };
+                let target = targets.iter().find(|t| t.id == id)?;
+                shared::melee::check_melee_claim(origin, dir, Vec3::from_array(c.point), target)
+            });
+            let hit = claimed
+                .filter(clear)
+                .or_else(|| shared::melee::resolve_melee(origin, dir, &targets).filter(clear));
             match hit.and_then(|h| kind.get(&h.target).map(|k| (h, k))) {
                 Some((hit, HitKind::Bot(bot))) => {
                     stabbed_at = Some(hit.point);
@@ -346,13 +358,14 @@ fn resolve_shots(
                 _ => {}
             }
 
-            // Everyone in the lobby hears it: a stab from where it landed, a
-            // swing from the attacker.
+            // Everyone else in the lobby hears it: a stab from where it
+            // landed, a swing from the attacker. (The attacker's own client
+            // played it as the thrust got there — `client::melee_predict`.)
             let swing_at = poses
                 .iter()
                 .find(|(id, ..)| id.0 == shooter.0)
                 .map_or(origin, |(_, pose, _)| pose.translation);
-            let members: Vec<PeerId> = lobby.real_peers();
+            let members: Vec<PeerId> = lobby.real_peers().into_iter().filter(|p| *p != shooter.0).collect();
             let variant = ((tick as u64) ^ shooter.0.to_bits())
                 .wrapping_mul(0x2545_F491_4F6C_DD1D)
                 >> 56;

@@ -205,9 +205,10 @@ impl Optic {
         weapon: &super::Weapon,
         ak: &super::AkSettings,
         ray: &super::RayGunSettings,
+        m17: &super::M17Settings,
     ) -> Self {
         killcam.0.as_ref().and_then(|run| run.optic).unwrap_or_else(|| {
-            match iron_sight_zoom(weapon.primary, ak, ray) {
+            match iron_sight_zoom(weapon.primary, ak, ray, m17) {
                 Some(zoom) => Self {
                     hip_fov_deg: settings.fov,
                     zoom,
@@ -219,17 +220,19 @@ impl Optic {
 }
 
 /// The zoom of a gun aimed down its own sights rather than a scope (the
-/// AK-74's, the Ray Gun's) — `None` for the sniper, whose scope's is the
-/// player's pick.
+/// AK-74's, the Ray Gun's, the M17's) — `None` for the sniper, whose
+/// scope's is the player's pick.
 pub(crate) fn iron_sight_zoom(
     gun: shared::weapon::WeaponId,
     ak: &super::AkSettings,
     ray: &super::RayGunSettings,
+    m17: &super::M17Settings,
 ) -> Option<f32> {
     match gun {
         shared::weapon::WeaponId::Ak74 => Some(ak.ads_zoom),
         shared::weapon::WeaponId::RayGun => Some(ray.ads_zoom),
-        _ => None,
+        shared::weapon::WeaponId::M17 => Some(m17.ads_zoom),
+        shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => None,
     }
 }
 
@@ -282,7 +285,7 @@ pub(crate) fn apply_ads(
         Res<super::WalkBob>,
         Res<super::WeaponSwaySettings>,
     ),
-    (ray, lower): (Res<super::RayGunSettings>, Res<super::GunLower>),
+    (ray, lower, m17): (Res<super::RayGunSettings>, Res<super::GunLower>, Res<super::M17Settings>),
     tuning: Res<AdsTuning>,
     settings: Res<Settings>,
     killcam: Res<ActiveKillCam>,
@@ -292,13 +295,14 @@ pub(crate) fn apply_ads(
     let e = ads_ease(ads.t, tuning.ads_ease);
 
     if let Projection::Perspective(perspective) = world_projection.as_mut() {
-        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak, &ray), &tuning, ads.t);
+        perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak, &ray, &m17), &tuning, ads.t);
     }
 
     let mut pose = match weapon.primary {
         shared::weapon::WeaponId::Ak74 => lerp_pose(&ak.hip, &ak.ads, e),
         shared::weapon::WeaponId::RayGun => lerp_pose(&ray.hip, &ray.ads, e),
-        _ => lerp_pose(&poses.hip, &poses.ads, e),
+        shared::weapon::WeaponId::M17 => lerp_pose(&m17.hip, &m17.ads, e),
+        shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => lerp_pose(&poses.hip, &poses.ads, e),
     };
     pose.translation += bob.offset(&sway, ads.t);
     // The Ray Gun putting itself away / coming back up (it has no clip for

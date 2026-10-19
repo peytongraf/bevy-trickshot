@@ -794,6 +794,7 @@ fn editor_ui(
                     sniper,
                     ak74,
                     raygun,
+                    m17,
                     knife,
                     arm_down,
                     throw_hold,
@@ -814,6 +815,7 @@ fn editor_ui(
                     GripKey::Sniper => sniper,
                     GripKey::Ak74 => ak74,
                     GripKey::RayGun => raygun,
+                    GripKey::M17 => m17,
                     GripKey::Knife => knife,
                 };
                 grip_controls(ui, ed, grip, arm_down, anim_left, anim_arm);

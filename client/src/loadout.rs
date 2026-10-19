@@ -62,9 +62,10 @@ impl LoadoutCtx {
         }
     }
 
-    /// The pick can't change right now — a `Zombies` game is on.
+    /// The pick can't change right now — we're in a `Zombies` lobby or
+    /// game, which always starts with the M17.
     pub(crate) fn locked(&self) -> bool {
-        self.started && self.mode == Some(GameMode::Zombies)
+        self.mode == Some(GameMode::Zombies)
     }
 }
 
@@ -233,6 +234,7 @@ pub(crate) fn weapon_stats(weapon: WeaponId) -> [(&'static str, f32); 5] {
         WeaponId::Marksman => (0.35, 0.8, 0.55),
         WeaponId::Ak74 => (0.78, 0.58, 0.72),
         WeaponId::RayGun => (0.4, 0.8, 0.85),
+        WeaponId::M17 => (0.5, 0.65, 0.95),
     };
     [
         ("DAMAGE", (spec.base_damage / 200.0).clamp(0.05, 1.0)),

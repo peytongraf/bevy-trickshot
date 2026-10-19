@@ -279,7 +279,12 @@ fn animate_zombie_avatars(
     settings: Res<ZombieAvatarSettings>,
     poses: Query<(&PlayerPose, Option<&PlayerId>)>,
     me: Query<&Transform, With<Player>>,
-    mut avatars: Query<(&RemoteAvatar, &mut ZombieMotion, &ZombieAnimationPlayer)>,
+    mut avatars: Query<(
+        &RemoteAvatar,
+        &mut ZombieMotion,
+        &ZombieAnimationPlayer,
+        Has<crate::melee_predict::PredictedDeath>,
+    )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut readout: ResMut<ZombieAnimReadout>,
 ) {
@@ -292,7 +297,7 @@ fn animate_zombie_avatars(
     let me = me.single().ok().map(|t| t.translation);
     let mut nearest: Option<(f32, f32, f32, &'static str)> = None;
 
-    for (avatar, mut motion, anim_player) in &mut avatars {
+    for (avatar, mut motion, anim_player, predicted_death) in &mut avatars {
         let Ok((pose, id)) = poses.get(avatar.src) else {
             continue;
         };
@@ -309,7 +314,8 @@ fn animate_zombie_avatars(
         let k = 1.0 - (-dt / 0.12).exp();
         motion.speed += (raw - motion.speed) * k;
 
-        let state = if !pose.alive {
+        // (Dead the moment our knife killed it, here — `melee_predict`.)
+        let state = if !crate::melee_predict::alive(pose, predicted_death) {
             if matches!(motion.state, ZombieAnimState::FallBack | ZombieAnimState::FallForward) {
                 motion.state
             } else {

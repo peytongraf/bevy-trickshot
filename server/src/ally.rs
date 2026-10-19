@@ -144,6 +144,8 @@ fn gun_stats(gun: WeaponId) -> GunStats {
         // (A reload from empty — the long one.)
         WeaponId::Ak74 => GunStats { mag: 30, reserve: 30 * 5, reload_secs: 2.83, interval: 0.1 },
         WeaponId::RayGun => GunStats { mag: 20, reserve: 20 * 8, reload_secs: 2.5, interval: 0.33 },
+        // Semi-auto: as fast as a player taps it.
+        WeaponId::M17 => GunStats { mag: 17, reserve: 17 * 6, reload_secs: 3.33, interval: 0.2 },
         // A bolt-action: the shot, then the rechamber.
         WeaponId::Sniper | WeaponId::Marksman => GunStats { mag: 5, reserve: 5 * 7, reload_secs: 1.83, interval: 1.2 },
     }
@@ -153,9 +155,10 @@ fn gun_stats(gun: WeaponId) -> GunStats {
 fn gun_rank(weapon: SlotWeapon) -> u32 {
     match weapon {
         SlotWeapon::Knife => 0,
-        SlotWeapon::Gun(WeaponId::Sniper | WeaponId::Marksman) => 1,
-        SlotWeapon::Gun(WeaponId::Ak74) => 2,
-        SlotWeapon::Gun(WeaponId::RayGun) => 3,
+        SlotWeapon::Gun(WeaponId::M17) => 1,
+        SlotWeapon::Gun(WeaponId::Sniper | WeaponId::Marksman) => 2,
+        SlotWeapon::Gun(WeaponId::Ak74) => 3,
+        SlotWeapon::Gun(WeaponId::RayGun) => 4,
     }
 }
 
@@ -869,7 +872,7 @@ fn drive_allies(
                 brain.reload_until = None;
             }
         }
-        let mut sound_bits = 0u16;
+        let mut sound_bits = 0u32;
         if brain.act == Act::Ready && brain.reload_until.is_none() {
             let a = brain.ammo[brain.held];
             let other = 1 - brain.held;
@@ -1072,9 +1075,9 @@ fn drive_allies(
 }
 
 /// One-shot sound bits a bot's input carries (`client::killcam::SND_*`).
-const SND_SHOT: u16 = 1 << 0;
-const SND_RELOAD: u16 = 1 << 1;
-const SND_FOOTSTEP: u16 = 1 << 7;
+const SND_SHOT: u32 = 1 << 0;
+const SND_RELOAD: u32 = 1 << 1;
+const SND_FOOTSTEP: u32 = 1 << 7;
 
 /// Keeping clear of the rest of the team at `feet`: a steer away from
 /// anyone close (`AVOID_RADIUS`), and a push (a velocity) out of anyone it's

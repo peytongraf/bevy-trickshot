@@ -135,7 +135,11 @@ impl Plugin for ClientNetPlugin {
         app.add_systems(
             FixedPreUpdate,
             // (A shot's hits are tested on our models first, to go up with it.)
-            (crate::hit_detection::claim_shot_hits, write_input)
+            (
+                crate::hit_detection::claim_shot_hits,
+                crate::melee_predict::time_stab,
+                write_input,
+            )
                 .chain()
                 .in_set(InputSet::WriteClientInputs)
                 // A kill-cam replay hijacks this client's own `Player`/
@@ -311,15 +315,13 @@ pub(crate) fn write_input(
         knife,
         weapon,
         jumping,
-        mut pending_melee,
+        stab,
         knife_players,
         knife_anims,
         knife_view_vis,
         arms_players,
         arms_anims,
         ak,
-        time,
-        mut stabbed_at,
         mut shot_hits,
         (drink, drink_players, drink_anims, mantle_view),
     ): (
@@ -327,18 +329,13 @@ pub(crate) fn write_input(
         Res<crate::ThrowingKnife>,
         Res<crate::Weapon>,
         Res<crate::Jumping>,
-        ResMut<crate::PendingMelee>,
+        Res<crate::melee_predict::Stab>,
         Query<&AnimationPlayer, With<crate::KnifeAnimationPlayer>>,
         Query<&crate::KnifeAnimation>,
         Query<&Visibility, With<crate::KnifeViewModel>>,
         Query<&AnimationPlayer, With<crate::ThrowArmsAnimationPlayer>>,
         Query<&crate::ThrowArmsAnimation>,
-        (Res<crate::AkSettings>, Res<crate::RayGunSettings>),
-        Res<Time>,
-        // When (`Time::elapsed_secs`) we last stabbed, for `stabbing` — a
-        // timestamp, so a stab cut short by leaving a match is long over by
-        // the next one — and whether it's gone to the server yet.
-        Local<Option<(f32, bool)>>,
+        (Res<crate::AkSettings>, Res<crate::RayGunSettings>, Res<crate::M17Settings>),
         ResMut<crate::hit_detection::ShotHits>,
         (
             Res<crate::PerkDrink>,
@@ -359,29 +356,19 @@ pub(crate) fn write_input(
     action.weapon = weapon.primary.as_u8();
     action.fire = false;
     action.fire_hits = None;
-    // A knife stab (`weapon_system` filed it this frame) shows at once
-    // (`stabbing`: everyone else sees our soldier's thrust start), but lands
-    // when that thrust gets there (`shared::melee::KNIFE_HIT_SECS`) — from
-    // where we are and the way we face then. It rides the same origin/dir
-    // fields a shot uses, so never in a tick with a shot; and a stab begun
-    // long ago (a match left mid-stab) never goes.
+    // A knife stab shows at once (`stabbing`: everyone else sees our
+    // soldier's thrust start), but lands when that thrust gets there — with
+    // what it struck on our screen (`melee_predict::time_stab`, which has
+    // shown it landing). It rides the same origin/dir fields a shot uses.
     action.melee = false;
-    let now = time.elapsed_secs();
-    if pending_melee.0.take().is_some() {
-        *stabbed_at = Some((now, false));
+    action.melee_hit = None;
+    if let Some((eye, aim, claim)) = stab.send {
+        action.melee = true;
+        action.fire_origin = eye.to_array();
+        action.fire_dir = aim.to_array();
+        action.melee_hit = claim;
     }
-    if let Some((at, sent)) = stabbed_at.as_mut() {
-        let since = now - *at;
-        if !*sent && since >= shared::melee::KNIFE_HIT_SECS && pending.0.is_none() {
-            *sent = true;
-            if let (true, Ok(cam)) = (since < shared::melee::KNIFE_HIT_SECS + 0.25, cam.single()) {
-                action.melee = true;
-                action.fire_origin = cam.translation().to_array();
-                action.fire_dir = cam.forward().as_vec3().to_array();
-            }
-        }
-    }
-    action.stabbing = stabbed_at.is_some_and(|(at, _)| now - at < STAB_ANIM_SECS);
+    action.stabbing = stab.stabbing;
     // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
     // FOV, so a replay can reproduce shake / recoil / sway and render at this
     // player's FOV instead of re-deriving an absolute camera transform that
@@ -392,7 +379,7 @@ pub(crate) fn write_input(
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
     // (The AK-74's iron sights zoom only a little, whatever scope is picked.)
-    action.scope_zoom = crate::weapons::iron_sight_zoom(weapon.primary, &ak.0, &ak.1)
+    action.scope_zoom = crate::weapons::iron_sight_zoom(weapon.primary, &ak.0, &ak.1, &ak.2)
         .unwrap_or_else(|| settings.scope_zoom.magnification());
     action.sound_bits = std::mem::take(&mut snd.0);
     action.anim_time = crate::killcam::viewmodel_anim_time(&anim_players, &view_models);
@@ -486,12 +473,14 @@ fn receive_trick_scores(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
     mut receivers: Query<&mut MessageReceiver<TrickScore>>,
+    mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut scored: EventWriter<TrickScoredEvent>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     for mut rx in &mut receivers {
         for msg in rx.receive() {
-            if Some(msg.shooter) != me {
+            // (A knife kill's already popped up, as our stab landed.)
+            if Some(msg.shooter) != me || predicted.score(msg.total) {
                 continue;
             }
             let lines: Vec<(String, u32)> = msg.lines.into_iter().map(|l| (l.label, l.points)).collect();
@@ -947,11 +936,18 @@ pub(crate) struct RemoteFired {
 /// plays for `weapon`: fast enough to be back on aim by its next round when
 /// it fires quicker than that (the AK-74's full auto, the Ray Gun) — never
 /// slower than as made (the bolt-action sniper).
-fn shot_anim_speed(weapon: shared::weapon::WeaponId, ak: &crate::AkSettings, raygun: &crate::RayGunSettings) -> f32 {
+fn shot_anim_speed(
+    weapon: shared::weapon::WeaponId,
+    ak: &crate::AkSettings,
+    raygun: &crate::RayGunSettings,
+    m17: &crate::M17Settings,
+) -> f32 {
     let interval = match weapon {
         shared::weapon::WeaponId::Ak74 => ak.fire_interval,
         shared::weapon::WeaponId::RayGun => raygun.fire_interval,
-        _ => return 1.0,
+        // (Semi-auto: about as fast as a trigger's really tapped.)
+        shared::weapon::WeaponId::M17 => m17.fire_interval.max(0.25),
+        shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => return 1.0,
     };
     (crate::SHOT_CLIP_SECS / interval.max(0.01)).max(1.0)
 }
@@ -1031,11 +1027,14 @@ fn follow_remote_avatars(
         Has<crate::ZombieVisual>,
         Has<crate::dogs::DogVisual>,
         Has<crate::boss::BossVisual>,
+        Has<crate::melee_predict::PredictedDeath>,
     )>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, mut tf, zombie, dog, boss) in &mut avatars {
+    for (entity, avatar, mut tf, zombie, dog, boss, predicted_death) in &mut avatars {
         match poses.get(avatar.src) {
+            // One our knife's just killed lies where it fell (`melee_predict`).
+            Ok(_) if predicted_death => {}
             Ok(pose) => {
                 // The replicated pose is at eye level; the model's origin is
                 // at its feet (same convention `bot.pos` uses), so drop by
@@ -1303,11 +1302,12 @@ fn animate_remote_avatars(
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     killcam: Res<killcam::ActiveKillCam>,
-    (ids, mut fired, ak, raygun): (
+    (ids, mut fired, ak, raygun, m17): (
         Query<&PlayerId>,
         EventReader<RemoteFired>,
         Res<crate::AkSettings>,
         Res<crate::RayGunSettings>,
+        Res<crate::M17Settings>,
     ),
 ) {
     const BLEND_DURATION: Duration = Duration::from_millis(200);
@@ -1565,7 +1565,7 @@ fn animate_remote_avatars(
         // one had got to.
         let shot = ids.get(avatar.src).ok().and_then(|id| shots.get(&id.0)).copied();
         if let Some(weapon) = shot {
-            motion.shot_speed = shot_anim_speed(weapon, &ak, &raygun);
+            motion.shot_speed = shot_anim_speed(weapon, &ak, &raygun, &m17);
             let kick = match motion.state {
                 crate::SoldierAnimState::Aim => Some(anims.node_for(crate::SoldierAnimState::Aim)),
                 _ if aiming_on_the_move => Some(upper),

@@ -36,6 +36,15 @@ pub const KNIFE_HIT_SECS: f32 = 0.21;
 /// behind you just because they're close.
 const KNIFE_MIN_FACING_COS: f32 = 0.64;
 
+/// How much further (m) than [`KNIFE_REACH_M`] a client's claimed stab
+/// ([`check_melee_claim`]) may land — its model's arm flung forward, the
+/// tip a touch past full stretch.
+pub const KNIFE_CLAIM_REACH_SLACK_M: f32 = 0.6;
+
+/// How far below the eye (m) a claimed stab may land — down to a hellhound,
+/// or a zombie still climbing out of the ground.
+pub const KNIFE_CLAIM_DROP_M: f32 = 2.0;
+
 /// Damage a knife stab deals in a mode with health — far above any player's
 /// health, since a knife is always a one-hit kill.
 pub const KNIFE_DAMAGE: f32 = 1000.0;
@@ -86,6 +95,34 @@ pub fn resolve_melee(origin: Vec3, dir: Vec3, targets: &[Target]) -> Option<Mele
         }
     }
     best
+}
+
+/// Check a stab its client says struck `target` at `point` (on their model,
+/// as drawn on its screen): within the knife's reach of the eye at `origin`
+/// (along the ground, a little over — [`KNIFE_CLAIM_REACH_SLACK_M`]; from
+/// just over the eye down to [`KNIFE_CLAIM_DROP_M`] below it), in front of
+/// where they faced (`dir`), and close enough to where the server has the
+/// target ([`crate::ballistics::near_target`] — they're seen a moment in
+/// the past). `None` if it doesn't hold up. (Walls are the caller's.)
+pub fn check_melee_claim(origin: Vec3, dir: Vec3, point: Vec3, target: &Target) -> Option<MeleeHit> {
+    let dir = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
+    let to = point - origin;
+    let flat = Vec3::new(to.x, 0.0, to.z);
+    let reach = flat.length();
+    if reach > KNIFE_REACH_M + KNIFE_CLAIM_REACH_SLACK_M || to.y > 0.3 || to.y < -KNIFE_CLAIM_DROP_M {
+        return None;
+    }
+    if reach > 0.3 && flat.dot(dir) / reach < KNIFE_MIN_FACING_COS {
+        return None;
+    }
+    if !crate::ballistics::near_target(target, point) {
+        return None;
+    }
+    Some(MeleeHit {
+        target: target.id,
+        point,
+        distance: to.length(),
+    })
 }
 
 /// Closest pair of points between segments `p1..q1` and `p2..q2` (Ericson,
@@ -146,6 +183,30 @@ mod tests {
             body: Capsule::standing(feet, 1.8, 0.35),
             head: Capsule::head(feet, 1.8, 0.12),
         }
+    }
+
+    #[test]
+    fn a_claimed_stab_holds_up_only_within_reach_and_in_front() {
+        let eye = Vec3::new(0.0, 1.7, 0.0);
+        let ahead = Vec3::NEG_Z;
+        let zombie = target(7, Vec3::new(0.0, 0.0, -1.2));
+        // On their chest, right in front.
+        let hit = check_melee_claim(eye, ahead, Vec3::new(0.05, 1.3, -1.0), &zombie).unwrap();
+        assert_eq!(hit.target, 7);
+        // A hellhound's back, low down.
+        let dog = target(8, Vec3::new(0.0, 0.0, -1.4));
+        assert!(check_melee_claim(eye, ahead, Vec3::new(0.0, 0.4, -1.3), &dog).is_some());
+        // Too far out, behind, beside, or over their head.
+        let far = target(9, Vec3::new(0.0, 0.0, -3.0));
+        assert!(check_melee_claim(eye, ahead, Vec3::new(0.0, 1.3, -2.8), &far).is_none());
+        let behind = target(10, Vec3::new(0.0, 0.0, 1.2));
+        assert!(check_melee_claim(eye, ahead, Vec3::new(0.0, 1.3, 1.0), &behind).is_none());
+        let beside = target(11, Vec3::new(1.2, 0.0, 0.0));
+        assert!(check_melee_claim(eye, ahead, Vec3::new(1.0, 1.3, 0.0), &beside).is_none());
+        assert!(check_melee_claim(eye, ahead, Vec3::new(0.0, 2.3, -1.0), &zombie).is_none());
+        // Somewhere the server doesn't have them at all.
+        let elsewhere = target(12, Vec3::new(0.0, 0.0, -9.0));
+        assert!(check_melee_claim(eye, ahead, Vec3::new(0.0, 1.3, -1.0), &elsewhere).is_none());
     }
 
     const EYE: Vec3 = Vec3::new(0.0, 1.7, 0.0);

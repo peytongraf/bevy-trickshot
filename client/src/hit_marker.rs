@@ -1,6 +1,8 @@
 //! Hit markers: the server tells the attacker when their shot, stab or thrown
 //! knife hurt a bot or player (`shared::HitMarker { kill: false }`) or killed
-//! one (`kill: true`). Either way an X flashes on the crosshair — its four
+//! one (`kill: true`) — or, for our own knife stab, our client does as the
+//! thrust lands ([`LocalHitMarker`], `melee_predict`; the server's word on
+//! it is then passed over). Either way an X flashes on the crosshair — its four
 //! arms fly outward from the centre and it fades fast. A hit is a white X with
 //! `audio/combat/hit_marker.mp3`; a kill is a bigger red X (the kill sound
 //! comes from the kill's own feedback).
@@ -67,11 +69,20 @@ struct HitMarkerArm {
     dir: Vec2,
 }
 
+/// Our knife stab struck someone (`melee_predict`) — flash the marker now,
+/// as the server will say.
+#[derive(Event)]
+pub(crate) struct LocalHitMarker {
+    pub(crate) kill: bool,
+    pub(crate) victim: Option<lightyear::prelude::PeerId>,
+}
+
 pub struct HitMarkerPlugin;
 
 impl Plugin for HitMarkerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HitMarkerFlash>()
+            .add_event::<LocalHitMarker>()
             .add_systems(OnEnter(AppState::InGame), spawn_hit_marker)
             .add_systems(
                 Update,
@@ -136,10 +147,13 @@ fn reset_on_respawn(
 /// in the same frame, e.g. a collateral that killed one and hurt another),
 /// with the hit sound for a hit. Ignored during a kill cam (it's the live
 /// world's shot).
+#[allow(clippy::too_many_arguments)]
 fn receive_hit_markers(
     mut receivers: Query<&mut MessageReceiver<shared::HitMarker>>,
+    mut local: EventReader<LocalHitMarker>,
     killcam: Res<ActiveKillCam>,
     sounds: Res<GameSounds>,
+    mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut flash: ResMut<HitMarkerFlash>,
     mut damaged: EventWriter<crate::hud::DamagedByMe>,
     mut commands: Commands,
@@ -148,12 +162,22 @@ fn receive_hit_markers(
     for mut rx in &mut receivers {
         for marker in rx.receive() {
             if killcam.0.is_none() {
-                got = Some(got.unwrap_or(false) || marker.kill);
                 // Brings up that zombie's health bar (`hud::health_bars`).
                 if let Some(victim) = marker.victim {
                     damaged.write(crate::hud::DamagedByMe(victim));
                 }
+                // (Already flashed, as our stab landed.)
+                if predicted.marker(marker.victim, marker.kill) {
+                    continue;
+                }
+                got = Some(got.unwrap_or(false) || marker.kill);
             }
+        }
+    }
+    for marker in local.read() {
+        got = Some(got.unwrap_or(false) || marker.kill);
+        if let Some(victim) = marker.victim {
+            damaged.write(crate::hud::DamagedByMe(victim));
         }
     }
     let Some(kill) = got else {

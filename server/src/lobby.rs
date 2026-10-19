@@ -337,7 +337,7 @@ fn on_start(
     lobby.enemies_active = 0;
     // `Zombies` points are money: everyone starts with what the leader set.
     let start_points = if lobby.mode == GameMode::Zombies { lobby.start_points } else { 0 };
-    let mode_has_loadout = lobby.mode.has_loadout();
+    let start_mode = lobby.mode;
     for m in &mut lobby.members {
         m.score = start_points;
         m.kills = 0;
@@ -349,8 +349,9 @@ fn on_start(
         m.pap = Default::default();
         m.armor = Default::default();
         m.field_upgrade = Default::default();
-        // Everyone starts with the primary they picked (`Freestyle`: the sniper).
-        m.primary = if mode_has_loadout { m.loadout } else { shared::weapon::WeaponId::Sniper };
+        // Everyone starts with the primary they picked in `FreeForAll`, the
+        // M17 in `Zombies`, the sniper in `Freestyle`.
+        m.primary = start_mode.starting_primary(m.loadout);
         m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();

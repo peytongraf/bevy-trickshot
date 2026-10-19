@@ -17,6 +17,9 @@ pub enum WeaponId {
     /// each shot a green bolt that bursts where it lands, hurting every
     /// zombie close by ([`raygun_splash_damage`]).
     RayGun,
+    /// The M17 pistol — semi-auto, what every `Zombies` player starts with
+    /// ([`crate::GameMode::starting_primary`]).
+    M17,
 }
 
 /// How fast (m/s) a Ray Gun bolt flies — it hurts nothing until it gets
@@ -235,6 +238,22 @@ impl WeaponId {
                 min_damage_fraction: 0.55,
                 lower_body_multiplier: 0.6,
             },
+            WeaponId::M17 => WeaponSpec {
+                // A starting pistol, Call of Duty style: against round 1's
+                // 100-health zombies a body shot does 50 up close (two to
+                // kill), a headshot 100 (one), a leg 37.5 (three). Each
+                // Pack-a-Punch level doubles it (`pap::damage_mult`): 100 /
+                // 200 / 400 to the body at I / II / III. Full damage out to
+                // 15 m, then down to 60% at its 120 m reach.
+                max_range: 120.0,
+                muzzle_velocity: f32::INFINITY,
+                gravity: 0.0,
+                base_damage: 50.0,
+                falloff_start: 15.0,
+                headshot_multiplier: 2.0,
+                min_damage_fraction: 0.6,
+                lower_body_multiplier: 0.75,
+            },
             WeaponId::RayGun => WeaponSpec {
                 // The bolt's direct hit, on top of its burst
                 // (`raygun_splash_damage`) — a zombie's head is no softer to
@@ -258,6 +277,7 @@ impl WeaponId {
             WeaponId::Marksman => 1,
             WeaponId::Ak74 => 2,
             WeaponId::RayGun => 3,
+            WeaponId::M17 => 4,
         }
     }
 
@@ -267,6 +287,7 @@ impl WeaponId {
             1 => Some(WeaponId::Marksman),
             2 => Some(WeaponId::Ak74),
             3 => Some(WeaponId::RayGun),
+            4 => Some(WeaponId::M17),
             _ => None,
         }
     }
@@ -278,6 +299,7 @@ impl WeaponId {
             WeaponId::Marksman => "MARKSMAN",
             WeaponId::Ak74 => "AK-74",
             WeaponId::RayGun => "RAY GUN",
+            WeaponId::M17 => "M17",
         }
     }
 
@@ -288,14 +310,16 @@ impl WeaponId {
             WeaponId::Marksman => "MARKSMAN RIFLE",
             WeaponId::Ak74 => "ASSAULT RIFLE",
             WeaponId::RayGun => "WONDER WEAPON",
+            WeaponId::M17 => "PISTOL",
         }
     }
 
-    /// Multiplier on its damage to players in `FreeForAll` — the AK-74's
-    /// tuned for zombies, a little too strong player-on-player.
+    /// Multiplier on its damage to players in `FreeForAll` — the AK-74's and
+    /// the M17's tuned for zombies, a little too strong player-on-player.
     pub const fn pvp_damage_mult(self) -> f32 {
         match self {
             WeaponId::Ak74 => 0.8,
+            WeaponId::M17 => 0.7,
             _ => 1.0,
         }
     }
@@ -321,7 +345,7 @@ impl WeaponId {
         match self {
             WeaponId::Sniper => (3, 0.7),
             WeaponId::Ak74 => (1, 0.5),
-            WeaponId::Marksman | WeaponId::RayGun => (0, 1.0),
+            WeaponId::Marksman | WeaponId::RayGun | WeaponId::M17 => (0, 1.0),
         }
     }
 
@@ -358,7 +382,7 @@ mod tests {
     #[test]
     fn penetration_loses_damage_each_zombie_and_gives_out() {
         // The first zombie takes it all.
-        for w in [WeaponId::Sniper, WeaponId::Ak74, WeaponId::Marksman, WeaponId::RayGun] {
+        for w in [WeaponId::Sniper, WeaponId::Ak74, WeaponId::Marksman, WeaponId::RayGun, WeaponId::M17] {
             assert_eq!(w.penetration_damage_mult(0), Some(1.0));
         }
         // Each one after takes less than the one before...
@@ -370,5 +394,16 @@ mod tests {
         assert_eq!(WeaponId::Ak74.penetration_damage_mult(2), None);
         assert_eq!(WeaponId::Marksman.penetration_damage_mult(1), None);
         assert_eq!(WeaponId::RayGun.penetration_damage_mult(1), None);
+    }
+
+    #[test]
+    fn the_m17_is_a_semi_auto_pistol_that_two_shots_a_round_one_zombie() {
+        let m17 = WeaponId::M17;
+        assert_eq!(WeaponId::from_u8(m17.as_u8()), Some(m17));
+        assert!(!m17.full_auto() && m17.is_hitscan());
+        let spec = m17.spec();
+        // Two body shots, or one to the head, at round 1's 100 health.
+        assert!(spec.base_damage * 2.0 >= 100.0 && spec.base_damage < 100.0);
+        assert!(spec.base_damage * spec.headshot_multiplier >= 100.0);
     }
 }

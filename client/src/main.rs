@@ -85,6 +85,7 @@ mod ui;
 mod updater;
 mod util;
 mod vfx;
+mod melee_predict;
 mod water;
 mod water_wake;
 mod wall_buys;
@@ -278,7 +279,7 @@ fn main() {
         .add_plugins(power::PowerPlugin)
         .add_plugins(earthquake::EarthquakePlugin)
         .add_plugins(flames::FlamesPlugin)
-        .add_plugins((water::WaterPlugin, water_wake::WaterWakePlugin))
+        .add_plugins((water::WaterPlugin, water_wake::WaterWakePlugin, melee_predict::MeleePredictPlugin))
         .add_plugins(doors::DoorsPlugin)
         .add_plugins(windows::WindowsPlugin)
         .add_plugins(pap::PapPlugin)
@@ -305,6 +306,7 @@ fn main() {
         .init_resource::<ViewModelPoses>()
         .init_resource::<weapons::AkSettings>()
         .init_resource::<weapons::RayGunSettings>()
+        .init_resource::<weapons::M17Settings>()
         .init_resource::<weapons::GunLower>()
         .add_plugins(vfx::RayGunVfxPlugin)
         .add_plugins(vfx::MysteryBoxVfxPlugin)
@@ -372,6 +374,7 @@ fn main() {
         .init_resource::<AnimationSettings>()
         .init_resource::<MuzzleFlashSettings>()
         .init_resource::<MuzzleFlashState>()
+        .init_resource::<vfx::MuzzleFlashHold>()
         .init_resource::<MuzzlePoint>()
         .init_resource::<SmokeSettings>()
         .init_resource::<SmokeEmission>()

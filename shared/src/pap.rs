@@ -23,6 +23,7 @@ pub enum PapWeapon {
     Sniper,
     Ak74,
     RayGun,
+    M17,
     Knife,
 }
 
@@ -32,6 +33,7 @@ impl PapWeapon {
             PapWeapon::Sniper => "Sniper",
             PapWeapon::Ak74 => "AK-74",
             PapWeapon::RayGun => "Ray Gun",
+            PapWeapon::M17 => "M17",
             PapWeapon::Knife => "Knife",
         }
     }
@@ -48,7 +50,8 @@ impl PapWeapon {
         match gun {
             WeaponId::Ak74 => PapWeapon::Ak74,
             WeaponId::RayGun => PapWeapon::RayGun,
-            _ => PapWeapon::Sniper,
+            WeaponId::M17 => PapWeapon::M17,
+            WeaponId::Sniper | WeaponId::Marksman => PapWeapon::Sniper,
         }
     }
 }
@@ -62,6 +65,8 @@ pub struct PapLevels {
     pub ak: u8,
     #[serde(default)]
     pub raygun: u8,
+    #[serde(default)]
+    pub m17: u8,
     pub knife: u8,
 }
 
@@ -71,6 +76,7 @@ impl PapLevels {
             PapWeapon::Sniper => self.sniper,
             PapWeapon::Ak74 => self.ak,
             PapWeapon::RayGun => self.raygun,
+            PapWeapon::M17 => self.m17,
             PapWeapon::Knife => self.knife,
         }
     }
@@ -80,6 +86,7 @@ impl PapLevels {
             PapWeapon::Sniper => self.sniper = level,
             PapWeapon::Ak74 => self.ak = level,
             PapWeapon::RayGun => self.raygun = level,
+            PapWeapon::M17 => self.m17 = level,
             PapWeapon::Knife => self.knife = level,
         }
     }

@@ -186,6 +186,7 @@ fn avatar_wakes(
         &Transform,
         Has<crate::dogs::DogVisual>,
         Has<crate::boss::BossVisual>,
+        Has<crate::melee_predict::PredictedDeath>,
         Option<&mut Wake>,
     )>,
     mut commands: Commands,
@@ -203,16 +204,17 @@ fn avatar_wakes(
         seq: *seq,
     };
     let mut fresh = Vec::new();
-    for (entity, avatar, tf, dog, boss, wake) in &mut avatars {
+    for (entity, avatar, tf, dog, boss, predicted_death, wake) in &mut avatars {
         let Ok(pose) = poses.get(avatar.src) else { continue };
+        let alive = crate::melee_predict::alive(pose, predicted_death);
         let feet = tf.translation;
         let Some(mut wake) = wake else {
-            fresh.push((entity, Wake::new(feet, pose.alive, pose.jumping)));
+            fresh.push((entity, Wake::new(feet, alive, pose.jumping)));
             continue;
         };
         let moved = (feet - wake.prev).with_y(0.0);
         wake.prev = feet;
-        let was_alive = std::mem::replace(&mut wake.alive, pose.alive);
+        let was_alive = std::mem::replace(&mut wake.alive, alive);
         let was_airborne = std::mem::replace(&mut wake.airborne, pose.jumping);
         let size = if boss {
             2.2
@@ -250,14 +252,14 @@ fn avatar_wakes(
             continue;
         };
         let at = feet.with_y(surface);
-        if was_alive && !pose.alive {
+        if was_alive && !alive {
             // Dropped where it stood.
             stir.burst(at, 0.35 * size, 3, 0.8 * size.sqrt());
             stir.ripples.add(at, stir.now, 1.0 * size);
             wake.body_falls_at = Some(stir.now + BODY_FALL_SECS);
             continue;
         }
-        if !pose.alive || moved.length() > TELEPORT_M {
+        if !alive || moved.length() > TELEPORT_M {
             continue;
         }
         if was_airborne && !pose.jumping {

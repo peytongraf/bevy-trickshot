@@ -142,7 +142,8 @@ pub(crate) fn primary_icon_path(primary: shared::weapon::WeaponId) -> &'static s
     match primary {
         shared::weapon::WeaponId::Ak74 => "textures/icons/weapons/ak_74.png",
         shared::weapon::WeaponId::RayGun => "textures/icons/weapons/raygun.png",
-        _ => "textures/icons/weapons/sniper.png",
+        shared::weapon::WeaponId::M17 => "textures/icons/weapons/m17.png",
+        shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => "textures/icons/weapons/sniper.png",
     }
 }
 

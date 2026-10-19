@@ -2,6 +2,8 @@
 //! zombie (any weapon — the server's [`shared::ZombieDamaged`]) pops its
 //! damage up where it landed, which flies off in a random direction and
 //! fades out quickly. White, or yellow for a critical (a headshot / knife).
+//! Our own knife stab's shows as it lands ([`ShowDamageNumber`],
+//! `melee_predict`), and the server's word on it is passed over.
 //!
 //! Drawn on the HUD, pinned to the hit's spot projected onto the screen each
 //! frame, so it always faces us. `StateScoped(InGame)`, and each lives well
@@ -30,11 +32,19 @@ const NEAR_DIST: f32 = 8.0;
 const POP: f32 = 0.4;
 const POP_SECS: f32 = 0.08;
 
+/// Pop a damage number up now — our own knife stab's, foreseen.
+#[derive(Event)]
+pub(crate) struct ShowDamageNumber {
+    pub(crate) point: Vec3,
+    pub(crate) damage: u32,
+    pub(crate) critical: bool,
+}
+
 pub(crate) struct DamageNumbersPlugin;
 
 impl Plugin for DamageNumbersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_event::<ShowDamageNumber>().add_systems(
             Update,
             spawn_damage_numbers.run_if(in_state(AppState::InGame)),
         )
@@ -60,19 +70,35 @@ struct DamageNumber {
 
 fn spawn_damage_numbers(
     mut receivers: Query<&mut MessageReceiver<shared::ZombieDamaged>>,
+    mut local: EventReader<ShowDamageNumber>,
+    mut predicted: ResMut<crate::melee_predict::Predicted>,
     asset_server: Res<AssetServer>,
     mut seed: Local<u32>,
     mut commands: Commands,
 ) {
+    let mut shown: Vec<ShowDamageNumber> = local.read().map(|n| ShowDamageNumber { ..*n }).collect();
     for mut rx in &mut receivers {
         for msg in rx.receive() {
+            // (Already up, as our stab landed.)
+            if predicted.number(Vec3::from_array(msg.point)) {
+                continue;
+            }
+            shown.push(ShowDamageNumber {
+                point: Vec3::from_array(msg.point),
+                damage: msg.damage,
+                critical: msg.critical,
+            });
+        }
+    }
+    {
+        for msg in shown {
             *seed = seed.wrapping_add(1);
             let angle = rand01(seed.wrapping_mul(2_654_435_761)) * std::f32::consts::TAU;
             let color = if msg.critical { SCORE_YELLOW } else { SCORE_WHITE };
             commands
                 .spawn((
                     DamageNumber {
-                        world: Vec3::from_array(msg.point),
+                        world: msg.point,
                         dir: Vec2::from_angle(angle),
                         age: 0.0,
                         color,

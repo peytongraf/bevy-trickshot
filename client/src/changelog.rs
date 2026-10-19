@@ -17,6 +17,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Other players tip perk bottles up properly when drinking.",
+        "New M17 pistol: Zombies now starts with it (no loadout pick).",
+        "M17 in the Mystery Box, Pack-a-Punchable with camos.",
+        "Knife hits and kills show instantly.",
         "Wading, falling and blasts splash the water; ripples and a waterline around anything in it.",
         "Zombies rising from water splash up out of it.",
         "Can't go prone in water; slides splash.",

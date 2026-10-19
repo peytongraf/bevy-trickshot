@@ -273,6 +273,11 @@ pub(crate) fn ads_tuning_ui(
                             .step_by(0.001),
                     );
                     ui.add(
+                        egui::Slider::new(&mut a.roll, -0.6f32..=0.6)
+                            .text("roll")
+                            .step_by(0.001),
+                    );
+                    ui.add(
                         egui::Slider::new(&mut a.scale, 0.001f32..=0.05)
                             .text("scale")
                             .logarithmic(true),
@@ -281,8 +286,8 @@ pub(crate) fn ads_tuning_ui(
                     if ui.button("Copy pose to console").clicked() {
                         info!(
                             "ads: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                             yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                            a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.scale,
+                             yaw: {:.4}, pitch: {:.4}, roll: {:.4}, scale: {:.5} }},",
+                            a.translation.x, a.translation.y, a.translation.z, a.yaw, a.pitch, a.roll, a.scale,
                         );
                     }
                     if ui.button("Reset to default").clicked() {
@@ -309,6 +314,11 @@ pub(crate) fn ads_tuning_ui(
                             .step_by(0.001),
                     );
                     ui.add(
+                        egui::Slider::new(&mut h.roll, -0.6f32..=0.6)
+                            .text("roll")
+                            .step_by(0.001),
+                    );
+                    ui.add(
                         egui::Slider::new(&mut h.scale, 0.001f32..=0.05)
                             .text("scale")
                             .logarithmic(true),
@@ -317,8 +327,8 @@ pub(crate) fn ads_tuning_ui(
                     if ui.button("Copy hip pose to console").clicked() {
                         info!(
                             "hip: ViewModelOffset {{ translation: Vec3::new({:.4}, {:.4}, {:.4}), \
-                             yaw: {:.4}, pitch: {:.4}, scale: {:.5} }},",
-                            h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.scale,
+                             yaw: {:.4}, pitch: {:.4}, roll: {:.4}, scale: {:.5} }},",
+                            h.translation.x, h.translation.y, h.translation.z, h.yaw, h.pitch, h.roll, h.scale,
                         );
                     }
                     if ui.button("Reset hip pose to default").clicked() {
@@ -1163,7 +1173,7 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.checkbox(&mut r.enabled, "Enabled");
                     ui.add(egui::Slider::new(&mut r.kick_speed, 1.0f32..=100.0).text("kick speed (1/s)"));
-                    for (name, w) in [("Sniper", &mut r.sniper), ("AK-74", &mut r.ak)] {
+                    for (name, w) in [("Sniper", &mut r.sniper), ("AK-74", &mut r.ak), ("M17", &mut r.m17)] {
                         ui.separator();
                         ui.label(name);
                         ui.add(egui::Slider::new(&mut w.vertical_deg, 0.0f32..=8.0).text("vertical per shot (°)"));
@@ -1179,10 +1189,11 @@ pub(crate) fn ads_tuning_ui(
                             )
                         };
                         info!(
-                            "aim recoil: kick_speed: {:.1}, sniper {{ {} }}, ak {{ {} }}",
+                            "aim recoil: kick_speed: {:.1}, sniper {{ {} }}, ak {{ {} }}, m17 {{ {} }}",
                             r.kick_speed,
                             f(&r.sniper),
-                            f(&r.ak)
+                            f(&r.ak),
+                            f(&r.m17)
                         );
                     }
                     if ui.button("Reset aim recoil").clicked() {
@@ -1856,6 +1867,7 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Ray Gun (Zombies)", |ui| raygun_dbg.ui(ui, &molotov_dbg.weapon));
+            ui.collapsing("M17 (Zombies)", |ui| raygun_dbg.m17_ui(ui, &molotov_dbg.weapon, &mut tuning.force_full));
 
             ui.separator();
             ui.collapsing("Mystery Box (Zombies)", |ui| box_fx_dbg.ui(ui));

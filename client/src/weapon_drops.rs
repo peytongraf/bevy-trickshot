@@ -48,6 +48,7 @@ pub(crate) fn model_path(weapon: SlotWeapon) -> &'static str {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => "models/weapons/ak_74.glb",
         SlotWeapon::Gun(WeaponId::RayGun) => crate::weapons::RAYGUN_MODEL,
+        SlotWeapon::Gun(WeaponId::M17) => crate::weapons::M17_MODEL,
         SlotWeapon::Gun(_) => "models/weapons/sniper.glb",
         SlotWeapon::Knife => "models/weapons/knife.glb",
     }
@@ -58,6 +59,7 @@ pub(crate) fn real_length(weapon: SlotWeapon) -> f32 {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => 0.95,
         SlotWeapon::Gun(WeaponId::RayGun) => 0.45,
+        SlotWeapon::Gun(WeaponId::M17) => 0.2,
         SlotWeapon::Gun(_) => 1.25,
         SlotWeapon::Knife => 0.32,
     }

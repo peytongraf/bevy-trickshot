@@ -281,7 +281,8 @@ pub(crate) fn primary_seg(weapon: WeaponId, act: SegAct) -> AnimationSegment {
     match weapon {
         WeaponId::Ak74 => super::ak::ak_seg(act),
         WeaponId::RayGun => super::raygun::raygun_seg(act),
-        _ => sniper_seg(act),
+        WeaponId::M17 => super::m17::m17_seg(act),
+        WeaponId::Sniper | WeaponId::Marksman => sniper_seg(act),
     }
 }
 
@@ -360,29 +361,31 @@ pub(crate) struct ViewModelOffset {
     pub(crate) translation: Vec3,
     pub(crate) yaw: f32,
     pub(crate) pitch: f32,
+    /// Turn about the barrel (radians) — levels a gun that sits tilted.
+    pub(crate) roll: f32,
     pub(crate) scale: f32,
 }
 
 impl ViewModelOffset {
+    pub(crate) fn rotation(&self) -> Quat {
+        Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, self.roll)
+    }
+
     pub(crate) fn transform(&self) -> Transform {
         Transform {
             translation: self.translation,
-            rotation: Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, 0.0),
+            rotation: self.rotation(),
             scale: Vec3::splat(self.scale),
         }
     }
 }
 
-/// Interpolate between two poses and build the resulting transform.
+/// Interpolate between two poses and build the resulting transform. (The
+/// turn the short way round — a yaw of π and one of −π are the same.)
 pub(crate) fn lerp_pose(a: &ViewModelOffset, b: &ViewModelOffset, t: f32) -> Transform {
     Transform {
         translation: a.translation.lerp(b.translation, t),
-        rotation: Quat::from_euler(
-            EulerRot::YXZ,
-            a.yaw.lerp(b.yaw, t),
-            a.pitch.lerp(b.pitch, t),
-            0.0,
-        ),
+        rotation: a.rotation().slerp(b.rotation(), t),
         scale: Vec3::splat(a.scale.lerp(b.scale, t)),
     }
 }
@@ -401,6 +404,7 @@ impl Default for ViewModelPoses {
                 translation: Vec3::new(0.13, -0.24, -0.4),
                 yaw: PI,
                 pitch: 0.0,
+                roll: 0.0,
                 scale: 0.01,
             },
             // Gun pulled onto the camera axis so the sight lines up dead centre.
@@ -409,6 +413,7 @@ impl Default for ViewModelPoses {
                 translation: Vec3::new(-0.00008, -0.1721, -0.18),
                 yaw: PI,
                 pitch: 0.0,
+                roll: 0.0,
                 scale: 0.01,
             },
         }
@@ -501,10 +506,10 @@ pub(crate) fn start_view_model_animation(
         if let Ok(mut player) = players.get_mut(entity) {
             if anim.weapon != WeaponId::Sniper {
                 let mut transitions = AnimationTransitions::new();
-                let idle = if anim.weapon == WeaponId::RayGun {
-                    super::raygun::raygun_idle_seg()
-                } else {
-                    super::ak::ak_idle_seg()
+                let idle = match anim.weapon {
+                    WeaponId::RayGun => super::raygun::raygun_idle_seg(),
+                    WeaponId::M17 => super::m17::m17_idle_seg(),
+                    _ => super::ak::ak_idle_seg(),
                 };
                 let node = anim.nodes.get(idle.clip).copied().unwrap_or(anim.index);
                 transitions

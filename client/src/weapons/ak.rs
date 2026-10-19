@@ -172,12 +172,14 @@ impl Default for AkSettings {
                 translation: Vec3::new(-0.03, -0.06, -0.09),
                 yaw: std::f32::consts::PI,
                 pitch: 0.0,
+                roll: 0.0,
                 scale,
             },
             ads: ViewModelOffset {
                 translation: Vec3::new(-0.124, 0.018, 0.08),
                 yaw: std::f32::consts::PI,
                 pitch: -0.0035,
+                roll: 0.0,
                 scale,
             },
             ads_zoom: 1.3,
@@ -314,6 +316,9 @@ pub(crate) struct PrimaryModels {
     pub(crate) raygun_scene: Handle<Scene>,
     pub(crate) raygun_graph: Handle<AnimationGraph>,
     pub(crate) raygun_nodes: Vec<AnimationNodeIndex>,
+    pub(crate) m17_scene: Handle<Scene>,
+    pub(crate) m17_graph: Handle<AnimationGraph>,
+    pub(crate) m17_nodes: Vec<AnimationNodeIndex>,
 }
 
 impl PrimaryModels {
@@ -331,6 +336,9 @@ impl PrimaryModels {
         let raygun_clips = super::raygun::RAYGUN_CLIPS
             .map(|i| asset_server.load(GltfAssetLabel::Animation(i).from_asset(super::raygun::RAYGUN_MODEL)));
         let (raygun_graph, raygun_nodes) = AnimationGraph::from_clips(raygun_clips);
+        let m17_clips = super::m17::M17_CLIPS
+            .map(|i| asset_server.load(GltfAssetLabel::Animation(i).from_asset(super::m17::M17_MODEL)));
+        let (m17_graph, m17_nodes) = AnimationGraph::from_clips(m17_clips);
         Self {
             sniper_scene,
             sniper_graph,
@@ -341,6 +349,9 @@ impl PrimaryModels {
             raygun_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset(super::raygun::RAYGUN_MODEL)),
             raygun_graph: graphs.add(raygun_graph),
             raygun_nodes,
+            m17_scene: asset_server.load(GltfAssetLabel::Scene(0).from_asset(super::m17::M17_MODEL)),
+            m17_graph: graphs.add(m17_graph),
+            m17_nodes,
         }
     }
 }
@@ -375,9 +386,9 @@ pub(crate) fn sync_primary_model(
             if lobby.started && lobby.mode == shared::GameMode::Zombies {
                 return Some(weapon.primary);
             }
-            Some(if lobby.started { m.primary } else { m.loadout })
+            Some(if lobby.started { m.primary } else { lobby.mode.starting_primary(m.loadout) })
         })
-        .filter(|w| LOADOUT_WEAPONS.contains(w) || *w == WeaponId::RayGun)
+        .filter(|w| LOADOUT_WEAPONS.contains(w) || matches!(w, WeaponId::RayGun | WeaponId::M17))
         .unwrap_or(WeaponId::Sniper);
     if weapon.primary != wanted {
         weapon.set_primary(wanted);
@@ -390,6 +401,7 @@ pub(crate) fn sync_primary_model(
     let (scene_handle, graph, nodes) = match wanted {
         WeaponId::Ak74 => (models.ak_scene.clone(), models.ak_graph.clone(), models.ak_nodes.clone()),
         WeaponId::RayGun => (models.raygun_scene.clone(), models.raygun_graph.clone(), models.raygun_nodes.clone()),
+        WeaponId::M17 => (models.m17_scene.clone(), models.m17_graph.clone(), models.m17_nodes.clone()),
         _ => (models.sniper_scene.clone(), models.sniper_graph.clone(), vec![models.sniper_index]),
     };
     // Only swap once the new model's loaded and the one showing has
@@ -431,6 +443,10 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
         if ui.add(egui::Slider::new(&mut pitch, -90.0f32..=90.0).text("pitch (°)")).changed() {
             p.pitch = pitch.to_radians();
         }
+        let mut roll = p.roll.to_degrees();
+        if ui.add(egui::Slider::new(&mut roll, -45.0f32..=45.0).text("roll (°)")).changed() {
+            p.roll = roll.to_radians();
+        }
         ui.add(egui::Slider::new(&mut p.scale, 0.001f32..=0.1).logarithmic(true).text("scale"));
     };
     ui.collapsing("View model poses", |ui| {
@@ -469,8 +485,8 @@ pub(crate) fn ak_section(ui: &mut egui::Ui, s: &mut AkSettings, force_ads: &mut 
         if ui.button("Copy AK-74 settings to console").clicked() {
             let p = |o: &ViewModelOffset| {
                 format!(
-                    "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, scale: {:.5}",
-                    o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.scale
+                    "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, roll: {:.4}, scale: {:.5}",
+                    o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.roll, o.scale
                 )
             };
             info!(

@@ -33,6 +33,9 @@ pub(crate) struct GameSounds {
     /// `audio/weapons/raygun/` — the Ray Gun's shot, reload, and the sound
     /// it makes when it first comes into our hands.
     pub(crate) raygun_shot: Handle<AudioSource>,
+    /// `audio/weapons/m17/shot.mp3` — an M17 round fired (its reloads use
+    /// `ak_reload_fast` for now).
+    pub(crate) m17_shot: Handle<AudioSource>,
     pub(crate) raygun_reload: Handle<AudioSource>,
     pub(crate) raygun_equip: Handle<AudioSource>,
     ambient: Handle<AudioSource>,
@@ -419,6 +422,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         ak_reload: asset_server.load("audio/weapons/ak_74/reload.mp3"),
         ak_reload_fast: asset_server.load("audio/weapons/ak_74/reload_fast.mp3"),
         raygun_shot: asset_server.load("audio/weapons/raygun/shot.mp3"),
+        m17_shot: asset_server.load("audio/weapons/m17/shot.mp3"),
         raygun_reload: asset_server.load("audio/weapons/raygun/reload.mp3"),
         raygun_equip: asset_server.load("audio/weapons/raygun/equip.mp3"),
         ambient: asset_server.load("audio/ambient/nature.ogg"),

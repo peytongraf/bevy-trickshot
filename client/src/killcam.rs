@@ -55,32 +55,34 @@ pub(crate) fn knife_anim_time(
 }
 
 /// One-shot sound bits, packed into `PlayerInput::sound_bits` / recorded locally.
-pub(crate) const SND_SHOT: u16 = 1 << 0;
-pub(crate) const SND_RELOAD: u16 = 1 << 1;
-pub(crate) const SND_RECHAMBER: u16 = 1 << 2;
-pub(crate) const SND_SLIDE: u16 = 1 << 3;
-pub(crate) const SND_DIVE: u16 = 1 << 4;
-pub(crate) const SND_AIM_IN: u16 = 1 << 5;
-pub(crate) const SND_AIM_OUT: u16 = 1 << 6;
-pub(crate) const SND_FOOTSTEP: u16 = 1 << 7;
+pub(crate) const SND_SHOT: u32 = 1 << 0;
+pub(crate) const SND_RELOAD: u32 = 1 << 1;
+pub(crate) const SND_RECHAMBER: u32 = 1 << 2;
+pub(crate) const SND_SLIDE: u32 = 1 << 3;
+pub(crate) const SND_DIVE: u32 = 1 << 4;
+pub(crate) const SND_AIM_IN: u32 = 1 << 5;
+pub(crate) const SND_AIM_OUT: u32 = 1 << 6;
+pub(crate) const SND_FOOTSTEP: u32 = 1 << 7;
 /// The jump-landing thump (`GameSounds::jump_land`) — there's no separate
 /// jump-launch sound, only landing.
-pub(crate) const SND_JUMP_LAND: u16 = 1 << 8;
+pub(crate) const SND_JUMP_LAND: u32 = 1 << 8;
 /// The throwing knife leaving the hand (`GameSounds::knife_throw`) — played
 /// the moment the throw is released.
-pub(crate) const SND_THROW: u16 = 1 << 9;
+pub(crate) const SND_THROW: u32 = 1 << 9;
 /// The AK-74's shot, full (empty-mag) reload and fast reload — its own bits
 /// so other players (and replays) hear the AK's sounds, not the sniper's.
-pub(crate) const SND_AK_SHOT: u16 = 1 << 10;
-pub(crate) const SND_AK_RELOAD: u16 = 1 << 11;
-pub(crate) const SND_AK_RELOAD_FAST: u16 = 1 << 12;
+pub(crate) const SND_AK_SHOT: u32 = 1 << 10;
+pub(crate) const SND_AK_RELOAD: u32 = 1 << 11;
+pub(crate) const SND_AK_RELOAD_FAST: u32 = 1 << 12;
 /// A slide with PhD Flopper — its own sound in place of [`SND_SLIDE`].
-pub(crate) const SND_PHD_SLIDE: u16 = 1 << 13;
+pub(crate) const SND_PHD_SLIDE: u32 = 1 << 13;
 /// The Ray Gun's shot and reload.
-pub(crate) const SND_RAYGUN_SHOT: u16 = 1 << 14;
-pub(crate) const SND_RAYGUN_RELOAD: u16 = 1 << 15;
+pub(crate) const SND_RAYGUN_SHOT: u32 = 1 << 14;
+pub(crate) const SND_RAYGUN_RELOAD: u32 = 1 << 15;
+/// The M17's shot.
+pub(crate) const SND_M17_SHOT: u32 = 1 << 16;
 /// All bits currently in use, for iterating a `sound_bits` mask.
-pub(crate) const ALL_SND_BITS: [u16; 16] = [
+pub(crate) const ALL_SND_BITS: [u32; 17] = [
     SND_SHOT,
     SND_RELOAD,
     SND_RECHAMBER,
@@ -97,6 +99,7 @@ pub(crate) const ALL_SND_BITS: [u16; 16] = [
     SND_PHD_SLIDE,
     SND_RAYGUN_SHOT,
     SND_RAYGUN_RELOAD,
+    SND_M17_SHOT,
 ];
 
 /// Fallback kill time (seconds into the replay) if a message's `kill_index`
@@ -106,10 +109,10 @@ const PRE_SECS: f32 = 3.0;
 /// Sounds the player triggered since the last input packet. `write_input`
 /// drains it.
 #[derive(Resource, Default)]
-pub(crate) struct ReplaySoundBits(pub(crate) u16);
+pub(crate) struct ReplaySoundBits(pub(crate) u32);
 
 impl ReplaySoundBits {
-    pub(crate) fn note(&mut self, bit: u16) {
+    pub(crate) fn note(&mut self, bit: u32) {
         self.0 |= bit;
     }
 }
@@ -362,7 +365,7 @@ fn setup_killcam_assets(mut commands: Commands, asset_server: Res<AssetServer>) 
 /// Maps a single `SND_*` bit to its clip — every bit except [`SND_FOOTSTEP`]
 /// (footsteps pick randomly, see [`pick_footstep`]). Shared by kill-cam replay
 /// and `net::receive_remote_sounds`.
-pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSource>> {
+pub(crate) fn sound_for(sounds: &GameSounds, bit: u32) -> Option<&Handle<AudioSource>> {
     Some(match bit {
         SND_SHOT => &sounds.shot,
         SND_RELOAD => &sounds.reload,
@@ -372,6 +375,7 @@ pub(crate) fn sound_for(sounds: &GameSounds, bit: u16) -> Option<&Handle<AudioSo
         SND_AK_RELOAD_FAST => &sounds.ak_reload_fast,
         SND_RAYGUN_SHOT => &sounds.raygun_shot,
         SND_RAYGUN_RELOAD => &sounds.raygun_reload,
+        SND_M17_SHOT => &sounds.m17_shot,
         SND_SLIDE => &sounds.slide,
         SND_PHD_SLIDE => &sounds.phd_slide,
         SND_DIVE => &sounds.dive,
@@ -1019,6 +1023,7 @@ fn drive_killcam(
             SND_PHD_SLIDE,
             SND_RAYGUN_SHOT,
             SND_RAYGUN_RELOAD,
+            SND_M17_SHOT,
         ] {
             if bits & bit != 0 {
                 let eye = Vec3::from_array(run.frames[run.sound_cursor].1.translation);

@@ -21,7 +21,9 @@ are — `avatars::soldier` looks them up by index and name):
   from the right hip, its neck to the mouth, tipped up as it's drunk with
   the head back, and put back at the hip; `DRINK_SECS` long (the
   first-person drink's). The bottle's the game's own, in the hand where
-  `DRINK_HOLD_*` (printed) says — the game's `WeaponGrips::drink_hold`.
+  the game's `WeaponGrips::drink_hold` says (read from
+  `client/data/weapon_grips.ron` — the WEAPON EDITOR's), so re-run this
+  after changing it there.
 
 Every pose is built off the model's own `shooting` clip (its aimed rifle)
 by turning bones — whole-body forward onto the ground, the spine arched up
@@ -322,7 +324,23 @@ THROW_RELEASE_SECS = 0.25
 
 DRINK_SECS = 1.667          # the first-person drink: frames 160..410 at 30 fps, played 5x
 BOTTLE_HALF = 0.12          # half the bottle's height (m) — the game's `BOTTLE_HEIGHT` / 2
-DRINK_HOLD_POS = np.array([0.0, 0.08, 0.035])  # the bottle's middle from the hand bone (m, its axes)
+GRIPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "weapon_grips.ron")
+LIPS_AHEAD = 0.02           # how far (m) in front of the lips the bottle's neck rests
+
+def game_drink_hold():
+    """The game's `drink_hold`: the bottle's middle from the hand bone (m, its
+    axes) and its turn there (`euler_deg`'s: X, then Y, then Z)."""
+    import re
+    text = open(GRIPS).read()
+    block = text[text.index("drink_hold:"):][:300]
+    nums = lambda key: [float(v) for v in re.search(key + r":\s*\(([^)]*)\)", block).group(1).split(",")]
+    x, y, z = (math.radians(v) for v in nums("turn_deg"))
+    rx = np.array([[1, 0, 0], [0, math.cos(x), -math.sin(x)], [0, math.sin(x), math.cos(x)]])
+    ry = np.array([[math.cos(y), 0, math.sin(y)], [0, 1, 0], [-math.sin(y), 0, math.cos(y)]])
+    rz = np.array([[math.cos(z), -math.sin(z), 0], [math.sin(z), math.cos(z), 0], [0, 0, 1]])
+    return np.array(nums("pos")), rx @ ry @ rz
+
+DRINK_HOLD_POS, DRINK_HOLD_TURN = game_drink_hold()
 
 def bottle_frame(axis):
     """A turn whose +Y is `axis` (the bottle's bottom-to-neck), its +X as near the body's right as can be."""
@@ -331,9 +349,38 @@ def bottle_frame(axis):
     return np.c_[x, y, np.cross(x, y)]
 
 def drink_hold():
-    """The bottle's turn in the hand: standing upright in the hand as it hangs at the hip."""
+    """The bottle's turn in the hand (the game's)."""
+    return DRINK_HOLD_TURN
+
+def natural_hand(axis):
+    """The way the hand would turn for a bottle along `axis` held upright in it
+    as it hangs at the hip — what each key's hand stays nearest to."""
     p = Pose(g, 17, 0.0)
-    return p.rot("Bind_RightHand_037_038").T @ bottle_frame(UP)
+    upright = p.rot("Bind_RightHand_037_038").T @ bottle_frame(UP)
+    return bottle_frame(axis) @ upright.T
+
+def angle_between(a, b):
+    return math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(a.T @ b) - 1) / 2))))
+
+def hand_for(axis, hold):
+    """The hand's turn holding the bottle along `axis` — of every turn of the
+    bottle about its own length, the one with the hand nearest its natural turn.
+
+    (The game's bottle model, as fitted (`held_weapon::fit_bottle_model`),
+    ends up with its *base* along its +Y — `drink_hold` was tuned in the
+    WEAPON EDITOR against that — so its frame here is the neck's way
+    reversed.)"""
+    frame = bottle_frame(-np.asarray(axis, float))
+    want = natural_hand(axis)
+    best = None
+    for d in range(0, 360, 2):
+        a = math.radians(d)
+        spin = np.array([[math.cos(a), 0, math.sin(a)], [0, 1, 0], [-math.sin(a), 0, math.cos(a)]])
+        hand = frame @ spin @ hold.T
+        err = angle_between(hand, want)
+        if best is None or err < best[0]:
+            best = (err, hand)
+    return best[1]
 
 def drink_at(key, hold):
     p = Pose(g, 17, 0.0)  # `idleWithoutGun`
@@ -349,10 +396,10 @@ def drink_at(key, hold):
     axis = np.asarray(key["axis"], float); axis = axis / np.linalg.norm(axis)
     body = lambda v: RIGHT * v[0] + UP * v[1] + FWD * v[2]
     if key["bottle"] == "mouth":
-        middle = mouth - axis * BOTTLE_HALF   # its neck at the lips
+        middle = mouth + FWD * LIPS_AHEAD - axis * BOTTLE_HALF   # its neck at the lips
     else:
         middle = mouth + body(key["bottle"])
-    hand_rot = bottle_frame(axis) @ hold.T
+    hand_rot = hand_for(axis, hold)
     wrist = middle - hand_rot @ DRINK_HOLD_POS
     two_bone_reach(p, "Bind_RightArm_035_036", "Bind_RightForeArm_036_037", "Bind_RightHand_037_038",
                    wrist, RIGHT * 1.0 - UP * 0.8)
@@ -367,8 +414,8 @@ DRINK_KEYS = [
     (0.00, dict(lean=0, head=0, bottle=None)),
     (0.14, dict(lean=0, head=0, bottle=(0.06, -0.3, 0.26), axis=(0, 1, -0.25))),
     (0.28, dict(lean=2, head=12, bottle="mouth", axis=(0, -0.25, -1))),
-    (0.48, dict(lean=5, head=26, bottle="mouth", axis=(0, -0.65, -0.75))),
-    (0.66, dict(lean=6, head=30, bottle="mouth", axis=(0, -0.85, -0.5))),
+    (0.48, dict(lean=5, head=26, bottle="mouth", axis=(0, -0.75, -0.65))),
+    (0.66, dict(lean=6, head=30, bottle="mouth", axis=(0, -0.95, -0.3))),
     (0.80, dict(lean=1, head=6, bottle=(0.06, -0.3, 0.26), axis=(0, 1, -0.25))),
     (1.00, dict(lean=0, head=0, bottle=None)),
 ]

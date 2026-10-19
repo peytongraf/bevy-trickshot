@@ -1881,8 +1881,8 @@ fn build_loadout(
                 let equipped = focus == settings.primary;
                 let (status, color) = if ctx.mode == Some(shared::GameMode::Freestyle) {
                     ("FREESTYLE IS SNIPERS ONLY", TEXT_DIM)
-                } else if ctx.locked() && !equipped {
-                    ("LOADOUT LOCKED UNTIL THE GAME ENDS", TEXT_DIM)
+                } else if ctx.mode == Some(shared::GameMode::Zombies) {
+                    ("ZOMBIES STARTS WITH THE M17", TEXT_DIM)
                 } else if equipped && ctx.carrying.is_some_and(|c| c != focus) {
                     ("EQUIPPED  -  ON NEXT SPAWN", ACCENT)
                 } else if equipped {

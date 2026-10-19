@@ -134,12 +134,14 @@ impl Default for RayGunSettings {
                 translation: Vec3::new(0.0, 0.0, 0.0),
                 yaw: std::f32::consts::PI,
                 pitch: 0.0,
+                roll: 0.0,
                 scale,
             },
             ads: ViewModelOffset {
                 translation: Vec3::new(-0.0963, 0.055, 0.08),
                 yaw: std::f32::consts::PI,
                 pitch: 0.0,
+                roll: 0.0,
                 scale,
             },
             ads_zoom: 1.25,
@@ -195,11 +197,14 @@ pub(crate) fn raygun_draw_lower(
     lower.set_if_neq(GunLower(eased));
 }
 
-/// Debug: hand ourselves the Ray Gun (in a `Zombies` game — for free, in
-/// place of the weapon in hand, which drops like a wall buy's), and tune it.
+/// Debug: hand ourselves the Ray Gun or the M17 (in a `Zombies` game — for
+/// free, in place of the weapon in hand, which drops like a wall buy's),
+/// and tune them.
 #[derive(SystemParam)]
 pub(crate) struct RayGunDebug<'w, 's> {
     settings: ResMut<'w, RayGunSettings>,
+    m17: ResMut<'w, super::m17::M17Settings>,
+    hold_flash: ResMut<'w, crate::vfx::MuzzleFlashHold>,
     look: ResMut<'w, crate::RayGunLook>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
@@ -207,6 +212,32 @@ pub(crate) struct RayGunDebug<'w, 's> {
 }
 
 impl RayGunDebug<'_, '_> {
+    /// The M17's section in the main debug panel (`debug_ui`) — `force_ads`
+    /// is `AdsTuning::force_full`.
+    pub(crate) fn m17_ui(&mut self, ui: &mut egui::Ui, weapon: &Weapon, force_ads: &mut bool) {
+        let in_zombies = crate::zombies_hud::zombies_game(&self.local, &self.lobbies).is_some();
+        let carried = weapon.carries(SlotWeapon::Gun(WeaponId::M17));
+        if ui.add_enabled(in_zombies && !carried, egui::Button::new("Equip the M17")).clicked() {
+            let (mag, reserve) = weapon.held_ammo();
+            if let Ok(mut s) = self.give.single_mut() {
+                s.trigger::<shared::LobbyChannel>(shared::GiveWeapon {
+                    weapon: WeaponId::M17,
+                    slot: weapon.held as u8,
+                    mag,
+                    reserve,
+                });
+            }
+        }
+        if !in_zombies {
+            ui.label("(In a Zombies game.)");
+        } else if carried {
+            ui.label("(Carrying it.)");
+        }
+        ui.separator();
+        ui.checkbox(&mut self.hold_flash.0, "Keep the muzzle flash showing (to place it)");
+        super::m17::m17_section(ui, &mut self.m17, force_ads, weapon.m17_loco());
+    }
+
     /// Its section in the main debug panel (`debug_ui`). (`weapon` is lent
     /// by that panel — it already holds it mutably.)
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, weapon: &Weapon) {
@@ -249,6 +280,10 @@ impl RayGunDebug<'_, '_> {
             if ui.add(egui::Slider::new(&mut pitch, -90.0f32..=90.0).text("pitch (°)")).changed() {
                 p.pitch = pitch.to_radians();
             }
+            let mut roll = p.roll.to_degrees();
+            if ui.add(egui::Slider::new(&mut roll, -45.0f32..=45.0).text("roll (°)")).changed() {
+                p.roll = roll.to_radians();
+            }
             ui.add(egui::Slider::new(&mut p.scale, 0.01f32..=1.0).logarithmic(true).text("scale"));
         };
         ui.collapsing("View model poses", |ui| {
@@ -257,6 +292,7 @@ impl RayGunDebug<'_, '_> {
             pose(ui, "Aimed (ADS)", &mut s.ads);
             ui.add(egui::Slider::new(&mut s.ads_zoom, 1.0f32..=3.0).text("ADS zoom (×)"));
         });
+        ui.checkbox(&mut self.hold_flash.0, "Keep the muzzle flash showing (to place it)");
         ui.collapsing("Firing", |ui| {
             ui.add(egui::Slider::new(&mut s.fire_interval, 0.05f32..=1.0).text("between shots (s)"));
             ui.add(egui::Slider::new(&mut s.trauma_per_shot, 0.0f32..=1.0).text("shake per shot"));
@@ -320,8 +356,8 @@ impl RayGunDebug<'_, '_> {
             if ui.button("Copy Ray Gun settings to console").clicked() {
                 let p = |o: &ViewModelOffset| {
                     format!(
-                        "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, scale: {:.4}",
-                        o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.scale
+                        "translation: Vec3::new({:.4}, {:.4}, {:.4}), yaw: {:.4}, pitch: {:.4}, roll: {:.4}, scale: {:.4}",
+                        o.translation.x, o.translation.y, o.translation.z, o.yaw, o.pitch, o.roll, o.scale
                     )
                 };
                 info!(

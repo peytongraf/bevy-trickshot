@@ -65,6 +65,22 @@ impl GameMode {
         matches!(self, GameMode::FreeForAll | GameMode::Zombies)
     }
 
+    /// Whether players pick the gun they start with — only `FreeForAll`'s:
+    /// `Zombies` always starts with the M17, `Freestyle` the sniper
+    /// ([`Self::starting_primary`]).
+    pub fn picks_loadout(self) -> bool {
+        self == GameMode::FreeForAll
+    }
+
+    /// The primary a life starts with, given the player's `loadout` pick.
+    pub fn starting_primary(self, loadout: crate::weapon::WeaponId) -> crate::weapon::WeaponId {
+        match self {
+            GameMode::FreeForAll => loadout,
+            GameMode::Zombies => crate::weapon::WeaponId::M17,
+            GameMode::Freestyle => crate::weapon::WeaponId::Sniper,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             GameMode::Freestyle => "FREESTYLE",
@@ -547,8 +563,9 @@ pub struct PlayerInput {
     pub fire_dir: [f32; 3],
     /// Whether the player stabbed with the knife this tick. Independent of
     /// `fire` (the sniper's trigger); reuses `fire_origin` / `fire_dir` for
-    /// the stab's eye position and aim direction, and the server resolves it
-    /// with [`crate::melee::resolve_melee`].
+    /// the stab's eye position and aim direction, and the server checks what
+    /// it claims to have struck ([`Self::melee_hit`]) or resolves it with
+    /// [`crate::melee::resolve_melee`].
     pub melee: bool,
     /// Selected weapon, as [`WeaponId::as_u8`].
     pub weapon: u8,
@@ -584,7 +601,7 @@ pub struct PlayerInput {
     /// lobby (see `RemoteSound`) so they hear this player's actions
     /// positionally. Bit meanings are client-internal (`killcam::SND_*`).
     /// `u16` rather than `u8` since all 8 low bits are already spoken for.
-    pub sound_bits: u16,
+    pub sound_bits: u32,
     /// Playhead (seconds) of the first-person weapon's baked animation clip this
     /// tick, so the kill cam can pose the gun exactly as the player saw it.
     pub anim_time: f32,
@@ -674,6 +691,14 @@ pub struct PlayerInput {
     /// against simple capsules itself.
     #[reflect(ignore)]
     pub fire_hits: Option<Vec<ShotClaim>>,
+    /// With `melee`: the enemy this client saw the thrust strike — tested
+    /// against their animated model as drawn on its screen, the moment it
+    /// reached out — for the server to check over
+    /// ([`crate::melee::check_melee_claim`]); its client has already shown
+    /// the stab landing. `None`: it saw a whiff (or it's a bot's stab), and
+    /// the server resolves it itself ([`crate::melee::resolve_melee`]).
+    #[reflect(ignore)]
+    pub melee_hit: Option<ShotClaim>,
 }
 
 /// One enemy a player's shot struck, as their client saw it
@@ -779,6 +804,7 @@ impl Default for PlayerInput {
             drink: None,
             mantle: None,
             fire_hits: None,
+            melee_hit: None,
         }
     }
 }
@@ -851,7 +877,7 @@ pub struct RayGunFired {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct RemoteSound {
     pub player: PeerId,
-    pub bits: u16,
+    pub bits: u32,
     /// World point the sound should play from (the player's pose position).
     pub position: [f32; 3],
 }
@@ -926,7 +952,7 @@ pub struct KillCamSample {
     /// The shooter's scope magnification, so the replay zooms exactly as theirs did.
     pub scope_zoom: f32,
     /// One-shot sounds triggered on this frame (`killcam::SND_*`).
-    pub sound_bits: u16,
+    pub sound_bits: u32,
     /// The primary held on this frame ([`WeaponId::as_u8`]) — the replay
     /// shows that gun, whatever the viewer carries.
     pub weapon: u8,
