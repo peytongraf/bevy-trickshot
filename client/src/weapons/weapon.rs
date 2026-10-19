@@ -15,7 +15,6 @@ use crate::player::WorldModelCamera;
 use crate::settings::Settings;
 use crate::util::{rand01, rand_roll};
 use crate::{BulletImpact, FireTracer, GameSounds, GroundImpact, MuzzleFlashState, SmokeEmission};
-use shared::ballistics::ground_impact;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::{SlotWeapon, WeaponId};
 
@@ -198,9 +197,11 @@ pub(crate) fn resolve_local_shot(
     for shot in shots.read() {
         let max_range = shot.weapon.spec().max_range;
         let aim = shot.dir.normalize_or_zero();
-        // Each candidate surface carries its normal (the collider's own, or
-        // straight up for the flat plane) for the bullet hole.
-        let wall_hit = rapier.single().ok().and_then(|r| {
+        // The map's own surface it reaches, with its normal for the bullet
+        // hole. (Every map's ground is real geometry — no flat plane to fall
+        // back on, which used to leave holes floating over drops and above
+        // water.)
+        let surface = rapier.single().ok().and_then(|r| {
             r.cast_ray_and_get_normal(shot.origin, aim, max_range, true, QueryFilter::default())
                 .map(|(_, hit)| {
                     // Face the shooter, whichever way the collider's winding goes.
@@ -208,15 +209,6 @@ pub(crate) fn resolve_local_shot(
                     (shot.origin + aim * hit.time_of_impact, n)
                 })
         });
-        let flat_hit = ground_impact(shot.origin, shot.dir).map(|p| (p, Vec3::Y));
-        let surface = match (wall_hit, flat_hit) {
-            (Some(w), Some(g)) => Some(if shot.origin.distance(w.0) <= shot.origin.distance(g.0) {
-                w
-            } else {
-                g
-            }),
-            (w, g) => w.or(g),
-        };
         let ground_pt = surface.map(|(p, _)| p);
         // A Ray Gun bolt, not a bullet: no dust, hole or tracer — its bolt
         // flies from the barrel toward the surface it'll hit here (the

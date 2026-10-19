@@ -27,9 +27,7 @@ height: 3m
 
 # Water
 
-- Bullet holes are showing on waters surface or slightly above it at ground level.
 - Water should reflect the map. There should be settings for how much reflection it has.
-- Add splash and wave effect effect around enemies and players including self when moving thorugh the water.
 
 # First person animations
 
@@ -51,6 +49,8 @@ height: 3m
 
 # Done
 
+- Bullet holes over water / drops fixed
+- Water splashes and wakes
 - Remote player mantle animation
 - First person mantle animation
 - Doubled knife reach + lunging stab

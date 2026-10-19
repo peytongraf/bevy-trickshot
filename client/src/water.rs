@@ -299,6 +299,29 @@ pub(crate) fn surface_near(map: shared::MapId, p: Vec3, above: f32) -> Option<f3
         .map(|w| w.at.pos.y)
 }
 
+/// Where the straight line `from` → `to` first goes down through the surface
+/// of one of `map`'s pools, if it does — a shot into the water.
+pub(crate) fn water_crossing(map: shared::MapId, from: Vec3, to: Vec3) -> Option<Vec3> {
+    shared::level::layout(map)
+        .waters
+        .iter()
+        .filter_map(|w| {
+            let y = w.at.pos.y;
+            if from.y <= y || to.y >= y {
+                return None;
+            }
+            let at = from.lerp(to, (from.y - y) / (from.y - to.y));
+            w.covers(at).then_some(at)
+        })
+        .min_by(|a, b| from.distance(*a).total_cmp(&from.distance(*b)))
+}
+
+/// Whether `p` (a bullet's hit on the floor, say) is under one of `map`'s
+/// pools.
+pub(crate) fn underwater(map: shared::MapId, p: Vec3) -> bool {
+    surface_over(map, p).is_some()
+}
+
 /// Most small splash particles out at once (past it, new ones are
 /// skipped — a [`spawn_big_splash`] always goes up whole).
 const SPLASH_MAX: usize = 220;

@@ -24,7 +24,7 @@
         (pos: (-59.864, 0.0, -68.864), yaw_deg: 45.0),
         (pos: (-29.555, -5.0, 40.887), yaw_deg: 90.0),
     ],
-    power_switch: Some((pos: (-15.5, -5.0, 55.2), yaw_deg: -180.0)),
+    power_switch: Some((pos: (0.0, -15.0, 43.78), yaw_deg: -180.0)),
     wall_buys: [
         (weapon: Sniper, at: (pos: (41.102, 0.0, 14.958), yaw_deg: 90.0)),
         (weapon: Ak74, at: (pos: (-29.9, -4.15, 69.5), yaw_deg: 90.0)),
@@ -35,6 +35,7 @@
     exfil_radio: Some((pos: (-11.5, -4.0, 56.45), yaw_deg: 0.0)),
     exfil_area: Some((at: (pos: (0.0, 0.0, -67.36), yaw_deg: 0.0), width: 62.6, depth: 41.9)),
     rampage_inducer: Some((pos: (27.606, -4.0, 58.668), yaw_deg: 0.0)),
+    power_station: Some((pos: (0.0, -15.0, 44.5), yaw_deg: 90.0)),
     power_lights: [
         (pos: (-55.392, 13.0, 18.977), color: (1.0, 0.838, 0.514), intensity: 4150000.0, range: 28.7, radius: 0.28, shadows: true),
         (pos: (-62.909, 16.3, 56.075), color: (1.0, 0.95, 0.85), intensity: 6700000.0, range: 30.0, radius: 0.3, shadows: true),
@@ -46,8 +47,8 @@
         (pos: (0.006, 6.1, -29.56), color: (0.88, 0.097, 0.097), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: true),
         (pos: (61.674, 13.0, 57.541), color: (1.0, 0.95, 0.85), intensity: 7600000.0, range: 30.0, radius: 0.3, shadows: false),
         (pos: (-57.922, 13.0, -24.839), color: (1.0, 0.95, 0.85), intensity: 11100000.0, range: 30.0, radius: 0.3, shadows: true),
-        (pos: (-20.0, -8.5, 45.0), color: (0.746, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
-        (pos: (20.0, -8.5, 45.0), color: (0.745, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: false),
+        (pos: (-20.0, -8.5, 45.0), color: (0.746, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: true),
+        (pos: (20.0, -8.5, 45.0), color: (0.745, 0.165, 0.165), intensity: 2000000.0, range: 30.0, radius: 0.3, shadows: true),
         (pos: (68.0, 9.9, -20.25), color: (0.924, 0.795, 0.629), intensity: 9500000.0, range: 41.0, radius: 0.3, shadows: false),
     ],
     flames: [

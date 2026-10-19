@@ -141,6 +141,8 @@ pub(crate) enum ObjectId {
     ExfilArea,
     /// The Rampage Inducer.
     RampageInducer,
+    /// The power station — scenery the power switch goes on.
+    PowerStation,
     /// The wall buy selling this gun.
     WallBuy(WeaponId),
     /// A players' start spot (`ZombiesLayout::player_spawns`, by index) —
@@ -191,7 +193,7 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 10] = [
+    pub(crate) const OPTIONAL: [ObjectId; 11] = [
         ObjectId::PackAPunch,
         ObjectId::PowerSwitch,
         ObjectId::MysteryBox,
@@ -200,6 +202,7 @@ impl ObjectId {
         ObjectId::ExfilRadio,
         ObjectId::ExfilArea,
         ObjectId::RampageInducer,
+        ObjectId::PowerStation,
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
@@ -413,6 +416,7 @@ impl ObjectId {
             ObjectId::ExfilRadio => "Exfil radio",
             ObjectId::ExfilArea => "Exfil area",
             ObjectId::RampageInducer => "Rampage Inducer",
+            ObjectId::PowerStation => "Power station",
             ObjectId::WallBuy(WeaponId::Ak74) => "AK-74 wall buy",
             ObjectId::WallBuy(_) => "Sniper wall buy",
             ObjectId::PlayerSpawn(i) => Self::SPAWN_LABELS[(i as usize).min(Self::SPAWN_LABELS.len() - 1)],
@@ -461,6 +465,7 @@ impl ObjectId {
             ObjectId::CraftingTable => Some("crafting_table".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
             ObjectId::RampageInducer => Some("rampage_inducer".into()),
+            ObjectId::PowerStation => Some("power_station".into()),
             ObjectId::ExfilArea
             | ObjectId::WallBuy(_)
             | ObjectId::Reference(_)
@@ -505,6 +510,7 @@ impl ObjectId {
             ObjectId::CraftingTable => Some(&mut layout.crafting_table),
             ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
             ObjectId::RampageInducer => Some(&mut layout.rampage_inducer),
+            ObjectId::PowerStation => Some(&mut layout.power_station),
             _ => None,
         }
     }
@@ -547,6 +553,7 @@ impl ObjectId {
             ObjectId::ExfilRadio => layout.exfil_radio,
             ObjectId::ExfilArea => layout.exfil_area.map(|a| a.at),
             ObjectId::RampageInducer => layout.rampage_inducer,
+            ObjectId::PowerStation => layout.power_station,
             ObjectId::WallBuy(gun) => layout.wall_buy(gun),
             ObjectId::PlayerSpawn(i) => layout.player_spawns.get(i as usize).copied(),
             ObjectId::PowerLight(i) => layout.power_lights.get(i as usize).map(|l| Placement::new(l.pos, 0.0)),
@@ -713,6 +720,7 @@ impl ObjectId {
             ObjectId::ExfilRadio => crate::exfil::EXFIL_BLUE,
             ObjectId::ExfilArea => crate::exfil::EXFIL_ORANGE,
             ObjectId::RampageInducer => crate::rampage::RAMPAGE_ORANGE,
+            ObjectId::PowerStation => Color::srgb(0.95, 0.8, 0.3),
             ObjectId::WallBuy(_) => Color::srgb(0.6, 1.0, 0.45),
             ObjectId::Reference(_) => Color::srgb(0.8, 0.85, 0.9),
             ObjectId::PlayerSpawn(_) => Color::srgb(0.3, 0.9, 1.0),
@@ -747,8 +755,8 @@ impl ObjectId {
             // (Rebuilt from inside — a rectangle, drawn by
             // `input::draw_gizmos`.)
             ObjectId::Window(_) => shared::windows::REPAIR_REACH,
-            // (Not used — just looked at.)
-            ObjectId::Water(_) | ObjectId::Waterfall(_) => 0.0,
+            // (Not used — just looked at; the switch on it is its own.)
+            ObjectId::Water(_) | ObjectId::Waterfall(_) | ObjectId::PowerStation => 0.0,
             _ => shared::perks::PERK_USE_RADIUS,
         }
     }
@@ -810,6 +818,7 @@ impl ObjectId {
             ObjectId::CraftingTable => standing(shared::crafting::HALF_EXTENTS),
             ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
             ObjectId::RampageInducer => standing(shared::rampage::HALF_EXTENTS),
+            ObjectId::PowerStation => standing(shared::power_station::HALF_EXTENTS),
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
             ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
@@ -1550,6 +1559,7 @@ fn model_of(
         ObjectId::CraftingTable => (crate::crafting::CRAFTING_TABLE_MODEL, crate::crafting::model_transform()),
         ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
         ObjectId::RampageInducer => (crate::rampage::RAMPAGE_MODEL, Transform::IDENTITY),
+        ObjectId::PowerStation => (crate::power::POWER_STATION_MODEL, Transform::IDENTITY),
         // (No model — just its marker and rectangle; a light, its marker and
         // reach.)
         // (A fire draws itself, live — `sync_editor_flames`.)
@@ -1664,6 +1674,10 @@ fn sync_objects(
                 object.with_children(|o| {
                     o.spawn((scene, offset)).observe(crate::start_zombie_animation);
                 });
+            }
+            // (Its glass as the game has it — `power::glaze_power_station`.)
+            ObjectId::PowerStation => {
+                object.with_child((crate::power::PowerStationModel, scene, offset));
             }
             _ => {
                 object.with_child((scene, offset));

@@ -36,7 +36,7 @@ use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::render::mesh::{Indices, VertexAttributeValues};
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
-use shared::ballistics::{ground_impact, shot_path};
+use shared::ballistics::shot_path;
 use shared::hitbox::zone_of_bone;
 use shared::weapon::{WeaponId, RAYGUN_BOLT_SPEED};
 use shared::{Bot, ClaimTarget, GameMode, Lobby, PlayerId, PlayerPose, Projectile, ShotClaim};
@@ -297,13 +297,11 @@ pub(crate) fn claim_shot_hits(
     if weapon.primary == WeaponId::RayGun {
         // Its bolt flies to the first surface in its way (or its max range).
         let max_range = WeaponId::RayGun.spec().max_range;
-        let wall = rapier
+        let reach = rapier
             .single()
             .ok()
             .and_then(|r| r.cast_ray(origin, aim, max_range, true, QueryFilter::only_fixed()))
-            .map(|(_, d)| d);
-        let ground = ground_impact(origin, aim).map(|p| origin.distance(p));
-        let reach = [wall, ground].into_iter().flatten().fold(max_range, f32::min);
+            .map_or(max_range, |(_, d)| d.min(max_range));
         own.0.push(OwnProjectile {
             projectile: Projectile::RayGun,
             origin,

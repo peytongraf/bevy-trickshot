@@ -294,6 +294,7 @@ pub(crate) fn impact_material(texture: Handle<Image>) -> StandardMaterial {
 /// this frame. World-space, so it's seen from every angle and by every client.
 pub(crate) fn spawn_ground_impact(
     mut events: EventReader<GroundImpact>,
+    current_map: Res<crate::CurrentMap>,
     assets: Res<ImpactAssets>,
     rocks: Res<RockSettings>,
     dust: Res<DustSettings>,
@@ -305,6 +306,11 @@ pub(crate) fn spawn_ground_impact(
     let mut budget = IMPACT_MAX.saturating_sub(existing.iter().count());
 
     for ev in events.read() {
+        // (Not on a pool's floor: the water takes it — `water_wake`'s
+        // splash.)
+        if crate::water::underwater(current_map.0, ev.0 + Vec3::Y * 0.01) {
+            continue;
+        }
         *seq = seq.wrapping_add(1);
         let burst = DebrisBurst {
             rocks: rocks.count,

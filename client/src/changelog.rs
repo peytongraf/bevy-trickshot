@@ -17,6 +17,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Power station hums and glows blue with the power on.",
+        "Power station (Zombies): its Tesla coils crackle with electricity once the power is on.",
+        "Level editor: add a power station (Zombies) for the power switch to sit on.",
+        "No more bullet holes floating over water or in mid-air; shots splash into water.",
         "Other players tip perk bottles up properly when drinking.",
         "New M17 pistol: Zombies now starts with it (no loadout pick).",
         "M17 in the Mystery Box, Pack-a-Punchable with camos.",

@@ -40,6 +40,7 @@ pub mod pap;
 pub mod perks;
 pub mod power_ups;
 pub mod power;
+pub mod power_station;
 pub mod protocol;
 pub mod quotes;
 pub mod rampage;

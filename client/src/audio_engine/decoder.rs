@@ -436,6 +436,28 @@ mod tests {
         assert!(checked > 0);
     }
 
+    /// The power station's hum decodes to exactly its 8 s — the mp3's
+    /// encoder delay and padding trimmed (gapless), so it loops with no gap.
+    #[test]
+    fn the_power_station_hum_is_gapless() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/audio/ambient/power_station_hum.mp3");
+        let bytes: Arc<[u8]> = std::fs::read(&path).unwrap().into();
+        let mut clip = open(&bytes).unwrap();
+        let mut frames = 0usize;
+        loop {
+            match clip.reader.next_packet() {
+                Ok(Some(packet)) if packet.track_id == clip.track_id => {
+                    if let Ok(buffer) = clip.decoder.decode(&packet) {
+                        frames += buffer.frames();
+                    }
+                }
+                Ok(Some(_)) => {}
+                _ => break,
+            }
+        }
+        assert_eq!(frames, 8 * 44_100);
+    }
+
     /// The waterfall loop knows its length, so each waterfall can start it
     /// somewhere different (`OpenClip::skip_to`).
     #[test]

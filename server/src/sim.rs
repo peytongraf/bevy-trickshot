@@ -9,7 +9,7 @@ use lightyear::prelude::*;
 
 use std::collections::HashMap;
 
-use shared::ballistics::{ground_impact, resolve_claimed_hits, resolve_shot_pierce, Claim, Target};
+use shared::ballistics::{resolve_claimed_hits, resolve_shot_pierce, Claim, Target};
 use shared::map::CollisionWorld;
 use shared::hitbox::Capsule;
 use shared::weapon::WeaponId;
@@ -628,8 +628,8 @@ fn resolve_shots(
                 }
             }
             None => {
-                // Nothing hit: the shot ends on whichever comes first, the
-                // map's own surface or the flat ground plane fallback.
+                // Nothing hit: the shot ends on the map's own surface, if it
+                // reaches one.
                 match first_surface(origin, aim, wall.map(|h| (h.distance, h.normal))) {
                     Some((p, normal)) => {
                         tracer_end = p;
@@ -659,17 +659,12 @@ fn resolve_shots(
 
 /// Where a shot along `aim` from `origin` first meets something solid: the
 /// map's own surface (`wall`: its distance and normal, from
-/// `MapColliders`' raycast) or the flat ground plane fallback, whichever
-/// comes first — with its surface normal (the mesh's own, or straight up
-/// for the plane) for the clients' bullet hole. `None`: neither, a clean
-/// miss into the sky.
+/// `MapColliders`' raycast) — with its normal for the clients' bullet hole.
+/// (Every map's ground is real geometry; there's no flat plane to fall back
+/// on, which used to put holes in mid-air over drops.) `None`: a clean miss
+/// into the sky.
 pub(crate) fn first_surface(origin: Vec3, aim: Vec3, wall: Option<(f32, Vec3)>) -> Option<(Vec3, Vec3)> {
-    let mesh_hit = wall.map(|(d, normal)| (origin + aim * d, normal));
-    let plane_hit = ground_impact(origin, aim).map(|p| (p, Vec3::Y));
-    match (mesh_hit, plane_hit) {
-        (Some(w), Some(g)) => Some(if origin.distance(w.0) <= origin.distance(g.0) { w } else { g }),
-        (w, g) => w.or(g),
-    }
+    wall.map(|(d, normal)| (origin + aim * d, normal))
 }
 
 /// `peer`'s Pack-a-Punch damage multiplier for `weapon` in `lobby` (1 for a

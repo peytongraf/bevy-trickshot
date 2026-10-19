@@ -44,7 +44,7 @@ impl Plugin for WaterWakePlugin {
             .add_systems(OnExit(AppState::InGame), |mut wake: ResMut<LocalWake>| *wake = LocalWake::default())
             .add_systems(
                 Update,
-                (avatar_wakes, local_wake, blast_splashes).run_if(in_state(AppState::InGame)),
+                (avatar_wakes, local_wake, blast_splashes, shot_splashes).run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -326,6 +326,42 @@ fn local_wake(
     }
     let (kick, ahead) = if slide.stance == Stance::Sliding { (2.6, 1.0) } else { (1.0, 0.5) };
     stir.wade(wake, at, moved, time.delta_secs().max(1e-4), 1.0, kick, ahead);
+}
+
+/// A shot into the water (anyone's — its tracer's line): a little splash
+/// and a ring where it goes in. (Its hole's on the floor under the water.)
+#[allow(clippy::too_many_arguments)]
+fn shot_splashes(
+    time: Res<Time>,
+    current_map: Res<CurrentMap>,
+    assets: Option<Res<WaterAssets>>,
+    mut ripples: ResMut<WaterRipples>,
+    splashes: Query<(), With<SplashParticle>>,
+    mut tracers: EventReader<crate::FireTracer>,
+    mut commands: Commands,
+    mut seq: Local<u32>,
+) {
+    let Some(assets) = assets else {
+        tracers.clear();
+        return;
+    };
+    let now = time.elapsed_secs_wrapped();
+    let mut stir = Stir {
+        splashed: splashes.iter().count(),
+        commands: &mut commands,
+        assets: &assets,
+        ripples: &mut ripples,
+        now,
+        seq: *seq,
+    };
+    for tracer in tracers.read() {
+        let Some(at) = crate::water::water_crossing(current_map.0, tracer.start, tracer.end) else {
+            continue;
+        };
+        stir.burst(at, 0.08, 2, 0.55);
+        stir.ripples.add(at, now, 0.7);
+    }
+    *seq = stir.seq;
 }
 
 /// A blast going off in, or just over, a pool throws a column of it up.

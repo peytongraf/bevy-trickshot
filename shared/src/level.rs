@@ -656,6 +656,10 @@ pub struct ZombiesLayout {
     /// The Rampage Inducer ([`crate::rampage`]), if the place has one.
     #[serde(default)]
     pub rampage_inducer: Option<Placement>,
+    /// The power station ([`crate::power_station`]) — scenery the power
+    /// lever's put on — if the place has one.
+    #[serde(default)]
+    pub power_station: Option<Placement>,
     /// The lights the power turns on — up to [`MAX_POWER_LIGHTS`].
     #[serde(default)]
     pub power_lights: Vec<PowerLight>,
@@ -737,6 +741,7 @@ impl ZombiesLayout {
             ("exfil_radio", &mut self.exfil_radio),
             ("crafting_table", &mut self.crafting_table),
             ("rampage_inducer", &mut self.rampage_inducer),
+            ("power_station", &mut self.power_station),
         ] {
             if let Some(at) = slot.as_mut() {
                 out.push((key.into(), at));
@@ -802,6 +807,7 @@ impl ZombiesLayout {
             self.exfil_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
         );
         out += &format!("    rampage_inducer: {},\n", optional(self.rampage_inducer));
+        out += &format!("    power_station: {},\n", optional(self.power_station));
         out += "    power_lights: [\n";
         for light in &self.power_lights {
             out += &format!("        {},\n", light.to_ron());

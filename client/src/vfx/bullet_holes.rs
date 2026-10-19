@@ -167,17 +167,10 @@ fn probe(
     boxes: &Query<(), With<NoBulletHoles>>,
 ) -> Option<(f32, Vec3)> {
     let not_box = |e: Entity| !boxes.contains(e);
-    let wall = rapier.and_then(|r| {
+    rapier.and_then(|r| {
         r.cast_ray_and_get_normal(from, dir, max, true, QueryFilter::default().exclude_sensors().predicate(&not_box))
             .map(|(_, hit)| (hit.time_of_impact, hit.normal))
-    });
-    let ground = shared::ballistics::ground_impact(from, dir)
-        .map(|p| (from.distance(p), Vec3::Y))
-        .filter(|(d, _)| *d <= max);
-    match (wall, ground) {
-        (Some(w), Some(g)) => Some(if w.0 <= g.0 { w } else { g }),
-        (w, g) => w.or(g),
-    }
+    })
 }
 
 /// Where a hole centred at `center` on a face with outward `normal` (sides
@@ -228,6 +221,7 @@ fn spawn_bullet_holes(
     settings: Res<BulletHoleSettings>,
     assets: Option<Res<BulletHoleAssets>>,
     mut events: EventReader<BulletImpact>,
+    current_map: Res<crate::CurrentMap>,
     holes: Query<(Entity, &BulletHole)>,
     rapier: ReadRapierContext,
     boxes: Query<(), With<NoBulletHoles>>,
@@ -245,6 +239,11 @@ fn spawn_bullet_holes(
     for ev in events.read() {
         let normal = ev.normal.normalize_or_zero();
         if normal == Vec3::ZERO {
+            continue;
+        }
+        // Under a pool: none (the water's drawn over it anyway — its splash
+        // is `water_wake`'s).
+        if crate::water::underwater(current_map.0, ev.point + normal * 0.01) {
             continue;
         }
         let dir = Some(ev.dir.normalize_or_zero()).filter(|d| *d != Vec3::ZERO).unwrap_or(-normal);
