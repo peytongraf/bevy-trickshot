@@ -40,14 +40,13 @@ height: 3m
 
 - Knife arms too high and far out
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
-- Player can mantle over spawn door on handrail. Wall needs to be raised.
-- Exfil model inside lower tomb in wrong place
-- During exfil bosses took forever to get to the exfil zone. All enemies need to respawn when the player goes to it because I didn't even have a chance to kill the bosses.
-- Probably twice as many dogs as there should be on exfil.
 - Deadshot perk jingle seems too quiet
 
 # Done
 
+- Half as many exfil dogs
+- No power-on horde during countdown
+- Far-off dogs / bosses respawn; exfil wave at zone
 - Water reflections
 - Bullet holes over water / drops fixed
 - Water splashes and wakes

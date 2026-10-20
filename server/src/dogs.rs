@@ -94,7 +94,11 @@ fn bring_in_dogs(
             skill.reaction_secs = skill.reaction_secs.min(0.3);
             skill.turn_deg_per_sec = skill.turn_deg_per_sec.max(320.0);
             skill.sight_range = skill.sight_range.max(80.0);
-            let health = shared::dogs::dog_health(round);
+            let max = shared::dogs::dog_health(round);
+            // (One brought back in comes as hurt as it was.)
+            let health = dog.health.map_or(max, |h| h.min(max));
+            let mut combat = PlayerCombat::zombie(max);
+            combat.health = health;
             let real = lobby.real_peers();
             commands.spawn((
                 Name::from("Hellhound"),
@@ -114,10 +118,11 @@ fn bring_in_dogs(
                     .facing(dog.yaw)
                     .with_skill(skill)
                     .dog(speed),
-                PlayerCombat::zombie(health),
+                combat,
                 shared::PlayerHealth(health),
                 Replicate::to_clients(NetworkTarget::Only(real.clone())),
                 InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+                crate::zombies::OutOfTouch::default(),
             ));
             send_to_lobby(&mut sender, server, lobby, &shared::DogSpawned { at: dog.feet.to_array() });
         }

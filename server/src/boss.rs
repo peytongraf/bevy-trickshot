@@ -42,6 +42,9 @@ pub(crate) struct PendingBoss {
     pub(crate) spawn_at: f32,
     /// Its lightning's been sent to the lobby.
     pub(crate) announced: bool,
+    /// The health it comes in with, if not a fresh one's — one brought back
+    /// in from across the map (`zombies::recycle_far_zombies`).
+    pub(crate) health: Option<f32>,
 }
 
 impl PendingBoss {
@@ -53,6 +56,7 @@ impl PendingBoss {
             yaw: f32::atan2(-to.x, -to.z),
             spawn_at: now + shared::boss::BOSS_PRE_SPAWN_SECS,
             announced: false,
+            health: None,
         }
     }
 }
@@ -158,7 +162,11 @@ fn bring_in_bosses(
             skill.reaction_secs = skill.reaction_secs.min(0.4);
             skill.turn_deg_per_sec = skill.turn_deg_per_sec.max(160.0);
             skill.sight_range = skill.sight_range.max(shared::boss::BLAST_MAX_RANGE + 10.0);
-            let health = shared::boss::boss_health(round, lobby.real_count());
+            let max = shared::boss::boss_health(round, lobby.real_count());
+            // (One brought back in comes as hurt as it was.)
+            let health = boss.health.map_or(max, |h| h.min(max));
+            let mut combat = PlayerCombat::zombie(max);
+            combat.health = health;
             let real = lobby.real_peers();
             commands.spawn((
                 Name::from("Boss"),
@@ -178,10 +186,11 @@ fn bring_in_bosses(
                     .facing(boss.yaw)
                     .with_skill(skill)
                     .boss(now),
-                PlayerCombat::zombie(health),
+                combat,
                 shared::PlayerHealth(health),
                 Replicate::to_clients(NetworkTarget::Only(real.clone())),
                 InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+                crate::zombies::OutOfTouch::default(),
             ));
             send_to_lobby(&mut sender, server, lobby, &shared::BossSpawned { at: boss.feet.to_array() });
             info!("lobby {lobby_e:?}: a boss appeared ({health:.0} health)");

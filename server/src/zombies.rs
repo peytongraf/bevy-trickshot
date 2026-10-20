@@ -15,8 +15,8 @@
 //! out of every one's sight, for [`RECYCLE_AFTER_SECS`] — is brought back in
 //! (Cold War's way): it's quietly taken away where no one can see it and
 //! rises again near the party, as hurt as it was, so the round doesn't stall
-//! on a straggler across the map ([`recycle_far_zombies`]). Dogs and bosses
-//! aren't.
+//! on a straggler across the map ([`recycle_far_zombies`]). Hellhounds and
+//! bosses too, struck back in by their lightning, as hurt as they were.
 //!
 //! Every fifth round is a dog round instead (`shared::dogs`): only
 //! hellhounds come, each announced by a lightning strike where it'll appear
@@ -30,7 +30,8 @@
 //!
 //! On rounds 11, 21, 31, ... the party can call the exfil instead (`crate::exfil`):
 //! the round's enemies are cleared away and its wave is sent from here, kept
-//! topped up to exactly the kills still needed.
+//! topped up to exactly the kills still needed — all of it coming in around
+//! the exfil area, where the kills have to be made ([`spawn_anchors`]).
 //!
 //! Scoring and the game ending (any member dying) live in `pvp`; the round
 //! number is replicated as `Lobby::round` for the HUD and results screen.
@@ -130,7 +131,7 @@ pub struct Zombie;
 /// How long (s) a zombie's been far from and out of sight of every living
 /// player, without a break ([`recycle_far_zombies`]).
 #[derive(Component, Default)]
-struct OutOfTouch(f32);
+pub(crate) struct OutOfTouch(f32);
 
 /// A dog round's hellhound, struck in by lightning but not here yet: it
 /// appears at `feet`, facing `yaw`, at `spawn_at` (`Time::elapsed_secs`).
@@ -140,6 +141,9 @@ pub(crate) struct PendingDog {
     pub(crate) spawn_at: f32,
     /// Its lightning's been sent to the lobby (`crate::dogs`).
     pub(crate) announced: bool,
+    /// The health it comes in with, if not a fresh one's — one brought back
+    /// in from across the map ([`recycle_far_zombies`]).
+    pub(crate) health: Option<f32>,
 }
 
 /// When a zombie died (`Time::elapsed_secs`), for [`CORPSE_SECS`].
@@ -174,8 +178,9 @@ pub(crate) struct ZombieRounds {
     /// Zombies this round still has to send.
     to_spawn: u32,
     /// Extra zombies a scary power-on (`shared::power::scary_power_on`)
-    /// still has to send — right away, quick, whatever the round's doing —
-    /// and when the next one's due.
+    /// still has to send — right away, quick, whatever the round's doing
+    /// (none for one in the pre-game countdown) — and when the next one's
+    /// due.
     surge: u32,
     surge_next_at: f32,
     /// (A Nuke pushes this back — `crate::power_ups`.)
@@ -336,12 +341,13 @@ pub(crate) fn run_rounds(
             let alive = zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive).count();
             if alive < MAX_ALIVE {
                 let living = living_members(&players, lobby_e);
+                let around = spawn_anchors(lobby.map, &rounds, &living);
                 let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits() ^ 0x5e6e;
                 let nav = navs.graph(lobby.map);
                 let reach = nav.reachable_zones(lobby.doors_open);
                 let waiting = waiting_at_windows(&brains, lobby_e, lobby.map);
                 let world = colliders.for_lobby(&lobby);
-                match pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed) {
+                match pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &around, &living, &waiting, &world, seed) {
                     Some((feet, near, window)) => {
                         let round = rounds.enemy_round().max(lobby.start_round).max(1);
                         spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, window, seed, now);
@@ -508,13 +514,14 @@ pub(crate) fn run_rounds(
             .count();
         let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
 
-        // Somewhere near a random living member, as far off as a zombie
-        // comes up.
+        // Somewhere near a random living member (or the exfil area), as
+        // far off as a zombie comes up.
         let living = living_members(&players, lobby_e);
+        let around = spawn_anchors(lobby.map, rounds, &living);
         let nav = navs.graph(lobby.map);
         // (Only where the party can get to, past the doors they've opened.)
         let reach = nav.reachable_zones(lobby.doors_open);
-        let pick_spot = |seed: u64| pick_spawn(nav, reach.as_deref(), &living, seed);
+        let pick_spot = |seed: u64| pick_spawn(nav, reach.as_deref(), &around, &living, seed);
 
         // A boss round's boss, once it's due: struck in by lightning
         // (`crate::boss`), on top of the round's zombies.
@@ -548,7 +555,7 @@ pub(crate) fn run_rounds(
         } else {
             let waiting = waiting_at_windows(&brains, lobby_e, lobby.map);
             let world = colliders.for_lobby(&lobby);
-            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed)
+            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &around, &living, &waiting, &world, seed)
         };
         let Some((feet, near, window)) = spot else {
             rounds.next_spawn_at = now + SPAWN_RETRY_SECS;
@@ -577,6 +584,7 @@ pub(crate) fn run_rounds(
                 yaw: f32::atan2(-to_player.x, -to_player.z),
                 spawn_at: now + shared::dogs::DOG_PRE_SPAWN_SECS,
                 announced: false,
+                health: None,
             });
             rounds.to_spawn -= 1;
             rounds.next_spawn_at = now + interval;
@@ -598,19 +606,31 @@ fn living_members(players: &Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &Player
         .collect()
 }
 
-/// Somewhere near a random one of `living`, as far off as a zombie comes up
-/// and in a zone the party can reach (`reach`, `NavGraph::reachable_zones`)
-/// — and that member's feet.
+/// Where the enemies come in around: the living members' feet — or, once
+/// an exfil's wave is on, the exfil area, the only place its kills count
+/// (so it's waiting there, not left behind wherever the party called it).
+fn spawn_anchors(map: shared::MapId, rounds: &ZombieRounds, living: &[Vec3]) -> Vec<Vec3> {
+    match (rounds.exfil.as_ref().filter(|e| e.begun()), shared::exfil::layout(map)) {
+        (Some(_), Some((_, area))) if !living.is_empty() => vec![area.at.pos],
+        _ => living.to_vec(),
+    }
+}
+
+/// Somewhere near a random one of `around` (see [`spawn_anchors`]), as far
+/// off as a zombie comes up, not right on top of any of `living`, and in a
+/// zone the party can reach (`reach`, `NavGraph::reachable_zones`) — and
+/// the spot it was near.
 fn pick_spawn(
     nav: &crate::nav::NavGraph,
     reach: Option<&[bool]>,
+    around: &[Vec3],
     living: &[Vec3],
     seed: u64,
 ) -> Option<(Vec3, Vec3)> {
-    if living.is_empty() {
+    if around.is_empty() {
         return None;
     }
-    let near = living[(rand01(seed) * living.len() as f32) as usize % living.len()];
+    let near = around[(rand01(seed) * around.len() as f32) as usize % around.len()];
     nav.random_spot_near_where(near, SPAWN_MIN_DIST, SPAWN_MAX_DIST, seed ^ 0x5eed, |n| {
         nav.spawn_allowed(reach, n)
     })
@@ -642,7 +662,7 @@ fn waiting_at_windows(brains: &Query<(&LobbyPlayer, &BotBrain), With<Zombie>>, l
 }
 
 /// Where a zombie comes in: outside one of `map`'s windows near a random
-/// living member — one whose inside is somewhere the party can reach
+/// one of `around` — one whose inside is somewhere the party can reach
 /// (`reach`), that has ground outside to stand on and isn't crowded
 /// (`waiting`) — or, with none like that, up out of the ground
 /// ([`pick_spawn`]). Its feet, what to face, and the window.
@@ -650,15 +670,16 @@ fn pick_zombie_spawn(
     map: shared::MapId,
     nav: &crate::nav::NavGraph,
     reach: Option<&[bool]>,
+    around: &[Vec3],
     living: &[Vec3],
     waiting: &[usize],
     world: &dyn CollisionWorld,
     seed: u64,
 ) -> Option<(Vec3, Vec3, Option<usize>)> {
-    if living.is_empty() {
+    if around.is_empty() {
         return None;
     }
-    let near = living[(rand01(seed ^ 0x3d) * living.len() as f32) as usize % living.len()];
+    let near = around[(rand01(seed ^ 0x3d) * around.len() as f32) as usize % around.len()];
     let mut candidates: Vec<(f32, usize, Vec3)> = shared::windows::windows(map)
         .iter()
         .enumerate()
@@ -681,7 +702,7 @@ fn pick_zombie_spawn(
         })
         .collect();
     if candidates.is_empty() {
-        return pick_spawn(nav, reach, living, seed).map(|(feet, near)| (feet, near, None));
+        return pick_spawn(nav, reach, around, living, seed).map(|(feet, near)| (feet, near, None));
     }
     // One of the few nearest, at random.
     candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -742,13 +763,16 @@ fn spawn_zombie(
     .id()
 }
 
-/// Bring each straggler back in: a plain zombie (not a dog or a boss, nor
-/// one rising or doomed by a Nuke) that's been [`RECYCLE_DIST`] from every
+/// Bring each straggler back in: a zombie, hellhound or boss (not one
+/// rising or doomed by a Nuke) that's been [`RECYCLE_DIST`] from every
 /// living player and out of all their sight for [`RECYCLE_AFTER_SECS`] is
-/// taken away — where no one sees it go — and rises again near a random one
-/// of them, wherever a new zombie would, with the health it had left. (The
-/// round sees one zombie gone and one come in the same tick: nothing
-/// changes in its count.)
+/// taken away — where no one sees it go — and comes in again wherever a new
+/// one would, with the health it had left: a zombie rising (or through a
+/// window) near a random one of them, a hellhound or a boss struck back in
+/// by its lightning (`crate::dogs`, `crate::boss`). The round sees one gone
+/// and one come in (or on its way) the same tick: nothing changes in its
+/// count. Once an exfil's wave is on they come back in around its area
+/// ([`spawn_anchors`]) — and one already there is left alone.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn recycle_far_zombies(
     time: Res<Time>,
@@ -757,17 +781,20 @@ fn recycle_far_zombies(
     colliders: Res<crate::collision::MapColliders>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut next_id: ResMut<NextBotId>,
-    lobbies: Query<(&Lobby, &ZombieRounds)>,
+    mut lobbies: Query<(&Lobby, &mut ZombieRounds)>,
     brains: Query<(&LobbyPlayer, &BotBrain), With<Zombie>>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
     mut zombies: Query<
-        (Entity, &PlayerPose, &LobbyPlayer, &PlayerCombat, &mut OutOfTouch),
         (
-            With<Zombie>,
-            Without<crate::dogs::Dog>,
-            Without<crate::boss::Boss>,
-            Without<crate::power_ups::NukeDeath>,
+            Entity,
+            &PlayerPose,
+            &LobbyPlayer,
+            &PlayerCombat,
+            &mut OutOfTouch,
+            Has<crate::dogs::Dog>,
+            Has<crate::boss::Boss>,
         ),
+        (With<Zombie>, Without<crate::power_ups::NukeDeath>),
     >,
     mut commands: Commands,
 ) {
@@ -777,8 +804,8 @@ fn recycle_far_zombies(
     }
     let step = std::mem::take(&mut *since_check);
     let now = time.elapsed_secs();
-    for (zombie_e, pose, lp, combat, mut out) in &mut zombies {
-        let Ok((lobby, rounds)) = lobbies.get(lp.lobby) else { continue };
+    for (zombie_e, pose, lp, combat, mut out, dog, boss) in &mut zombies {
+        let Ok((lobby, mut rounds)) = lobbies.get_mut(lp.lobby) else { continue };
         if !lobby.started || lobby.mode != GameMode::Zombies || lobby.paused || endings.is_ending(lp.lobby) {
             continue;
         }
@@ -795,9 +822,12 @@ fn recycle_far_zombies(
         if eyes.is_empty() {
             continue;
         }
+        let living: Vec<Vec3> = eyes.iter().map(|e| *e - Vec3::Y * EYE_HEIGHT).collect();
+        let around = spawn_anchors(lobby.map, &rounds, &living);
         let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
         let world = colliders.for_lobby(lobby);
-        let near = eyes.iter().any(|e| (*e - Vec3::Y * EYE_HEIGHT).distance(feet) < RECYCLE_DIST);
+        // (Near the party, or already where it'd be brought back in to.)
+        let near = living.iter().chain(&around).any(|p| p.distance(feet) < RECYCLE_DIST);
         let seen = || {
             eyes.iter().any(|&eye| {
                 [feet + Vec3::Y * 1.6, feet + Vec3::Y * 1.0]
@@ -813,14 +843,38 @@ fn recycle_far_zombies(
         if out.0 < RECYCLE_AFTER_SECS {
             continue;
         }
-        // Somewhere a new zombie would come up near the party.
-        let living: Vec<Vec3> = eyes.iter().map(|e| *e - Vec3::Y * EYE_HEIGHT).collect();
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ zombie_e.to_bits() ^ 0x7ec1;
         let nav = navs.graph(lobby.map);
         let reach = nav.reachable_zones(lobby.doors_open);
+        // A hellhound or a boss: struck back in by its lightning, up out
+        // of the ground somewhere a new one would be.
+        if dog || boss {
+            let Some((to, facing)) = pick_spawn(nav, reach.as_deref(), &around, &living, seed) else {
+                // (Nowhere this time: tried again at the next check.)
+                continue;
+            };
+            commands.entity(zombie_e).despawn();
+            if boss {
+                let mut pending = crate::boss::PendingBoss::new(to, facing, now);
+                pending.health = Some(combat.health);
+                rounds.pending_bosses.push(pending);
+            } else {
+                let to_player = facing - to;
+                rounds.pending_dogs.push(PendingDog {
+                    feet: to,
+                    yaw: f32::atan2(-to_player.x, -to_player.z),
+                    spawn_at: now + shared::dogs::DOG_PRE_SPAWN_SECS,
+                    announced: false,
+                    health: Some(combat.health),
+                });
+            }
+            debug!("lobby {:?}: a straggler {} is coming back in at {to}", lp.lobby, if boss { "boss" } else { "hellhound" });
+            continue;
+        }
+        // A zombie: somewhere a new one would come up near the party.
         let waiting = waiting_at_windows(&brains, lp.lobby, lobby.map);
         let Some((to, facing, window)) =
-            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &living, &waiting, &world, seed)
+            pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &around, &living, &waiting, &world, seed)
         else {
             // (Nowhere this time: tried again at the next check.)
             continue;
@@ -1075,8 +1129,9 @@ fn on_turn_on_power(
     lobby.power_on = true;
     if shared::power::scary_power_on(lobby.map) {
         // No cheery power-on line here — the ground quakes (client-side)
-        // and a horde comes up out of it (`run_rounds`).
-        if let Some(mut rounds) = rounds {
+        // and a horde comes up out of it (`run_rounds`) — once the game's
+        // under way: not in the pre-game countdown.
+        if let Some(mut rounds) = rounds.filter(|r| r.round > 0) {
             rounds.surge += shared::power::POWER_SURGE_ZOMBIES;
         }
     } else {

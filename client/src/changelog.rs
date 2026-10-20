@@ -17,6 +17,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Turning the power on in the pre-game countdown no longer sends a horde.",
+        "Half as many hellhounds in the exfil wave.",
+        "Exfil enemies now come in around the exfil zone.",
+        "Hellhounds and bosses left far behind come back in near you.",
         "Zombies drop equipment far less often (one shared roll, not one per kind).",
         "Water now reflects the map around it.",
         "Power station hums and glows blue with the power on.",

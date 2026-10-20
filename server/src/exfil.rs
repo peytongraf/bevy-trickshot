@@ -30,7 +30,7 @@ use crate::zombies::ZombieRounds;
 /// fighting rather than waiting.
 pub(crate) const SPAWN_INTERVAL_SECS: f32 = 0.3;
 /// The chance a spawn is a hellhound rather than a zombie.
-pub(crate) const DOG_SHARE: f32 = 0.3;
+pub(crate) const DOG_SHARE: f32 = 0.15;
 
 /// A called exfil, on its lobby's `ZombieRounds`.
 pub(crate) struct ExfilRun {
