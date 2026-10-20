@@ -2,34 +2,9 @@
 
 - Test dolphin dive remote player animation
 
-# First person animations
-
-# Remote player animations
-
-- Idle with gun or whatever animation that shows the player hip fire should have the gun more level. Maybe create a totally new pose for this.
-- Sniper that is used should still have the lenses. If the sniper model has these removed then instead use the model that doesn't have them removed and have bevy remove them just when in fps mode.
-- Sniper and maybe other guns should not have the pap camo on some objects.
-
-# Added
-
-- Add sun flare when looking near sun on day maps
-- Possibly add high and low pass filters to sounds if they are behind walls
-- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
-- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
-- need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
-- Could add a text near the top compass that shows the name of the curent zone
-- Add ability to add more power lights to a map
-- On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
-- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
-- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
-- Look into using different footstep sounds based on surface
-
-# Last play
-
-- Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
-
 # Done
 
+- Remote idle gun held level at the hip
 - Remote player dolphin dive
 - Half as many exfil dogs
 - No power-on horde during countdown
@@ -41,6 +16,35 @@
 - First person mantle animation
 - Doubled knife reach + lunging stab
 
+# First person animations
+
+# Remote player animations
+
+- Raise right arm some on drink perk remote player animation so that cap is at mouth level
+- Sniper that is used should still have the lenses. If the sniper model has these removed then instead use the model that doesn't have them removed and have bevy remove them just when in fps mode.
+- Sniper and maybe other guns should not have the pap camo on some objects.
+- Could have reload animation when moving because currently it is only with the player not moving so their feet slide if they move when reloading.
+- Possibly see how hard it is to change the remote player model but keep bones / animations
+
+# Added
+
+- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
+- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
+- Need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
+- Could add a text near the top compass that shows the name of the curent zone
+- Add ability to add more power lights to a map
+- Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
+
+# Mystery box
+
+- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
+- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
+
+# Nice to have
+
+- Add sun flare when looking near sun on day maps
+- Possibly add high and low pass filters to sounds if they are behind walls
+
 # Level editor
 
 - Add lights to zone above lower tomb
@@ -48,8 +52,6 @@
 
 # Current todo
 
-- Raise right arm some on drink perk remote player animation so that cap is at mouth level
-- Client side hit prediction
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
@@ -120,3 +122,4 @@
 - Possibly convert audio to wav files.
 - Add pap shot sounds
 - When player is downed a breathing sound should play
+- Look into using different footstep sounds based on surface

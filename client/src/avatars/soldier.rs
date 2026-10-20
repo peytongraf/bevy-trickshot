@@ -206,6 +206,10 @@ pub(crate) struct SoldierAnimSettings {
     /// How far behind the model's origin (m — `prone`'s head is just ahead
     /// of it) the body pitches about: its hips.
     pub(crate) dive_pivot_back: f32,
+    /// Where the right hand holds a gun at the hip, standing at ease
+    /// (`held_weapon::hip_wanted`), from the right shoulder (m: right, up,
+    /// forward from the body).
+    pub(crate) hip_hand: Vec3,
 }
 
 impl Default for SoldierAnimSettings {
@@ -221,6 +225,7 @@ impl Default for SoldierAnimSettings {
             death_speed: 1.0,
             dive_tilt_deg: 12.0,
             dive_pivot_back: 0.75,
+            hip_hand: Vec3::new(0.06, -0.3, 0.3),
         }
     }
 }

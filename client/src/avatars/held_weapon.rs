@@ -21,6 +21,11 @@
 //!   down by the side instead ([`Grip::left_arm_down`], the pose
 //!   [`WeaponGrips::arm_down`] — `idleWithoutGun`'s unless the WEAPON
 //!   EDITOR's taken another).
+//! * **Standing at ease** (`idleWgun`, [`hip_wanted`]) a gun's held at the
+//!   hip instead of where the clip has it (up at the shoulder): level, out
+//!   to the right side and pointing straight where they look
+//!   ([`crate::SoldierAnimSettings::hip_hand`]) — so a shot fired from there
+//!   leaves along the barrel.
 //! * **Where they're looking**, up or down (`PlayerPose::pitch`), is shown
 //!   whatever the animation, as Call of Duty does: the spine bends by it
 //!   ([`SPINE_PITCH_SHARE`]), so the chest — and the arms, the weapon and
@@ -633,6 +638,10 @@ pub(crate) struct HeldWeapon {
     /// back to the animation ([`ik_wanted`]); eased toward.
     pub(crate) ik_wanted: f32,
     ik: f32,
+    /// How much a gun should be held at the hip (`0..=1`, [`hip_wanted`]),
+    /// and how much it is, eased toward.
+    pub(crate) hip_wanted: f32,
+    hip: f32,
     /// Every weapon on show, in hand or carried.
     shown: Vec<Shown>,
     /// The holder of the weapon in hand, while it's held (not mid-swap) —
@@ -677,6 +686,8 @@ impl HeldWeapon {
             started: false,
             ik_wanted: 1.0,
             ik: 1.0,
+            hip_wanted: 0.0,
+            hip: 0.0,
             shown: Vec::new(),
             holder: None,
             anim_left: None,
@@ -712,6 +723,20 @@ impl Default for HeldWeapon {
     fn default() -> Self {
         Self::new(None)
     }
+}
+
+/// How much a gun should be held at the hip while `state` plays: standing
+/// at ease (`idleWgun`, which has it up at the shoulder), not aiming.
+pub(crate) fn hip_wanted(state: SoldierAnimState) -> f32 {
+    if state == SoldierAnimState::Idle { 1.0 } else { 0.0 }
+}
+
+/// The turn (about the vertical alone) that points a weapon whose muzzle is
+/// at `muzzle` in its own frame straight along the body's forward, level —
+/// its sights staying up.
+fn level_forward(muzzle: [f32; 3]) -> Quat {
+    let [x, _, z] = muzzle;
+    Quat::from_rotation_y(-f32::atan2(x, z))
 }
 
 /// How much the hands should be on the weapon while `state` plays: not at
@@ -1092,6 +1117,7 @@ fn pose_held_weapons(
     time: Res<Time>,
     grips: Res<WeaponGrips>,
     cfg: Res<crate::MantleSettings>,
+    anim: Res<crate::SoldierAnimSettings>,
     mut soldiers: Query<(Entity, &mut HeldWeapon, &SoldierRig)>,
     parents: Query<&ChildOf>,
     mut transforms: Query<&mut Transform>,
@@ -1102,6 +1128,7 @@ fn pose_held_weapons(
     let now = time.elapsed_secs();
     for (root, mut held, rig) in &mut soldiers {
         held.ik += (held.ik_wanted.clamp(0.0, 1.0) - held.ik) * ease;
+        held.hip += (held.hip_wanted.clamp(0.0, 1.0) - held.hip) * ease;
         if held.stabbing && !held.stab_was {
             held.stab_from = Some(now);
         }
@@ -1216,6 +1243,21 @@ fn pose_held_weapons(
                 let shift = (MODEL_RIGHT * shift.x + Vec3::Y * shift.y + MODEL_FORWARD * shift.z) * per_m;
                 to = pos + shift * w;
                 to_rot = rot.slerp(turn * rot, w);
+            }
+            // Standing at ease: a gun at the hip — the hand out to the side
+            // and below the shoulder, the gun level and pointing straight
+            // where they look (its barrel — toward its muzzle, in its own
+            // frame — along the body's forward; tipped up or down with the
+            // look, about the shoulder).
+            let hip = held.hip * w;
+            if hip > 1e-3 && item.gun().is_some() {
+                let shoulder = Vec3::from(from_root(rig.right[0], root, &parents, &transforms).translation);
+                let look = Quat::from_axis_angle(MODEL_RIGHT, held.shown_pitch);
+                let h = anim.hip_hand;
+                let hand_pos = shoulder + look * ((MODEL_RIGHT * h.x + Vec3::Y * h.y + MODEL_FORWARD * h.z) * per_m);
+                let weapon_rot = look * level_forward(grip.muzzle);
+                to = to.lerp(hand_pos, hip);
+                to_rot = to_rot.slerp(weapon_rot * grip.rotation().inverse(), hip);
             }
             if fetch > 0.0 {
                 // (The hand that would hold it right where it's carried.)
@@ -1489,6 +1531,19 @@ pub(crate) fn held_gun<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gun_at_the_hip_points_its_muzzle_forward_and_level() {
+        let grips = WeaponGrips::from_ron(include_str!("../../data/weapon_grips.ron")).unwrap();
+        for key in [GripKey::Sniper, GripKey::Ak74, GripKey::RayGun, GripKey::M17] {
+            let muzzle = Vec3::from_array(grips.get(key).muzzle);
+            let flat = Vec3::new(muzzle.x, 0.0, muzzle.z).normalize();
+            let pointed = level_forward(grips.get(key).muzzle) * flat;
+            assert!(pointed.distance(MODEL_FORWARD) < 1e-4, "{key:?}: {pointed}");
+            // (Sights still up.)
+            assert!((level_forward(grips.get(key).muzzle) * Vec3::Y).distance(Vec3::Y) < 1e-5);
+        }
+    }
 
     #[test]
     fn two_bone_ik_puts_the_wrist_on_the_target_and_keeps_the_bend() {

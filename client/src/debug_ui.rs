@@ -1323,6 +1323,10 @@ pub(crate) fn ads_tuning_ui(
                     ui.label("Dolphin dive (once flat, the prone body flown along their arc):");
                     ui.add(egui::Slider::new(&mut sa.dive_tilt_deg, 0.0f32..=60.0).text("dive tilt (°)"));
                     ui.add(egui::Slider::new(&mut sa.dive_pivot_back, 0.0f32..=1.5).text("dive pivot behind origin (m)"));
+                    ui.label("Gun at the hip, standing at ease (right hand from the right shoulder):");
+                    ui.add(egui::Slider::new(&mut sa.hip_hand.x, -0.3f32..=0.5).text("hip hand right (m)"));
+                    ui.add(egui::Slider::new(&mut sa.hip_hand.y, -0.7f32..=0.2).text("hip hand up (m)"));
+                    ui.add(egui::Slider::new(&mut sa.hip_hand.z, -0.1f32..=0.7).text("hip hand forward (m)"));
                     if ui.button("Reset remote player anim speed").clicked() {
                         *sa = SoldierAnimSettings::default();
                     }

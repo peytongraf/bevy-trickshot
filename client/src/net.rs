@@ -1728,6 +1728,7 @@ fn sync_held_weapons(
             pose.pitch
         };
         held.ik_wanted = crate::avatars::held_weapon::ik_wanted(motion.state);
+        held.hip_wanted = crate::avatars::held_weapon::hip_wanted(motion.state);
     }
 }
 

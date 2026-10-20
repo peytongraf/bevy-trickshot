@@ -38,7 +38,7 @@ use shared::lethal::LethalKind;
 use shared::perks::Perk;
 
 use crate::avatars::held_weapon::{
-    euler_deg, grips_source_path, ik_wanted, to_euler_deg, ArmPose, CamoObjects, Grip, GripKey, HandTarget, StowOn,
+    euler_deg, grips_source_path, hip_wanted, ik_wanted, to_euler_deg, ArmPose, CamoObjects, Grip, GripKey, HandTarget, StowOn,
     WeaponGrips, BAKED_GUN_CENTER, BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
 };
 use crate::pap::PapCamoPart;
@@ -579,6 +579,7 @@ fn drive_soldier(
         held.carried = carried;
     }
     held.ik_wanted = if editor.hands { ik_wanted(editor.clip) } else { 0.0 };
+    held.hip_wanted = if editor.hands { hip_wanted(editor.clip) } else { 0.0 };
     held.pitch = editor.look_deg.to_radians();
     held.stabbing = std::mem::take(&mut editor.play_stab) || (editor.loop_stab && !held.stab_playing());
 

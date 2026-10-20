@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Other players hold their gun level at the hip when not aiming; hip-fire tracers leave the barrel.",
         "Uses several GB less memory.",
         "Other players dolphin dive properly instead of sprinting through the air.",
         "Turning the power on in the pre-game countdown no longer sends a horde.",
