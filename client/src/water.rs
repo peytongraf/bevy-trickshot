@@ -1,6 +1,6 @@
 //! The water a map's layout keeps (`shared::level::Water`, `Waterfall`):
-//! pools whose surface ripples, glitters with the torches' light and bends
-//! the floor seen through it ([`WaterMaterial`], `water.wgsl` — Bevy's
+//! pools whose surface ripples, glitters with the torches' light, mirrors
+//! the map around it and bends the floor seen through it ([`WaterMaterial`], `water.wgsl` — Bevy's
 //! screen-space refraction underneath), and waterfalls pouring into them — a
 //! falling sheet that tears into strands as it drops
 //! ([`WaterfallMaterial`], `waterfall.wgsl`), and where it lands, mist and
@@ -67,6 +67,10 @@ mod params {
         pub(crate) caustics: f32,
         pub(crate) depth: f32,
         pub(crate) impact_count: u32,
+        pub(crate) reflection: f32,
+        pub(crate) mirror: f32,
+        pub(crate) reflection_wobble: f32,
+        pub(crate) _pad0: f32,
         pub(crate) ripples: [Vec4; MAX_RIPPLES],
     }
 
@@ -80,6 +84,10 @@ mod params {
                 caustics: 0.0,
                 depth: 0.0,
                 impact_count: 0,
+                reflection: 0.0,
+                mirror: 0.0,
+                reflection_wobble: 0.0,
+                _pad0: 0.0,
                 ripples: [Vec4::ZERO; MAX_RIPPLES],
             }
         }
@@ -692,6 +700,9 @@ fn water_material(water: &Water, falls: &[Waterfall]) -> WaterMaterial {
         waves: water.waves,
         caustics: water.caustics,
         depth: water.depth,
+        reflection: water.reflection,
+        mirror: water.mirror,
+        reflection_wobble: water.reflection_wobble,
         ..default()
     };
     let landing = falls.iter().filter_map(|f| {

@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Water now reflects the map around it.",
         "Power station hums and glows blue with the power on.",
         "Power station (Zombies): its Tesla coils crackle with electricity once the power is on.",
         "Level editor: add a power station (Zombies) for the power switch to sit on.",

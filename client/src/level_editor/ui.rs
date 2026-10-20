@@ -889,6 +889,9 @@ fn properties(
                         ("Clarity", &mut w.clarity, 0.01, 0.05..=50.0, " m", "How far down light goes before it takes on the colour — bigger is clearer"),
                         ("Waves", &mut w.waves, 0.01, 0.0..=3.0, "×", "How rough the surface is (0 = mirror flat)"),
                         ("Caustics", &mut w.caustics, 0.01, 0.0..=3.0, "×", "How strongly the light it bends dances on the floor under it"),
+                        ("Reflection", &mut w.reflection, 0.01, 0.0..=1.0, "×", "How strongly the map shows mirrored in its surface (0 = none)"),
+                        ("Mirror", &mut w.mirror, 0.01, 0.0..=1.0, "×", "How much it reflects even looked at straight down (0 = real water, only at glancing angles; 1 = a mirror)"),
+                        ("Reflection wobble", &mut w.reflection_wobble, 0.01, 0.0..=3.0, "×", "How much the ripples break the reflection up (0 = a crisp image)"),
                     ] {
                         ui.label(label).on_hover_text(hover);
                         let r = ui.add_enabled(

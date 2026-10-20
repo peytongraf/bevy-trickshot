@@ -12,6 +12,13 @@
 // first. And wherever anything stands in it — a leg, a body, the pool's
 // own walls — a thin line of foam clings to it right at the waterline.
 //
+// It mirrors the map around it, too: the view ray, bounced off the
+// rippled surface, is marched through the depth prepass until it goes in
+// behind something, and the scene copy is sampled there (`reflected`).
+// Real water only reflects much at glancing angles (`mirror` raises that);
+// where the bounced ray leaves the screen there's nothing to show, so it
+// fades out towards the edges.
+//
 // The see-through part is done here rather than by Bevy (the material is
 // still transmissive, so the scene behind is copied for it to sample, but
 // Bevy's own share is switched off): Bevy samples the screen where the bent
@@ -29,7 +36,7 @@
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{VertexOutput, FragmentOutput},
     mesh_view_bindings::{globals, view, view_transmission_texture, view_transmission_sampler},
-    view_transformations::{frag_coord_to_uv, uv_to_ndc, ndc_to_uv, position_ndc_to_world, position_world_to_ndc},
+    view_transformations::{frag_coord_to_uv, uv_to_ndc, ndc_to_uv, position_ndc_to_world, position_world_to_ndc, depth_ndc_to_view_z},
 }
 #ifdef DEPTH_PREPASS
 #import bevy_pbr::prepass_utils
@@ -45,6 +52,11 @@ const RIPPLE_K: f32 = 38.0;
 const RIPPLE_SLOPE: f32 = 0.55;
 // How far (m) up a leg / wall the waterline's foam reaches, at most.
 const WATERLINE: f32 = 0.045;
+// The reflection's march: how many steps, out to how far (m), and how many
+// halvings to pin down where it went in behind something.
+const REFLECT_STEPS: u32 = 48u;
+const REFLECT_REACH: f32 = 120.0;
+const REFLECT_REFINE: u32 = 6u;
 
 struct WaterParams {
     // Where each waterfall lands (xyz, world) and how wide its splash is (w).
@@ -58,6 +70,13 @@ struct WaterParams {
     // How deep (m) the floor seems — where the caustics land.
     depth: f32,
     impact_count: u32,
+    // How strongly the map shows mirrored in it (0 = none).
+    reflection: f32,
+    // How much it reflects head on (0 = real water, 1 = a mirror).
+    mirror: f32,
+    // How much the ripples break the reflection up.
+    reflection_wobble: f32,
+    _pad0: f32,
     // Each ripple: where (x, z), when it started (`globals.time`) and how
     // strong it is (0 = none).
     ripples: array<vec4<f32>, 64>,
@@ -182,6 +201,87 @@ fn ripples(p: vec2<f32>, t: f32) -> vec3<f32> {
     return vec3(slope, churn);
 }
 
+#ifdef DEPTH_PREPASS
+// Where on screen `p` (world) is, and its depth there (`z`, Bevy's reverse
+// z) — `w` < 0 when it's behind the camera.
+fn on_screen(p: vec3<f32>) -> vec4<f32> {
+    let clip = view.clip_from_world * vec4(p, 1.0);
+    let ndc = clip.xyz / clip.w;
+    return vec4(ndc_to_uv(ndc.xy), ndc.z, clip.w);
+}
+
+// The prepass's depth at `uv`.
+fn depth_at(uv: vec2<f32>) -> f32 {
+    return prepass_utils::prepass_depth(vec4(uv * view.viewport.zw + view.viewport.xy, 0.0, 0.0), 0u);
+}
+
+// How far (m, from the camera along its view) `p`'s in behind what the
+// prepass has there (< 0: in front of it).
+fn depth_behind(s: vec4<f32>) -> f32 {
+    return depth_ndc_to_view_z(max(depth_at(s.xy), 1e-7)) - depth_ndc_to_view_z(max(s.z, 1e-7));
+}
+
+fn inside(uv: vec2<f32>) -> bool {
+    return all(uv >= vec2(0.0)) && all(uv <= vec2(1.0));
+}
+
+// How much to trust something seen at `uv`: fading out at the screen's
+// edges, past which the bounced ray can't be followed.
+fn edge_fade(uv: vec2<f32>) -> f32 {
+    let e = min(uv, vec2(1.0) - uv);
+    return smoothstep(0.0, 0.08, min(e.x, e.y));
+}
+
+// What's seen bounced off the surface at `start` along `dir` (rgb), and how
+// much of it there is to show (a): marched out through the prepass until it
+// goes in behind something above the water (the floor seen through it
+// isn't there to reflect), then halved down onto where. A ray that gets all
+// the way out still shows what's at its end if that's further off still —
+// the sky, a far wall.
+fn reflected(start: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
+    var near = 0.0;
+    for (var i = 0u; i < REFLECT_STEPS; i++) {
+        let k = f32(i + 1u) / f32(REFLECT_STEPS);
+        // (Fine steps close by, longer ones further off.)
+        let far = REFLECT_REACH * k * k;
+        let s = on_screen(start + dir * far);
+        if s.w <= 0.0 || !inside(s.xy) {
+            return vec4(0.0);
+        }
+        let b = depth_behind(s);
+        if b > 0.0 {
+            // (Behind something thin, or further back than the step could
+            // have stepped over: it's passing behind it, not going in.)
+            let thickness = max(0.3, (far - near) * 1.5 + far * 0.02);
+            let hit_at = position_ndc_to_world(vec3(uv_to_ndc(s.xy), max(depth_at(s.xy), 1e-7)));
+            if b < thickness && hit_at.y > start.y - 0.02 {
+                var lo = near;
+                var hi = far;
+                for (var j = 0u; j < REFLECT_REFINE; j++) {
+                    let mid = (lo + hi) * 0.5;
+                    if depth_behind(on_screen(start + dir * mid)) > 0.0 {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                let hit = on_screen(start + dir * hi);
+                let color = textureSampleLevel(view_transmission_texture, view_transmission_sampler, hit.xy, 0.0).rgb;
+                return vec4(color, edge_fade(hit.xy));
+            }
+        }
+        near = far;
+    }
+    // Out of reach with nothing in the way: whatever's further off there.
+    let end = on_screen(start + dir * REFLECT_REACH);
+    if depth_behind(end) < 0.0 {
+        let color = textureSampleLevel(view_transmission_texture, view_transmission_sampler, end.xy, 0.0).rgb;
+        return vec4(color, edge_fade(end.xy));
+    }
+    return vec4(0.0);
+}
+#endif
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
@@ -267,9 +367,27 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
+    let glancing = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 5.0);
+    let fresnel = 0.02 + 0.98 * glancing;
+
+    // The map mirrored in it: off the surface's slope (the ripples' share
+    // scaled by `reflection_wobble`), never back down into the water.
+    var mirrored = vec4(0.0);
+#ifdef DEPTH_PREPASS
+    if water.reflection > 0.0 {
+        let wobble = water.reflection_wobble;
+        let rn = normalize(vec3(n.x * wobble, 1.0, n.z * wobble));
+        var dir = reflect(-v, rn);
+        dir = normalize(vec3(dir.x, max(dir.y, 0.01), dir.z));
+        mirrored = reflected(surface + vec3(0.0, 0.005, 0.0), dir);
+    }
+#endif
+    let f0 = mix(0.02, 1.0, clamp(water.mirror, 0.0, 1.0));
+    let shine = (f0 + (1.0 - f0) * glancing) * clamp(water.reflection, 0.0, 1.0) * mirrored.a * (1.0 - f * 0.9);
+
     // (Less comes through the more it reflects — head on, nearly all.)
-    let fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 5.0);
-    out.color = vec4(out.color.rgb + background * water_color * tint * lit * (1.0 - fresnel) * through, 1.0);
+    let passes = 1.0 - max(fresnel, shine);
+    out.color = vec4(out.color.rgb + background * water_color * tint * lit * passes * through + mirrored.rgb * shine, 1.0);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }

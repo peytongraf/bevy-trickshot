@@ -69,7 +69,7 @@
         (pos: (-61.455, 2.337, -67.459), size: 0.45, height: 1.6, brightness: 1.0, light: 60000.0, range: 9.0, flicker: 0.35),
     ],
     waters: [
-        (at: (pos: (55.5, -0.2, -20.25), yaw_deg: -0.0), size: (28.6, 29.1), color: (0.333, 0.552, 0.514), clarity: 0.16, depth: 0.2, waves: 0.04, caustics: 0.3),
+        (at: (pos: (55.5, -0.2, -20.25), yaw_deg: -0.0), size: (28.6, 29.1), color: (0.333, 0.552, 0.514), clarity: 0.16, depth: 0.2, waves: 0.04, caustics: 0.3, reflection: 1.0, mirror: 0.3, reflection_wobble: 0.07),
     ],
     waterfalls: [
         (at: (pos: (70.0, 2.0, -30.0), yaw_deg: -90.0), width: 3.0, drop: 2.2, flow: 1.2, spray: 2.0, opacity: 0.8),

@@ -317,6 +317,16 @@ pub struct Water {
     /// How strongly the light it bends dances on the floor under it.
     #[serde(default = "default_water_caustics")]
     pub caustics: f32,
+    /// How strongly the map shows mirrored in its surface (0 = none).
+    #[serde(default = "default_water_reflection")]
+    pub reflection: f32,
+    /// How much it reflects even looked at straight down (0 = real water,
+    /// only at glancing angles; 1 = a mirror).
+    #[serde(default)]
+    pub mirror: f32,
+    /// How much its ripples break the reflection up (0 = a crisp image).
+    #[serde(default = "default_water_reflection_wobble")]
+    pub reflection_wobble: f32,
 }
 
 fn default_water_color() -> [f32; 3] {
@@ -339,6 +349,14 @@ fn default_water_caustics() -> f32 {
     0.6
 }
 
+fn default_water_reflection() -> f32 {
+    1.0
+}
+
+fn default_water_reflection_wobble() -> f32 {
+    1.0
+}
+
 /// Most pools a map keeps.
 /// Deepest (m) under a [`Water`]'s surface that feet count as wading in it.
 pub const WADE_DEPTH: f32 = 1.5;
@@ -356,6 +374,9 @@ impl Water {
             depth: default_water_depth(),
             waves: default_water_waves(),
             caustics: default_water_caustics(),
+            reflection: default_water_reflection(),
+            mirror: 0.0,
+            reflection_wobble: default_water_reflection_wobble(),
         }
     }
 
@@ -377,7 +398,7 @@ impl Water {
     fn to_ron(self) -> String {
         let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
         format!(
-            "(at: {}, size: ({:?}, {:?}), color: ({:?}, {:?}, {:?}), clarity: {:?}, depth: {:?}, waves: {:?}, caustics: {:?})",
+            "(at: {}, size: ({:?}, {:?}), color: ({:?}, {:?}, {:?}), clarity: {:?}, depth: {:?}, waves: {:?}, caustics: {:?}, reflection: {:?}, mirror: {:?}, reflection_wobble: {:?})",
             self.at.with_scale(1.0).to_ron(),
             r(self.size.x, 1000.0),
             r(self.size.y, 1000.0),
@@ -388,6 +409,9 @@ impl Water {
             r(self.depth, 100.0),
             r(self.waves, 100.0),
             r(self.caustics, 100.0),
+            r(self.reflection, 100.0),
+            r(self.mirror, 100.0),
+            r(self.reflection_wobble, 100.0),
         )
     }
 }

@@ -27,8 +27,6 @@ height: 3m
 
 # Water
 
-- Water should reflect the map. There should be settings for how much reflection it has.
-
 # First person animations
 
 # Remote player animations
@@ -49,6 +47,7 @@ height: 3m
 
 # Done
 
+- Water reflections
 - Bullet holes over water / drops fixed
 - Water splashes and wakes
 - Remote player mantle animation
