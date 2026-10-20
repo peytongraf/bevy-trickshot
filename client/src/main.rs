@@ -25,6 +25,7 @@
 //! tuning panels (`ads_tuning_ui`, top-right) for the ADS pose, muzzle flash,
 //! smoke, movement, weapon sway, camera shake and the sky.
 
+mod asset_memory;
 mod audio;
 mod audio_engine;
 mod avatars;
@@ -215,7 +216,7 @@ fn main() {
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
         // protocol; add it before anything that spawns a `Client`.
         .add_plugins(net::ClientNetPlugin)
-        .add_plugins(loading_screen::LoadingScreenPlugin)
+        .add_plugins((loading_screen::LoadingScreenPlugin, asset_memory::AssetMemoryPlugin))
         .add_plugins((
             ui::UiKitPlugin,
             settings::SettingsPlugin,

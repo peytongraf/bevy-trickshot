@@ -388,6 +388,7 @@ pub(crate) fn write_input(
     action.crouching = slide.stance == crate::Stance::Crouching;
     action.sliding = slide.stance == crate::Stance::Sliding;
     action.prone = slide.stance == crate::Stance::Prone;
+    action.diving = slide.stance == crate::Stance::Diving;
     action.crouch_drop = slide.drop;
     action.ground_pt = ground_hit.0.take().map(|p| p.to_array());
     action.blood_pt = blood_hit.0.take().map(|p| p.to_array());
@@ -921,6 +922,15 @@ pub(crate) struct RemoteAvatarMotion {
     throw: crate::UpperLayer,
     /// ...and a perk drink (`PlayerPose::drink`).
     drink: crate::UpperLayer,
+    /// How far into a dolphin dive's flight look it is (`0..=1`, eased in
+    /// and out with `SoldierAnimState::Dive`)...
+    dive: f32,
+    /// ...and how fast it's going up (`1`, the dive's hop) or down (`-1`),
+    /// smoothed — what it's pitched by (`follow_remote_avatars`).
+    dive_rise: f32,
+    /// How long (s) it's been diving — it leaves the ground as a running
+    /// jump does, and only goes flat after [`DIVE_JUMP_SECS`].
+    dive_secs: f32,
 }
 
 /// Another player fired (from the server's word: `ShotResolved`, or for the
@@ -1020,9 +1030,11 @@ fn follow_remote_avatars(
     zombie_settings: Res<crate::ZombieAvatarSettings>,
     dog_settings: Res<crate::dogs::DogSettings>,
     boss_settings: Res<crate::boss::BossSettings>,
+    anim_settings: Res<crate::SoldierAnimSettings>,
     mut avatars: Query<(
         Entity,
         &RemoteAvatar,
+        Option<&RemoteAvatarMotion>,
         &mut Transform,
         Has<crate::ZombieVisual>,
         Has<crate::dogs::DogVisual>,
@@ -1031,7 +1043,7 @@ fn follow_remote_avatars(
     )>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, mut tf, zombie, dog, boss, predicted_death) in &mut avatars {
+    for (entity, avatar, motion, mut tf, zombie, dog, boss, predicted_death) in &mut avatars {
         match poses.get(avatar.src) {
             // One our knife's just killed lies where it fell (`melee_predict`).
             Ok(_) if predicted_death => {}
@@ -1061,6 +1073,17 @@ fn follow_remote_avatars(
                 }
                 tf.rotation = Quat::from_rotation_y(pose.yaw + std::f32::consts::PI);
                 tf.scale = Vec3::splat(remote_avatar_settings.scale);
+                // Mid dive, flat out: pitched with its arc about its hips
+                // (chest up going up, nose down coming in — the model faces
+                // +Z, so up is a turn the negative way about +X). The pivot's
+                // in metres, not the model's own units (`scale` is ~21).
+                if let Some(m) = motion.filter(|m| m.dive > 0.0) {
+                    let tilt = Quat::from_rotation_x(-m.dive_rise * anim_settings.dive_tilt_deg.to_radians() * m.dive);
+                    let pivot = Vec3::new(0.0, 0.0, -anim_settings.dive_pivot_back);
+                    let shift = tf.rotation * (pivot - tilt * pivot);
+                    tf.translation += shift;
+                    tf.rotation *= tilt;
+                }
             }
             Err(_) => {
                 commands.entity(entity).try_despawn();
@@ -1287,6 +1310,11 @@ fn hide_remote_avatars_during_killcam(
 /// feet still match the ground after those are changed, without a separate
 /// "animation speed" control to keep in sync by hand.
 #[allow(clippy::too_many_arguments)]
+/// How long (s) a remote dive looks like a running jump's take-off before
+/// the body goes flat for the landing — about as long as the hop takes to
+/// slow to half its speed.
+const DIVE_JUMP_SECS: f32 = 0.2;
+
 fn animate_remote_avatars(
     poses: Query<&PlayerPose>,
     time: Res<Time>,
@@ -1313,6 +1341,8 @@ fn animate_remote_avatars(
     const BLEND_DURATION: Duration = Duration::from_millis(200);
     /// Getting down onto the ground, or up off it.
     const PRONE_BLEND: Duration = Duration::from_millis(400);
+    /// Going from the dive's take-off to flat out.
+    const DIVE_BLEND: Duration = Duration::from_millis(250);
     /// Moving slower than this (m/s) lying down is lying still.
     const PRONE_CRAWL_ENTER: f32 = 0.15;
     let lying = |s: crate::SoldierAnimState| {
@@ -1393,7 +1423,13 @@ fn animate_remote_avatars(
             }
             None => (0.0, 0.0, 0.0),
         };
+        // (How fast it's rising or falling, for a dive's pitch.)
+        let rise = match motion.prev_translation {
+            Some(prev) => ((pose.translation.y - prev.y) / dt / slide_cfg.dive_jump.max(0.1)).clamp(-1.0, 1.0),
+            None => 0.0,
+        };
         motion.prev_translation = Some(pose.translation);
+        motion.dive_secs = if pose.diving { motion.dive_secs + dt } else { 0.0 };
 
         // Dead outranks everything, including jumping (a fatal shot mid-air
         // should still cut straight to the death pose) — held on its last
@@ -1408,6 +1444,13 @@ fn animate_remote_avatars(
         // motion.
         let new_state = if !pose.alive {
             crate::SoldierAnimState::Dead
+        } else if pose.diving && motion.dive_secs < DIVE_JUMP_SECS {
+            // Leaving the ground: a running jump's take-off...
+            crate::SoldierAnimState::Jump
+        } else if pose.diving {
+            // ...then flat out as it comes down, onto the belly (outranks
+            // all a standing clip would show, as lying down does).
+            crate::SoldierAnimState::Dive
         } else if pose.prone {
             // Lying down outranks everything a standing clip would show (a
             // reload, a jump, a rifle's melee would stand them up) — still,
@@ -1491,6 +1534,21 @@ fn animate_remote_avatars(
             continue;
         };
 
+        // The dive's flight look: in with the blend to flat, and out
+        // quicker as it lands (its nose-down pitch gone before the face
+        // reaches the floor).
+        let dive_step = dt / DIVE_BLEND.as_secs_f32();
+        motion.dive = if new_state == crate::SoldierAnimState::Dive {
+            (motion.dive + dive_step).min(1.0)
+        } else {
+            (motion.dive - dive_step * 2.0).max(0.0)
+        };
+        motion.dive_rise += (rise - motion.dive_rise) * (1.0 - (-12.0 * dt).exp());
+
+        // Into a dive and on into lying down (one clip): no new start.
+        if new_state != motion.state && anims.node_for(new_state) == anims.node_for(motion.state) {
+            motion.state = new_state;
+        }
         if new_state != motion.state {
             let repeat = match new_state {
                 crate::SoldierAnimState::Reload
@@ -1504,7 +1562,15 @@ fn animate_remote_avatars(
             // down to 0 over `BLEND_DURATION` (and stops it once it reaches
             // 0) while the new node fades in, instead of a hard cut — longer
             // getting down onto the ground or up off it.
-            let blend = if lying(new_state) != lying(motion.state) { PRONE_BLEND } else { BLEND_DURATION };
+            let blend = if new_state == crate::SoldierAnimState::Dive {
+                DIVE_BLEND
+            } else if motion.state == crate::SoldierAnimState::Dive {
+                BLEND_DURATION
+            } else if lying(new_state) != lying(motion.state) {
+                PRONE_BLEND
+            } else {
+                BLEND_DURATION
+            };
             let active = transitions
                 .play(&mut player, anims.node_for(new_state), blend)
                 .set_repeat(repeat);
@@ -1588,7 +1654,8 @@ fn animate_remote_avatars(
                 | crate::SoldierAnimState::Jump
                 | crate::SoldierAnimState::Melee
                 | crate::SoldierAnimState::IdleNoGun
-                | crate::SoldierAnimState::Prone => 1.0,
+                | crate::SoldierAnimState::Prone
+                | crate::SoldierAnimState::Dive => 1.0,
                 // (Its cycle's made for the stance's own speed.)
                 crate::SoldierAnimState::ProneCrawl | crate::SoldierAnimState::ProneCrawlBack => {
                     (speed / crate::PRONE_SPEED).clamp(0.3, 2.5)
@@ -1655,7 +1722,7 @@ fn sync_held_weapons(
         // lifts or dips its chest a little.)
         held.pitch = if !pose.alive {
             0.0
-        } else if pose.prone {
+        } else if pose.prone || pose.diving {
             (pose.pitch * 0.35).clamp(-0.35, 0.35)
         } else {
             pose.pitch

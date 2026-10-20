@@ -75,6 +75,12 @@ pub(crate) enum SoldierAnimState {
     ProneCrawl,
     /// ...or back: `proneCrawlBack`.
     ProneCrawlBack,
+    /// Mid dolphin dive (`pose.diving`), once past its take-off (which is
+    /// `Jump`'s, as a running jump's): `prone`'s flat body, rifle out in
+    /// front, flown along their arc — pitched with it about the hips
+    /// (`net::follow_remote_avatars`, [`SoldierAnimSettings::dive_tilt_deg`])
+    /// — so the belly landing runs straight on into `Prone`.
+    Dive,
     /// Standing with no gun: `idleWithoutGun`, looped. Never picked in a
     /// game — it's where the WEAPON EDITOR takes the left arm's "down by the
     /// side" pose from (`held_weapon::ArmPose`).
@@ -147,7 +153,7 @@ impl SoldierAnimations {
             SoldierAnimState::Melee => self.melee,
             SoldierAnimState::Dead => self.death,
             SoldierAnimState::IdleNoGun => self.idle_no_gun,
-            SoldierAnimState::Prone => self.prone,
+            SoldierAnimState::Prone | SoldierAnimState::Dive => self.prone,
             SoldierAnimState::ProneCrawl => self.prone_crawl,
             SoldierAnimState::ProneCrawlBack => self.prone_crawl_back,
         }
@@ -194,6 +200,12 @@ pub(crate) struct SoldierAnimSettings {
     pub(crate) base_strafe_speed: f32,
     pub(crate) base_backpaddle_speed: f32,
     pub(crate) death_speed: f32,
+    /// How far (degrees) a diving soldier pitches with their arc: chest up
+    /// at the take-off, level at the top, nose down coming in.
+    pub(crate) dive_tilt_deg: f32,
+    /// How far behind the model's origin (m — `prone`'s head is just ahead
+    /// of it) the body pitches about: its hips.
+    pub(crate) dive_pivot_back: f32,
 }
 
 impl Default for SoldierAnimSettings {
@@ -207,6 +219,8 @@ impl Default for SoldierAnimSettings {
             base_strafe_speed: 2.0,
             base_backpaddle_speed: 1.5,
             death_speed: 1.0,
+            dive_tilt_deg: 12.0,
+            dive_pivot_back: 0.75,
         }
     }
 }

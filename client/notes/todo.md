@@ -1,49 +1,36 @@
-Note for Claude: don't send chat messages / commentary about this file or its
-contents unless explicitly asked — just do the work.
-Also, only do one todo at a time. I will test the changes by running the client and dev server myself before you proceed to the next todo.
+# Current todo
 
-- Note - P logs position to client console *
-
-# Black triangles from window cutouts fix
-
-A quicker check: in edit mode, select the whole wall, run Face → Triangulate Faces, then Mesh → Clean Up → Degenerate Dissolve, and look again. The grid of four-sided faces is still the more reliable fix.
-
-# Sound Terms
-
-Positional vs nonpositional
-World vs dry (reverb or no reverb)
-
-# Windows
-
-width: 1.2m
-height: 1.4m
-1.1m above ground
-outside ground height the same as inside
-
-# Doors
-
-width: 2m
-height: 3m
-
-# Water
+- Test dolphin dive remote player animation
 
 # First person animations
 
 # Remote player animations
 
-- Add dolphin dive animation
 - Idle with gun or whatever animation that shows the player hip fire should have the gun more level. Maybe create a totally new pose for this.
 - Sniper that is used should still have the lenses. If the sniper model has these removed then instead use the model that doesn't have them removed and have bevy remove them just when in fps mode.
 - Sniper and maybe other guns should not have the pap camo on some objects.
 
+# Added
+
+- Add sun flare when looking near sun on day maps
+- Possibly add high and low pass filters to sounds if they are behind walls
+- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
+- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
+- need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
+- Could add a text near the top compass that shows the name of the curent zone
+- Add ability to add more power lights to a map
+- On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
+- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
+- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
+- Look into using different footstep sounds based on surface
+
 # Last play
 
-- Knife arms too high and far out
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
-- Deadshot perk jingle seems too quiet
 
 # Done
 
+- Remote player dolphin dive
 - Half as many exfil dogs
 - No power-on horde during countdown
 - Far-off dogs / bosses respawn; exfil wave at zone
@@ -78,20 +65,9 @@ height: 3m
 
 # Map Done
 
-# Added
+# Animations
 
-- Add sun flare when looking near sun on day maps
 - Add other zombie walk and attack animations
-- Possibly add high and low pass filters to sounds if they are behind walls
-- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
-- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
-- need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
-- Could add a text near the top compass that shows the name of the curent zone
-- Add ability to add more power lights to a map
-- On YouTube video shot marks were on 0 level over speed cola even though the ground there is lowered
-- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
-- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
-- Look into using different footstep sounds based on surface
 
 # Asset todo
 
@@ -115,19 +91,17 @@ height: 3m
 
 # Bugs
 
-- Check: Knife won't stab when enemies are totally point blank
 - On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
 - It doesn't show to update anywhere on the client after it is launched and a new release is out.
 
-# Improve
+# Improve / Adjust
 
+- Knife arms too high and far out
+- Deadshot perk jingle seems too quiet
 - Dial in molotov flame look
 - Dial in phd slider effect look ( trail and explosion )
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
-
-# Adjust
-
 - Increase aim sway
 
 # Big features

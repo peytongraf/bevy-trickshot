@@ -114,6 +114,7 @@ pub(crate) fn apply_client_pose(
         pose.jumping = i.jumping;
         pose.sliding = i.sliding;
         pose.prone = i.prone;
+        pose.diving = i.diving;
         pose.stabbing = i.stabbing;
         pose.held = i.held;
         pose.swap = i.swap;

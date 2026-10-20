@@ -1320,6 +1320,9 @@ pub(crate) fn ads_tuning_ui(
                         egui::Slider::new(&mut sa.death_speed, 0.1f32..=5.0)
                             .text("death anim speed (×)"),
                     );
+                    ui.label("Dolphin dive (once flat, the prone body flown along their arc):");
+                    ui.add(egui::Slider::new(&mut sa.dive_tilt_deg, 0.0f32..=60.0).text("dive tilt (°)"));
+                    ui.add(egui::Slider::new(&mut sa.dive_pivot_back, 0.0f32..=1.5).text("dive pivot behind origin (m)"));
                     if ui.button("Reset remote player anim speed").clicked() {
                         *sa = SoldierAnimSettings::default();
                     }

@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Uses several GB less memory.",
+        "Other players dolphin dive properly instead of sprinting through the air.",
         "Turning the power on in the pre-game countdown no longer sends a horde.",
         "Half as many hellhounds in the exfil wave.",
         "Exfil enemies now come in around the exfil zone.",

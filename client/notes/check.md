@@ -6,5 +6,6 @@
 - When throwing knives or molotov is the active lethal type and running over that dropped equipment, it doesn't automatically pick it up
 - Check if pausing the game has anything to do with these issues
 - AK74 and all other weapons should have a hip fire inacuraccy amount.
+- Check: Knife won't stab when enemies are totally point blank
 
 - Ensure state is fully reset when leaving a match / starting a new game, and everything works properly when joining a new match

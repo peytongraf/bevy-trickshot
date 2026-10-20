@@ -1395,6 +1395,7 @@ impl ActorPose {
             sliding: self.sample.has(shared::ActorSample::SLIDING),
             stabbing: self.sample.has(shared::ActorSample::STABBING),
             prone: self.sample.has(shared::ActorSample::PRONE),
+            diving: self.sample.has(shared::ActorSample::DIVING),
             alive: self.alive,
             held: self.sample.held,
             ..default()

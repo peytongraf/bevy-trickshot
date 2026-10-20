@@ -275,6 +275,11 @@ pub struct PlayerPose {
     /// who's down too), copied from `PlayerInput::prone` so remote avatars
     /// lie down and crawl. Discrete, same as `crouching`.
     pub prone: bool,
+    /// Whether the owner's mid dolphin dive (stance `Diving`: from the
+    /// hop until the belly hits the ground), copied from
+    /// `PlayerInput::diving` so remote avatars fly flat through it.
+    /// Discrete, same as `crouching`.
+    pub diving: bool,
     /// Whether the owner is mid knife stab, copied from
     /// `PlayerInput::stabbing` so remote avatars can play the melee
     /// animation. Discrete, same as `crouching`; sustained for the whole
@@ -496,6 +501,7 @@ impl Default for PlayerPose {
             jumping: false,
             sliding: false,
             prone: false,
+            diving: false,
             stabbing: false,
             alive: true,
             zombie: ZombieAnim::None,
@@ -520,6 +526,7 @@ impl Ease for PlayerPose {
             jumping: end.jumping,
             sliding: end.sliding,
             prone: end.prone,
+            diving: end.diving,
             stabbing: end.stabbing,
             alive: end.alive,
             zombie: end.zombie,
@@ -657,6 +664,8 @@ pub struct PlayerInput {
     pub sliding: bool,
     /// Whether the player's lying down (stance `Prone`) this tick.
     pub prone: bool,
+    /// Whether the player's mid dolphin dive (stance `Diving`) this tick.
+    pub diving: bool,
     /// Whether a knife stab is playing out this tick (from the stab until
     /// its swing is over) — see `PlayerPose::stabbing`.
     pub stabbing: bool,
@@ -795,6 +804,7 @@ impl Default for PlayerInput {
             jumping: false,
             sliding: false,
             prone: false,
+            diving: false,
             stabbing: false,
             crouch_drop: 0.0,
             revive: false,
@@ -1030,6 +1040,7 @@ impl ActorSample {
     pub const SLIDING: u8 = 1 << 4;
     pub const STABBING: u8 = 1 << 5;
     pub const PRONE: u8 = 1 << 6;
+    pub const DIVING: u8 = 1 << 7;
 
     pub fn has(&self, flag: u8) -> bool {
         self.flags & flag != 0
@@ -1050,6 +1061,7 @@ impl ActorSample {
             (pose.sliding, Self::SLIDING),
             (pose.stabbing, Self::STABBING),
             (pose.prone, Self::PRONE),
+            (pose.diving, Self::DIVING),
         ] {
             if on {
                 flags |= bit;
