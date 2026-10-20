@@ -38,6 +38,7 @@ height: 3m
 
 # Last play
 
+- Knife arms too high and far out
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
 - Player can mantle over spawn door on handrail. Wall needs to be raised.
 - Exfil model inside lower tomb in wrong place

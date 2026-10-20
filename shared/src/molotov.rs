@@ -50,8 +50,6 @@ pub const BURN_HEIGHT: f32 = 1.4;
 /// is dropped — fire doesn't pour down a cliff or climb onto a roof.
 const MAX_SPOT_STEP: f32 = 1.2;
 
-/// The chance (0–1) a zombie a player kills drops a molotov.
-pub const DROP_CHANCE: f32 = 0.04;
 /// How long (s) a dropped molotov lies there before it's gone.
 pub const DROP_LINGER_SECS: f32 = 60.0;
 /// A dropped molotov lies this far (m) from the dead zombie's feet, clear of

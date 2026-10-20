@@ -25,7 +25,7 @@ use lightyear::prelude::*;
 use shared::ballistics::Target;
 use shared::bot_players::is_bot_peer;
 use shared::molotov::{
-    drop_spot, fire_spots, in_fire, MolotovBody, DROP_CHANCE, DROP_LINGER_SECS, FIRE_SECS,
+    drop_spot, fire_spots, in_fire, MolotovBody, DROP_LINGER_SECS, FIRE_SECS,
     FIRE_TICK_SECS, SELF_TICK_DAMAGE, ZOMBIE_TICK_DAMAGE,
 };
 use shared::throwing_knife::in_server_pickup_range;
@@ -333,8 +333,7 @@ fn roll_drops(
             ^ (ev.feet.x.to_bits() as u64).rotate_left(21)
             ^ (ev.feet.z.to_bits() as u64).rotate_left(43)
             ^ (i as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
-        let chance = if lobby.molotov_test { 1.0 } else { DROP_CHANCE };
-        if shared::bots::rand01(seed) >= chance {
+        if !lobby.molotov_test && ev.equipment_drop() != Some(shared::lethal::LethalKind::Molotov) {
             continue;
         }
         let side = shared::bots::rand01(seed ^ 0x5851_F42D_4C95_7F2D);

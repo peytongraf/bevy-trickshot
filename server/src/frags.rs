@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::frag::{FragBody, DROP_CHANCE, FUSE_SECS};
+use shared::frag::{FragBody, FUSE_SECS};
 use shared::molotov::{drop_spot, DROP_LINGER_SECS};
 use shared::throwing_knife::in_server_pickup_range;
 use shared::{FragDrop, FragPickedUp, GameChannel, GameMode, Lobby, PickUpFrag, PlayerId, PlayerPose, ThrowFrag, ThrownFrag};
@@ -237,7 +237,7 @@ fn roll_drops(
             ^ (ev.feet.z.to_bits() as u64).rotate_left(41)
             ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
             ^ 0x6672_6167;
-        if shared::bots::rand01(seed) >= DROP_CHANCE {
+        if ev.equipment_drop() != Some(shared::lethal::LethalKind::Frag) {
             continue;
         }
         let side = shared::bots::rand01(seed ^ 0x2545_F491_4F6C_DD1D);

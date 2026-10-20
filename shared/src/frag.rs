@@ -55,10 +55,6 @@ pub const ZOMBIE_DAMAGE_MIN: f32 = 150.0;
 pub const SELF_DAMAGE_MAX: f32 = 150.0;
 pub const SELF_DAMAGE_RADIUS: f32 = 5.0;
 
-/// The chance (0–1) a zombie a player kills drops a frag — between the
-/// molotov's and the monkey bomb's.
-pub const DROP_CHANCE: f32 = 0.025;
-
 /// What the blast does to a zombie whose middle is `distance` m from it.
 pub fn zombie_damage(distance: f32) -> f32 {
     if distance <= ZOMBIE_KILL_RADIUS {
@@ -218,6 +214,5 @@ mod tests {
         assert_eq!(zombie_damage(DAMAGE_RADIUS + 0.1), 0.0);
         assert!(self_damage(0.0) > crate::health::FULL_HEALTH);
         assert_eq!(self_damage(SELF_DAMAGE_RADIUS), 0.0);
-        assert!(DROP_CHANCE < crate::molotov::DROP_CHANCE && DROP_CHANCE > crate::monkey_bomb::DROP_CHANCE);
     }
 }

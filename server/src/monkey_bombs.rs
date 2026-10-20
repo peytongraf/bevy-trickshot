@@ -22,7 +22,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::molotov::{drop_spot, DROP_LINGER_SECS};
-use shared::monkey_bomb::{MonkeyBody, DROP_CHANCE, FUSE_SECS, LURE_RADIUS, MAX_FUSE_SECS, MIN_FUSE_SECS};
+use shared::monkey_bomb::{MonkeyBody, FUSE_SECS, LURE_RADIUS, MAX_FUSE_SECS, MIN_FUSE_SECS};
 use shared::throwing_knife::in_server_pickup_range;
 use shared::{
     GameChannel, GameMode, Lobby, MonkeyDrop, MonkeyPickedUp, PickUpMonkey, PlayerId, PlayerPose, SetMonkeyFuse,
@@ -308,12 +308,16 @@ fn roll_drops(
     mut commands: Commands,
 ) {
     for (i, ev) in kills.read().enumerate() {
+        // (Killed outside its window: it'd land out of reach.)
+        if ev.outside {
+            continue;
+        }
         let Ok(lobby) = lobbies.get(ev.lobby) else { continue };
         let seed = (ev.feet.x.to_bits() as u64).rotate_left(13)
             ^ (ev.feet.z.to_bits() as u64).rotate_left(37)
             ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
             ^ 0x6D6F_6E6B_6579;
-        if shared::bots::rand01(seed) >= DROP_CHANCE {
+        if ev.equipment_drop() != Some(shared::lethal::LethalKind::MonkeyBomb) {
             continue;
         }
         let side = shared::bots::rand01(seed ^ 0x2545_F491_4F6C_DD1D);

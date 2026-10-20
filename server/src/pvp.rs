@@ -247,6 +247,20 @@ pub struct ZombieKilled {
     pub outside: bool,
 }
 
+impl ZombieKilled {
+    /// The equipment it drops, if any — the one roll every kind's drop
+    /// (`crate::frags`, `molotovs`, `flash_bangs`, `monkey_bombs`) reads, so
+    /// at most one drops per kill. Seeded from where it died, so each of
+    /// them reading it gets the same answer.
+    pub fn equipment_drop(&self) -> Option<shared::lethal::LethalKind> {
+        let seed = (self.feet.x.to_bits() as u64).rotate_left(11)
+            ^ (self.feet.y.to_bits() as u64).rotate_left(29)
+            ^ (self.feet.z.to_bits() as u64).rotate_left(47)
+            ^ 0x6571_7569_7064_726F;
+        shared::lethal::zombie_drop(shared::bots::rand01(seed))
+    }
+}
+
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
 /// Written by [`apply_player_hits`], consumed by
 /// [`crate::killcam::queue_killcams`] to queue the victim-only replay.

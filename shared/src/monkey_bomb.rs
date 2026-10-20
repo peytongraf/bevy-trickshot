@@ -64,10 +64,6 @@ pub const MAX_FUSE_SECS: f32 = 30.0;
 /// it.
 pub const LURE_RADIUS: f32 = 30.0;
 
-/// The chance (0–1) a zombie a player kills drops a monkey bomb — rarer
-/// than a molotov ([`crate::molotov::DROP_CHANCE`]).
-pub const DROP_CHANCE: f32 = 0.015;
-
 /// A monkey bomb's flight.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MonkeyBody {
@@ -199,6 +195,5 @@ mod tests {
     fn the_bye_bye_starts_after_the_song_and_the_song_lasts_till_the_end() {
         assert!(FUSE_SECS - VOX_SECS > SONG_DELAY_SECS);
         assert!(SONG_DELAY_SECS + SONG_SECS >= FUSE_SECS);
-        assert!(DROP_CHANCE < crate::molotov::DROP_CHANCE);
     }
 }

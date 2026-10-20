@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies drop equipment far less often (one shared roll, not one per kind).",
         "Water now reflects the map around it.",
         "Power station hums and glows blue with the power on.",
         "Power station (Zombies): its Tesla coils crackle with electricity once the power is on.",

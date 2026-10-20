@@ -25,9 +25,6 @@ pub const BLIND_RADIUS: f32 = 10.0;
 /// ...for up to this long (s) — right on top of it, looking at it.
 pub const BLIND_MAX_SECS: f32 = 4.0;
 
-/// The chance (0–1) a zombie a player kills drops a flash bang.
-pub const DROP_CHANCE: f32 = 0.02;
-
 /// How long (s) its thrower is blinded, `distance` m from it, `facing` the
 /// dot of their view with the way to it (1 looking straight at it, -1 with
 /// their back to it): the full [`BLIND_MAX_SECS`] on top of it, nothing at
