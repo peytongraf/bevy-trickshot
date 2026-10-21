@@ -1899,6 +1899,13 @@ pub struct QuoteSaid {
     pub line: u16,
 }
 
+/// Server → every member of a `Zombies` lobby: the man on the radio says
+/// `line` — for everyone at once, not positional ([`crate::radio`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct RadioSaid {
+    pub line: crate::radio::RadioLine,
+}
+
 /// Client → server: something only the client knows of happened to us —
 /// down to our last magazine, or out of ammo ([`crate::quotes::Quote::LowAmmo`]
 /// / [`crate::quotes::Quote::OutOfAmmo`], all it may ask for) — for our
@@ -2041,7 +2048,7 @@ pub struct BossLightning {
 }
 
 /// Server → every member of a `Zombies` lobby: a boss just appeared at `at`
-/// (its feet) — a flash there.
+/// (its feet) — an explosion there (the server's done its damage).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct BossSpawned {
     pub at: [f32; 3],
@@ -2587,6 +2594,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<ReturnToLobby>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<QuoteSaid>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<RadioSaid>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_trigger::<RequestQuote>()
             .add_direction(NetworkDirection::ClientToServer);

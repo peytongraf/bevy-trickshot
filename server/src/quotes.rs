@@ -14,6 +14,8 @@
 //!   done (the lengths are in `shared::quotes`). A line asked for while
 //!   they're still talking waits — said the moment they finish if that's
 //!   within [`GRACE_SECS`], never if not.
+//! * Nobody talks over the man on the radio (`crate::radio`): anything
+//!   asked for (or waiting) while he's on air is dropped.
 //! * A dog round's and the exfil's lines come a few seconds after
 //!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
 //!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]).
@@ -95,7 +97,7 @@ struct Voice {
 }
 
 #[derive(Resource, Default)]
-struct Director {
+pub(crate) struct Director {
     voices: HashMap<PeerId, Voice>,
     /// Each lobby's (dog round, exfil) delays, if the leader set them.
     delays: HashMap<Entity, (f32, f32)>,
@@ -185,8 +187,9 @@ fn on_set_quote_delays(
 /// Decide on every quote asked for (and every one waiting), and tell the
 /// lobby about the ones said.
 #[allow(clippy::too_many_arguments)]
-fn direct_quotes(
+pub(crate) fn direct_quotes(
     time: Res<Time>,
+    radio: Res<crate::radio::RadioDirector>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut requests: EventReader<SayQuote>,
@@ -241,6 +244,9 @@ fn direct_quotes(
         let Some(lobby) = running(ask.lobby) else {
             continue;
         };
+        if radio.on_air(ask.lobby, now) {
+            continue;
+        }
         let speaker = match ask.who {
             Speaker::Player(peer) if lobby.has(peer) && !is_bot_peer(peer) => peer,
             Speaker::Player(_) => continue,
@@ -287,7 +293,7 @@ fn direct_quotes(
             continue;
         }
         if let Some((quote, until)) = voice.pending.take() {
-            if now <= until && !said.iter().any(|(_, p, _)| p == peer) {
+            if now <= until && !radio.on_air(voice.lobby, now) && !said.iter().any(|(_, p, _)| p == peer) {
                 said.push((voice.lobby, *peer, quote));
             }
         }

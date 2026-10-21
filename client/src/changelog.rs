@@ -17,6 +17,10 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: bosses arrive in an explosion that hurts anyone close by.",
+        "Zombies: Sergeant Frank Maddox warns of the first boss before it arrives.",
+        "Zombies: Sergeant Frank Maddox radios in before the first dog round.",
+        "Zombies: Sergeant Frank Maddox briefs the squad over the radio at the start.",
         "Other players hold their gun level at the hip when not aiming; hip-fire tracers leave the barrel.",
         "Uses several GB less memory.",
         "Other players dolphin dive properly instead of sprinting through the air.",

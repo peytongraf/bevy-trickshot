@@ -1,7 +1,9 @@
 //! `Zombies` bosses: a hulking brute (`models/characters/boss.glb`) that
 //! joins some rounds ([`is_boss_round`]) on top of their zombies. Each is
 //! announced by an orange lightning strike where it's about to appear (for
-//! [`BOSS_PRE_SPAWN_SECS`] — the spawn sound's length), then walks at whoever
+//! [`BOSS_PRE_SPAWN_SECS`] — the spawn sound's length), arrives in an
+//! explosion like a hellhound's — hurting every player within
+//! [`SPAWN_BLAST_RADIUS`] ([`SPAWN_BLAST_DAMAGE`]) — then walks at whoever
 //! it's after with two attacks:
 //!
 //! * **Smash** — close in ([`MELEE_RANGE`]), it rears its arms up and back
@@ -55,6 +57,12 @@ pub const BOSS_ROUND_DELAY_SECS: f32 = 12.0;
 /// Seconds its lightning strikes before it appears — the audible length of
 /// its spawn sound (`audio/zombies/boss/spawn.mp3`).
 pub const BOSS_PRE_SPAWN_SECS: f32 = 5.6;
+
+/// It arrives in an explosion, taking this much health (before perks) from
+/// every player within [`SPAWN_BLAST_RADIUS`] (m) of where it appears — a
+/// hellhound's blast ([`crate::dogs::DOG_BLAST_DAMAGE`]), a little wider.
+pub const SPAWN_BLAST_DAMAGE: f32 = crate::dogs::DOG_BLAST_DAMAGE;
+pub const SPAWN_BLAST_RADIUS: f32 = 3.0;
 
 /// A boss's health in `round`: as much as a crowd of that round's zombies,
 /// more for every extra player.

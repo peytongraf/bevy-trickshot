@@ -3,8 +3,9 @@
 //! * **Coming** — orange lightning strikes where it's about to appear, with
 //!   its spawn sound, for as long as that sound plays
 //!   ([`shared::BossLightning`], [`shared::boss::BOSS_PRE_SPAWN_SECS`]);
-//!   then it's there, in an orange flash ([`shared::BossSpawned`]). (The
-//!   lightning and flash are the hellhounds', `dogs`.)
+//!   then it's there, in an explosion like a hellhound's
+//!   ([`shared::BossSpawned`]; the server's hurt whoever was close). (The
+//!   lightning's the hellhounds', `dogs`.)
 //! * **About** — `models/characters/boss.glb`: `idle` standing, `walk` (at
 //!   whatever speed keeps its feet planted) on the move, `attack` for both
 //!   its smash and its blast, `death` once it's killed — picked from its
@@ -77,8 +78,6 @@ pub(crate) struct BossSettings {
     pub(crate) blend_secs: f32,
     /// Seconds between growls (a random gap in this range).
     pub(crate) growl_every: (f32, f32),
-    /// Its spawn flash's size (× the hellhound's).
-    pub(crate) flash_size: f32,
 
     // --- the energy ball ---
     /// Seconds it takes to swell in from nothing as it's charged.
@@ -147,7 +146,6 @@ impl Default for BossSettings {
             min_move_speed: 0.25,
             blend_secs: 0.2,
             growl_every: (6.0, 13.0),
-            flash_size: 1.8,
 
             charge_fade_secs: 0.3,
             core_size: 0.32,
@@ -209,7 +207,6 @@ impl std::fmt::Debug for DebugSettings<'_> {
             .field("min_move_speed", &s.min_move_speed)
             .field("blend_secs", &s.blend_secs)
             .field("growl_every", &s.growl_every)
-            .field("flash_size", &s.flash_size)
             .field("charge_fade_secs", &s.charge_fade_secs)
             .field("core_size", &s.core_size)
             .field("glow_size", &s.glow_size)
@@ -649,7 +646,7 @@ fn spawn_orb(
         .id()
 }
 
-/// Server → us: a boss coming (lightning), appearing (flash), and its blasts
+/// Server → us: a boss coming (lightning), appearing (explosion), and its blasts
 /// being hurled and blowing up.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn receive_boss_messages(
@@ -692,16 +689,15 @@ fn receive_boss_messages(
     }
     for mut rx in &mut spawned {
         for msg in rx.receive() {
-            let at = Vec3::from_array(msg.at);
-            crate::dogs::spawn_flash(
-                &mut commands,
-                &dog_assets,
-                &dog_settings,
-                &mut materials,
-                at + Vec3::Y * 0.6,
-                true,
-                settings.flash_size,
-            );
+            boom.write(crate::vfx::Explosion {
+                feet: Vec3::from_array(msg.at),
+                variant: 0,
+                phd: false,
+                dog: true,
+                boss: false,
+                frag: false,
+                nuke: false,
+            });
         }
     }
     for mut rx in &mut launched {
@@ -1480,7 +1476,6 @@ impl BossDebug<'_, '_> {
             ui.add(egui::Slider::new(&mut s.walk_per_mps, 0.0f32..=3.0).text("walk speed per m/s"));
             ui.add(egui::Slider::new(&mut s.min_move_speed, 0.0f32..=2.0).text("stands below (m/s)"));
             ui.add(egui::Slider::new(&mut s.blend_secs, 0.0f32..=1.0).text("clip blend (s)"));
-            ui.add(egui::Slider::new(&mut s.flash_size, 0.1f32..=5.0).text("spawn flash size (×)"));
         });
         ui.collapsing("Energy ball", |ui| {
             ui.add(egui::Slider::new(&mut s.charge_fade_secs, 0.01f32..=1.0).text("swells in over (s)"));

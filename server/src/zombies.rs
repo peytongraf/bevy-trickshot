@@ -192,6 +192,14 @@ pub(crate) struct ZombieRounds {
     /// (`crate::boss`).
     pub(crate) boss_rounds_seen: u32,
     pub(crate) last_boss_round: u32,
+    /// The man on the radio's warned of the game's first dog round
+    /// (`crate::radio`) — or there's been one already, the game starting on
+    /// it.
+    first_dogs_warned: bool,
+    /// Likewise the first boss round (`queue_round_bosses`): when he's due
+    /// to warn of it, until he has.
+    first_boss_warned: bool,
+    boss_radio_at: Option<f32>,
     /// Perk machines whose prone bonus has been claimed this game
     /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
     prone_claimed: Vec<shared::perks::Perk>,
@@ -254,6 +262,7 @@ pub(crate) fn run_rounds(
     brains: Query<(&LobbyPlayer, &BotBrain), With<Zombie>>,
     colliders: Res<crate::collision::MapColliders>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
@@ -295,6 +304,9 @@ pub(crate) fn run_rounds(
                     dog.spawn_at += time.delta_secs();
                 }
                 rounds.boss_due_at += time.delta_secs();
+                if let Some(at) = rounds.boss_radio_at.as_mut() {
+                    *at += time.delta_secs();
+                }
                 for boss in &mut rounds.pending_bosses {
                     boss.spawn_at += time.delta_secs();
                 }
@@ -315,6 +327,9 @@ pub(crate) fn run_rounds(
                 last_dog_at: None,
                 boss_rounds_seen: 0,
                 last_boss_round: 0,
+                first_dogs_warned: false,
+                first_boss_warned: false,
+                boss_radio_at: None,
                 bosses_to_spawn: 0,
                 boss_due_at: now,
                 pending_bosses: Vec::new(),
@@ -357,6 +372,14 @@ pub(crate) fn run_rounds(
                 }
             }
         }
+        // The first boss round's warning, once it's due.
+        if rounds.boss_radio_at.is_some_and(|at| now >= at) {
+            rounds.boss_radio_at = None;
+            radio.write(crate::radio::SayRadio {
+                lobby: lobby_e,
+                line: shared::radio::RadioLine::FirstBossRound,
+            });
+        }
         if rounds.round == 0 {
             rounds.countdown_left -= time.delta_secs();
             let shown = rounds.countdown_left.max(0.0).ceil() as u32;
@@ -369,10 +392,22 @@ pub(crate) fn run_rounds(
             // The leader can start on a later round (`Lobby::start_round`).
             // (After a countdown the party's ready: no extra delay.)
             let first = lobby.start_round.max(1);
+            // Starting on a dog round: the man on the radio warns of it
+            // first, as he would coming from the round before, and it starts
+            // once he's done.
+            if shared::dogs::is_dog_round(first) && !rounds.first_dogs_warned {
+                rounds.first_dogs_warned = true;
+                let line = shared::radio::RadioLine::FirstDogRound;
+                radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+                rounds.break_until = now + line.airtime();
+            }
+            if now < rounds.break_until {
+                continue;
+            }
             rounds.round = first;
             rounds.to_spawn = enemies_in_round(first, members);
             rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
-            queue_round_bosses(&mut rounds, members);
+            queue_round_bosses(&mut rounds, members, now);
             lobby.round = first;
             dog_round(lobby_e, first);
             lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
@@ -492,13 +527,23 @@ pub(crate) fn run_rounds(
                     );
                     info!("lobby {lobby_e:?}: the last dog dropped a Max Ammo");
                 }
+                // The game's first dog round: the man on the radio warns of
+                // it first, and only once he's done does it start — its
+                // music, sky, number and dogs all held back by his line.
+                if shared::dogs::is_dog_round(rounds.round + 1) && !rounds.first_dogs_warned {
+                    rounds.first_dogs_warned = true;
+                    let line = shared::radio::RadioLine::FirstDogRound;
+                    radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+                    rounds.break_until = now + line.airtime();
+                    continue;
+                }
                 rounds.round += 1;
                 rounds.repair_points.clear();
                 dog_round(lobby_e, rounds.round);
                 rounds.to_spawn = enemies_in_round(rounds.round, members);
                 rounds.break_until = now + ROUND_BREAK_SECS;
                 rounds.next_spawn_at = rounds.break_until;
-                queue_round_bosses(rounds, members);
+                queue_round_bosses(rounds, members, now);
                 lobby.round = rounds.round;
                 // (Bosses carried over from the last round count too.)
                 lobby.enemies_left = rounds.to_spawn
@@ -892,14 +937,23 @@ fn recycle_far_zombies(
     }
 }
 
-/// Set up `rounds`' (just started) round's bosses, for `members` players:
-/// none, or a boss round's, due [`shared::boss::BOSS_ROUND_DELAY_SECS`] in.
-fn queue_round_bosses(rounds: &mut ZombieRounds, members: usize) {
+/// Set up `rounds`' round's bosses (it started `now`), for `members`
+/// players: none, or a boss round's, due [`shared::boss::BOSS_ROUND_DELAY_SECS`]
+/// in — or, the game's first boss round, a second after the man on the
+/// radio's warned of it ([`shared::radio::FIRST_BOSS_ROUND_DELAY_SECS`] in).
+fn queue_round_bosses(rounds: &mut ZombieRounds, members: usize, now: f32) {
+    use shared::radio::{RadioLine, FIRST_BOSS_AFTER_SECS, FIRST_BOSS_ROUND_DELAY_SECS};
+    rounds.boss_due_at = rounds.break_until + shared::boss::BOSS_ROUND_DELAY_SECS;
     // (On top of any the last round never got to send — they carry over.)
     if shared::boss::is_boss_round(rounds.round) {
         rounds.bosses_to_spawn += shared::boss::bosses_in_round(rounds.round, members);
+        if !rounds.first_boss_warned {
+            rounds.first_boss_warned = true;
+            let at = now + FIRST_BOSS_ROUND_DELAY_SECS;
+            rounds.boss_radio_at = Some(at);
+            rounds.boss_due_at = at + RadioLine::FirstBossRound.airtime() + FIRST_BOSS_AFTER_SECS;
+        }
     }
-    rounds.boss_due_at = rounds.break_until + shared::boss::BOSS_ROUND_DELAY_SECS;
 }
 
 /// Tell every member of the lobby where a zombie's swipe just landed, for
@@ -1368,6 +1422,7 @@ mod tests {
         app.init_resource::<crate::killcam::ReplayClock>();
         app.add_event::<crate::pvp::ZombieKilled>();
         app.add_event::<crate::quotes::SayQuote>();
+        app.add_event::<crate::radio::SayRadio>();
         app.init_resource::<NextBotId>();
         app.add_systems(Update, (run_rounds, clear_dead_zombies, cull_zombies).chain());
         let me = PeerId::Netcode(1);
@@ -1548,13 +1603,105 @@ mod tests {
     }
 
     #[test]
+    fn the_first_dog_round_waits_for_the_radio() {
+        let (mut app, lobby) = game();
+        let round = |app: &App| app.world().get::<Lobby>(lobby).unwrap().round;
+        let said = |app: &mut App| {
+            let events = app.world_mut().resource_mut::<Events<crate::radio::SayRadio>>();
+            events.iter_current_update_events().map(|e| e.line).collect::<Vec<_>>()
+        };
+        // Start again on round 4, with no zombies coming: it's over at once.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 4;
+        app.update();
+        app.update();
+        assert_eq!(round(&app), 4);
+        let mut rounds = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
+        rounds.to_spawn = 0;
+        rounds.break_until = 0.0;
+        app.update();
+        assert_eq!(said(&mut app), [shared::radio::RadioLine::FirstDogRound]);
+        let secs = shared::radio::RadioLine::FirstDogRound.airtime();
+        run(&mut app, secs - 0.5);
+        assert_eq!(round(&app), 4, "round 5 held back while he talks");
+        run(&mut app, 1.0);
+        assert_eq!(round(&app), 5);
+        // The next dog round comes straight on.
+        app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap().round = 9;
+        let mut rounds = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
+        rounds.to_spawn = 0;
+        rounds.pending_dogs.clear();
+        run(&mut app, ROUND_BREAK_SECS + 1.0);
+        assert_eq!(round(&app), 10);
+    }
+
+    #[test]
+    fn the_first_boss_round_waits_for_the_radio_before_its_boss() {
+        use shared::radio::{RadioLine, FIRST_BOSS_AFTER_SECS, FIRST_BOSS_ROUND_DELAY_SECS};
+        let (mut app, lobby) = game();
+        let round = |app: &App| app.world().get::<Lobby>(lobby).unwrap().round;
+        let rounds = |app: &App| {
+            let r = app.world().get::<ZombieRounds>(lobby).unwrap();
+            (r.boss_radio_at, r.pending_bosses.len(), r.bosses_to_spawn)
+        };
+        // Start again on round 6, with no zombies coming: it's over at once.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 6;
+        app.update();
+        app.update();
+        let mut r = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
+        r.to_spawn = 0;
+        r.break_until = 0.0;
+        app.update();
+        assert_eq!(round(&app), 7);
+        assert!(shared::boss::is_boss_round(7));
+        run(&mut app, FIRST_BOSS_ROUND_DELAY_SECS - 0.2);
+        assert!(rounds(&app).0.is_some(), "not said yet");
+        run(&mut app, 0.4);
+        assert!(rounds(&app).0.is_none(), "said");
+        // The boss waits for him (and a second more)...
+        run(&mut app, RadioLine::FirstBossRound.airtime() + FIRST_BOSS_AFTER_SECS - 0.5);
+        assert_eq!(rounds(&app).1, 0);
+        assert!(rounds(&app).2 > 0);
+        // ...then it's struck in.
+        run(&mut app, 1.0);
+        assert_eq!(rounds(&app).1, 1);
+    }
+
+    #[test]
+    fn starting_on_a_dog_or_boss_round_still_gets_its_warning() {
+        let (mut app, lobby) = game();
+        let round = |app: &App| app.world().get::<Lobby>(lobby).unwrap().round;
+        // On round 5: held at 0 while he talks, then straight in.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        let mut l = app.world_mut().get_mut::<Lobby>(lobby).unwrap();
+        l.start_round = 5;
+        l.round = 0;
+        app.update();
+        app.update();
+        assert_eq!(round(&app), 0);
+        run(&mut app, shared::radio::RadioLine::FirstDogRound.airtime() - 0.5);
+        assert_eq!(round(&app), 0, "round 5 held back while he talks");
+        run(&mut app, 1.0);
+        assert_eq!(round(&app), 5);
+        // On round 7: straight in, his boss warning queued.
+        app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 7;
+        app.update();
+        app.update();
+        assert_eq!(round(&app), 7);
+        assert!(app.world().get::<ZombieRounds>(lobby).unwrap().boss_radio_at.is_some());
+    }
+
+    #[test]
     fn a_dog_round_queues_only_dogs_and_isnt_over_until_theyre_in_and_dead() {
         let (mut app, lobby) = game();
-        // Start again on round 5.
+        // Start again on round 5 (once the man on the radio's warned of it).
         app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 5;
         app.update();
         app.update();
+        run(&mut app, shared::radio::RadioLine::FirstDogRound.airtime() + 0.1);
         let l = app.world().get::<Lobby>(lobby).unwrap();
         assert_eq!(l.round, 5);
         assert_eq!(l.enemies_left, shared::dogs::dogs_in_round(5, 1));

@@ -63,6 +63,7 @@ mod pap_menu;
 mod power_ups;
 mod power;
 mod quotes;
+mod radio;
 mod rampage;
 mod respawn;
 mod revive;
@@ -276,6 +277,7 @@ fn main() {
         .add_plugins(exfil::ExfilPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
+        .add_plugins(radio::RadioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
         .add_plugins(power::PowerPlugin)
         .add_plugins(earthquake::EarthquakePlugin)

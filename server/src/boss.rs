@@ -1,7 +1,8 @@
 //! `Zombies` bosses (`shared::boss`), on top of `crate::zombies`' rounds:
 //! that queues each boss of a boss round ([`PendingBoss`]); this strikes
 //! its orange lightning where it'll appear, brings it in once the strike's
-//! done, and flies the energy blasts it hurls (`ai::drive_bots` decides when,
+//! done — in an explosion that hurts every player close by
+//! ([`shared::boss::SPAWN_BLAST_DAMAGE`]) — and flies the energy blasts it hurls (`ai::drive_bots` decides when,
 //! [`ai::BossBlastFired`]) — each one straight on until it touches a player
 //! or the map (or runs out of time), then blowing up, hurting every player
 //! in reach by how close they were ([`shared::boss::blast_damage`]).
@@ -111,12 +112,15 @@ fn send_to_lobby<M: lightyear::prelude::Message>(
 }
 
 /// Strike each queued boss's lightning, and bring it in once it's due.
+#[allow(clippy::too_many_arguments)]
 fn bring_in_bosses(
     time: Res<Time>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut next_id: ResMut<NextBotId>,
     mut lobbies: Query<(Entity, &Lobby, &mut ZombieRounds)>,
+    players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
+    mut hits: EventWriter<PlayerHit>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
@@ -192,6 +196,27 @@ fn bring_in_bosses(
                 InterpolationTarget::to_clients(NetworkTarget::Only(real)),
                 crate::zombies::OutOfTouch::default(),
             ));
+            // It arrives in an explosion: everyone close by's hurt (the
+            // nearest part of them within reach — feet to eyes).
+            for (id, pose, lp, combat) in &players {
+                if lp.lobby != lobby_e || is_bot_peer(id.0) || !combat.alive {
+                    continue;
+                }
+                let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
+                let d = shared::boss::segment_point_distance(feet, pose.translation, boss.feet);
+                if d <= shared::boss::SPAWN_BLAST_RADIUS {
+                    hits.write(PlayerHit {
+                        cause: crate::pvp::HitCause::Enemy,
+                        victim: id.0,
+                        killer: peer,
+                        damage: shared::boss::SPAWN_BLAST_DAMAGE,
+                        bomb_shot: false,
+                        blast: false,
+                        critical: false,
+                        point: None,
+                    });
+                }
+            }
             send_to_lobby(&mut sender, server, lobby, &shared::BossSpawned { at: boss.feet.to_array() });
             info!("lobby {lobby_e:?}: a boss appeared ({health:.0} health)");
         }

@@ -898,6 +898,7 @@ fn play_perk_jingles(
 /// machine — and the jingle's entity goes.
 fn play_perk_quotes(
     finished: Query<(Entity, &PerkJingle, &Transform), Without<AudioPlayer>>,
+    radio: Query<(), With<crate::radio::RadioCall>>,
     mut commands: Commands,
 ) {
     for (entity, jingle, transform) in &finished {
@@ -905,14 +906,20 @@ fn play_perk_quotes(
         let Some(quote) = &jingle.quote else {
             continue;
         };
+        // (Not over the man on the radio.)
+        if crate::radio::on_air(&radio) {
+            continue;
+        }
         if quote.own {
             commands.spawn((
+                crate::quotes::QuoteAudio,
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(quote.clip.clone()),
                 PlaybackSettings::DESPAWN,
             ));
         } else {
             commands.spawn((
+                crate::quotes::QuoteAudio,
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(quote.clip.clone()),
                 *transform,

@@ -82,6 +82,12 @@ fn load_lines(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(QuoteLines(loaded));
 }
 
+/// Any operator quote playing — this module's or a perk quote
+/// (`zombies_hud::play_perk_quotes`) — so the radio can cut it off
+/// (`radio::play_radio`).
+#[derive(Component)]
+pub(crate) struct QuoteAudio;
+
 /// Someone else's line, playing from them (`speaker`).
 #[derive(Component)]
 struct SpokenQuote {
@@ -117,6 +123,7 @@ fn play_quotes(
             if Some(said.speaker) == me {
                 commands.spawn((
                     Name::new("Quote"),
+                    QuoteAudio,
                     StateScoped(AppState::InGame),
                     AudioPlayer::new(clip.clone()),
                     // (Its level, and the room's reverb, come from the mix.)
@@ -129,6 +136,7 @@ fn play_quotes(
                     .map_or(Vec3::ZERO, |(_, pose)| pose.translation);
                 commands.spawn((
                     Name::new("Quote"),
+                    QuoteAudio,
                     StateScoped(AppState::InGame),
                     SpokenQuote { speaker: said.speaker },
                     AudioPlayer::new(clip.clone()),

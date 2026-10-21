@@ -433,18 +433,16 @@ pub(crate) fn spawn_lightning(
         });
 }
 
-/// The flash something appears in at `at` — a hellhound's blue-white, or a
-/// boss's orange (`boss`, `size` × the usual).
-pub(crate) fn spawn_flash(
+/// The blue-white flash a hellhound appears in at `at`.
+fn spawn_flash(
     commands: &mut Commands,
     assets: &DogAssets,
     settings: &DogSettings,
     materials: &mut Assets<StandardMaterial>,
     at: Vec3,
-    boss: bool,
-    size: f32,
 ) {
-    let c = if boss { BOSS_STRIKE_COLOR } else { STRIKE_COLOR };
+    let c = STRIKE_COLOR;
+    let size = 1.0;
     let material = materials.add(StandardMaterial {
         base_color: strike(c, settings.flash_brightness).into(),
         unlit: true,
@@ -505,7 +503,7 @@ fn receive_dog_messages(
     for mut rx in &mut spawned {
         for msg in rx.receive() {
             let at = Vec3::from_array(msg.at);
-            spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
+            spawn_flash(&mut commands, &assets, &settings, &mut materials, at);
             commands.spawn(dog_sound(sounds.dog_spawn.clone(), at + Vec3::Y * 0.5, false));
         }
     }
@@ -895,7 +893,7 @@ fn run_previews(
         commands.spawn(dog_sound(sounds.dog_pre_spawn.clone(), at + Vec3::Y, false));
     }
     if std::mem::take(&mut preview.flash) {
-        spawn_flash(&mut commands, &assets, &settings, &mut materials, at, false, 1.0);
+        spawn_flash(&mut commands, &assets, &settings, &mut materials, at);
         commands.spawn(dog_sound(sounds.dog_spawn.clone(), at + Vec3::Y * 0.5, false));
     }
     if std::mem::take(&mut preview.explosion) {

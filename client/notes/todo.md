@@ -1,20 +1,13 @@
 # Current todo
 
-- Test dolphin dive remote player animation
+- Add full power power up
+- Add fire sale power up
+- Can add smoke efffect to boards on windows as the rebuild animation is playing
+- Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
+- Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
+- Cutouts in walls for zombies to climb through
 
 # Done
-
-- Remote idle gun held level at the hip
-- Remote player dolphin dive
-- Half as many exfil dogs
-- No power-on horde during countdown
-- Far-off dogs / bosses respawn; exfil wave at zone
-- Water reflections
-- Bullet holes over water / drops fixed
-- Water splashes and wakes
-- Remote player mantle animation
-- First person mantle animation
-- Doubled knife reach + lunging stab
 
 # First person animations
 
@@ -49,15 +42,6 @@
 
 - Add lights to zone above lower tomb
 - Add fires to all fire bowls like doors that have to be opened on left side
-
-# Current todo
-
-- Add full power power up
-- Add fire sale power up
-- Can add smoke efffect to boards on windows as the rebuild animation is playing
-- Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
-- Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
-- Cutouts in walls for zombies to climb through
 
 # Map
 

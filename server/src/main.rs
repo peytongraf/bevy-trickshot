@@ -42,6 +42,7 @@ mod net;
 mod power_ups;
 mod pvp;
 mod quotes;
+mod radio;
 mod raygun;
 mod revive;
 mod sim;
@@ -80,6 +81,7 @@ fn main() {
         .add_plugins(bots::BotsPlugin)
         .add_plugins(pvp::PvpPlugin)
         .add_plugins(quotes::QuotesPlugin)
+        .add_plugins(radio::RadioPlugin)
         .add_plugins(revive::RevivePlugin)
         .add_plugins(killcam::KillCamPlugin)
         .add_plugins(knives::KnivesPlugin)
