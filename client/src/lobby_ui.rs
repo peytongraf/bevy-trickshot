@@ -538,6 +538,7 @@ enum MenuBtn {
     SetPerkSet(shared::perks::PerkSet),
     /// `Zombies`' perk machines wait for the power, or not (leader only).
     SetPerksNeedPower(bool),
+    SetFullPower(bool),
     /// The leader's bot counter (1..=`MAX_BOTS`).
     BotCountDown,
     BotCountUp,
@@ -1657,6 +1658,23 @@ fn build_room(
                             setting_value(row, asset_server, label(lobby.perks_need_power).to_string());
                         }
                     });
+                    // Everyone starts with the best of everything.
+                    setting_row(col, asset_server, "FULL POWER", |row| {
+                        let label = |on: bool| if on { "ON" } else { "OFF" };
+                        if can_edit {
+                            for on in [false, true] {
+                                option_button(
+                                    row,
+                                    asset_server,
+                                    label(on),
+                                    MenuBtn::SetFullPower(on),
+                                    on == lobby.full_power,
+                                );
+                            }
+                        } else {
+                            setting_value(row, asset_server, label(lobby.full_power).to_string());
+                        }
+                    });
                 }
 
                 if is_ffa {
@@ -1997,13 +2015,14 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut set_perks_need_power, mut next_state): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut set_perks_need_power, mut set_full_power, mut next_state): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetPerkSet>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetPerksNeedPower>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetFullPower>, With<GameClient>>,
         ResMut<NextState<AppState>>,
     ),
 ) {
@@ -2130,6 +2149,11 @@ fn handle_clicks(
             MenuBtn::SetPerksNeedPower(on) => {
                 if let Ok(mut s) = set_perks_need_power.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::SetPerksNeedPower { on: *on });
+                }
+            }
+            MenuBtn::SetFullPower(on) => {
+                if let Ok(mut s) = set_full_power.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetFullPower { on: *on });
                 }
             }
             MenuBtn::SetEndCam(cam) => {

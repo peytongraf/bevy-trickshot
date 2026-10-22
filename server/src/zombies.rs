@@ -200,6 +200,9 @@ pub(crate) struct ZombieRounds {
     /// to warn of it, until he has.
     first_boss_warned: bool,
     boss_radio_at: Option<f32>,
+    /// He's said the exfil can be called this game (the long line the
+    /// first time, the short one after — [`round_radio`]).
+    exfil_offered: bool,
     /// Perk machines whose prone bonus has been claimed this game
     /// ([`on_prone_at_perk`]) — goes with this component when the game ends.
     prone_claimed: Vec<shared::perks::Perk>,
@@ -330,6 +333,7 @@ pub(crate) fn run_rounds(
                 first_dogs_warned: false,
                 first_boss_warned: false,
                 boss_radio_at: None,
+                exfil_offered: false,
                 bosses_to_spawn: 0,
                 boss_due_at: now,
                 pending_bosses: Vec::new(),
@@ -409,6 +413,7 @@ pub(crate) fn run_rounds(
             rounds.break_until = now + if lobby.countdown_secs > 0 { 0.0 } else { FIRST_ROUND_DELAY_SECS };
             queue_round_bosses(&mut rounds, members, now);
             lobby.round = first;
+            round_radio(lobby_e, &lobby, &mut rounds, &mut radio);
             dog_round(lobby_e, first);
             lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
             info!("lobby {lobby_e:?}: zombies round {first}");
@@ -475,6 +480,25 @@ pub(crate) fn run_rounds(
                 endings.begin(lobby_e, clock.0, false);
                 continue;
             }
+            // The climax: the man on the radio yells what's at stake, about
+            // the clock, and about the last few kills — once each.
+            let exfil = rounds.exfil.as_mut().expect("checked above");
+            if !exfil.stakes_warned && exfil.secs_left(now) <= shared::radio::EXFIL_STAKES_SECS {
+                exfil.stakes_warned = true;
+                let line = shared::radio::RadioLine::ExfilStakes;
+                radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+            }
+            if !exfil.time_warned && exfil.secs_left(now) <= shared::radio::EXFIL_TIME_WARNING_SECS {
+                exfil.time_warned = true;
+                let line = shared::radio::RadioLine::ExfilTimeWarning;
+                radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+            }
+            if !exfil.few_left_warned && exfil.kills_left <= shared::radio::EXFIL_FEW_LEFT_KILLS {
+                exfil.few_left_warned = true;
+                let line = shared::radio::RadioLine::ExfilFewLeft;
+                radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+            }
+            let exfil = rounds.exfil.as_ref().expect("checked above");
             // Exactly as many on their way as kills still needed.
             let mine = || zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive);
             let alive_bosses = mine().filter(|z| z.4).count();
@@ -545,6 +569,7 @@ pub(crate) fn run_rounds(
                 rounds.next_spawn_at = rounds.break_until;
                 queue_round_bosses(rounds, members, now);
                 lobby.round = rounds.round;
+                round_radio(lobby_e, &lobby, rounds, &mut radio);
                 // (Bosses carried over from the last round count too.)
                 lobby.enemies_left = rounds.to_spawn
                     + rounds.bosses_to_spawn
@@ -937,6 +962,43 @@ fn recycle_far_zombies(
     }
 }
 
+/// What the man on the radio has to say about `rounds`' round (just
+/// started in `lobby`): Der Tempel's story on rounds
+/// [`shared::radio::ROUND_2_LORE_ROUND`] and [`shared::radio::ROUND_4_LORE_ROUND`],
+/// the power still off on round
+/// [`shared::radio::POWER_STILL_OFF_ROUND`], Der Wunderfizz waking up, or
+/// the exfil there to call.
+fn round_radio(
+    lobby_e: Entity,
+    lobby: &Lobby,
+    rounds: &mut ZombieRounds,
+    radio: &mut EventWriter<crate::radio::SayRadio>,
+) {
+    use shared::radio::{RadioLine, POWER_STILL_OFF_ROUND, ROUND_2_LORE_ROUND, ROUND_4_LORE_ROUND};
+    let round = rounds.round;
+    let mut say = |line| {
+        radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
+    };
+    if matches!(lobby.map, shared::MapId::DerTempel | shared::MapId::DerTempelDay) {
+        if round == ROUND_2_LORE_ROUND {
+            say(RadioLine::Round2Lore);
+        }
+        if round == ROUND_4_LORE_ROUND {
+            say(RadioLine::Round4Lore);
+        }
+    }
+    if round == POWER_STILL_OFF_ROUND && !shared::power::has_power(lobby.map, lobby.power_on) {
+        say(RadioLine::PowerStillOff);
+    }
+    if round == shared::wunderfizz::ACTIVE_ROUND && shared::wunderfizz::present(lobby) {
+        say(RadioLine::WunderfizzWakesUp);
+    }
+    if shared::exfil::is_exfil_round(round) && shared::exfil::layout(lobby.map).is_some() {
+        let first = !std::mem::replace(&mut rounds.exfil_offered, true);
+        say(if first { RadioLine::FirstExfilAvailable } else { RadioLine::ExfilAvailable });
+    }
+}
+
 /// Set up `rounds`' round's bosses (it started `now`), for `members`
 /// players: none, or a boss round's, due [`shared::boss::BOSS_ROUND_DELAY_SECS`]
 /// in — or, the game's first boss round, a second after the man on the
@@ -1154,6 +1216,7 @@ fn on_turn_on_power(
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby, rounds)) = lobbies
@@ -1181,6 +1244,10 @@ fn on_turn_on_power(
     }
     member.score -= cost;
     lobby.power_on = true;
+    radio.write(crate::radio::SayRadio {
+        lobby: lobby_e,
+        line: shared::radio::RadioLine::PowerOn,
+    });
     if shared::power::scary_power_on(lobby.map) {
         // No cheery power-on line here — the ground quakes (client-side)
         // and a horde comes up out of it (`run_rounds`) — once the game's
@@ -1453,6 +1520,7 @@ mod tests {
                 start_points: 0,
                 perk_set: Default::default(),
                 perks_need_power: false,
+                full_power: false,
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,

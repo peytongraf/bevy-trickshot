@@ -1415,6 +1415,13 @@ pub struct Lobby {
     /// on from the start. See [`crate::perks::machines_on`].
     #[serde(default)]
     pub perks_need_power: bool,
+    /// [`GameMode::Zombies`]: every member starts the game fully powered up
+    /// — the Ray Gun and the AK-74, both fully Pack-a-Punched, as many
+    /// molotovs and monkey bombs as they can carry, full armor and every perk
+    /// of the lobby's set, and 100,000 points in place of `start_points` —
+    /// set by the leader ([`SetFullPower`]). Off by default.
+    #[serde(default)]
+    pub full_power: bool,
     /// [`GameMode::Zombies`]: seconds of free roaming before the first round
     /// (`0` = none), set by the leader ([`SetZombiesStart`]).
     pub countdown_secs: u32,
@@ -2090,6 +2097,13 @@ pub struct SetPerkSet {
 /// for the power ([`Lobby::perks_need_power`]) — before starting only.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct SetPerksNeedPower {
+    pub on: bool,
+}
+
+/// Client (party leader) → server: whether a `Zombies` game starts fully
+/// powered up ([`Lobby::full_power`]) — before starting only.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetFullPower {
     pub on: bool,
 }
 
@@ -2783,6 +2797,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPerkSet>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetPerksNeedPower>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetFullPower>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);

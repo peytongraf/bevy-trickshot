@@ -157,8 +157,7 @@ fn on_take_prize(
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send a Mystery Box prize to {peer:?}: {e:?}");
     }
-    // What they took, said every time (nothing for the sniper or the M17 —
-    // no lines).
+    // What they took, said every time (nothing for the sniper — no lines).
     let quote = match spin.prize {
         shared::mystery_box::BoxPrize::Ak74 => Some(shared::quotes::Quote::MysteryAk74),
         shared::mystery_box::BoxPrize::RayGun => Some(shared::quotes::Quote::MysteryRayGun),
@@ -167,7 +166,8 @@ fn on_take_prize(
         shared::mystery_box::BoxPrize::Frag => Some(shared::quotes::Quote::MysteryFrag),
         shared::mystery_box::BoxPrize::FlashBang => Some(shared::quotes::Quote::MysteryFlashBang),
         shared::mystery_box::BoxPrize::MonkeyBomb => Some(shared::quotes::Quote::MysteryMonkeyBomb),
-        shared::mystery_box::BoxPrize::Sniper | shared::mystery_box::BoxPrize::M17 => None,
+        shared::mystery_box::BoxPrize::M17 => Some(shared::quotes::Quote::MysteryM17),
+        shared::mystery_box::BoxPrize::Sniper => None,
     };
     if let Some(quote) = quote {
         quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, quote));

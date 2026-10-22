@@ -697,7 +697,13 @@ impl Weapon {
 
     /// A full load of `gun` in `Zombies`: a mag and its whole reserve.
     fn full_load(gun: WeaponId) -> (u32, u32) {
-        (mag_size(gun), starting_reserve(shared::GameMode::Zombies, gun))
+        Self::packed_load(gun, 0)
+    }
+
+    /// ...and at Pack-a-Punch `level` (more reserve for each).
+    fn packed_load(gun: WeaponId, level: u8) -> (u32, u32) {
+        let mag = mag_size(gun);
+        (mag, starting_reserve(shared::GameMode::Zombies, gun) + mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32)
     }
 
     /// Make `gun` the one in hand's view model, with `(mag, reserve)`.
@@ -808,7 +814,8 @@ pub(crate) fn apply_loadout(
         return;
     };
     let member = lobby.members.iter().find(|m| m.peer == me);
-    if lobby.mode == shared::GameMode::Zombies && weapon.slots_set {
+    let respawn = lobby.mode == shared::GameMode::Zombies && weapon.slots_set;
+    if respawn {
         // A `Zombies` respawn keeps what was carried: both guns topped up.
         if let Some(other) = weapon.slots.iter().filter_map(|w| w.gun()).find(|&g| g != weapon.primary) {
             weapon.other_ammo = Weapon::full_load(other);
@@ -839,6 +846,24 @@ pub(crate) fn apply_loadout(
     weapon.flash_bangs = 0;
     weapon.lethal = Lethal::ThrowingKnife;
     weapon.loadout_pending = false;
+    // A new `Zombies` game on full power (`Lobby::full_power`): the server's
+    // given us the Ray Gun and the AK-74, both fully packed, the armor and
+    // the perks — fill them, and as many molotovs and monkey bombs as we
+    // can carry. (Only at the start: a respawn keeps what's carried.)
+    if lobby.mode == shared::GameMode::Zombies && lobby.full_power && !respawn {
+        use shared::pap::MAX_LEVEL;
+        let (ray, ak) = (WeaponId::RayGun, WeaponId::Ak74);
+        weapon.slots = [SlotWeapon::Gun(ray), SlotWeapon::Gun(ak)];
+        weapon.held = 0;
+        weapon.primary = ray;
+        weapon.pap_level = MAX_LEVEL;
+        (weapon.mag, weapon.reserve) = Weapon::packed_load(ray, MAX_LEVEL);
+        weapon.other_ammo = Weapon::packed_load(ak, MAX_LEVEL);
+        weapon.pending_draw = Some(SlotWeapon::Gun(ray));
+        weapon.first_draw = true;
+        weapon.fill_lethal(Lethal::Molotov);
+        weapon.fill_lethal(Lethal::MonkeyBomb);
+    }
 }
 
 /// What the throwing arms throw: the lethal equipment the lethal key

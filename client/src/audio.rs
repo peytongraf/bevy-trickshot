@@ -244,6 +244,9 @@ pub(crate) struct GameSounds {
     /// `audio/music/zombies_game_over.mp3` — played once when a `Zombies`
     /// game ends (`zombies_audio`).
     pub(crate) zombies_game_over: Handle<AudioSource>,
+    /// `audio/music/exfil.mp3` — looped from the exfil being called to the
+    /// game's end (`zombies_audio`).
+    pub(crate) zombies_exfil: Handle<AudioSource>,
     /// `audio/music/zombies_intro.mp3` — under a `Zombies` game's intro,
     /// fading out as it ends (`game_start`).
     pub(crate) zombies_intro: Handle<AudioSource>,
@@ -545,6 +548,7 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         power_up_bonus_points: asset_server.load("audio/zombies/power_ups/bonus_points.mp3"),
         power_up_carpenter: asset_server.load("audio/zombies/power_ups/carpenter.mp3"),
         zombies_game_over: asset_server.load("audio/music/zombies_game_over.mp3"),
+        zombies_exfil: asset_server.load("audio/music/exfil.mp3"),
         zombies_intro: asset_server.load("audio/music/zombies_intro.mp3"),
         board_snaps: (1..=5)
             .map(|i| asset_server.load(format!("audio/zombies/windows/board_snap_{i}.mp3")))

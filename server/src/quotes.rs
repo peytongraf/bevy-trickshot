@@ -15,7 +15,8 @@
 //!   they're still talking waits — said the moment they finish if that's
 //!   within [`GRACE_SECS`], never if not.
 //! * Nobody talks over the man on the radio (`crate::radio`): anything
-//!   asked for (or waiting) while he's on air is dropped.
+//!   asked for (or waiting) while he's on air is dropped — except a delayed
+//!   line ([`QuoteDelay`]) coming due then, which waits for him to finish.
 //! * A dog round's and the exfil's lines come a few seconds after
 //!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
 //!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]).
@@ -103,6 +104,14 @@ pub(crate) struct Director {
     delays: HashMap<Entity, (f32, f32)>,
     /// Quotes waiting on their delay: when, and what.
     scheduled: Vec<(f32, SayQuote)>,
+}
+
+impl Director {
+    /// Whether no operator in `lobby` is talking right now (`crate::radio`
+    /// waits for that).
+    pub(crate) fn quiet(&self, lobby: Entity, now: f32) -> bool {
+        !self.voices.values().any(|v| v.lobby == lobby && now < v.busy_until)
+    }
 }
 
 pub struct QuotesPlugin;
@@ -228,12 +237,16 @@ pub(crate) fn direct_quotes(
             asks.push(*q);
         }
     }
-    director.scheduled.retain(|(at, q)| {
-        if *at <= now {
+    director.scheduled.retain_mut(|(at, q)| {
+        if *at > now {
+            true
+        } else if radio.on_air(q.lobby, now) {
+            // (Due while he's on air: once he's done.)
+            *at = radio.off_air_at(q.lobby);
+            true
+        } else {
             asks.push(*q);
             false
-        } else {
-            true
         }
     });
 

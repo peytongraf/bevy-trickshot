@@ -164,8 +164,13 @@ fn on_buy_wall_weapon(
     if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
         error!("failed to send a wall buy to {peer:?}: {e:?}");
     }
-    if weapon == shared::weapon::WeaponId::Ak74 {
-        quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyAk74));
+    let quote = match weapon {
+        shared::weapon::WeaponId::Ak74 => Some(shared::quotes::Quote::BuyAk74),
+        shared::weapon::WeaponId::M17 => Some(shared::quotes::Quote::BuyM17),
+        _ => None,
+    };
+    if let Some(quote) = quote {
+        quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, quote));
     }
     info!("{peer:?} bought the {} off the wall", weapon.label());
 }

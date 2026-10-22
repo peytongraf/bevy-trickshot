@@ -29,6 +29,8 @@ adam/buy_ammo/buy_ammo_4.mp3 2.691
 adam/buy_armor/buy_armor_1.mp3 3.788
 adam/buy_armor/buy_armor_2.mp3 2.116
 adam/buy_armor/buy_armor_3.mp3 3.291
+adam/buy_m17/buy_m17_1.mp3 6.269
+adam/buy_m17/buy_m17_2.mp3 5.016
 adam/dog_kill/dog_kill_1.mp3 1.907
 adam/dog_kill/dog_kill_2.mp3 1.933
 adam/dog_kill/dog_kill_3.mp3 2.638
@@ -38,8 +40,8 @@ adam/dog_round/dog_round_2.mp3 2.952
 adam/dog_round/dog_round_3.mp3 2.534
 adam/dog_round/dog_round_4.mp3 3.187
 adam/dog_round/dog_round_5.mp3 5.381
-adam/enemy_kill/enemy_kill_10.mp3 4.258
 adam/enemy_kill/enemy_kill_1.mp3 2.508
+adam/enemy_kill/enemy_kill_10.mp3 4.258
 adam/enemy_kill/enemy_kill_2.mp3 2.638
 adam/enemy_kill/enemy_kill_3.mp3 2.403
 adam/enemy_kill/enemy_kill_4.mp3 3.422
@@ -84,6 +86,9 @@ adam/mystery_box/flash_bang/mb_flash_bang_3.mp3 5.016
 adam/mystery_box/frag/mb_frag_1.mp3 2.273
 adam/mystery_box/frag/mb_frag_2.mp3 3.109
 adam/mystery_box/frag/mb_frag_3.mp3 4.598
+adam/mystery_box/m17/mb_m17_1.mp3 2.038
+adam/mystery_box/m17/mb_m17_2.mp3 6.452
+adam/mystery_box/m17/mb_m17_3.mp3 4.833
 adam/mystery_box/molotov/mb_molotov_1.mp3 4.493
 adam/mystery_box/molotov/mb_molotov_2.mp3 4.963
 adam/mystery_box/molotov/mb_molotov_3.mp3 4.598
@@ -99,10 +104,10 @@ adam/mystery_box/throwing_knife/mb_throwing_knife_3.mp3 5.878
 adam/out_of_ammo/out_of_ammo_1.mp3 2.952
 adam/out_of_ammo/out_of_ammo_2.mp3 6.295
 adam/out_of_ammo/out_of_ammo_3.mp3 3.579
+adam/pap/pap_1.mp3 5.146
 adam/pap/pap_10.mp3 6.113
 adam/pap/pap_11.mp3 3.422
 adam/pap/pap_12.mp3 6.113
-adam/pap/pap_1.mp3 5.146
 adam/pap/pap_2.mp3 3.370
 adam/pap/pap_3.mp3 4.310
 adam/pap/pap_4.mp3 4.441
@@ -175,6 +180,8 @@ von/buy_ammo/buy_ammo_5.mp3 4.833
 von/buy_armor/buy_armor_1.mp3 4.206
 von/buy_armor/buy_armor_2.mp3 6.922
 von/buy_armor/buy_armor_3.mp3 3.239
+von/buy_m17/buy_m17_1.mp3 4.780
+von/buy_m17/buy_m17_2.mp3 3.161
 von/dog_kill/dog_kill_1.mp3 3.370
 von/dog_kill/dog_kill_2.mp3 1.907
 von/dog_kill/dog_kill_3.mp3 2.821
@@ -226,6 +233,9 @@ von/mystery_box/flash_bang/mb_flash_bang_3.mp3 4.911
 von/mystery_box/frag/mb_frag_1.mp3 3.370
 von/mystery_box/frag/mb_frag_2.mp3 2.952
 von/mystery_box/frag/mb_frag_3.mp3 2.743
+von/mystery_box/m17/mb_m17_1.mp3 4.127
+von/mystery_box/m17/mb_m17_2.mp3 2.873
+von/mystery_box/m17/mb_m17_3.mp3 3.370
 von/mystery_box/molotov/mb_molotov_1.mp3 6.113
 von/mystery_box/molotov/mb_molotov_2.mp3 5.564
 von/mystery_box/molotov/mb_molotov_3.mp3 3.474
@@ -240,10 +250,10 @@ von/mystery_box/throwing_knife/mb_throwing_knife_2.mp3 2.273
 von/mystery_box/throwing_knife/mb_throwing_knife_3.mp3 5.094
 von/out_of_ammo/out_of_ammo_1.mp3 3.657
 von/out_of_ammo/out_of_ammo_2.mp3 2.351
+von/pap/pap_1.mp3 4.310
 von/pap/pap_10.mp3 2.691
 von/pap/pap_11.mp3 3.526
 von/pap/pap_12.mp3 2.873
-von/pap/pap_1.mp3 4.310
 von/pap/pap_2.mp3 4.127
 von/pap/pap_3.mp3 3.344
 von/pap/pap_4.mp3 2.586

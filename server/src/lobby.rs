@@ -63,6 +63,7 @@ impl Plugin for LobbyPlugin {
             .add_observer(on_set_operator)
             .add_observer(on_set_perk_set)
             .add_observer(on_set_perks_need_power)
+            .add_observer(on_set_full_power)
             .add_observer(on_set_power_up_test)
             .add_observer(on_set_bomb_test)
             .add_observer(on_set_time_limit)
@@ -186,6 +187,7 @@ fn on_create(
                 start_points: 0,
                 perk_set: Default::default(),
                 perks_need_power: false,
+                full_power: false,
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
@@ -301,6 +303,10 @@ fn on_leave(
     info!("{:?} left their lobby", trigger.from);
 }
 
+/// What every member starts a `Zombies` game on full power with
+/// ([`Lobby::full_power`]), in place of the lobby's starting points.
+const FULL_POWER_POINTS: u32 = 100_000;
+
 fn on_start(
     trigger: Trigger<RemoteTrigger<StartGame>>,
     time: Res<Time>,
@@ -336,8 +342,14 @@ fn on_start(
     lobby.enemies_left = 0;
     lobby.enemies_active = 0;
     // `Zombies` points are money: everyone starts with what the leader set.
-    let start_points = if lobby.mode == GameMode::Zombies { lobby.start_points } else { 0 };
+    // (Full power: plenty to spend on top.)
+    let start_points = match lobby.mode {
+        GameMode::Zombies if lobby.full_power => FULL_POWER_POINTS,
+        GameMode::Zombies => lobby.start_points,
+        _ => 0,
+    };
     let start_mode = lobby.mode;
+    let full_power = (start_mode == GameMode::Zombies && lobby.full_power).then_some(lobby.perk_set);
     for m in &mut lobby.members {
         m.score = start_points;
         m.kills = 0;
@@ -353,6 +365,17 @@ fn on_start(
         // M17 in `Zombies`, the sniper in `Freestyle`.
         m.primary = start_mode.starting_primary(m.loadout);
         m.weapons = shared::weapon::SlotWeapon::starting(m.primary);
+        // `Zombies` on full power: the best of everything from the start
+        // (the client fills its own equipment, `weapons::apply_loadout`).
+        if let Some(set) = full_power {
+            use shared::weapon::{SlotWeapon, WeaponId};
+            m.primary = WeaponId::RayGun;
+            m.weapons = [SlotWeapon::Gun(WeaponId::RayGun), SlotWeapon::Gun(WeaponId::Ak74)];
+            m.pap.raygun = shared::pap::MAX_LEVEL;
+            m.pap.ak = shared::pap::MAX_LEVEL;
+            m.armor = shared::armor::Armor::full(shared::armor::MAX_LEVEL);
+            m.perks = set.perks().to_vec();
+        }
         // A bot has no client to load anything.
         m.loaded = m.bot.is_some();
         m.assets = m.bot.is_some();
@@ -912,6 +935,19 @@ fn on_set_perks_need_power(trigger: Trigger<RemoteTrigger<shared::SetPerksNeedPo
     }
 }
 
+/// The leader picks whether a `Zombies` game starts fully powered up while
+/// the lobby is still waiting.
+fn on_set_full_power(trigger: Trigger<RemoteTrigger<shared::SetFullPower>>, mut lobbies: Query<&mut Lobby>) {
+    let peer = trigger.from;
+    let on = trigger.trigger.on;
+    if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
+        if lobby.full_power != on {
+            lobby.full_power = on;
+            info!("lobby full power set to {on} by {peer:?}");
+        }
+    }
+}
+
 /// The leader picks what a `FreeForAll` match replays at the end while the
 /// lobby is still waiting.
 fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
@@ -1068,6 +1104,7 @@ mod tests {
             start_points: 0,
             perk_set: Default::default(),
             perks_need_power: false,
+            full_power: false,
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,

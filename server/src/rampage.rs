@@ -29,6 +29,7 @@ fn on_toggle_rampage(
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
@@ -52,5 +53,12 @@ fn on_toggle_rampage(
         return;
     }
     lobby.rampage = on;
+    if on {
+        // (The first time only — `crate::radio`.)
+        radio.write(crate::radio::SayRadio {
+            lobby: lobby_e,
+            line: shared::radio::RadioLine::FirstRampageInducerOn,
+        });
+    }
     info!("lobby {lobby_e:?}: {peer:?} turned the Rampage Inducer {}", if on { "on" } else { "off" });
 }

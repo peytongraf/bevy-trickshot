@@ -98,6 +98,7 @@ fn run_last_stands(
         &mut PlayerCombat,
         Option<&ActionState<PlayerInput>>,
     )>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -290,6 +291,11 @@ fn run_last_stands(
         if any && all_down {
             info!("lobby {lobby_e:?}: everyone's down — zombies game over");
             endings.begin(lobby_e, clock.0, false);
+            // (Once — `crate::radio`.)
+            radio.write(crate::radio::SayRadio {
+                lobby: lobby_e,
+                line: shared::radio::RadioLine::GameOver,
+            });
         }
     }
 }

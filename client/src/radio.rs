@@ -1,7 +1,8 @@
 //! `Zombies`' man on the radio, Sergeant Frank Maddox ([`shared::radio`]):
 //! a handler talking to the whole squad from somewhere else
 //! (`notes/radio-quotes.md`). The server says when ([`shared::RadioSaid`] —
-//! the intro as the game starts, a warning before the first dog round), and
+//! the intro as the game starts, warnings before the first dog and boss
+//! rounds, the power, the exfil, game over, ... — `server::radio`), and
 //! every member's client plays the call at once, not positional and dry
 //! (`audio/radio/`): a burst of static as he keys the mic, the line
 //! (`maddox/`), and a click of static as he lets go ([`RadioCall`]).

@@ -9,6 +9,8 @@
 
 # Done
 
+- Wired up new radio quotes
+
 # First person animations
 
 # Remote player animations
@@ -21,7 +23,6 @@
 
 # Added
 
-- Could use exported eleven labs audio for radio then add distortion and high pass filter to it
 - Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
 - Need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
 - Could add a text near the top compass that shows the name of the curent zone
@@ -45,7 +46,6 @@
 
 # Map
 
-- Add handrails to all stairs or just copy paste stairs
 - Add cut outs for zombies to climb through that can be repaired with boards and carpenter
 - Add fire bowls to zone above temple
 
@@ -57,8 +57,6 @@
 
 # Asset todo
 
-- Add new radio quotes
-- add red lights in tomb
 - Add more fire pits
 - Make a better blood overlay
 - Could update pap camos
@@ -97,6 +95,7 @@
 
 ## Sound
 
+- Add wind sound to der tempel that plays only when outside
 - Create new rampage inducer music
 - Level out perk jingle sound volumes
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.

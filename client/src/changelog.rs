@@ -17,6 +17,12 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: new FULL POWER lobby setting — start with packed Ray Gun and AK-74, full equipment, armor, every perk and 100,000 points.",
+        "Zombies: Sergeant Frank Maddox yells what's at stake mid-exfil, as the clock runs low and as the last enemies fall.",
+        "Zombies: operators react to getting the M17 from the Mystery Box.",
+        "Der Tempel: Sergeant Frank Maddox tells the temple's story on rounds 2 and 4.",
+        "Zombies: exfil music plays from the call until the game ends.",
+        "Zombies: Sergeant Frank Maddox radios in about the power, exfil, Der Wunderfizz, the Rampage Inducer, the first boss kill and game over.",
         "Zombies: bosses arrive in an explosion that hurts anyone close by.",
         "Zombies: Sergeant Frank Maddox warns of the first boss before it arrives.",
         "Zombies: Sergeant Frank Maddox radios in before the first dog round.",

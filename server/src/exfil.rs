@@ -44,6 +44,11 @@ pub(crate) struct ExfilRun {
     pub(crate) kills_left: u32,
     /// ...and how many of those are bosses.
     pub(crate) bosses_left: u32,
+    /// The man on the radio's yelled what's at stake, about the clock, and
+    /// about the last few kills (`crate::zombies::run_rounds`).
+    pub(crate) stakes_warned: bool,
+    pub(crate) time_warned: bool,
+    pub(crate) few_left_warned: bool,
 }
 
 impl ExfilRun {
@@ -58,6 +63,9 @@ impl ExfilRun {
             ends_at: None,
             kills_left: zombies + dogs + bosses,
             bosses_left: bosses,
+            stakes_warned: false,
+            time_warned: false,
+            few_left_warned: false,
         }
     }
 
@@ -149,6 +157,7 @@ fn on_call_exfil(
     mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio_says: EventWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby, mut rounds)) = lobbies
@@ -178,7 +187,11 @@ fn on_call_exfil(
     let members = lobby.real_count();
     rounds.exfil = Some(ExfilRun::new(time.elapsed_secs(), rounds.round, members));
     lobby.exfil = Exfil::Calling;
-    // Someone says so, a few seconds in.
+    radio_says.write(crate::radio::SayRadio {
+        lobby: lobby_e,
+        line: shared::radio::RadioLine::ExfilCalled,
+    });
+    // Someone says so, a few seconds in (once he's done, if he's not).
     quotes.write(crate::quotes::SayQuote {
         delay: crate::quotes::QuoteDelay::Exfil,
         ..crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::Exfil)
