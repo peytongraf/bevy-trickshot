@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "New SEARCH & DESTROY mode: two teams, one life a round — plant or defuse the bomb at A or B.",
+        "Search & Destroy: pick your team in the lobby, add bots to either side and set the rounds to win.",
         "Zombies: new FULL POWER lobby setting — start with packed Ray Gun and AK-74, full equipment, armor, every perk and 100,000 points.",
         "Zombies: Sergeant Frank Maddox yells what's at stake mid-exfil, as the clock runs low and as the last enemies fall.",
         "Zombies: operators react to getting the M17 from the Mystery Box.",

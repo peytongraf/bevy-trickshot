@@ -68,7 +68,7 @@ fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
     let mag = mag_size(primary);
     match mode {
         shared::GameMode::Freestyle => FREESTYLE_RESERVE,
-        shared::GameMode::FreeForAll => mag * (TOTAL_MAGS - 1),
+        shared::GameMode::FreeForAll | shared::GameMode::SearchAndDestroy => mag * (TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::RayGun => mag * (RAYGUN_ZOMBIES_TOTAL_MAGS - 1),
         shared::GameMode::Zombies if primary == WeaponId::M17 => mag * (M17_ZOMBIES_TOTAL_MAGS - 1),
@@ -825,7 +825,9 @@ pub(crate) fn apply_loadout(
         // start with — in `Zombies` always the M17, and the sniper in
         // `Freestyle`.
         let gun = match lobby.mode {
-            shared::GameMode::FreeForAll => member.map_or(weapon.primary, |m| m.primary),
+            shared::GameMode::FreeForAll | shared::GameMode::SearchAndDestroy => {
+                member.map_or(weapon.primary, |m| m.primary)
+            }
             mode => mode.starting_primary(weapon.primary),
         };
         weapon.slots = SlotWeapon::starting(gun);

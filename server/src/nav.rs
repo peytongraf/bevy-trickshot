@@ -612,6 +612,12 @@ impl NavGraph {
         self.random_spot_near_where(center, min, max, seed, |_| true)
     }
 
+    /// [`Self::random_spot_near`], on the same floor as `center` (within a
+    /// step of its height) — not up on a ledge or a roof in its cell.
+    pub fn random_spot_near_level(&self, center: Vec3, max: f32, seed: u64) -> Option<Vec3> {
+        self.random_spot_near_where(center, 0.0, max, seed, |n| (self.nodes[n as usize].y - center.y).abs() < 0.6)
+    }
+
     /// [`Self::random_spot_near`] on just the nodes `ok` lets through.
     pub fn random_spot_near_where(
         &self,
@@ -1110,6 +1116,29 @@ pub(crate) mod tests {
                     p.z
                 );
                 assert!(NavGraph::standable(w, p.x, p.y, p.z), "{map:?} spawn #{}: no room to stand", i + 1);
+            }
+        }
+    }
+
+    /// `SearchAndDestroy`'s spawns and bomb sites (`shared::search_destroy`)
+    /// stand on walkable ground, with room to stand, all reachable from the
+    /// attackers' spawn.
+    #[test]
+    fn every_search_and_destroy_spot_is_on_walkable_connected_ground() {
+        let (c, n) = built();
+        for map in MapId::PLACES {
+            let (w, g) = (c.world(map), n.graph(map));
+            let l = shared::search_destroy::layout(map);
+            let spots = [("attackers' spawn", l.attack_spawn), ("defenders' spawn", l.defend_spawn), ("site A", l.sites[0]), ("site B", l.sites[1])];
+            for (name, at) in spots {
+                let node = g.nearest_node(at).unwrap_or_else(|| panic!("{map:?} {name}: no walkable ground near it"));
+                let q = g.nodes[node as usize];
+                assert!(
+                    Vec3::new(q.x - at.x, 0.0, q.z - at.z).length() <= 1.0 && (q.y - at.y).abs() < 0.5,
+                    "{map:?} {name} at {at:?}: nearest floor is {q:?}"
+                );
+                assert!(NavGraph::standable(w, q.x, q.y, q.z), "{map:?} {name}: no room to stand");
+                assert!(g.connected(l.attack_spawn, at), "{map:?} {name}: can't be reached from the attackers' spawn");
             }
         }
     }

@@ -409,7 +409,7 @@ pub(crate) fn may_hit(projectile: Projectile, mode: Option<GameMode>, kind: Kind
     match (projectile, mode) {
         (Projectile::RayGun, _) => kind == Kind::Zombie,
         (Projectile::Knife, Some(GameMode::Zombies)) => kind == Kind::Zombie,
-        (Projectile::Knife, Some(GameMode::FreeForAll)) => kind == Kind::Player,
+        (Projectile::Knife, Some(GameMode::FreeForAll | GameMode::SearchAndDestroy)) => kind == Kind::Player,
         (Projectile::Knife, Some(GameMode::Freestyle)) => kind == Kind::Bot,
         (Projectile::Knife, None) => false,
     }

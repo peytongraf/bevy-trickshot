@@ -178,7 +178,12 @@ pub fn game_active(
     death: Res<crate::death_effect::DeathEffect>,
     paused: Res<crate::pause::GamePaused>,
     spectate: Res<crate::revive::Spectate>,
+    snd: Res<crate::search_destroy::SndLocal>,
 ) -> bool {
+    // Killed in a `SearchAndDestroy` round: out until the next.
+    if snd.dead {
+        return false;
+    }
     // Bled out in `Zombies` and watching a teammate (`revive`): the view's
     // theirs, so no gameplay input either.
     if spectate.active() {
@@ -202,8 +207,10 @@ pub fn weapon_active(
     death: Res<crate::death_effect::DeathEffect>,
     paused: Res<crate::pause::GamePaused>,
     revive: Res<crate::revive::LocalRevive>,
+    snd: Res<crate::search_destroy::SndLocal>,
 ) -> bool {
     (!menu.is_open() || menu.screen == Screen::Wunderfizz)
+        && !snd.dead
         && !freeze.active
         && !death.is_active()
         && !paused.0
@@ -1432,6 +1439,43 @@ fn build_match_results(
             &["SCORE", "KILLS", "CRITICAL KILLS", "REVIVES", "DOWNS"],
             &rows,
         );
+        return;
+    }
+
+    // `SearchAndDestroy`: won by a team, on rounds.
+    if lobby.mode == shared::GameMode::SearchAndDestroy {
+        let [red, blue] = lobby.snd.wins;
+        let mine = me.and_then(|me| lobby.team_of(me));
+        let winner = match red.cmp(&blue) {
+            std::cmp::Ordering::Greater => Some(shared::search_destroy::Team::Red),
+            std::cmp::Ordering::Less => Some(shared::search_destroy::Team::Blue),
+            std::cmp::Ordering::Equal => None,
+        };
+        let headline = match winner {
+            Some(t) if Some(t) == mine => ("VICTORY", VICTORY),
+            Some(_) => ("DEFEAT", DEFEAT),
+            None => ("DRAW", RESULTS_TITLE),
+        };
+        let subtitle = match winner {
+            Some(t) => format!("{} TEAM WINS {}–{}", t.label(), red.max(blue), red.min(blue)),
+            None => format!("{red}–{blue}"),
+        };
+        members.sort_by(|a, b| a.team.index().cmp(&b.team.index()).then(b.kills.cmp(&a.kills)));
+        let rows: Vec<ResultRow> = members
+            .iter()
+            .map(|m| ResultRow {
+                name: m.name.clone(),
+                me: is_me(m),
+                values: vec![
+                    m.team.label().to_string(),
+                    m.kills.to_string(),
+                    m.deaths.to_string(),
+                    m.plants.to_string(),
+                    m.defuses.to_string(),
+                ],
+            })
+            .collect();
+        results_screen(commands, asset_server, headline, &subtitle, &["TEAM", "KILLS", "DEATHS", "PLANTS", "DEFUSES"], &rows);
         return;
     }
 

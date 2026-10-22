@@ -1626,6 +1626,8 @@ mod tests {
             perk_set: Default::default(),
             perks_need_power: false,
             full_power: false,
+            snd_rounds_to_win: 0,
+            snd: Default::default(),
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,
@@ -1659,6 +1661,9 @@ mod tests {
             revives: 0,
             downs: 0,
             deaths: 0,
+            team: Default::default(),
+            plants: 0,
+            defuses: 0,
         }
     }
 

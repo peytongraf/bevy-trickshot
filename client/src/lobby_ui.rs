@@ -157,6 +157,8 @@ struct LobbyUi {
 struct BotSelection {
     count: u8,
     difficulty: shared::bot_players::BotDifficulty,
+    /// `SearchAndDestroy`: the team they join.
+    team: shared::search_destroy::Team,
 }
 
 impl Default for BotSelection {
@@ -164,6 +166,7 @@ impl Default for BotSelection {
         Self {
             count: 1,
             difficulty: shared::bot_players::BotDifficulty::default(),
+            team: Default::default(),
         }
     }
 }
@@ -353,7 +356,7 @@ fn play_ffa_kill_sound(
     };
     // Bot kills (`Freestyle` and `Zombies`) already play it from their
     // `TrickScoredEvent` — playing it here too doubled it in `Zombies`.
-    if lobby.mode != shared::GameMode::FreeForAll {
+    if !lobby.mode.is_pvp() {
         return;
     }
     let Some(member) = lobby.members.iter().find(|m| m.peer == me) else {
@@ -539,6 +542,13 @@ enum MenuBtn {
     /// `Zombies`' perk machines wait for the power, or not (leader only).
     SetPerksNeedPower(bool),
     SetFullPower(bool),
+    /// `SearchAndDestroy`'s rounds to win (leader only).
+    SndRoundsDown,
+    SndRoundsUp,
+    /// `SearchAndDestroy`: put ourselves on this team (anyone)...
+    JoinTeam(shared::search_destroy::Team),
+    /// ...and the team the next ADD BOTS adds to.
+    BotTeam(shared::search_destroy::Team),
     /// The leader's bot counter (1..=`MAX_BOTS`).
     BotCountDown,
     BotCountUp,
@@ -1428,6 +1438,83 @@ fn build_browser(
     });
 }
 
+/// `SearchAndDestroy`'s party: each team's members — players and bots —
+/// under its name, with a JOIN button on the one we're not on (anyone can
+/// switch while the lobby's waiting).
+fn snd_teams(col: &mut ChildSpawnerCommands, asset_server: &AssetServer, lobby: &shared::Lobby, me: Option<PeerId>) {
+    use shared::search_destroy::Team;
+    let mine = me.and_then(|me| lobby.team_of(me));
+    for (i, team) in Team::ALL.into_iter().enumerate() {
+        if i > 0 {
+            col.spawn(Node {
+                height: Val::Px(12.0),
+                flex_shrink: 0.0,
+                ..default()
+            });
+        }
+        let [r, g, b] = team.rgb();
+        let color = Color::srgb(r, g, b);
+        let members: Vec<&shared::LobbyMember> = lobby.members.iter().filter(|m| m.team == team).collect();
+        col.spawn(Node {
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|h| {
+            h.spawn(label_hud(asset_server, format!("{} TEAM  {}", team.label(), members.len()), 22.0, color));
+            if !lobby.started && mine.is_some_and(|t| t != team) {
+                spawn_button_hud(h, asset_server, "JOIN", 16.0, MenuBtn::JoinTeam(team), ROW, ROW_HOVER, TEXT, UiSound::MENU);
+            }
+        });
+        if members.is_empty() {
+            col.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Px(40.0),
+                    padding: UiRect::horizontal(Val::Px(14.0)),
+                    align_items: AlignItems::Center,
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                BackgroundColor(PANEL),
+            ))
+            .with_children(|row| {
+                row.spawn(label_hud(asset_server, "NOBODY YET", 18.0, TRACK));
+            });
+        }
+        for m in members {
+            col.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Px(40.0),
+                    padding: UiRect::horizontal(Val::Px(14.0)),
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    border: UiRect::left(Val::Px(3.0)),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                BackgroundColor(ROW),
+                BorderColor(if Some(m.peer) == me { ACCENT } else { color }),
+            ))
+            .with_children(|row| {
+                row.spawn(label_hud(asset_server, m.name.to_uppercase(), 20.0, TEXT));
+                match m.bot {
+                    Some(d) => {
+                        row.spawn(label_hud(asset_server, format!("BOT · {}", d.label()), 14.0, TEXT_DIM));
+                    }
+                    None if m.peer == lobby.leader => {
+                        row.spawn(label_hud(asset_server, "\u{2605} LEADER", 16.0, ACCENT));
+                    }
+                    None => {}
+                }
+            });
+        }
+    }
+}
+
 fn build_room(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -1443,6 +1530,7 @@ fn build_room(
     let mins = lobby.time_limit_secs / 60;
     let is_ffa = lobby.mode == shared::GameMode::FreeForAll;
     let is_zombies = lobby.mode == shared::GameMode::Zombies;
+    let is_snd = lobby.mode == shared::GameMode::SearchAndDestroy;
 
     commands.spawn(page_root()).with_children(|page| {
         menu_background(page, asset_server);
@@ -1497,6 +1585,9 @@ fn build_room(
                             format!("Survived {survived} round{plural}")
                         },
                     )
+                } else if is_snd && lobby.snd.round > 0 {
+                    let [red, blue] = lobby.snd.wins;
+                    ("LAST MATCH", format!("{winner} won {}–{}", red.max(blue), red.min(blue)))
                 } else {
                     ("LAST MATCH", format!("{winner} won with {}", crate::util::grouped(*score)))
                 };
@@ -1537,6 +1628,7 @@ fn build_room(
                             ("FREESTYLE", shared::GameMode::Freestyle),
                             ("FREE FOR ALL", shared::GameMode::FreeForAll),
                             ("ZOMBIES", shared::GameMode::Zombies),
+                            ("SEARCH & DESTROY", shared::GameMode::SearchAndDestroy),
                         ] {
                             option_button(row, asset_server, text, MenuBtn::SetMode(mode), mode == lobby.mode);
                         }
@@ -1577,8 +1669,9 @@ fn build_room(
                     });
                 }
 
-                // (`Zombies` has no clock — it lasts until someone dies.)
-                if !is_zombies {
+                // (`Zombies` has no clock — it lasts until someone dies —
+                // and `SearchAndDestroy`'s rounds have their own.)
+                if !is_zombies && !is_snd {
                     setting_row(col, asset_server, "TIME LIMIT", |row| {
                         if can_edit {
                             stepper(row, asset_server, format!("{mins} MIN"), MenuBtn::TimeDown, MenuBtn::TimeUp);
@@ -1767,6 +1860,68 @@ fn build_room(
                     }
                 }
 
+                // `SearchAndDestroy`: rounds to win, and bots for either team
+                // (as many on each as the leader likes).
+                if is_snd {
+                    setting_row(col, asset_server, "ROUNDS TO WIN", |row| {
+                        let value = format!("FIRST TO {}", lobby.rounds_to_win());
+                        if can_edit {
+                            stepper(row, asset_server, value, MenuBtn::SndRoundsDown, MenuBtn::SndRoundsUp);
+                        } else {
+                            setting_value(row, asset_server, value);
+                        }
+                    });
+                    if can_edit {
+                        col.spawn(Node {
+                            height: Val::Px(18.0),
+                            flex_shrink: 0.0,
+                            ..default()
+                        });
+                        section_heading(col, asset_server, "ADD BOTS");
+                        setting_row(col, asset_server, "HOW MANY", |row| {
+                            stepper(
+                                row,
+                                asset_server,
+                                bot_selection.count.to_string(),
+                                MenuBtn::BotCountDown,
+                                MenuBtn::BotCountUp,
+                            );
+                        });
+                        setting_row(col, asset_server, "DIFFICULTY", |row| {
+                            for d in shared::bot_players::BotDifficulty::ALL {
+                                option_button(row, asset_server, d.label(), MenuBtn::BotDifficulty(d), d == bot_selection.difficulty);
+                            }
+                        });
+                        setting_row(col, asset_server, "TEAM", |row| {
+                            for team in shared::search_destroy::Team::ALL {
+                                option_button(row, asset_server, team.label(), MenuBtn::BotTeam(team), team == bot_selection.team);
+                            }
+                        });
+                        setting_row(col, asset_server, "", |row| {
+                            spawn_button_hud(
+                                row,
+                                asset_server,
+                                &format!(
+                                    "ADD {} {} BOT{} TO {}",
+                                    bot_selection.count,
+                                    bot_selection.difficulty.label(),
+                                    if bot_selection.count == 1 { "" } else { "S" },
+                                    bot_selection.team.label(),
+                                ),
+                                18.0,
+                                MenuBtn::AddBots,
+                                ACCENT,
+                                ROW_HOVER,
+                                PANEL_SOLID,
+                                UiSound::MENU,
+                            );
+                            if lobby.bot_count() > 0 {
+                                spawn_button_hud(row, asset_server, "CLEAR ALL BOTS", 18.0, MenuBtn::ClearBots, ROW, ROW_HOVER, TEXT, UiSound::MENU);
+                            }
+                        });
+                    }
+                }
+
                 // `Zombies`: teammate bots, one at a time, up to a team of four.
                 if lobby.mode == shared::GameMode::Zombies && can_edit {
                     col.spawn(Node {
@@ -1862,6 +2017,11 @@ fn build_room(
                 ..default()
             })
             .with_children(|col| {
+                // (`SearchAndDestroy`: the two teams instead.)
+                if is_snd {
+                    snd_teams(col, asset_server, lobby, me);
+                    return;
+                }
                 section_heading(col, asset_server, &format!("PARTY  {}/8", lobby.real_count()));
                 let players: Vec<&shared::LobbyMember> =
                     lobby.members.iter().filter(|m| m.bot.is_none()).collect();
@@ -2015,7 +2175,7 @@ fn handle_clicks(
     mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
-    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut set_perks_need_power, mut set_full_power, mut next_state): (
+    (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut set_perks_need_power, mut set_full_power, mut set_team, mut set_snd_rounds, mut next_state): (
         Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
@@ -2023,6 +2183,8 @@ fn handle_clicks(
         Query<&mut TriggerSender<shared::SetPerkSet>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetPerksNeedPower>, With<GameClient>>,
         Query<&mut TriggerSender<shared::SetFullPower>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetTeam>, With<GameClient>>,
+        Query<&mut TriggerSender<shared::SetSndRounds>, With<GameClient>>,
         ResMut<NextState<AppState>>,
     ),
 ) {
@@ -2114,11 +2276,31 @@ fn handle_clicks(
                 bot_selection.difficulty = *d;
                 ui.dirty = true;
             }
+            MenuBtn::BotTeam(team) => {
+                bot_selection.team = *team;
+                ui.dirty = true;
+            }
+            MenuBtn::JoinTeam(team) => {
+                if let Ok(mut s) = set_team.single_mut() {
+                    s.trigger::<shared::LobbyChannel>(shared::SetTeam { team: *team });
+                }
+            }
+            MenuBtn::SndRoundsDown | MenuBtn::SndRoundsUp => {
+                let delta: i64 = if matches!(btn, MenuBtn::SndRoundsUp) { 1 } else { -1 };
+                if let (Some(cur), Ok(mut s)) = (my_lobby().map(|l| l.rounds_to_win()), set_snd_rounds.single_mut()) {
+                    let rounds = (cur as i64 + delta).clamp(
+                        shared::search_destroy::MIN_ROUNDS_TO_WIN as i64,
+                        shared::search_destroy::MAX_ROUNDS_TO_WIN as i64,
+                    ) as u32;
+                    s.trigger::<shared::LobbyChannel>(shared::SetSndRounds { rounds });
+                }
+            }
             MenuBtn::AddBots => {
                 if let Ok(mut s) = add_bots.single_mut() {
                     s.trigger::<shared::LobbyChannel>(shared::AddBots {
                         count: bot_selection.count,
                         difficulty: bot_selection.difficulty,
+                        team: bot_selection.team,
                     });
                 }
             }
@@ -2281,7 +2463,7 @@ fn rebuild_scoreboard(
         ))
         .with_children(|panel| {
             let header = match lobby.mode {
-                shared::GameMode::FreeForAll => "KILLS",
+                shared::GameMode::FreeForAll | shared::GameMode::SearchAndDestroy => "KILLS",
                 shared::GameMode::Zombies => "POINTS",
                 shared::GameMode::Freestyle => "SCORES",
             };
@@ -2349,7 +2531,8 @@ fn update_match_timer(
         .next()
         .map(|l| l.0)
         .and_then(|me| lobbies.iter().find(|l| l.has(me)))
-        .filter(|l| l.mode != shared::GameMode::Zombies)
+        // (Nor in `SearchAndDestroy` — its HUD has the round clock.)
+        .filter(|l| !matches!(l.mode, shared::GameMode::Zombies | shared::GameMode::SearchAndDestroy))
         .map(|l| l.time_left_secs);
     let wanted = match left {
         Some(s) => format!("{}:{:02}", s / 60, s % 60),

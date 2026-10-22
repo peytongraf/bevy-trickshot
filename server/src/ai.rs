@@ -58,6 +58,9 @@ const SND_FOOTSTEP: u32 = 1 << 7;
 /// picks walk vs. sprint from how fast the avatar actually moves).
 pub(crate) const WALK_SPEED: f32 = 5.0;
 pub(crate) const SPRINT_SPEED: f32 = 9.0;
+/// `SearchAndDestroy`: a bot this close (m, across the ground) to its
+/// objective is there.
+const OBJECTIVE_REACHED: f32 = 1.2;
 /// A bot sprints toward a target farther than this (if its difficulty sprints).
 const SPRINT_MIN_DISTANCE: f32 = 30.0;
 
@@ -393,6 +396,13 @@ pub struct BotBrain {
     shake_recoil: f32,
     /// Running counter feeding [`rand01`], so every roll differs.
     rng: u64,
+    /// `SearchAndDestroy`: where it's headed instead of after its target —
+    /// a bomb site, the bomb — set each tick by `crate::search_destroy`.
+    /// Once there it holds (fighting anyone it sees, as ever).
+    pub(crate) objective: Option<Vec3>,
+    /// `SearchAndDestroy`: held where it stands, firing nothing — before a
+    /// round starts.
+    pub(crate) held: bool,
 }
 
 impl BotBrain {
@@ -431,7 +441,28 @@ impl BotBrain {
             shake_phase: 0.0,
             shake_recoil: 0.0,
             rng: seed,
+            objective: None,
+            held: false,
         }
+    }
+
+    /// A new round (`SearchAndDestroy`): standing at `feet`, facing `yaw`,
+    /// alive — nothing left over from the last.
+    pub(crate) fn place(&mut self, feet: Vec3, yaw: f32, now: f32) {
+        self.feet = feet;
+        self.yaw = yaw;
+        self.pitch = 0.0;
+        self.vertical_velocity = 0.0;
+        self.mantle = None;
+        self.target = None;
+        self.seen_for = 0.0;
+        self.path.clear();
+        self.repath_at = now;
+        self.stall_from = feet;
+        self.stall_secs = 0.0;
+        self.detour_until = 0.0;
+        self.was_alive = true;
+        self.next_fire_at = now + 1.0;
     }
 
     /// Start facing `yaw` (radians) instead of a random way.
@@ -775,15 +806,17 @@ pub(crate) fn drive_bots(
         // players in `Zombies` (the zombies are all on one side) — and not
         // one with the Aether Shroud up, whom they can't see at all.
         let zombies = lobby.mode == shared::GameMode::Zombies;
+        // (`SearchAndDestroy`: the other team.)
         let enemy = |peer: PeerId| {
             peer != id.0
                 && !(zombies && shared::bot_players::is_bot_peer(peer))
+                && !lobby.teammates(id.0, peer)
                 && !crate::field_upgrades::shrouded(lobby, peer)
         };
 
-        // The match is over (`EndingLobbies`) or paused: stand still, fire
-        // nothing.
-        if endings.is_frozen(lp.lobby) || lobby.paused {
+        // The match is over (`EndingLobbies`) or paused — or held before a
+        // round — stand still, fire nothing.
+        if endings.is_frozen(lp.lobby) || lobby.paused || (brain.held && combat.alive) {
             action.0 = PlayerInput {
                 translation: (brain.feet + Vec3::Y * EYE_HEIGHT).to_array(),
                 yaw: brain.yaw,
@@ -1313,10 +1346,22 @@ pub(crate) fn drive_bots(
         // re-planned now and then; `None` (no route / no target) falls back to
         // heading straight at it below.
         let flat_to_target = Vec3::new(to_target.x, 0.0, to_target.z).normalize_or_zero();
+        // `SearchAndDestroy`: an objective takes the target's place as
+        // where to walk; once there, it holds.
+        let objective = brain.objective;
+        let at_objective = objective.is_some_and(|o| {
+            Vec3::new(o.x - brain.feet.x, 0.0, o.z - brain.feet.z).length() <= OBJECTIVE_REACHED
+        });
+        if at_objective {
+            hold = true;
+        }
+        let flat_to_target = match objective {
+            Some(o) if !at_objective && !visible => (o - brain.feet).with_y(0.0).normalize_or_zero(),
+            _ => flat_to_target,
+        };
         let mut path_wish: Option<Vec3> = None;
-        if !engaged && circling.is_none() {
-            if let Some(t_eye) = target_pose {
-                let goal = t_eye - Vec3::Y * EYE_HEIGHT;
+        if !engaged && circling.is_none() && !at_objective {
+            if let Some(goal) = objective.or(target_pose.map(|t_eye| t_eye - Vec3::Y * EYE_HEIGHT)) {
                 if now >= brain.repath_at || brain.path_goal.distance(goal) > REPATH_TARGET_MOVED {
                     let jitter = brain.roll() * 0.6;
                     brain.repath_at = now + REPATH_SECS + jitter;
@@ -1771,6 +1816,8 @@ mod tests {
             perk_set: Default::default(),
             perks_need_power: false,
             full_power: false,
+            snd_rounds_to_win: 0,
+            snd: Default::default(),
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,

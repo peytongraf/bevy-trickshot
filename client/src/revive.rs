@@ -356,6 +356,7 @@ fn apply_down_view(
     local: Res<LocalRevive>,
     menu: Res<menu::Menu>,
     spectating: Res<Spectate>,
+    snd: Res<crate::search_destroy::SndLocal>,
     (end_fx, end_fx_settings): (
         Res<crate::end_screen_fx::EndScreenFx>,
         Res<crate::end_screen_fx::EndScreenFxSettings>,
@@ -397,7 +398,8 @@ fn apply_down_view(
             g.global.post_saturation = next;
         }
     }
-    let want = if local.blocks_weapon() || results {
+    // (Nor once we're killed in a `SearchAndDestroy` round.)
+    let want = if local.blocks_weapon() || results || snd.dead {
         RenderLayers::none()
     } else {
         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER)
@@ -471,10 +473,19 @@ fn end_spectating(
 /// was), follow, left click for the next one, and stop — putting the rig
 /// back — when we're not out, nobody's left standing or the results are
 /// up. A respawn ends it where the respawn put us.
+///
+/// `SearchAndDestroy` too: killed this round, once our kill cam's done (or
+/// it evidently isn't coming), we watch a living teammate — or, with none
+/// left, anyone still up — until the next round brings us back.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn spectate(
     time: Res<Time>,
     local_revive: Res<LocalRevive>,
+    (snd_local, active_killcam, fall): (
+        Res<crate::search_destroy::SndLocal>,
+        Res<killcam::ActiveKillCam>,
+        Res<crate::fall_death::FallDeathState>,
+    ),
     menu: Res<menu::Menu>,
     binds: Res<KeyBindings>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -493,22 +504,47 @@ fn spectate(
         state.back = true;
         end_spectating(&mut state, false, &mut rig, &mut capsule);
     }
-    if !local_revive.bled_out {
+    let me = local.iter().next().map(|l| l.0);
+    let snd = crate::search_destroy::snd_game(&local, &lobbies);
+    let out_now = match snd {
+        Some(_) => snd_local.dead,
+        None => local_revive.bled_out,
+    };
+    if !out_now {
         state.back = false;
     }
-    let me = local.iter().next().map(|l| l.0);
+    // (Our own kill cam — or fall — has the view first.)
+    if snd.is_some()
+        && out_now
+        && (active_killcam.0.is_some() || fall.effect_running() || !snd_local.dead_long_enough(time.elapsed_secs()))
+    {
+        return;
+    }
     let out = |peer: PeerId| downs.iter().any(|(id, d)| id.0 == peer && d.bled_out);
     // Teammates still standing (or down, but not out), in lobby order.
-    let standing: Vec<PeerId> = zombies_game(&local, &lobbies)
-        .map(|l| {
-            l.members
-                .iter()
-                .filter(|m| m.bot.is_none() && Some(m.peer) != me && !out(m.peer))
-                .map(|m| m.peer)
-                .collect()
-        })
-        .unwrap_or_default();
-    let want = local_revive.bled_out
+    let standing: Vec<PeerId> = match snd {
+        Some(l) => {
+            let up: Vec<&shared::LobbyMember> =
+                l.members.iter().filter(|m| Some(m.peer) != me && !l.snd.is_dead(m.peer)).collect();
+            let mates: Vec<PeerId> =
+                up.iter().filter(|m| me.is_some_and(|me| l.teammates(me, m.peer))).map(|m| m.peer).collect();
+            if mates.is_empty() {
+                up.iter().map(|m| m.peer).collect()
+            } else {
+                mates
+            }
+        }
+        None => zombies_game(&local, &lobbies)
+            .map(|l| {
+                l.members
+                    .iter()
+                    .filter(|m| m.bot.is_none() && Some(m.peer) != me && !out(m.peer))
+                    .map(|m| m.peer)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+    let want = out_now
         && !state.back
         && !standing.is_empty()
         && menu.screen != menu::Screen::MatchResults;
@@ -629,7 +665,8 @@ fn update_spectate_label(
     mut name: Single<&mut Text, With<SpectateName>>,
 ) {
     let watching = state.target.filter(|_| !menu.is_open()).and_then(|t| {
-        zombies_game(&local, &lobbies).and_then(|l| l.members.iter().find(|m| m.peer == t).map(|m| m.name.to_uppercase()))
+        crate::zombies_hud::my_lobby(&local, &lobbies)
+            .and_then(|l| l.members.iter().find(|m| m.peer == t).map(|m| m.name.to_uppercase()))
     });
     label.set_if_neq(if watching.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     if let Some(watching) = watching {

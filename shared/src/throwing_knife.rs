@@ -20,7 +20,7 @@ use crate::GameMode;
 pub fn starting_knives(mode: GameMode) -> u32 {
     match mode {
         GameMode::Freestyle => 1000,
-        GameMode::FreeForAll | GameMode::Zombies => 2,
+        GameMode::FreeForAll | GameMode::Zombies | GameMode::SearchAndDestroy => 2,
     }
 }
 

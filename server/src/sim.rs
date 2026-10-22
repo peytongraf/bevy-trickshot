@@ -622,7 +622,7 @@ fn resolve_shots(
                             target: p.to_bits(),
                             headshot: hit.headshot,
                             point: hit.point.to_array(),
-                            damage: if lobby.mode == GameMode::FreeForAll { pvp_damage } else { hit.damage },
+                            damage: if lobby.mode.is_pvp() { pvp_damage } else { hit.damage },
                         }
                     }
                     None => ShotOutcome::Miss,

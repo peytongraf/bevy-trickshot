@@ -359,9 +359,13 @@ fn step_knives(
         let mut targets: Vec<Target> = Vec::new();
         match lobby.mode {
             _ if sim.claim.is_none() => {}
-            GameMode::FreeForAll | GameMode::Zombies => {
+            GameMode::FreeForAll | GameMode::Zombies | GameMode::SearchAndDestroy => {
                 for (id, pose, lp) in &poses {
                     if id.0 == sim.owner || lp.lobby != sim.lobby {
+                        continue;
+                    }
+                    // (`SearchAndDestroy`: never a teammate.)
+                    if lobby.teammates(id.0, sim.owner) {
                         continue;
                     }
                     // `Zombies`: a player's knife only kills zombies.

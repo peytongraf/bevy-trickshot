@@ -146,6 +146,25 @@ fn board(lobby: &Lobby, me: Option<lightyear::prelude::PeerId>) -> Board {
             let info = clock.map_or(first_to.clone(), |c| format!("{first_to}   {c}"));
             ("FREE FOR ALL", info, vec!["KILLS", "DEATHS", "K/D"])
         }
+        GameMode::SearchAndDestroy => {
+            // (Team by team, best first.)
+            members.sort_by(|a, b| {
+                a.team
+                    .index()
+                    .cmp(&b.team.index())
+                    .then(b.kills.cmp(&a.kills))
+                    .then(a.deaths.cmp(&b.deaths))
+            });
+            let s = &lobby.snd;
+            let info = format!(
+                "RED {} – {} BLUE   FIRST TO {}   ROUND {}",
+                s.wins[0],
+                s.wins[1],
+                lobby.rounds_to_win(),
+                s.round.max(1)
+            );
+            ("SEARCH & DESTROY", info, vec!["TEAM", "KILLS", "DEATHS", "PLANTS", "DEFUSES"])
+        }
         GameMode::Freestyle => {
             members.sort_by(|a, b| {
                 b.score
@@ -175,6 +194,13 @@ fn board(lobby: &Lobby, me: Option<lightyear::prelude::PeerId>) -> Board {
                     format!("{:.2}", m.score as f32 / m.deaths.max(1) as f32),
                 ],
                 GameMode::Freestyle => vec![crate::util::grouped(m.score), m.kills.to_string(), m.deaths.to_string()],
+                GameMode::SearchAndDestroy => vec![
+                    m.team.label().to_string(),
+                    m.kills.to_string(),
+                    m.deaths.to_string(),
+                    m.plants.to_string(),
+                    m.defuses.to_string(),
+                ],
             },
         })
         .collect();

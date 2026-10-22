@@ -68,6 +68,7 @@ mod rampage;
 mod respawn;
 mod revive;
 mod round_counter;
+mod search_destroy;
 mod settings;
 mod aether_shroud;
 mod ammo_crate;
@@ -289,6 +290,7 @@ fn main() {
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
+        .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)
         .add_plugins(weapon_editor::WeaponEditorPlugin)
@@ -542,7 +544,8 @@ fn main() {
                     menu::game_active
                         .and(killcam::no_killcam)
                         .and(fall_death::no_fall_death)
-                        .and(not_mantling),
+                        .and(not_mantling)
+                        .and(search_destroy::not_frozen),
                 ),
                 drive_mantle.run_if(
                     menu::game_active
@@ -581,7 +584,10 @@ fn main() {
                         menu::game_active
                             .and(killcam::no_killcam)
                             .and(fall_death::no_fall_death)
-                            .and(not_mantling),
+                            .and(not_mantling)
+                            // (`SearchAndDestroy`: held at the spawn before
+                            // a round — looking round still works.)
+                            .and(search_destroy::not_frozen),
                     ),
                 (
                     // Additionally defers to the death-effect's / fall-death's
@@ -602,6 +608,7 @@ fn main() {
                         .and(killcam::no_killcam)
                         .and(fall_death::no_fall_death)
                         .and(not_mantling)
+                        .and(search_destroy::not_frozen)
                         // (Nor while the weapon's coming back up after one.)
                         .and(weapons::weapon_ready),
                 ),

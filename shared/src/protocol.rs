@@ -45,6 +45,11 @@ pub enum GameMode {
     /// around them, more (and better) each round. [`ZOMBIE_KILL_POINTS`] per
     /// kill; the game is over the moment any member dies.
     Zombies,
+    /// **Search and Destroy** — Call of Duty's: two teams, one life a round,
+    /// the attackers planting a bomb at one of two sites and the defenders
+    /// stopping them (or defusing it). First team to the lobby's round count
+    /// wins ([`crate::search_destroy`]).
+    SearchAndDestroy,
 }
 
 /// Points a lobby member scores for each zombie they kill ([`GameMode::Zombies`]).
@@ -62,20 +67,26 @@ impl GameMode {
     /// Whether players pick their primary in a loadout
     /// ([`LobbyMember::loadout`]) — `Freestyle` is always the sniper.
     pub fn has_loadout(self) -> bool {
-        matches!(self, GameMode::FreeForAll | GameMode::Zombies)
+        matches!(self, GameMode::FreeForAll | GameMode::Zombies | GameMode::SearchAndDestroy)
+    }
+
+    /// Whether it's real players shooting each other — `FreeForAll`, and
+    /// `SearchAndDestroy`'s two teams.
+    pub fn is_pvp(self) -> bool {
+        matches!(self, GameMode::FreeForAll | GameMode::SearchAndDestroy)
     }
 
     /// Whether players pick the gun they start with — only `FreeForAll`'s:
     /// `Zombies` always starts with the M17, `Freestyle` the sniper
     /// ([`Self::starting_primary`]).
     pub fn picks_loadout(self) -> bool {
-        self == GameMode::FreeForAll
+        self.is_pvp()
     }
 
     /// The primary a life starts with, given the player's `loadout` pick.
     pub fn starting_primary(self, loadout: crate::weapon::WeaponId) -> crate::weapon::WeaponId {
         match self {
-            GameMode::FreeForAll => loadout,
+            GameMode::FreeForAll | GameMode::SearchAndDestroy => loadout,
             GameMode::Zombies => crate::weapon::WeaponId::M17,
             GameMode::Freestyle => crate::weapon::WeaponId::Sniper,
         }
@@ -86,6 +97,7 @@ impl GameMode {
             GameMode::Freestyle => "FREESTYLE",
             GameMode::FreeForAll => "FREE FOR ALL",
             GameMode::Zombies => "ZOMBIES",
+            GameMode::SearchAndDestroy => "SEARCH & DESTROY",
         }
     }
 }
@@ -676,6 +688,9 @@ pub struct PlayerInput {
     /// `Zombies`: the interact key's held down to revive a downed teammate
     /// (`server::revive` picks the nearest one in reach).
     pub revive: bool,
+    /// `SearchAndDestroy`: the interact key's held down — to plant the bomb
+    /// at a site, or defuse it (`server::search_destroy` works out which).
+    pub snd_use: bool,
     /// What's in the player's hands this tick — see `PlayerPose::held`.
     #[reflect(ignore)]
     pub held: Option<SlotWeapon>,
@@ -808,6 +823,7 @@ impl Default for PlayerInput {
             stabbing: false,
             crouch_drop: 0.0,
             revive: false,
+            snd_use: false,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
             swap: None,
             throw: None,
@@ -1211,6 +1227,30 @@ pub struct SetKillLimit {
 pub struct AddBots {
     pub count: u8,
     pub difficulty: crate::bot_players::BotDifficulty,
+    /// `SearchAndDestroy`: the team they join.
+    #[serde(default)]
+    pub team: crate::search_destroy::Team,
+}
+
+/// Client (any member) → server: put the sender on `team`
+/// ([`LobbyMember::team`]) — while the lobby's waiting.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetTeam {
+    pub team: crate::search_destroy::Team,
+}
+
+/// Client (party leader) → server: rounds a `SearchAndDestroy` team needs to
+/// win ([`Lobby::snd_rounds_to_win`]) — before starting only.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SetSndRounds {
+    pub rounds: u32,
+}
+
+/// Server → every member of a `SearchAndDestroy` lobby: the bomb went off
+/// at `at` (its feet) — the explosion there (the server's done the killing).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SndBombExploded {
+    pub at: [f32; 3],
 }
 
 /// Client (party leader) → server: remove every bot from the lobby.
@@ -1333,6 +1373,17 @@ pub struct LobbyMember {
     /// starts or ends.
     #[serde(default)]
     pub field_upgrade: crate::field_upgrade::FieldUpgrade,
+    /// [`GameMode::SearchAndDestroy`]: the team this member plays on — their
+    /// own pick in the lobby room ([`SetTeam`]; a bot's, whoever added it).
+    /// Kept between games.
+    #[serde(default)]
+    pub team: crate::search_destroy::Team,
+    /// [`GameMode::SearchAndDestroy`], this game: bombs planted and defused
+    /// (the scoreboard's columns).
+    #[serde(default)]
+    pub plants: u32,
+    #[serde(default)]
+    pub defuses: u32,
 }
 
 /// A lobby, spawned on the server and replicated to **every** client so the
@@ -1462,6 +1513,16 @@ pub struct Lobby {
     /// whenever a game starts or ends.
     #[serde(default)]
     pub carpenter: bool,
+    /// [`GameMode::SearchAndDestroy`]: rounds a team needs to win the match,
+    /// set by the leader ([`SetSndRounds`]) — `0` is the default
+    /// ([`Self::rounds_to_win`]).
+    #[serde(default)]
+    pub snd_rounds_to_win: u32,
+    /// [`GameMode::SearchAndDestroy`]: the running game — rounds, the bomb,
+    /// who's dead. Server-owned (`server::search_destroy`); cleared whenever
+    /// a game starts (kept once it's over, for the results).
+    #[serde(default)]
+    pub snd: crate::search_destroy::SndState,
     pub members: Vec<LobbyMember>,
 }
 
@@ -1490,6 +1551,44 @@ impl Lobby {
             .filter(|m| m.bot.is_none())
             .map(|m| m.peer)
             .collect()
+    }
+
+    /// [`GameMode::SearchAndDestroy`]: rounds a team needs to win the match.
+    pub fn rounds_to_win(&self) -> u32 {
+        if self.snd_rounds_to_win == 0 {
+            crate::search_destroy::DEFAULT_ROUNDS_TO_WIN
+        } else {
+            self.snd_rounds_to_win
+        }
+    }
+
+    /// `peer`'s team, if they're a member.
+    pub fn team_of(&self, peer: PeerId) -> Option<crate::search_destroy::Team> {
+        self.members.iter().find(|m| m.peer == peer).map(|m| m.team)
+    }
+
+    /// Whether `a` and `b` are on the same side: in
+    /// [`GameMode::SearchAndDestroy`], on the same team (anywhere else
+    /// nobody is — but themselves).
+    pub fn teammates(&self, a: PeerId, b: PeerId) -> bool {
+        a == b
+            || self.mode == GameMode::SearchAndDestroy
+                && self.team_of(a).is_some_and(|t| self.team_of(b) == Some(t))
+    }
+
+    /// Who won the match that's just ended: [`GameMode::SearchAndDestroy`]'s
+    /// team with the most rounds, anywhere else [`Self::top_scorers`].
+    pub fn winners(&self) -> Vec<PeerId> {
+        if self.mode == GameMode::SearchAndDestroy {
+            let [red, blue] = self.snd.wins;
+            let team = match red.cmp(&blue) {
+                std::cmp::Ordering::Greater => crate::search_destroy::Team::Red,
+                std::cmp::Ordering::Less => crate::search_destroy::Team::Blue,
+                std::cmp::Ordering::Equal => return self.members.iter().map(|m| m.peer).collect(),
+            };
+            return self.members.iter().filter(|m| m.team == team).map(|m| m.peer).collect();
+        }
+        self.top_scorers()
     }
 
     /// Every member tied for the highest score.
@@ -2800,6 +2899,12 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetFullPower>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetTeam>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetSndRounds>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_message::<SndBombExploded>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_trigger::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetLoadout>()

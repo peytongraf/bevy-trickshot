@@ -332,6 +332,11 @@ pub(crate) fn apply_player_hits(
         {
             continue;
         }
+        // `SearchAndDestroy`: no friendly fire (but the bomb going off,
+        // `blast`, kills everyone).
+        if !ev.blast && ev.killer != ev.victim && lobbies.iter().any(|(_, l)| l.has(ev.victim) && l.teammates(ev.killer, ev.victim)) {
+            continue;
+        }
         let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == ev.victim) else {
             continue;
         };
@@ -590,12 +595,21 @@ pub(crate) fn apply_player_hits(
             }
             continue;
         }
-        if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer) {
+        if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.killer && ev.killer != ev.victim) {
             m.score += 1;
             m.kills += 1;
         }
         if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == ev.victim) {
             m.deaths += 1;
+        }
+        // `SearchAndDestroy`: out until the next round (`crate::search_destroy`
+        // brings everyone back) — no respawn.
+        let snd = lobby.mode == GameMode::SearchAndDestroy;
+        if snd {
+            combat.respawn_at = f32::INFINITY;
+            if !lobby.snd.dead.contains(&ev.victim) {
+                lobby.snd.dead.push(ev.victim);
+            }
         }
 
         let others: Vec<Vec3> = poses
@@ -632,7 +646,7 @@ pub(crate) fn apply_player_hits(
             yaw,
             immediate: false,
         };
-        if !victim_is_bot {
+        if !victim_is_bot && !snd {
             if let Err(e) =
                 sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Single(ev.victim))
             {
@@ -641,10 +655,13 @@ pub(crate) fn apply_player_hits(
         }
 
         info!("{:?} killed {:?}", ev.killer, ev.victim);
-        killed.write(PlayerKilled {
-            victim: ev.victim,
-            killer: ev.killer,
-        });
+        // (Nothing to replay of killing yourself.)
+        if ev.killer != ev.victim {
+            killed.write(PlayerKilled {
+                victim: ev.victim,
+                killer: ev.killer,
+            });
+        }
     }
 }
 
@@ -1006,6 +1023,23 @@ fn fall_kill(
             m.deaths += 1;
         }
     }
+    // `SearchAndDestroy`: out until the next round, like any death there.
+    if lobby.mode == GameMode::SearchAndDestroy {
+        if let Some((_, mut combat)) = combats.iter_mut().find(|(id, _)| id.0 == peer) {
+            combat.respawn_at = f32::INFINITY;
+        }
+        if !lobby.snd.dead.contains(&peer) {
+            lobby.snd.dead.push(peer);
+        }
+        if let Some(speed) = speed {
+            if let Err(e) =
+                sender.send::<_, GameChannel>(&FallDeath { speed }, server, &NetworkTarget::Single(peer))
+            {
+                error!("failed to send fall death to {peer:?}: {e:?}");
+            }
+        }
+        return;
+    }
     let others: Vec<Vec3> = poses
         .iter()
         .filter(|(id, _)| id.0 != peer && lobby.has(id.0))
@@ -1072,6 +1106,10 @@ fn on_respawn_ready(
     let peer = trigger.from;
     let now = time.elapsed_secs();
     if let Some((_, mut combat, lp)) = combats.iter_mut().find(|(id, ..)| id.0 == peer) {
+        // (`SearchAndDestroy`: the dead stay dead until the round's over.)
+        if lp.and_then(|lp| lobbies.get(lp.lobby).ok()).is_some_and(|l| l.snd.is_dead(peer)) {
+            return;
+        }
         if !combat.alive {
             info!("{peer:?} respawned");
         }

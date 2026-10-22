@@ -675,7 +675,7 @@ fn finish_endings(
             continue;
         };
         let msg = shared::MatchEnding {
-            winners: lobby.top_scorers(),
+            winners: lobby.winners(),
         };
         if let Err(e) =
             sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))

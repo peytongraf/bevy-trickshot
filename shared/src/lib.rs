@@ -27,6 +27,7 @@ pub mod ballistics;
 pub mod bot_players;
 pub mod bots;
 pub mod health;
+pub mod search_destroy;
 pub mod hitbox;
 pub mod lethal;
 pub mod level;
@@ -62,7 +63,7 @@ pub use protocol::{
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RadioSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
-    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetFullPower, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
+    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetFullPower, SetTeam, SetSndRounds, SndBombExploded, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
     RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, DrinkProgress, MantleProgress, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, BuyDoor, CallExfil, ToggleRampage, ZombieAnim, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,

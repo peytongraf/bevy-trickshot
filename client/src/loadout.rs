@@ -160,7 +160,7 @@ fn loadout_notice(
     let me = local.iter().next().map(|l| l.0);
     let member = lobbies
         .iter()
-        .find(|l| me.is_some_and(|me| l.has(me)) && l.started && l.mode == GameMode::FreeForAll)
+        .find(|l| me.is_some_and(|me| l.has(me)) && l.started && l.mode.is_pvp())
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me));
     let Some(member) = member else {
         *seen = None;

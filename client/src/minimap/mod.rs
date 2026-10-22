@@ -585,12 +585,23 @@ fn sync_teammates(
     arrow: Res<TeammateArrow>,
     frames: Query<(Entity, &MinimapFrame)>,
     avatars: Query<&RemoteAvatar>,
-    poses: Query<&PlayerPose, (With<PlayerId>, Without<BotPose>)>,
+    poses: Query<(&PlayerPose, &PlayerId), Without<BotPose>>,
     arrows: Query<(Entity, &MinimapTeammate, &ChildOf)>,
     mut commands: Commands,
 ) {
     let zombies = zombies_game(&local, &lobbies).is_some();
-    let is_teammate = |src: Entity| zombies && poses.get(src).is_ok_and(|p| p.zombie == ZombieAnim::None);
+    // (`SearchAndDestroy`: our team, while they're up.)
+    let me = local.iter().next().map(|l| l.0);
+    let snd = my_lobby(&local, &lobbies).filter(|l| l.started && l.mode == GameMode::SearchAndDestroy);
+    let is_teammate = |src: Entity| {
+        poses.get(src).is_ok_and(|(p, id)| {
+            if zombies {
+                p.zombie == ZombieAnim::None
+            } else {
+                snd.zip(me).is_some_and(|(l, me)| me != id.0 && l.teammates(me, id.0) && p.alive)
+            }
+        })
+    };
     let mut have = Vec::new();
     for (e, mate, parent) in &arrows {
         if is_teammate(mate.0) {
@@ -642,14 +653,17 @@ fn sync_enemy_dots(
     let lobby = my_lobby(&local, &lobbies).filter(|l| l.started);
     let mode = lobby.map(|l| l.mode);
     // (Only our own lobby's enemies — and one dot each, the latest shot.)
+    let me = local.iter().next().map(|l| l.0);
     for shot in fired.read() {
-        if mode != Some(GameMode::FreeForAll) || !lobby.is_some_and(|l| l.has(shot.shooter)) {
+        // (`SearchAndDestroy`: only the other team's.)
+        let enemy = lobby.is_some_and(|l| l.has(shot.shooter) && !me.is_some_and(|me| l.teammates(me, shot.shooter)));
+        if !mode.is_some_and(|m| m.is_pvp()) || !enemy {
             continue;
         }
         shots.0.retain(|(who, ..)| *who != shot.shooter);
         shots.0.push((shot.shooter, shot.from.xz(), now));
     }
-    if mode != Some(GameMode::FreeForAll) {
+    if !mode.is_some_and(|m| m.is_pvp()) {
         shots.0.clear();
     }
     shots.0.retain(|&(.., at)| now - at < SHOT_DOT_HOLD_SECS + SHOT_DOT_FADE_SECS);

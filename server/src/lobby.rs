@@ -188,6 +188,8 @@ fn on_create(
                 perk_set: Default::default(),
                 perks_need_power: false,
                 full_power: false,
+                snd_rounds_to_win: 0,
+                snd: Default::default(),
                 countdown_secs: 0,
                 countdown_left: 0,
                 power_on: false,
@@ -216,6 +218,9 @@ fn on_create(
                     revives: 0,
                     downs: 0,
                     deaths: 0,
+                    team: Default::default(),
+                    plants: 0,
+                    defuses: 0,
                 }],
             },
             Replicate::to_clients(NetworkTarget::All),
@@ -268,6 +273,9 @@ fn on_join(
         }
     }
     if !lobby.has(peer) {
+        // (`SearchAndDestroy`: onto whichever team's smaller — they can
+        // switch.)
+        let team = shared::search_destroy::smaller_team(&lobby);
         lobby.members.push(LobbyMember {
             peer,
             name: player_name,
@@ -288,6 +296,9 @@ fn on_join(
             revives: 0,
             downs: 0,
             deaths: 0,
+            team,
+            plants: 0,
+            defuses: 0,
         });
         info!("{peer:?} joined lobby {target:?}");
     }
@@ -307,9 +318,11 @@ fn on_leave(
 /// ([`Lobby::full_power`]), in place of the lobby's starting points.
 const FULL_POWER_POINTS: u32 = 100_000;
 
+#[allow(clippy::too_many_arguments)]
 fn on_start(
     trigger: Trigger<RemoteTrigger<StartGame>>,
     time: Res<Time>,
+    navs: Res<crate::nav::NavGraphs>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     clients: Query<(Entity, &RemoteId), With<ClientOf>>,
     old_players: Query<(Entity, &LobbyPlayer)>,
@@ -335,6 +348,7 @@ fn on_start(
     lobby.exfil = Default::default();
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
+    lobby.snd = Default::default();
     lobby.time_left_secs = lobby.time_limit_secs;
     // (`crate::zombies` runs the countdown, then starts round 1.)
     lobby.round = 0;
@@ -357,6 +371,8 @@ fn on_start(
         m.revives = 0;
         m.downs = 0;
         m.deaths = 0;
+        m.plants = 0;
+        m.defuses = 0;
         m.perks.clear();
         m.pap = Default::default();
         m.armor = Default::default();
@@ -438,7 +454,14 @@ fn on_start(
             // editor's given it some — each player a different one.)
             let zombies = (mode == GameMode::Zombies)
                 .then(|| shared::spawns::zombies_start(lobby.map, seed, &taken_spawns))
-                .flatten();
+                .flatten()
+                // (`SearchAndDestroy`: by their team's spawn for round 1.)
+                .or_else(|| {
+                    (mode == GameMode::SearchAndDestroy).then(|| {
+                        let attacking = member.team == shared::search_destroy::attackers_in(1);
+                        crate::search_destroy::spawn_spot(&navs, lobby.map, attacking, seed)
+                    })
+                });
             let (pos, yaw) =
                 zombies.unwrap_or_else(|| shared::spawns::spawn_point(seed, &taken_spawns, lobby.map));
             taken_spawns.push(pos);
@@ -643,7 +666,8 @@ fn on_set_loadout(
     let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
         return;
     };
-    if lobby.started && lobby.mode != GameMode::FreeForAll {
+    // (`SearchAndDestroy`: it's what they start the next round with.)
+    if lobby.started && !lobby.mode.is_pvp() {
         return;
     }
     let swap_now = lobby.started
@@ -751,7 +775,7 @@ fn on_set_game_mode(trigger: Trigger<RemoteTrigger<SetGameMode>>, mut lobbies: Q
         lobby.members.retain(|m| match m.bot {
             None => true,
             Some(_) => match mode {
-                GameMode::FreeForAll => is_bot_peer(m.peer),
+                GameMode::FreeForAll | GameMode::SearchAndDestroy => is_bot_peer(m.peer),
                 GameMode::Zombies => is_ally_peer(m.peer),
                 _ => false,
             },
@@ -774,6 +798,7 @@ fn add_bots(
     lobby: &mut Lobby,
     count: usize,
     difficulty: shared::bot_players::BotDifficulty,
+    team: shared::search_destroy::Team,
     next_id: &mut u64,
     seed: u64,
 ) -> usize {
@@ -817,6 +842,9 @@ fn add_bots(
             revives: 0,
             downs: 0,
             deaths: 0,
+            team,
+            plants: 0,
+            defuses: 0,
         });
         *next_id += 1;
     }
@@ -837,11 +865,11 @@ fn on_add_bots(
     let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) else {
         return;
     };
-    if !matches!(lobby.mode, GameMode::FreeForAll | GameMode::Zombies) {
+    if !matches!(lobby.mode, GameMode::FreeForAll | GameMode::Zombies | GameMode::SearchAndDestroy) {
         return;
     }
     let seed = time.elapsed().as_nanos() as u64;
-    let added = add_bots(&mut lobby, req.count as usize, req.difficulty, &mut next.0, seed);
+    let added = add_bots(&mut lobby, req.count as usize, req.difficulty, req.team, &mut next.0, seed);
     info!(
         "{peer:?} added {added} {:?} bot(s) — {} in the lobby",
         req.difficulty,
@@ -990,8 +1018,25 @@ pub(crate) fn end_match(
     let mut best_play = match lobby.mode {
         GameMode::FreeForAll => ffa_plays.take(lobby_e, lobby.end_cam),
         GameMode::Freestyle => best_plays.take(lobby_e),
-        // No replays in `Zombies` — straight to the results.
+        // No replays in `Zombies` or `SearchAndDestroy` — straight to the
+        // results. (The latter's kills were noted like `FreeForAll`'s:
+        // dropped, so none carries into a later match.)
         GameMode::Zombies => None,
+        GameMode::SearchAndDestroy => {
+            ffa_plays.take(lobby_e, lobby.end_cam);
+            None
+        }
+    };
+    // (`SearchAndDestroy` is won by a team, on rounds.)
+    let (winner_name, winner_score) = if lobby.mode == GameMode::SearchAndDestroy {
+        let team = if lobby.snd.wins[1] > lobby.snd.wins[0] {
+            shared::search_destroy::Team::Blue
+        } else {
+            shared::search_destroy::Team::Red
+        };
+        (format!("{} team", team.label()), lobby.snd.wins_of(team))
+    } else {
+        (winner_name, winner_score)
     };
     if let Some(best) = &mut best_play {
         best.best_play = true;
@@ -1027,6 +1072,9 @@ fn back_to_room(lobby: &mut Lobby) {
     lobby.carpenter = false;
     lobby.mystery_box = None;
     lobby.active_power_ups.clear();
+    // (`SearchAndDestroy`'s rounds stay for the results screen — the next
+    // game clears them — but nothing's mid-plant.)
+    lobby.snd.using = None;
     for m in &mut lobby.members {
         m.field_upgrade = Default::default();
     }
@@ -1049,7 +1097,12 @@ fn tick_match_clock(
 
     for (lobby_e, mut lobby) in &mut lobbies {
         // `Zombies` has no clock: it lasts until someone dies.
-        if !lobby.started || lobby.paused || lobby.time_left_secs == 0 || lobby.mode == GameMode::Zombies {
+        // (Nor `SearchAndDestroy`: its rounds have clocks of their own.)
+        if !lobby.started
+            || lobby.paused
+            || lobby.time_left_secs == 0
+            || matches!(lobby.mode, GameMode::Zombies | GameMode::SearchAndDestroy)
+        {
             continue;
         }
         lobby.time_left_secs -= 1;
@@ -1105,6 +1158,8 @@ mod tests {
             perk_set: Default::default(),
             perks_need_power: false,
             full_power: false,
+            snd_rounds_to_win: 0,
+            snd: Default::default(),
             countdown_secs: 0,
             countdown_left: 0,
             power_on: false,
@@ -1133,6 +1188,9 @@ mod tests {
                 revives: 0,
                 downs: 0,
                 deaths: 0,
+                team: Default::default(),
+                plants: 0,
+                defuses: 0,
             }],
         }
     }
@@ -1141,8 +1199,8 @@ mod tests {
     fn different_counts_and_difficulties_stack() {
         let mut l = lobby();
         let mut next = 0;
-        assert_eq!(add_bots(&mut l, 4, BotDifficulty::Recruit, &mut next, 1), 4);
-        assert_eq!(add_bots(&mut l, 5, BotDifficulty::Veteran, &mut next, 2), 5);
+        assert_eq!(add_bots(&mut l, 4, BotDifficulty::Recruit, Default::default(), &mut next, 1), 4);
+        assert_eq!(add_bots(&mut l, 5, BotDifficulty::Veteran, Default::default(), &mut next, 2), 5);
         assert_eq!(l.bot_count(), 9);
         let recruits = l.members.iter().filter(|m| m.bot == Some(BotDifficulty::Recruit)).count();
         let veterans = l.members.iter().filter(|m| m.bot == Some(BotDifficulty::Veteran)).count();
@@ -1153,18 +1211,18 @@ mod tests {
     fn the_lobby_never_holds_more_than_twenty_bots() {
         let mut l = lobby();
         let mut next = 0;
-        assert_eq!(add_bots(&mut l, 15, BotDifficulty::Regular, &mut next, 3), 15);
+        assert_eq!(add_bots(&mut l, 15, BotDifficulty::Regular, Default::default(), &mut next, 3), 15);
         // Only 5 fit.
-        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Hardened, &mut next, 4), 5);
+        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Hardened, Default::default(), &mut next, 4), 5);
         assert_eq!(l.bot_count(), MAX_BOTS);
-        assert_eq!(add_bots(&mut l, 1, BotDifficulty::Recruit, &mut next, 5), 0);
+        assert_eq!(add_bots(&mut l, 1, BotDifficulty::Recruit, Default::default(), &mut next, 5), 0);
     }
 
     #[test]
     fn every_bot_gets_a_unique_name_from_the_list_all_twenty_of_them() {
         let mut l = lobby();
         let mut next = 0;
-        add_bots(&mut l, 20, BotDifficulty::Recruit, &mut next, 9);
+        add_bots(&mut l, 20, BotDifficulty::Recruit, Default::default(), &mut next, 9);
         let mut names: Vec<&str> = l
             .members
             .iter()
@@ -1183,7 +1241,7 @@ mod tests {
         let mut l = lobby();
         l.members[0].name = "Alex".into();
         let mut next = 0;
-        add_bots(&mut l, 19, BotDifficulty::Recruit, &mut next, 11);
+        add_bots(&mut l, 19, BotDifficulty::Recruit, Default::default(), &mut next, 11);
         assert_eq!(l.members.iter().filter(|m| m.name == "Alex").count(), 1);
     }
 
@@ -1195,7 +1253,7 @@ mod tests {
             l.mode = GameMode::Zombies;
             l.members[0].operator = op;
             let mut next = 0;
-            add_bots(&mut l, 1, BotDifficulty::Regular, &mut next, 3);
+            add_bots(&mut l, 1, BotDifficulty::Regular, Default::default(), &mut next, 3);
             pick_bot_operators(&mut l, 99);
             assert_ne!(l.members[1].operator, op);
             assert!(is_ally_peer(l.members[1].peer));
@@ -1207,7 +1265,7 @@ mod tests {
         let mut l = lobby();
         l.mode = GameMode::Zombies;
         let mut next = 0;
-        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Regular, &mut next, 3), MAX_ZOMBIES_TEAM - 1);
+        assert_eq!(add_bots(&mut l, 10, BotDifficulty::Regular, Default::default(), &mut next, 3), MAX_ZOMBIES_TEAM - 1);
         assert_eq!(l.members.len(), MAX_ZOMBIES_TEAM);
     }
 
@@ -1215,7 +1273,7 @@ mod tests {
     fn bots_have_fake_peers_and_are_left_out_of_real_peers() {
         let mut l = lobby();
         let mut next = 0;
-        add_bots(&mut l, 3, BotDifficulty::Regular, &mut next, 13);
+        add_bots(&mut l, 3, BotDifficulty::Regular, Default::default(), &mut next, 13);
         assert_eq!(l.real_peers(), vec![PeerId::Netcode(1)]);
         assert_eq!(l.real_count(), 1);
         assert!(l.members.iter().filter(|m| m.bot.is_some()).all(|m| is_bot_peer(m.peer)));

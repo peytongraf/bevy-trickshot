@@ -45,6 +45,7 @@ mod quotes;
 mod radio;
 mod raygun;
 mod revive;
+mod search_destroy;
 mod sim;
 mod wall_buys;
 mod zombies;
@@ -80,6 +81,7 @@ fn main() {
         .add_plugins(sim::SimPlugin)
         .add_plugins(bots::BotsPlugin)
         .add_plugins(pvp::PvpPlugin)
+        .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(quotes::QuotesPlugin)
         .add_plugins(radio::RadioPlugin)
         .add_plugins(revive::RevivePlugin)

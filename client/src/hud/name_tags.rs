@@ -329,6 +329,15 @@ pub(crate) fn update_name_tags(
                     }
                     GameMode::Freestyle => return None,
                     GameMode::FreeForAll => (member.name.as_str(), srgb(settings.enemy_color), false),
+                    // Teammates through walls; the other team only in view.
+                    GameMode::SearchAndDestroy => {
+                        let me = me?;
+                        if lobby?.teammates(me, member.peer) {
+                            (member.name.as_str(), srgb(settings.friendly_color), true)
+                        } else {
+                            (member.name.as_str(), srgb(settings.enemy_color), false)
+                        }
+                    }
                     // Every member is on your side; the zombies aren't
                     // members, so they're never tagged.
                     GameMode::Zombies => (member.name.as_str(), srgb(settings.friendly_color), true),

@@ -252,6 +252,7 @@ fn pan_to_killer(
 /// down; the kill cam itself is never touched.
 fn clear_on_killcam_or_respawn(
     active: Res<ActiveKillCam>,
+    spectate: Res<crate::revive::Spectate>,
     mut respawned: EventReader<LocalPlayerRespawned>,
     mut effect: ResMut<DeathEffect>,
     mut commands: Commands,
@@ -260,7 +261,9 @@ fn clear_on_killcam_or_respawn(
     mut knife_vis: Single<&mut Visibility, (With<KnifeViewModel>, Without<ViewModel>)>,
 ) {
     let killcam_started = active.is_changed() && active.0.is_some();
-    let just_respawned = respawned.read().count() > 0;
+    // (Or `SearchAndDestroy`'s watching a teammate — no respawn till the
+    // next round.)
+    let just_respawned = respawned.read().count() > 0 || spectate.is_changed() && spectate.active();
     if !effect.active || !(killcam_started || just_respawned) {
         return;
     }
