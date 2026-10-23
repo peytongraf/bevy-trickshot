@@ -128,7 +128,9 @@ impl Plugin for ClientNetPlugin {
         // and forgotten when we leave.
         app.add_systems(Update, receive_respawn);
         app.add_systems(OnExit(AppState::InGame), forget_pending_respawn);
+        app.init_resource::<ServerLink>();
         app.add_systems(Startup, connect);
+        app.add_systems(Update, retry_connect);
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
 
@@ -207,8 +209,69 @@ impl Plugin for ClientNetPlugin {
 #[derive(Component)]
 pub struct GameClient;
 
-fn connect(mut commands: Commands) {
+/// Seconds between a failed connection attempt and the next one. (Each
+/// attempt itself gives up after `NetcodeConfig::client_timeout_secs` of
+/// silence from the server.)
+const RETRY_SECS: f32 = 2.0;
+
+/// Where the connection to the server stands — read by the connecting
+/// screen (`connecting_screen`). An attempt that fails is retried every
+/// [`RETRY_SECS`] ([`retry_connect`]) with a fresh `GameClient`, so a
+/// server started (or restarted) after the client still gets picked up.
+/// Reset on connecting.
+#[derive(Resource, Default)]
+pub struct ServerLink {
+    /// The address being dialed.
+    pub addr: Option<SocketAddr>,
+    /// Attempts since we were last connected (1 = the first).
+    pub attempt: u32,
+    /// Why the last attempt failed (or the connection dropped), in words a
+    /// player can read.
+    pub last_error: Option<String>,
+    /// Seconds until the next attempt, while waiting to retry.
+    pub retry_in: Option<f32>,
+}
+
+impl ServerLink {
+    /// Retry right away rather than waiting out [`RETRY_SECS`].
+    pub fn retry_now(&mut self) {
+        if self.retry_in.is_some() {
+            self.retry_in = Some(0.0);
+        }
+    }
+}
+
+fn connect(mut commands: Commands, mut link: ResMut<ServerLink>) {
+    spawn_client(&mut commands, &mut link);
+}
+
+/// Count down to the next attempt after a failed one, then replace the dead
+/// `GameClient` with a new one. (A new one rather than re-triggering
+/// `Connect` on the old: its connect token has a fixed expiry, so after
+/// half a minute of retrying the server would turn it down.)
+fn retry_connect(
+    mut commands: Commands,
+    mut link: ResMut<ServerLink>,
+    time: Res<Time>,
+    clients: Query<Entity, With<GameClient>>,
+) {
+    let Some(left) = link.retry_in else { return };
+    let left = left - time.delta_secs();
+    if left > 0.0 {
+        link.retry_in = Some(left);
+        return;
+    }
+    link.retry_in = None;
+    for e in &clients {
+        commands.entity(e).despawn();
+    }
+    spawn_client(&mut commands, &mut link);
+}
+
+fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
     let (addr, private_key) = server_addr();
+    link.addr = Some(addr);
+    link.attempt += 1;
     let auth = Authentication::Manual {
         server_addr: addr,
         client_id: dev_client_id(),
@@ -219,6 +282,8 @@ fn connect(mut commands: Commands) {
         Ok(c) => c,
         Err(e) => {
             error!("failed to build netcode client: {e:?}");
+            link.last_error = Some(format!("Couldn't set up the connection ({e:?})"));
+            link.retry_in = Some(RETRY_SECS);
             return;
         }
     };
@@ -244,18 +309,22 @@ fn connect(mut commands: Commands) {
         ))
         .id();
     commands.trigger_targets(Connect, entity);
-    info!("connecting to server at {addr}");
+    info!("connecting to server at {addr} (attempt {})", link.attempt);
 }
 
 fn on_connected(
     _t: Trigger<OnAdd, Connected>,
     q: Query<&LocalId, (With<GameClient>, With<Connected>)>,
+    mut link: ResMut<ServerLink>,
 ) {
     if let Ok(local) = q.single() {
         info!("connected to server (local peer {:?})", local.0);
     } else {
         info!("connected to server");
     }
+    link.attempt = 0;
+    link.last_error = None;
+    link.retry_in = None;
 }
 
 // --- local input --------------------------------------------------------
@@ -1918,11 +1987,37 @@ fn sync_bot_poses(
     }
 }
 
-fn on_disconnected(t: Trigger<OnAdd, Disconnected>, q: Query<&Disconnected>) {
+fn on_disconnected(
+    t: Trigger<OnAdd, Disconnected>,
+    q: Query<&Disconnected>,
+    mut link: ResMut<ServerLink>,
+) {
     // `NetcodeClient` requires `Disconnected`, so this also fires once at spawn
     // with no reason — that's just "not connected yet", not a real drop.
     match q.get(t.target()).ok().and_then(|d| d.reason.clone()) {
-        Some(reason) => warn!("disconnected from server: {reason}"),
+        Some(reason) => {
+            warn!("disconnected from server: {reason}; retrying in {RETRY_SECS}s");
+            link.last_error = Some(disconnect_reason(&reason));
+            link.retry_in = Some(RETRY_SECS);
+        }
         None => debug!("client not connected yet"),
+    }
+}
+
+/// A lightyear disconnect reason (`"Client disconnected: <netcode state>"`,
+/// `"Link failed: …"`) put the way a player would understand it.
+fn disconnect_reason(reason: &str) -> String {
+    if reason.contains("ConnectionRequestTimedOut") || reason.contains("ChallengeResponseTimedOut") {
+        "The server didn't answer. It may be down, or not running yet.".into()
+    } else if reason.contains("ConnectionTimedOut") {
+        "Lost the connection to the server.".into()
+    } else if reason.contains("ConnectionDenied") {
+        "The server turned the connection down. It may be full.".into()
+    } else if reason.contains("ConnectTokenExpired") {
+        "The connection attempt expired.".into()
+    } else if reason.contains("Link failed") {
+        "Network error: couldn't send to the server.".into()
+    } else {
+        format!("Disconnected ({reason}).")
     }
 }

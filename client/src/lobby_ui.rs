@@ -303,15 +303,24 @@ fn auto_lobby(
     }
 }
 
-/// Re-render on any replicated lobby change or when we learn our own peer id.
+/// Re-render on any replicated lobby change, when we learn our own peer id,
+/// or when the connection comes up or drops.
 fn watch_lobbies(
     mut ui: ResMut<LobbyUi>,
     // `Changed` also fires on insert, so this covers newly-replicated lobbies too.
     changed: Query<(), Changed<shared::Lobby>>,
     mut removed: RemovedComponents<shared::Lobby>,
     local_added: Query<(), (With<GameClient>, Added<LocalId>)>,
+    // (For the header's CONNECTED / OFFLINE.)
+    connected: Query<(), (With<GameClient>, Added<Connected>)>,
+    mut disconnected: RemovedComponents<Connected>,
 ) {
-    if !changed.is_empty() || removed.read().count() > 0 || !local_added.is_empty() {
+    if !changed.is_empty()
+        || removed.read().count() > 0
+        || !local_added.is_empty()
+        || !connected.is_empty()
+        || disconnected.read().count() > 0
+    {
         ui.dirty = true;
     }
 }
@@ -1217,7 +1226,9 @@ fn build_browser(
                 ));
                 s.spawn(label_hud(
                     asset_server,
-                    if online { "CONNECTED" } else { "CONNECTING…" },
+                    // (Only seen offline once CONTINUE OFFLINE has put the
+                    // connecting cover away — `connecting_screen`.)
+                    if online { "CONNECTED" } else { "OFFLINE · RETRYING…" },
                     20.0,
                     if online { TEXT } else { ACCENT },
                 ));

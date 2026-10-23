@@ -1,3 +1,14 @@
+# Done
+
+- Connecting screen + auto-retry
+- Only nearest power lights cast shadows
+- Zombie footsteps capped, symphonia logs quieted
+- Merged zombie model into one mesh
+- Full power: shroud, power, doors
+- Debug performance report
+- Search and Destroy mode
+- Wired up new radio quotes
+
 # Fix fps drop
 
 1. Measure first (no code needed). In settings, turn on DEBUG, then turn on the ENTITIES and DRAW CALLS readouts, plus CPU and MEMORY. Note the numbers at a quiet moment around rounds 5, 10, 15 and 20, then at round 21 in a fresh game.
@@ -7,7 +18,6 @@
 
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - On the current lobby screen make zombies the last game mode instead of snd
-- Ensure "connected" text is actually correct and client tries to connect to the server if it doesn't the first time
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
@@ -49,16 +59,6 @@
 2026-10-22T03:15:30.959542Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
 2026-10-22T03:15:30.959549Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
 2026-10-22T03:15:30.975862Z INFO symphonia_bundle_mp3::demuxer: estimating duration from bitrate, may be inaccurate for vbr files
-
-# Done
-
-- Only nearest power lights cast shadows
-- Zombie footsteps capped, symphonia logs quieted
-- Merged zombie model into one mesh
-- Full power: shroud, power, doors
-- Debug performance report
-- Search and Destroy mode
-- Wired up new radio quotes
 
 # First person animations
 

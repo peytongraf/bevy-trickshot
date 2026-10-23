@@ -30,6 +30,7 @@ mod audio;
 mod audio_engine;
 mod avatars;
 mod changelog;
+mod connecting_screen;
 mod death_effect;
 mod debug_ui;
 mod dogs;
@@ -225,7 +226,11 @@ fn main() {
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
         // protocol; add it before anything that spawns a `Client`.
         .add_plugins(net::ClientNetPlugin)
-        .add_plugins((loading_screen::LoadingScreenPlugin, asset_memory::AssetMemoryPlugin))
+        .add_plugins((
+            loading_screen::LoadingScreenPlugin,
+            connecting_screen::ConnectingScreenPlugin,
+            asset_memory::AssetMemoryPlugin,
+        ))
         .add_plugins((
             ui::UiKitPlugin,
             settings::SettingsPlugin,
