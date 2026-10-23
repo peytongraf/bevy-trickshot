@@ -52,6 +52,7 @@
 
 # Done
 
+- Merged zombie model into one mesh
 - Full power: shroud, power, doors
 - Debug performance report
 - Search and Destroy mode
@@ -116,7 +117,6 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 - Don't spawn name tags for zombies (they're never shown, but each gets a hidden tag every frame)
 - Only touch the PaP camo materials when their scroll actually changes (rewritten every frame now)
 - Rerun the benchmark with shadows NORMAL vs EXTRA to measure what the 8 shadow-casting power lights cost with a horde; then decide whether zombies should cast power-light shadows
-- Join `zombie.glb`'s 14 separate meshes into one (it has 1 material already) — ~14x fewer zombie draw calls in every view, shadows included
 - Throttle animation for off-screen / far zombies (56 bones each, all animated every frame even when culled)
 - Compress the models' textures (memory sits at ~10.8 GB in game)
 - When using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90. This seems to just be the case after going through this many rounds instead of starting on a high round from the start.
