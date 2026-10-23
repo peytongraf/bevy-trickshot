@@ -1,6 +1,7 @@
 //! The "waiting for party" screen shown right after a lobby game starts,
 //! until every member's client has finished loading the match's assets
-//! (currently just the map — see `environment::map::MapLoadState`). Keeps
+//! (the map — see `environment::map::MapLoadState` — and the sounds asked
+//! for so far, `audio_engine::PendingSounds`, or they'd play late). Keeps
 //! nobody from seeing the (possibly still-loading, pop-in-prone) game world
 //! before it's actually ready.
 //!
@@ -8,9 +9,9 @@
 //! spawned: its collision is built from that scene a step later
 //! (`AsyncSceneCollider`), and only then can the player's ground ray
 //! (`player::apply_gravity`) find it. So a client only reports ready once
-//! (1) the map's in, (2) the server's start spot for us has arrived and
-//! been applied (`net::PendingRespawn`; every mode but a `Freestyle` game
-//! on a map without hand-placed spawns has one —
+//! (1) the map and its sounds are in, (2) the server's start spot for us
+//! has arrived and been applied (`net::PendingRespawn`; every mode but a
+//! `Freestyle` game on a map without hand-placed spawns has one —
 //! `shared::spawns::has_start_spawn`), and (3) it's put us on the map's
 //! floor nearest that spot ([`settle_on_ground`] — a start spot is only
 //! *meant* to be at ground level, and can sit a little under the terrain
@@ -300,8 +301,8 @@ fn fade_intro_boxes(
 }
 
 /// Reports this client's own load as soon as it's done — once per game: the
-/// map's in, our start spot has been applied, and we've been put on its
-/// floor (see the module docs).
+/// map and the sounds are in, our start spot has been applied, and we've
+/// been put on its floor (see the module docs).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn send_assets_ready(
     time: Res<Time>,
@@ -316,8 +317,9 @@ fn send_assets_ready(
     parents: Query<&ChildOf>,
     mut sent: ResMut<SentReady>,
     mut sender: Query<&mut TriggerSender<shared::AssetsReady>, With<GameClient>>,
+    (asset_server, mut sounds): (Res<AssetServer>, ResMut<crate::audio_engine::PendingSounds>),
 ) {
-    if sent.sent || !map_ready(&map, current.0) {
+    if sent.sent || !map_ready(&map, current.0) || !sounds.all_loaded(&asset_server) {
         return;
     }
     let Some(me) = local_peer(&local) else { return };

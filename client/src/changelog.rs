@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Games wait for everyone's sounds to finish loading before starting.",
         "Connecting screen on launch, with retries and what went wrong if the server can't be reached.",
         "Debug mode: a performance report for each game, on the results screen.",
         "Zombies: better framerate with big hordes.",

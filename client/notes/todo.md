@@ -1,5 +1,6 @@
 # Done
 
+- Match start waits for sounds
 - Connecting screen + auto-retry
 - Only nearest power lights cast shadows
 - Zombie footsteps capped, symphonia logs quieted
@@ -9,19 +10,13 @@
 - Search and Destroy mode
 - Wired up new radio quotes
 
-# Fix fps drop
-
-1. Measure first (no code needed). In settings, turn on DEBUG, then turn on the ENTITIES and DRAW CALLS readouts, plus CPU and MEMORY. Note the numbers at a quiet moment around rounds 5, 10, 15 and 20, then at round 21 in a fresh game.
-   - If ENTITIES or MEMORY keep climbing across rounds, there's a real leak I haven't found, and the readout narrows down where to look.
-
 # Current todo
 
-- Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - On the current lobby screen make zombies the last game mode instead of snd
+- Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
-- Possibly add sound loading to things the loading ui has to wait on to finish. If this and other loading can be done in the background and can just make the game wait ( when it shows waiting on players in the lobby to load ) when starting a game.
 - Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
 - Cutouts in walls for zombies to climb through
 

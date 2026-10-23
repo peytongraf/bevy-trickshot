@@ -1316,7 +1316,7 @@ pub struct LobbyMember {
     /// `Lobby::started` is `false`.
     pub loaded: bool,
     /// Whether this member's client has finished loading the match's assets
-    /// (the map, currently — see [`AssetsReady`]) since the lobby last
+    /// (the map and sounds — see [`AssetsReady`]) since the lobby last
     /// started — what the loading screen shows. Reset with `loaded`.
     #[serde(default)]
     pub assets: bool,
@@ -2605,7 +2605,7 @@ pub struct StartGame;
 
 /// Client → server: the sender has finished loading this match's assets (see
 /// [`LobbyMember::loaded`]) — sent once, right after `Lobby::started` flips
-/// true and the client's own map load finishes. Ignored if the sender isn't
+/// true and the client's own map (and sound) loads finish. Ignored if the sender isn't
 /// in a started lobby.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct AssetsReady;

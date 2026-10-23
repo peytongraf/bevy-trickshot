@@ -26,6 +26,7 @@
 mod decoder;
 pub(crate) mod mix;
 mod mixer;
+mod pending;
 mod room;
 
 use std::sync::Arc;
@@ -46,6 +47,7 @@ use kira::{AudioManager, AudioManagerSettings, Capacities, Decibels, DefaultBack
 use decoder::{DecodingSoundData, Playback};
 use mix::{clip_gain, clip_key, BusMonitor, Mix, AIR_OFF_HZ};
 pub(crate) use mixer::AudioMixer;
+pub(crate) use pending::PendingSounds;
 pub(crate) use room::ReverbDebug;
 
 /// What call sites need: `use crate::audio_engine::prelude::*;`.
@@ -76,6 +78,7 @@ impl Plugin for AudioEnginePlugin {
             .insert_resource(Mix::load())
             .init_resource::<BusMonitor>()
             .init_asset::<AudioSource>()
+            .init_resource::<PendingSounds>()
             .register_asset_loader(AudioLoader)
             .init_resource::<GlobalVolume>()
             .add_systems(
@@ -153,6 +156,9 @@ pub(crate) struct AudioSource {
     bytes: Arc<[u8]>,
 }
 
+/// The file extensions [`AudioLoader`] takes.
+const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "oga", "flac"];
+
 struct AudioLoader;
 
 impl AssetLoader for AudioLoader {
@@ -176,7 +182,7 @@ impl AssetLoader for AudioLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["mp3", "wav", "ogg", "oga", "flac"]
+        AUDIO_EXTENSIONS
     }
 }
 
