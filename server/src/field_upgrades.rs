@@ -69,6 +69,8 @@ fn run_field_upgrades(
         let running = lobby.started && lobby.mode == GameMode::Zombies;
         // Paused, or the game's ending: everything holds still.
         let frozen = lobby.paused || endings.is_ending(lobby_e);
+        // Full power: every charge stored from the start.
+        let charges = if lobby.full_power { shared::field_upgrade::MAX_CHARGES } else { 0 };
         let mut changed = Vec::new();
         for m in lobby.members.iter().filter(|m| !is_bot_peer(m.peer)) {
             if !running {
@@ -77,7 +79,10 @@ fn run_field_upgrades(
                 }
                 continue;
             }
-            let clock = clocks.0.entry((lobby_e, m.peer)).or_default();
+            let clock = clocks.0.entry((lobby_e, m.peer)).or_insert_with(|| FieldUpgradeClock {
+                charges,
+                ..default()
+            });
             if !frozen {
                 let up = players
                     .iter()

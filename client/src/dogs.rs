@@ -338,13 +338,13 @@ fn start_dog_animation(
     names: Query<&Name>,
     mut players: Query<&mut AnimationPlayer>,
     assets: Res<DogAssets>,
+    mut bounds: crate::CharacterBounds,
 ) {
     let root = trigger.target();
     let mut player_entity = None;
     let mut back = None;
     for entity in children.iter_descendants(root) {
-        // A skinned mesh is culled against its rest pose, not the animated one.
-        commands.entity(entity).insert(NoFrustumCulling);
+        bounds.fit(&mut commands, root, entity);
         if names.get(entity).is_ok_and(|n| n.as_str() == BACK_BONE) {
             back = Some(entity);
         }

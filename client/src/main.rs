@@ -56,6 +56,7 @@ mod menu;
 mod minimap;
 mod net;
 mod pause;
+mod perf_report;
 mod player;
 mod menu_backdrop;
 mod pap;
@@ -237,6 +238,7 @@ fn main() {
             BulletHolePlugin,
         ))
         .add_plugins(loadout::LoadoutPlugin)
+        .add_plugins(perf_report::PerfReportPlugin)
         .add_plugins(hit_detection::HitDetectionPlugin)
         .add_plugins(hud::LeaderboardPlugin)
         .add_plugins(hud::DamageIndicatorPlugin)

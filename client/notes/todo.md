@@ -1,5 +1,13 @@
+# Fix fps drop
+
+1. Measure first (no code needed). In settings, turn on DEBUG, then turn on the ENTITIES and DRAW CALLS readouts, plus CPU and MEMORY. Note the numbers at a quiet moment around rounds 5, 10, 15 and 20, then at round 21 in a fresh game.
+   - If ENTITIES or MEMORY keep climbing across rounds, there's a real leak I haven't found, and the readout narrows down where to look.
+
 # Current todo
 
+- If mp3 will help performance over wav then use mp3 and convert all wav files and ogg
+- On the current lobby screen make zombies the last game mode instead of snd
+- Ensure "connected" text is actually correct and client tries to connect to the server if it doesn't the first time
 - Add full power power up
 - Add fire sale power up
 - Can add smoke efffect to boards on windows as the rebuild animation is playing
@@ -44,6 +52,8 @@
 
 # Done
 
+- Full power: shroud, power, doors
+- Debug performance report
 - Search and Destroy mode
 - Wired up new radio quotes
 
@@ -100,9 +110,17 @@
 
 # Performance
 
+Benchmark (compare with the debug-mode PERFORMANCE report on the results screen; reports in `~/.config/bevy-trickshot/perf/`): Der Tempel night, Zombies, FULL POWER on, start round 21 → call the exfil at once, run to it, kill only with the Ray Gun (no nuke), win the exfil. Baseline 2026-10-22 (v0.4.8, after zombie frustum culling; 3840x2160, shadows EXTRA, 240 cap): avg 146 FPS, 1% low 101, 0.1% low 83; 30+ enemies 1% low 98; ~6,700 entities idle → 14,700 at ~52 enemies (~150 per enemy); draw calls ~950 → ~2,600 (~33 per enemy). It doesn't cover the "worse after many rounds" problem — that needs a long run from round 1 (watch ENTITIES AT ROUND START).
+
+- Quiet the `symphonia` INFO log spam and skip / cap zombie footstep sounds far from the player (each one parses a WAV on the main thread)
+- Don't spawn name tags for zombies (they're never shown, but each gets a hidden tag every frame)
+- Only touch the PaP camo materials when their scroll actually changes (rewritten every frame now)
+- Rerun the benchmark with shadows NORMAL vs EXTRA to measure what the 8 shadow-casting power lights cost with a horde; then decide whether zombies should cast power-light shadows
+- Join `zombie.glb`'s 14 separate meshes into one (it has 1 material already) — ~14x fewer zombie draw calls in every view, shadows included
+- Throttle animation for off-screen / far zombies (56 bones each, all animated every frame even when culled)
+- Compress the models' textures (memory sits at ~10.8 GB in game)
 - When using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90. This seems to just be the case after going through this many rounds instead of starting on a high round from the start.
 - Could run btop while game is running
-- Could possibly keep a client side graph of entities, effects, fps over time etc
 
 # Flashlight
 

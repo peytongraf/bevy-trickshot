@@ -17,9 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Debug mode: a performance report for each game, on the results screen.",
+        "Zombies: better framerate with big hordes.",
         "New SEARCH & DESTROY mode: two teams, one life a round — plant or defuse the bomb at A or B.",
         "Search & Destroy: pick your team in the lobby, add bots to either side and set the rounds to win.",
-        "Zombies: new FULL POWER lobby setting — start with packed Ray Gun and AK-74, full equipment, armor, every perk and 100,000 points.",
+        "Zombies: new FULL POWER lobby setting — start with packed Ray Gun and AK-74, full equipment, armor, every perk, a full Aether Shroud and 100,000 points, with the power on and every door open.",
         "Zombies: Sergeant Frank Maddox yells what's at stake mid-exfil, as the clock runs low and as the last enemies fall.",
         "Zombies: operators react to getting the M17 from the Mystery Box.",
         "Der Tempel: Sergeant Frank Maddox tells the temple's story on rounds 2 and 4.",

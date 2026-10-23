@@ -1469,8 +1469,9 @@ pub struct Lobby {
     /// [`GameMode::Zombies`]: every member starts the game fully powered up
     /// — the Ray Gun and the AK-74, both fully Pack-a-Punched, as many
     /// molotovs and monkey bombs as they can carry, full armor and every perk
-    /// of the lobby's set, and 100,000 points in place of `start_points` —
-    /// set by the leader ([`SetFullPower`]). Off by default.
+    /// of the lobby's set, both Aether Shroud charges and 100,000 points in
+    /// place of `start_points` — on a map with the power already on and every
+    /// door open. Set by the leader ([`SetFullPower`]). Off by default.
     #[serde(default)]
     pub full_power: bool,
     /// [`GameMode::Zombies`]: seconds of free roaming before the first round

@@ -466,14 +466,14 @@ fn start_boss_animation(
     mut meshes: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     assets: Res<BossAssets>,
+    mut bounds: crate::CharacterBounds,
 ) {
     let root = trigger.target();
     let mut player_entity = None;
     let mut hands = [None; 2];
     let mut glow = Vec::new();
     for entity in children.iter_descendants(root) {
-        // A skinned mesh is culled against its rest pose, not the animated one.
-        commands.entity(entity).insert(NoFrustumCulling);
+        bounds.fit(&mut commands, root, entity);
         if let Ok(mut mesh_material) = meshes.get_mut(entity) {
             if let Some(mut m) = materials.get(&mesh_material.0).cloned() {
                 // Lit from within: its glow follows its own skin's texture.

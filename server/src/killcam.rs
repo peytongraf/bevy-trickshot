@@ -1,4 +1,5 @@
-//! Kill-cam recording. Every player carries a per-tick ring buffer of
+//! Kill-cam recording (never in a `Zombies` game — it has no kill cams).
+//! Every player carries a per-tick ring buffer of
 //! [`shared::KillCamSample`]s (eye pose + one-shot sound bits). On a bot kill we
 //! note the killer + tick, wait for the follow-through to be buffered, then
 //! ship the `[kill − 3 s, kill + 1.5 s]` window to the lobby.
@@ -20,11 +21,12 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::{
-    ActorSample, Bot, GameChannel, KillCam, KillCamActor, KillCamSample, KnifeSample, Lobby,
-    PlayerId, PlayerInput, PlayerPose, ThrownKnife, ACTOR_STRIDE_TICKS,
+    ActorSample, Bot, GameChannel, GameMode, KillCam, KillCamActor, KillCamSample, KnifeSample,
+    Lobby, PlayerId, PlayerInput, PlayerPose, ThrownKnife, ACTOR_STRIDE_TICKS,
 };
 
 use crate::bots::{BotHit, LobbyBot};
+use crate::lobby::LobbyPlayer;
 use crate::pvp::PlayerKilled;
 
 /// Samples before / after the kill (at `TICK_HZ`).
@@ -320,11 +322,20 @@ fn advance_clock(mut clock: ResMut<ReplayClock>) {
     clock.0 = clock.0.wrapping_add(1);
 }
 
+/// A recording for every player that might be replayed — none in a `Zombies`
+/// game (it has no kill cams), neither its zombies nor its players.
 fn attach_buffers(
-    missing: Query<Entity, (With<PlayerId>, Without<ReplayBuffer>)>,
+    missing: Query<
+        (Entity, Option<&LobbyPlayer>),
+        (With<PlayerId>, Without<ReplayBuffer>, Without<crate::zombies::Zombie>),
+    >,
+    lobbies: Query<&Lobby>,
     mut commands: Commands,
 ) {
-    for e in &missing {
+    for (e, lp) in &missing {
+        if lp.is_some_and(|lp| lobbies.get(lp.lobby).is_ok_and(|l| l.mode == GameMode::Zombies)) {
+            continue;
+        }
         commands.entity(e).insert(ReplayBuffer::default());
     }
 }
@@ -426,10 +437,12 @@ fn record_actors(
     if clock.0 % ACTOR_STRIDE_TICKS != 0 {
         return;
     }
-    // Only lobbies that are playing keep a log.
-    log.0.retain(|e, _| lobbies.get(*e).is_ok_and(|(_, l)| l.started));
+    // Only lobbies that are playing keep a log — and never a `Zombies` game
+    // (no kill cams there).
+    let logged = |l: &Lobby| l.started && l.mode != GameMode::Zombies;
+    log.0.retain(|e, _| lobbies.get(*e).is_ok_and(|(_, l)| logged(l)));
     let keep = CAP / ACTOR_STRIDE_TICKS as usize + 4;
-    for (lobby_e, lobby) in lobbies.iter().filter(|(_, l)| l.started) {
+    for (lobby_e, lobby) in lobbies.iter().filter(|(_, l)| logged(l)) {
         let mut actors: Vec<ActorEntry> = poses
             .iter()
             .filter(|(id, _)| lobby.has(id.0))

@@ -10,7 +10,6 @@ use std::time::Duration;
 use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use shared::{PlayerId, PlayerPose, ZombieAnim};
 
@@ -251,11 +250,11 @@ pub(crate) fn start_zombie_animation(
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
     anims: Res<ZombieAnimations>,
+    mut bounds: super::CharacterBounds,
 ) {
     let root = trigger.target();
     for entity in children.iter_descendants(root) {
-        // A skinned mesh is culled against its rest pose, not the animated one.
-        commands.entity(entity).insert(NoFrustumCulling);
+        bounds.fit(&mut commands, root, entity);
         if let Ok(mut player) = players.get_mut(entity) {
             let mut transitions = AnimationTransitions::new();
             transitions

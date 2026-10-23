@@ -510,6 +510,9 @@ enum Btn {
     LeaveWithParty,
     /// Dismiss the match-results screen and head back to the lobby room.
     ContinueFromResults,
+    /// Debug mode, on the results screen: open the performance report
+    /// (`perf_report`).
+    PerfReport,
     /// Party-leader only: pause / resume the game for the whole party
     /// ([`shared::SetPaused`]; see `pause`).
     TogglePause,
@@ -581,6 +584,7 @@ fn menu_click(
     paused: Res<crate::pause::GamePaused>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
+    mut perf: ResMut<crate::perf_report::PerfPanel>,
 ) {
     for (interaction, btn) in &q {
         if *interaction != Interaction::Pressed {
@@ -722,6 +726,7 @@ fn menu_click(
                 // button is what actually returns everyone to the room.
                 next.set(AppState::InLobby);
             }
+            Btn::PerfReport => perf.open = true,
         }
     }
 }
@@ -965,7 +970,9 @@ fn rebuild_menu(
             let leave = leave_ctx(&app_state, &local, &lobbies, &paused);
             build_settings(&mut commands, &asset_server, &menu, &settings, &binds, &leave, solid);
         }
-        Screen::MatchResults => build_match_results(&mut commands, &asset_server, &local, &lobbies),
+        Screen::MatchResults => {
+            build_match_results(&mut commands, &asset_server, &local, &lobbies, settings.debug_mode)
+        }
         // Built by `game_start`, not here — see `Screen::LoadingGame`'s doc comment.
         Screen::LoadingGame => {}
         Screen::Loadout => {
@@ -1229,6 +1236,7 @@ fn results_screen(
     subtitle: &str,
     headings: &[&str],
     rows: &[ResultRow],
+    perf: bool,
 ) {
     let column = |width: f32| Node {
         width: Val::Px(width),
@@ -1374,9 +1382,14 @@ fn results_screen(
 
             root.spawn(Node {
                 margin: UiRect::top(Val::Px(10.0)),
+                column_gap: Val::Px(12.0),
                 ..default()
             })
             .with_children(|row| {
+                // (Debug mode: this game's performance report.)
+                if perf {
+                    plain_button(row, asset_server, "PERFORMANCE", Btn::PerfReport, UiSound::MENU);
+                }
                 option_button(row, asset_server, "CONTINUE", Btn::ContinueFromResults, true, UiSound::MENU);
             });
         });
@@ -1397,11 +1410,12 @@ fn build_match_results(
     asset_server: &AssetServer,
     local: &Query<&LocalId, With<GameClient>>,
     lobbies: &Query<&shared::Lobby>,
+    perf: bool,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let lobby = me.and_then(|me| lobbies.iter().find(|l| l.has(me)));
     let Some(lobby) = lobby else {
-        results_screen(commands, asset_server, ("MATCH COMPLETE", RESULTS_TITLE), "", &[], &[]);
+        results_screen(commands, asset_server, ("MATCH COMPLETE", RESULTS_TITLE), "", &[], &[], perf);
         return;
     };
     let mut members: Vec<&shared::LobbyMember> = lobby.members.iter().collect();
@@ -1438,6 +1452,7 @@ fn build_match_results(
             &format!("YOU SURVIVED {survived} ROUND{}", if survived == 1 { "" } else { "S" }),
             &["SCORE", "KILLS", "CRITICAL KILLS", "REVIVES", "DOWNS"],
             &rows,
+            perf,
         );
         return;
     }
@@ -1475,7 +1490,7 @@ fn build_match_results(
                 ],
             })
             .collect();
-        results_screen(commands, asset_server, headline, &subtitle, &["TEAM", "KILLS", "DEATHS", "PLANTS", "DEFUSES"], &rows);
+        results_screen(commands, asset_server, headline, &subtitle, &["TEAM", "KILLS", "DEATHS", "PLANTS", "DEFUSES"], &rows, perf);
         return;
     }
 
@@ -1495,7 +1510,7 @@ fn build_match_results(
         .collect();
     let headline = if won { ("VICTORY", VICTORY) } else { ("DEFEAT", DEFEAT) };
     let heading = if lobby.mode == shared::GameMode::FreeForAll { "KILLS" } else { "SCORE" };
-    results_screen(commands, asset_server, headline, &subtitle, &[heading], &rows);
+    results_screen(commands, asset_server, headline, &subtitle, &[heading], &rows, perf);
 }
 
 /// A tab in the settings screen's top bar: bright with a gold underline when

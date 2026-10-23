@@ -5,7 +5,9 @@
 //! time, server latency, and the game's CPU and memory use. With debug mode
 //! on (settings → DEBUG), two more can show after them, switched on and off
 //! there: DRAW CALLS (counted in the render world each frame,
-//! [`DrawCallsPlugin`]) and ENTITIES (in the main world).
+//! [`DrawCallsPlugin`]) and ENTITIES (in the main world). Debug mode also
+//! always shows PERF REC: how long the performance recorder
+//! (`perf_report`) has been recording this game.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,6 +45,7 @@ enum Readout {
     Stat(TelemetryStat),
     DrawCalls,
     Entities,
+    Recording,
 }
 
 impl Readout {
@@ -51,6 +54,7 @@ impl Readout {
             Readout::Stat(stat) => stat.label(),
             Readout::DrawCalls => "DRAW CALLS:",
             Readout::Entities => "ENTITIES:",
+            Readout::Recording => "PERF REC:",
         }
     }
 
@@ -59,6 +63,7 @@ impl Readout {
             Readout::Stat(stat) => settings.telemetry.shows(stat),
             Readout::DrawCalls => settings.debug_mode && settings.telemetry.draw_calls,
             Readout::Entities => settings.debug_mode && settings.telemetry.entities,
+            Readout::Recording => settings.debug_mode,
         }
     }
 
@@ -66,7 +71,7 @@ impl Readout {
         TelemetryStat::ALL
             .into_iter()
             .map(Readout::Stat)
-            .chain([Readout::DrawCalls, Readout::Entities])
+            .chain([Readout::DrawCalls, Readout::Entities, Readout::Recording])
     }
 }
 
@@ -166,6 +171,7 @@ pub(crate) fn update_fps_ui(
     ping: Query<&PingManager, (With<GameClient>, With<Connected>)>,
     draw_calls: Res<DrawCalls>,
     entities: &Entities,
+    recorder: Res<crate::perf_report::PerfRecorder>,
     mut boxes: Query<(&TelemetryBox, &mut Node)>,
     mut values: Query<(&TelemetryValue, &mut Text)>,
 ) {
@@ -205,7 +211,11 @@ pub(crate) fn update_fps_ui(
         }
         let Readout::Stat(stat) = value.0 else {
             let wanted = match value.0 {
-                Readout::DrawCalls => draw_calls.0.load(Ordering::Relaxed).to_string(),
+                Readout::DrawCalls => draw_calls.get().to_string(),
+                Readout::Recording => recorder.recording().map_or("--".into(), |secs| {
+                    let s = secs as u64;
+                    format!("{}:{:02}", s / 60, s % 60)
+                }),
                 _ => entities.len().to_string(),
             };
             if text.0 != wanted {
@@ -242,6 +252,13 @@ pub(crate) fn update_fps_ui(
 /// world ([`count_draw_calls`]), read on the HUD. Shared by both worlds.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct DrawCalls(Arc<AtomicUsize>);
+
+impl DrawCalls {
+    /// The last rendered frame's.
+    pub(crate) fn get(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+}
 
 /// Counts the draw calls each frame makes, for debug mode's DRAW CALLS.
 pub(crate) struct DrawCallsPlugin;

@@ -340,8 +340,12 @@ fn on_start(
 
     lobby.started = true;
     lobby.paused = false;
-    lobby.power_on = false;
-    lobby.doors_open = 0;
+    // `Zombies` on full power: the late-game map, too — the power's on and
+    // every door's open from the start. (The clients take it as already so:
+    // no lever throw, quake or door slide.)
+    let full_map = lobby.mode == GameMode::Zombies && lobby.full_power;
+    lobby.power_on = full_map;
+    lobby.doors_open = if full_map { shared::doors::closed_mask(lobby.map, 0) } else { 0 };
     lobby.windows_torn.clear();
     lobby.rampage = false;
     lobby.carpenter = false;
