@@ -62,6 +62,18 @@ pub enum ShadowQuality {
 }
 
 impl ShadowQuality {
+    /// How many of a map's shadow-casting power lights — the nearest — cast
+    /// shadows at once (`power::limit_power_shadows`). Each is a point light,
+    /// six shadow views a frame, every caster in its reach drawn into each.
+    pub fn power_light_shadows(self) -> usize {
+        match self {
+            ShadowQuality::Disabled | ShadowQuality::Low => 0,
+            ShadowQuality::Normal => 2,
+            ShadowQuality::High => 3,
+            ShadowQuality::Extra => 4,
+        }
+    }
+
     pub const ALL: [ShadowQuality; 5] = [
         ShadowQuality::Disabled,
         ShadowQuality::Low,

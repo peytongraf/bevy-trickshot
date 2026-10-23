@@ -449,7 +449,8 @@ fn perf_dir() -> Option<PathBuf> {
 }
 
 /// The newest finished run before `report` on the same map and mode, from
-/// the same start.
+/// the same start — with the same settings if there is one (else the newest,
+/// flagged as different on the panel).
 fn previous_run(dir: &Path, report: &PerfReport) -> Option<PerfReport> {
     std::fs::read_dir(dir)
         .ok()?
@@ -465,7 +466,7 @@ fn previous_run(dir: &Path, report: &PerfReport) -> Option<PerfReport> {
                 && r.start_round == report.start_round
                 && r.full_power == report.full_power
         })
-        .max_by_key(|r| r.unix_secs)
+        .max_by_key(|r| (r.setting_changes(report).is_empty(), r.unix_secs))
 }
 
 fn opt(v: Option<f32>, digits: usize) -> String {

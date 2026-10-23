@@ -60,7 +60,7 @@ impl Plugin for PowerPlugin {
             )
             // Not gated on `InGame`: it's what takes the lights away (and
             // resets the fade) once the game is left.
-            .add_systems(Update, sync_map_lights);
+            .add_systems(Update, (sync_map_lights, limit_power_shadows).chain());
     }
 }
 
@@ -304,6 +304,66 @@ fn sync_map_lights(
         &mut materials,
         || (StateScoped(AppState::InGame), GameLight),
     );
+}
+
+/// How much nearer (m) another power light has to be than one already
+/// casting shadows to take its place — so walking between two doesn't flick
+/// their shadows back and forth.
+const SHADOW_SWAP_MARGIN: f32 = 3.0;
+
+/// Only the few shadow-casting power lights nearest the camera cast shadows
+/// (how many: the shadow quality setting's,
+/// [`ShadowQuality::power_light_shadows`]); the rest still light the map,
+/// without. Every one would otherwise render six shadow views a frame, the
+/// whole horde in reach drawn into each. Runs after [`sync_map_lights`],
+/// which builds them all with their layout's shadows (and rebuilds them
+/// through the power's fade).
+///
+/// [`ShadowQuality::power_light_shadows`]: crate::settings::ShadowQuality::power_light_shadows
+fn limit_power_shadows(
+    settings: Res<crate::settings::Settings>,
+    current: Res<CurrentMap>,
+    level: Res<PowerLevel>,
+    camera: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    mut points: Query<(&PowerLightSlot, &mut PointLight), With<GameLight>>,
+    mut spots: Query<(&PowerLightSlot, &mut SpotLight), With<GameLight>>,
+    mut chosen: Local<Vec<usize>>,
+) {
+    if points.is_empty() && spots.is_empty() {
+        chosen.clear();
+        return;
+    }
+    let eye = camera.single().ok().map(GlobalTransform::translation);
+    let mut nearest: Vec<(f32, usize)> = shared::level::layout(current.0)
+        .power_lights
+        .iter()
+        .enumerate()
+        .filter(|(_, light)| light.shadows)
+        .map(|(i, light)| {
+            let distance = eye.map_or(0.0, |e| e.distance(light.pos));
+            let held = if chosen.contains(&i) { SHADOW_SWAP_MARGIN } else { 0.0 };
+            (distance - held, i)
+        })
+        .collect();
+    nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
+    *chosen = nearest
+        .into_iter()
+        .take(settings.shadow_quality.power_light_shadows())
+        .map(|(_, i)| i)
+        .collect();
+    // (None while they're dark — as `point_light` builds them.)
+    let lit = level.0 > 0.0;
+    let wanted = |slot: &PowerLightSlot| lit && chosen.contains(&slot.index);
+    for (slot, mut light) in &mut points {
+        if light.shadows_enabled != wanted(slot) {
+            light.shadows_enabled = wanted(slot);
+        }
+    }
+    for (slot, mut light) in &mut spots {
+        if light.shadows_enabled != wanted(slot) {
+            light.shadows_enabled = wanted(slot);
+        }
+    }
 }
 
 // --- the switch ------------------------------------------------------------

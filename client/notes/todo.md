@@ -5,7 +5,7 @@
 
 # Current todo
 
-- If mp3 will help performance over wav then use mp3 and convert all wav files and ogg
+- Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - On the current lobby screen make zombies the last game mode instead of snd
 - Ensure "connected" text is actually correct and client tries to connect to the server if it doesn't the first time
 - Add full power power up
@@ -52,6 +52,8 @@
 
 # Done
 
+- Only nearest power lights cast shadows
+- Zombie footsteps capped, symphonia logs quieted
 - Merged zombie model into one mesh
 - Full power: shroud, power, doors
 - Debug performance report
@@ -111,14 +113,20 @@
 
 # Performance
 
-Benchmark (compare with the debug-mode PERFORMANCE report on the results screen; reports in `~/.config/bevy-trickshot/perf/`): Der Tempel night, Zombies, FULL POWER on, start round 21 → call the exfil at once, run to it, kill only with the Ray Gun (no nuke), win the exfil. Baseline 2026-10-22 (v0.4.8, after zombie frustum culling; 3840x2160, shadows EXTRA, 240 cap): avg 146 FPS, 1% low 101, 0.1% low 83; 30+ enemies 1% low 98; ~6,700 entities idle → 14,700 at ~52 enemies (~150 per enemy); draw calls ~950 → ~2,600 (~33 per enemy). It doesn't cover the "worse after many rounds" problem — that needs a long run from round 1 (watch ENTITIES AT ROUND START).
+Benchmark (compare with the debug-mode PERFORMANCE report on the results screen; reports in `~/.config/bevy-trickshot/perf/`): Der Tempel night, Zombies, FULL POWER on, start round 21 → call the exfil at once, run to it, kill only with the Ray Gun (no nuke), win the exfil. Baseline 2026-10-22 (v0.4.8, after zombie frustum culling; 3840x2160, shadows EXTRA, 240 cap): avg 146 FPS, 1% low 101, 0.1% low 83; 30+ enemies 1% low 98; ~6,700 entities idle → 14,700 at ~52 enemies (~150 per enemy); draw calls ~950 → ~2,600 (~33 per enemy). Shadow Map setting then only changed the moon: NORMAL vs EXTRA was avg 166 vs 155, 1% low 113 vs 101 (after the zombie mesh merge + footstep cap). With only the nearest power lights casting shadows (EXTRA): avg 162, 1% low 111, 0.1% low 89; 40+ enemies 152 FPS vs 161 with under 5. It doesn't cover the "worse after many rounds" problem — that needs a long run from round 1 (watch ENTITIES AT ROUND START).
 
-- Quiet the `symphonia` INFO log spam and skip / cap zombie footstep sounds far from the player (each one parses a WAV on the main thread)
-- Don't spawn name tags for zombies (they're never shown, but each gets a hidden tag every frame)
-- Only touch the PaP camo materials when their scroll actually changes (rewritten every frame now)
-- Rerun the benchmark with shadows NORMAL vs EXTRA to measure what the 8 shadow-casting power lights cost with a horde; then decide whether zombies should cast power-light shadows
-- Throttle animation for off-screen / far zombies (56 bones each, all animated every frame even when culled)
-- Compress the models' textures (memory sits at ~10.8 GB in game)
+## Next changes (most likely to help first)
+
+1. Throttle animation for off-screen / far zombies — 56 bones each, all animated every frame even when culled; the biggest per-zombie cost left (watch for frozen shadows of off-screen ones)
+2. Trim the remaining shadow cost if the GPU is the limit — the moon's EXTRA cascades (4096, 4 cascades, 160 m) and the power lights' shadow ranges
+3. Don't spawn name tags for zombies — never shown, but each gets a hidden tag that's checked every frame
+4. Only touch the PaP camo materials when their scroll actually changes — rewritten every frame now
+5. Compress the models' textures — memory sits at ~10.8 GB in game (memory / load time more than FPS)
+
+## Tools and tests
+
+- Add CPU vs GPU frame time to the perf report, to know which kind of fix will actually move the numbers
+- Long run from round 1 with debug mode on, to check whether anything piles up over rounds (the by-round chart and ENTITIES AT ROUND START)
 - When using phd slider a lot on a higher round with a lot of zombies, fps dropped to around 70-90. This seems to just be the case after going through this many rounds instead of starting on a high round from the start.
 - Could run btop while game is running
 
@@ -156,7 +164,6 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 - Add save teleport sound
 - Add mantle sound
 - Add footstep sounds for other players
-- Possibly convert audio to wav files.
 - Add pap shot sounds
 - When player is downed a breathing sound should play
 - Look into using different footstep sounds based on surface

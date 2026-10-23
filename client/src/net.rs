@@ -846,17 +846,31 @@ fn receive_shots(
 /// quieter positional level there). The server already excludes the triggering player from the message's targets
 /// (they hear their own local, non-spatial version instead), but the `me`
 /// check here is a cheap defensive backstop.
+///
+/// A `Zombies` enemy's footsteps (a zombie's, a hellhound's, a boss's) are
+/// only heard within [`ENEMY_FOOTSTEP_RANGE`], at most
+/// [`MAX_ENEMY_FOOTSTEPS`] at once, the nearest first — a horde all around
+/// would otherwise start dozens a second, each opened on this thread.
+/// Players' are never held back.
 #[allow(clippy::too_many_arguments)]
 fn receive_remote_sounds(
     local: Query<&LocalId, With<GameClient>>,
     mut receivers: Query<&mut MessageReceiver<shared::RemoteSound>>,
     sounds: Res<crate::GameSounds>,
     current_map: Res<crate::CurrentMap>,
+    poses: Query<(&PlayerId, &PlayerPose)>,
+    listener: Query<&GlobalTransform, With<crate::audio_engine::SpatialListener>>,
+    enemy_steps: Query<(), With<EnemyFootstep>>,
     mut footstep_seed: Local<u32>,
-    mut footstep_last: Local<std::collections::HashMap<PeerId, usize>>,
+    (mut footstep_last, mut enemy_last): (Local<std::collections::HashMap<PeerId, usize>>, Local<usize>),
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
+    let ears = listener.single().ok().map(GlobalTransform::translation);
+    // Which senders are enemies — worked out once, only if a footstep comes.
+    let mut enemies: Option<std::collections::HashSet<PeerId>> = None;
+    // This frame's enemy footsteps in range: `(distance, where)`.
+    let mut enemy_footsteps: Vec<(f32, Vec3)> = Vec::new();
 
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -870,6 +884,18 @@ fn receive_remote_sounds(
                 // replays it).
                 if msg.bits & bit == 0 || bit == killcam::SND_AIM_IN || bit == killcam::SND_AIM_OUT {
                     continue;
+                }
+                if bit == killcam::SND_FOOTSTEP {
+                    let enemies = enemies.get_or_insert_with(|| {
+                        poses.iter().filter(|(_, p)| p.zombie.is_zombie()).map(|(id, _)| id.0).collect()
+                    });
+                    if enemies.contains(&msg.player) {
+                        let distance = ears.map_or(0.0, |e| e.distance(pos));
+                        if distance <= ENEMY_FOOTSTEP_RANGE {
+                            enemy_footsteps.push((distance, pos));
+                        }
+                        continue;
+                    }
                 }
                 let clip = if bit == killcam::SND_FOOTSTEP {
                     *footstep_seed = footstep_seed.wrapping_add(1);
@@ -894,7 +920,40 @@ fn receive_remote_sounds(
             }
         }
     }
+
+    // The nearest of the enemies' steps, up to the cap with what's playing.
+    let room = MAX_ENEMY_FOOTSTEPS.saturating_sub(enemy_steps.iter().count());
+    enemy_footsteps.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (_, pos) in enemy_footsteps.into_iter().take(room) {
+        *footstep_seed = footstep_seed.wrapping_add(1);
+        let clips = if crate::water::wading(current_map.0, pos) {
+            &sounds.water_footsteps
+        } else {
+            &sounds.footsteps
+        };
+        // (One "last clip" for the whole horde — not one per zombie.)
+        let Some(clip) = killcam::pick_footstep(clips, &mut enemy_last, *footstep_seed) else {
+            continue;
+        };
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            EnemyFootstep,
+            AudioPlayer::new(clip),
+            Transform::from_translation(pos),
+            crate::positional_playback(Volume::Linear(1.0)),
+        ));
+    }
 }
+
+/// Farthest (m) a `Zombies` enemy's footstep is played from.
+const ENEMY_FOOTSTEP_RANGE: f32 = 15.0;
+/// Most enemy footsteps playing at once.
+const MAX_ENEMY_FOOTSTEPS: usize = 6;
+
+/// A `Zombies` enemy's footstep sound, while it plays (counted against
+/// [`MAX_ENEMY_FOOTSTEPS`]).
+#[derive(Component)]
+struct EnemyFootstep;
 
 // --- remote players (models/characters/soldier.glb, idleWgun looping) ------------
 

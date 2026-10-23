@@ -198,6 +198,12 @@ fn main() {
                 ..default()
             }),
             ..default()
+        }).set(bevy::log::LogPlugin {
+            // `symphonia` notes each clip's unknown WAV chunks (and MP3
+            // duration guesses) at INFO every time a sound starts — dozens
+            // of lines a second with a horde about. (`RUST_LOG` still wins.)
+            filter: format!("{},symphonia=warn", bevy::log::DEFAULT_FILTER),
+            ..default()
         }))
         // Sound playback (kira) — in place of DefaultPlugins' bevy_audio,
         // which is switched off in `Cargo.toml`.
