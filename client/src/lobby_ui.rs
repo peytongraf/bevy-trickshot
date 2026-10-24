@@ -1638,8 +1638,8 @@ fn build_room(
                         for (text, mode) in [
                             ("FREESTYLE", shared::GameMode::Freestyle),
                             ("FREE FOR ALL", shared::GameMode::FreeForAll),
-                            ("ZOMBIES", shared::GameMode::Zombies),
                             ("SEARCH & DESTROY", shared::GameMode::SearchAndDestroy),
+                            ("ZOMBIES", shared::GameMode::Zombies),
                         ] {
                             option_button(row, asset_server, text, MenuBtn::SetMode(mode), mode == lobby.mode);
                         }

@@ -136,10 +136,16 @@ fn fresh_lines(
 }
 
 impl Director {
-    /// Whether no operator in `lobby` is talking right now (`crate::radio`
-    /// waits for that).
+    /// Whether no operator in `lobby` is talking right now — or about to:
+    /// with a line waiting for its speaker to finish, or one scheduled (a
+    /// power-up's, waiting out its announcer; a dog round's or the exfil's,
+    /// its delay). `crate::radio` waits for that.
     pub(crate) fn quiet(&self, lobby: Entity, now: f32) -> bool {
-        !self.voices.values().any(|v| v.lobby == lobby && now < v.busy_until)
+        !self
+            .voices
+            .values()
+            .any(|v| v.lobby == lobby && (now < v.busy_until || v.pending.is_some()))
+            && !self.scheduled.iter().any(|(_, q)| q.lobby == lobby)
     }
 }
 

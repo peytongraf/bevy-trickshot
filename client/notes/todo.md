@@ -1,5 +1,7 @@
 # Done
 
+- Exfil radio waits for Max Ammo lines
+- Zombies last in mode list
 - Box lethals give one
 - Dog rounds spawn steadily
 - Operator lines: 4 min no-repeat
@@ -16,7 +18,6 @@
 
 # Current todo
 
-- On the current lobby screen make zombies the last game mode instead of snd
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
@@ -30,7 +31,6 @@
 - First dog round the 3rd to last dog dropped a nuke, 2nd to last dropped a max ammo, then last dropped a max ammo. Only the last dog should drop a power up which should always be the max ammo and should always drop.
 - Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
-- Exfil line should wait a few seconds since its after a dog round and the max ammo line is usually being said. Maybe make the exfil line wait if the max ammo or another power up line is being said?
 - Exfil is too hard. Enemies should only have their speed increased barely and the speed shouldn't go past the max speed. Maybe spawn in slightly less enemies also. Still have about half as many dogs. The dogs shouldn't all spawn right at the start all together but should be spread out because they make it very hard to survive the exfil.
 
 # FPS lowered to around 50 when this was constantly logged

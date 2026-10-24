@@ -25,6 +25,11 @@ pub const FIRST_BOSS_AFTER_SECS: f32 = 1.0;
 /// off after it's asked for, so an operator's own line about the same thing
 /// (the power, a boss kill) comes first...
 pub const LEAD_IN_SECS: f32 = 1.0;
+/// ...or, for the exfil being there to call, this long (s): it comes as a
+/// dog round ends, with its Max Ammo just dropped — so it holds off while
+/// that's picked up, announced and remarked on (the operators being quiet,
+/// below), rather than talking over the lot.
+pub const EXFIL_AVAILABLE_LEAD_IN_SECS: f32 = 6.0;
 /// ...and how long (s) after that it waits for every operator to finish
 /// talking before it's said over them.
 pub const QUIET_WAIT_SECS: f32 = 5.0;
@@ -162,8 +167,8 @@ impl RadioLine {
     /// he's in the middle of — what the game's timed around (the first dog
     /// and boss rounds wait for him) or what nothing should wait on (the
     /// exfil's climax, over in seconds). Every
-    /// other line waits its turn: [`LEAD_IN_SECS`], him being off air, and
-    /// (for up to [`QUIET_WAIT_SECS`]) the operators being quiet.
+    /// other line waits its turn: its [`Self::lead_in`], him being off air,
+    /// and (for up to [`QUIET_WAIT_SECS`]) the operators being quiet.
     pub fn cuts_in(self) -> bool {
         matches!(
             self,
@@ -182,6 +187,16 @@ impl RadioLine {
     /// stopping the call that it's there to call.
     pub fn cuts_off(self, on_air: Self) -> bool {
         self == Self::ExfilCalled && matches!(on_air, Self::FirstExfilAvailable | Self::ExfilAvailable)
+    }
+
+    /// How long (s) a line that waits its turn holds off after it's asked
+    /// for: [`EXFIL_AVAILABLE_LEAD_IN_SECS`] for the exfil, otherwise
+    /// [`LEAD_IN_SECS`].
+    pub fn lead_in(self) -> f32 {
+        match self {
+            Self::FirstExfilAvailable | Self::ExfilAvailable => EXFIL_AVAILABLE_LEAD_IN_SECS,
+            _ => LEAD_IN_SECS,
+        }
     }
 
     /// Whether it's said at most once a game (asked for again, it's dropped).

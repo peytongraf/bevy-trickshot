@@ -9,8 +9,9 @@
 //!
 //! A line that cuts in ([`RadioLine::cuts_in`]), or cuts off the one he's
 //! saying ([`RadioLine::cuts_off`]), is said at once; any other
-//! waits its turn in the lobby's queue ([`LEAD_IN_SECS`], him off air, the
-//! operators quiet for up to [`QUIET_WAIT_SECS`]) — dropped if what it's
+//! waits its turn in the lobby's queue ([`RadioLine::lead_in`], him off
+//! air, the operators quiet — or about to speak — for up to
+//! [`QUIET_WAIT_SECS`]) — dropped if what it's
 //! about is no longer so by then ([`still_so`]). A once-a-game line
 //! ([`RadioLine::once_per_game`]) asked for again is dropped.
 //!
@@ -23,7 +24,7 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::radio::{RadioLine, INTRO_DELAY_SECS, LEAD_IN_SECS, QUIET_WAIT_SECS};
+use shared::radio::{RadioLine, INTRO_DELAY_SECS, QUIET_WAIT_SECS};
 use shared::{GameChannel, GameMode, Lobby, RadioSaid};
 
 use crate::pvp::ZombieKilled;
@@ -172,7 +173,7 @@ fn direct_radio(
         let Some(&(line, asked)) = air.queue.front() else {
             continue;
         };
-        let from = asked + LEAD_IN_SECS;
+        let from = asked + line.lead_in();
         if now >= from && (quotes.quiet(lobby_e, now) || now >= from + QUIET_WAIT_SECS) {
             air.queue.pop_front();
             said.push((lobby_e, line));
