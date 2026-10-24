@@ -1020,7 +1020,7 @@ fn properties(
 
             ui.add_space(6.0);
             if id == ObjectId::ExfilArea {
-                ui.colored_label(DIM, "During an exfil, only kills from inside it count");
+                ui.colored_label(DIM, "During an exfil, only enemies killed inside it count");
             } else if let ObjectId::PowerLight(_) = id {
                 ui.colored_label(DIM, "Night maps only: off until the power's on in a Zombies game; always on in the other modes");
             } else if let ObjectId::Door(_) = id {

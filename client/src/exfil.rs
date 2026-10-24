@@ -5,8 +5,8 @@
 //! "EXTRACTING" over the icon with a blue ring filling clockwise as it's
 //! held (let go early and it starts over) — then, once it's called, the
 //! white-out every screen gets, the four orange lines fading in on the ground
-//! round the exfil area, and the timer (top centre) with a warning while
-//! we're outside the area (only kills from inside it count). On an exfil
+//! round the exfil area, and the timer (top centre) — only enemies killed
+//! inside the area count, wherever they're shot from. On an exfil
 //! round that isn't called yet, a smaller notice there says it's available.
 //!
 //! Everything reads the replicated `Lobby` (the server runs the exfil —
@@ -410,7 +410,7 @@ fn spawn_exfil_ui(
                     col.spawn((ExfilPromptKey, Text::new(""), heading(22.0), TextColor::WHITE));
                     col.spawn((
                         Text::new(format!(
-                            "Kill every enemy from inside the exfil zone within {}:{:02}.",
+                            "Kill every enemy inside the exfil zone within {}:{:02}.",
                             shared::exfil::TIME_LIMIT_SECS / 60,
                             shared::exfil::TIME_LIMIT_SECS % 60
                         )),
@@ -562,13 +562,8 @@ fn update_exfil_ui(
     // be called.
     let exfil = lobby.map(|l| l.exfil);
     let lines: Option<(String, String, String, Color)> = match (lobby, exfil) {
-        (Some(l), Some(Exfil::Active { secs_left })) => {
-            let inside = shared::exfil::layout(l.map).is_some_and(|(_, area)| area.contains(feet));
-            let hint = if inside {
-                "KILL EVERY ENEMY INSIDE THE EXFIL ZONE"
-            } else {
-                "GET IN THE EXFIL ZONE — KILLS OUTSIDE IT DON'T COUNT"
-            };
+        (Some(_), Some(Exfil::Active { secs_left })) => {
+            let hint = "KILL EVERY ENEMY INSIDE THE EXFIL ZONE";
             let color = if secs_left <= 10 { CARD_RED } else { Color::WHITE };
             Some(("EXFIL".into(), format!("{}:{:02}", secs_left / 60, secs_left % 60), hint.into(), color))
         }
@@ -583,15 +578,11 @@ fn update_exfil_ui(
     let shown = hud && lines.is_some();
     set(vis.p2().into_inner(), shown);
     let Some((title, timer, hint, timer_color)) = lines else { return };
-    let inside = !matches!(exfil, Some(Exfil::Active { .. }))
-        || lobby
-            .and_then(|l| shared::exfil::layout(l.map))
-            .is_some_and(|(_, area)| area.contains(feet));
     for (which, mut text, mut color) in &mut banner {
         let (wanted, wanted_color) = match which {
             BannerText::Title => (title.clone(), EXFIL_BLUE),
             BannerText::Timer => (timer.clone(), timer_color),
-            BannerText::Hint => (hint.clone(), if inside { Color::WHITE } else { EXFIL_ORANGE }),
+            BannerText::Hint => (hint.clone(), Color::WHITE),
         };
         if text.0 != wanted {
             text.0 = wanted;

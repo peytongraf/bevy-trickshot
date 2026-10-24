@@ -7,10 +7,13 @@
 //! ([`ExfilRun::clear_round`]). Then the wave: `crate::zombies::run_rounds`
 //! keeps exactly as many enemies alive or on their way as there are kills
 //! still needed ([`ExfilRun::top_up`]) — so the last one needed is the last
-//! one there — spawning them quickly, a mix of zombies and hellhounds a few
-//! rounds tougher than the round's ([`shared::exfil::ROUND_BOOST`]), plus
-//! [`shared::exfil::bosses`]. Only a kill by a player inside the exfil area
-//! counts ([`ExfilRun::count_kill`]); one from outside it is replaced. Every
+//! one there — spawning them quickly, a mix of zombies (fewer than the
+//! round's own, [`ZOMBIE_SHARE`]) and hellhounds (no closer together than
+//! [`DOG_GAP_SECS`]) a few rounds tougher than the round's
+//! ([`shared::exfil::ROUND_BOOST`]) but barely quicker
+//! ([`shared::exfil::SPEED_ROUND_BOOST`]), plus [`shared::exfil::bosses`].
+//! Only an enemy killed inside the exfil area counts, wherever it was shot
+//! from ([`ExfilRun::count_kill`]); one killed outside it is replaced. Every
 //! kill needed in time and the game ends escaped; time up first, failed.
 //!
 //! The run lives on the lobby's `ZombieRounds` (gone with the game), and
@@ -29,8 +32,13 @@ use crate::zombies::ZombieRounds;
 /// Seconds between the wave's spawns — quick, so the clock's spent
 /// fighting rather than waiting.
 pub(crate) const SPAWN_INTERVAL_SECS: f32 = 0.3;
-/// The chance a spawn is a hellhound rather than a zombie.
+/// The chance a spawn is a hellhound rather than a zombie...
 pub(crate) const DOG_SHARE: f32 = 0.15;
+/// ...but never within this long (s) of the last one, so they're spread
+/// through the wave rather than all on top of the party at its start.
+const DOG_GAP_SECS: f32 = 3.0;
+/// The share of a round's zombies the wave sends.
+const ZOMBIE_SHARE: f32 = 0.8;
 
 /// A called exfil, on its lobby's `ZombieRounds`.
 pub(crate) struct ExfilRun {
@@ -40,7 +48,7 @@ pub(crate) struct ExfilRun {
     cleared: bool,
     /// When time runs out, once the wave's begun.
     ends_at: Option<f32>,
-    /// Kills (from inside the area) still needed...
+    /// Kills (of enemies inside the area) still needed...
     pub(crate) kills_left: u32,
     /// ...and how many of those are bosses.
     pub(crate) bosses_left: u32,
@@ -49,12 +57,15 @@ pub(crate) struct ExfilRun {
     pub(crate) stakes_warned: bool,
     pub(crate) time_warned: bool,
     pub(crate) few_left_warned: bool,
+    /// No hellhound before then ([`DOG_GAP_SECS`] after the last).
+    next_dog_at: f32,
 }
 
 impl ExfilRun {
     /// Called at `now`, on `round`, for `members` players.
     pub(crate) fn new(now: f32, round: u32, members: usize) -> Self {
-        let zombies = crate::zombies::zombies_in_round(round, members);
+        let zombies = crate::zombies::zombies_in_round(round, members) as f32;
+        let zombies = ((zombies * ZOMBIE_SHARE).round() as u32).max(1);
         let dogs = shared::dogs::dogs_in_round(round, members).div_ceil(2);
         let bosses = shared::exfil::bosses(round);
         Self {
@@ -66,7 +77,18 @@ impl ExfilRun {
             stakes_warned: false,
             time_warned: false,
             few_left_warned: false,
+            next_dog_at: 0.0,
         }
+    }
+
+    /// Whether a hellhound may come in now ([`DOG_GAP_SECS`])...
+    pub(crate) fn dog_due(&self, now: f32) -> bool {
+        now >= self.next_dog_at
+    }
+
+    /// ...and one just has.
+    pub(crate) fn dog_sent(&mut self, now: f32) {
+        self.next_dog_at = now + DOG_GAP_SECS;
     }
 
     /// The game's been paused for `dt` seconds: hold every clock.
@@ -114,7 +136,7 @@ impl ExfilRun {
         self.ends_at.is_some_and(|t| now >= t)
     }
 
-    /// A kill: counted only from inside the area (`inside`).
+    /// A kill: counted only if the enemy died inside the area (`inside`).
     pub(crate) fn count_kill(&mut self, inside: bool, boss: bool) {
         if !inside || !self.begun() {
             return;
@@ -127,7 +149,7 @@ impl ExfilRun {
 
     /// How many more bosses and other enemies to send, given those alive
     /// and on their way: exactly enough that every kill still needed has
-    /// one enemy to kill (an enemy killed from outside the area is replaced
+    /// one enemy to kill (an enemy killed outside the area is replaced
     /// this way). `(bosses, others)`.
     pub(crate) fn top_up(&self, bosses_there: u32, others_there: u32) -> (u32, u32) {
         let others_left = self.kills_left.saturating_sub(self.bosses_left);

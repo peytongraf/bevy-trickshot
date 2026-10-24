@@ -223,6 +223,12 @@ impl ZombieRounds {
     pub(crate) fn enemy_round(&self) -> u32 {
         self.round + if self.exfil.is_some() { shared::exfil::ROUND_BOOST } else { 0 }
     }
+
+    /// The round its zombies and dogs are as fast as: the round's own, or
+    /// barely above it for an exfil's wave.
+    pub(crate) fn speed_round(&self) -> u32 {
+        self.round + if self.exfil.is_some() { shared::exfil::SPEED_ROUND_BOOST } else { 0 }
+    }
 }
 
 pub struct ZombiesPlugin;
@@ -283,7 +289,7 @@ pub(crate) fn run_rounds(
     };
     // This tick's kills, for an exfil to count (read here, with the deaths
     // they go with, so the two always agree).
-    let kills: Vec<(Entity, PeerId, PeerId)> = kills.read().map(|k| (k.lobby, k.killer, k.victim)).collect();
+    let kills: Vec<(Entity, Vec3, PeerId)> = kills.read().map(|k| (k.lobby, k.feet, k.victim)).collect();
     for (lobby_e, mut lobby, rounds) in &mut lobbies {
         if !lobby.started || lobby.mode != GameMode::Zombies {
             if rounds.is_some() {
@@ -372,7 +378,8 @@ pub(crate) fn run_rounds(
                 match pick_zombie_spawn(lobby.map, nav, reach.as_deref(), &around, &living, &waiting, &world, seed) {
                     Some((feet, near, window)) => {
                         let round = rounds.enemy_round().max(lobby.start_round).max(1);
-                        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, round, feet, near, window, seed, now);
+                        let speed_round = rounds.speed_round().max(lobby.start_round).max(1);
+                        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, (round, speed_round), feet, near, window, seed, now);
                         rounds.surge -= 1;
                     }
                     None => rounds.surge_next_at = now + SPAWN_RETRY_SECS,
@@ -427,13 +434,11 @@ pub(crate) fn run_rounds(
         // An exfil called: its own wave instead of the round's (see
         // `crate::exfil`).
         if let Some(exfil) = rounds.exfil.as_mut() {
-            // The kills from inside the area count.
+            // The enemies killed inside the area count (wherever the
+            // shot came from).
             if let Some((_, area)) = shared::exfil::layout(lobby.map) {
-                for &(_, killer, victim) in kills.iter().filter(|(l, ..)| *l == lobby_e) {
-                    let inside = players
-                        .iter()
-                        .find(|(id, ..)| id.0 == killer)
-                        .is_some_and(|(_, pose, ..)| area.contains(pose.translation - Vec3::Y * EYE_HEIGHT));
+                for &(_, feet, victim) in kills.iter().filter(|(l, ..)| *l == lobby_e) {
+                    let inside = area.contains(feet);
                     let boss = zombies.iter().any(|(_, id, _, _, boss)| id.0 == victim && boss);
                     exfil.count_kill(inside, boss);
                 }
@@ -624,8 +629,8 @@ pub(crate) fn run_rounds(
         }
 
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
-        let dog = match rounds.exfil {
-            Some(_) => rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
+        let dog = match &rounds.exfil {
+            Some(run) => run.dog_due(now) && rand01(seed ^ 0xd06) < crate::exfil::DOG_SHARE,
             None => shared::dogs::is_dog_round(rounds.round),
         };
         // A zombie comes in through a window near the party if there's one
@@ -668,12 +673,16 @@ pub(crate) fn run_rounds(
                 announced: false,
                 health: None,
             });
+            if let Some(run) = rounds.exfil.as_mut() {
+                run.dog_sent(now);
+            }
             rounds.to_spawn -= 1;
             rounds.next_spawn_at = now + interval;
             continue;
         }
 
-        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, rounds.enemy_round(), feet, near, window, seed, now);
+        let rounds_for = (rounds.enemy_round(), rounds.speed_round());
+        spawn_zombie(&mut commands, &mut next_id, lobby_e, &lobby, rounds_for, feet, near, window, seed, now);
         rounds.to_spawn -= 1;
         rounds.next_spawn_at = now + interval;
     }
@@ -801,7 +810,7 @@ fn spawn_zombie(
     next_id: &mut NextBotId,
     lobby_e: Entity,
     lobby: &Lobby,
-    round: u32,
+    (round, speed_round): (u32, u32),
     feet: Vec3,
     near: Vec3,
     window: Option<usize>,
@@ -812,7 +821,7 @@ fn spawn_zombie(
     next_id.0 += 1;
     // How fast (the round's speed, give or take a little), and so
     // whether it walks or runs.
-    let (runner, speed) = shared::zombies::zombie_speed(round, rand01(seed ^ 0x2a2a));
+    let (runner, speed) = shared::zombies::zombie_speed(speed_round, rand01(seed ^ 0x2a2a));
     let to_player = near - feet;
     let yaw = f32::atan2(-to_player.x, -to_player.z);
     let real = lobby.real_peers();
@@ -962,8 +971,9 @@ fn recycle_far_zombies(
             continue;
         };
         let round = rounds.enemy_round().max(lobby.start_round).max(1);
+        let speed_round = rounds.speed_round().max(lobby.start_round).max(1);
         commands.entity(zombie_e).despawn();
-        let fresh = spawn_zombie(&mut commands, &mut next_id, lp.lobby, lobby, round, to, facing, window, seed, now);
+        let fresh = spawn_zombie(&mut commands, &mut next_id, lp.lobby, lobby, (round, speed_round), to, facing, window, seed, now);
         // As hurt as it was.
         let max = shared::zombies::zombie_health(round);
         let health = combat.health.min(max);

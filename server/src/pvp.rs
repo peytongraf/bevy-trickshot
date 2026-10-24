@@ -233,8 +233,8 @@ pub struct BombBlast {
 pub struct ZombieKilled {
     pub lobby: Entity,
     pub feet: Vec3,
-    /// Who killed it (for an exfil: were they in its area?), and which
-    /// zombie it was.
+    /// Who killed it, and which zombie it was. (`feet` is where it died —
+    /// for an exfil, whether it was in its area.)
     pub killer: PeerId,
     pub victim: PeerId,
     /// What killed it, and what it was (a zombie, a hellhound, a boss) —

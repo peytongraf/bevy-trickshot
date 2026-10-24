@@ -70,8 +70,9 @@ fn bring_in_dogs(
         if lobby.paused {
             continue;
         }
-        // (An exfil's are tougher.)
+        // (An exfil's are tougher, and a little quicker.)
         let round = rounds.enemy_round();
+        let speed_round = rounds.speed_round();
         let mut i = 0;
         while i < rounds.pending_dogs.len() {
             let dog = &mut rounds.pending_dogs[i];
@@ -88,7 +89,7 @@ fn bring_in_dogs(
             let peer = bot_peer(next_id.0);
             next_id.0 += 1;
             let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
-            let speed = shared::dogs::dog_speed(round, rand01(seed ^ 0x2a2a));
+            let speed = shared::dogs::dog_speed(speed_round, rand01(seed ^ 0x2a2a));
             // Quick to pick a player up and quick on its feet.
             let mut skill = crate::zombies::zombie_skill(round);
             skill.reaction_secs = skill.reaction_secs.min(0.3);

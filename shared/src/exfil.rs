@@ -7,10 +7,10 @@
 //! no enemy attacks ([`Exfil::Calling`]) while the round's enemies are
 //! cleared away, then the exfil wave starts ([`Exfil::Active`]) — tougher
 //! than the round it replaces, with dogs and [`bosses`] — and the party has
-//! [`TIME_LIMIT_SECS`] to kill every enemy of it. Only kills by a player
-//! standing inside the exfil area ([`crate::level::ExfilArea`], shown by four
-//! orange lines on the ground once it's called) count; an enemy killed from
-//! outside it is replaced. Kill them all in time and the party escapes
+//! [`TIME_LIMIT_SECS`] to kill every enemy of it. Only enemies killed inside
+//! the exfil area ([`crate::level::ExfilArea`], shown by four orange lines
+//! on the ground once it's called) count — wherever the shot came from, as
+//! in Call of Duty; one killed outside it is replaced. Kill them all in time and the party escapes
 //! ([`Exfil::Escaped`]), the round counting as survived; run out of time and
 //! the game's over ([`Exfil::Failed`]), the round not counting.
 //!
@@ -35,9 +35,12 @@ pub const HOLD_SECS: f32 = 1.0;
 pub const CALLING_SECS: f32 = 2.5;
 /// Seconds the party has to kill the exfil wave.
 pub const TIME_LIMIT_SECS: u32 = 90;
-/// How many rounds tougher (health, speed, sharpness) the exfil wave's
-/// zombies and dogs are than the round it's called on.
+/// How many rounds tougher (health, sharpness) the exfil wave's zombies and
+/// dogs are than the round it's called on...
 pub const ROUND_BOOST: u32 = 3;
+/// ...and how many rounds faster — barely (still never past
+/// [`crate::zombies::ZOMBIE_MAX_SPEED`] / [`crate::dogs::DOG_MAX_SPEED`]).
+pub const SPEED_ROUND_BOOST: u32 = 1;
 /// How far (m, across the ground) from the radio's middle a player can use it.
 pub const USE_RADIUS: f32 = 2.2;
 /// The radio's solid box (half extents, m) at scale 1 — the model

@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: an exfil kill counts when the enemy's inside the zone, wherever you shoot from.",
+        "Zombies: the exfil is easier — fewer zombies, barely faster than the round's, and its hellhounds spread out.",
         "Zombies is now last in the lobby's mode list.",
         "Zombies: the radio's exfil call waits for the Max Ammo and the operators' lines instead of talking over them.",
         "Zombies: a lethal or tactical from the Mystery Box gives one, not a full stack.",
