@@ -2491,6 +2491,22 @@ pub struct ProneBonus {
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RepairBarrier(pub u8);
 
+/// Client → server, on every connect: the client's [`crate::GAME_VERSION`].
+/// The server drops a client on any other version (after telling it,
+/// [`VersionMismatch`]) or one that never says.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ClientHello {
+    pub version: String,
+}
+
+/// Server → the one client only: its [`ClientHello`] named another version
+/// than the server's — `server_version` — so it's about to be dropped. The
+/// client shows why (an update to restart for, or a server being updated).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct VersionMismatch {
+    pub server_version: String,
+}
+
 /// Server → the one player only: their [`RepairBarrier`] put a board back,
 /// for `points` (`0` once they're at the round's
 /// [`crate::windows::REPAIR_POINTS_PER_ROUND`]).
@@ -2775,6 +2791,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BarrierRepaired>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<VersionMismatch>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::revive::PlayerWentDown>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::revive::PlayerRevived>()
@@ -2885,6 +2903,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<BuyDoor>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<RepairBarrier>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ClientHello>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<CallExfil>()
             .add_direction(NetworkDirection::ClientToServer);

@@ -1,4 +1,5 @@
-//! Launch-time self-update.
+//! The self-update check behind the launch update screen
+//! (`update_screen`), run on a background thread so the window stays live.
 //!
 //! Flow (see `.github/workflows/release.yml` for the other half):
 //!
@@ -8,58 +9,111 @@
 //!      * `bevy-trickshot-windows.zip` — just the executable
 //!      * `assets.zip`                 — the whole `assets/` folder
 //!      * `manifest.json`              — `{ "version", "assets_hash" }`
-//! 2. On launch [`bootstrap`] fetches `manifest.json` from the *latest* release.
+//! 2. On launch [`start`] fetches `manifest.json` from the *latest* release.
 //!    If its `version` is newer than this build it downloads the matching
-//!    executable zip, swaps this program's file in place and relaunches. If
+//!    executable zip and swaps this program's file in place. If
 //!    `assets_hash` differs from what's on disk it refreshes `assets/` too.
+//!    Either way the game then needs a restart ([`Progress::Ready`]), which
+//!    the update screen asks for ([`restart`]).
 //!
-//! Everything here fails soft: no network, no releases yet, GitHub down — it logs
-//! a line and lets the game start on the current version. It also no-ops entirely
-//! under `cargo run` (dev) and when `TRICKSHOT_SKIP_UPDATE` is set.
+//! Nothing here fails open: no network, GitHub down, a bad download — it's
+//! [`Progress::Failed`], and the update screen offers RETRY / QUIT rather
+//! than letting an old build play. It's skipped entirely ([`enabled`]) under
+//! `cargo run` (dev — always the latest code and assets) and when
+//! `TRICKSHOT_SKIP_UPDATE` is set.
 
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{env, fs};
 
 /// `owner/repo` the updater reads Releases from. Override with `TRICKSHOT_REPO`.
-/// TODO: confirm this matches where you push — it's a guess from your git config.
 const DEFAULT_REPO: &str = "peytongraf/bevy-trickshot";
+
+/// Seconds to give up on looking a host up / connecting / its first byte.
+/// (A download's body has no overall limit — the assets are big — but the
+/// update screen shows it moving, and the window can always be closed.)
+const RESOLVE_SECS: u64 = 10;
+const CONNECT_SECS: u64 = 10;
+const RESPONSE_SECS: u64 = 20;
+/// The whole manifest fetch, end to end.
+const MANIFEST_SECS: u64 = 30;
 
 type Fallible<T> = Result<T, Box<dyn std::error::Error>>;
 
-/// Call once, first thing in `main()`. May replace this executable and exit the
-/// process (a fresh copy is spawned in its place).
-pub fn bootstrap() {
-    point_cwd_at_assets();
-
-    if env::var_os("CARGO").is_some() || env::var_os("TRICKSHOT_SKIP_UPDATE").is_some() {
-        return;
-    }
-    let Some(target) = ReleaseTarget::current() else {
-        return; // unsupported OS/arch — ship it as-is
-    };
-
-    match try_update(target) {
-        Ok(Outcome::UpToDate) => {}
-        Ok(Outcome::AssetsRefreshed) => {
-            eprintln!("[update] assets refreshed; starting v{}", current_version());
-        }
-        Ok(Outcome::BinaryReplaced) => {
-            eprintln!("[update] updated — restarting…");
-            relaunch();
-        }
-        Err(e) => eprintln!("[update] skipped ({e}); starting v{}", current_version()),
-    }
-}
-
-enum Outcome {
+/// Where the check's got to — written by its thread, read each frame by the
+/// update screen.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Progress {
+    Checking,
+    /// Downloading `what` for version `to`: `done` of `total` bytes (`total`
+    /// 0 when the server doesn't say).
+    Downloading {
+        what: &'static str,
+        to: String,
+        done: u64,
+        total: u64,
+    },
+    /// Version `version` is on disk — restart into it.
+    Ready { version: String },
     UpToDate,
-    AssetsRefreshed,
-    BinaryReplaced,
+    /// Why it couldn't check or finish, for the player.
+    Failed(String),
 }
 
-fn try_update(target: ReleaseTarget) -> Fallible<Outcome> {
+pub(crate) type SharedProgress = Arc<Mutex<Progress>>;
+
+/// Whether this build checks for updates at all: not under `cargo run`, not
+/// with `TRICKSHOT_SKIP_UPDATE` set (a fresh restart into a just-installed
+/// update), and only on a platform there's a release build for.
+pub(crate) fn enabled() -> bool {
+    env::var_os("CARGO").is_none()
+        && env::var_os("TRICKSHOT_SKIP_UPDATE").is_none()
+        && ReleaseTarget::current().is_some()
+}
+
+/// Start the check on its own thread; it reports into what's returned.
+pub(crate) fn start() -> SharedProgress {
+    let progress: SharedProgress = Arc::new(Mutex::new(Progress::Checking));
+    let out = progress.clone();
+    std::thread::spawn(move || {
+        let report = |p: Progress| {
+            if let Ok(mut slot) = out.lock() {
+                *slot = p;
+            }
+        };
+        let result = match ReleaseTarget::current() {
+            Some(target) => try_update(target, &report),
+            None => Ok(Progress::UpToDate),
+        };
+        match result {
+            Ok(done) => report(done),
+            Err(e) => {
+                eprintln!("[update] failed: {e}");
+                report(Progress::Failed(failure_reason(&*e)));
+            }
+        }
+    });
+    progress
+}
+
+/// A failure in words a player can read.
+fn failure_reason(e: &(dyn std::error::Error + 'static)) -> String {
+    let text = e.to_string();
+    if text.contains("404") {
+        "No release was found to check against.".into()
+    } else if text.to_lowercase().contains("timeout") || text.to_lowercase().contains("timed out") {
+        "The update server took too long to answer.".into()
+    } else if text.contains("dns") || text.contains("resolve") || text.contains("onnect") {
+        "Couldn't reach the update server. Check your internet connection.".into()
+    } else {
+        format!("Something went wrong: {text}")
+    }
+}
+
+fn try_update(target: ReleaseTarget, report: &dyn Fn(Progress)) -> Fallible<Progress> {
     let repo = env::var("TRICKSHOT_REPO").unwrap_or_else(|_| DEFAULT_REPO.to_string());
     let base = format!("https://github.com/{repo}/releases/latest/download");
 
@@ -67,38 +121,30 @@ fn try_update(target: ReleaseTarget) -> Fallible<Outcome> {
         let raw = http_text(&format!("{base}/manifest.json"))?;
         serde_json::from_str(&raw)?
     };
+    let to = manifest.version.trim().trim_start_matches('v').to_string();
 
-    let mut binary_replaced = false;
+    let mut changed = false;
     if is_newer(&manifest.version, current_version())? {
-        eprintln!(
-            "[update] v{} → v{} — downloading…",
-            current_version(),
-            manifest.version
-        );
-        let zip = download_to_temp(&format!("{base}/{}", target.binary_zip), target.binary_zip)?;
+        eprintln!("[update] v{} → v{to} — downloading…", current_version());
+        let zip = download_to_temp(&format!("{base}/{}", target.binary_zip), target.binary_zip, "GAME", &to, report)?;
         let new_exe = extract_binary(&zip, target.binary_name)?;
         self_replace::self_replace(&new_exe)?;
         let _ = fs::remove_file(&zip);
         let _ = fs::remove_file(&new_exe);
-        binary_replaced = true;
+        changed = true;
     }
 
-    let mut assets_refreshed = false;
     let have = fs::read_to_string(asset_stamp_path()).unwrap_or_default();
     if have.trim() != manifest.assets_hash && !manifest.assets_hash.is_empty() {
         eprintln!("[update] refreshing assets…");
-        let zip = download_to_temp(&format!("{base}/assets.zip"), "assets.zip")?;
+        let zip = download_to_temp(&format!("{base}/assets.zip"), "assets.zip", "GAME FILES", &to, report)?;
         extract_all(&zip, Path::new("."))?;
         let _ = fs::remove_file(&zip);
         fs::write(asset_stamp_path(), &manifest.assets_hash)?;
-        assets_refreshed = true;
+        changed = true;
     }
 
-    Ok(match (binary_replaced, assets_refreshed) {
-        (true, _) => Outcome::BinaryReplaced,
-        (false, true) => Outcome::AssetsRefreshed,
-        (false, false) => Outcome::UpToDate,
-    })
+    Ok(if changed { Progress::Ready { version: to } } else { Progress::UpToDate })
 }
 
 #[derive(serde::Deserialize)]
@@ -132,23 +178,32 @@ impl ReleaseTarget {
 }
 
 pub(crate) fn current_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    shared::GAME_VERSION
 }
 
 fn is_newer(remote: &str, local: &str) -> Fallible<bool> {
-    let parse = |s: &str| semver::Version::parse(s.trim().trim_start_matches('v'));
-    Ok(parse(remote)? > parse(local)?)
+    Ok(parse_version(remote)? > parse_version(local)?)
 }
 
-/// Make the working directory the one that should hold `assets/`, so Bevy and the
-/// asset stamp resolve no matter where the game was launched from:
+fn parse_version(s: &str) -> Result<semver::Version, semver::Error> {
+    semver::Version::parse(s.trim().trim_start_matches('v'))
+}
+
+/// Whether version `a` is newer than `b` (`false` if either doesn't parse).
+pub(crate) fn newer_than(a: &str, b: &str) -> bool {
+    is_newer(a, b).unwrap_or(false)
+}
+
+/// Make the working directory the one that should hold `assets/`, so the
+/// asset stamp and a download resolve no matter where the game was launched
+/// from. Call first thing in `main()`.
 ///
 /// * `./assets` already here (e.g. `cargo run`, or launched from the game folder)
 ///   → leave the CWD alone.
 /// * otherwise, if there's an `assets/` next to the executable → go there.
 /// * otherwise (fresh install, binary only) → go to the executable's directory so
 ///   the first-run asset download lands beside it.
-fn point_cwd_at_assets() {
+pub(crate) fn point_cwd_at_assets() {
     if Path::new("assets").is_dir() {
         return;
     }
@@ -163,38 +218,59 @@ fn asset_stamp_path() -> PathBuf {
     Path::new("assets").join(".version")
 }
 
-fn relaunch() -> ! {
-    let exe = env::current_exe().expect("current_exe");
+/// Start a fresh copy of the game; the caller then exits this one. With
+/// `check_again` the new one checks for updates on launch (the server said
+/// there's a newer version); without, it skips the check (it's just been
+/// updated, so it's current).
+pub(crate) fn restart(check_again: bool) -> io::Result<()> {
+    let exe = env::current_exe()?;
     let args: Vec<String> = env::args().skip(1).collect();
-    let spawned = Command::new(exe)
-        .args(&args)
-        .env("TRICKSHOT_SKIP_UPDATE", "1")
-        .spawn();
-    match spawned {
-        Ok(_) => std::process::exit(0),
-        Err(e) => {
-            eprintln!("[update] could not relaunch ({e}); continuing on the new version anyway");
-            // The in-memory code is still the old version; safest to just stop.
-            std::process::exit(0);
-        }
+    let mut cmd = Command::new(exe);
+    cmd.args(&args);
+    if check_again {
+        cmd.env_remove("TRICKSHOT_SKIP_UPDATE");
+    } else {
+        cmd.env("TRICKSHOT_SKIP_UPDATE", "1");
     }
+    cmd.spawn().map(|_| ())
 }
 
 // ---- tiny HTTP + zip helpers -------------------------------------------------
 
+fn agent(global: Option<Duration>) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_resolve(Some(Duration::from_secs(RESOLVE_SECS)))
+        .timeout_connect(Some(Duration::from_secs(CONNECT_SECS)))
+        .timeout_recv_response(Some(Duration::from_secs(RESPONSE_SECS)))
+        .timeout_global(global)
+        .build()
+        .into()
+}
+
 fn http_text(url: &str) -> Fallible<String> {
-    let mut resp = ureq::get(url).call()?;
+    let mut resp = agent(Some(Duration::from_secs(MANIFEST_SECS))).get(url).call()?;
     Ok(resp.body_mut().with_config().limit(4 * 1024 * 1024).read_to_string()?)
 }
 
-fn download_to_temp(url: &str, name: &str) -> Fallible<PathBuf> {
-    let mut resp = ureq::get(url).call()?;
+/// Download `url` to a temp file named after `name`, reporting progress as
+/// `what` (for version `to`).
+fn download_to_temp(url: &str, name: &str, what: &'static str, to: &str, report: &dyn Fn(Progress)) -> Fallible<PathBuf> {
+    let mut resp = agent(None).get(url).call()?;
     let total: u64 = resp
         .headers()
         .get("content-length")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let progress = |done: u64| {
+        report(Progress::Downloading {
+            what,
+            to: to.to_string(),
+            done,
+            total,
+        })
+    };
+    progress(0);
 
     let dest = env::temp_dir().join(format!("trickshot-{name}"));
     let mut out = fs::File::create(&dest)?;
@@ -204,7 +280,7 @@ fn download_to_temp(url: &str, name: &str) -> Fallible<PathBuf> {
 
     let mut buf = [0u8; 64 * 1024];
     let mut done: u64 = 0;
-    let mut last_print = 0u64;
+    let mut last_report = 0u64;
     loop {
         let n = reader.read(&mut buf)?;
         if n == 0 {
@@ -212,34 +288,18 @@ fn download_to_temp(url: &str, name: &str) -> Fallible<PathBuf> {
         }
         out.write_all(&buf[..n])?;
         done += n as u64;
-        if done - last_print >= 1024 * 1024 {
-            print_progress(name, done, total);
-            last_print = done;
+        if done - last_report >= 256 * 1024 {
+            progress(done);
+            last_report = done;
         }
     }
-    print_progress(name, done, total);
-    eprintln!();
+    progress(done);
     out.flush()?;
     if total > 0 && done != total {
         let _ = fs::remove_file(&dest);
         return Err(format!("{name} download incomplete ({done} of {total} bytes)").into());
     }
     Ok(dest)
-}
-
-fn print_progress(name: &str, done: u64, total: u64) {
-    let mb = |b: u64| b as f64 / (1024.0 * 1024.0);
-    if total > 0 {
-        eprint!(
-            "\r[update] {name}  {:>5.1}%  ({:.1}/{:.1} MB)   ",
-            done as f64 / total as f64 * 100.0,
-            mb(done),
-            mb(total)
-        );
-    } else {
-        eprint!("\r[update] {name}  {:.1} MB   ", mb(done));
-    }
-    let _ = io::stderr().flush();
 }
 
 /// Extract the whole archive under `dest`.
@@ -273,4 +333,18 @@ fn extract_binary(zip_path: &Path, wanted: &str) -> Fallible<PathBuf> {
         return Ok(out_path);
     }
     Err(format!("`{wanted}` not found inside {}", zip_path.display()).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_with_or_without_a_v() {
+        assert!(newer_than("0.4.8", "0.4.7"));
+        assert!(newer_than("v0.5.0", "0.4.9"));
+        assert!(!newer_than("0.4.7", "0.4.7"));
+        assert!(!newer_than("0.4.6", "v0.4.7"));
+        assert!(!newer_than("garbage", "0.4.7"));
+    }
 }

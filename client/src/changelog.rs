@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "The game now checks for updates on launch and asks you to restart.",
         "Zombies: more zombies each round (more with more players), so more points.",
         "Zombies: first boss now comes on round 9.",
         "Der Tempel: first doors out of spawn are cheaper.",

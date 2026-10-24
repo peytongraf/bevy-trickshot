@@ -230,6 +230,9 @@ pub struct ServerLink {
     pub last_error: Option<String>,
     /// Seconds until the next attempt, while waiting to retry.
     pub retry_in: Option<f32>,
+    /// Don't dial again for now: the server turned us away for being on
+    /// another version (`update_screen`, whose RETRY clears it).
+    pub hold: bool,
 }
 
 impl ServerLink {
@@ -255,6 +258,9 @@ fn retry_connect(
     time: Res<Time>,
     clients: Query<Entity, With<GameClient>>,
 ) {
+    if link.hold {
+        return;
+    }
     let Some(left) = link.retry_in else { return };
     let left = left - time.delta_secs();
     if left > 0.0 {
@@ -312,15 +318,23 @@ fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
     info!("connecting to server at {addr} (attempt {})", link.attempt);
 }
 
+/// Connected: say which version we are — the server only lets a client on
+/// its own version into a lobby (`shared::ClientHello`).
 fn on_connected(
     _t: Trigger<OnAdd, Connected>,
     q: Query<&LocalId, (With<GameClient>, With<Connected>)>,
+    mut hello: Query<&mut TriggerSender<shared::ClientHello>, With<GameClient>>,
     mut link: ResMut<ServerLink>,
 ) {
     if let Ok(local) = q.single() {
         info!("connected to server (local peer {:?})", local.0);
     } else {
         info!("connected to server");
+    }
+    for mut sender in &mut hello {
+        sender.trigger::<shared::LobbyChannel>(shared::ClientHello {
+            version: shared::GAME_VERSION.to_string(),
+        });
     }
     link.attempt = 0;
     link.last_error = None;

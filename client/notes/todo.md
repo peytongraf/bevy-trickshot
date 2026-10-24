@@ -1,5 +1,6 @@
 # Done
 
+- Update screen gates the menu; server version check
 - Zombies pacing: CoD zombie counts, boss from round 9
 - Dog rounds only drop last dog's max ammo
 - Smoke on rebuilt window boards
@@ -30,8 +31,6 @@
 
 # Added
 
-- Add a robust testable way for updates, this should go along with using cloud storage for the assets. As soon as game loads it should show the checking for updates up. Need to look at update ui and ensure updating actually works.
-- Need to also check what determines connecting to prod server and dev server since when developing it probably doesn’t check the remote storage for asset or code updates
 - Could add a text near the top compass that shows the name of the curent zone
 - Add ability to add more power lights to a map
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
@@ -97,7 +96,6 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 
 - On zombies if player somehow goes below a certian point or outside of the map bounds they shold be teleported back in. The spawn point shouldn't spawn the player in where they drop down below the map and have to press the teleport button.
 - If a zombie is stuck all the way inside of a box it can't escape, add a way for it to be pushed out of it.
-- It doesn't show to update anywhere on the client after it is launched and a new release is out.
 
 # Improve / Adjust
 

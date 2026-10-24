@@ -75,6 +75,7 @@ pub use protocol::{
     ThrownFlashBang, FlashBangDrop, ThrowFlashBang, PickUpFlashBang, FlashBangPickedUp, FlashBangDetonated,
     BuyEquipment, EquipmentBought,
 };
+pub use protocol::{ClientHello, VersionMismatch};
 pub use protocol::{ACTOR_STRIDE_TICKS, MATCH_END_FREEZE_SECS, ZOMBIE_CRITICAL_POINTS, ZOMBIE_HIT_DAMAGE, ZOMBIE_KILL_POINTS};
 
 /// Simulation tick rate (Hz). The client and server must agree on this.
@@ -85,7 +86,13 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002c;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002d;
+
+/// This build's version — the workspace `Cargo.toml`'s, which the release
+/// workflow sets from the tag. A client tells the server its version on
+/// connecting ([`ClientHello`]) and the server only keeps clients on exactly
+/// its own ([`VersionMismatch`]).
+pub const GAME_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Port the server listens on unless `PORT` says otherwise.
 pub const DEFAULT_PORT: u16 = 5000;

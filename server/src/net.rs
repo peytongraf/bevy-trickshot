@@ -1,12 +1,21 @@
 //! Transport + connection lifecycle: bind the socket and accept clients. Player
 //! entities are created by [`crate::lobby`] when a game starts, not here.
+//!
+//! Every client says its version on connecting ([`shared::ClientHello`]);
+//! only one on exactly this server's ([`shared::GAME_VERSION`]) goes into
+//! [`VerifiedPeers`], and only those can create or join a lobby
+//! (`lobby::on_create` / `on_join`) — so an out-of-date client can't play
+//! even if its own update check was skipped. One on another version is told
+//! so ([`shared::VersionMismatch`]) and its client shows why.
 
 use bevy::prelude::*;
 use core::net::{Ipv6Addr, SocketAddr};
 use core::time::Duration;
 use std::net::ToSocketAddrs;
 
-use lightyear::connection::client::Connected;
+use std::collections::HashSet;
+
+use lightyear::connection::client::{Connected, Disconnected};
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::server::input::InputSet;
@@ -14,7 +23,7 @@ use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::{DEFAULT_PORT, DEV_PRIVATE_KEY, PROTOCOL_ID, PlayerInput};
+use shared::{ClientHello, GameChannel, VersionMismatch, DEFAULT_PORT, DEV_PRIVATE_KEY, GAME_VERSION, PROTOCOL_ID, PlayerInput};
 
 pub struct ServerNetPlugin;
 
@@ -22,8 +31,51 @@ impl Plugin for ServerNetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_server, start_listening).chain());
         app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSet::ReceiveInputs));
+        app.init_resource::<VerifiedPeers>();
         app.add_observer(on_client_link);
         app.add_observer(on_client_connected);
+        app.add_observer(on_client_hello);
+        app.add_observer(on_client_gone);
+    }
+}
+
+/// The connected clients whose [`ClientHello`] named this server's version —
+/// the only ones `lobby` lets create or join a lobby.
+#[derive(Resource, Default)]
+pub(crate) struct VerifiedPeers(pub(crate) HashSet<PeerId>);
+
+/// A client's version: on this server's, it's let in; on any other, it's
+/// told ([`VersionMismatch`]) and kept out.
+fn on_client_hello(
+    trigger: Trigger<RemoteTrigger<ClientHello>>,
+    server: Single<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut verified: ResMut<VerifiedPeers>,
+) {
+    let peer = trigger.from;
+    let version = trigger.trigger.version.trim();
+    if version == GAME_VERSION {
+        verified.0.insert(peer);
+        return;
+    }
+    verified.0.remove(&peer);
+    warn!("client {peer:?} is on v{version}, not v{GAME_VERSION} — keeping it out of lobbies");
+    let msg = VersionMismatch {
+        server_version: GAME_VERSION.to_string(),
+    };
+    if let Err(e) = sender.send::<_, GameChannel>(&msg, server.into_inner(), &NetworkTarget::Single(peer)) {
+        error!("failed to send version mismatch: {e:?}");
+    }
+}
+
+/// Forget a client's version once it's gone.
+fn on_client_gone(
+    trigger: Trigger<OnAdd, Disconnected>,
+    clients: Query<&RemoteId, With<ClientOf>>,
+    mut verified: ResMut<VerifiedPeers>,
+) {
+    if let Ok(peer) = clients.get(trigger.target()) {
+        verified.0.remove(&peer.0);
     }
 }
 

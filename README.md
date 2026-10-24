@@ -23,14 +23,16 @@ No Rust toolchain needed for this — it's a prebuilt executable.
    * **Linux:** `chmod +x bevy-trickshot && ./bevy-trickshot` (or double-click
      it in a file manager that allows running executables).
    * **Windows:** double-click `bevy-trickshot.exe`. A console window stays
-     open alongside the game — that's normal, it shows update progress.
-4. On first launch it downloads `client/assets/` (~92 MB of art) next to the
-   executable automatically, then connects to the production server
+     open alongside the game — that's normal, it shows the game's log.
+4. On first launch it opens on an update screen that downloads
+   `client/assets/` next to the executable, then asks you to restart. After
+   the restart it connects to the production server
    (`bevy-trickshot-server.fly.dev`) and drops you at the main menu.
 
-After that, just relaunch the same executable to play — it checks for a newer
-release on startup and self-updates if one exists (a code update is a small
-download; the ~92 MB art pack is only re-fetched when it actually changed).
+After that, just relaunch the same executable to play — every launch opens on
+the update screen, which checks for a newer release and, if there is one,
+downloads it and asks for a restart before you can play (a code update is a
+small download; the art pack is only re-fetched when it actually changed).
 
 ## Why this shape
 
@@ -155,13 +157,20 @@ A normal code change is a ~5 MB download; the 92 MB of art is only re-fetched
 when a file in it actually changed (`manifest.json`'s `assets_hash` is a
 content hash, not a build hash).
 
-Update progress prints to the console. On Windows the client keeps a console
-window for this; swap in a proper updater window later if you want (the seam is
-`updater.rs`). To run the local build without the update check:
-`TRICKSHOT_SKIP_UPDATE=1`. `cargo run` never checks.
+Progress shows on the in-game update screen (`client/src/update_screen.rs`,
+the check itself in `updater.rs`). If the check can't finish it blocks with
+RETRY / QUIT rather than starting an old build. To run a local release build
+without the update check: `TRICKSHOT_SKIP_UPDATE=1`. `cargo run` never checks;
+preview the screens from the debug panel's "Update screens" section.
 
-> The very first release must exist before the updater has anything to read —
-> until then it just logs "skipped" and starts the current build.
+**Tag the release and deploy the server together.** The server only lets a
+client on exactly its own version into a lobby (`shared::ClientHello`), so a
+server deployed ahead of its release turns every player away until the
+release is out, and players on the new release are told the server's being
+updated until it's deployed.
+
+Asset storage (moving off `assets.zip` to Cloudflare R2) and splitting map
+models into collision / visual: see `client/notes/assets-plan.md`.
 
 ## Roadmap hooks already in place
 

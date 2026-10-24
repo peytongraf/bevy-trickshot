@@ -141,13 +141,28 @@ fn reject(sender: &mut ServerMultiMessageSender, server: &Server, peer: PeerId, 
 
 // --- observers ----------------------------------------------------------
 
+/// Whether `peer` may create or join a lobby: its client's on this server's
+/// version (`net::VerifiedPeers`). (Without the resource — a test app with
+/// no networking — everyone may.)
+fn verified(verified: &Option<Res<crate::net::VerifiedPeers>>, peer: PeerId) -> bool {
+    let ok = verified.as_ref().is_none_or(|v| v.0.contains(&peer));
+    if !ok {
+        warn!("{peer:?} isn't on this server's version — refused a lobby");
+    }
+    ok
+}
+
 fn on_create(
     trigger: Trigger<RemoteTrigger<CreateLobby>>,
+    peers: Option<Res<crate::net::VerifiedPeers>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
+    if !verified(&peers, peer) {
+        return;
+    }
     let ev = &trigger.trigger;
 
     // Creating implies leaving whatever lobby they were in.
@@ -229,8 +244,10 @@ fn on_create(
     info!("{peer:?} created lobby {entity:?}");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_join(
     trigger: Trigger<RemoteTrigger<JoinLobby>>,
+    peers: Option<Res<crate::net::VerifiedPeers>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
     server: Single<&Server>,
@@ -238,6 +255,9 @@ fn on_join(
     mut commands: Commands,
 ) {
     let peer = trigger.from;
+    if !verified(&peers, peer) {
+        return;
+    }
     let target = trigger.trigger.lobby;
     let player_name = trigger.trigger.player_name.clone();
 

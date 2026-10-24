@@ -87,6 +87,7 @@ mod mystery_box;
 mod zombies_audio;
 mod thrown_knife;
 mod ui;
+mod update_screen;
 mod updater;
 mod util;
 mod vfx;
@@ -117,8 +118,12 @@ use weapons::*;
 /// the (always-loaded) world and the gameplay systems are gated off.
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum AppState {
-    /// Main menu / lobby browser.
+    /// Launch: the update screen (`update_screen`) checks for a newer
+    /// release before anything else — the main menu only comes once it
+    /// says we're up to date.
     #[default]
+    Updating,
+    /// Main menu / lobby browser.
     MainMenu,
     /// In a lobby room, waiting for the leader to start.
     InLobby,
@@ -173,9 +178,9 @@ pub(crate) const HUD_FONT: &str = "fonts/BebasNeue-Regular.ttf";
 pub(crate) const BODY_FONT: &str = "fonts/Inter-Variable.ttf";
 
 fn main() {
-    // Check for a newer release and, if there is one, replace this executable and
-    // relaunch before Bevy starts. No-op under `cargo run`. See src/updater.rs.
-    updater::bootstrap();
+    // Where `assets/` lives, before anything resolves a path. The update check
+    // itself runs in the window, behind the update screen (`update_screen`).
+    updater::point_cwd_at_assets();
 
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -225,6 +230,7 @@ fn main() {
         .add_plugins((
             loading_screen::LoadingScreenPlugin,
             connecting_screen::ConnectingScreenPlugin,
+            update_screen::UpdateScreenPlugin,
             asset_memory::AssetMemoryPlugin,
         ))
         .add_plugins((
