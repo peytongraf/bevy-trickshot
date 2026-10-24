@@ -66,8 +66,11 @@ const RECYCLE_DIST: f32 = 35.0;
 /// ...that none of them can see — a clear line from their eyes to its head
 /// or chest, within this far (m) —...
 const RECYCLE_SEE_DIST: f32 = 100.0;
-/// ...for this long (s) on end is brought back in near them.
+/// ...for this long (s) on end is brought back in near them — a hellhound
+/// sooner: fast as it is, one that long out of touch is stuck or lost, and
+/// the round's waiting on it.
 const RECYCLE_AFTER_SECS: f32 = 6.0;
+const DOG_RECYCLE_AFTER_SECS: f32 = 3.0;
 /// How often (s) each zombie's checked for it.
 const RECYCLE_CHECK_SECS: f32 = 0.5;
 /// Seconds a zombie takes to climb out of the ground.
@@ -612,6 +615,13 @@ pub(crate) fn run_rounds(
         if rounds.to_spawn == 0 || alive + coming >= MAX_ALIVE || now < rounds.next_spawn_at {
             continue;
         }
+        // A dog round's pack comes in a few at a time, not all at once.
+        // (`alive` is all dogs bar a boss carried over from the round
+        // before — near enough.)
+        let dog_round = rounds.exfil.is_none() && shared::dogs::is_dog_round(rounds.round);
+        if dog_round && alive + rounds.pending_dogs.len() >= shared::dogs::DOG_MAX_AT_ONCE {
+            continue;
+        }
 
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
         let dog = match rounds.exfil {
@@ -636,6 +646,8 @@ pub(crate) fn run_rounds(
         // (`ZombieRounds::enemy_round`), part of it's hellhounds.
         let interval = if rounds.exfil.is_some() {
             crate::exfil::SPAWN_INTERVAL_SECS
+        } else if dog_round {
+            shared::dogs::dog_spawn_interval(rounds.round)
         } else {
             spawn_interval(rounds.round)
         };
@@ -910,7 +922,7 @@ fn recycle_far_zombies(
             continue;
         }
         out.0 += step;
-        if out.0 < RECYCLE_AFTER_SECS {
+        if out.0 < if dog { DOG_RECYCLE_AFTER_SECS } else { RECYCLE_AFTER_SECS } {
             continue;
         }
         let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ zombie_e.to_bits() ^ 0x7ec1;

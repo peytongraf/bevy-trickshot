@@ -28,6 +28,20 @@ pub fn dogs_in_round(round: u32, players: usize) -> u32 {
     (2 + 2 * nth + 2 * (players.max(1) as u32 - 1)).min(40)
 }
 
+/// Seconds between one dog's lightning and the next in dog round `round`:
+/// a steady stream through the round — 2.5 on the first, a little quicker
+/// each dog round after, never under 1.5 — rather than the round's zombie
+/// pace, which by the later rounds strikes the whole pack in within a few
+/// seconds (and leaves nothing coming once it's dead).
+pub fn dog_spawn_interval(round: u32) -> f32 {
+    let nth = (round / DOG_ROUND_EVERY).max(1);
+    (2.5 - 0.25 * (nth - 1) as f32).max(1.5)
+}
+
+/// Most hellhounds out (or struck in and on their way) at once in a dog
+/// round; the rest wait their turn.
+pub const DOG_MAX_AT_ONCE: usize = 12;
+
 /// Seconds a dog's lightning strike lasts before it appears — the audible
 /// length of the pre-spawn sound (`audio/zombies/dogs/pre_spawn.mp3`).
 pub const DOG_PRE_SPAWN_SECS: f32 = 5.35;
@@ -87,6 +101,15 @@ mod tests {
         assert!(dogs_in_round(20, 1) > dogs_in_round(10, 1));
         assert!(dogs_in_round(5, 3) > dogs_in_round(5, 1));
         assert!(dogs_in_round(500, 4) <= 40);
+    }
+
+    #[test]
+    fn dogs_come_in_a_steady_stream_quickening_a_little() {
+        assert_eq!(dog_spawn_interval(5), 2.5);
+        assert!(dog_spawn_interval(15) < dog_spawn_interval(5));
+        assert_eq!(dog_spawn_interval(500), 1.5);
+        // (A first dog round's whole pack is in within ~10 s.)
+        assert!(dog_spawn_interval(5) * dogs_in_round(5, 1) as f32 <= 10.0);
     }
 
     #[test]

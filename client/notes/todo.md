@@ -1,5 +1,6 @@
 # Done
 
+- Dog rounds spawn steadily
 - Operator lines: 4 min no-repeat
 - Gun lit by all lights, no player shadow
 - Match start waits for sounds
@@ -27,10 +28,8 @@
 - Radio quote volume should be about 1.25 times as loud
 - First dog round the 3rd to last dog dropped a nuke, 2nd to last dropped a max ammo, then last dropped a max ammo. Only the last dog should drop a power up which should always be the max ammo and should always drop.
 - Got frags from the mystery box after having throwing knives and frag ammo was already at 4 instead of 1.
-- Alter in lower temple that pap is on should be about 1/4 as tall.
 - Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
-- On round 15 dogs all spawned quick but the last 3-4 took a while each to spawn after the last died so I just sat there waiting for the next one multiple times.
 - Exfil line should wait a few seconds since its after a dog round and the max ammo line is usually being said. Maybe make the exfil line wait if the max ammo or another power up line is being said?
 - Exfil is too hard. Enemies should only have their speed increased barely and the speed shouldn't go past the max speed. Maybe spawn in slightly less enemies also. Still have about half as many dogs. The dogs shouldn't all spawn right at the start all together but should be spread out because they make it very hard to survive the exfil.
 
