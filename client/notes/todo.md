@@ -1,10 +1,12 @@
 # Done
 
+- Zombies pacing: CoD zombie counts, boss from round 9
 - Dog rounds only drop last dog's max ammo
 - Smoke on rebuilt window boards
 
 # Current todo
 
+- SETUP DIFFERENT MYSTERY BOX LOCATIONS THEN ADD MOVEMENT OF IT, BYE BYE, ETC
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
@@ -14,7 +16,6 @@
 # Latest play
 
 - Radio quote volume should be about 1.25 times as loud
-- Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
 
 # First person animations

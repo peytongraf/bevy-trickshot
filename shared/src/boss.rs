@@ -30,15 +30,21 @@ use crate::hitbox::Capsule;
 use crate::zombies::zombie_health;
 use crate::ZombieAnim;
 
-/// The first boss round, and every this-many rounds after ([`is_boss_round`]).
+/// The first boss round — late enough (like Cold War's first Megaton,
+/// round 9 or 10) that a party playing Der Tempel well has the points to
+/// reach the power and Pack-a-Punch a gun or buy Double Tap first, though
+/// it comes whether they have or not...
+pub const BOSS_FIRST_ROUND: u32 = 9;
+/// ...and every this-many rounds after ([`is_boss_round`]).
 pub const BOSS_ROUND_EVERY: u32 = 7;
 
-/// Whether `round` brings a boss along with its zombies: every seventh
-/// round — never a dog round (those are hellhounds only) or an exfil round
+/// Whether `round` brings a boss along with its zombies:
+/// [`BOSS_FIRST_ROUND`] and every [`BOSS_ROUND_EVERY`] after (9, 16, 23,
+/// ...) — never a dog round (those are hellhounds only) or an exfil round
 /// (whose exfil wave brings bosses of its own).
 pub fn is_boss_round(round: u32) -> bool {
-    round > 0
-        && round % BOSS_ROUND_EVERY == 0
+    round >= BOSS_FIRST_ROUND
+        && (round - BOSS_FIRST_ROUND) % BOSS_ROUND_EVERY == 0
         && !crate::dogs::is_dog_round(round)
         && !crate::exfil::is_exfil_round(round)
 }
@@ -46,8 +52,8 @@ pub fn is_boss_round(round: u32) -> bool {
 /// How many bosses boss round `round` brings for `players` members: one, a
 /// second with three or more players, and one more every third boss round.
 pub fn bosses_in_round(round: u32, players: usize) -> u32 {
-    let nth = round / BOSS_ROUND_EVERY;
-    (1 + (players.max(1) as u32 - 1) / 2 + nth.saturating_sub(1) / 3).min(4)
+    let nth = round.saturating_sub(BOSS_FIRST_ROUND) / BOSS_ROUND_EVERY + 1;
+    (1 + (players.max(1) as u32 - 1) / 2 + (nth - 1) / 3).min(4)
 }
 
 /// Seconds into a boss round before its boss is struck in — the round's
@@ -174,19 +180,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bosses_come_every_seventh_round_but_never_on_a_dog_round() {
+    fn bosses_come_from_round_nine_every_seventh_round_but_never_on_a_dog_round() {
         assert!(!is_boss_round(0));
-        assert!(!is_boss_round(6));
-        assert!(is_boss_round(7));
-        assert!(is_boss_round(14));
-        assert!(!is_boss_round(35), "35 is a dog round");
+        assert!(!is_boss_round(7));
+        assert!(!is_boss_round(8));
+        assert!(is_boss_round(9));
+        assert!(is_boss_round(16));
+        assert!(is_boss_round(23));
+        assert!(!is_boss_round(30), "30 is a dog round");
         for round in 1..500 {
             if is_boss_round(round) {
                 assert!(!crate::dogs::is_dog_round(round) && !crate::exfil::is_exfil_round(round), "round {round}");
             }
         }
-        assert_eq!(bosses_in_round(7, 1), 1);
-        assert!(bosses_in_round(7, 4) > 1);
+        assert_eq!(bosses_in_round(9, 1), 1);
+        assert!(bosses_in_round(9, 4) > 1);
         assert!(bosses_in_round(500, 8) <= 4);
     }
 

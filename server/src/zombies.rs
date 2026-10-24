@@ -98,10 +98,13 @@ pub fn enemies_in_round(round: u32, players: usize) -> u32 {
 /// so the lobby's starting-points estimate counts the same zombies).
 pub use shared::zombies::zombies_in_round;
 
-/// Most zombies up at once: they keep coming (one per [`spawn_interval`])
-/// until this many are standing, and the rest of the round waits its turn,
-/// each one rising as another dies.
-const MAX_ALIVE: usize = 150;
+/// Most zombies up at once, for `players` members: they keep coming (one
+/// per [`spawn_interval`]) until this many are standing, and the rest of
+/// the round waits its turn, each one rising as another dies. Call of
+/// Duty's 24, and a few more for every player past the first.
+fn max_alive(players: usize) -> usize {
+    24 + 6 * (players.max(1) - 1)
+}
 
 /// Seconds between spawns in `round` — quicker as the rounds go on.
 fn spawn_interval(round: u32) -> f32 {
@@ -367,7 +370,7 @@ pub(crate) fn run_rounds(
         if rounds.surge > 0 && now >= rounds.surge_next_at {
             rounds.surge_next_at = now + shared::power::POWER_SURGE_INTERVAL_SECS;
             let alive = zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive).count();
-            if alive < MAX_ALIVE {
+            if alive < max_alive(lobby.real_count()) {
                 let living = living_members(&players, lobby_e);
                 let around = spawn_anchors(lobby.map, &rounds, &living);
                 let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits() ^ 0x5e6e;
@@ -617,7 +620,7 @@ pub(crate) fn run_rounds(
             }
         }
 
-        if rounds.to_spawn == 0 || alive + coming >= MAX_ALIVE || now < rounds.next_spawn_at {
+        if rounds.to_spawn == 0 || alive + coming >= max_alive(lobby.real_count()) || now < rounds.next_spawn_at {
             continue;
         }
         // A dog round's pack comes in a few at a time, not all at once.
@@ -1644,8 +1647,8 @@ mod tests {
         // Nothing during the opening delay...
         run(&mut app, FIRST_ROUND_DELAY_SECS - 0.5);
         assert!(zombies_of(&mut app).is_empty());
-        // ...then round 1's four, a couple of seconds apart.
-        run(&mut app, 12.0);
+        // ...then round 1's six, a couple of seconds apart.
+        run(&mut app, 16.0);
         let first = zombies_of(&mut app);
         assert_eq!(first.len() as u32, zombies_in_round(1, 1));
         for &z in &first {
@@ -1678,7 +1681,7 @@ mod tests {
     #[test]
     fn a_round_with_only_a_boss_left_moves_on_and_the_boss_with_it() {
         let (mut app, lobby) = game();
-        run(&mut app, FIRST_ROUND_DELAY_SECS + 12.0);
+        run(&mut app, FIRST_ROUND_DELAY_SECS + 16.0);
         let first = zombies_of(&mut app);
         assert_eq!(first.len() as u32, zombies_in_round(1, 1));
         // One of them's a boss; the rest die.
@@ -1739,17 +1742,19 @@ mod tests {
             let r = app.world().get::<ZombieRounds>(lobby).unwrap();
             (r.boss_radio_at, r.pending_bosses.len(), r.bosses_to_spawn)
         };
-        // Start again on round 6, with no zombies coming: it's over at once.
+        // Start again on the round before the first boss round, with no
+        // zombies coming: it's over at once.
+        let first = shared::boss::BOSS_FIRST_ROUND;
         app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
-        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 6;
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = first - 1;
         app.update();
         app.update();
         let mut r = app.world_mut().get_mut::<ZombieRounds>(lobby).unwrap();
         r.to_spawn = 0;
         r.break_until = 0.0;
         app.update();
-        assert_eq!(round(&app), 7);
-        assert!(shared::boss::is_boss_round(7));
+        assert_eq!(round(&app), first);
+        assert!(shared::boss::is_boss_round(first));
         run(&mut app, FIRST_BOSS_ROUND_DELAY_SECS - 0.2);
         assert!(rounds(&app).0.is_some(), "not said yet");
         run(&mut app, 0.4);
@@ -1779,12 +1784,13 @@ mod tests {
         assert_eq!(round(&app), 0, "round 5 held back while he talks");
         run(&mut app, 1.0);
         assert_eq!(round(&app), 5);
-        // On round 7: straight in, his boss warning queued.
+        // On the first boss round: straight in, his boss warning queued.
+        let first = shared::boss::BOSS_FIRST_ROUND;
         app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
-        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = 7;
+        app.world_mut().get_mut::<Lobby>(lobby).unwrap().start_round = first;
         app.update();
         app.update();
-        assert_eq!(round(&app), 7);
+        assert_eq!(round(&app), first);
         assert!(app.world().get::<ZombieRounds>(lobby).unwrap().boss_radio_at.is_some());
     }
 
@@ -2029,7 +2035,7 @@ mod tests {
 
     #[test]
     fn rounds_start_small_and_grow() {
-        assert_eq!(zombies_in_round(1, 1), 4);
+        assert_eq!(zombies_in_round(1, 1), 6);
         assert!(zombies_in_round(2, 1) > zombies_in_round(1, 1));
         assert!(zombies_in_round(10, 1) > zombies_in_round(5, 1));
         // More players, more zombies.

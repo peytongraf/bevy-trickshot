@@ -106,10 +106,38 @@ pub fn zombie_speed(round: u32, roll: f32) -> (bool, f32) {
     (speed >= ZOMBIE_RUN_SPEED, speed)
 }
 
-/// How many zombies round `round` sends, for `players` members.
+/// A round's zombies, before the early-round cut and the extra players...
+const BASE_ZOMBIES: f32 = 24.0;
+/// ...and how many each player past the first adds (half that, solo), both
+/// scaled up with the round — see [`zombies_in_round`].
+const ZOMBIES_PER_PLAYER: f32 = 6.0;
+
+/// How many zombies round `round` sends, for `players` members — Call of
+/// Duty's count (World at War through Cold War): 6, 8, 13, 18, 24 over the
+/// first five rounds solo, then climbing — 33 by round 10, 60 by 20. More
+/// players don't multiply it: each past the first adds
+/// [`ZOMBIES_PER_PLAYER`], scaled with the round (7 in round 1 for two,
+/// 42 in round 10; 10 and 78 for four).
 pub fn zombies_in_round(round: u32, players: usize) -> u32 {
     let round = round.max(1);
-    (4 + 2 * (round - 1) + 2 * (players.max(1) as u32 - 1)).min(60)
+    let r = round as f32;
+    let mut scale = (r / 5.0).max(1.0);
+    if round >= 10 {
+        scale *= r * 0.15;
+    }
+    let players = players.max(1) as f32;
+    let extra = if players <= 1.0 { 0.5 } else { players - 1.0 } * ZOMBIES_PER_PLAYER;
+    // (Each step truncated, as theirs is.)
+    let total = BASE_ZOMBIES + (extra * scale).floor();
+    let early = match round {
+        1 => 0.25,
+        2 => 0.3,
+        3 => 0.5,
+        4 => 0.7,
+        5 => 0.9,
+        _ => 1.0,
+    };
+    (total * early) as u32
 }
 
 /// The share of kills an estimate counts as critical (a headshot or a knife
@@ -214,6 +242,21 @@ mod tests {
     }
 
     #[test]
+    fn rounds_send_call_of_dutys_zombie_counts() {
+        let solo: Vec<u32> = (1..=10).map(|r| zombies_in_round(r, 1)).collect();
+        assert_eq!(solo, [6, 8, 13, 18, 24, 27, 28, 28, 29, 33]);
+        assert_eq!(zombies_in_round(20, 1), 60);
+        assert_eq!(zombies_in_round(1, 2), 7);
+        assert_eq!(zombies_in_round(10, 2), 42);
+        assert_eq!(zombies_in_round(1, 4), 10);
+        assert_eq!(zombies_in_round(10, 4), 78);
+        for r in 1..100 {
+            assert!(zombies_in_round(r + 1, 1) >= zombies_in_round(r, 1), "round {r}");
+            assert!(zombies_in_round(r, 2) > zombies_in_round(r, 1), "round {r}");
+        }
+    }
+
+    #[test]
     fn the_swing_can_be_dodged() {
         assert!(ZOMBIE_ATTACK_HIT_SECS > 0.2 && ZOMBIE_ATTACK_HIT_SECS < ZOMBIE_ATTACK_SECS);
         assert!(ZOMBIE_STOP_DIST < ZOMBIE_ATTACK_RANGE && ZOMBIE_ATTACK_RANGE < ZOMBIE_ATTACK_REACH);
@@ -226,9 +269,9 @@ mod tests {
         for r in 2..60 {
             assert!(estimated_points(r + 1, 1) >= estimated_points(r, 1), "round {r}");
         }
-        // Solo to round 10: about 90 kills — around 11-14k.
+        // Solo to round 10: about 160 kills — around 20k.
         let ten = estimated_points(10, 1);
-        assert!((10_000..16_000).contains(&ten), "{ten}");
+        assert!((17_000..25_000).contains(&ten), "{ten}");
         // A bigger party shares the kills.
         assert!(estimated_points(10, 4) < ten);
         assert!(estimated_points(500, 1) <= MAX_START_POINTS);

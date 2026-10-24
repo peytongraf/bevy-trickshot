@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: more zombies each round (more with more players), so more points.",
+        "Zombies: first boss now comes on round 9.",
+        "Der Tempel: first doors out of spawn are cheaper.",
         "Zombies: dog rounds only drop the last dog's Max Ammo.",
         "Zombies: boards smoke as they float back into a window.",
         "Zombies: an exfil kill counts when the enemy's inside the zone, wherever you shoot from.",
