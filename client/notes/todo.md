@@ -1,5 +1,6 @@
 # Done
 
+- Dog rounds only drop last dog's max ammo
 - Smoke on rebuilt window boards
 
 # Current todo
@@ -13,7 +14,6 @@
 # Latest play
 
 - Radio quote volume should be about 1.25 times as loud
-- First dog round the 3rd to last dog dropped a nuke, 2nd to last dropped a max ammo, then last dropped a max ammo. Only the last dog should drop a power up which should always be the max ammo and should always drop.
 - Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
 

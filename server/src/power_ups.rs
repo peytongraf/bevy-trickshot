@@ -131,13 +131,15 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
 }
 
 /// Maybe drop a power-up where each zombie a player killed fell (never on
-/// a dog round) — or, if a player's close enough to grab it there at once,
+/// a dog round, whose only drop is its last dog's Max Ammo —
+/// `zombies::run_rounds`) — or, if a player's close enough to grab it there at once,
 /// just out of their reach ([`drop_spot`]). One rolled by a zombie still
 /// outside its window waits in [`PendingDrops`] for the next kill inside.
 fn roll_drops(
     time: Res<Time>,
     mut kills: EventReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
+    rounds: Query<&ZombieRounds>,
     colliders: Res<crate::collision::MapColliders>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
     mut pending: ResMut<PendingDrops>,
@@ -154,6 +156,16 @@ fn roll_drops(
             continue;
         };
         if !lobby.started || lobby.mode != GameMode::Zombies {
+            continue;
+        }
+        // A dog round drops nothing but its last dog's Max Ammo. (A dog
+        // outside an exfil is always a dog round's — even when the last
+        // one's kill is read after the round's already moved on.)
+        if rounds.get(ev.lobby).is_ok_and(|r| {
+            r.exfil.is_none() && (shared::dogs::is_dog_round(r.round) || ev.anim.is_dog())
+        }) {
+            // (And nothing owed from the round before turns up in it.)
+            pending.0.remove(&ev.lobby);
             continue;
         }
         let seed = time.elapsed().as_nanos() as u64
