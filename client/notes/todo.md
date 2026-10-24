@@ -1,28 +1,12 @@
 # Done
 
-- Exfil eased: speed, count, dogs spread
-- Exfil radio waits for Max Ammo lines
-- Zombies last in mode list
-- Box lethals give one
-- Dog rounds spawn steadily
-- Operator lines: 4 min no-repeat
-- Gun lit by all lights, no player shadow
-- Match start waits for sounds
-- Connecting screen + auto-retry
-- Only nearest power lights cast shadows
-- Zombie footsteps capped, symphonia logs quieted
-- Merged zombie model into one mesh
-- Full power: shroud, power, doors
-- Debug performance report
-- Search and Destroy mode
-- Wired up new radio quotes
+- Smoke on rebuilt window boards
 
 # Current todo
 
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
-- Can add smoke efffect to boards on windows as the rebuild animation is playing
 - Change settings for when a zombie spawns in the window area and when it climbs out of the ground. On higher rounds more should just spawn out of the ground. Handle this how cold war does it.
 - Cutouts in walls for zombies to climb through
 

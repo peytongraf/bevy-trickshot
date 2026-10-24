@@ -4,7 +4,9 @@
 //! zombies' side. A board a zombie rips off is flung away outside with a
 //! snap; one a player puts back spins up from below outside, hangs just off
 //! its place for a moment and slams home against the wall, shedding a little
-//! dust ([`FloatingBoard`]). All three sounds come from the window.
+//! dust and trailing smoke the whole way, which keeps curling off it for a
+//! moment once it's home ([`FloatingBoard`], [`SettlingBoard`],
+//! [`BoardSmokeSettings`]). All three sounds come from the window.
 //!
 //! Inside and close to a window missing boards, a card says what holding
 //! interact does: put a board back every [`REPAIR_SECS`] — asking the
@@ -32,7 +34,9 @@ use shared::Lobby;
 use crate::keybinds::KeyBindings;
 use crate::net::GameClient;
 use crate::util::{ease, rand01, rand_roll};
-use crate::vfx::{impact_material, ImpactAssets, ImpactParticle, IMPACT_MAX};
+use crate::vfx::{impact_material, ImpactAssets, ImpactParticle, SmokeAssets, IMPACT_MAX};
+use bevy::ecs::system::SystemParam;
+use bevy_egui::egui;
 use bevy::render::view::NoFrustumCulling;
 use crate::zombies_hud::{zombies_game, PERK_CARD_WIDTH};
 use crate::{killcam, menu, revive, AppState, GameSounds, Player, EYE_HEIGHT, HUD_FONT};
@@ -64,12 +68,71 @@ const DUST_TINT: [f32; 3] = [0.72, 0.66, 0.58];
 /// Seconds a torn-off board flies before it's gone.
 const FLING_SECS: f32 = 1.4;
 
+/// The smoke pouring off a board being put back (Call of Duty's): wisps all
+/// along it the whole way in, mostly left hanging where it's been, a puff
+/// as it slams home, and a little more curling off it for a moment after.
+/// Debug panel → "Window boards (Zombies)".
+#[derive(Resource, Clone)]
+pub(crate) struct BoardSmokeSettings {
+    pub(crate) enabled: bool,
+    /// Wisps a second off a board on its way in.
+    pub(crate) rate: f32,
+    /// Wisps in the puff as it slams home.
+    pub(crate) slam_puffs: u32,
+    /// Seconds it keeps smoking once it's home, tapering off...
+    pub(crate) linger_secs: f32,
+    /// ...from this many wisps a second.
+    pub(crate) linger_rate: f32,
+    /// Seconds each wisp hangs (±30%).
+    pub(crate) lifetime: f32,
+    /// Seconds each wisp takes to thicken in.
+    pub(crate) fade_in: f32,
+    /// Wisp size (m) as it leaves the board, and once it's spread out.
+    pub(crate) start_size: f32,
+    pub(crate) end_size: f32,
+    /// How thick a single wisp gets at its thickest.
+    pub(crate) opacity: f32,
+    /// How fast it rises (m/s) once it's settled.
+    pub(crate) rise: f32,
+    /// Random drift (m/s) each wisp leaves with.
+    pub(crate) spread: f32,
+    /// How much of the board's own speed a wisp keeps (0 = left hanging
+    /// where the board was, 1 = carried along with it).
+    pub(crate) trail: f32,
+    /// How quickly a wisp loses its starting speed and just rises.
+    pub(crate) drag: f32,
+    pub(crate) color: [f32; 3],
+}
+
+impl Default for BoardSmokeSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rate: 85.0,
+            slam_puffs: 8,
+            linger_secs: 0.4,
+            linger_rate: 20.0,
+            lifetime: 0.7,
+            fade_in: 0.08,
+            start_size: 0.05,
+            end_size: 0.15,
+            opacity: 0.03,
+            rise: 0.15,
+            spread: 0.03,
+            trail: 0.0,
+            drag: 0.0,
+            color: [0.8, 0.8, 0.82],
+        }
+    }
+}
+
 pub(crate) struct WindowsPlugin;
 
 impl Plugin for WindowsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WindowBlockers>()
             .init_resource::<Repairing>()
+            .init_resource::<BoardSmokeSettings>()
             .add_systems(Startup, load_board_look)
             .add_systems(OnEnter(AppState::InGame), spawn_barrier_card)
             .add_systems(OnExit(AppState::InGame), |mut r: ResMut<Repairing>| *r = Repairing::default())
@@ -79,6 +142,7 @@ impl Plugin for WindowsPlugin {
                     sync_windows,
                     sync_boards,
                     float_boards,
+                    settle_boards,
                     fling_boards,
                     repair_barrier.run_if(menu::game_active.and(killcam::no_killcam).and(revive::up)),
                     stop_repairing.run_if(not(menu::game_active.and(killcam::no_killcam).and(revive::up))),
@@ -181,6 +245,20 @@ struct FloatingBoard {
     age: f32,
     /// Dust puffs owed (fractional).
     dust: f32,
+    /// Smoke wisps owed (fractional).
+    smoke: f32,
+    /// Where it was last frame (its speed, for the smoke it leaves).
+    last: Vec3,
+}
+
+/// A board just slammed home (world transform `at`, `size` m) still smoking
+/// for [`BoardSmokeSettings::linger_secs`] — nothing drawn.
+#[derive(Component)]
+struct SettlingBoard {
+    at: Transform,
+    size: Vec3,
+    age: f32,
+    smoke: f32,
 }
 
 /// A board torn off, flying away.
@@ -238,7 +316,7 @@ fn sync_windows(
 
 /// Take the windows away out of a game.
 fn clear_windows(
-    roots: Query<Entity, Or<(With<WindowRoot>, With<FloatingBoard>, With<FlungBoard>, With<Hammering>)>>,
+    roots: Query<Entity, Or<(With<WindowRoot>, With<FloatingBoard>, With<SettlingBoard>, With<FlungBoard>, With<Hammering>)>>,
     mut blockers: ResMut<WindowBlockers>,
     mut commands: Commands,
 ) {
@@ -340,6 +418,8 @@ fn sync_boards(
                             to: place,
                             age: 0.0,
                             dust: 0.0,
+                            smoke: 0.0,
+                            last: start.translation,
                         },
                         start,
                         Visibility::default(),
@@ -354,7 +434,7 @@ fn sync_boards(
 }
 
 /// Fly each board being put back in — up, hang, slam ([`RISE_SECS`]) —
-/// shedding dust, and slam it home: the sound and a puff.
+/// shedding dust and smoke, and slam it home: the sound and a puff.
 #[allow(clippy::too_many_arguments)]
 fn float_boards(
     time: Res<Time>,
@@ -362,6 +442,7 @@ fn float_boards(
     lobbies: Query<&Lobby>,
     sounds: Option<Res<GameSounds>>,
     dust: Option<Res<ImpactAssets>>,
+    smoke: (Option<Res<SmokeAssets>>, Res<BoardSmokeSettings>),
     particles: Query<(), With<ImpactParticle>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut boards: Query<(Entity, &mut FloatingBoard, &mut Transform)>,
@@ -371,6 +452,8 @@ fn float_boards(
     let map = zombies_game(&local, &lobbies).map(|l| l.map);
     let dt = time.delta_secs();
     let mut budget = IMPACT_MAX.saturating_sub(particles.iter().count());
+    let (smoke_assets, smoke_cfg) = smoke;
+    let smoke = smoke_cfg.enabled.then_some(()).and(dust.as_deref().zip(smoke_assets.as_deref()));
     for (e, mut board, mut t) in &mut boards {
         board.age += dt;
         let age = board.age;
@@ -390,7 +473,19 @@ fn float_boards(
         let size = map
             .and_then(|m| shared::windows::windows(m).get(board.window))
             .map_or(Vec3::new(1.4, 0.1, 0.03), Window::board_size);
+        let velocity = if dt > 0.0 { (t.translation - board.last) / dt } else { Vec3::ZERO };
+        board.last = t.translation;
         if age < FLOAT_SECS {
+            if let Some((quad, smoke_tex)) = smoke {
+                board.smoke += smoke_cfg.rate * dt;
+                while board.smoke >= 1.0 {
+                    board.smoke -= 1.0;
+                    *seq = seq.wrapping_add(1);
+                    let s = seq.wrapping_mul(2_654_435_761);
+                    let at = along_board(&t, size, s);
+                    spawn_board_smoke(&mut commands, &mut materials, quad, smoke_tex, &smoke_cfg, at, velocity * smoke_cfg.trail, 1.0, s, &mut budget);
+                }
+            }
             board.dust += BOARD_DUST_RATE * dt;
             while board.dust >= 1.0 {
                 board.dust -= 1.0;
@@ -415,6 +510,25 @@ fn float_boards(
                 let drift = out * (0.3 + 0.4 * rand01(s ^ 0x1)) + Vec3::Y * 0.2 * rand01(s ^ 0x2);
                 spawn_board_dust(&mut commands, &mut materials, assets, board.to.translation + along, drift, 1.0, s, &mut budget);
             }
+            if let Some((quad, smoke_tex)) = smoke {
+                for i in 0..smoke_cfg.slam_puffs {
+                    let s = s ^ (i + 1).wrapping_mul(0x7f4a_7c15);
+                    let at = along_board(&board.to, size, s);
+                    let drift = out * (0.2 + 0.3 * rand01(s ^ 0x31));
+                    spawn_board_smoke(&mut commands, &mut materials, quad, smoke_tex, &smoke_cfg, at, drift, 1.3, s, &mut budget);
+                }
+            }
+            if smoke.is_some() && smoke_cfg.linger_secs > 0.0 {
+                commands.spawn((
+                    StateScoped(AppState::InGame),
+                    SettlingBoard {
+                        at: board.to,
+                        size,
+                        age: 0.0,
+                        smoke: 0.0,
+                    },
+                ));
+            }
         }
         let opening = map
             .and_then(|m| shared::windows::windows(m).get(board.window))
@@ -429,6 +543,157 @@ fn float_boards(
                 Transform::from_translation(opening),
                 crate::positional_playback(Volume::Linear(1.0)),
             ));
+        }
+    }
+}
+
+/// Keep a board that's just slammed home smoking for a moment, thinning out
+/// ([`BoardSmokeSettings::linger_secs`]), then it's done.
+#[allow(clippy::too_many_arguments)]
+fn settle_boards(
+    time: Res<Time>,
+    cfg: Res<BoardSmokeSettings>,
+    assets: (Option<Res<ImpactAssets>>, Option<Res<SmokeAssets>>),
+    particles: Query<(), With<ImpactParticle>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut boards: Query<(Entity, &mut SettlingBoard)>,
+    mut seq: Local<u32>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    let mut budget = IMPACT_MAX.saturating_sub(particles.iter().count());
+    for (e, mut board) in &mut boards {
+        board.age += dt;
+        let (Some(quad), Some(tex)) = (assets.0.as_deref(), assets.1.as_deref()) else { continue };
+        if !cfg.enabled || board.age >= cfg.linger_secs {
+            commands.entity(e).despawn();
+            continue;
+        }
+        let left = 1.0 - board.age / cfg.linger_secs.max(1.0e-4);
+        board.smoke += cfg.linger_rate * left * dt;
+        while board.smoke >= 1.0 {
+            board.smoke -= 1.0;
+            *seq = seq.wrapping_add(1);
+            let s = seq.wrapping_mul(2_654_435_761);
+            let at = along_board(&board.at, board.size, s);
+            spawn_board_smoke(&mut commands, &mut materials, quad, tex, &cfg, at, Vec3::ZERO, left.max(0.4), s, &mut budget);
+        }
+    }
+}
+
+/// A random point on a board at `t` of `size` (m) — anywhere along it,
+/// across its face.
+fn along_board(t: &Transform, size: Vec3, s: u32) -> Vec3 {
+    t.translation
+        + t.rotation * Vec3::X * (rand01(s ^ 0x41) - 0.5) * size.x
+        + t.rotation * Vec3::Y * (rand01(s ^ 0x42) - 0.5) * size.y
+}
+
+/// A wisp of smoke off a board at `at`, leaving at `drift` and settling into
+/// a slow rise as it spreads out ([`BoardSmokeSettings`]); `strength` scales
+/// how big and thick it is.
+#[allow(clippy::too_many_arguments)]
+fn spawn_board_smoke(
+    commands: &mut Commands,
+    materials: &mut Assets<StandardMaterial>,
+    quad: &ImpactAssets,
+    smoke: &SmokeAssets,
+    cfg: &BoardSmokeSettings,
+    at: Vec3,
+    drift: Vec3,
+    strength: f32,
+    s: u32,
+    budget: &mut usize,
+) {
+    if *budget == 0 {
+        return;
+    }
+    *budget -= 1;
+    let r = |k: u32| rand01(s ^ k) * 2.0 - 1.0;
+    let jitter = Vec3::new(r(0x51), r(0x52), r(0x53)) * cfg.spread;
+    let size = 0.75 + 0.5 * rand01(s ^ 0x54);
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        ImpactParticle {
+            velocity: drift + jitter + Vec3::Y * cfg.rise,
+            // (Negative: it settles into rising at `rise` against the drag.)
+            gravity: -cfg.rise * cfg.drag,
+            drag: cfg.drag,
+            age: 0.0,
+            lifetime: (cfg.lifetime * (0.7 + 0.6 * rand01(s ^ 0x55))).max(0.05),
+            fade_in: cfg.fade_in,
+            roll: rand_roll(s ^ 0x56),
+            spin: r(0x57) * 0.5,
+            scale0: cfg.start_size * size * strength,
+            scale1: cfg.end_size * size * strength,
+            peak_alpha: (cfg.opacity * strength).min(1.0),
+            tint: cfg.color,
+            floor: f32::NEG_INFINITY,
+            hold: 0.0,
+        },
+        Mesh3d(quad.quad.clone()),
+        MeshMaterial3d(materials.add(impact_material(smoke.texture.clone()))),
+        Transform::from_translation(at).with_scale(Vec3::splat(cfg.start_size * size * strength)),
+        NoFrustumCulling,
+        NotShadowCaster,
+    ));
+}
+
+/// The debug panel's "Window boards (Zombies)" section.
+#[derive(SystemParam)]
+pub(crate) struct BoardSmokeDebug<'w> {
+    settings: ResMut<'w, BoardSmokeSettings>,
+}
+
+impl BoardSmokeDebug<'_> {
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+        let s = &mut *self.settings;
+        ui.label("Smoke off a board as it floats up into a window and slams home.");
+        ui.checkbox(&mut s.enabled, "smoke");
+        ui.add(egui::Slider::new(&mut s.rate, 0.0f32..=150.0).text("wisps / s floating"));
+        ui.add(egui::Slider::new(&mut s.slam_puffs, 0..=40).text("wisps on slam"));
+        ui.add(egui::Slider::new(&mut s.linger_secs, 0.0f32..=4.0).text("keeps smoking after (s)"));
+        ui.add(egui::Slider::new(&mut s.linger_rate, 0.0f32..=80.0).text("wisps / s after"));
+        ui.separator();
+        ui.add(egui::Slider::new(&mut s.lifetime, 0.1f32..=5.0).text("wisp hangs (s)"));
+        ui.add(egui::Slider::new(&mut s.fade_in, 0.0f32..=1.0).text("wisp fade in (s)"));
+        ui.add(egui::Slider::new(&mut s.start_size, 0.01f32..=1.0).text("size leaving board (m)"));
+        ui.add(egui::Slider::new(&mut s.end_size, 0.05f32..=3.0).text("size spread out (m)"));
+        ui.add(egui::Slider::new(&mut s.opacity, 0.0f32..=1.0).text("opacity"));
+        ui.add(egui::Slider::new(&mut s.rise, 0.0f32..=2.0).text("rise (m/s)"));
+        ui.add(egui::Slider::new(&mut s.spread, 0.0f32..=1.0).text("spread (m/s)"));
+        ui.add(egui::Slider::new(&mut s.trail, 0.0f32..=1.0).text("follows board"));
+        ui.add(egui::Slider::new(&mut s.drag, 0.0f32..=8.0).text("drag"));
+        ui.horizontal(|ui| {
+            ui.color_edit_button_rgb(&mut s.color);
+            ui.label("colour");
+        });
+        if ui.button("Copy settings to console").clicked() {
+            info!(
+                "board smoke: enabled: {}, rate: {:.2}, slam_puffs: {}, linger_secs: {:.2}, linger_rate: {:.2}, \
+                 lifetime: {:.2}, fade_in: {:.2}, start_size: {:.3}, end_size: {:.3}, opacity: {:.3}, rise: {:.3}, \
+                 spread: {:.3}, trail: {:.2}, drag: {:.2}, color: [{:.2}, {:.2}, {:.2}]",
+                s.enabled,
+                s.rate,
+                s.slam_puffs,
+                s.linger_secs,
+                s.linger_rate,
+                s.lifetime,
+                s.fade_in,
+                s.start_size,
+                s.end_size,
+                s.opacity,
+                s.rise,
+                s.spread,
+                s.trail,
+                s.drag,
+                s.color[0],
+                s.color[1],
+                s.color[2],
+            );
+        }
+        if ui.button("Reset").clicked() {
+            *s = BoardSmokeSettings::default();
         }
     }
 }
