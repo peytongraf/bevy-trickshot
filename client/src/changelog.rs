@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Your gun and arms are now lit by lamps and other lights, not just the sun — no more black gun at night.",
+        "Removed the player's own shadow.",
+        "Shipment (night) now has a night sky.",
         "Games wait for everyone's sounds to finish loading before starting.",
         "Connecting screen on launch, with retries and what went wrong if the server can't be reached.",
         "Debug mode: a performance report for each game, on the results screen.",

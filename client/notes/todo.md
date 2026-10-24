@@ -1,5 +1,6 @@
 # Done
 
+- Gun lit by all lights, no player shadow
 - Match start waits for sounds
 - Connecting screen + auto-retry
 - Only nearest power lights cast shadows
@@ -22,7 +23,6 @@
 
 # Latest play
 
-- Weapon / arms fps model looks very dark in low light when it seemingly should be lit up more
 - Radio quote volume should be about 1.25 times as loud
 - First dog round the 3rd to last dog dropped a nuke, 2nd to last dropped a max ammo, then last dropped a max ammo. Only the last dog should drop a power up which should always be the max ammo and should always drop.
 - Got frags from the mystery box after having throwing knives and frag ammo was already at 4 instead of 1.

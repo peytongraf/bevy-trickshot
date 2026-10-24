@@ -452,17 +452,12 @@ fn end_spectating(
     spectate: &mut Spectate,
     restore: bool,
     rig: &mut Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
-    capsule: &mut Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
 ) {
     if let Some((player, head)) = spectate.saved.take() {
         if restore {
             for (mut t, is_player) in rig.iter_mut() {
                 *t = if is_player { player } else { head };
             }
-        }
-        // (Its shadow hung under the camera otherwise.)
-        for mut v in capsule.iter_mut() {
-            *v = Visibility::Inherited;
         }
     }
     spectate.target = None;
@@ -498,11 +493,10 @@ fn spectate(
     mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
     mut state: ResMut<Spectate>,
     mut rig: Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
-    mut capsule: Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
 ) {
     if respawned.read().count() > 0 {
         state.back = true;
-        end_spectating(&mut state, false, &mut rig, &mut capsule);
+        end_spectating(&mut state, false, &mut rig);
     }
     let me = local.iter().next().map(|l| l.0);
     let snd = crate::search_destroy::snd_game(&local, &lobbies);
@@ -550,7 +544,7 @@ fn spectate(
         && menu.screen != menu::Screen::MatchResults;
     if !want {
         if state.active() {
-            end_spectating(&mut state, true, &mut rig, &mut capsule);
+            end_spectating(&mut state, true, &mut rig);
         }
         return;
     }
@@ -565,9 +559,6 @@ fn spectate(
             }
         }
         state.saved = Some((player, head));
-        for mut v in &mut capsule {
-            *v = Visibility::Hidden;
-        }
     }
     // Keep to whoever we're on while they're standing; left click moves on.
     let at = state.target.and_then(|t| standing.iter().position(|&p| p == t));
@@ -614,9 +605,8 @@ fn spectate(
 fn stop_spectating_on_exit(
     mut state: ResMut<Spectate>,
     mut rig: Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
-    mut capsule: Query<&mut Visibility, With<crate::player::PlayerBodyCapsule>>,
 ) {
-    end_spectating(&mut state, true, &mut rig, &mut capsule);
+    end_spectating(&mut state, true, &mut rig);
     *state = Spectate::default();
 }
 

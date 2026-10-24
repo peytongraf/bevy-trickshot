@@ -146,6 +146,9 @@ fn sync_local_flashlight(
                 Transform::from_translation(settings.offset),
                 visibility(on),
                 ChildOf(cam),
+                // The world only, not the gun (`view_model_light`): it
+                // shines from right beside it and would blow it out.
+                bevy::render::view::RenderLayers::layer(0),
             ));
         }
         return;

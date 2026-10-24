@@ -157,10 +157,6 @@ const VIEW_MODEL_RENDER_LAYER: usize = 1;
 /// Render layer for the reticle quad — only the scope camera renders it, so the
 /// crosshair lives inside the scope image and nowhere else.
 const SCOPE_OVERLAY_LAYER: usize = 2;
-/// Render layer for the player's body capsule — a shadow-only stand-in so the
-/// sun casts a humanoid shadow instead of just the floating sniper + arms.
-/// No camera renders this layer; only the sun's `RenderLayers` includes it.
-const PLAYER_BODY_LAYER: usize = 3;
 /// Empty render layer for the HUD camera, which renders after everything else
 /// (including the view-model camera) so the UI is never covered by the gun.
 pub(crate) const UI_LAYER: usize = 4;
@@ -310,6 +306,7 @@ fn main() {
         .add_plugins((wall_buys::WallBuysPlugin, weapon_drops::WeaponDropsPlugin, mystery_box::MysteryBoxPlugin))
         .add_plugins(pause::PausePlugin)
         .add_plugins(FlashlightPlugin)
+        .add_plugins(player::ViewModelLightPlugin)
         .add_plugins(DrinkArmsPlugin)
         .add_plugins(MantleArmsPlugin)
         .add_plugins(ExplosionPlugin)
@@ -917,8 +914,9 @@ fn setup_world(
             ..default()
         }
         .build(),
-        // Light the world, the view model, and the (invisible) body capsule.
-        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER, PLAYER_BODY_LAYER]),
+        // Light the world and the view model (which casts no shadows —
+        // `player::view_model_light`).
+        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER]),
     ));
 }
 
@@ -1043,20 +1041,6 @@ fn setup_player(
             Visibility::default(),
         ))
         .with_children(|player| {
-            // Invisible body capsule: no camera renders `PLAYER_BODY_LAYER`, but
-            // the sun does, so it casts a humanoid shadow instead of a floating
-            // gun + arms.
-            player.spawn((
-                PlayerBodyCapsule,
-                Mesh3d(meshes.add(Capsule3d::new(
-                    BODY_CAPSULE_RADIUS,
-                    BODY_CAPSULE_HEIGHT - 2.0 * BODY_CAPSULE_RADIUS,
-                ))),
-                MeshMaterial3d(materials.add(Color::srgb(0.5, 0.5, 0.5))),
-                Transform::from_xyz(0.0, BODY_CAPSULE_HEIGHT / 2.0 - EYE_HEIGHT, 0.0),
-                RenderLayers::layer(PLAYER_BODY_LAYER),
-            ));
-
             player
                 .spawn((PlayerHead, Transform::IDENTITY, Visibility::default()))
                 .with_children(|head| {

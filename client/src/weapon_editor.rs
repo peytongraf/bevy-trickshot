@@ -42,7 +42,7 @@ use crate::avatars::held_weapon::{
     WeaponGrips, BAKED_GUN_CENTER, BAKED_GUN_TURN_DEG, GRIPS_DIR, GRIPS_FILE,
 };
 use crate::pap::PapCamoPart;
-use crate::player::{PlayerBodyCapsule, PlayerHead, ViewModelCamera, WorldModelCamera};
+use crate::player::{PlayerHead, ViewModelCamera, WorldModelCamera};
 use crate::weapons::{CameraRecoil, CameraShake};
 use crate::{
     AppState, HeldWeapon, Player, RemoteAvatarSettings, SoldierAnimState, SoldierAnimationPlayer, SoldierAnimations,
@@ -292,11 +292,10 @@ struct StandSoldier;
 
 /// What the editor borrowed or changed, to put back on the way out: the
 /// player rig the camera rides (so a game starts from where it would have),
-/// the body capsule's shadow, and the light and fog.
+/// and the light and fog.
 #[derive(Resource, Default)]
 struct StudioBackup {
     transforms: Vec<(Entity, Transform)>,
-    capsule: Option<(Entity, Visibility)>,
     look: Option<(f32, FogFalloff)>,
 }
 
@@ -309,7 +308,6 @@ fn enter(
         (Entity, &mut Transform, Has<Player>, Has<PlayerHead>),
         Or<(With<Player>, With<PlayerHead>, With<CameraShake>, With<CameraRecoil>, With<WorldModelCamera>)>,
     >,
-    mut capsule: Query<(Entity, &mut Visibility), With<PlayerBodyCapsule>>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     mut ambient: ResMut<AmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
@@ -335,12 +333,6 @@ fn enter(
             *t = Transform::IDENTITY;
         }
     }
-    // (Its shadow would hang under the camera.)
-    backup.capsule = capsule.iter_mut().next().map(|(e, mut v)| {
-        let was = *v;
-        *v = Visibility::Hidden;
-        (e, was)
-    });
     // No gun in the view.
     for mut cam in &mut view_model {
         cam.is_active = false;
@@ -392,7 +384,6 @@ fn exit(
     mut grips: ResMut<WeaponGrips>,
     mut backup: ResMut<StudioBackup>,
     mut transforms: Query<&mut Transform>,
-    mut visibility: Query<&mut Visibility>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     mut ambient: ResMut<AmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
@@ -405,11 +396,6 @@ fn exit(
     for (e, t) in backup.transforms.drain(..) {
         if let Ok(mut now) = transforms.get_mut(e) {
             *now = t;
-        }
-    }
-    if let Some((e, v)) = backup.capsule.take() {
-        if let Ok(mut now) = visibility.get_mut(e) {
-            *now = v;
         }
     }
     for mut cam in &mut view_model {

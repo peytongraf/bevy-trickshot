@@ -58,7 +58,7 @@ use shared::MapId;
 
 use crate::ammo_crate::{AmmoCrateSettings, AMMO_CRATE_MODEL};
 use crate::pap::{PapSettings, PAP_MODEL};
-use crate::player::{PlayerBodyCapsule, PlayerHead, ViewModelCamera, WorldModelCamera};
+use crate::player::{PlayerHead, ViewModelCamera, WorldModelCamera};
 use crate::power::{PowerLeverSettings, LEVER_MODEL};
 use crate::weapons::{CameraRecoil, CameraShake};
 use crate::zombies_hud::{machine_model, perk_color, PerkMachineSettings, WUNDERFIZZ_MODEL};
@@ -1240,7 +1240,6 @@ impl Editor {
 #[derive(Resource, Default)]
 struct RigBackup {
     transforms: Vec<(Entity, Transform)>,
-    capsule: Option<(Entity, Visibility)>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -1252,7 +1251,6 @@ fn enter(
         (Entity, &mut Transform, Has<Player>, Has<PlayerHead>),
         Or<(With<Player>, With<PlayerHead>, With<CameraShake>, With<CameraRecoil>, With<WorldModelCamera>)>,
     >,
-    mut capsule: Query<(Entity, &mut Visibility), With<PlayerBodyCapsule>>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     lever: Res<PowerLeverSettings>,
     window: Single<&mut Window, With<bevy::window::PrimaryWindow>>,
@@ -1272,12 +1270,6 @@ fn enter(
             *t = Transform::IDENTITY;
         }
     }
-    // (Its shadow would hang under the camera.)
-    backup.capsule = capsule.iter_mut().next().map(|(e, mut v)| {
-        let was = *v;
-        *v = Visibility::Hidden;
-        (e, was)
-    });
     // No gun in the view.
     for mut cam in &mut view_model {
         cam.is_active = false;
@@ -1290,7 +1282,6 @@ fn exit(
     mut backup: ResMut<RigBackup>,
     mut lighting: ResMut<LightingBackup>,
     mut transforms: Query<&mut Transform>,
-    mut visibility: Query<&mut Visibility>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     mut ambient: ResMut<AmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
@@ -1301,11 +1292,6 @@ fn exit(
     for (e, t) in backup.transforms.drain(..) {
         if let Ok(mut now) = transforms.get_mut(e) {
             *now = t;
-        }
-    }
-    if let Some((e, v)) = backup.capsule.take() {
-        if let Ok(mut now) = visibility.get_mut(e) {
-            *now = v;
         }
     }
     for mut cam in &mut view_model {
