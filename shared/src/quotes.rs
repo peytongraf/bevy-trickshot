@@ -164,6 +164,10 @@ impl Quote {
 pub const GRACE_SECS: f32 = 1.5;
 /// Quiet (s) between two of one speaker's lines.
 pub const GAP_SECS: f32 = 0.3;
+/// The least time (s) before the very same line (the same file) is heard
+/// again in a game — a fresh one is picked, and with none left the moment
+/// goes unremarked.
+pub const LINE_COOLDOWN_SECS: f32 = 240.0;
 /// How long (s) after a dog round begins, and after the exfil's called,
 /// someone says so (the leader can change both — [`crate::SetQuoteDelays`]).
 pub const DOG_ROUND_DELAY_SECS: f32 = 4.0;

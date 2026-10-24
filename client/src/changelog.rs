@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: operators don't repeat the same line within 4 minutes.",
         "Your gun and arms are now lit by lamps and other lights, not just the sun — no more black gun at night.",
         "Removed the player's own shadow.",
         "Shipment (night) now has a night sky.",

@@ -10,6 +10,10 @@
 //!   request for a speaker in a tick counts.
 //! * Each quote's [`Rule`](shared::quotes::Rule): the chance it's said at
 //!   all, and how long before the same speaker says it again.
+//! * No line (the same file) is heard twice in a game within
+//!   [`LINE_COOLDOWN_SECS`]: a fresh one is picked, and if every line for
+//!   the moment has been heard lately, nothing's said (by anyone — "anyone"
+//!   is picked among the players with a fresh line).
 //! * Nobody talks over themselves: a speaker's busy until their line's
 //!   done (the lengths are in `shared::quotes`). A line asked for while
 //!   they're still talking waits — said the moment they finish if that's
@@ -31,7 +35,9 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
-use shared::quotes::{lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, GRACE_SECS};
+use shared::quotes::{
+    lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, GRACE_SECS, LINE_COOLDOWN_SECS,
+};
 use shared::{GameChannel, GameMode, Lobby, PlayerId, QuoteSaid, RequestQuote, SetQuoteDelays};
 
 use crate::pvp::{HitCause, PlayerCombat, ZombieKilled};
@@ -104,6 +110,29 @@ pub(crate) struct Director {
     delays: HashMap<Entity, (f32, f32)>,
     /// Quotes waiting on their delay: when, and what.
     scheduled: Vec<(f32, SayQuote)>,
+    /// When each line (its path) was last heard in each lobby's game.
+    heard: HashMap<(Entity, &'static str), f32>,
+}
+
+/// Which of `speaker`'s lines for `quote` haven't been heard in `lobby_e`'s
+/// game for [`LINE_COOLDOWN_SECS`] (indices into [`lines`]).
+fn fresh_lines(
+    heard: &HashMap<(Entity, &'static str), f32>,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    speaker: PeerId,
+    quote: Quote,
+    now: f32,
+) -> Vec<usize> {
+    let Some(member) = lobby.members.iter().find(|m| m.peer == speaker) else {
+        return Vec::new();
+    };
+    lines(member.operator, quote)
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| heard.get(&(lobby_e, l.path)).is_none_or(|t| now - t >= LINE_COOLDOWN_SECS))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 impl Director {
@@ -220,6 +249,7 @@ pub(crate) fn direct_quotes(
     director.voices.retain(|_, v| running(v.lobby).is_some());
     director.delays.retain(|e, _| lobbies.contains(*e));
     director.scheduled.retain(|(_, q)| running(q.lobby).is_some());
+    director.heard.retain(|(e, _), _| running(*e).is_some());
 
     // This tick's asks: new ones (a delayed one put off), and those due.
     let mut asks: Vec<SayQuote> = Vec::new();
@@ -264,8 +294,14 @@ pub(crate) fn direct_quotes(
             Speaker::Player(peer) if lobby.has(peer) && !is_bot_peer(peer) => peer,
             Speaker::Player(_) => continue,
             Speaker::Anyone => {
-                // (Teammate bots too — they've an operator's voice.)
-                let real: Vec<PeerId> = lobby.members.iter().map(|m| m.peer).collect();
+                // (Teammate bots too — they've an operator's voice. Only
+                // those with a line for it not heard lately.)
+                let real: Vec<PeerId> = lobby
+                    .members
+                    .iter()
+                    .map(|m| m.peer)
+                    .filter(|p| !fresh_lines(&director.heard, ask.lobby, lobby, *p, ask.quote, now).is_empty())
+                    .collect();
                 let up: Vec<PeerId> = real.iter().copied().filter(|p| alive(*p)).collect();
                 let pool = if up.is_empty() { real } else { up };
                 if pool.is_empty() {
@@ -291,6 +327,9 @@ pub(crate) fn direct_quotes(
         });
         voice.lobby = ask.lobby;
         if voice.said.get(&ask.quote).is_some_and(|t| now - t < rule.cooldown) {
+            continue;
+        }
+        if fresh_lines(&director.heard, ask.lobby, lobby, speaker, ask.quote, now).is_empty() {
             continue;
         }
         if now >= voice.busy_until {
@@ -320,11 +359,15 @@ pub(crate) fn direct_quotes(
             continue;
         };
         let options = lines(member.operator, quote);
-        if options.is_empty() {
+        // (Checked again: a line that waited, or two speakers with the same
+        // operator this tick, may have had theirs heard since.)
+        let fresh = fresh_lines(&director.heard, lobby_e, lobby, speaker, quote, now);
+        if fresh.is_empty() {
             continue;
         }
         let r = roll(now, speaker, quote, 0x11e);
-        let line = ((r * options.len() as f32) as usize).min(options.len() - 1);
+        let line = fresh[((r * fresh.len() as f32) as usize).min(fresh.len() - 1)];
+        director.heard.insert((lobby_e, options[line].path), now);
         if let Some(voice) = director.voices.get_mut(&speaker) {
             voice.busy_until = now + options[line].secs + GAP_SECS;
             voice.said.insert(quote, now);
