@@ -4,7 +4,7 @@
 //! spins it ([`shared::SpinMysteryBox`]) or takes the prize
 //! ([`shared::TakeBoxPrize`] → [`shared::BoxPrizeTaken`]): a gun swaps for
 //! the weapon in hand (dropped where we stand, like a wall buy), a lethal
-//! fills us up with it.
+//! or tactical is one more of it (any other kind of its sort dropped).
 //!
 //! Everyone sees a spin, drawn from the lobby's replicated
 //! [`Lobby::mystery_box`]: the lid swings open (its clip, scrubbed to the
@@ -727,7 +727,8 @@ fn use_mystery_box(
 }
 
 /// The server handed us our prize: a gun's in our hands (full), drawn, or
-/// we're full of the lethal — and the pickup sound, just for us.
+/// one more of the lethal / tactical (up to the most carried) — and the
+/// pickup sound, just for us.
 fn receive_prizes(
     mut receivers: Query<&mut MessageReceiver<shared::BoxPrizeTaken>>,
     mut weapon: ResMut<Weapon>,
@@ -737,11 +738,11 @@ fn receive_prizes(
     for mut rx in &mut receivers {
         for got in rx.receive() {
             match got.prize {
-                BoxPrize::ThrowingKnife => weapon.fill_lethal(Lethal::ThrowingKnife),
-                BoxPrize::Molotov => weapon.fill_lethal(Lethal::Molotov),
-                BoxPrize::MonkeyBomb => weapon.fill_lethal(Lethal::MonkeyBomb),
-                BoxPrize::Frag => weapon.fill_lethal(Lethal::Frag),
-                BoxPrize::FlashBang => weapon.fill_lethal(Lethal::FlashBang),
+                BoxPrize::ThrowingKnife => weapon.add_one(Lethal::ThrowingKnife),
+                BoxPrize::Molotov => weapon.add_one(Lethal::Molotov),
+                BoxPrize::MonkeyBomb => weapon.add_one(Lethal::MonkeyBomb),
+                BoxPrize::Frag => weapon.add_one(Lethal::Frag),
+                BoxPrize::FlashBang => weapon.add_one(Lethal::FlashBang),
                 gun => {
                     if let Some(gun) = gun.gun() {
                         weapon.take_into_slot(got.slot as usize, SlotWeapon::Gun(gun), None);

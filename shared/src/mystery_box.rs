@@ -3,8 +3,8 @@
 //! of it, and it settles on one ([`roll`]) — the better the prize, the
 //! rarer, though the odds lean toward the good ones as the rounds go on
 //! ([`weights`]). The one who paid can take it ([`crate::TakeBoxPrize`]) —
-//! a gun swaps for the weapon in their hands, a lethal fills them up with
-//! it — or leave it, and it sinks back in and the lid shuts.
+//! a gun swaps for the weapon in their hands, a lethal or tactical is one
+//! more of it (the other kind of its sort dropped) — or leave it, and it sinks back in and the lid shuts.
 //!
 //! Where it stands is the map's layout's ([`crate::level::ZombiesLayout::mystery_box`],
 //! placed in the level editor); it never moves. The server runs each spin

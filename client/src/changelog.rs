@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.8",
     &[
+        "Zombies: a lethal or tactical from the Mystery Box gives one, not a full stack.",
         "Zombies: dog rounds' hellhounds come in a steady stream instead of all at once, and stuck ones come back sooner.",
         "Zombies: operators don't repeat the same line within 4 minutes.",
         "Your gun and arms are now lit by lamps and other lights, not just the sun — no more black gun at night.",

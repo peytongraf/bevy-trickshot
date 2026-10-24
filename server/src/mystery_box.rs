@@ -99,8 +99,9 @@ fn on_spin(
 }
 
 /// The member who spun takes the prize on offer, at the box: a gun goes in
-/// the slot in their hands (the weapon there's dropped), a lethal fills
-/// them up (the other kind they carry is dropped around them).
+/// the slot in their hands (the weapon there's dropped), a lethal or
+/// tactical is one more of it (the other kind of its sort they carry is
+/// dropped around them).
 #[allow(clippy::too_many_arguments)]
 fn on_take_prize(
     trigger: Trigger<RemoteTrigger<TakeBoxPrize>>,

@@ -1,5 +1,6 @@
 # Done
 
+- Box lethals give one
 - Dog rounds spawn steadily
 - Operator lines: 4 min no-repeat
 - Gun lit by all lights, no player shadow
@@ -27,7 +28,6 @@
 
 - Radio quote volume should be about 1.25 times as loud
 - First dog round the 3rd to last dog dropped a nuke, 2nd to last dropped a max ammo, then last dropped a max ammo. Only the last dog should drop a power up which should always be the max ammo and should always drop.
-- Got frags from the mystery box after having throwing knives and frag ammo was already at 4 instead of 1.
 - Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
 - Exfil line should wait a few seconds since its after a dog round and the max ammo line is usually being said. Maybe make the exfil line wait if the max ammo or another power up line is being said?

@@ -1532,7 +1532,8 @@ fn errand_result(brain: &mut AllyBrain, v: &View, doing: Doing, now: f32, comman
                         }
                         if let Some(kind) = wanted_lethal {
                             let carried = if kind.is_tactical() { &mut brain.tactical } else { &mut brain.lethal };
-                            *carried = Some((kind, kind.max_carried().min(3)));
+                            // (Just the one, as for a player.)
+                            *carried = Some((kind, 1));
                         }
                         Some(true)
                     } else {
