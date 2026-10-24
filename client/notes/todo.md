@@ -33,26 +33,6 @@
 - Maybe boss should spawn later because couldn't get enough perks or even pap weapon before he showed up.
 - Blood overlay is too strong. 1/3 damage looks like near death.
 
-# FPS lowered to around 50 when this was constantly logged
-
-2026-10-22T03:15:30.876091Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.876094Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.892613Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.892619Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.920066Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.920077Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.926934Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.926941Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.943401Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.943408Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.943447Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.943449Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.943474Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.943476Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.959542Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=bext, len=602.
-2026-10-22T03:15:30.959549Z INFO symphonia_format_riff::common: ignoring unknown chunk: tag=junk, len=28.
-2026-10-22T03:15:30.975862Z INFO symphonia_bundle_mp3::demuxer: estimating duration from bitrate, may be inaccurate for vbr files
-
 # First person animations
 
 # Remote player animations
