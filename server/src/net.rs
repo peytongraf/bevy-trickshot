@@ -7,6 +7,11 @@
 //! (`lobby::on_create` / `on_join`) — so an out-of-date client can't play
 //! even if its own update check was skipped. One on another version is told
 //! so ([`shared::VersionMismatch`]) and its client shows why.
+//!
+//! With `IDLE_SHUTDOWN_MINS` set (prod, `server/fly.toml`), the server exits
+//! once nobody's been connected for that long ([`shut_down_when_idle`]), so
+//! the fly machine stops and costs nothing until a client wakes it again
+//! (`shared::wake`).
 
 use bevy::prelude::*;
 use core::net::{Ipv6Addr, SocketAddr};
@@ -31,6 +36,11 @@ impl Plugin for ServerNetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_server, start_listening).chain());
         app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSet::ReceiveInputs));
+        if let Some(limit) = idle_shutdown_limit() {
+            info!("shutting down after {}s with nobody connected", limit.as_secs());
+            app.insert_resource(IdleShutdown { limit, idle: Duration::ZERO });
+            app.add_systems(Update, shut_down_when_idle);
+        }
         app.init_resource::<VerifiedPeers>();
         app.add_observer(on_client_link);
         app.add_observer(on_client_connected);
@@ -103,6 +113,43 @@ fn reset_runaway_input_buffers(
             server.iter().next().map(|t| t.tick()),
         );
         *buffer = InputBuffer::default();
+    }
+}
+
+/// `IDLE_SHUTDOWN_MINS`: how long the server may sit with nobody connected
+/// before exiting. Unset (or not a positive number) means never — a local
+/// dev server stays up.
+fn idle_shutdown_limit() -> Option<Duration> {
+    let mins: f64 = std::env::var("IDLE_SHUTDOWN_MINS").ok()?.trim().parse().ok()?;
+    (mins > 0.0).then(|| Duration::from_secs_f64(mins * 60.0))
+}
+
+#[derive(Resource)]
+struct IdleShutdown {
+    limit: Duration,
+    /// How long nobody's been connected; reset whenever anyone is.
+    idle: Duration,
+}
+
+/// Exit once nobody's been connected for [`IdleShutdown::limit`]. Exiting
+/// cleanly (code 0) stops the fly machine for good — its restart policy only
+/// restarts on a failure — until a client's TCP knock has fly start it again.
+/// The clock starts at boot too, so a machine woken by a knock nobody
+/// followed up on stops again.
+fn shut_down_when_idle(
+    time: Res<Time<Real>>,
+    clients: Query<(), (With<ClientOf>, With<Connected>)>,
+    mut idle: ResMut<IdleShutdown>,
+    mut exit: EventWriter<AppExit>,
+) {
+    if !clients.is_empty() {
+        idle.idle = Duration::ZERO;
+        return;
+    }
+    idle.idle += time.delta();
+    if idle.idle >= idle.limit {
+        info!("nobody connected for {}s — shutting down", idle.limit.as_secs());
+        exit.write(AppExit::Success);
     }
 }
 

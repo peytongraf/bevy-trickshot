@@ -19,8 +19,20 @@
 #   reply silently vanishes — see `server::net::bind_addr`'s doc comment for
 #   why (short version: bind to `fly-global-services`, never a wildcard).
 # * fly needs BOTH a udp and a tcp service on the same port for UDP to route.
-#   Nothing listens on TCP, so health is just "process still up" (no [checks],
-#   auto_stop off).
+#   The server answers TCP with a one-line health reply (`server/src/health.rs`).
+# * The machine only runs while someone's playing. The server exits once
+#   nobody's been connected for IDLE_SHUTDOWN_MINS (`server/src/net.rs`), and
+#   since that's a clean exit, the restart policy below leaves the machine
+#   stopped (billed only for its disk, a few cents a month). A client wakes it
+#   by knocking on the TCP port (`shared/src/wake.rs`): fly's proxy starts a
+#   stopped machine for any connection to a service with auto_start_machines.
+#   fly's own auto_stop stays OFF: the proxy only sees TCP, not the game's UDP,
+#   so it would think a full match was idle and stop the machine mid-game.
+#   `server/test-wake.sh` checks the stop → wake round trip.
+# * performance-1x is a dedicated core: shared-cpu machines get 1/16 of a core
+#   plus a few minutes of burst, and a high zombies round outruns that — the
+#   server gets throttled below its tick rate and every zombie and remote
+#   player freezes on the clients.
 
 app = "bevy-trickshot-server"
 primary_region = "iad"          # pick the region nearest you and your friends
@@ -28,6 +40,12 @@ primary_region = "iad"          # pick the region nearest you and your friends
 [env]
   PORT = "5000"
   RUST_LOG = "info"
+  IDLE_SHUTDOWN_MINS = "10"
+
+# Restart a crash, but not the clean exit of an idle shutdown.
+[[restart]]
+  policy = "on-failure"
+  retries = 5
 
 # --- game traffic (UDP) ---
 [[services]]
@@ -35,7 +53,7 @@ primary_region = "iad"          # pick the region nearest you and your friends
   protocol = "udp"
   auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
 
   [[services.ports]]
     port = 5000
@@ -46,11 +64,11 @@ primary_region = "iad"          # pick the region nearest you and your friends
   protocol = "tcp"
   auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
 
   [[services.ports]]
     port = 5000
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = "performance-1x"
+  memory = "2gb"

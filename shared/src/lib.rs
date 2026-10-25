@@ -50,6 +50,7 @@ pub mod revive;
 pub mod scoring;
 pub mod spawns;
 pub mod throwing_knife;
+pub mod wake;
 pub mod wall_buy;
 pub mod weapon;
 pub mod windows;

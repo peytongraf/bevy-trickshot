@@ -4,6 +4,10 @@
 //! its proxy warns when nothing is actually listening on TCP. This satisfies both
 //! and gives a browser-checkable health URL
 //! (`http://<app>.fly.dev:<port>/` → `200 ok`). It never touches the game loop.
+//!
+//! It's also what the client knocks on to wake a stopped fly machine
+//! (`shared::wake`): fly's proxy starts the machine for the connection, and
+//! the reply ([`shared::wake::WAKE_REPLY`]) tells the client it's up.
 
 use std::io::{Read, Write};
 use std::net::{Ipv6Addr, TcpListener, TcpStream};
@@ -37,7 +41,9 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
     let mut scratch = [0u8; 1024];
     let _ = stream.read(&mut scratch);
-    stream.write_all(
-        b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nbevy-trickshot server ok\n",
-    )
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}\n",
+        shared::wake::WAKE_REPLY
+    );
+    stream.write_all(reply.as_bytes())
 }

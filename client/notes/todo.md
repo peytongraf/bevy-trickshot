@@ -1,5 +1,6 @@
 # Done
 
+- Prod server: dedicated CPU, sleeps when idle, client wakes it
 - Update screen gates the menu; server version check
 - Zombies pacing: CoD zombie counts, boss from round 9
 - Dog rounds only drop last dog's max ammo

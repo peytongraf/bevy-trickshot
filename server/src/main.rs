@@ -15,6 +15,7 @@
 //! | `PORT`                  | UDP listen port                        | `5000`               |
 //! | `LIGHTYEAR_PRIVATE_KEY` | 32 comma-separated bytes, netcode key   | dev all-zero key     |
 //! | `RUST_LOG`              | log filter                             | `info`               |
+//! | `IDLE_SHUTDOWN_MINS`    | exit after this long with nobody on    | never                |
 
 mod ai;
 mod ally;

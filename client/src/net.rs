@@ -13,6 +13,7 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 use core::time::Duration;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 
 use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
 use bevy::prelude::*;
@@ -130,7 +131,8 @@ impl Plugin for ClientNetPlugin {
         app.add_systems(OnExit(AppState::InGame), forget_pending_respawn);
         app.init_resource::<ServerLink>();
         app.add_systems(Startup, connect);
-        app.add_systems(Update, retry_connect);
+        app.init_resource::<ServerWake>();
+        app.add_systems(Update, (retry_connect, wake_server));
         app.add_observer(on_connected);
         app.add_observer(on_disconnected);
 
@@ -233,6 +235,9 @@ pub struct ServerLink {
     /// Don't dial again for now: the server turned us away for being on
     /// another version (`update_screen`, whose RETRY clears it).
     pub hold: bool,
+    /// Dialing the prod server, whose fly machine is stopped while nobody's
+    /// playing and has to be woken first ([`wake_server`]).
+    pub prod: bool,
 }
 
 impl ServerLink {
@@ -277,6 +282,7 @@ fn retry_connect(
 fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
     let (addr, private_key) = server_addr();
     link.addr = Some(addr);
+    link.prod = private_key == shared::PROD_PRIVATE_KEY;
     link.attempt += 1;
     let auth = Authentication::Manual {
         server_addr: addr,
@@ -316,6 +322,89 @@ fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
         .id();
     commands.trigger_targets(Connect, entity);
     info!("connecting to server at {addr} (attempt {})", link.attempt);
+}
+
+/// Waking the prod server (`shared::wake`): its fly machine is stopped
+/// while nobody's playing, and only a TCP knock on the game port has fly
+/// start it — the game's own UDP doesn't. Knocked on a background thread
+/// whenever we're not connected to it; the connection attempts carry on
+/// meanwhile and get through once it's up. Read by the connecting screen
+/// to say "WAKING SERVER". Reset on connecting.
+#[derive(Resource, Default)]
+pub struct ServerWake {
+    /// The knocking thread's answer, once it has one: how long the server
+    /// took to answer, or why it never did.
+    result: Option<Arc<Mutex<Option<Result<Duration, String>>>>>,
+    /// Seconds since the knock in flight started.
+    pub waking_for: Option<f32>,
+    /// The server answered since we were last connected — don't knock again.
+    awake: bool,
+}
+
+fn wake_server(
+    mut wake: ResMut<ServerWake>,
+    mut link: ResMut<ServerLink>,
+    time: Res<Time>,
+    connected: Query<(), (With<GameClient>, With<Connected>)>,
+) {
+    if !connected.is_empty() {
+        if wake.result.is_some() || wake.awake {
+            *wake = ServerWake::default();
+        }
+        return;
+    }
+    if !link.prod || link.hold {
+        return;
+    }
+    if let Some(result) = &wake.result {
+        let done = result.lock().ok().and_then(|mut r| r.take());
+        match done {
+            Some(Ok(took)) => {
+                info!("server answered the wake knock after {:.1}s", took.as_secs_f32());
+                wake.result = None;
+                wake.waking_for = None;
+                wake.awake = true;
+                // Don't sit out the rest of a retry wait now that it's up.
+                link.retry_now();
+            }
+            Some(Err(e)) => {
+                // Knocked for the whole `WAKE_TIMEOUT`; start over next frame.
+                warn!("server didn't answer the wake knock: {e}");
+                wake.result = None;
+                wake.waking_for = None;
+            }
+            None => {
+                if let Some(t) = &mut wake.waking_for {
+                    *t += time.delta_secs();
+                }
+            }
+        }
+        return;
+    }
+    if wake.awake {
+        return;
+    }
+    let Some(addr) = link.addr else { return };
+    let result = Arc::new(Mutex::new(None));
+    let out = result.clone();
+    let spawned = std::thread::Builder::new().name("server-wake".into()).spawn(move || {
+        let r = shared::wake::wake(addr, shared::wake::WAKE_TIMEOUT);
+        if let Ok(mut slot) = out.lock() {
+            *slot = Some(r);
+        }
+    });
+    match spawned {
+        Ok(_) => {
+            info!("knocking on {addr} (tcp) to wake the server");
+            wake.result = Some(result);
+            wake.waking_for = Some(0.0);
+        }
+        Err(e) => {
+            // Without the knock, connecting still works if it's already up.
+            error!("couldn't start the server wake thread: {e}");
+            wake.awake = true;
+        }
+    }
 }
 
 /// Connected: say which version we are — the server only lets a client on

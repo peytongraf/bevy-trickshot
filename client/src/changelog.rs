@@ -15,6 +15,12 @@
 /// this will ship under — keep it in sync with the workspace `Cargo.toml`
 /// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.9",
+    &[
+        "Fixed zombies and other players freezing in place on high zombies rounds.",
+        "The server sleeps when nobody's playing; the connecting screen says when it's waking up.",
+    ],
+), (
     "0.4.8",
     &[
         "The game now checks for updates on launch and asks you to restart.",

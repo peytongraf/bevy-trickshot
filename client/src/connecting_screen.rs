@@ -13,12 +13,17 @@
 //!
 //! The "continue offline" choice lasts until the next connect, so a later
 //! drop shows the cover again.
+//!
+//! The prod server sleeps while nobody's playing (`net::ServerWake`), so the
+//! first player in usually waits a few seconds for it to start: the cover
+//! says "WAKING SERVER" then, with how long it's been, instead of the failed
+//! attempts that are expected meanwhile.
 
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
 use crate::menu::Menu;
-use crate::net::{GameClient, ServerLink};
+use crate::net::{GameClient, ServerLink, ServerWake};
 use crate::ui::{label_body, label_hud, spawn_button_hud, UiSound, ACCENT, ROW, ROW_HOVER, TEXT, TEXT_DIM};
 use crate::AppState;
 
@@ -26,6 +31,9 @@ use crate::AppState;
 /// screen.
 const Z: i32 = 100;
 const COVER: Color = Color::srgb(0.02, 0.02, 0.025);
+/// A knock the server answers this fast was on an already-running one —
+/// don't flash "WAKING SERVER" for it.
+const WAKING_SHOWN_AFTER_SECS: f32 = 1.0;
 
 pub(crate) struct ConnectingScreenPlugin;
 
@@ -165,22 +173,33 @@ fn spawn_cover(commands: &mut Commands, asset_server: &AssetServer) {
 #[allow(clippy::type_complexity)]
 fn update_cover(
     link: Res<ServerLink>,
+    wake: Res<ServerWake>,
     time: Res<Time>,
-    mut title: Query<&mut TextColor, With<ConnectingTitle>>,
+    mut title: Query<(&mut Text, &mut TextColor), With<ConnectingTitle>>,
     mut status: Query<(&mut Text, &mut TextColor), (With<ConnectingStatus>, Without<ConnectingTitle>)>,
-    mut detail: Query<&mut Text, (With<ConnectingDetail>, Without<ConnectingStatus>)>,
+    mut detail: Query<&mut Text, (With<ConnectingDetail>, Without<ConnectingStatus>, Without<ConnectingTitle>)>,
     mut buttons: Query<&mut Node, With<ConnectingButtons>>,
 ) {
+    let waking = wake.waking_for.filter(|&t| t >= WAKING_SHOWN_AFTER_SECS);
+
     // A slow pulse on the title while we wait, like the loading screen's.
     let pulse = 0.55 + 0.35 * (time.elapsed_secs() * 3.0).sin();
-    for mut c in &mut title {
+    let heading = if waking.is_some() { "WAKING SERVER" } else { "CONNECTING" };
+    for (mut t, mut c) in &mut title {
+        if t.0 != heading {
+            t.0 = heading.to_string();
+        }
         c.0 = TEXT.with_alpha(pulse);
     }
 
-    let (line, color) = match (&link.last_error, link.retry_in) {
-        (Some(err), Some(left)) => (format!("{err} Retrying in {}s…", left.ceil().max(1.0) as u32), ACCENT),
-        (Some(err), None) => (format!("{err} Trying again…"), ACCENT),
-        (None, _) => ("Reaching the server…".to_string(), TEXT_DIM),
+    let (line, color) = match (waking, &link.last_error, link.retry_in) {
+        (Some(secs), ..) => (
+            format!("The server was asleep. Starting it up, this takes a few seconds… {}s", secs as u32),
+            TEXT_DIM,
+        ),
+        (None, Some(err), Some(left)) => (format!("{err} Retrying in {}s…", left.ceil().max(1.0) as u32), ACCENT),
+        (None, Some(err), None) => (format!("{err} Trying again…"), ACCENT),
+        (None, None, _) => ("Reaching the server…".to_string(), TEXT_DIM),
     };
     for (mut t, mut c) in &mut status {
         if t.0 != line {

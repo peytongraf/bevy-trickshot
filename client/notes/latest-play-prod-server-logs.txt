@@ -1,0 +1,360 @@
+$ fly logs -a bevy-trickshot-server 
+Waiting for logs...
+01:37:04
+2026-10-25T01:37:04.987395Z  INFO server::sim: tick 16266: Netcode(125551193618072) hit player Local(12124692677116)
+01:37:06
+2026-10-25T01:37:06.109488Z  INFO server::sim: tick 16338: Netcode(125551193618072) HEADSHOT on player Local(12124692677116)
+01:37:09
+2026-10-25T01:37:09.466472Z  INFO server::sim: tick 16552: Netcode(125551193618072) HEADSHOT on player Local(12124692677130)
+01:37:09
+2026-10-25T01:37:09.544968Z  INFO server::sim: tick 16557: Netcode(125551193618072) HEADSHOT on player Local(12124692677130)
+01:37:11
+2026-10-25T01:37:11.124519Z  INFO server::sim: tick 16658: Netcode(125551193618072) HEADSHOT on player Local(12124692677122)
+01:37:12
+2026-10-25T01:37:12.445929Z  INFO server::sim: tick 16743: Netcode(125551193618072) hit player Local(12124692677122)
+01:37:12
+2026-10-25T01:37:12.688275Z  INFO server::sim: tick 16758: Netcode(125551193618072) hit player Local(12124692677122)
+01:37:13
+2026-10-25T01:37:13.091109Z  INFO server::sim: tick 16784: Netcode(53052218357892) hit player Local(12124692677064)
+01:37:15
+2026-10-25T01:37:15.489821Z  INFO server::sim: tick 16938: Netcode(125551193618072) hit player Local(12124692677091)
+01:37:15
+2026-10-25T01:37:15.567783Z  INFO server::sim: tick 16943: Netcode(125551193618072) HEADSHOT on player Local(12124692677133)
+01:37:18
+2026-10-25T01:37:18.665477Z  INFO server::sim: tick 17141: Netcode(125551193618072) hit player Local(12124692677133)
+01:37:18
+2026-10-25T01:37:18.839102Z  INFO server::sim: tick 17152: Netcode(125551193618072) hit player Local(12124692677133)
+01:37:21
+2026-10-25T01:37:21.126546Z  INFO server::sim: tick 17299: Netcode(53052218357892) hit player Local(12124692677091)
+01:37:21
+2026-10-25T01:37:21.457494Z  INFO server::sim: tick 17320: Netcode(125551193618072) hit player Local(12124692677066)
+01:37:21
+2026-10-25T01:37:21.550762Z  INFO server::sim: tick 17326: Netcode(125551193618072) hit player Local(12124692677117)
+01:37:21
+2026-10-25T01:37:21.630141Z  INFO server::sim: tick 17331: Netcode(125551193618072) hit player Local(12124692677117)
+01:37:22
+2026-10-25T01:37:22.698436Z  INFO server::sim: tick 17399: Netcode(53052218357892) hit player Local(12124692677087)
+01:37:25
+2026-10-25T01:37:25.799363Z  INFO server::sim: tick 17598: Netcode(125551193618072) knifed player Local(12124692677140)
+01:37:26
+2026-10-25T01:37:26.476684Z  INFO server::sim: tick 17641: Netcode(53052218357892) hit player Local(12124692677114)
+01:37:26
+2026-10-25T01:37:26.490783Z  INFO server::frags: lobby 188v2#8589934780: a zombie dropped a frag
+01:37:27
+2026-10-25T01:37:27.543351Z  INFO server::sim: tick 17709: Netcode(125551193618072) knifed player Local(12124692677144)
+01:37:28
+2026-10-25T01:37:28.376341Z  INFO server::sim: tick 17763: Netcode(125551193618072) knifed player Local(12124692677104)
+01:37:29
+2026-10-25T01:37:29.257502Z  INFO server::sim: tick 17819: Netcode(125551193618072) knifed player Local(12124692677066)
+01:37:29
+2026-10-25T01:37:29.271839Z  INFO server::power_ups: lobby 188v2#8589934780: a zombie dropped MAX AMMO
+01:37:29
+2026-10-25T01:37:29.950171Z  INFO server::power_ups: Netcode(125551193618072) grabbed MAX AMMO
+01:37:29
+2026-10-25T01:37:29.951409Z  INFO server::sim: tick 17863: Netcode(53052218357892) hit player Local(12124692677117)
+01:37:31
+2026-10-25T01:37:31.838735Z  INFO server::sim: tick 17984: Netcode(125551193618072) knifed player Local(12124692677141)
+01:37:31
+2026-10-25T01:37:31.853544Z  INFO server::flash_bangs: lobby 188v2#8589934780: a zombie dropped a flash bang
+01:37:34
+2026-10-25T01:37:34.840127Z  INFO server::sim: tick 18176: Netcode(53052218357892) hit player Local(12124692677087)
+01:37:34
+2026-10-25T01:37:34.855784Z  INFO server::sim: tick 18177: Netcode(125551193618072) knifed player Local(12124692677143)
+01:37:36
+2026-10-25T01:37:36.286602Z  INFO server::sim: tick 18269: Netcode(53052218357892) hit player Local(12124692677113)
+01:37:41
+2026-10-25T01:37:41.190763Z  INFO server::sim: tick 18583: Netcode(53052218357892) hit player Local(12124692677139)
+01:37:41
+2026-10-25T01:37:41.331557Z  INFO server::zombies: Netcode(125551193618072) opened door 5
+01:37:52
+2026-10-25T01:37:52.150243Z  INFO server::zombies: Netcode(125551193618072) went prone at Deadshot Daiquiri for 100 points
+01:37:52
+2026-10-25T01:37:52.559135Z  INFO server::zombies: Netcode(125551193618072) bought Deadshot Daiquiri
+01:37:56
+2026-10-25T01:37:56.569900Z  INFO server::sim: tick 19567: Netcode(125551193618072) knifed player Local(12124692677159)
+01:37:56
+2026-10-25T01:37:56.664161Z  INFO server::sim: tick 19573: Netcode(53052218357892) HEADSHOT on player Local(12124692677151)
+01:37:58
+2026-10-25T01:37:58.613507Z  INFO server::sim: tick 19698: Netcode(53052218357892) hit player Local(12124692677156)
+01:38:06
+2026-10-25T01:38:06.988791Z  INFO server::wall_buys: Netcode(53052218357892) dropped their SNIPER for a AK-74
+01:38:08
+2026-10-25T01:38:08.430906Z  INFO server::wall_buys: Netcode(53052218357892) dropped their AK-74 for a SNIPER
+01:38:08
+2026-10-25T01:38:08.431103Z  INFO server::wall_buys: Netcode(53052218357892) bought the SNIPER off the wall
+01:38:11
+2026-10-25T01:38:11.789461Z  INFO server::wall_buys: Netcode(53052218357892) dropped their SNIPER for a AK-74
+01:38:34
+2026-10-25T01:38:34.832577Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 259 ticks from Some(Tick(21522)) (server tick Some(Tick(21522)))
+01:38:34
+2026-10-25T01:38:34.832655Z  WARN server::net: resetting runaway input buffer on 192v1#4294967488: 258 ticks from Some(Tick(21522)) (server tick Some(Tick(21522)))
+01:38:40
+2026-10-25T01:38:40.270384Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 267 ticks from Some(Tick(21787)) (server tick Some(Tick(21746)))
+01:38:40
+2026-10-25T01:38:40.270461Z  WARN server::net: resetting runaway input buffer on 192v1#4294967488: 267 ticks from Some(Tick(21785)) (server tick Some(Tick(21746)))
+01:38:53
+2026-10-25T01:38:53.708775Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 53052218357892. Despawning entity.
+01:38:53
+2026-10-25T01:38:53.709232Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 192v1 does not exist (enable `track_location` feature for more details)
+01:38:59
+2026-10-25T01:38:59.870596Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 260 ticks from Some(Tick(22695)) (server tick Some(Tick(22695)))
+01:39:04
+2026-10-25T01:39:04.987802Z  INFO lightyear_udp::server: Received UDP packet from new address 76.22.178.192:63731, Spawn new LinkOf entity=209v16#68719476945 server_entity=187v1#4294967483
+01:39:05
+2026-10-25T01:39:05.148567Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 74458423639556 (209v16#68719476945)
+01:39:05
+2026-10-25T01:39:05.148735Z  INFO server::net: client Netcode(74458423639556) connected
+01:39:14
+2026-10-25T01:39:14.432010Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 268 ticks from Some(Tick(23384)) (server tick Some(Tick(23384)))
+01:39:20
+2026-10-25T01:39:20.668713Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 297 ticks from Some(Tick(23642)) (server tick Some(Tick(23622)))
+01:39:26
+2026-10-25T01:39:26.188166Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 274 ticks from Some(Tick(23936)) (server tick Some(Tick(23829)))
+01:39:26
+2026-10-25T01:39:26.191462Z  INFO server::pvp: Netcode(125551193618072) is down
+01:39:34
+2026-10-25T01:39:34.028904Z  INFO server::revive: Netcode(125551193618072) was revived by Some(Netcode(125551193618072))
+01:39:42
+2026-10-25T01:39:42.588117Z  WARN server::net: resetting runaway input buffer on 191v1#4294967487: 265 ticks from Some(Tick(24607)) (server tick Some(Tick(24607)))
+01:40:01
+2026-10-25T01:40:01.789370Z  INFO server::lobby: lobby 188v2#8589934780 is empty — despawned
+01:40:01
+2026-10-25T01:40:01.789421Z  INFO server::lobby: Netcode(125551193618072) left their lobby
+01:40:07
+2026-10-25T01:40:07.915006Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 125551193618072. Despawning entity.
+01:40:08
+2026-10-25T01:40:08.436080Z  INFO lightyear_udp::server: Received UDP packet from new address 50.83.60.65:61206, Spawn new LinkOf entity=190v3#12884902078 server_entity=187v1#4294967483
+01:40:08
+2026-10-25T01:40:08.539169Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 126753285476452 (190v3#12884902078)
+01:40:08
+2026-10-25T01:40:08.539236Z  INFO server::net: client Netcode(126753285476452) connected
+01:40:11
+2026-10-25T01:40:11.484198Z  INFO server::lobby: Netcode(126753285476452) created lobby 202v33#141733920970
+01:40:12
+2026-10-25T01:40:12.668663Z  INFO server::lobby: lobby mode set to Zombies by Netcode(126753285476452)
+01:40:13
+2026-10-25T01:40:13.884723Z  INFO server::lobby: Netcode(74458423639556) joined lobby 202v33#141733920970
+01:40:13
+2026-10-25T01:40:13.948863Z  INFO server::lobby: lobby map set to DerTempelDay by Netcode(126753285476452)
+01:40:14
+2026-10-25T01:40:14.028921Z  INFO server::lobby: Netcode(74458423639556) plays as VON
+01:40:15
+2026-10-25T01:40:15.148077Z  INFO server::lobby: lobby zombies start set to round 2, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:15
+2026-10-25T01:40:15.308247Z  INFO server::lobby: lobby zombies start set to round 3, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:15
+2026-10-25T01:40:15.467897Z  INFO server::lobby: lobby zombies start set to round 4, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:15
+2026-10-25T01:40:15.915123Z  INFO server::lobby: lobby zombies start set to round 5, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:16
+2026-10-25T01:40:16.108634Z  INFO server::lobby: lobby zombies start set to round 6, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:16
+2026-10-25T01:40:16.428283Z  INFO server::lobby: lobby zombies start set to round 7, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:16
+2026-10-25T01:40:16.619361Z  INFO server::lobby: lobby zombies start set to round 8, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:16
+2026-10-25T01:40:16.764115Z  INFO server::lobby: lobby zombies start set to round 9, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:16
+2026-10-25T01:40:16.908061Z  INFO server::lobby: lobby zombies start set to round 10, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:17
+2026-10-25T01:40:17.308041Z  INFO server::lobby: lobby zombies start set to round 15, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:17
+2026-10-25T01:40:17.483743Z  INFO server::lobby: lobby zombies start set to round 20, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:20
+2026-10-25T01:40:20.155096Z  INFO server::lobby: lobby zombies start set to round 13, 0 points, 0 s countdown by Netcode(126753285476452)
+01:40:21
+2026-10-25T01:40:21.643656Z  INFO server::lobby: lobby zombies start set to round 13, 21250 points, 0 s countdown by Netcode(126753285476452)
+01:40:25
+2026-10-25T01:40:25.548239Z  INFO server::lobby: lobby 202v33#141733920970 started by Netcode(126753285476452) with 2 member(s) (0 bot), 300s limit, mode Zombies
+01:40:25
+2026-10-25T01:40:25.548265Z  INFO server::lobby:   spawned player 213v16#68719476949 for Netcode(126753285476452)
+01:40:25
+2026-10-25T01:40:25.548269Z  INFO server::lobby:   spawned player 201v10#42949673161 for Netcode(74458423639556)
+01:40:33
+2026-10-25T01:40:33.069634Z  INFO server::zombies: lobby 202v33#141733920970: zombies round 13
+01:40:38
+2026-10-25T01:40:38.828199Z  INFO server::zombies: Netcode(126753285476452) opened door 1
+01:40:42
+2026-10-25T01:40:42.908358Z  INFO server::zombies: Netcode(126753285476452) went prone at Juggernog for 100 points
+01:40:44
+2026-10-25T01:40:44.028990Z  INFO server::zombies: Netcode(126753285476452) opened door 4
+01:40:45
+2026-10-25T01:40:45.228369Z  INFO server::zombies: Netcode(126753285476452) bought Juggernog
+01:40:50
+2026-10-25T01:40:50.270853Z  INFO server::sim: tick 28581: Netcode(126753285476452) hit player Local(12124692677206)
+01:40:56
+2026-10-25T01:40:56.747725Z  WARN server::net: resetting runaway input buffer on 213v16#68719476949: 257 ticks from Some(Tick(28748)) (server tick Some(Tick(28748)))
+01:40:56
+2026-10-25T01:40:56.747800Z  WARN server::net: resetting runaway input buffer on 201v10#42949673161: 260 ticks from Some(Tick(28748)) (server tick Some(Tick(28748)))
+01:41:02
+2026-10-25T01:41:02.271555Z  INFO server::pvp: Netcode(74458423639556) is down
+01:41:02
+2026-10-25T01:41:02.434123Z  INFO server::pvp: Netcode(126753285476452) is down
+01:41:02
+2026-10-25T01:41:02.434312Z  INFO server::revive: lobby 202v33#141733920970: everyone's down — zombies game over
+01:41:04
+2026-10-25T01:41:04.590484Z  INFO server::lobby: match over — OrangeJuiceSimp wins with 21250
+01:41:10
+2026-10-25T01:41:10.108682Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 126753285476452. Despawning entity.
+01:41:10
+2026-10-25T01:41:10.108809Z  INFO server::lobby: lobby 202v33#141733920970: leader left, promoted Netcode(74458423639556)
+01:41:10
+2026-10-25T01:41:10.108871Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 213v16 does not exist (enable `track_location` feature for more details)
+01:42:18
+2026-10-25T01:42:18.369644Z  INFO lightyear_udp::server: Received UDP packet from new address 50.83.60.65:60204, Spawn new LinkOf entity=190v4#17179869374 server_entity=187v1#4294967483
+01:42:18
+2026-10-25T01:42:18.479782Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 34651935562328 (190v4#17179869374)
+01:42:18
+2026-10-25T01:42:18.479977Z  INFO server::net: client Netcode(34651935562328) connected
+01:42:22
+2026-10-25T01:42:22.987959Z  INFO server::lobby: Netcode(34651935562328) created lobby 213v17#73014444245
+01:42:24
+2026-10-25T01:42:24.349165Z  INFO server::lobby: lobby mode set to Zombies by Netcode(34651935562328)
+01:42:25
+2026-10-25T01:42:25.388176Z  INFO server::lobby: lobby map set to BreakPoint by Netcode(34651935562328)
+01:42:26
+2026-10-25T01:42:26.356793Z  INFO server::lobby: lobby map set to DerTempelDay by Netcode(34651935562328)
+01:42:29
+2026-10-25T01:42:29.973660Z  INFO server::lobby: lobby zombies start set to round 13, 0 points, 0 s countdown by Netcode(34651935562328)
+01:42:31
+2026-10-25T01:42:31.388679Z  INFO server::lobby: lobby zombies start set to round 13, 33900 points, 0 s countdown by Netcode(34651935562328)
+01:42:34
+2026-10-25T01:42:34.748372Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 74458423639556. Despawning entity.
+01:42:34
+2026-10-25T01:42:34.748478Z  INFO server::lobby: lobby 202v33#141733920970 is empty — despawned
+01:42:34
+2026-10-25T01:42:34.748529Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 201v10 does not exist (enable `track_location` feature for more details)
+01:42:35
+2026-10-25T01:42:35.787940Z  INFO lightyear_udp::server: Received UDP packet from new address 76.22.178.192:58490, Spawn new LinkOf entity=209v17#73014444241 server_entity=187v1#4294967483
+01:42:36
+2026-10-25T01:42:36.043887Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 49049339684220 (209v17#73014444241)
+01:42:36
+2026-10-25T01:42:36.044057Z  INFO server::net: client Netcode(49049339684220) connected
+01:42:37
+2026-10-25T01:42:37.243662Z  INFO server::lobby: Netcode(49049339684220) joined lobby 213v17#73014444245
+01:42:40
+2026-10-25T01:42:40.524271Z  INFO server::lobby: lobby 213v17#73014444245 started by Netcode(34651935562328) with 2 member(s) (0 bot), 300s limit, mode Zombies
+01:42:40
+2026-10-25T01:42:40.524305Z  INFO server::lobby:   spawned player 202v34#146028888266 for Netcode(34651935562328)
+01:42:40
+2026-10-25T01:42:40.524309Z  INFO server::lobby:   spawned player 201v11#47244640457 for Netcode(49049339684220)
+01:42:57
+2026-10-25T01:42:57.722200Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 34651935562328. Despawning entity.
+01:42:57
+2026-10-25T01:42:57.722299Z  INFO server::lobby: lobby 213v17#73014444245: leader left, promoted Netcode(49049339684220)
+01:42:57
+2026-10-25T01:42:57.722384Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 202v34 does not exist (enable `track_location` feature for more details)
+01:42:57
+2026-10-25T01:42:57.911018Z  INFO lightyear_udp::server: Received UDP packet from new address 50.83.60.65:60404, Spawn new LinkOf entity=190v5#21474836670 server_entity=187v1#4294967483
+01:42:58
+2026-10-25T01:42:58.027804Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 77344457407468 (190v5#21474836670)
+01:42:58
+2026-10-25T01:42:58.027899Z  INFO server::net: client Netcode(77344457407468) connected
+01:42:59
+2026-10-25T01:42:59.098548Z  INFO server::lobby: Netcode(77344457407468) created lobby 202v35#150323855562
+01:43:00
+2026-10-25T01:43:00.181490Z  INFO server::lobby: lobby mode set to Zombies by Netcode(77344457407468)
+01:43:01
+2026-10-25T01:43:01.097987Z  INFO server::lobby: lobby map set to DerTempelDay by Netcode(77344457407468)
+01:43:05
+2026-10-25T01:43:05.532015Z  INFO server::lobby: lobby zombies start set to round 13, 0 points, 0 s countdown by Netcode(77344457407468)
+01:43:05
+2026-10-25T01:43:05.788949Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 49049339684220. Despawning entity.
+01:43:05
+2026-10-25T01:43:05.789058Z  INFO server::lobby: lobby 213v17#73014444245 is empty — despawned
+01:43:05
+2026-10-25T01:43:05.789108Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 201v11 does not exist (enable `track_location` feature for more details)
+01:43:06
+2026-10-25T01:43:06.990896Z  INFO server::lobby: lobby zombies start set to round 13, 33900 points, 0 s countdown by Netcode(77344457407468)
+01:43:07
+2026-10-25T01:43:07.022274Z  INFO lightyear_udp::server: Received UDP packet from new address 76.22.178.192:58493, Spawn new LinkOf entity=209v18#77309411537 server_entity=187v1#4294967483
+01:43:07
+2026-10-25T01:43:07.419690Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 87943817999496 (209v18#77309411537)
+01:43:07
+2026-10-25T01:43:07.467981Z  INFO server::net: client Netcode(87943817999496) connected
+01:43:08
+2026-10-25T01:43:08.810276Z  INFO server::lobby: Netcode(87943817999496) joined lobby 202v35#150323855562
+01:43:11
+2026-10-25T01:43:11.400010Z  INFO server::lobby: lobby 202v35#150323855562 started by Netcode(77344457407468) with 2 member(s) (0 bot), 300s limit, mode Zombies
+01:43:11
+2026-10-25T01:43:11.400041Z  INFO server::lobby:   spawned player 213v18#77309411541 for Netcode(77344457407468)
+01:43:11
+2026-10-25T01:43:11.400045Z  INFO server::lobby:   spawned player 201v12#51539607753 for Netcode(87943817999496)
+01:43:45
+2026-10-25T01:43:45.112671Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 77344457407468. Despawning entity.
+01:43:45
+2026-10-25T01:43:45.112945Z  INFO server::lobby: lobby 202v35#150323855562: leader left, promoted Netcode(87943817999496)
+01:43:45
+2026-10-25T01:43:45.113085Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 213v18 does not exist (enable `track_location` feature for more details)
+01:43:48
+2026-10-25T01:43:48.120609Z  INFO lightyear_udp::server: Received UDP packet from new address 50.83.60.65:65486, Spawn new LinkOf entity=190v6#25769803966 server_entity=187v1#4294967483
+01:43:48
+2026-10-25T01:43:48.215041Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 127097566004532 (190v6#25769803966)
+01:43:48
+2026-10-25T01:43:48.215205Z  INFO server::net: client Netcode(127097566004532) connected
+01:43:51
+2026-10-25T01:43:51.811871Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 87943817999496. Despawning entity.
+01:43:51
+2026-10-25T01:43:51.812063Z  INFO server::lobby: lobby 202v35#150323855562 is empty — despawned
+01:43:51
+2026-10-25T01:43:51.812191Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 201v12 does not exist (enable `track_location` feature for more details)
+01:43:53
+2026-10-25T01:43:53.910104Z  INFO lightyear_udp::server: Received UDP packet from new address 76.22.178.192:62741, Spawn new LinkOf entity=209v19#81604378833 server_entity=187v1#4294967483
+01:43:54
+2026-10-25T01:43:54.287736Z  INFO lightyear_netcode::server_plugin: New connection on netcode from 39445865515864 (209v19#81604378833)
+01:43:54
+2026-10-25T01:43:54.287801Z  INFO server::net: client Netcode(39445865515864) connected
+01:44:00
+2026-10-25T01:44:00.747323Z  INFO server::lobby: Netcode(127097566004532) created lobby 202v36#154618822858
+01:44:01
+2026-10-25T01:44:01.388022Z  INFO server::lobby: Netcode(39445865515864) joined lobby 202v36#154618822858
+01:44:01
+2026-10-25T01:44:01.450853Z  INFO server::lobby: Netcode(39445865515864) plays as VON
+01:44:03
+2026-10-25T01:44:03.251396Z  INFO server::lobby: lobby mode set to Zombies by Netcode(127097566004532)
+01:44:03
+2026-10-25T01:44:03.723988Z  INFO server::lobby: lobby map set to DerTempelDay by Netcode(127097566004532)
+01:44:06
+2026-10-25T01:44:06.440623Z  INFO server::lobby: lobby zombies start set to round 13, 0 points, 0 s countdown by Netcode(127097566004532)
+01:44:08
+2026-10-25T01:44:08.687790Z  INFO server::lobby: lobby zombies start set to round 13, 21250 points, 0 s countdown by Netcode(127097566004532)
+01:44:10
+2026-10-25T01:44:10.916699Z  INFO server::lobby: lobby 202v36#154618822858 started by Netcode(127097566004532) with 2 member(s) (0 bot), 300s limit, mode Zombies
+01:44:10
+2026-10-25T01:44:10.916735Z  INFO server::lobby:   spawned player 201v13#55834575049 for Netcode(127097566004532)
+01:44:10
+2026-10-25T01:44:10.916740Z  INFO server::lobby:   spawned player 213v19#81604378837 for Netcode(39445865515864)
+01:44:19
+2026-10-25T01:44:19.423182Z  INFO server::zombies: lobby 202v36#154618822858: zombies round 13
+01:44:23
+2026-10-25T01:44:23.308459Z  INFO server::wall_buys: Netcode(127097566004532) dropped their M17 for a AK-74
+01:44:23
+2026-10-25T01:44:23.308557Z  INFO server::wall_buys: Netcode(127097566004532) bought the AK-74 off the wall
+01:44:27
+2026-10-25T01:44:27.868260Z  INFO server::zombies: Netcode(127097566004532) opened door 1
+01:44:31
+2026-10-25T01:44:31.820719Z  INFO server::zombies: Netcode(127097566004532) bought Juggernog
+01:44:32
+2026-10-25T01:44:32.269404Z  INFO server::zombies: Netcode(127097566004532) went prone at Juggernog for 100 points
+01:44:33
+2026-10-25T01:44:33.708593Z  INFO server::zombies: Netcode(127097566004532) opened door 4
+01:44:34
+2026-10-25T01:44:34.045565Z  INFO server::pvp: Netcode(39445865515864) is down
+01:45:12
+2026-10-25T01:45:12.306682Z  INFO server::sim: tick 44290: Netcode(127097566004532) hit player Local(12124692677222)
+01:45:13
+2026-10-25T01:45:13.148197Z  INFO server::pvp: Netcode(127097566004532) is down
+01:45:13
+2026-10-25T01:45:13.148393Z  INFO server::revive: lobby 202v36#154618822858: everyone's down — zombies game over
+01:45:14
+2026-10-25T01:45:14.988423Z  INFO server::lobby: match over — OrangeJuiceSimp wins with 21250
+01:45:19
+2026-10-25T01:45:19.182464Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 39445865515864. Despawning entity.
+01:45:19
+2026-10-25T01:45:19.182611Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 213v19 does not exist (enable `track_location` feature for more details)
+01:45:20
+2026-10-25T01:45:20.106380Z  INFO lightyear_netcode::server_plugin: Disconnection from netcode client 127097566004532. Despawning entity.
+01:45:20
+2026-10-25T01:45:20.106473Z  INFO server::lobby: lobby 202v36#154618822858 is empty — despawned
+01:45:20
+2026-10-25T01:45:20.106520Z  WARN bevy_ecs::error::handler: Encountered an error in command `<bevy_ecs::system::commands::entity_command::despawn::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: The entity with ID 201v13 does not exist (enable `track_location` feature for more details)
