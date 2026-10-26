@@ -213,6 +213,7 @@ fn on_create(
                 rampage: false,
                 carpenter: false,
                 mystery_box: None,
+                box_spot: Default::default(),
                 members: vec![LobbyMember {
                     peer,
                     name: ev.player_name.clone(),
@@ -371,6 +372,9 @@ fn on_start(
     lobby.carpenter = false;
     lobby.exfil = Default::default();
     lobby.mystery_box = None;
+    // The box starts on a random one of the map's spots.
+    let seed = time.elapsed().as_nanos() as u64 ^ lobby_entity.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    lobby.box_spot = shared::mystery_box::BoxSpot::start(lobby.map, shared::bots::rand01(seed));
     lobby.active_power_ups.clear();
     lobby.snd = Default::default();
     lobby.time_left_secs = lobby.time_limit_secs;
@@ -1095,6 +1099,7 @@ fn back_to_room(lobby: &mut Lobby) {
     lobby.rampage = false;
     lobby.carpenter = false;
     lobby.mystery_box = None;
+    lobby.box_spot = Default::default();
     lobby.active_power_ups.clear();
     // (`SearchAndDestroy`'s rounds stay for the results screen — the next
     // game clears them — but nothing's mid-plant.)
@@ -1192,6 +1197,7 @@ mod tests {
             rampage: false,
             carpenter: false,
             mystery_box: None,
+            box_spot: Default::default(),
             members: vec![LobbyMember {
                 peer: PeerId::Netcode(1),
                 name: "Host".into(),

@@ -481,7 +481,10 @@ fn wanted_icons(lobby: &Lobby) -> Vec<IconSpec> {
     if let Some(at) = layout.power_switch {
         add(at, IconArt::BadgeText("PWR", Color::srgb(1.0, 0.85, 0.2)));
     }
-    if let Some(at) = layout.mystery_box {
+    // (Where the box is now — not while it's moving.)
+    if let Some(at) = shared::mystery_box::current(lobby).filter(|_| lobby.mystery_box.is_none_or(|s| {
+        !matches!(s.phase, shared::mystery_box::BoxPhase::Leaving | shared::mystery_box::BoxPhase::Away)
+    })) {
         add(at, IconArt::BadgeText("?", Color::srgb(0.35, 0.75, 1.0)));
     }
     if shared::wunderfizz::present(lobby) {

@@ -83,6 +83,11 @@ only place a player learns anything changed.
   the asset naming convention: `snake_case` with underscores (no hyphens) and
   no `sound` suffix (e.g. `perk-quotes/speed-cola/speed-cola-quote-1.mp3` →
   `perk_quotes/speed_cola/speed_cola_quote_1.mp3`).
+- **Every egui debug-panel section with tweakable settings gets a "Print
+  settings to console" button** that `info!`s the whole settings struct
+  (`{settings:#?}`), next to its Reset button — so the user can dial values
+  in and paste them back to be made the defaults. Add one whenever you add
+  settings to the panel (see `vfx::mystery_box`'s section for the pattern).
 - Black 3D view with only the HUD showing = a camera's output blend. Bevy
   picks which window camera blits opaquely by render-world iteration order
   (which shifts whenever systems/plugins are added), so the world, view-model

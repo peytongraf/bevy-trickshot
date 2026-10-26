@@ -131,6 +131,18 @@ pub(crate) struct GameSounds {
     pub(crate) mystery_box_open: Handle<AudioSource>,
     pub(crate) mystery_box_close: Handle<AudioSource>,
     pub(crate) mystery_box_spin: Handle<AudioSource>,
+    /// The box landing on the teddy bear and moving (`mystery_box`): the
+    /// bear's laugh and "bye bye", the lid shutting in smoke, the whoosh and
+    /// whirl of the box rising, its poof, the strike leaving the bear on its
+    /// blocks, and the box landing on its new spot.
+    pub(crate) mystery_box_teddy_laugh: Handle<AudioSource>,
+    pub(crate) mystery_box_bye_bye: Handle<AudioSource>,
+    pub(crate) mystery_box_disappear: Handle<AudioSource>,
+    pub(crate) mystery_box_woosh: Handle<AudioSource>,
+    pub(crate) mystery_box_fly_away: Handle<AudioSource>,
+    pub(crate) mystery_box_poof: Handle<AudioSource>,
+    pub(crate) mystery_box_land_flux: Handle<AudioSource>,
+    pub(crate) mystery_box_land: Handle<AudioSource>,
     /// `audio/zombies/armor/destroy.mp3` — the last of our armor broke
     /// (`armor::play_armor_broken`).
     pub(crate) armor_destroy: Handle<AudioSource>,
@@ -492,6 +504,14 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         mystery_box_open: asset_server.load("audio/zombies/mystery_box/open.mp3"),
         mystery_box_close: asset_server.load("audio/zombies/mystery_box/close.mp3"),
         mystery_box_spin: asset_server.load("audio/zombies/mystery_box/spin.mp3"),
+        mystery_box_teddy_laugh: asset_server.load("audio/zombies/mystery_box/teddy_laugh.wav"),
+        mystery_box_bye_bye: asset_server.load("audio/zombies/mystery_box/bye_bye.wav"),
+        mystery_box_disappear: asset_server.load("audio/zombies/mystery_box/disappear.wav"),
+        mystery_box_woosh: asset_server.load("audio/zombies/mystery_box/woosh.wav"),
+        mystery_box_fly_away: asset_server.load("audio/zombies/mystery_box/fly_away.wav"),
+        mystery_box_poof: asset_server.load("audio/zombies/mystery_box/poof.wav"),
+        mystery_box_land_flux: asset_server.load("audio/zombies/mystery_box/land_flux.wav"),
+        mystery_box_land: asset_server.load("audio/zombies/mystery_box/land.wav"),
         armor_destroy: asset_server.load("audio/zombies/armor/destroy.mp3"),
         aether_activate: asset_server.load("audio/zombies/aether_shroud/activate.mp3"),
         aether_active: asset_server.load("audio/zombies/aether_shroud/active.mp3"),

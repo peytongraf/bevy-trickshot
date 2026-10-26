@@ -1556,6 +1556,7 @@ mod tests {
                 rampage: false,
                 carpenter: false,
                 mystery_box: None,
+                box_spot: Default::default(),
                 members: vec![shared::LobbyMember {
                     peer: me,
                     name: "me".into(),

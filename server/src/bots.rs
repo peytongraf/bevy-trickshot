@@ -476,6 +476,7 @@ mod tests {
                 rampage: false,
                 carpenter: false,
                 mystery_box: None,
+                box_spot: Default::default(),
                 members: Vec::new(),
             })
             .id();
@@ -567,6 +568,7 @@ mod tests {
                 rampage: false,
                 carpenter: false,
                 mystery_box: None,
+                box_spot: Default::default(),
                 members: vec![shared::LobbyMember {
                     peer: PeerId::Netcode(1),
                     name: "me".into(),

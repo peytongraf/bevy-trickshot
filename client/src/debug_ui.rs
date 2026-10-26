@@ -137,6 +137,7 @@ pub(crate) fn ads_tuning_ui(
                     crate::audio_engine::ReverbDebug,
                     crate::windows::BoardSmokeDebug,
                     crate::update_screen::UpdateScreenDebug,
+                    crate::mystery_box::MysteryBoxDebug,
                 ),
             ),
         ),
@@ -153,7 +154,7 @@ pub(crate) fn ads_tuning_ui(
         mut soldier_anim,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg, mut box_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1879,7 +1880,10 @@ pub(crate) fn ads_tuning_ui(
             ui.collapsing("M17 (Zombies)", |ui| raygun_dbg.m17_ui(ui, &molotov_dbg.weapon, &mut tuning.force_full));
 
             ui.separator();
-            ui.collapsing("Mystery Box (Zombies)", |ui| box_fx_dbg.ui(ui));
+            ui.collapsing("Mystery Box (Zombies)", |ui| {
+                box_dbg.ui(ui);
+                box_fx_dbg.ui(ui);
+            });
 
             ui.separator();
             ui.collapsing("Rampage Inducer (Zombies)", |ui| rampage_dbg.ui(ui));

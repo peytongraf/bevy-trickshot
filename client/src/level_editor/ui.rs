@@ -177,6 +177,17 @@ fn menu_bar(
                     input::add_at_view(ed, ObjectId::AmmoCrate(crates as u8), rapier);
                     ui.close();
                 }
+                // (Mystery Box spots: the box moves between them.)
+                let boxes = ed.doc().layout.mystery_boxes.len();
+                let max = shared::mystery_box::MAX_SPOTS;
+                if ui
+                    .add_enabled(boxes < max, egui::Button::new(format!("Mystery Box spot  ({boxes}/{max})")))
+                    .on_hover_text("Cinder blocks the Mystery Box can stand on — it starts on a random one and moves to another when it lands on the teddy bear")
+                    .clicked()
+                {
+                    input::add_at_view(ed, ObjectId::MysteryBox(boxes as u8), rapier);
+                    ui.close();
+                }
                 // (Start spots: as many as a lobby holds players.)
                 let spawns = ed.doc().layout.player_spawns.len();
                 let max = shared::level::MAX_PLAYER_SPAWNS;
@@ -442,6 +453,27 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                     }
                 };
                 listed(ui, ed, &ObjectId::OPTIONAL);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("MYSTERY BOX SPOTS").small().color(DIM));
+                    let n = ed.doc().layout.mystery_boxes.len();
+                    let room = n < shared::mystery_box::MAX_SPOTS;
+                    if ui.add_enabled(room, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                        input::add_at_view(ed, ObjectId::MysteryBox(n as u8), rapier);
+                    }
+                });
+                for &id in shown.iter().filter(|o| matches!(o, ObjectId::MysteryBox(_))) {
+                    row(ui, ed, id);
+                }
+                match ed.doc().layout.mystery_boxes.len() {
+                    0 => {
+                        ui.colored_label(DIM, "None — no Mystery Box here");
+                    }
+                    1 => {
+                        ui.colored_label(DIM, "Just one — the box never moves");
+                    }
+                    _ => {}
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("AMMO CRATES").small().color(DIM));

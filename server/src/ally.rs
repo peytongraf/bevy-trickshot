@@ -1331,7 +1331,7 @@ fn think(
         && v.lobby.mystery_box.is_none()
         && points >= shared::mystery_box::COST + reserve
     {
-        if let Some(at) = shared::mystery_box::placement(map) {
+        if let Some(at) = shared::mystery_box::current(v.lobby) {
             let spot = shared::mystery_box::use_spot(at);
             if ok(brain, Errand::Box) && near(spot).is_some() && brain.ready(Errand::Box, now) {
                 brain.box_round = Some(v.lobby.round);
@@ -1381,7 +1381,7 @@ fn at_errand(errand: Errand, lobby: &Lobby, feet: Vec3, lying: &[Lying]) -> bool
         Errand::Power => shared::power::in_range(map, feet, 0.0),
         Errand::Pap => shared::pap::in_range(map, feet, 0.0),
         Errand::Door(i) => shared::doors::doors(map).get(i as usize).is_some_and(|d| d.in_range(feet, 0.0)),
-        Errand::Box => shared::mystery_box::in_range(map, feet, 0.0),
+        Errand::Box => shared::mystery_box::in_range(lobby, feet, 0.0),
         Errand::WallBuy(gun) => shared::wall_buy::in_range(map, gun, feet, 0.0),
         Errand::Ammo(at) => at.distance(feet) < 2.0,
         Errand::Repair(i) => shared::windows::windows(map).get(i as usize).is_some_and(|w| w.in_repair_range(feet, 0.0)),
@@ -1541,7 +1541,11 @@ fn errand_result(brain: &mut AllyBrain, v: &View, doing: Doing, now: f32, comman
                         Some(true)
                     }
                 }
-                shared::mystery_box::BoxPhase::Closing => Some(true),
+                // (Landed on the bear: the spin's handed back; done.)
+                shared::mystery_box::BoxPhase::Closing
+                | shared::mystery_box::BoxPhase::Leaving
+                | shared::mystery_box::BoxPhase::Away
+                | shared::mystery_box::BoxPhase::Arriving => Some(true),
             }
         }
     }
@@ -1637,6 +1641,7 @@ mod tests {
             rampage: false,
             carpenter: false,
             mystery_box: None,
+            box_spot: Default::default(),
             members: vec![member(ally_peer(0), true), member(PeerId::Netcode(1), false)],
         }
     }

@@ -130,7 +130,10 @@ pub(crate) enum ObjectId {
     /// many as the map wants, one per zone say.
     AmmoCrate(u8),
     PowerSwitch,
-    MysteryBox,
+    /// One of the Mystery Box's spots (`ZombiesLayout::mystery_boxes`, by
+    /// index) — a stack of cinder blocks, the box starting on a random one
+    /// and moving between them when it lands on the teddy bear.
+    MysteryBox(u8),
     ArmorStation,
     /// The crafting table.
     CraftingTable,
@@ -193,10 +196,9 @@ impl RefKind {
 
 impl ObjectId {
     /// The optional ones — a map can do without them.
-    pub(crate) const OPTIONAL: [ObjectId; 11] = [
+    pub(crate) const OPTIONAL: [ObjectId; 10] = [
         ObjectId::PackAPunch,
         ObjectId::PowerSwitch,
-        ObjectId::MysteryBox,
         ObjectId::ArmorStation,
         ObjectId::CraftingTable,
         ObjectId::ExfilRadio,
@@ -217,6 +219,18 @@ impl ObjectId {
         "Ammo crate 6",
         "Ammo crate 7",
         "Ammo crate 8",
+    ];
+
+    /// Names for the Mystery Box's spots ([`ObjectId::MysteryBox`]).
+    const BOX_LABELS: [&'static str; shared::mystery_box::MAX_SPOTS] = [
+        "Mystery Box spot 1",
+        "Mystery Box spot 2",
+        "Mystery Box spot 3",
+        "Mystery Box spot 4",
+        "Mystery Box spot 5",
+        "Mystery Box spot 6",
+        "Mystery Box spot 7",
+        "Mystery Box spot 8",
     ];
 
     /// Names for the start spots ([`ObjectId::PlayerSpawn`]).
@@ -410,7 +424,7 @@ impl ObjectId {
             ObjectId::PackAPunch => "Pack-a-Punch",
             ObjectId::AmmoCrate(i) => Self::CRATE_LABELS[(i as usize).min(Self::CRATE_LABELS.len() - 1)],
             ObjectId::PowerSwitch => "Power switch",
-            ObjectId::MysteryBox => "Mystery Box",
+            ObjectId::MysteryBox(i) => Self::BOX_LABELS[(i as usize).min(Self::BOX_LABELS.len() - 1)],
             ObjectId::ArmorStation => "Armor station",
             ObjectId::CraftingTable => "Crafting table",
             ObjectId::ExfilRadio => "Exfil radio",
@@ -460,7 +474,7 @@ impl ObjectId {
             ObjectId::PackAPunch => Some("pack_a_punch".into()),
             ObjectId::AmmoCrate(_) => Some("ammo_crate".into()),
             ObjectId::PowerSwitch => Some("power_switch".into()),
-            ObjectId::MysteryBox => Some("mystery_box".into()),
+            ObjectId::MysteryBox(_) => Some("mystery_box".into()),
             ObjectId::ArmorStation => Some("armor_station".into()),
             ObjectId::CraftingTable => Some("crafting_table".into()),
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
@@ -491,6 +505,7 @@ impl ObjectId {
             || matches!(
                 self,
                 ObjectId::AmmoCrate(_)
+                    | ObjectId::MysteryBox(_)
                     | ObjectId::PlayerSpawn(_)
                     | ObjectId::PowerLight(_)
                     | ObjectId::Flame(_)
@@ -505,7 +520,6 @@ impl ObjectId {
         match self {
             ObjectId::PackAPunch => Some(&mut layout.pack_a_punch),
             ObjectId::PowerSwitch => Some(&mut layout.power_switch),
-            ObjectId::MysteryBox => Some(&mut layout.mystery_box),
             ObjectId::ArmorStation => Some(&mut layout.armor_station),
             ObjectId::CraftingTable => Some(&mut layout.crafting_table),
             ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
@@ -547,7 +561,7 @@ impl ObjectId {
             ObjectId::PackAPunch => layout.pack_a_punch,
             ObjectId::AmmoCrate(i) => layout.ammo_crates.get(i as usize).copied(),
             ObjectId::PowerSwitch => layout.power_switch,
-            ObjectId::MysteryBox => layout.mystery_box,
+            ObjectId::MysteryBox(i) => layout.mystery_boxes.get(i as usize).copied(),
             ObjectId::ArmorStation => layout.armor_station,
             ObjectId::CraftingTable => layout.crafting_table,
             ObjectId::ExfilRadio => layout.exfil_radio,
@@ -579,6 +593,15 @@ impl ObjectId {
                     *c = at;
                 } else if crates.len() < shared::level::MAX_AMMO_CRATES {
                     crates.push(at);
+                }
+            }
+            // (A new one goes on the end.)
+            ObjectId::MysteryBox(i) => {
+                let spots = &mut layout.mystery_boxes;
+                if let Some(spot) = spots.get_mut(i as usize) {
+                    *spot = at;
+                } else if spots.len() < shared::mystery_box::MAX_SPOTS {
+                    spots.push(at);
                 }
             }
             // (Keeping its size; a new one's the default size.)
@@ -667,6 +690,10 @@ impl ObjectId {
             let i = i as usize;
             return (i < layout.ammo_crates.len()).then(|| layout.ammo_crates.remove(i)).is_some();
         }
+        if let ObjectId::MysteryBox(i) = self {
+            let i = i as usize;
+            return (i < layout.mystery_boxes.len()).then(|| layout.mystery_boxes.remove(i)).is_some();
+        }
         if let ObjectId::PlayerSpawn(i) = self {
             let i = i as usize;
             return (i < layout.player_spawns.len()).then(|| layout.player_spawns.remove(i)).is_some();
@@ -714,7 +741,7 @@ impl ObjectId {
             ObjectId::PackAPunch => crate::pap::PAP_BLUE,
             ObjectId::AmmoCrate(_) => Color::srgb(0.55, 0.8, 0.35),
             ObjectId::PowerSwitch => Color::srgb(1.0, 0.85, 0.2),
-            ObjectId::MysteryBox => crate::mystery_box::AMBER,
+            ObjectId::MysteryBox(_) => crate::mystery_box::AMBER,
             ObjectId::ArmorStation => crate::armor::ARMOR_BLUE,
             ObjectId::CraftingTable => Color::srgb(0.85, 0.6, 0.3),
             ObjectId::ExfilRadio => crate::exfil::EXFIL_BLUE,
@@ -738,7 +765,7 @@ impl ObjectId {
         match self {
             ObjectId::PackAPunch => shared::perks::PERK_USE_RADIUS + 0.5,
             ObjectId::WallBuy(_) => shared::wall_buy::USE_RADIUS,
-            ObjectId::MysteryBox => shared::mystery_box::USE_RADIUS,
+            ObjectId::MysteryBox(_) => shared::mystery_box::USE_RADIUS,
             ObjectId::ArmorStation => shared::armor::USE_RADIUS,
             ObjectId::CraftingTable => shared::crafting::USE_RADIUS,
             ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
@@ -765,7 +792,7 @@ impl ObjectId {
     pub(crate) fn use_center(self, at: Placement) -> Vec3 {
         match self {
             ObjectId::WallBuy(_) => shared::wall_buy::use_spot(at),
-            ObjectId::MysteryBox => shared::mystery_box::use_spot(at),
+            ObjectId::MysteryBox(_) => shared::mystery_box::use_spot(at),
             _ => at.pos,
         }
     }
@@ -813,7 +840,8 @@ impl ObjectId {
             ObjectId::Perk(_) | ObjectId::Wunderfizz => standing(shared::perks::MACHINE_HALF_EXTENTS),
             ObjectId::PackAPunch => standing(shared::pap::MACHINE_HALF_EXTENTS),
             ObjectId::AmmoCrate(_) => standing(shared::ammo::CRATE_HALF_EXTENTS),
-            ObjectId::MysteryBox => standing(shared::mystery_box::HALF_EXTENTS),
+            // The blocks and the box on them.
+            ObjectId::MysteryBox(_) => standing(shared::mystery_box::stack_half_extents()),
             ObjectId::ArmorStation => standing(shared::armor::HALF_EXTENTS),
             ObjectId::CraftingTable => standing(shared::crafting::HALF_EXTENTS),
             ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
@@ -849,6 +877,7 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
         out.push(ObjectId::Wunderfizz);
     }
     out.extend(ObjectId::OPTIONAL.into_iter().filter(|o| o.get(doc).is_some()));
+    out.extend((0..doc.layout.mystery_boxes.len() as u8).map(ObjectId::MysteryBox));
     out.extend((0..doc.layout.ammo_crates.len() as u8).map(ObjectId::AmmoCrate));
     out.extend((0..doc.layout.player_spawns.len() as u8).map(ObjectId::PlayerSpawn));
     out.extend((0..doc.layout.power_lights.len() as u8).map(ObjectId::PowerLight));
@@ -1540,7 +1569,8 @@ fn model_of(
         ObjectId::PackAPunch => (PAP_MODEL, pap.model_transform()),
         ObjectId::AmmoCrate(_) => (AMMO_CRATE_MODEL, ammo.model_transform()),
         ObjectId::PowerSwitch => (LEVER_MODEL, lever.model_transform()),
-        ObjectId::MysteryBox => (crate::mystery_box::MYSTERY_BOX_MODEL, Transform::IDENTITY),
+        // (The blocks — the box goes on top, `sync_objects`.)
+        ObjectId::MysteryBox(_) => (crate::mystery_box::BLOCKS_MODEL, Transform::IDENTITY),
         ObjectId::ArmorStation => (crate::armor::ARMOR_STATION_MODEL, crate::armor::model_transform()),
         ObjectId::CraftingTable => (crate::crafting::CRAFTING_TABLE_MODEL, crate::crafting::model_transform()),
         ObjectId::ExfilRadio => (crate::exfil::RADIO_MODEL, Transform::IDENTITY),
@@ -1660,6 +1690,14 @@ fn sync_objects(
                 object.with_children(|o| {
                     o.spawn((scene, offset)).observe(crate::start_zombie_animation);
                 });
+            }
+            // Every spot shows the box on its blocks, so it can be judged.
+            ObjectId::MysteryBox(_) => {
+                object.with_child((scene, offset));
+                object.with_child((
+                    SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::mystery_box::MYSTERY_BOX_MODEL))),
+                    Transform::from_translation(Vec3::Y * shared::mystery_box::BLOCKS_HEIGHT),
+                ));
             }
             // (Its glass as the game has it — `power::glaze_power_station`.)
             ObjectId::PowerStation => {

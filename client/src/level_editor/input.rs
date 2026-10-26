@@ -668,6 +668,7 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
     ids.sort_by_key(|id| {
         std::cmp::Reverse(match id {
             ObjectId::AmmoCrate(i)
+            | ObjectId::MysteryBox(i)
             | ObjectId::PlayerSpawn(i)
             | ObjectId::PowerLight(i)
             | ObjectId::Flame(i)

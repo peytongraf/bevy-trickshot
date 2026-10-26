@@ -375,7 +375,8 @@ fn emit_box_fx(
     mut commands: Commands,
 ) {
     let fx = &*settings;
-    let Some((gt, mbox)) = boxes.iter().next() else {
+    // (Gone while it moves between spots: nothing.)
+    let Some((gt, mbox)) = boxes.iter().next().filter(|(_, m)| !m.hidden()) else {
         for e in &existing {
             commands.entity(e).despawn();
         }
@@ -744,7 +745,7 @@ fn update_beam(
     mut commands: Commands,
 ) {
     let fx = &*settings;
-    let Some((gt, mbox)) = boxes.iter().next().filter(|_| fx.beam_enabled) else {
+    let Some((gt, mbox)) = boxes.iter().next().filter(|(_, m)| fx.beam_enabled && !m.hidden()) else {
         for (e, _) in &beams {
             commands.entity(e).despawn();
         }

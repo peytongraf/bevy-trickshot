@@ -1826,6 +1826,7 @@ mod tests {
             rampage: false,
             carpenter: false,
             mystery_box: None,
+            box_spot: Default::default(),
             members: Vec::new(),
         }
     }

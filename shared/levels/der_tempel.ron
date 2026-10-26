@@ -29,7 +29,12 @@
         (weapon: Sniper, at: (pos: (41.102, 0.0, 14.958), yaw_deg: 90.0)),
         (weapon: Ak74, at: (pos: (-29.9, -4.15, 69.5), yaw_deg: 90.0)),
     ],
-    mystery_box: Some((pos: (0.0, -15.0, 0.0), yaw_deg: 180.0)),
+    mystery_boxes: [
+        (pos: (-38.7, -0.0, 74.4), yaw_deg: -180.0),
+        (pos: (69.35, 0.0, 54.508), yaw_deg: -90.0),
+        (pos: (24.386, 0.0, -41.565), yaw_deg: -180.0),
+        (pos: (29.325, -15.0, -16.258), yaw_deg: -90.0),
+    ],
     armor_station: Some((pos: (16.43, -15.0, -15.965), yaw_deg: 0.0)),
     crafting_table: Some((pos: (29.45, -4.0, 69.15), yaw_deg: -90.0)),
     exfil_radio: Some((pos: (-11.5, -4.0, 56.45), yaw_deg: 0.0)),

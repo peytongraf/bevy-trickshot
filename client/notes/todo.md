@@ -1,5 +1,8 @@
+Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
+
 # Done
 
+- Mystery box spots, cinder blocks, teddy bear move
 - Prod server: dedicated CPU, sleeps when idle, client wakes it
 - Update screen gates the menu; server version check
 - Zombies pacing: CoD zombie counts, boss from round 9
@@ -8,7 +11,9 @@
 
 # Current todo
 
-- SETUP DIFFERENT MYSTERY BOX LOCATIONS THEN ADD MOVEMENT OF IT, BYE BYE, ETC
+- Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
+- Test and improve server performance for cpu and memory
+- Could download bottle model and replace the plastic model in the drinking arms with it and redo the animation, then just swap out the material that is used if they would all look correct.
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
@@ -37,9 +42,6 @@
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
 
 # Mystery box
-
-- Add cynder blocks to the level editor for the mystery box to sit on. These will sit at every mystery box location.
-- Mystery box animation is messed up because door slides to position it should be in normally without cinder blocks
 
 # Nice to have
 

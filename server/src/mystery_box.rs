@@ -6,18 +6,26 @@
 //! lands in the lobby's replicated [`Lobby::mystery_box`], which every
 //! client draws from.
 //!
-//! The spin's cleared with the rest of the lobby's game state whenever a
-//! game starts or ends (`lobby`), and the clocks of lobbies with no spin
-//! are dropped ([`run_spins`]) — nothing carries over.
+//! A spin can land on the teddy bear instead
+//! ([`shared::mystery_box::teddy_chance`], growing with the spins at that
+//! spot): it's handed back, and the box leaves, is away a moment, and
+//! arrives on another of the map's spots ([`Lobby::box_spot`]). The debug
+//! panel's [`SpinTeddy`] does that on demand.
+//!
+//! The spin and the box's spot are reset with the rest of the lobby's game
+//! state whenever a game starts or ends (`lobby`), and the clocks of
+//! lobbies with no spin are dropped ([`run_spins`]) — nothing carries over.
 
 use std::collections::HashMap;
 
 use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use shared::mystery_box::{BoxPhase, BoxPrize, MysteryBoxSpin, CLOSE_SECS, COST, OFFER_SECS, SPIN_SECS};
+use shared::mystery_box::{
+    BoxPhase, BoxPrize, MysteryBoxSpin, ARRIVE_SECS, AWAY_SECS, CLOSE_SECS, COST, LEAVE_SECS, OFFER_SECS, SPIN_SECS,
+};
 use shared::weapon::SlotWeapon;
-use shared::{BoxPrizeTaken, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, SpinMysteryBox, TakeBoxPrize};
+use shared::{BoxPrizeTaken, GameChannel, GameMode, Lobby, PlayerId, PlayerPose, SpinMysteryBox, SpinTeddy, TakeBoxPrize};
 
 use crate::collision::MapColliders;
 use crate::killcam::EndingLobbies;
@@ -31,6 +39,7 @@ impl Plugin for MysteryBoxPlugin {
         app.init_resource::<SpinClocks>()
             .add_observer(on_spin)
             .add_observer(on_take_prize)
+            .add_observer(on_spin_teddy)
             .add_systems(FixedUpdate, run_spins);
     }
 }
@@ -59,7 +68,7 @@ fn on_spin(
     let Ok((_, mut lobby)) = lobbies.get_mut(lobby_e) else {
         return;
     };
-    if lobby.mystery_box.is_some() || !shared::mystery_box::in_range(lobby.map, feet, 0.75) {
+    if lobby.mystery_box.is_some() || !shared::mystery_box::in_range(&lobby, feet, 0.75) {
         return;
     }
     let Some(member) = lobby.members.iter().find(|m| m.peer == peer) else {
@@ -81,21 +90,69 @@ fn on_spin(
     let Some(prize) = shared::mystery_box::roll(lobby.round, excluded, shared::bots::rand01(seed)) else {
         return;
     };
+    let spots = shared::mystery_box::spots(lobby.map).len();
+    let chance = shared::mystery_box::teddy_chance(lobby.box_spot.spins, spots);
+    let teddy = shared::bots::rand01(seed.rotate_left(17) ^ 0x7ed5_5d1e) < chance;
+    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
+        m.score -= COST;
+    }
+    start_spin(&mut clocks, lobby_e, &mut lobby, peer, prize, teddy, COST);
+    if teddy {
+        info!("{peer:?} spun the Mystery Box on round {}: the teddy bear — it's moving", lobby.round);
+    } else {
+        info!("{peer:?} spun the Mystery Box on round {}: {}", lobby.round, prize.label());
+    }
+}
+
+/// Start a spin of `lobby`'s box for `user`, landing on `prize` (or the
+/// bear), `paid` points paid for it — one more spin at the box's spot.
+#[allow(clippy::too_many_arguments)]
+fn start_spin(
+    clocks: &mut SpinClocks,
+    lobby_e: Entity,
+    lobby: &mut Lobby,
+    user: PeerId,
+    prize: BoxPrize,
+    teddy: bool,
+    paid: u32,
+) {
     let clock = clocks.0.entry(lobby_e).or_insert((0.0, 0));
     clock.0 = 0.0;
     clock.1 = clock.1.wrapping_add(1);
     let id = clock.1;
-    if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == peer) {
-        m.score -= COST;
-    }
+    lobby.box_spot.spins = lobby.box_spot.spins.saturating_add(1);
     lobby.mystery_box = Some(MysteryBoxSpin {
         id,
-        user: peer,
+        user,
         prize,
         phase: BoxPhase::Spinning,
         taken: false,
+        teddy,
+        paid,
     });
-    info!("{peer:?} spun the Mystery Box on round {}: {}", lobby.round, prize.label());
+}
+
+/// Debug: the party leader spins the box for free, from anywhere, and it
+/// lands on the teddy bear — in a running, unpaused `Zombies` game on a map
+/// with a box, with the box idle.
+fn on_spin_teddy(
+    trigger: Trigger<RemoteTrigger<SpinTeddy>>,
+    endings: Res<EndingLobbies>,
+    mut clocks: ResMut<SpinClocks>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+) {
+    let peer = trigger.from;
+    let Some((lobby_e, mut lobby)) = lobbies
+        .iter_mut()
+        .find(|(_, l)| l.leader == peer && l.started && l.mode == GameMode::Zombies && !l.paused)
+    else {
+        return;
+    };
+    if endings.is_ending(lobby_e) || lobby.mystery_box.is_some() || shared::mystery_box::current(&lobby).is_none() {
+        return;
+    }
+    start_spin(&mut clocks, lobby_e, &mut lobby, peer, BoxPrize::RayGun, true, 0);
+    info!("lobby {lobby_e:?}: {peer:?} spun the Mystery Box onto the teddy bear (debug)");
 }
 
 /// The member who spun takes the prize on offer, at the box: a gun goes in
@@ -126,7 +183,7 @@ fn on_take_prize(
     let Some(spin) = lobby.mystery_box else { return };
     if spin.user != peer
         || spin.phase != BoxPhase::Offering
-        || !shared::mystery_box::in_range(lobby.map, feet, 0.75)
+        || !shared::mystery_box::in_range(&lobby, feet, 0.75)
     {
         return;
     }
@@ -178,7 +235,10 @@ fn on_take_prize(
 
 /// Run each lobby's spin on its clock (held while the game's paused): its
 /// prize comes up for offer, then goes back in, and the box is free once
-/// the lid's shut. A spin outside a running `Zombies` game is dropped.
+/// the lid's shut — or, landed on the teddy bear, the spin's handed back
+/// and the box leaves, is away, and arrives on another spot, free once
+/// it's down. A spin outside a
+/// running `Zombies` game is dropped.
 fn run_spins(time: Res<Time>, mut clocks: ResMut<SpinClocks>, mut lobbies: Query<(Entity, &mut Lobby)>) {
     let dt = time.delta_secs();
     clocks.0.retain(|e, _| lobbies.contains(*e));
@@ -200,14 +260,35 @@ fn run_spins(time: Res<Time>, mut clocks: ResMut<SpinClocks>, mut lobbies: Query
         let clock = clocks.0.entry(lobby_e).or_insert((0.0, spin.id));
         clock.0 += dt;
         let next = match spin.phase {
+            BoxPhase::Spinning if clock.0 >= SPIN_SECS && spin.teddy => Some(Some(BoxPhase::Leaving)),
             BoxPhase::Spinning if clock.0 >= SPIN_SECS => Some(Some(BoxPhase::Offering)),
             BoxPhase::Offering if clock.0 >= OFFER_SECS => Some(Some(BoxPhase::Closing)),
             BoxPhase::Closing if clock.0 >= CLOSE_SECS => Some(None),
+            BoxPhase::Leaving if clock.0 >= LEAVE_SECS => Some(Some(BoxPhase::Away)),
+            BoxPhase::Away if clock.0 >= AWAY_SECS => Some(Some(BoxPhase::Arriving)),
+            BoxPhase::Arriving if clock.0 >= ARRIVE_SECS => Some(None),
             _ => None,
         };
-        if let Some(next) = next {
-            clock.0 = 0.0;
-            lobby.mystery_box = next.map(|phase| MysteryBoxSpin { phase, ..spin });
+        let Some(next) = next else { continue };
+        clock.0 = 0.0;
+        match next {
+            // The bear: the spin's handed back.
+            Some(BoxPhase::Leaving) => {
+                if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == spin.user) {
+                    m.score += spin.paid;
+                }
+            }
+            // Down on another spot.
+            Some(BoxPhase::Arriving) => {
+                let spots = shared::mystery_box::spots(lobby.map).len();
+                let seed = ((spin.id as u64) << 32) ^ lobby_e.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                let to = shared::mystery_box::next_spot(lobby.box_spot.at, spots, shared::bots::rand01(seed));
+                lobby.box_spot.at = to;
+                lobby.box_spot.spins = 0;
+                info!("lobby {lobby_e:?}: the Mystery Box moved to spot {}", to + 1);
+            }
+            _ => {}
         }
+        lobby.mystery_box = next.map(|phase| MysteryBoxSpin { phase, ..spin });
     }
 }

@@ -15,6 +15,12 @@
 /// this will ship under — keep it in sync with the workspace `Cargo.toml`
 /// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.10",
+    &[
+        "Zombies: the Mystery Box can land on the teddy bear and move to another spot, with Black Ops 4's sounds.",
+        "Zombies: the Mystery Box starts on a random spot and sits on cinder blocks, with a teddy bear on the empty ones.",
+    ],
+), (
     "0.4.9",
     &[
         "Fixed zombies and other players freezing in place on high zombies rounds.",

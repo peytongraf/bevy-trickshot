@@ -70,7 +70,7 @@ pub use protocol::{
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
     SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor, UseFieldUpgrade, FillFieldUpgrade,
-    BossLightning, BossSpawned, BossBlastLaunched, BossBlastExploded, SpawnBoss,
+    BossLightning, BossSpawned, BossBlastLaunched, BossBlastExploded, SpawnBoss, SpinTeddy,
     ThrownMonkey, MonkeyDrop, ThrowMonkey, PickUpMonkey, MonkeyPickedUp, SetMonkeyFuse,
     ThrownFrag, FragDrop, ThrowFrag, PickUpFrag, FragPickedUp,
     ThrownFlashBang, FlashBangDrop, ThrowFlashBang, PickUpFlashBang, FlashBangPickedUp, FlashBangDetonated,
@@ -87,7 +87,7 @@ pub const REPLICATION_INTERVAL_MS: u64 = 50;
 
 /// Netcode protocol id. Bump this on any breaking change to [`protocol`] so
 /// mismatched client/server builds refuse to connect instead of desyncing.
-pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002d;
+pub const PROTOCOL_ID: u64 = 0x7213_c150_0000_002e;
 
 /// This build's version — the workspace `Cargo.toml`'s, which the release
 /// workflow sets from the tag. A client tells the server its version on

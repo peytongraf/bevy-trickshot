@@ -661,9 +661,11 @@ pub struct ZombiesLayout {
     /// The wall buys — at most one per gun ([`WALL_BUY_WEAPONS`]).
     #[serde(default)]
     pub wall_buys: Vec<WallBuy>,
-    /// The Mystery Box ([`crate::mystery_box`]), if the place has one.
+    /// The spots the Mystery Box ([`crate::mystery_box`]) can stand on —
+    /// a stack of cinder blocks at each, the box on one of them — up to
+    /// [`crate::mystery_box::MAX_SPOTS`]. None, and the place has no box.
     #[serde(default)]
-    pub mystery_box: Option<Placement>,
+    pub mystery_boxes: Vec<Placement>,
     /// The armor station ([`crate::armor`]), if the place has one.
     #[serde(default)]
     pub armor_station: Option<Placement>,
@@ -757,10 +759,10 @@ impl ZombiesLayout {
             self.perks.iter_mut().map(|(perk, at)| (perk_size_key(*perk), at)).collect();
         out.push(("wunderfizz".into(), &mut self.wunderfizz));
         out.extend(self.ammo_crates.iter_mut().map(|at| ("ammo_crate".to_string(), at)));
+        out.extend(self.mystery_boxes.iter_mut().map(|at| ("mystery_box".to_string(), at)));
         for (key, slot) in [
             ("pack_a_punch", &mut self.pack_a_punch),
             ("power_switch", &mut self.power_switch),
-            ("mystery_box", &mut self.mystery_box),
             ("armor_station", &mut self.armor_station),
             ("exfil_radio", &mut self.exfil_radio),
             ("crafting_table", &mut self.crafting_table),
@@ -822,7 +824,11 @@ impl ZombiesLayout {
             }
         }
         out += "    ],\n";
-        out += &format!("    mystery_box: {},\n", optional(self.mystery_box));
+        out += "    mystery_boxes: [\n";
+        for at in &self.mystery_boxes {
+            out += &format!("        {},\n", at.to_ron());
+        }
+        out += "    ],\n";
         out += &format!("    armor_station: {},\n", optional(self.armor_station));
         out += &format!("    crafting_table: {},\n", optional(self.crafting_table));
         out += &format!("    exfil_radio: {},\n", optional(self.exfil_radio));

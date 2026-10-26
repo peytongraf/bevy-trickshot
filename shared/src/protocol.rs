@@ -1499,6 +1499,11 @@ pub struct Lobby {
     /// or ends.
     #[serde(default)]
     pub mystery_box: Option<crate::mystery_box::MysteryBoxSpin>,
+    /// [`GameMode::Zombies`]: which of the map's spots the Mystery Box is on
+    /// ([`crate::mystery_box::BoxSpot`]). Server-owned; a random one each
+    /// game.
+    #[serde(default)]
+    pub box_spot: crate::mystery_box::BoxSpot,
     /// [`GameMode::Zombies`]: the exfil ([`crate::exfil`]) — server-owned
     /// (`server::exfil`). Reset whenever a game starts; kept after one ends,
     /// for the results screen.
@@ -2186,6 +2191,13 @@ pub struct BossBlastExploded {
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct SpawnBoss;
 
+/// Client (debug) → server: the party leader spins the Mystery Box for
+/// free, wherever they are, and it lands on the teddy bear — the box moves
+/// ([`crate::mystery_box`]). Only in a running `Zombies` game with the box
+/// idle; ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct SpinTeddy;
+
 /// Client (party leader) → server: which perks the `Zombies` machines sell
 /// ([`Lobby::perk_set`]) — before starting only.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
@@ -2823,6 +2835,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPowerUpTest>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<DropPowerUp>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SpinTeddy>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SpawnBoss>()
             .add_direction(NetworkDirection::ClientToServer);
