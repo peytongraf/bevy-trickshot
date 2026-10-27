@@ -239,7 +239,12 @@ fn on_take_prize(
 /// and the box leaves, is away, and arrives on another spot, free once
 /// it's down. A spin outside a
 /// running `Zombies` game is dropped.
-fn run_spins(time: Res<Time>, mut clocks: ResMut<SpinClocks>, mut lobbies: Query<(Entity, &mut Lobby)>) {
+fn run_spins(
+    time: Res<Time>,
+    mut clocks: ResMut<SpinClocks>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
+) {
     let dt = time.delta_secs();
     clocks.0.retain(|e, _| lobbies.contains(*e));
     for (lobby_e, mut lobby) in &mut lobbies {
@@ -272,11 +277,16 @@ fn run_spins(time: Res<Time>, mut clocks: ResMut<SpinClocks>, mut lobbies: Query
         let Some(next) = next else { continue };
         clock.0 = 0.0;
         match next {
-            // The bear: the spin's handed back.
+            // The bear: the spin's handed back, and the one who spun has
+            // something to say about it.
             Some(BoxPhase::Leaving) => {
                 if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == spin.user) {
                     m.score += spin.paid;
                 }
+                quotes.write(crate::quotes::SayQuote {
+                    delay: crate::quotes::QuoteDelay::TeddyBear,
+                    ..crate::quotes::SayQuote::by(lobby_e, spin.user, shared::quotes::Quote::MysteryTeddy)
+                });
             }
             // Down on another spot.
             Some(BoxPhase::Arriving) => {

@@ -68,18 +68,20 @@ pub const CLOSE_SECS: f32 = SINK_SECS + LID_SECS;
 /// bear laughing and floating off, the lid shutting, the box rising and
 /// vanishing — `client::mystery_box` times it all inside this)...
 pub const LEAVE_SECS: f32 = 15.5;
+/// Seconds into that the bear says "bye bye"...
+pub const BYE_BYE_SECS: f32 = 3.0;
+/// ...as the one who spun has their say about it (`server::quotes`).
+pub const TEDDY_QUOTE_SECS: f32 = BYE_BYE_SECS;
 /// ...then gone this long...
 pub const AWAY_SECS: f32 = 3.0;
 /// ...then dropping onto its new spot's blocks, until it can be spun again.
 pub const ARRIVE_SECS: f32 = 1.5;
 
-/// Spins at a spot that can never land on the bear...
-pub const TEDDY_SAFE_SPINS: u8 = 4;
-/// ...then the chance on the next, growing by this much a spin after...
-const TEDDY_FIRST_CHANCE: f32 = 0.1;
-const TEDDY_CHANCE_STEP: f32 = 0.05;
-/// ...up to this.
-const TEDDY_MAX_CHANCE: f32 = 0.5;
+/// Spins at a spot that can never land on the bear (the 1st to 3rd)...
+pub const TEDDY_SAFE_SPINS: u8 = 3;
+/// ...then the chance on the 4th to 7th, the 8th to 12th, and every one
+/// from the 13th on.
+const TEDDY_CHANCES: [(u8, f32); 3] = [(7, 0.15), (12, 0.30), (u8::MAX, 0.50)];
 
 /// The chance a spin lands on the teddy bear after `spins_here` spins at
 /// the box's spot — none with nowhere else for it to go (`spots` 1 or 0).
@@ -87,8 +89,9 @@ pub fn teddy_chance(spins_here: u8, spots: usize) -> f32 {
     if spots < 2 || spins_here < TEDDY_SAFE_SPINS {
         return 0.0;
     }
-    let extra = (spins_here - TEDDY_SAFE_SPINS) as f32;
-    (TEDDY_FIRST_CHANCE + TEDDY_CHANCE_STEP * extra).min(TEDDY_MAX_CHANCE)
+    // (The spin about to happen is the `spins_here + 1`th.)
+    let nth = spins_here.saturating_add(1);
+    TEDDY_CHANCES.iter().find(|(last, _)| nth <= *last).map_or(0.5, |(_, c)| *c)
 }
 
 /// The spot the box moves to from `from`, out of `spots`, from `r` (uniform
@@ -401,14 +404,19 @@ mod tests {
 
     #[test]
     fn the_bear_only_comes_after_a_few_spins_and_gets_likelier() {
-        for spins in 0..TEDDY_SAFE_SPINS {
-            assert_eq!(teddy_chance(spins, 3), 0.0);
+        // The nth spin at a spot (1-based) and its chance.
+        let nth = |n: u8| teddy_chance(n - 1, 3);
+        for n in 1..=3 {
+            assert_eq!(nth(n), 0.0, "spin {n}");
         }
-        let mut last = 0.0;
-        for spins in TEDDY_SAFE_SPINS..40 {
-            let c = teddy_chance(spins, 3);
-            assert!(c > 0.0 && c >= last && c <= TEDDY_MAX_CHANCE, "{spins}: {c}");
-            last = c;
+        for n in 4..=7 {
+            assert_eq!(nth(n), 0.15, "spin {n}");
+        }
+        for n in 8..=12 {
+            assert_eq!(nth(n), 0.30, "spin {n}");
+        }
+        for n in [13, 14, 40, u8::MAX] {
+            assert_eq!(nth(n), 0.50, "spin {n}");
         }
         // Nowhere to go: never.
         assert_eq!(teddy_chance(30, 1), 0.0);

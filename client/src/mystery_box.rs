@@ -44,7 +44,9 @@ use crate::audio_engine::prelude::*;
 use bevy::render::mesh::skinning::SkinnedMesh;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
-use shared::mystery_box::{BoxPhase, BoxPrize, COST, HALF_EXTENTS, LEAVE_SECS, LID_SECS, SINK_SECS, SPIN_SECS};
+use shared::mystery_box::{
+    BoxPhase, BoxPrize, BYE_BYE_SECS, COST, HALF_EXTENTS, LEAVE_SECS, LID_SECS, SINK_SECS, SPIN_SECS,
+};
 use shared::weapon::SlotWeapon;
 use shared::Lobby;
 
@@ -77,8 +79,9 @@ const LAUGH_AT: f32 = 0.3;
 /// ...floats up and away...
 const TEDDY_RISE_AT: f32 = 3.0;
 const TEDDY_GONE_AT: f32 = 4.8;
-/// ...saying "bye bye"...
-const BYE_BYE_AT: f32 = 3.0;
+/// ...saying "bye bye" (`BYE_BYE_SECS`, shared: the server times the
+/// operator's quote about it off it)...
+const BYE_BYE_AT: f32 = BYE_BYE_SECS;
 /// ...the lid shuts in smoke...
 const LID_SHUT_AT: f32 = 6.5;
 /// ...the box rises with a whoosh, spinning faster, whirling...

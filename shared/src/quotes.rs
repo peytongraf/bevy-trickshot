@@ -58,6 +58,8 @@ pub enum Quote {
     MysteryMonkeyBomb,
     MysteryRayGun,
     MysteryThrowingKnife,
+    /// Their spin landed on the teddy bear, and the box is moving.
+    MysteryTeddy,
     /// They Pack-a-Punched a weapon.
     Pap,
     /// A PhD Flopper blast kill.
@@ -114,6 +116,7 @@ impl Quote {
             Quote::MysteryMonkeyBomb => "mystery_box/monkey_bomb",
             Quote::MysteryRayGun => "mystery_box/raygun",
             Quote::MysteryThrowingKnife => "mystery_box/throwing_knife",
+            Quote::MysteryTeddy => "mystery_box/box_move",
             Quote::Pap => "pap",
             Quote::PhdKill => "phd_kill",
             Quote::PickupEquipment => "pickup_new_dropped_equipment",
@@ -155,6 +158,13 @@ impl Quote {
             _ => (1.0, 0.0),
         };
         Rule { chance, cooldown }
+    }
+
+    /// Whether an operator goes through every one of their lines for it
+    /// (in a random order) before saying any again, each game — instead of
+    /// each line just waiting out [`LINE_COOLDOWN_SECS`].
+    pub fn cycles(self) -> bool {
+        matches!(self, Quote::MysteryTeddy)
     }
 }
 
@@ -241,6 +251,7 @@ pub fn all() -> Vec<Quote> {
         Quote::MysteryMonkeyBomb,
         Quote::MysteryRayGun,
         Quote::MysteryThrowingKnife,
+        Quote::MysteryTeddy,
         Quote::Pap,
         Quote::PhdKill,
         Quote::PickupEquipment,

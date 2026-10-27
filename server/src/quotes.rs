@@ -13,7 +13,9 @@
 //! * No line (the same file) is heard twice in a game within
 //!   [`LINE_COOLDOWN_SECS`]: a fresh one is picked, and if every line for
 //!   the moment has been heard lately, nothing's said (by anyone — "anyone"
-//!   is picked among the players with a fresh line).
+//!   is picked among the players with a fresh line). A quote that
+//!   [cycles](shared::quotes::Quote::cycles) instead has each operator say
+//!   every one of their lines for it before any again (each game).
 //! * Nobody talks over themselves: a speaker's busy until their line's
 //!   done (the lengths are in `shared::quotes`). A line asked for while
 //!   they're still talking waits — said the moment they finish if that's
@@ -23,7 +25,9 @@
 //!   line ([`QuoteDelay`]) coming due then, which waits for him to finish.
 //! * A dog round's and the exfil's lines come a few seconds after
 //!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
-//!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]).
+//!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]);
+//!   the box moving's a couple of seconds after the bear's "bye bye"
+//!   ([`shared::mystery_box::TEDDY_QUOTE_SECS`]).
 //!
 //! All of it is per game: a lobby that isn't running a `Zombies` game has
 //! its speakers and anything scheduled dropped.
@@ -35,6 +39,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use shared::bot_players::is_bot_peer;
+use shared::operator::Operator;
 use shared::quotes::{
     lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, GRACE_SECS, LINE_COOLDOWN_SECS,
 };
@@ -90,6 +95,8 @@ pub enum QuoteDelay {
     Exfil,
     /// Once this power-up's announcer line is done.
     Announcer(shared::power_ups::PowerUp),
+    /// The box landed on the teddy bear: a moment after its "bye bye".
+    TeddyBear,
 }
 
 /// One player's voice in a game.
@@ -110,14 +117,44 @@ pub(crate) struct Director {
     delays: HashMap<Entity, (f32, f32)>,
     /// Quotes waiting on their delay: when, and what.
     scheduled: Vec<(f32, SayQuote)>,
-    /// When each line (its path) was last heard in each lobby's game.
-    heard: HashMap<(Entity, &'static str), f32>,
+    heard: Heard,
+}
+
+/// The lines heard in each lobby's game.
+#[derive(Default)]
+struct Heard {
+    /// When each line (its path) was last heard.
+    at: HashMap<(Entity, &'static str), f32>,
+    /// For a quote that [cycles](Quote::cycles): the lines each operator's
+    /// said of it this time through, in order.
+    round: HashMap<(Entity, Operator, Quote), Vec<&'static str>>,
+}
+
+impl Heard {
+    fn retain(&mut self, running: impl Fn(Entity) -> bool) {
+        self.at.retain(|(e, _), _| running(*e));
+        self.round.retain(|(e, _, _), _| running(*e));
+    }
+
+    /// `line` of `operator`'s for `quote` is said now.
+    fn said(&mut self, lobby_e: Entity, operator: Operator, quote: Quote, line: &'static str, now: f32) {
+        self.at.insert((lobby_e, line), now);
+        if quote.cycles() {
+            let round = self.round.entry((lobby_e, operator, quote)).or_default();
+            if round.len() >= lines(operator, quote).len() {
+                round.clear();
+            }
+            round.push(line);
+        }
+    }
 }
 
 /// Which of `speaker`'s lines for `quote` haven't been heard in `lobby_e`'s
-/// game for [`LINE_COOLDOWN_SECS`] (indices into [`lines`]).
+/// game for [`LINE_COOLDOWN_SECS`] (indices into [`lines`]) — or, for one
+/// that [cycles](Quote::cycles), haven't been said yet this time through
+/// (all of them but the very last once they all have).
 fn fresh_lines(
-    heard: &HashMap<(Entity, &'static str), f32>,
+    heard: &Heard,
     lobby_e: Entity,
     lobby: &Lobby,
     speaker: PeerId,
@@ -127,10 +164,22 @@ fn fresh_lines(
     let Some(member) = lobby.members.iter().find(|m| m.peer == speaker) else {
         return Vec::new();
     };
-    lines(member.operator, quote)
+    let options = lines(member.operator, quote);
+    if quote.cycles() {
+        let round = heard.round.get(&(lobby_e, member.operator, quote)).map_or(&[][..], Vec::as_slice);
+        let unsaid: Vec<usize> = (0..options.len()).filter(|&i| !round.contains(&options[i].path)).collect();
+        if !unsaid.is_empty() {
+            return unsaid;
+        }
+        // (Round again — just not straight into the line that ended the last.)
+        return (0..options.len())
+            .filter(|&i| options.len() == 1 || round.last() != Some(&options[i].path))
+            .collect();
+    }
+    options
         .iter()
         .enumerate()
-        .filter(|(_, l)| heard.get(&(lobby_e, l.path)).is_none_or(|t| now - t >= LINE_COOLDOWN_SECS))
+        .filter(|(_, l)| heard.at.get(&(lobby_e, l.path)).is_none_or(|t| now - t >= LINE_COOLDOWN_SECS))
         .map(|(i, _)| i)
         .collect()
 }
@@ -255,7 +304,7 @@ pub(crate) fn direct_quotes(
     director.voices.retain(|_, v| running(v.lobby).is_some());
     director.delays.retain(|e, _| lobbies.contains(*e));
     director.scheduled.retain(|(_, q)| running(q.lobby).is_some());
-    director.heard.retain(|(e, _), _| running(*e).is_some());
+    director.heard.retain(|e| running(e).is_some());
 
     // This tick's asks: new ones (a delayed one put off), and those due.
     let mut asks: Vec<SayQuote> = Vec::new();
@@ -266,6 +315,7 @@ pub(crate) fn direct_quotes(
             QuoteDelay::DogRound => delay.0,
             QuoteDelay::Exfil => delay.1,
             QuoteDelay::Announcer(p) => p.announcer_secs(),
+            QuoteDelay::TeddyBear => shared::mystery_box::TEDDY_QUOTE_SECS,
         };
         if secs > 0.0 {
             director.scheduled.push((now + secs, SayQuote { delay: QuoteDelay::None, ..*q }));
@@ -373,7 +423,7 @@ pub(crate) fn direct_quotes(
         }
         let r = roll(now, speaker, quote, 0x11e);
         let line = fresh[((r * fresh.len() as f32) as usize).min(fresh.len() - 1)];
-        director.heard.insert((lobby_e, options[line].path), now);
+        director.heard.said(lobby_e, member.operator, quote, options[line].path, now);
         if let Some(voice) = director.voices.get_mut(&speaker) {
             voice.busy_until = now + options[line].secs + GAP_SECS;
             voice.said.insert(quote, now);
