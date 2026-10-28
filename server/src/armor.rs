@@ -25,9 +25,14 @@ impl Plugin for ArmorPlugin {
 
 /// `damage` about to be taken by `victim`: what their armor soaks up (in a
 /// `Zombies` game) comes off it, and what gets through to their health is
-/// returned.
-pub(crate) fn soak(lobbies: &mut Query<(Entity, &mut Lobby)>, victim: PeerId, damage: f32) -> f32 {
-    let Some((_, mut lobby)) = lobbies.iter_mut().find(|(_, l)| {
+/// returned. Their last plate breaking, they say so.
+pub(crate) fn soak(
+    lobbies: &mut Query<(Entity, &mut Lobby)>,
+    quotes: &mut EventWriter<crate::quotes::SayQuote>,
+    victim: PeerId,
+    damage: f32,
+) -> f32 {
+    let Some((lobby_e, mut lobby)) = lobbies.iter_mut().find(|(_, l)| {
         l.started
             && l.mode == GameMode::Zombies
             && l.members.iter().any(|m| m.peer == victim && m.armor.points > 0.0)
@@ -40,6 +45,7 @@ pub(crate) fn soak(lobbies: &mut Query<(Entity, &mut Lobby)>, victim: PeerId, da
     let through = member.armor.absorb(damage);
     if member.armor.points <= 0.0 {
         info!("{victim:?}'s armor broke");
+        quotes.write(crate::quotes::SayQuote::by(lobby_e, victim, shared::quotes::Quote::ArmorDestroyed));
     }
     through
 }

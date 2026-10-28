@@ -27,7 +27,13 @@
 //!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
 //!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]);
 //!   the box moving's a couple of seconds after the bear's "bye bye"
-//!   ([`shared::mystery_box::TEDDY_QUOTE_SECS`]).
+//!   ([`shared::mystery_box::TEDDY_QUOTE_SECS`]); one about a round
+//!   starting once its sting's done ([`ROUND_START_DELAY_SECS`]); and one
+//!   answering the man on the radio once he's said his line about it
+//!   ([`QuoteDelay::AfterRadio`]).
+//! * Something happening to a teammate (going down, bleeding out) is said
+//!   by someone else still standing ([`Speaker::AnyoneBut`]) — nobody, if
+//!   there's no one.
 //!
 //! All of it is per game: a lobby that isn't running a `Zombies` game has
 //! its speakers and anything scheduled dropped.
@@ -42,7 +48,9 @@ use shared::bot_players::is_bot_peer;
 use shared::operator::Operator;
 use shared::quotes::{
     lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, GRACE_SECS, LINE_COOLDOWN_SECS,
+    ROUND_START_DELAY_SECS,
 };
+use shared::radio::RadioLine;
 use shared::{GameChannel, GameMode, Lobby, PlayerId, QuoteSaid, RequestQuote, SetQuoteDelays};
 
 use crate::pvp::{HitCause, PlayerCombat, ZombieKilled};
@@ -77,6 +85,17 @@ impl SayQuote {
             delay: QuoteDelay::None,
         }
     }
+
+    /// Someone standing in the lobby other than `peer` says `quote` (about
+    /// them), now.
+    pub fn anyone_but(lobby: Entity, peer: PeerId, quote: Quote) -> Self {
+        Self {
+            lobby,
+            who: Speaker::AnyoneBut(peer),
+            quote,
+            delay: QuoteDelay::None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +103,9 @@ pub enum Speaker {
     Player(PeerId),
     /// A member of the lobby (a teammate bot included), picked at random.
     Anyone,
+    /// Likewise, but not them — and only someone standing (up, not down
+    /// or bled out).
+    AnyoneBut(PeerId),
 }
 
 /// When a [`SayQuote`] is said.
@@ -97,6 +119,11 @@ pub enum QuoteDelay {
     Announcer(shared::power_ups::PowerUp),
     /// The box landed on the teddy bear: a moment after its "bye bye".
     TeddyBear,
+    /// A round's just begun: once its sting's done.
+    RoundStart,
+    /// Once the man on the radio's said this line (asked for at the same
+    /// time) and is off air — or straight away if he never does.
+    AfterRadio(RadioLine),
 }
 
 /// One player's voice in a game.
@@ -115,7 +142,8 @@ pub(crate) struct Director {
     voices: HashMap<PeerId, Voice>,
     /// Each lobby's (dog round, exfil) delays, if the leader set them.
     delays: HashMap<Entity, (f32, f32)>,
-    /// Quotes waiting on their delay: when, and what.
+    /// Quotes waiting on their delay: when, and what (its `delay` cleared,
+    /// or still [`QuoteDelay::AfterRadio`] while it waits on him).
     scheduled: Vec<(f32, SayQuote)>,
     heard: Heard,
 }
@@ -194,7 +222,11 @@ impl Director {
             .voices
             .values()
             .any(|v| v.lobby == lobby && (now < v.busy_until || v.pending.is_some()))
-            && !self.scheduled.iter().any(|(_, q)| q.lobby == lobby)
+            // (Not one waiting for him — they'd wait on each other.)
+            && !self
+                .scheduled
+                .iter()
+                .any(|(_, q)| q.lobby == lobby && !matches!(q.delay, QuoteDelay::AfterRadio(_)))
     }
 }
 
@@ -247,7 +279,8 @@ fn kill_quotes(mut kills: EventReader<ZombieKilled>, mut quotes: EventWriter<Say
     }
 }
 
-/// Our client says we're low on / out of ammo (all it may ask for).
+/// Our client says we're low on / out of ammo, or can't afford what we
+/// just tried to buy (all it may ask for).
 fn on_request_quote(
     trigger: Trigger<RemoteTrigger<RequestQuote>>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -255,7 +288,7 @@ fn on_request_quote(
 ) {
     let peer = trigger.from;
     let quote = trigger.trigger.quote;
-    if !matches!(quote, Quote::LowAmmo | Quote::OutOfAmmo) {
+    if !matches!(quote, Quote::LowAmmo | Quote::OutOfAmmo | Quote::CantAfford) {
         return;
     }
     if let Some((lobby_e, _)) = lobbies.iter().find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer)) {
@@ -316,8 +349,13 @@ pub(crate) fn direct_quotes(
             QuoteDelay::Exfil => delay.1,
             QuoteDelay::Announcer(p) => p.announcer_secs(),
             QuoteDelay::TeddyBear => shared::mystery_box::TEDDY_QUOTE_SECS,
+            QuoteDelay::RoundStart => ROUND_START_DELAY_SECS,
+            // (Checked on from then — `waiting_on_radio`.)
+            QuoteDelay::AfterRadio(line) => line.lead_in(),
         };
-        if secs > 0.0 {
+        if let QuoteDelay::AfterRadio(_) = q.delay {
+            director.scheduled.push((now + secs, *q));
+        } else if secs > 0.0 {
             director.scheduled.push((now + secs, SayQuote { delay: QuoteDelay::None, ..*q }));
         } else {
             asks.push(*q);
@@ -326,12 +364,16 @@ pub(crate) fn direct_quotes(
     director.scheduled.retain_mut(|(at, q)| {
         if *at > now {
             true
+        } else if matches!(q.delay, QuoteDelay::AfterRadio(line) if radio.queued(q.lobby, line)) {
+            // (He's yet to get to it: look again in a moment.)
+            *at = now + 0.25;
+            true
         } else if radio.on_air(q.lobby, now) {
             // (Due while he's on air: once he's done.)
             *at = radio.off_air_at(q.lobby);
             true
         } else {
-            asks.push(*q);
+            asks.push(SayQuote { delay: QuoteDelay::None, ..*q });
             false
         }
     });
@@ -349,17 +391,23 @@ pub(crate) fn direct_quotes(
         let speaker = match ask.who {
             Speaker::Player(peer) if lobby.has(peer) && !is_bot_peer(peer) => peer,
             Speaker::Player(_) => continue,
-            Speaker::Anyone => {
+            Speaker::Anyone | Speaker::AnyoneBut(_) => {
+                let but = match ask.who {
+                    Speaker::AnyoneBut(peer) => Some(peer),
+                    _ => None,
+                };
                 // (Teammate bots too — they've an operator's voice. Only
                 // those with a line for it not heard lately.)
                 let real: Vec<PeerId> = lobby
                     .members
                     .iter()
                     .map(|m| m.peer)
+                    .filter(|p| Some(*p) != but)
                     .filter(|p| !fresh_lines(&director.heard, ask.lobby, lobby, *p, ask.quote, now).is_empty())
                     .collect();
                 let up: Vec<PeerId> = real.iter().copied().filter(|p| alive(*p)).collect();
-                let pool = if up.is_empty() { real } else { up };
+                // (About a teammate: only someone standing.)
+                let pool = if up.is_empty() && but.is_none() { real } else { up };
                 if pool.is_empty() {
                     continue;
                 }

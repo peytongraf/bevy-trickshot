@@ -755,6 +755,7 @@ fn pap_menu_input(
     pressed_tiles: Query<(&PapTile, &Interaction), Changed<Interaction>>,
     buttons: Query<(&PapButton, &Interaction), Changed<Interaction>>,
     mut sender: Query<&mut TriggerSender<shared::BuyPap>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -803,6 +804,7 @@ fn pap_menu_input(
         .map_or(0, |m| m.score);
     let current = my_pap_levels(&local, &lobbies).get(state.weapon);
     let buyable = level_status(level, current, points) == LevelStatus::Buyable;
+    let too_poor = level_status(level, current, points) == LevelStatus::TooPoor;
     let sent = buyable
         && sender.single_mut().is_ok_and(|mut s| {
             s.trigger::<shared::LobbyChannel>(shared::BuyPap {
@@ -811,6 +813,10 @@ fn pap_menu_input(
             });
             true
         });
+    // (Too dear: our operator may say so.)
+    if !sent && too_poor {
+        cant_afford.write(crate::quotes::CantAfford);
+    }
     if sent {
         info!("asked the server to pack our {} to level {level}", state.weapon.label());
         if let Some(sounds) = &sounds {

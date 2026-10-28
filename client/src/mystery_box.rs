@@ -1080,6 +1080,7 @@ fn use_mystery_box(
     player: Single<&Transform, With<Player>>,
     mut spin_sender: Query<&mut TriggerSender<shared::SpinMysteryBox>, With<GameClient>>,
     mut take_sender: Query<&mut TriggerSender<shared::TakeBoxPrize>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || !hands.free() {
         return;
@@ -1119,6 +1120,9 @@ fn use_mystery_box(
                 });
                 *last_press = Some(now);
             }
+        }
+        Some(BoxUse::TooPoor) => {
+            cant_afford.write(crate::quotes::CantAfford);
         }
         _ => {}
     }

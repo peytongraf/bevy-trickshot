@@ -30,6 +30,7 @@ fn on_toggle_rampage(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut radio: EventWriter<crate::radio::SayRadio>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
@@ -53,6 +54,8 @@ fn on_toggle_rampage(
         return;
     }
     lobby.rampage = on;
+    let quote = if on { shared::quotes::Quote::RampageOn } else { shared::quotes::Quote::RampageOff };
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, quote));
     if on {
         // (The first time only — `crate::radio`.)
         radio.write(crate::radio::SayRadio {

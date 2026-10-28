@@ -2,13 +2,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
-- Mystery box spots, cinder blocks, teddy bear move
-- Prod server: dedicated CPU, sleeps when idle, client wakes it
-- Update screen gates the menu; server version check
-- Zombies pacing: CoD zombie counts, boss from round 9
-- Dog rounds only drop last dog's max ammo
-- Smoke on rebuilt window boards
-
 # Current todo
 
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
@@ -40,13 +33,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Could add a text near the top compass that shows the name of the curent zone
 - Add ability to add more power lights to a map
 - Player who is downed should see a progress bar as they are being revived by a bot for their revive percentage like the reviver sees.
-
-# Mystery box
-
-# Nice to have
-
-- Add sun flare when looking near sun on day maps
-- Possibly add high and low pass filters to sounds if they are behind walls
 
 # Level editor
 
@@ -103,7 +89,6 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 # Improve / Adjust
 
 - Knife arms too high and far out
-- Deadshot perk jingle seems too quiet
 - Dial in molotov flame look
 - Dial in phd slider effect look ( trail and explosion )
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
@@ -118,7 +103,7 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 
 - Add wind sound to der tempel that plays only when outside
 - Create new rampage inducer music
-- Level out perk jingle sound volumes
+- Level out perk jingle sound volumes ( Deadshot perk jingle seems too quiet )
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound
 - Add mantle sound
@@ -126,3 +111,8 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 - Add pap shot sounds
 - When player is downed a breathing sound should play
 - Look into using different footstep sounds based on surface
+
+# Nice to have
+
+- Add sun flare when looking near sun on day maps
+- Possibly add high and low pass filters to sounds if they are behind walls

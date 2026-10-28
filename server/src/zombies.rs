@@ -281,13 +281,30 @@ pub(crate) fn run_rounds(
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
-    // A dog round's begun: someone says so, a few seconds in.
-    let mut dog_round = |lobby_e: Entity, round: u32| {
-        if shared::dogs::is_dog_round(round) {
-            quotes.write(crate::quotes::SayQuote {
-                delay: crate::quotes::QuoteDelay::DogRound,
-                ..crate::quotes::SayQuote::anyone(lobby_e, shared::quotes::Quote::DogRound)
+    // A round's begun: someone says so if it's a dog round, a few seconds
+    // in; complains if the power's still off (every so often from
+    // `POWER_STILL_OFF_FROM_ROUND`); or, Der Wunderfizz waking up, answers
+    // the man on the radio (`round_radio`).
+    let mut round_quotes = |lobby_e: Entity, lobby: &Lobby, round: u32| {
+        use crate::quotes::{QuoteDelay, SayQuote};
+        use shared::quotes::Quote;
+        let mut say = |quote, delay| {
+            quotes.write(SayQuote {
+                delay,
+                ..SayQuote::anyone(lobby_e, quote)
             });
+        };
+        if shared::dogs::is_dog_round(round) {
+            say(Quote::DogRound, QuoteDelay::DogRound);
+        }
+        if shared::quotes::power_still_off(round) && !shared::power::has_power(lobby.map, lobby.power_on) {
+            say(Quote::PowerStillOff, QuoteDelay::RoundStart);
+        }
+        if round == shared::wunderfizz::ACTIVE_ROUND && shared::wunderfizz::present(lobby) {
+            say(
+                Quote::WunderfizzAppears,
+                QuoteDelay::AfterRadio(shared::radio::RadioLine::WunderfizzWakesUp),
+            );
         }
     };
     // This tick's kills, for an exfil to count (read here, with the deaths
@@ -427,7 +444,7 @@ pub(crate) fn run_rounds(
             queue_round_bosses(&mut rounds, members, now);
             lobby.round = first;
             round_radio(lobby_e, &lobby, &mut rounds, &mut radio);
-            dog_round(lobby_e, first);
+            round_quotes(lobby_e, &lobby, first);
             lobby.enemies_left = rounds.to_spawn + rounds.bosses_to_spawn;
             info!("lobby {lobby_e:?}: zombies round {first}");
             continue;
@@ -574,7 +591,7 @@ pub(crate) fn run_rounds(
                 }
                 rounds.round += 1;
                 rounds.repair_points.clear();
-                dog_round(lobby_e, rounds.round);
+                round_quotes(lobby_e, &lobby, rounds.round);
                 rounds.to_spawn = enemies_in_round(rounds.round, members);
                 rounds.break_until = now + ROUND_BREAK_SECS;
                 rounds.next_spawn_at = rounds.break_until;
@@ -1294,6 +1311,7 @@ fn on_buy_door(
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let index = trigger.trigger.0 as usize;
@@ -1325,6 +1343,7 @@ fn on_buy_door(
     }
     member.score -= cost;
     lobby.doors_open |= 1 << index;
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::BuyDoor));
     info!("{peer:?} opened door {index}");
 }
 

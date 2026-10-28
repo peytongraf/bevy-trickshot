@@ -662,6 +662,7 @@ fn wunderfizz_input(
     pressed_cells: Query<(&WfCell, &Interaction), Changed<Interaction>>,
     buttons: Query<(&WfButton, &Interaction), Changed<Interaction>>,
     mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     if menu.screen != Screen::Wunderfizz || state.close_pending {
@@ -698,11 +699,16 @@ fn wunderfizz_input(
     let me = local.iter().next().map(|l| l.0);
     let member = zombies_game(&local, &lobbies).and_then(|l| l.members.iter().find(|m| Some(m.peer) == me));
     let buyable = member.is_some_and(|m| status(perk, &m.perks, m.score) == PerkStatus::Buyable);
+    let too_poor = member.is_some_and(|m| status(perk, &m.perks, m.score) == PerkStatus::TooPoor);
     let sent = buyable
         && sender.single_mut().is_ok_and(|mut s| {
             s.trigger::<shared::LobbyChannel>(shared::BuyPerk { perk, wunderfizz: true });
             true
         });
+    // (Too dear: our operator may say so.)
+    if !sent && too_poor {
+        cant_afford.write(crate::quotes::CantAfford);
+    }
     if sent {
         // (The buy sound, jingle and drink follow once the server's sale
         // comes back — `zombies_hud::sync_owned_perks`.)

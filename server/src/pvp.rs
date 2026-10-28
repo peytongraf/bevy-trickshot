@@ -373,7 +373,7 @@ pub(crate) fn apply_player_hits(
         let taken = if is_bot_peer(ev.victim) {
             taken
         } else {
-            crate::armor::soak(&mut lobbies, ev.victim, taken)
+            crate::armor::soak(&mut lobbies, &mut quotes, ev.victim, taken)
         };
         combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
@@ -820,7 +820,11 @@ fn on_fall_landed(
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    (endings, mut blasts): (Res<crate::killcam::EndingLobbies>, EventWriter<BombBlast>),
+    (endings, mut blasts, mut quotes): (
+        Res<crate::killcam::EndingLobbies>,
+        EventWriter<BombBlast>,
+        EventWriter<crate::quotes::SayQuote>,
+    ),
 ) {
     let peer = trigger.from;
     let landed = trigger.trigger;
@@ -865,7 +869,7 @@ fn on_fall_landed(
     }
     let damage = shared::perks::fall_damage_taken(perks, fall_damage(landed.distance));
     // (Armor soaks a fall too.)
-    let damage = crate::armor::soak(&mut lobbies, peer, damage);
+    let damage = crate::armor::soak(&mut lobbies, &mut quotes, peer, damage);
     if damage <= 0.0 {
         return;
     }

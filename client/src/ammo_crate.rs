@@ -349,6 +349,7 @@ fn buy_ammo(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut sender: Query<&mut TriggerSender<shared::BuyAmmo>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -357,9 +358,11 @@ fn buy_ammo(
     if last_buy.is_some_and(|t| now - t < BUY_COOLDOWN_SECS) {
         return;
     }
-    let affordable = at_crate(&local, &lobbies, &weapon, &player)
-        .is_some_and(|points| points >= shared::ammo::AMMO_COST);
-    if !affordable {
+    let Some(points) = at_crate(&local, &lobbies, &weapon, &player) else {
+        return;
+    };
+    if points < shared::ammo::AMMO_COST {
+        cant_afford.write(crate::quotes::CantAfford);
         return;
     }
     if let Ok(mut s) = sender.single_mut() {

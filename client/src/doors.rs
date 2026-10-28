@@ -469,6 +469,7 @@ fn buy_door(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut sender: Query<&mut TriggerSender<shared::BuyDoor>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -480,6 +481,7 @@ fn buy_door(
     let Some((index, door, None)) = at_door(lobby, feet) else { return };
     let points = lobby.members.iter().find(|m| m.peer == me).map_or(0, |m| m.score);
     if points < door.cost {
+        cant_afford.write(crate::quotes::CantAfford);
         return;
     }
     if let Ok(mut s) = sender.single_mut() {

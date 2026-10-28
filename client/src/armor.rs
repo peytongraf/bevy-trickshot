@@ -872,6 +872,7 @@ fn armor_menu_input(
     buttons: Query<(&ArmorButton, &Interaction), Changed<Interaction>>,
     mut buy_sender: Query<&mut TriggerSender<shared::BuyArmor>, With<GameClient>>,
     mut refill_sender: Query<&mut TriggerSender<shared::RefillArmor>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -914,6 +915,7 @@ fn armor_menu_input(
     let (armor, points) = zombies_game(&local, &lobbies)
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
         .map_or((Armor::default(), 0), |m| (m.armor, m.score));
+    let too_poor = status(choice, armor, points) == Status::TooPoor;
     let sent = status(choice, armor, points) == Status::Buyable
         && match choice {
             Choice::Level(level) => buy_sender.single_mut().is_ok_and(|mut s| {
@@ -925,6 +927,10 @@ fn armor_menu_input(
                 true
             }),
         };
+    // (Too dear: our operator may say so.)
+    if !sent && too_poor {
+        cant_afford.write(crate::quotes::CantAfford);
+    }
     if sent {
         info!("asked the server for armor: {choice:?}");
         if let Some(sounds) = &sounds {

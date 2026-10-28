@@ -76,6 +76,36 @@ pub enum Quote {
     /// Burnt by their own molotov.
     TakeMolotovDamage,
     ThrowingKnifeKill,
+    /// The power's still off this far in (someone in the lobby says it —
+    /// [`power_still_off`]).
+    PowerStillOff,
+    /// They bought a door open.
+    BuyDoor,
+    /// They tried to buy something they haven't the points for (their
+    /// client asks — it's the one that knows).
+    CantAfford,
+    /// Der Wunderfizz has woken up (someone in the lobby says it, once the
+    /// man on the radio's done saying so).
+    WunderfizzAppears,
+    /// They crafted something at the crafting table.
+    CraftingTable,
+    /// Their last armor plate broke.
+    ArmorDestroyed,
+    /// Their Aether Shroud's built up another charge.
+    FieldUpgradeReady,
+    /// They turned the Rampage Inducer on, and off.
+    RampageOn,
+    RampageOff,
+    /// A teammate's gone down (someone else standing says it)...
+    TeamMateDown,
+    /// ...they've started reviving one...
+    StartingRevive,
+    /// ...and it's done: the one revived says thanks, or the one who
+    /// revived them says something (one of the two, `server::revive`).
+    Revived,
+    ReviveTeamMate,
+    /// A teammate's bled out (someone else standing says it).
+    TeamMateBledOut,
 }
 
 /// How often a [`Quote`] is said: the chance each time it could be, and
@@ -132,6 +162,20 @@ impl Quote {
             Quote::TakeDamage => "take_damage",
             Quote::TakeMolotovDamage => "take_damage/take_molotov_damage",
             Quote::ThrowingKnifeKill => "throwing_knife_kill",
+            Quote::PowerStillOff => "power_still_off",
+            Quote::BuyDoor => "buy_door",
+            Quote::CantAfford => "cant_afford",
+            Quote::WunderfizzAppears => "wunderfizz_appears",
+            Quote::CraftingTable => "crafting_table",
+            Quote::ArmorDestroyed => "armor_destroyed",
+            Quote::FieldUpgradeReady => "field_upgrade_ready",
+            Quote::RampageOn => "rampage_on",
+            Quote::RampageOff => "rampage_off",
+            Quote::TeamMateDown => "team_mate_goes_down",
+            Quote::StartingRevive => "starting_revive",
+            Quote::Revived => "revived",
+            Quote::ReviveTeamMate => "revive_team_mate",
+            Quote::TeamMateBledOut => "team_mate_bleeds_out",
         }
     }
 
@@ -155,6 +199,13 @@ impl Quote {
             Quote::MonkeyBombActivate | Quote::MonkeyBombExplode => (0.9, 15.0),
             // (A low-ammo warning once per reload's worth of fighting.)
             Quote::LowAmmo => (1.0, 20.0),
+            // (Pressing the key at something too dear, again and again.)
+            Quote::CantAfford => (0.6, 30.0),
+            Quote::BuyDoor => (0.8, 0.0),
+            Quote::CraftingTable => (0.7, 30.0),
+            // (Letting go and taking hold again.)
+            Quote::StartingRevive => (0.6, 20.0),
+            Quote::ArmorDestroyed => (1.0, 20.0),
             _ => (1.0, 0.0),
         };
         Rule { chance, cooldown }
@@ -182,6 +233,19 @@ pub const LINE_COOLDOWN_SECS: f32 = 240.0;
 /// someone says so (the leader can change both — [`crate::SetQuoteDelays`]).
 pub const DOG_ROUND_DELAY_SECS: f32 = 4.0;
 pub const EXFIL_DELAY_SECS: f32 = 5.0;
+/// How long (s) after a round begins a word about it is said (once its
+/// round-start sting is done).
+pub const ROUND_START_DELAY_SECS: f32 = 6.0;
+/// Someone complains the power's still off from round
+/// [`POWER_STILL_OFF_FROM_ROUND`], every [`POWER_STILL_OFF_EVERY`] rounds.
+pub const POWER_STILL_OFF_FROM_ROUND: u32 = 6;
+pub const POWER_STILL_OFF_EVERY: u32 = 2;
+
+/// Whether `round`'s start is one to complain the power's still off on (if
+/// it is).
+pub fn power_still_off(round: u32) -> bool {
+    round >= POWER_STILL_OFF_FROM_ROUND && (round - POWER_STILL_OFF_FROM_ROUND) % POWER_STILL_OFF_EVERY == 0
+}
 
 /// One line: its file under `audio/quotes/`, and how long it runs (s).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -222,6 +286,29 @@ pub fn lines(operator: Operator, quote: Quote) -> &'static [Line] {
     LINES.get(&(operator, quote.dir())).map_or(&[], Vec::as_slice)
 }
 
+/// Quotes some operator hasn't recorded lines for yet — they just say
+/// nothing then (the others still do).
+pub fn unrecorded(operator: Operator, quote: Quote) -> bool {
+    operator == Operator::Von
+        && matches!(
+            quote,
+            Quote::PowerStillOff
+                | Quote::BuyDoor
+                | Quote::CantAfford
+                | Quote::WunderfizzAppears
+                | Quote::CraftingTable
+                | Quote::ArmorDestroyed
+                | Quote::FieldUpgradeReady
+                | Quote::RampageOn
+                | Quote::RampageOff
+                | Quote::TeamMateDown
+                | Quote::StartingRevive
+                | Quote::Revived
+                | Quote::ReviveTeamMate
+                | Quote::TeamMateBledOut
+        )
+}
+
 /// Every [`Quote`] there is (for checking each has lines).
 pub fn all() -> Vec<Quote> {
     let mut all = vec![
@@ -260,6 +347,20 @@ pub fn all() -> Vec<Quote> {
         Quote::TakeDamage,
         Quote::TakeMolotovDamage,
         Quote::ThrowingKnifeKill,
+        Quote::PowerStillOff,
+        Quote::BuyDoor,
+        Quote::CantAfford,
+        Quote::WunderfizzAppears,
+        Quote::CraftingTable,
+        Quote::ArmorDestroyed,
+        Quote::FieldUpgradeReady,
+        Quote::RampageOn,
+        Quote::RampageOff,
+        Quote::TeamMateDown,
+        Quote::StartingRevive,
+        Quote::Revived,
+        Quote::ReviveTeamMate,
+        Quote::TeamMateBledOut,
     ];
     all.extend(
         [PowerUp::MaxAmmo, PowerUp::InstaKill, PowerUp::DoublePoints, PowerUp::Nuke, PowerUp::BonusPoints]
@@ -276,7 +377,7 @@ mod tests {
     fn every_quote_has_lines_for_every_operator_and_every_line_is_there() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../client/assets/audio/quotes");
         for op in Operator::ALL {
-            for q in all() {
+            for q in all().into_iter().filter(|q| !unrecorded(op, *q)) {
                 let lines = lines(op, q);
                 assert!(!lines.is_empty(), "{op:?} has nothing to say for {q:?}");
                 for l in lines {
@@ -287,6 +388,12 @@ mod tests {
         }
         // (Taking damage doesn't pick up the molotov lines in its subfolder.)
         assert!(lines(Operator::Adam, Quote::TakeDamage).iter().all(|l| !l.path.contains("molotov")));
+    }
+
+    #[test]
+    fn the_power_still_off_is_complained_about_every_other_round_from_six() {
+        let rounds: Vec<u32> = (1..=12).filter(|r| power_still_off(*r)).collect();
+        assert_eq!(rounds, [6, 8, 10, 12]);
     }
 
     #[test]

@@ -35,6 +35,7 @@ fn on_buy_equipment(
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;
@@ -82,5 +83,6 @@ fn on_buy_equipment(
     {
         error!("failed to send crafted equipment: {e:?}");
     }
+    quotes.write(crate::quotes::SayQuote::by(lobby_e, peer, shared::quotes::Quote::CraftingTable));
     info!("{peer:?} crafted a {kind:?} for {cost}");
 }

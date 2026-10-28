@@ -781,7 +781,11 @@ fn crafting_menu_input(
     menu: Res<menu::Menu>,
     mut state: ResMut<CraftingMenu>,
     weapon: Res<Weapon>,
-    (sounds, sfx): (Option<Res<GameSounds>>, Option<Res<UiSfx>>),
+    (sounds, sfx, mut cant_afford): (
+        Option<Res<GameSounds>>,
+        Option<Res<UiSfx>>,
+        EventWriter<crate::quotes::CantAfford>,
+    ),
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -851,6 +855,7 @@ fn crafting_menu_input(
         .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
         .map_or(0, |m| m.score);
     let k = Lethal::of(kind);
+    let too_poor = status(&weapon, &state, kind, points) == Status::TooPoor;
     let sent = status(&weapon, &state, kind, points) == Status::Buyable
         && sender.single_mut().is_ok_and(|mut s| {
             s.trigger::<shared::LobbyChannel>(shared::BuyEquipment {
@@ -859,6 +864,10 @@ fn crafting_menu_input(
             });
             true
         });
+    // (Too dear: our operator may say so.)
+    if !sent && too_poor {
+        cant_afford.write(crate::quotes::CantAfford);
+    }
     if sent {
         info!("asked the server to craft a {kind:?}");
         state.in_flight.push((k, time.elapsed_secs()));

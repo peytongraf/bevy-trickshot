@@ -1102,6 +1102,7 @@ fn turn_on_power(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut sender: Query<&mut TriggerSender<shared::TurnOnPower>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -1110,7 +1111,11 @@ fn turn_on_power(
         return;
     };
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    if !at_switch(lobby, me, feet).is_some_and(|points| points >= shared::power::POWER_COST) {
+    let Some(points) = at_switch(lobby, me, feet) else {
+        return;
+    };
+    if points < shared::power::POWER_COST {
+        cant_afford.write(crate::quotes::CantAfford);
         return;
     }
     if let Ok(mut s) = sender.single_mut() {

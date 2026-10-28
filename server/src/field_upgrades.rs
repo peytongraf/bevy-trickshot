@@ -58,6 +58,7 @@ fn run_field_upgrades(
     mut clocks: ResMut<FieldUpgradeClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerCombat)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
     let dt = time.delta_secs();
     clocks.0.retain(|(e, peer), _| {
@@ -88,7 +89,16 @@ fn run_field_upgrades(
                     .iter()
                     .find(|(id, _)| id.0 == m.peer)
                     .is_some_and(|(_, c)| c.alive && c.down.is_none());
+                let had = clock.charges;
                 clock.tick(dt, up);
+                // Another charge built up: a word about it.
+                if clock.charges > had {
+                    quotes.write(crate::quotes::SayQuote::by(
+                        lobby_e,
+                        m.peer,
+                        shared::quotes::Quote::FieldUpgradeReady,
+                    ));
+                }
                 // Down (or dead): it's over.
                 if !up {
                     clock.active_left = 0.0;

@@ -4,9 +4,10 @@
 //! with distance (the "Voices" profile in the audio mixer), or, our own, in
 //! our head.
 //!
-//! Two things only this client knows of it asks the server to say for us
+//! Three things only this client knows of it asks the server to say for us
 //! ([`shared::RequestQuote`]): being down to our last magazine, and out of
-//! ammo altogether ([`ammo_quotes`]).
+//! ammo altogether ([`ammo_quotes`]); and trying to buy something we haven't
+//! the points for ([`CantAfford`], from wherever we tried).
 //!
 //! The lines are `audio/quotes/<operator>/…`, every one listed (with how
 //! long it runs) in `lines.txt` there — [`shared::quotes::lines`] — all
@@ -38,10 +39,12 @@ pub(crate) struct QuotesPlugin;
 impl Plugin for QuotesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuoteSettings>()
+            .add_event::<CantAfford>()
             .add_systems(Startup, load_lines)
             .add_systems(
                 Update,
-                (play_quotes, follow_quotes, ammo_quotes, send_quote_delays).run_if(in_state(AppState::InGame)),
+                (play_quotes, follow_quotes, ammo_quotes, cant_afford_quotes, send_quote_delays)
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -212,6 +215,36 @@ fn ammo_quotes(
     };
     if let Ok(mut s) = sender.single_mut() {
         s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote });
+    }
+}
+
+/// We just tried to buy something (a door, a perk, the box, ...) without the
+/// points for it — whatever we tried says so.
+#[derive(Event, Clone, Copy, Debug, Default)]
+pub(crate) struct CantAfford;
+
+/// The least time (s) between two of our [`CantAfford`]s reaching the
+/// server — mashing the key at a door is one ask, not a dozen.
+const CANT_AFFORD_EVERY_SECS: f32 = 3.0;
+
+/// We tried to buy something too dear: ask the server for our operator to
+/// say so (it decides whether they do).
+fn cant_afford_quotes(
+    time: Res<Time>,
+    mut tries: EventReader<CantAfford>,
+    mut sender: Query<&mut TriggerSender<shared::RequestQuote>, With<GameClient>>,
+    mut last: Local<Option<f32>>,
+) {
+    if tries.read().count() == 0 {
+        return;
+    }
+    let now = time.elapsed_secs();
+    if last.is_some_and(|t| now - t < CANT_AFFORD_EVERY_SECS) {
+        return;
+    }
+    if let Ok(mut s) = sender.single_mut() {
+        s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote: Quote::CantAfford });
+        *last = Some(now);
     }
 }
 

@@ -1889,6 +1889,7 @@ fn buy_perk(
     player: Single<&Transform, With<Player>>,
     machines: Res<PerkMachineSettings>,
     mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -1900,8 +1901,13 @@ fn buy_perk(
         return;
     };
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
-    let Some((perk, PerkStatus::Buyable, _)) = perk_here(lobby, me, feet, &machines) else {
-        return;
+    let perk = match perk_here(lobby, me, feet, &machines) {
+        Some((perk, PerkStatus::Buyable, _)) => perk,
+        Some((_, PerkStatus::TooPoor, _)) => {
+            cant_afford.write(crate::quotes::CantAfford);
+            return;
+        }
+        _ => return,
     };
     if let Ok(mut s) = sender.single_mut() {
         s.trigger::<shared::LobbyChannel>(shared::BuyPerk { perk, wunderfizz: false });

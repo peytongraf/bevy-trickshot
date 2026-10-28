@@ -99,7 +99,10 @@ fn run_last_stands(
         Option<&ActionState<PlayerInput>>,
     )>,
     mut radio: EventWriter<crate::radio::SayRadio>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
 ) {
+    use crate::quotes::SayQuote;
+    use shared::quotes::Quote;
     let server = server.into_inner();
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -181,6 +184,10 @@ fn run_last_stands(
                 revivers.iter().find(|(d, _)| *d == id.0).map(|(_, r)| *r)
             };
             if reviver != down.reviver {
+                // A teammate's taken hold of them: a word as they start.
+                if let Some(r) = reviver.filter(|r| *r != id.0) {
+                    quotes.write(SayQuote::by(lobby_e, r, Quote::StartingRevive));
+                }
                 down.reviver = reviver;
                 down.revive_done = 0.0;
                 down.revive_secs = match reviver {
@@ -211,6 +218,14 @@ fn run_last_stands(
                         if let Some(m) = lobby.members.iter_mut().find(|m| m.peer == reviver) {
                             m.revives += 1;
                         }
+                        // One of the two has something to say about it —
+                        // never both at once.
+                        let seed = (now.to_bits() as u64) ^ id.0.to_bits() ^ reviver.to_bits().rotate_left(17);
+                        quotes.write(if shared::bots::rand01(seed) < 0.5 {
+                            SayQuote::by(lobby_e, id.0, Quote::Revived)
+                        } else {
+                            SayQuote::by(lobby_e, reviver, Quote::ReviveTeamMate)
+                        });
                     }
                     let msg = PlayerRevived { peer: id.0, reviver };
                     let mut to = vec![id.0];
@@ -241,6 +256,7 @@ fn run_last_stands(
                 info!("{:?} bled out", id.0);
                 let round = lobby.round;
                 combat.bleed_out(round);
+                quotes.write(SayQuote::anyone_but(lobby_e, id.0, Quote::TeamMateBledOut));
             }
         }
 
@@ -332,6 +348,7 @@ fn sync_downed(
     mut sender: ServerMultiMessageSender,
     lobbies: Query<&Lobby>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Option<&Downed>)>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -355,6 +372,12 @@ fn sync_downed(
                         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &to) {
                             error!("failed to send {:?} going down: {e:?}", id.0);
                         }
+                        // Someone still standing calls it out.
+                        quotes.write(crate::quotes::SayQuote::anyone_but(
+                            lp.lobby,
+                            id.0,
+                            shared::quotes::Quote::TeamMateDown,
+                        ));
                     }
                 }
                 commands.entity(entity).insert(want);

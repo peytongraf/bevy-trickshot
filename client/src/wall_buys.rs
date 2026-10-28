@@ -396,6 +396,7 @@ fn buy_wall_weapon(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut sender: Query<&mut TriggerSender<shared::BuyWallWeapon>, With<GameClient>>,
+    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || !hands.free() {
         return;
@@ -404,8 +405,13 @@ fn buy_wall_weapon(
     if last_buy.is_some_and(|t| now - t < BUY_COOLDOWN_SECS) {
         return;
     }
-    let Some((gun, Status::Buyable, _)) = at_wall_buy(&local, &lobbies, &weapon, &player) else {
-        return;
+    let gun = match at_wall_buy(&local, &lobbies, &weapon, &player) {
+        Some((gun, Status::Buyable, _)) => gun,
+        Some((_, Status::TooPoor, _)) => {
+            cant_afford.write(crate::quotes::CantAfford);
+            return;
+        }
+        _ => return,
     };
     let (mag, reserve) = weapon.held_ammo();
     if let Ok(mut s) = sender.single_mut() {

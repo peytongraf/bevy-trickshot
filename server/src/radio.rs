@@ -72,6 +72,11 @@ impl RadioDirector {
         self.games.get(&lobby).is_some_and(|a| now < a.until)
     }
 
+    /// Whether `line` is waiting its turn in `lobby`'s queue.
+    pub fn queued(&self, lobby: Entity, line: RadioLine) -> bool {
+        self.games.get(&lobby).is_some_and(|a| a.queue.iter().any(|(l, _)| *l == line))
+    }
+
     /// When he's done talking to `lobby` (in the past if he isn't).
     pub fn off_air_at(&self, lobby: Entity) -> f32 {
         self.games.get(&lobby).map_or(0.0, |a| a.until)
