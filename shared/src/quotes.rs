@@ -286,29 +286,6 @@ pub fn lines(operator: Operator, quote: Quote) -> &'static [Line] {
     LINES.get(&(operator, quote.dir())).map_or(&[], Vec::as_slice)
 }
 
-/// Quotes some operator hasn't recorded lines for yet — they just say
-/// nothing then (the others still do).
-pub fn unrecorded(operator: Operator, quote: Quote) -> bool {
-    operator == Operator::Von
-        && matches!(
-            quote,
-            Quote::PowerStillOff
-                | Quote::BuyDoor
-                | Quote::CantAfford
-                | Quote::WunderfizzAppears
-                | Quote::CraftingTable
-                | Quote::ArmorDestroyed
-                | Quote::FieldUpgradeReady
-                | Quote::RampageOn
-                | Quote::RampageOff
-                | Quote::TeamMateDown
-                | Quote::StartingRevive
-                | Quote::Revived
-                | Quote::ReviveTeamMate
-                | Quote::TeamMateBledOut
-        )
-}
-
 /// Every [`Quote`] there is (for checking each has lines).
 pub fn all() -> Vec<Quote> {
     let mut all = vec![
@@ -377,7 +354,7 @@ mod tests {
     fn every_quote_has_lines_for_every_operator_and_every_line_is_there() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../client/assets/audio/quotes");
         for op in Operator::ALL {
-            for q in all().into_iter().filter(|q| !unrecorded(op, *q)) {
+            for q in all() {
                 let lines = lines(op, q);
                 assert!(!lines.is_empty(), "{op:?} has nothing to say for {q:?}");
                 for l in lines {

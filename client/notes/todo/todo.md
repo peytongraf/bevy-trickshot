@@ -101,6 +101,7 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 
 ## Sound
 
+- Mystery box bye bye and laugh need to be louder along with other move sounds
 - Add wind sound to der tempel that plays only when outside
 - Create new rampage inducer music
 - Level out perk jingle sound volumes ( Deadshot perk jingle seems too quiet )

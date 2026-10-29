@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Zombies: Von has new lines for doors, crafting, armor breaking, revives, teammates going down and more.",
         "Zombies: Adam has new lines for doors, crafting, armor breaking, revives, teammates going down and more.",
         "Zombies: your operator reacts when the Mystery Box moves on you.",
         "Zombies: the Mystery Box can land on the teddy bear and move to another spot, with Black Ops 4's sounds.",
