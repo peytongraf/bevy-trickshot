@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Kill chain medals
 - Mantle breath + step sounds
 - Downed breathing loop
 
@@ -100,7 +101,6 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 # Big features
 
 - Add semtex
-- Add killchains
 
 ## Sound
 

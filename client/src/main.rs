@@ -46,6 +46,7 @@ mod hit_detection;
 mod hit_marker;
 mod hud;
 mod keybinds;
+mod kill_chains;
 mod killcam;
 mod knife_sounds;
 mod level_editor;
@@ -305,6 +306,7 @@ fn main() {
         .add_plugins(pap_menu::PapMenuPlugin)
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
+        .add_plugins(kill_chains::KillChainsPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)

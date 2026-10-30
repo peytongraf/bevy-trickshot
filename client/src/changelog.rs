@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Zombies: kill chain medals — Slaughter, Carnage, Massacre, Bloodbath, Extermination and Lifedrinker.",
         "Zombies: heavy breathing while you're down.",
         "Mantling now has a breath and a footstep onto the ledge.",
         "Zombies: Von has new lines for doors, crafting, armor breaking, revives, teammates going down and more.",

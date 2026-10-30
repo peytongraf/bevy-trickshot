@@ -240,6 +240,9 @@
         "movement/jump_land.mp3": (
             volume_db: -6.02,
         ),
+        "ui/kill_chain_medal.mp3": (
+            volume_db: 3.52,
+        ),
         "weapons/flash_bang/flash_bang_detonate.mp3": (
             profile: Some("Explosions"),
             bus: Some(Explosions),

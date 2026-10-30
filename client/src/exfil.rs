@@ -333,7 +333,7 @@ struct ExfilFlash;
 /// Top centre: the timer once it's on (or the notice that it's
 /// available), with its title and the line under it.
 #[derive(Component)]
-struct ExfilBanner;
+pub(crate) struct ExfilBanner;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum BannerText {
