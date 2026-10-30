@@ -104,9 +104,9 @@ impl Plugin for RevivePlugin {
                 )
                     .run_if(in_state(AppState::InGame)),
             )
-            // Not gated on `InGame`: it's what puts the view back once the
-            // game's left.
-            .add_systems(Update, apply_down_view);
+            // Not gated on `InGame`: they put the view (and the breathing)
+            // back once the game's left.
+            .add_systems(Update, (apply_down_view, downed_breathing));
     }
 }
 
@@ -235,6 +235,43 @@ fn play_revive_sounds(
                 play(&sounds.revived);
             }
         }
+    }
+}
+
+/// The heavy breathing looped while we're down (`GameSounds::downed_breathing`).
+#[derive(Component)]
+struct DownedBreathing;
+
+/// Our heavy breathing, flat and dry, looped for as long as we're down —
+/// stopped the moment we're revived or bleed out, the game ends, or it's
+/// left.
+fn downed_breathing(
+    state: Res<State<AppState>>,
+    local: Res<LocalRevive>,
+    local_id: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    sounds: Option<Res<GameSounds>>,
+    playing: Query<Entity, With<DownedBreathing>>,
+    mut commands: Commands,
+) {
+    let want = local.downed
+        && *state.get() == AppState::InGame
+        && zombies_game(&local_id, &lobbies).is_some();
+    match (want, playing.iter().next(), sounds) {
+        (true, None, Some(sounds)) => {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                DownedBreathing,
+                AudioPlayer::new(sounds.downed_breathing.clone()),
+                PlaybackSettings::LOOP,
+            ));
+        }
+        (false, Some(_), _) => {
+            for e in &playing {
+                commands.entity(e).try_despawn();
+            }
+        }
+        _ => {}
     }
 }
 

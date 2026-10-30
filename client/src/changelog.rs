@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Zombies: heavy breathing while you're down.",
+        "Mantling now has a breath and a footstep onto the ledge.",
         "Zombies: Von has new lines for doors, crafting, armor breaking, revives, teammates going down and more.",
         "Zombies: Adam has new lines for doors, crafting, armor breaking, revives, teammates going down and more.",
         "Zombies: your operator reacts when the Mystery Box moves on you.",

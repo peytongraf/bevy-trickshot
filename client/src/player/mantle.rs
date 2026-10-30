@@ -14,9 +14,13 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
+use crate::audio_engine::prelude::*;
+use crate::killcam;
 use crate::settings::{AutoMantle, Settings};
 use crate::util::ease;
+use crate::GameSounds;
 
+use super::footsteps::{play_footstep, FootstepSettings, FootstepState};
 use super::movement::{Jumping, Player, PlayerPhysics, BODY_CAPSULE_HEIGHT, EYE_HEIGHT};
 use super::slide::{Slide, Stance};
 
@@ -162,7 +166,9 @@ fn find_mantle(rapier: &RapierContext, feet: Vec3, dir: Vec3, cfg: &MantleSettin
 /// (a deliberate running jump at a ledge); `FullAuto` any time they're
 /// airborne and moving toward one, jumped or not (e.g. walking or falling
 /// off a ledge onto a lower one). Only from `Stance::Standing` — crouch,
-/// slide, prone and dive don't attempt a mantle.
+/// slide, prone and dive don't attempt a mantle. The effort breath
+/// (`GameSounds::mantle_breath`) goes as the climb starts.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn try_mantle(
     settings: Res<Settings>,
     cfg: Res<MantleSettings>,
@@ -172,6 +178,8 @@ pub(crate) fn try_mantle(
     mut mantle: ResMut<Mantle>,
     player: Single<(&Transform, &PlayerPhysics), With<Player>>,
     windows: Res<crate::windows::WindowBlockers>,
+    sounds: Res<GameSounds>,
+    mut commands: Commands,
 ) {
     if settings.auto_mantle == AutoMantle::Off {
         return;
@@ -211,18 +219,31 @@ pub(crate) fn try_mantle(
         facing,
     });
     mantle.count = mantle.count.wrapping_add(1);
+    commands.spawn((
+        AudioPlayer::new(sounds.mantle_breath.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 }
 
 /// Eases the player up and onto the ledge [`try_mantle`] found — rising over
 /// the first part of the climb, then moving forward over the last part (a
 /// deliberate overlap), so the camera clears the ledge's vertical face
 /// instead of cutting straight through it on the way up. Ends by handing the
-/// player back to normal grounded movement, feet planted on the ledge.
+/// player back to normal grounded movement, feet planted on the ledge —
+/// with a footstep as they step up onto it (no landing thump: the climb sets
+/// them down already grounded, so `apply_gravity` never sees a landing).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_mantle(
     time: Res<Time>,
     cfg: Res<MantleSettings>,
     mut mantle: ResMut<Mantle>,
     player: Single<(&mut Transform, &mut PlayerPhysics), With<Player>>,
+    sounds: Res<GameSounds>,
+    current_map: Res<crate::CurrentMap>,
+    footstep_cfg: Res<FootstepSettings>,
+    mut footstep: ResMut<FootstepState>,
+    mut snd: ResMut<killcam::ReplaySoundBits>,
+    mut commands: Commands,
 ) {
     let Some(run) = mantle.active.as_mut() else {
         return;
@@ -243,5 +264,20 @@ pub(crate) fn drive_mantle(
         physics.horizontal_velocity = Vec3::ZERO;
         physics.grounded = true;
         mantle.active = None;
+        if footstep_cfg.enabled {
+            let clips = if crate::water::wading(current_map.0, transform.translation) {
+                &sounds.water_footsteps
+            } else {
+                &sounds.footsteps
+            };
+            play_footstep(
+                &mut commands,
+                clips,
+                &mut footstep,
+                footstep_cfg.walk_volume * footstep_cfg.volume,
+                footstep_cfg.pitch_jitter,
+            );
+            snd.note(killcam::SND_FOOTSTEP);
+        }
     }
 }

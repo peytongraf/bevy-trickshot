@@ -2,6 +2,9 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Mantle breath + step sounds
+- Downed breathing loop
+
 # Current todo
 
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
@@ -107,10 +110,8 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 - Level out perk jingle sound volumes ( Deadshot perk jingle seems too quiet )
 - Add current player death sound. Sound should be a body fall sound mixed with a disonant synth sound.
 - Add save teleport sound
-- Add mantle sound
 - Add footstep sounds for other players
 - Add pap shot sounds
-- When player is downed a breathing sound should play
 - Look into using different footstep sounds based on surface
 
 # Nice to have

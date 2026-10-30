@@ -190,6 +190,12 @@ pub(crate) struct GameSounds {
     /// and their reviver hear it) — neither positional (`revive`).
     pub(crate) player_down: Handle<AudioSource>,
     pub(crate) revived: Handle<AudioSource>,
+    /// `audio/breathing/downed_breathing.mp3` — looped while we're down
+    /// (`revive::downed_breathing`), until we're revived or bleed out.
+    pub(crate) downed_breathing: Handle<AudioSource>,
+    /// `audio/breathing/mantle_breath.wav` — the effort breath as a mantle
+    /// starts (`player::try_mantle`).
+    pub(crate) mantle_breath: Handle<AudioSource>,
     /// `audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_1..N.wav` — a
     /// Bomb Shot blast, from where it went off (`vfx::spawn_explosions`);
     /// the server picks which one so the whole lobby hears the same clip.
@@ -534,6 +540,8 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
         dog_explosion: asset_server.load("audio/zombies/dogs/explosion.mp3"),
         player_down: asset_server.load("audio/zombies/revive/player_down.mp3"),
         revived: asset_server.load("audio/zombies/revive/revived.mp3"),
+        downed_breathing: asset_server.load("audio/breathing/downed_breathing.mp3"),
+        mantle_breath: asset_server.load("audio/breathing/mantle_breath.wav"),
         bomb_shot_explosions: (1..=3)
             .map(|i| asset_server.load(format!("audio/zombies/perks/bomb_shot_explosions/bomb_shot_explosion_{i}.wav")))
             .collect(),

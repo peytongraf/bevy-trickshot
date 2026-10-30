@@ -49,14 +49,6 @@
             width: 0.75,
             air_hz: 20000.0,
         ),
-        "Power station": (
-            volume_db: 0.0,
-            near: 3.0,
-            far: 22.0,
-            curve: 2.0,
-            width: 0.75,
-            air_hz: 20000.0,
-        ),
         "Machines": (
             volume_db: 0.0,
             near: 0.0,
@@ -80,6 +72,14 @@
             curve: 2.0,
             width: 0.75,
             air_hz: 8000.0,
+        ),
+        "Power station": (
+            volume_db: 0.0,
+            near: 3.0,
+            far: 22.0,
+            curve: 2.0,
+            width: 0.75,
+            air_hz: 20000.0,
         ),
         "Voices": (
             volume_db: 0.0,
@@ -110,6 +110,10 @@
         "ambient": (
             bus: Some(Ambience),
         ),
+        "breathing": (
+            bus: Some(Movement),
+            reverb: Some(false),
+        ),
         "combat": (
             bus: Some(Interface),
         ),
@@ -129,6 +133,9 @@
             profile: Some("Voices"),
             bus: Some(Quotes),
             reverb: Some(true),
+        ),
+        "radio": (
+            volume_db: 4.0,
         ),
         "ui": (
             bus: Some(Interface),
@@ -206,10 +213,6 @@
         ),
     },
     clips: {
-        "ambient/power_station_hum.mp3": (
-            profile: Some("Power station"),
-            bus: Some(World),
-        ),
         "ambient/fire_crackle.mp3": (
             profile: Some("Fire"),
             bus: Some(World),
@@ -217,12 +220,19 @@
         "ambient/nature.ogg": (
             volume_db: 7.96,
         ),
+        "ambient/power_station_hum.mp3": (
+            profile: Some("Power station"),
+            bus: Some(World),
+        ),
         "ambient/shipment.ogg": (
             volume_db: 7.96,
         ),
         "ambient/waterfall_loop.mp3": (
             profile: Some("Waterfall"),
             bus: Some(World),
+        ),
+        "breathing/mantle_breath.wav": (
+            volume_db: -8.0,
         ),
         "combat/kill_enemy.mp3": (
             volume_db: 9.54,
