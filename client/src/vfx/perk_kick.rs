@@ -5,7 +5,7 @@
 //! passes; it only scales their screen strength, never gameplay.
 
 /// Panel-tunable shape of the kick.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct KickSettings {
     /// Strength at the top of the kick, as a multiple of the baseline.
     pub(crate) peak: f32,

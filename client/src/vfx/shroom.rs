@@ -32,7 +32,7 @@ use crate::player::ViewModelCamera;
 const SHADER_ASSET_PATH: &str = "shaders/shroom.wgsl";
 
 /// Panel-adjustable shroom look (`ads_tuning_ui`'s "Shroom effect" section).
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Debug)]
 pub(crate) struct ShroomSettings {
     pub(crate) enabled: bool,
     /// Seconds to fade fully in / out when toggled (0 = instant).
@@ -85,6 +85,14 @@ pub(crate) struct ShroomSettings {
     pub(crate) xray_body_height: f32,
     /// ...and at least this far (m) in front of the part it hides.
     pub(crate) xray_min_gap: f32,
+    /// ...and, before any of that, whether the enemy's hidden at all: rays
+    /// from the camera to points down its body, blocked only by the map and
+    /// what's placed on it (other enemies and its own body never count). It
+    /// glows from this share of them blocked (fading up to full when all
+    /// are)...
+    pub(crate) xray_hidden_min: f32,
+    /// ...easing in and out over this long (s).
+    pub(crate) xray_cover_fade_secs: f32,
     /// Aim assist (`player::shroom_aim_assist`) while aimed down sight: on /
     /// off...
     pub(crate) assist_enabled: bool,
@@ -132,6 +140,8 @@ impl Default for ShroomSettings {
             xray_body_radius: 0.9,
             xray_body_height: 0.9,
             xray_min_gap: 0.5,
+            xray_hidden_min: 0.34,
+            xray_cover_fade_secs: 0.15,
             assist_enabled: true,
             assist_cone_deg: 4.0,
             assist_strength: 5.0,

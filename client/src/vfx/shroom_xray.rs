@@ -18,6 +18,14 @@
 //! ever count as cover; only real cover does. (A twin rather than a second material
 //! on the same entity: Bevy 0.16 keeps one material per entity.)
 //!
+//! That depth test can't tell a wall from another enemy (or a limb that
+//! reaches past that sphere) — every one of them writes depth — so on top
+//! of it each enemy only glows at all while it's actually hidden: rays from
+//! the camera to points down its body ([`cover`]), against the physics
+//! colliders, which are only the map and what's placed on it (perk
+//! machines, Pack-a-Punch, doors…) — never enemies. A crowd in plain sight
+//! doesn't glow, however much they block one another.
+//!
 //! "Enemy bots" = `Zombies` zombies (their own model, [`crate::ZombieVisual`])
 //! and soldier avatars with [`crate::BotLook`] (a `FreeForAll` bot player, a
 //! `Freestyle` target), live ones only — not kill-cam stand-ins. Strength follows the shroom effect's own fade
@@ -33,6 +41,7 @@ use bevy::render::render_resource::{
     SpecializedMeshPipelineError,
 };
 use bevy::render::view::NoFrustumCulling;
+use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext, RapierContext};
 
 use super::shroom::{ShroomLevel, ShroomSettings};
 
@@ -108,9 +117,13 @@ impl Material for ShroomXrayMaterial {
 
 /// On an enemy avatar once its meshes have their twins: the twins' own
 /// material — one per enemy, since it carries where that enemy is
-/// ([`XrayParams::anchor`]).
+/// ([`XrayParams::anchor`]) — and how hidden it is now ([`cover`], eased),
+/// which its strength follows.
 #[derive(Component)]
-struct XrayTwinned(Handle<ShroomXrayMaterial>);
+struct XrayTwinned {
+    material: Handle<ShroomXrayMaterial>,
+    hidden: f32,
+}
 
 /// A twin mesh drawing the ghost.
 #[derive(Component)]
@@ -219,20 +232,24 @@ fn twin_enemy_meshes(
                 twin.insert(skin.clone());
             }
         }
-        commands.entity(root).insert(XrayTwinned(material));
+        commands.entity(root).insert(XrayTwinned { material, hidden: 0.0 });
     }
 }
 
 /// Follow the shroom effect's fade and the panel's look — or, with Death
 /// Perception, its outline — and where each enemy is; hide the twins outright
 /// while neither is on.
+#[allow(clippy::too_many_arguments)]
 fn update_xray(
+    time: Res<Time>,
     settings: Res<ShroomSettings>,
     level: Res<ShroomLevel>,
     classic: Res<crate::zombies_hud::ClassicPerks>,
     mut materials: ResMut<Assets<ShroomXrayMaterial>>,
-    avatars: Query<(&GlobalTransform, &XrayTwinned)>,
+    mut avatars: Query<(&GlobalTransform, &mut XrayTwinned)>,
     mut twins: Query<&mut Visibility, With<XrayTwin>>,
+    camera: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    rapier: ReadRapierContext,
 ) {
     let outline = classic.has(shared::perks::Perk::DeathPerception);
     let on = outline || level.0 > 1e-3;
@@ -240,26 +257,74 @@ fn update_xray(
         vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
     }
     if !on {
+        for (_, mut twinned) in &mut avatars {
+            twinned.hidden = 0.0;
+        }
         return;
     }
+    let camera = camera.single().ok();
+    let rapier = rapier.single().ok();
+    let ease = time.delta_secs() / settings.xray_cover_fade_secs.max(1e-3);
     let base = if outline {
         outline_params(&settings, &classic)
     } else {
         params(&settings, level.0)
     };
-    for (gt, twinned) in &avatars {
+    for (gt, mut twinned) in &mut avatars {
         // The middle of the enemy's body (the avatar's root is at its feet),
         // and how far its own parts reach from there.
         let middle = gt.translation() + Vec3::Y * settings.xray_body_height;
+        let hidden = match (camera, &rapier) {
+            (Some(camera), Some(rapier)) => cover(rapier, camera, gt, &settings),
+            _ => 0.0,
+        };
+        let target = ((hidden - settings.xray_hidden_min) / (1.0 - settings.xray_hidden_min).max(1e-3))
+            .clamp(0.0, 1.0);
+        twinned.hidden += (target - twinned.hidden).clamp(-ease, ease);
         let want = XrayParams {
             anchor: middle.extend(settings.xray_body_radius),
+            strength: base.strength * twinned.hidden,
             ..base
         };
         // (`get` first so an unchanged material isn't re-uploaded.)
-        if materials.get(&twinned.0).is_some_and(|m| m.params != want) {
-            if let Some(m) = materials.get_mut(&twinned.0) {
+        if materials.get(&twinned.material).is_some_and(|m| m.params != want) {
+            if let Some(m) = materials.get_mut(&twinned.material) {
                 m.params = want;
             }
         }
     }
+}
+
+/// How much of an enemy the map hides from the camera (`0.0` in plain sight
+/// … `1.0` fully behind cover): the share of rays from the camera to points
+/// down its body — shins to head, and either side of its chest — that hit
+/// a collider first. Only the map and what's placed on it have colliders
+/// here (enemies and players don't), so neither its own body nor the enemies
+/// around it ever count.
+fn cover(rapier: &RapierContext, camera: &GlobalTransform, enemy: &GlobalTransform, settings: &ShroomSettings) -> f32 {
+    let eye = camera.translation();
+    let feet = enemy.translation();
+    // (Its height: twice its middle's, scaled with the model — a boss is
+    // bigger.)
+    let tall = 2.0 * settings.xray_body_height * enemy.scale().y;
+    let side = camera.right().as_vec3() * 0.3 * enemy.scale().x;
+    let chest = feet + Vec3::Y * tall * 0.6;
+    let points = [
+        feet + Vec3::Y * tall * 0.15,
+        feet + Vec3::Y * tall * 0.4,
+        chest,
+        feet + Vec3::Y * tall * 0.88,
+        chest - side,
+        chest + side,
+    ];
+    let filter = QueryFilter::default().exclude_sensors();
+    let blocked = points
+        .iter()
+        .filter(|&&point| {
+            let to = point - eye;
+            let dist = to.length();
+            dist > 0.05 && rapier.cast_ray(eye, to / dist, dist - 0.05, true, filter).is_some()
+        })
+        .count();
+    blocked as f32 / points.len() as f32
 }

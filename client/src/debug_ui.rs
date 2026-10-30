@@ -2270,6 +2270,11 @@ pub(crate) fn ads_tuning_ui(
                         egui::Slider::new(&mut s.xray_min_gap, 0.0f32..=2.0)
                             .text("min wall gap (m)"),
                     );
+                    ui.add(
+                        egui::Slider::new(&mut s.xray_hidden_min, 0.0f32..=1.0)
+                            .text("share of body hidden by the map before it glows"),
+                    );
+                    ui.add(egui::Slider::new(&mut s.xray_cover_fade_secs, 0.0f32..=1.0).text("glow fade in / out (s)"));
                     ui.label("Aim assist (while aimed down sight)");
                     ui.checkbox(&mut s.assist_enabled, "aim assist enabled");
                     ui.add(egui::Slider::new(&mut s.assist_cone_deg, 0.1f32..=20.0).text("pull cone (° off crosshair)"));
@@ -2285,12 +2290,17 @@ pub(crate) fn ads_tuning_ui(
                     if ui.button("Replay kick-in").clicked() {
                         shroom_kick.0.replay();
                     }
-                    if ui.button("Reset shroom").clicked() {
-                        *s = ShroomSettings {
-                            enabled: s.enabled,
-                            ..default()
-                        };
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset shroom").clicked() {
+                            *s = ShroomSettings {
+                                enabled: s.enabled,
+                                ..default()
+                            };
+                        }
+                        if ui.button("Print settings to console").clicked() {
+                            info!("{s:#?}");
+                        }
+                    });
                 });
             });
 
