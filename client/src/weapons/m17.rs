@@ -76,9 +76,10 @@ pub(crate) fn m17_idle_seg() -> AnimationSegment {
     SEG_IDLE
 }
 
-/// Magazine size, and how many mags' worth (loaded one included) a
-/// `Zombies` player carries at most — 17 and 119.
-pub(crate) const M17_MAG_SIZE: u32 = 17;
+/// Magazine size at each Pack-a-Punch level (0 = not packed; see
+/// `weapons::mag_size`), and how many mags' worth (loaded one included) a
+/// `Zombies` player carries at most — 17 and 119 unpacked.
+pub(crate) const M17_MAG_SIZES: [u32; 4] = [17, 21, 25, 30];
 pub(crate) const M17_ZOMBIES_TOTAL_MAGS: u32 = 7;
 
 /// The glTF names of its parts that wear the Pack-a-Punch camo — the slide

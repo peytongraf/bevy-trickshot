@@ -71,9 +71,10 @@ pub(crate) fn raygun_hold_seg() -> AnimationSegment {
     AnimationSegment::clip("Ray Gun ADS Hold", CLIP_HOLD, 7.5)
 }
 
-/// Magazine size, and how many mags' worth (loaded one included) a
-/// `Zombies` player carries at most — Call of Duty's 20 and 160.
-pub(crate) const RAYGUN_MAG_SIZE: u32 = 20;
+/// Magazine size at each Pack-a-Punch level (0 = not packed; see
+/// `weapons::mag_size`), and how many mags' worth (loaded one included) a
+/// `Zombies` player carries at most — Call of Duty's 20 and 160 unpacked.
+pub(crate) const RAYGUN_MAG_SIZES: [u32; 4] = [20, 25, 30, 40];
 pub(crate) const RAYGUN_ZOMBIES_TOTAL_MAGS: u32 = 9;
 
 /// The glTF names of its parts that wear the Pack-a-Punch camo.

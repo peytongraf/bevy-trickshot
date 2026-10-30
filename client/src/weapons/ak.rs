@@ -123,9 +123,10 @@ pub(crate) fn pin_ak_shell(
     }
 }
 
-/// Magazine size, and how many mags' worth (loaded one included) a
+/// Magazine size at each Pack-a-Punch level (0 = not packed; see
+/// `weapons::mag_size`), and how many mags' worth (loaded one included) a
 /// `Zombies` player carries at most.
-pub(crate) const AK_MAG_SIZE: u32 = 30;
+pub(crate) const AK_MAG_SIZES: [u32; 4] = [30, 40, 50, 60];
 pub(crate) const AK_ZOMBIES_TOTAL_MAGS: u32 = 6;
 
 /// Everything tunable about the AK-74 (the debug panel's "AK-74" section).

@@ -287,7 +287,11 @@ fn sync_pap_levels(
     mut weapon: ResMut<Weapon>,
     mut last_gun: Local<Option<shared::weapon::WeaponId>>,
 ) {
-    let level = my_pap_levels(&local, &lobbies).get(PapWeapon::gun(weapon.primary));
+    let levels = my_pap_levels(&local, &lobbies);
+    if weapon.pap_levels != levels {
+        weapon.pap_levels = levels;
+    }
+    let level = levels.get(PapWeapon::gun(weapon.primary));
     let same_gun = last_gun.replace(weapon.primary) == Some(weapon.primary);
     if weapon.pap_level == level {
         return;

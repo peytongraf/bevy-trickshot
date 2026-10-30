@@ -88,6 +88,13 @@ only place a player learns anything changed.
   (`{settings:#?}`), next to its Reset button — so the user can dial values
   in and paste them back to be made the defaults. Add one whenever you add
   settings to the panel (see `vfx::mystery_box`'s section for the pattern).
+- **Every gun's magazine grows with each Pack-a-Punch level.** A new gun
+  gets a `<GUN>_MAG_SIZES: [u32; 4]` table next to it (unpacked, PaP I,
+  II, III — each a bit bigger than the last, e.g. the AK-74's
+  `[30, 40, 50, 60]`) wired into `weapons::mag_size(gun, level)`, plus its
+  `Zombies` mag count in `weapons::weapon::reserve_for`. Reserves are
+  counted in mags, so they grow with it. Propose the numbers to the user
+  before adding them.
 - Black 3D view with only the HUD showing = a camera's output blend. Bevy
   picks which window camera blits opaquely by render-world iteration order
   (which shifts whenever systems/plugins are added), so the world, view-model

@@ -19,9 +19,9 @@ use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::ads::{noscope_spread_angle, Ads, NoScopeSpread};
-use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZE, AK_ZOMBIES_TOTAL_MAGS};
-use super::raygun::{raygun_hold_seg, raygun_idle_seg, RayGunSettings, RAYGUN_MAG_SIZE, RAYGUN_ZOMBIES_TOTAL_MAGS};
-use super::m17::{m17_locomotion, M17Loco, M17LocoState, M17Motion, M17Settings, M17_MAG_SIZE, M17_ZOMBIES_TOTAL_MAGS};
+use super::ak::{ak_locomotion, AkLoco, AkMotion, AkSettings, AK_MAG_SIZES, AK_ZOMBIES_TOTAL_MAGS};
+use super::raygun::{raygun_hold_seg, raygun_idle_seg, RayGunSettings, RAYGUN_MAG_SIZES, RAYGUN_ZOMBIES_TOTAL_MAGS};
+use super::m17::{m17_locomotion, M17Loco, M17LocoState, M17Motion, M17Settings, M17_MAG_SIZES, M17_ZOMBIES_TOTAL_MAGS};
 use super::drink_arms::{DrinkPhase, PerkDrink};
 use super::knife_view_model::{
     KnifeAnimation, KnifeAnimationPlayer, KnifeViewModel, KNIFE_SEGMENTS, KNIFE_SEG_ADJUST_GRIP,
@@ -36,10 +36,11 @@ use super::view_model::{
     SniperAnimationPlayer, ViewModel, ViewModelAnimation,
 };
 
-/// The sniper's magazine capacity, and the total number of magazines the
-/// player carries in `FreeForAll` (current mag + reserve = `MAG_SIZE *
-/// TOTAL_MAGS`). (The AK-74's are `ak::AK_MAG_SIZE` / `AK_ZOMBIES_TOTAL_MAGS`.)
-pub(crate) const MAG_SIZE: u32 = 5;
+/// The sniper's (and Marksman's) magazine capacity at each Pack-a-Punch
+/// level (see [`mag_size`]), and the total number of magazines the player
+/// carries in `FreeForAll` (current mag + reserve = `MAG_SIZES[0] *
+/// TOTAL_MAGS`). (The AK-74's are `ak::AK_MAG_SIZES` / `AK_ZOMBIES_TOTAL_MAGS`.)
+pub(crate) const MAG_SIZES: [u32; 4] = [5, 6, 8, 10];
 pub(crate) const TOTAL_MAGS: u32 = 6;
 /// Reserve rounds in `Freestyle` — effectively unlimited for practice.
 const FREESTYLE_RESERVE: u32 = 1000;
@@ -48,32 +49,49 @@ const FREESTYLE_RESERVE: u32 = 1000;
 /// carries at most — topped back up at the ammo crate (`ammo_crate`).
 const ZOMBIES_TOTAL_MAGS: u32 = 8;
 
-/// Extra magazines' worth of sniper rounds a `Zombies` player can carry for
-/// every Pack-a-Punch level on the sniper (`shared::pap`).
+/// Extra magazines' worth of rounds a `Zombies` player can carry for every
+/// Pack-a-Punch level on a gun (`shared::pap`).
 pub(crate) const PAP_EXTRA_MAGS_PER_LEVEL: u32 = 2;
 
-/// `primary`'s magazine capacity.
-pub(crate) fn mag_size(primary: WeaponId) -> u32 {
-    match primary {
-        WeaponId::Ak74 => AK_MAG_SIZE,
-        WeaponId::RayGun => RAYGUN_MAG_SIZE,
-        WeaponId::M17 => M17_MAG_SIZE,
-        WeaponId::Sniper | WeaponId::Marksman => MAG_SIZE,
-    }
+/// `gun`'s magazine capacity at Pack-a-Punch `level` (0 = not packed) —
+/// every gun's mag grows a little with each level, each one's table next to
+/// the gun. Reserves are counted in mags, so they grow with it.
+pub(crate) fn mag_size(gun: WeaponId, level: u8) -> u32 {
+    let sizes = match gun {
+        WeaponId::Ak74 => AK_MAG_SIZES,
+        WeaponId::RayGun => RAYGUN_MAG_SIZES,
+        WeaponId::M17 => M17_MAG_SIZES,
+        WeaponId::Sniper | WeaponId::Marksman => MAG_SIZES,
+    };
+    sizes[(level as usize).min(sizes.len() - 1)]
 }
 
-/// Reserve rounds (beyond the loaded mag) a fresh life starts with in `mode`
-/// with `primary` — also the most it holds.
-fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
-    let mag = mag_size(primary);
+/// The most reserve rounds (beyond the loaded mag) `gun` holds in `mode` at
+/// Pack-a-Punch `level` — what a fresh life starts with at level 0. Counted
+/// in mags of its size at that level, with [`PAP_EXTRA_MAGS_PER_LEVEL`] more
+/// for each level in `Zombies`.
+fn reserve_for(mode: shared::GameMode, gun: WeaponId, level: u8) -> u32 {
+    let mag = mag_size(gun, level);
+    let packed = PAP_EXTRA_MAGS_PER_LEVEL * level as u32;
     match mode {
         shared::GameMode::Freestyle => FREESTYLE_RESERVE,
         shared::GameMode::FreeForAll | shared::GameMode::SearchAndDestroy => mag * (TOTAL_MAGS - 1),
-        shared::GameMode::Zombies if primary == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1),
-        shared::GameMode::Zombies if primary == WeaponId::RayGun => mag * (RAYGUN_ZOMBIES_TOTAL_MAGS - 1),
-        shared::GameMode::Zombies if primary == WeaponId::M17 => mag * (M17_ZOMBIES_TOTAL_MAGS - 1),
-        shared::GameMode::Zombies => mag * (ZOMBIES_TOTAL_MAGS - 1),
+        shared::GameMode::Zombies if gun == WeaponId::Ak74 => mag * (AK_ZOMBIES_TOTAL_MAGS - 1 + packed),
+        shared::GameMode::Zombies if gun == WeaponId::RayGun => mag * (RAYGUN_ZOMBIES_TOTAL_MAGS - 1 + packed),
+        shared::GameMode::Zombies if gun == WeaponId::M17 => mag * (M17_ZOMBIES_TOTAL_MAGS - 1 + packed),
+        shared::GameMode::Zombies => mag * (ZOMBIES_TOTAL_MAGS - 1 + packed),
     }
+}
+
+/// Every round `gun` holds at once in `Zombies` at Pack-a-Punch `level`
+/// (a full mag and a full reserve) — the Pack-a-Punch menu's "Max Ammo".
+pub(crate) fn zombies_max_rounds(gun: WeaponId, level: u8) -> u32 {
+    mag_size(gun, level) + reserve_for(shared::GameMode::Zombies, gun, level)
+}
+
+/// Reserve rounds a fresh life starts with in `mode` with `primary`.
+fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
+    reserve_for(mode, primary, 0)
 }
 
 /// A weapon action (fire / swap-to-secondary) cut a busy queue short — stash
@@ -295,6 +313,9 @@ pub(crate) struct Weapon {
     /// `pap::sync_pap_levels` (0 outside a `Zombies` game). Each level lets
     /// it carry more ([`Weapon::max_reserve`]).
     pub(crate) pap_level: u8,
+    /// Every gun's Pack-a-Punch level, kept in step the same way — the
+    /// stowed gun's sets its mag size too.
+    pub(crate) pap_levels: shared::pap::PapLevels,
     /// Which primary we carry — the sniper, or the AK-74 in a `Zombies` game
     /// we picked it for (`ak::sync_primary_model`, which also swaps the
     /// view model to match). The ammo counts are this weapon's.
@@ -430,7 +451,7 @@ pub(crate) enum KnifeFinish {
 impl Default for Weapon {
     fn default() -> Self {
         Self {
-            mag: MAG_SIZE,
+            mag: MAG_SIZES[0],
             // Both filled per game mode by `apply_loadout`.
             reserve: 0,
             throwing_knives: 0,
@@ -445,6 +466,7 @@ impl Default for Weapon {
             slot: WeaponSlot::Primary,
             interrupted: None,
             pap_level: 0,
+            pap_levels: default(),
             primary: WeaponId::Sniper,
             next_shot_at: 0.0,
             ak_loco: AkLoco::Idle,
@@ -481,9 +503,14 @@ impl Weapon {
         self.m17_loco.clip
     }
 
-    /// The primary's magazine capacity.
+    /// The primary's magazine capacity (at its Pack-a-Punch level).
     pub(crate) fn mag_size(&self) -> u32 {
-        mag_size(self.primary)
+        mag_size(self.primary, self.pap_level)
+    }
+
+    /// Any gun's magazine capacity at our level for it.
+    fn gun_mag_size(&self, gun: WeaponId) -> u32 {
+        mag_size(gun, self.pap_levels.get(shared::pap::PapWeapon::gun(gun)))
     }
 
     /// Carry `primary` from now on: a full mag of it, and its reserve filled
@@ -507,12 +534,8 @@ impl Weapon {
     /// The most reserve rounds the primary holds in `mode` — more for every
     /// Pack-a-Punch level in `Zombies`.
     fn max_reserve(&self, mode: shared::GameMode) -> u32 {
-        let packed = if mode == shared::GameMode::Zombies {
-            self.mag_size() * PAP_EXTRA_MAGS_PER_LEVEL * self.pap_level as u32
-        } else {
-            0
-        };
-        starting_reserve(mode, self.primary) + packed
+        let level = if mode == shared::GameMode::Zombies { self.pap_level } else { 0 };
+        reserve_for(mode, self.primary, level)
     }
 
     /// Top the sniper right up — a full mag *and* a full reserve for its
@@ -530,10 +553,7 @@ impl Weapon {
     pub(crate) fn max_ammo(&mut self, levels: shared::pap::PapLevels) {
         self.fill_mag_and_reserve(shared::GameMode::Zombies);
         if let Some(other) = self.slots.iter().filter_map(|w| w.gun()).find(|g| *g != self.primary) {
-            let level = levels.get(shared::pap::PapWeapon::gun(other)) as u32;
-            let mag = mag_size(other);
-            let reserve = starting_reserve(shared::GameMode::Zombies, other) + mag * PAP_EXTRA_MAGS_PER_LEVEL * level;
-            self.other_ammo = (mag, reserve);
+            self.other_ammo = Self::packed_load(other, levels.get(shared::pap::PapWeapon::gun(other)));
         }
         if self
             .interrupted
@@ -700,10 +720,10 @@ impl Weapon {
         Self::packed_load(gun, 0)
     }
 
-    /// ...and at Pack-a-Punch `level` (more reserve for each).
+    /// ...and at Pack-a-Punch `level` (a bigger mag, and more reserve, for
+    /// each).
     fn packed_load(gun: WeaponId, level: u8) -> (u32, u32) {
-        let mag = mag_size(gun);
-        (mag, starting_reserve(shared::GameMode::Zombies, gun) + mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32)
+        (mag_size(gun, level), reserve_for(shared::GameMode::Zombies, gun, level))
     }
 
     /// Make `gun` the one in hand's view model, with `(mag, reserve)`.
@@ -769,13 +789,13 @@ impl Weapon {
     /// Aether Shroud) — no animation; a reload waiting to be replayed is
     /// dropped, as there's nothing left for it to load.
     pub(crate) fn reload_instantly(&mut self) {
-        let top_up = |gun: WeaponId, (mag, reserve): (u32, u32)| {
-            let moved = mag_size(gun).saturating_sub(mag).min(reserve);
+        let top_up = |size: u32, (mag, reserve): (u32, u32)| {
+            let moved = size.saturating_sub(mag).min(reserve);
             (mag + moved, reserve - moved)
         };
-        (self.mag, self.reserve) = top_up(self.primary, (self.mag, self.reserve));
+        (self.mag, self.reserve) = top_up(self.mag_size(), (self.mag, self.reserve));
         if let Some(other) = self.slots.iter().filter_map(|w| w.gun()).find(|g| *g != self.primary) {
-            self.other_ammo = top_up(other, self.other_ammo);
+            self.other_ammo = top_up(self.gun_mag_size(other), self.other_ammo);
         }
         if self
             .interrupted
@@ -818,7 +838,8 @@ pub(crate) fn apply_loadout(
     if respawn {
         // A `Zombies` respawn keeps what was carried: both guns topped up.
         if let Some(other) = weapon.slots.iter().filter_map(|w| w.gun()).find(|&g| g != weapon.primary) {
-            weapon.other_ammo = Weapon::full_load(other);
+            let level = member.map_or(0, |m| m.pap.get(shared::pap::PapWeapon::gun(other)));
+            weapon.other_ammo = Weapon::packed_load(other, level);
         }
     } else {
         // A new game (or any other mode's life): what the server says we
@@ -836,10 +857,16 @@ pub(crate) fn apply_loadout(
         weapon.slots_set = true;
         if weapon.primary != gun {
             weapon.primary = gun;
-            weapon.mag = mag_size(gun);
+            weapon.mag = mag_size(gun, 0);
         }
     }
-    weapon.reserve = starting_reserve(lobby.mode, weapon.primary);
+    weapon.reserve = if respawn {
+        // (At its Pack-a-Punch level, like the other gun.)
+        weapon.mag = weapon.mag_size();
+        weapon.max_reserve(lobby.mode)
+    } else {
+        starting_reserve(lobby.mode, weapon.primary)
+    };
     weapon.throwing_knives = shared::throwing_knife::starting_knives(lobby.mode);
     weapon.molotovs = 0;
     weapon.monkey_bombs = 0;

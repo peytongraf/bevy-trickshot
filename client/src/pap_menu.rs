@@ -24,7 +24,7 @@ use crate::menu::{self, Screen};
 use crate::net::GameClient;
 use crate::pap::my_pap_levels;
 use crate::ui::{ui_sound, UiSfx, UiSound};
-use crate::weapons::{Weapon, WeaponSlot, MAG_SIZE, PAP_EXTRA_MAGS_PER_LEVEL};
+use crate::weapons::{zombies_max_rounds, mag_size, Weapon, WeaponSlot};
 use crate::zombies_hud::{zombies_game, MONEY_YELLOW};
 use crate::{killcam, AppState, GameSounds, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
@@ -55,10 +55,10 @@ impl Plugin for PapMenuPlugin {
 struct PapMenu {
     /// The weapon being packed — whichever was in our hands when it opened.
     weapon: PapWeapon,
-    /// Its name ("Sniper", "AK-74", "Knife") and, for the primary, its
-    /// magazine size (for the extra ammo each level adds).
+    /// Its name ("Sniper", "AK-74", "Knife") and, if it's a gun, which (for
+    /// the bigger mag and extra ammo each level brings).
     label: &'static str,
-    mag: u32,
+    gun: Option<shared::weapon::WeaponId>,
     /// The level the header shows and PURCHASE buys: the one hovered last,
     /// starting on the next one to buy.
     selected: u8,
@@ -72,7 +72,7 @@ impl Default for PapMenu {
         Self {
             weapon: PapWeapon::Sniper,
             label: PapWeapon::Sniper.label(),
-            mag: MAG_SIZE,
+            gun: Some(shared::weapon::WeaponId::Sniper),
             selected: 1,
             close_pending: false,
         }
@@ -110,16 +110,17 @@ fn held_label(weapon: &Weapon) -> &'static str {
     held_weapon(weapon).label()
 }
 
-/// What packing `weapon` (its magazine `mag` rounds) to `level` does, for the
-/// menu's description line.
-fn level_description(weapon: PapWeapon, mag: u32, level: u8) -> String {
+/// What packing `gun` (`None`: the knife) to `level` does, for the menu's
+/// description line.
+fn level_description(gun: Option<shared::weapon::WeaponId>, level: u8) -> String {
     let damage = format!("{:.0}x Damage", shared::pap::damage_mult(level));
-    match weapon {
-        PapWeapon::Sniper | PapWeapon::Ak74 | PapWeapon::RayGun | PapWeapon::M17 => format!(
-            "{damage}  |  +{} Max Ammo",
-            mag * PAP_EXTRA_MAGS_PER_LEVEL * level as u32
+    match gun {
+        Some(gun) => format!(
+            "{damage}  |  {} Round Mag  |  +{} Max Ammo",
+            mag_size(gun, level),
+            zombies_max_rounds(gun, level) - zombies_max_rounds(gun, 0)
         ),
-        PapWeapon::Knife => damage,
+        None => damage,
     }
 }
 
@@ -281,7 +282,7 @@ fn open_pap_menu(
     *state = PapMenu {
         weapon: held,
         label: held_label(&weapon),
-        mag: weapon.mag_size(),
+        gun: (held != PapWeapon::Knife).then_some(weapon.primary),
         selected: (current + 1).min(MAX_LEVEL),
         close_pending: false,
     };
@@ -919,7 +920,7 @@ fn refresh_pap_menu(
                     LevelStatus::Buyable => (cost, DARK_TEXT),
                 }
             }
-            PapText::Description => (level_description(state.weapon, state.mag, state.selected), LIGHT_TEXT),
+            PapText::Description => (level_description(state.gun, state.selected), LIGHT_TEXT),
             PapText::Points => (format!("${}", crate::util::grouped(points)), MONEY_YELLOW),
         };
         if text.0 != line {
