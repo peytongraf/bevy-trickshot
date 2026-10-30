@@ -489,6 +489,16 @@ fn profiles_ui(ui: &mut egui::Ui, mix: &mut Mix, new_name: &mut String) -> bool 
                         if p.air_hz >= AIR_OFF_HZ {
                             ui.weak("(air absorption off)");
                         }
+                        ui.add(
+                            egui::Slider::new(&mut p.wall_hz, 200.0f32..=AIR_OFF_HZ)
+                                .logarithmic(true)
+                                .suffix(" Hz")
+                                .text("walls: highs left fully behind one"),
+                        );
+                        ui.add(egui::Slider::new(&mut p.wall_db, -30.0f32..=0.0).suffix(" dB").text("walls: level lost"));
+                        if p.wall_hz >= AIR_OFF_HZ && p.wall_db >= 0.0 {
+                            ui.weak("(muffling through walls off)");
+                        }
                     });
                     falloff_plot(ui, &p);
                 });

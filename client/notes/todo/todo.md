@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Muffled sounds through walls
 - Kill chain medals
 - Mantle breath + step sounds
 - Downed breathing loop
@@ -92,6 +93,7 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 
 # Improve / Adjust
 
+- Dial in muffle ( low pass ) of sounds behind walls
 - Knife arms too high and far out
 - Dial in molotov flame look
 - Dial in phd slider effect look ( trail and explosion )
@@ -117,4 +119,3 @@ Benchmark (compare with the debug-mode PERFORMANCE report on the results screen;
 # Nice to have
 
 - Add sun flare when looking near sun on day maps
-- Possibly add high and low pass filters to sounds if they are behind walls

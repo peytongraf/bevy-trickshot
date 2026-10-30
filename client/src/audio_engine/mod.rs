@@ -20,12 +20,17 @@
 //! overrides that per folder / clip (our own shots and footsteps are world
 //! sounds; UI, music and announcers stay dry).
 //!
+//! A positional sound with the map between it and the listener is muffled
+//! ([`occlusion`]): its profile's wall cutoff and level drop, by how much of
+//! it is blocked.
+//!
 //! Clips decode as they play ([`decoder`]) rather than being held decoded in
 //! memory.
 
 mod decoder;
 pub(crate) mod mix;
 mod mixer;
+mod occlusion;
 mod pending;
 mod room;
 
@@ -47,6 +52,7 @@ use kira::{AudioManager, AudioManagerSettings, Capacities, Decibels, DefaultBack
 use decoder::{DecodingSoundData, Playback};
 use mix::{clip_gain, clip_key, BusMonitor, Mix, AIR_OFF_HZ};
 pub(crate) use mixer::AudioMixer;
+pub(crate) use occlusion::{OcclusionDebug, OcclusionSettings};
 pub(crate) use pending::PendingSounds;
 pub(crate) use room::ReverbDebug;
 
@@ -81,9 +87,10 @@ impl Plugin for AudioEnginePlugin {
             .init_resource::<PendingSounds>()
             .register_asset_loader(AudioLoader)
             .init_resource::<GlobalVolume>()
+            .init_resource::<OcclusionSettings>()
             .add_systems(
                 PostUpdate,
-                (update_listener, update_emitters, play_queued, apply_mix, apply_profiles, cleanup_finished)
+                (update_listener, update_emitters, play_queued, occlusion::occlude, apply_mix, apply_profiles, cleanup_finished)
                     .chain()
                     .after(TransformSystem::TransformPropagate),
             );
@@ -333,8 +340,14 @@ pub(crate) struct SpatialAudioSink {
     profile: String,
     looping: bool,
     track: SpatialTrackHandle,
-    /// Its air-absorption low-pass.
+    /// Its air-absorption low-pass (and the walls' — [`occlusion`]).
     filter: FilterHandle,
+    /// How blocked by the map it is (`0` clear … `1` fully), eased toward
+    /// the last probe's `occlusion_target`...
+    occlusion: f32,
+    occlusion_target: f32,
+    /// ...and whether it's had its first probe yet.
+    probed: bool,
 }
 
 impl Drop for AudioSink {
@@ -483,6 +496,9 @@ fn play_queued(
                 looping,
                 track,
                 filter,
+                occlusion: 0.0,
+                occlusion_target: 0.0,
+                probed: false,
             });
         } else {
             let played = if reverb {
@@ -539,11 +555,16 @@ fn apply_profiles(
     for (mut sink, transform) in &mut spatial {
         let profile = mix.profile(&sink.profile);
         let distance = ears.distance(transform.map_or(Vec3::ZERO, GlobalTransform::translation));
-        let gain = profile.gain(distance);
+        let gain = profile.gain(distance) * profile.wall_gain(sink.occlusion);
         sink.playback.set_distance(gain);
         sink.playback.set_culled(sink.looping && gain <= 0.0);
         let tween = Tween::default();
-        match profile.air_cutoff(distance) {
+        // (Whichever of the air's and the walls' cutoffs is lower.)
+        let cutoff = match (profile.air_cutoff(distance), profile.wall_cutoff(sink.occlusion)) {
+            (Some(a), Some(w)) => Some(a.min(w)),
+            (a, w) => a.or(w),
+        };
+        match cutoff {
             Some(hz) => {
                 sink.filter.set_cutoff(hz as f64, tween);
                 sink.filter.set_mix(kira::Mix::WET, tween);

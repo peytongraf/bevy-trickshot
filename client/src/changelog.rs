@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Sounds behind walls are now muffled.",
         "Zombies: every Pack-a-Punch level gives your gun a bigger mag.",
         "Zombies: perk machine and Wunderfizz lights no longer shine through walls.",
         "Zombies: Death Perception and Shroom Tea only light up zombies hidden behind walls, not ones you can see.",

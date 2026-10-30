@@ -141,6 +141,12 @@ pub(crate) struct Profile {
     /// Air absorption: the low-pass cutoff (Hz) at `far`, eased in from
     /// `near` — distant sounds go dull. 20 kHz or more is off.
     pub(crate) air_hz: f32,
+    /// Through walls (`audio_engine::occlusion`): the low-pass cutoff (Hz)
+    /// fully behind the map (20 kHz or more is off)...
+    pub(crate) wall_hz: f32,
+    /// ...and the level lost there (dB), both eased in with how much of the
+    /// sound is blocked.
+    pub(crate) wall_db: f32,
 }
 
 impl Default for Profile {
@@ -152,6 +158,8 @@ impl Default for Profile {
             curve: 2.0,
             width: 0.75,
             air_hz: AIR_OFF_HZ,
+            wall_hz: 700.0,
+            wall_db: -6.0,
         }
     }
 }
@@ -182,6 +190,20 @@ impl Profile {
         }
         let t = self.t(distance);
         (t > 0.0).then(|| AIR_OFF_HZ * (self.air_hz.max(20.0) / AIR_OFF_HZ).powf(t))
+    }
+
+    /// The low-pass cutoff for a sound `blocked` (`0` clear … `1` fully)
+    /// by walls, `None` while clear or with walls' muffling off.
+    pub(crate) fn wall_cutoff(&self, blocked: f32) -> Option<f32> {
+        if self.wall_hz >= AIR_OFF_HZ || blocked <= 0.0 {
+            return None;
+        }
+        Some(AIR_OFF_HZ * (self.wall_hz.max(20.0) / AIR_OFF_HZ).powf(blocked.min(1.0)))
+    }
+
+    /// The linear gain left for a sound `blocked` by walls.
+    pub(crate) fn wall_gain(&self, blocked: f32) -> f32 {
+        db_to_linear(self.wall_db.min(0.0) * blocked.clamp(0.0, 1.0))
     }
 }
 
