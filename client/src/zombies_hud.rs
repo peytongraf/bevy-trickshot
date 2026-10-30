@@ -54,7 +54,35 @@ impl Plugin for ZombiesHudPlugin {
             .init_resource::<PerkMachineSettings>()
             // Not gated on `InGame`: it's what switches the effects back *off*
             // once the game is left.
-            .add_systems(Update, sync_owned_perks);
+            .add_systems(Update, sync_owned_perks)
+            .add_observer(no_machine_shadows);
+    }
+}
+
+/// On a machine's model (a perk machine's, the Wunderfizz's): none of its
+/// meshes cast shadows. The machines' own lights do (so they stop at the
+/// map's walls), and the machine sits right in front of its light — its
+/// body would throw a dark silhouette of itself on the wall behind it.
+#[derive(Component)]
+pub(crate) struct NoMachineShadow;
+
+/// Once a [`NoMachineShadow`] model's scene is in, mark its meshes
+/// `NotShadowCaster`.
+fn no_machine_shadows(
+    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    models: Query<(), With<NoMachineShadow>>,
+    children: Query<&Children>,
+    meshes: Query<(), With<Mesh3d>>,
+    mut commands: Commands,
+) {
+    let root = trigger.target();
+    if !models.contains(root) {
+        return;
+    }
+    for entity in children.iter_descendants(root) {
+        if meshes.contains(entity) {
+            commands.entity(entity).insert(bevy::pbr::NotShadowCaster);
+        }
     }
 }
 
@@ -703,11 +731,15 @@ pub(crate) struct MachineLight {
 impl Default for MachineLight {
     fn default() -> Self {
         Self {
-            offset: Vec3::new(0.0, 1.4, 0.0),
+            // (Out past the front, not inside the machine — with shadows
+            // on, its own body would block the light.)
+            offset: Vec3::new(0.0, 1.4, 0.6),
             intensity: 200_000.0,
             range: 27.0,
             radius: 0.0,
-            shadows: false,
+            // (On, so the glow stops at walls instead of lighting the far
+            // side of them.)
+            shadows: true,
         }
     }
 }
@@ -1035,6 +1067,7 @@ fn spawn_perk_machine(
         .with_children(|m| {
             m.spawn((
                 MachinePart::Model(perk),
+                NoMachineShadow,
                 SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(machine_model(perk).0))),
                 settings.part_transform(MachinePart::Model(perk)),
             ));

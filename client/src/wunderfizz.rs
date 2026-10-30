@@ -152,6 +152,7 @@ fn sync_wunderfizz_machine(
             .with_children(|m| {
                 m.spawn((
                     WunderfizzModel,
+                    crate::zombies_hud::NoMachineShadow,
                     SceneRoot(
                         asset_server
                             .load(GltfAssetLabel::Scene(0).from_asset(crate::zombies_hud::WUNDERFIZZ_MODEL)),

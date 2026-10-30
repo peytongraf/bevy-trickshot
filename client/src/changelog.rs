@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Zombies: perk machine and Wunderfizz lights no longer shine through walls.",
         "Zombies: Death Perception and Shroom Tea only light up zombies hidden behind walls, not ones you can see.",
         "Zombies: kill chain medals — Slaughter, Carnage, Massacre, Bloodbath, Extermination and Lifedrinker.",
         "Zombies: heavy breathing while you're down.",
