@@ -474,6 +474,7 @@ enum Btn {
     ToggleAutoJoin,
     ToggleVsync,
     ToggleGroundFog,
+    ToggleScopeBlur,
     /// Interface tab: show / hide one telemetry readout.
     ToggleTelemetry(TelemetryStat),
     /// Debug tab: show / hide the debug-mode draw call and entity counts.
@@ -483,6 +484,7 @@ enum Btn {
     ToggleDebugPosition,
     SetShadowQuality(ShadowQuality),
     SetMotionBlur(crate::settings::MotionBlurLevel),
+    SetWeaponMotionBlur(crate::settings::MotionBlurLevel),
     SetCrosshair(CrosshairId),
     SetScopeZoom(ScopeZoom),
     SetAutoMantle(AutoMantle),
@@ -641,8 +643,16 @@ fn menu_click(
                 settings.motion_blur = *level;
                 menu.dirty = true;
             }
+            Btn::SetWeaponMotionBlur(level) => {
+                settings.weapon_motion_blur = *level;
+                menu.dirty = true;
+            }
             Btn::ToggleVsync => {
                 settings.vsync = !settings.vsync;
+                menu.dirty = true;
+            }
+            Btn::ToggleScopeBlur => {
+                settings.scope_blur = !settings.scope_blur;
                 menu.dirty = true;
             }
             Btn::ToggleGroundFog => {
@@ -2381,7 +2391,36 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         content,
         asset_server,
         "Blurs the world as you turn and move, so fast flicks read as smooth motion. \
-         Higher settings blur more. Your weapon is never blurred.",
+         Higher settings blur more. Your weapon has its own setting below.",
+    );
+
+    setting_row(content, asset_server, "WEAPON MOTION BLUR", |row| {
+        for level in crate::settings::MotionBlurLevel::ALL {
+            option_button(
+                row,
+                asset_server,
+                level.label(),
+                Btn::SetWeaponMotionBlur(level),
+                settings.weapon_motion_blur == level,
+                UiSound::BUTTON,
+            );
+        }
+    });
+    desc(
+        content,
+        asset_server,
+        "Blurs the weapon in your hands as it moves — swinging, recoiling, working \
+         the bolt. Higher settings blur more.",
+    );
+
+    setting_row(content, asset_server, "SCOPE BLUR", |row| {
+        toggle_button(row, asset_server, settings.scope_blur, Btn::ToggleScopeBlur, None);
+    });
+    desc(
+        content,
+        asset_server,
+        "Softly blurs the world around your scope while you're aimed in, so your eye \
+         goes to the picture in the lens.",
     );
 
     setting_row(content, asset_server, "GROUND FOG", |row| {

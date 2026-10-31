@@ -73,6 +73,7 @@ mod respawn;
 mod revive;
 mod round_counter;
 mod search_destroy;
+mod scope_fx;
 mod settings;
 mod shot_predict;
 mod aether_shroud;
@@ -165,7 +166,7 @@ use bevy_rapier3d::prelude::*;
 const VIEW_MODEL_RENDER_LAYER: usize = 1;
 /// Render layer for the reticle quad — only the scope camera renders it, so the
 /// crosshair lives inside the scope image and nowhere else.
-const SCOPE_OVERLAY_LAYER: usize = 2;
+pub(crate) const SCOPE_OVERLAY_LAYER: usize = 2;
 /// Empty render layer for the HUD camera, which renders after everything else
 /// (including the view-model camera) so the UI is never covered by the gun.
 pub(crate) const UI_LAYER: usize = 4;
@@ -319,6 +320,7 @@ fn main() {
             weapons::sync_reticle_camera.before(bevy::render::camera::CameraUpdateSystem),
         )
         .add_plugins(motion_blur::MotionBlurPlugin)
+        .add_plugins(scope_fx::ScopeFxPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)
@@ -389,6 +391,8 @@ fn main() {
         .init_resource::<LookDelta>()
         .init_resource::<WeaponSwayState>()
         .init_resource::<WeaponSwaySettings>()
+        .init_resource::<MoveInertia>()
+        .init_resource::<MoveInertiaSettings>()
         .init_resource::<IdleSwayState>()
         .init_resource::<IdleSwaySettings>()
         .init_resource::<AimSwayState>()
@@ -1120,6 +1124,11 @@ fn setup_player(
                                         // anything standing in it, and what its
                                         // refraction mustn't pick up (`water.wgsl`).
                                         bevy::core_pipeline::prepass::DepthPrepass,
+                                        // Motion vectors for `motion_blur` — from the
+                                        // start, never added or taken away mid-game
+                                        // (that left meshes' cached prepass pipelines
+                                        // without them: a wgpu crash).
+                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
                                     ));
 
                                     // Scope camera: renders the world (layer 0)
@@ -1146,6 +1155,10 @@ fn setup_player(
                                         // the map's scene tuning changes it.
                                         DistanceFog::default(),
                                         RenderLayers::layer(0),
+                                        // For `motion_blur` — always on (see the
+                                        // world camera's).
+                                        bevy::core_pipeline::prepass::DepthPrepass,
+                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
                                     ))
                                     .with_child((
                                         ScopeReticle,
@@ -1204,6 +1217,10 @@ fn setup_player(
                                             ..default()
                                         }),
                                         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
+                                        // For `motion_blur`'s weapon blur — always on
+                                        // (see the world camera's).
+                                        bevy::core_pipeline::prepass::DepthPrepass,
+                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
                                     ));
                                 });
 

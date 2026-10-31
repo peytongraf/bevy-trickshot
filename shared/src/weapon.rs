@@ -144,14 +144,58 @@ pub mod sniper_feel {
     pub const RECHAMBER_END_SECS: f32 = 48.0 / 24.0;
     /// ...at this many times normal speed.
     pub const RECHAMBER_SPEED: f32 = 1.7;
-    /// Camera-shake trauma one shot adds (capped at 1), and how much decays per second.
-    pub const SHAKE_ADD: f32 = 0.85;
+    /// Camera-shake trauma one shot adds (capped at 1), and how much decays
+    /// per second — none: a sniper shot's kick is the spring below, as on
+    /// the client (`client::weapons::recoil`).
+    pub const SHAKE_ADD: f32 = 0.0;
     pub const SHAKE_DECAY: f32 = 2.0;
     /// Oscillation speed of the shake `phase` (per second, while there's trauma).
     pub const SHAKE_FREQ: f32 = 75.0;
-    /// Backward camera kick per shot (m), and how fast it eases home (1/s).
-    pub const RECOIL_KICK: f32 = 0.05;
+    /// Backward camera kick per shot (m), and how fast it eases home (1/s) —
+    /// none, as on the client: the fire animation no longer pulls the scope
+    /// back into the eye.
+    pub const RECOIL_KICK: f32 = 0.0;
     pub const RECOIL_RETURN: f32 = 5.0;
+    /// The shot's kick (the client's `ShakeSettings` defaults): the view
+    /// punched up this far (°) at its peak, and to one side up to this far,
+    /// less (to this share) fully scoped as it fires...
+    pub const KICK_PITCH_DEG: f32 = 2.5;
+    pub const KICK_YAW_DEG: f32 = 0.6;
+    pub const KICK_ADS_SCALE: f32 = 0.6;
+    /// ...and the spring pulling it back: speed (rad/s) and damping ratio.
+    pub const KICK_SPRING: f32 = 18.0;
+    pub const KICK_DAMPING: f32 = 0.85;
+
+    /// The kick's speed (yaw, pitch — rad/s) a shot strikes it with, scoped
+    /// in `ads_t` as it fired, off to the side by `side` (`-1..=1`).
+    pub fn kick_impulse(ads_t: f32, side: f32) -> [f32; 2] {
+        let scale = 1.0 + (KICK_ADS_SCALE - 1.0) * ads_t.clamp(0.0, 1.0);
+        // A critically damped spring struck at speed `v` peaks at `v / (ω·e)`.
+        let k = scale * KICK_SPRING * core::f32::consts::E;
+        [side.clamp(-1.0, 1.0) * KICK_YAW_DEG.to_radians() * k, KICK_PITCH_DEG.to_radians() * k]
+    }
+
+    /// Move the kick (`kick`, `vel`: yaw, pitch) on by `dt` on its spring,
+    /// in small steps so it's the same at any tick rate.
+    pub fn step_kick(kick: &mut [f32; 2], vel: &mut [f32; 2], dt: f32) {
+        if *kick == [0.0; 2] && *vel == [0.0; 2] {
+            return;
+        }
+        let (w, zeta) = (KICK_SPRING, KICK_DAMPING);
+        let steps = (dt * 480.0).ceil().clamp(1.0, 64.0);
+        let h = dt / steps;
+        for _ in 0..steps as u32 {
+            for i in 0..2 {
+                let acc = -w * w * kick[i] - 2.0 * zeta * w * vel[i];
+                vel[i] += acc * h;
+                kick[i] += vel[i] * h;
+            }
+        }
+        if kick.iter().chain(vel.iter()).all(|v| v.abs() < 1.0e-5) {
+            *kick = [0.0; 2];
+            *vel = [0.0; 2];
+        }
+    }
     /// The sniper clip's playhead (seconds) `since` seconds after a shot:
     /// `Shoot` at normal speed, then `Rechamber` (sped up), then back at rest.
     pub fn anim_time(since: f32) -> f32 {

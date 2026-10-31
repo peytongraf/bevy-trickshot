@@ -41,6 +41,7 @@ struct LifeState<'w> {
     melee: ResMut<'w, PendingMelee>,
     drink: ResMut<'w, crate::PerkDrink>,
     aim_recoil: ResMut<'w, crate::AimRecoil>,
+    inertia: ResMut<'w, crate::MoveInertia>,
 }
 
 fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: LifeState) {
@@ -48,6 +49,7 @@ fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: 
         return;
     }
     *life.shake = Shake::default();
+    *life.inertia = crate::MoveInertia::default();
     life.ads.t = 0.0;
     *life.sprinting = Sprinting::default();
     *life.jumping = Jumping::default();

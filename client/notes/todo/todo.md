@@ -2,6 +2,10 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Scope blur, vignette and fringe
+- Weapon movement inertia
+- Weapon motion blur setting
+- Bot kill cam sniper kick
 - Motion blur setting
 - Sniper shot kick-back removed
 - MW3 smoothness: zoom curve, sniper kick, smoother sway
@@ -22,8 +26,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 # Current todo
 
 - Default frame cap to the display's refresh rate (judder when uncapped)
-- Bot sniper shots (server `sniper_feel`) still use the old trauma shake in kill cams — switch to the new kick
-- Maybe: MW3-style scope where only the lens is magnified and the world outside zooms a little
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
 - Test and improve server performance for cpu and memory
 - Could download bottle model and replace the plastic model in the drinking arms with it and redo the animation, then just swap out the material that is used if they would all look correct.

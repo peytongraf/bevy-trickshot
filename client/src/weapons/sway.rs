@@ -1,6 +1,7 @@
-//! View-model sway: the turn-lag "weapon sway", the walking / sprinting bob,
-//! the idle breathing drift, and the aim-idle drift that actually moves the
-//! real aim while scoped.
+//! View-model sway: the turn-lag "weapon sway", the movement inertia (the
+//! gun trailing a strafe, tipping into it, dipping as we land), the walking /
+//! sprinting bob, the idle breathing drift, and the aim-idle drift that
+//! actually moves the real aim while scoped.
 
 use bevy::prelude::*;
 
@@ -33,6 +34,122 @@ pub(crate) struct WeaponSwayState {
     /// [`WeaponSwaySettings::turn_smoothing_secs`] — one frame's own reading
     /// is noisy (a frame with no mouse event in it reads as a dead stop).
     turn_rate: Vec2,
+}
+
+/// Movement inertia (Call of Duty's): every view model — the primary, the
+/// knife, the throwing arms, and the gun's flashlight with them — trails
+/// the way we move and tips into a strafe, lags a jump's rise and a fall's
+/// drop, and dips when we land, on a spring so it settles with a little
+/// give. Stepped once a frame by [`weapon_sway`], laid on by
+/// [`inertia_pose`] wherever the turn sway is.
+#[derive(Resource, Default)]
+pub(crate) struct MoveInertia {
+    /// How far (m, view space: x right, y up, z back) the gun's trailing,
+    /// and how fast that's changing.
+    offset: Vec3,
+    vel: Vec3,
+    /// How far (radians, about the view axis) it's tipped, and how fast.
+    roll: f32,
+    roll_vel: f32,
+    /// Whether we were on the ground last frame, and how fast we were
+    /// falling (m/s, up positive) — for the landing dip.
+    grounded: bool,
+    fall_speed: f32,
+}
+
+/// The movement inertia's tuning — the debug panel's "Weapon sway" section.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct MoveInertiaSettings {
+    /// How far (m per m/s) the gun trails a strafe, and moving forward /
+    /// back.
+    pub(crate) strafe_lag_m: f32,
+    pub(crate) forward_lag_m: f32,
+    /// How far (° per m/s) it tips into a strafe.
+    pub(crate) strafe_roll_deg: f32,
+    /// How far (m per m/s) it lags a jump's rise (down) or a fall (up).
+    pub(crate) vertical_lag_m: f32,
+    /// The landing dip: how far (m per m/s we land at) at its deepest, and
+    /// the most it ever goes.
+    pub(crate) land_dip_m: f32,
+    pub(crate) land_dip_max_m: f32,
+    /// The most it ever trails (m) or tips (°), whatever the speed.
+    pub(crate) max_offset_m: f32,
+    pub(crate) max_roll_deg: f32,
+    /// The spring it follows on: its speed (rad/s) and damping ratio (`1`
+    /// settles straight in, less gives a little bounce).
+    pub(crate) spring: f32,
+    pub(crate) damping: f32,
+    /// How much of it's left fully aimed.
+    pub(crate) ads_scale: f32,
+}
+
+impl Default for MoveInertiaSettings {
+    fn default() -> Self {
+        Self {
+            strafe_lag_m: 0.0025,
+            forward_lag_m: 0.0015,
+            strafe_roll_deg: 0.9,
+            vertical_lag_m: 0.002,
+            land_dip_m: 0.004,
+            land_dip_max_m: 0.04,
+            max_offset_m: 0.03,
+            max_roll_deg: 6.0,
+            spring: 12.0,
+            damping: 0.6,
+            ads_scale: 0.25,
+        }
+    }
+}
+
+impl MoveInertia {
+    /// Move it on by `dt` for our velocity this frame (`local`: m/s in our
+    /// own frame — x right, z back — and `vertical` up), and `grounded`.
+    fn step(&mut self, cfg: &MoveInertiaSettings, local: Vec3, vertical: f32, grounded: bool, dt: f32) {
+        // Landing: a dip as deep as how fast we came down.
+        if grounded && !self.grounded {
+            let w = cfg.spring.max(0.1);
+            let dip = (-self.fall_speed * cfg.land_dip_m).clamp(0.0, cfg.land_dip_max_m);
+            // (A spring struck at `v` peaks near `v / (ω·e)`.)
+            self.vel.y -= dip * w * std::f32::consts::E;
+        }
+        self.grounded = grounded;
+        self.fall_speed = if grounded { 0.0 } else { vertical };
+
+        let max = cfg.max_offset_m;
+        let up = if grounded { 0.0 } else { vertical };
+        let target = Vec3::new(
+            -local.x * cfg.strafe_lag_m,
+            -up * cfg.vertical_lag_m,
+            local.z * cfg.forward_lag_m,
+        )
+        .clamp(Vec3::splat(-max), Vec3::splat(max));
+        let max_roll = cfg.max_roll_deg.to_radians();
+        let roll_target = (-local.x * cfg.strafe_roll_deg.to_radians()).clamp(-max_roll, max_roll);
+
+        let w = cfg.spring.max(0.1);
+        let zeta = cfg.damping.max(0.0);
+        let steps = (dt * 480.0).ceil().clamp(1.0, 64.0);
+        let h = dt / steps;
+        for _ in 0..steps as u32 {
+            let acc = w * w * (target - self.offset) - 2.0 * zeta * w * self.vel;
+            self.vel += acc * h;
+            self.offset += self.vel * h;
+            let roll_acc = w * w * (roll_target - self.roll) - 2.0 * zeta * w * self.roll_vel;
+            self.roll_vel += roll_acc * h;
+            self.roll += self.roll_vel * h;
+        }
+    }
+}
+
+/// Pure: the movement inertia's pose on a view model, premultiplied in view
+/// space — less the more we're aimed.
+pub(crate) fn inertia_pose(state: &MoveInertia, cfg: &MoveInertiaSettings, ads_t: f32) -> Transform {
+    let scale = 1.0f32.lerp(cfg.ads_scale, ads_t.clamp(0.0, 1.0));
+    Transform {
+        translation: state.offset * scale,
+        rotation: Quat::from_rotation_z(state.roll * scale),
+        scale: Vec3::ONE,
+    }
 }
 
 /// Panel-adjustable weapon sway: the view model trails the direction you turn,
@@ -239,11 +356,14 @@ impl Default for AimSwaySettings {
 /// back. `strength`/shift both lerp `hip → ads` by `Ads::t`.
 /// [`consume_look_delta`] clears this frame's turn once this and
 /// [`track_trick`] have read it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn weapon_sway(
     time: Res<Time>,
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
     look: Res<LookDelta>,
+    (inertia_cfg, mut inertia): (Res<MoveInertiaSettings>, ResMut<MoveInertia>),
+    player: Query<(&PlayerPhysics, &Transform), (With<Player>, Without<ViewModel>)>,
     mut state: ResMut<WeaponSwayState>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
@@ -272,7 +392,13 @@ pub(crate) fn weapon_sway(
         state.offset += state.vel * h;
     }
 
-    **view_model = sway_pose(state.offset, &tuning, t) * **view_model;
+    // The movement inertia, off our velocity in our own frame.
+    if let Ok((physics, body)) = player.single() {
+        let local = body.rotation.inverse() * physics.horizontal_velocity;
+        inertia.step(&inertia_cfg, local, physics.vertical_velocity, physics.grounded, dt);
+    }
+
+    **view_model = inertia_pose(&inertia, &inertia_cfg, t) * sway_pose(state.offset, &tuning, t) * **view_model;
 }
 
 /// The sway transform for a lag `offset` (yaw, pitch in radians): the tip
@@ -298,11 +424,15 @@ pub(crate) fn knife_weapon_sway(
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
     state: Res<WeaponSwayState>,
+    (inertia_cfg, inertia): (Res<MoveInertiaSettings>, Res<MoveInertia>),
     bob: Res<WalkBob>,
     mut knife: Single<&mut Transform, With<KnifeViewModel>>,
 ) {
     let t = ads.t.clamp(0.0, 1.0);
-    **knife = Transform::from_translation(bob.offset(&tuning, t)) * sway_pose(state.offset, &tuning, t) * **knife;
+    **knife = inertia_pose(&inertia, &inertia_cfg, t)
+        * Transform::from_translation(bob.offset(&tuning, t))
+        * sway_pose(state.offset, &tuning, t)
+        * **knife;
 }
 
 /// Layer a slow procedural "breathing" drift onto the view model while the
@@ -365,11 +495,15 @@ pub(crate) fn throw_arms_weapon_sway(
     tuning: Res<WeaponSwaySettings>,
     ads: Res<Ads>,
     state: Res<WeaponSwayState>,
+    (inertia_cfg, inertia): (Res<MoveInertiaSettings>, Res<MoveInertia>),
     bob: Res<WalkBob>,
     mut arms: Single<&mut Transform, With<ThrowArmsViewModel>>,
 ) {
     let t = ads.t.clamp(0.0, 1.0);
-    **arms = Transform::from_translation(bob.offset(&tuning, t)) * sway_pose(state.offset, &tuning, t) * **arms;
+    **arms = inertia_pose(&inertia, &inertia_cfg, t)
+        * Transform::from_translation(bob.offset(&tuning, t))
+        * sway_pose(state.offset, &tuning, t)
+        * **arms;
 }
 
 /// The breathing drift on the throwing arms — see [`knife_idle_sway`].
@@ -411,4 +545,37 @@ pub(crate) fn aim_idle_sway(
     state.offset = breathing_offset(state.clock, tuning.frequency_hz, amp);
 
     world_cam.rotation = Quat::from_euler(EulerRot::YXZ, state.offset.x, state.offset.y, 0.0);
+}
+
+/// The debug panel's movement-inertia block (in "Weapon sway").
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct MoveInertiaDebug<'w> {
+    settings: ResMut<'w, MoveInertiaSettings>,
+}
+
+impl MoveInertiaDebug<'_> {
+    pub(crate) fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+        use bevy_egui::egui::Slider;
+        let s = &mut *self.settings;
+        ui.label("movement inertia — every weapon trails a strafe, tips into it, lags a jump and dips on landing");
+        ui.add(Slider::new(&mut s.strafe_lag_m, 0.0f32..=0.02).text("strafe lag (m per m/s)"));
+        ui.add(Slider::new(&mut s.forward_lag_m, 0.0f32..=0.02).text("forward / back lag (m per m/s)"));
+        ui.add(Slider::new(&mut s.strafe_roll_deg, 0.0f32..=5.0).text("strafe tip (° per m/s)"));
+        ui.add(Slider::new(&mut s.vertical_lag_m, 0.0f32..=0.02).text("jump / fall lag (m per m/s)"));
+        ui.add(Slider::new(&mut s.land_dip_m, 0.0f32..=0.02).text("landing dip (m per m/s landed at)"));
+        ui.add(Slider::new(&mut s.land_dip_max_m, 0.0f32..=0.15).text("deepest landing dip (m)"));
+        ui.add(Slider::new(&mut s.max_offset_m, 0.0f32..=0.15).text("most it trails (m)"));
+        ui.add(Slider::new(&mut s.max_roll_deg, 0.0f32..=20.0).text("most it tips (°)"));
+        ui.add(Slider::new(&mut s.spring, 2.0f32..=40.0).text("spring speed (rad/s)"));
+        ui.add(Slider::new(&mut s.damping, 0.1f32..=1.5).text("spring damping (1 = no bounce)"));
+        ui.add(Slider::new(&mut s.ads_scale, 0.0f32..=1.0).text("left fully aimed"));
+        ui.horizontal(|ui| {
+            if ui.button("Reset inertia").clicked() {
+                *s = MoveInertiaSettings::default();
+            }
+            if ui.button("Print settings to console").clicked() {
+                info!("{s:#?}");
+            }
+        });
+    }
 }

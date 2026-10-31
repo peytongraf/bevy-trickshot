@@ -394,6 +394,10 @@ pub struct BotBrain {
     shake_trauma: f32,
     shake_phase: f32,
     shake_recoil: f32,
+    /// The shot's kick (yaw, pitch) and how fast it's moving
+    /// (`sniper_feel::step_kick`).
+    shake_kick: [f32; 2],
+    shake_kick_vel: [f32; 2],
     /// Running counter feeding [`rand01`], so every roll differs.
     rng: u64,
     /// `SearchAndDestroy`: where it's headed instead of after its target —
@@ -440,6 +444,8 @@ impl BotBrain {
             shake_trauma: 0.0,
             shake_phase: 0.0,
             shake_recoil: 0.0,
+            shake_kick: [0.0; 2],
+            shake_kick_vel: [0.0; 2],
             rng: seed,
             objective: None,
             held: false,
@@ -1677,6 +1683,11 @@ pub(crate) fn drive_bots(
             brain.rechambered = false;
             brain.shake_trauma = (brain.shake_trauma + sniper_feel::SHAKE_ADD).min(1.0);
             brain.shake_recoil = sniper_feel::RECOIL_KICK;
+            brain.rng = brain.rng.wrapping_add(1);
+            let side = rand01(brain.rng.wrapping_mul(0x2C1B_3C6D_9E37_79B9)) * 2.0 - 1.0;
+            let [yaw, pitch] = sniper_feel::kick_impulse(brain.ads, side);
+            brain.shake_kick_vel[0] += yaw;
+            brain.shake_kick_vel[1] += pitch;
         } else {
             brain.shake_recoil *= (-sniper_feel::RECOIL_RETURN * dt).exp();
             if brain.shake_recoil < 1.0e-5 {
@@ -1689,6 +1700,8 @@ pub(crate) fn drive_bots(
                 brain.shake_phase = 0.0;
             }
         }
+        let (kick, kick_vel) = (&mut brain.shake_kick, &mut brain.shake_kick_vel);
+        sniper_feel::step_kick(kick, kick_vel, dt);
         let since_shot = brain.last_shot_at.map_or(f32::INFINITY, |t| now - t);
         // The bolt-cycle click, once the Shoot segment gives way to Rechamber.
         if !brain.rechambered && since_shot >= sniper_feel::SHOOT_END_SECS {
@@ -1711,6 +1724,7 @@ pub(crate) fn drive_bots(
             shake_trauma: brain.shake_trauma,
             shake_phase: brain.shake_phase,
             shake_recoil: brain.shake_recoil,
+            shake_kick: brain.shake_kick,
             jumping: !moved.grounded,
             ..default()
         };
@@ -2278,12 +2292,12 @@ mod tests {
             prev_ads = i.ads_t;
             saw_partial |= i.ads_t > 0.05 && i.ads_t < 0.95;
             saw_anim |= i.anim_time > 0.0;
-            saw_shake |= i.shake_trauma > 0.0 && i.shake_recoil > 0.0;
+            saw_shake |= i.shake_kick[1] > 0.0;
             sum_bits |= i.sound_bits;
         }
         assert!(saw_partial, "never saw a partly scoped frame");
         assert!(saw_anim, "no fire animation recorded");
-        assert!(saw_shake, "no recoil / shake recorded");
+        assert!(saw_shake, "no recoil kick recorded");
         assert_eq!(sum_bits & SND_AIM_IN, SND_AIM_IN);
         assert_eq!(sum_bits & SND_RECHAMBER, SND_RECHAMBER);
     }

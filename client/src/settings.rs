@@ -361,6 +361,13 @@ pub struct Settings {
     pub ground_fog: bool,
     /// How much the world blurs as the view moves (`motion_blur`).
     pub motion_blur: MotionBlurLevel,
+    /// How much the gun in our hands blurs as it moves (`motion_blur`) —
+    /// Call of Duty's "Weapon Motion Blur". Low by default: enough to streak
+    /// the scope's reticle as the lens swings in, rather than leave a trail
+    /// of sharp dots.
+    pub weapon_motion_blur: MotionBlurLevel,
+    /// Blur the world around the scope's lens while aimed (`scope_fx`).
+    pub scope_blur: bool,
     /// Master volume, linear `0.0` (silent) .. `1.0` (full).
     pub master_volume: f32,
     /// Main menu music volume, linear `0.0` .. `1.0`, on top of
@@ -408,6 +415,8 @@ impl Default for Settings {
             shadow_quality: ShadowQuality::default(),
             ground_fog: true,
             motion_blur: MotionBlurLevel::default(),
+            weapon_motion_blur: MotionBlurLevel::Low,
+            scope_blur: true,
             master_volume: VOLUME_DEFAULT,
             music_volume: VOLUME_DEFAULT,
             auto_reload: true,

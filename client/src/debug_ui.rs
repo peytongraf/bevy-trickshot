@@ -30,7 +30,7 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut audio_mixer, mut crosshair_cfg, (local_health, mut hurt_fx, mut hurt_preview), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut audio_mixer, mut crosshair_cfg, (local_health, mut hurt_fx, mut hurt_preview), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg, mut inertia_dbg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<crate::audio_engine::AudioMixer>,
@@ -78,6 +78,7 @@ pub(crate) fn ads_tuning_ui(
                     With<crate::net::GameClient>,
                 >,
                 ResMut<crate::AkSettings>,
+                crate::weapons::MoveInertiaDebug,
             ),
             Query<
                 &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
@@ -143,6 +144,7 @@ pub(crate) fn ads_tuning_ui(
                     crate::ragdoll::RagdollDebug,
                     crate::motion_blur::MotionBlurDebug,
                 ),
+                crate::scope_fx::ScopeFxDebug,
             ),
         ),
     ),
@@ -158,7 +160,7 @@ pub(crate) fn ads_tuning_ui(
         mut soldier_anim,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg, mut box_dbg, mut kill_chain_dbg, mut occlusion_dbg, mut ragdoll_dbg, mut motion_blur_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg, mut box_dbg, mut kill_chain_dbg, mut occlusion_dbg, mut ragdoll_dbg, mut motion_blur_dbg), mut scope_fx_dbg)),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -468,6 +470,8 @@ pub(crate) fn ads_tuning_ui(
                             info!("{w:#?}");
                         }
                     });
+                    ui.separator();
+                    inertia_dbg.ui(ui);
                 });
 
             ui.separator();
@@ -1920,6 +1924,9 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Motion blur", |ui| motion_blur_dbg.ui(ui));
+
+            ui.separator();
+            ui.collapsing("Scope look", |ui| scope_fx_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Rampage Inducer (Zombies)", |ui| rampage_dbg.ui(ui));

@@ -1,8 +1,9 @@
 //! Motion blur on the world as the view moves — Call of Duty's "World Motion
 //! Blur": a fast flick reads as one smooth sweep instead of a run of sharp
 //! frames. Bevy's per-pixel blur ([`MotionBlur`], off the camera's motion
-//! vectors) on the world camera and the scope's (the picture in the lens);
-//! the gun has a camera of its own and stays sharp, as in Call of Duty.
+//! vectors) on the world camera and the scope's (the picture in the lens) —
+//! and, its own setting ("Weapon Motion Blur", off by default), on the gun's
+//! camera, blurring the gun as it moves in our hands.
 //!
 //! Bevy ties the blur's length to the frame (`shutter_angle`, a fraction of
 //! one frame's motion), so at a high frame rate it'd all but vanish. Each
@@ -13,18 +14,19 @@
 //! frame back on (it's off at the hip), whose last frame is from whenever we
 //! last aimed.
 //!
-//! Off (`Settings::motion_blur`), each camera loses the blur and the
-//! prepasses it needs (bar the world camera's depth one, which the water
-//! uses). Nothing to reset between games: the cameras are set afresh every
-//! frame.
+//! The prepasses it needs (depth, motion vectors) are on those cameras from
+//! the start (`main.rs`), and never added or taken away here: changing them
+//! mid-game left meshes' cached prepass pipelines out of step with the
+//! camera's — a wgpu validation crash (on Der Tempel). Off
+//! (`Settings::motion_blur`), a camera just loses its [`MotionBlur`].
+//! Nothing to reset between games: the cameras are set afresh every frame.
 
 use bevy::core_pipeline::motion_blur::MotionBlur;
-use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::player::WorldModelCamera;
+use crate::player::{ViewModelCamera, WorldModelCamera};
 use crate::weapons::ScopeCamera;
 use crate::settings::{MotionBlurLevel, Settings};
 use crate::AppState;
@@ -100,25 +102,21 @@ fn apply_motion_blur(
     settings: Res<Settings>,
     tuning: Res<MotionBlurTuning>,
     mut cameras: Query<
-        (Entity, &Camera, &GlobalTransform, Option<&mut MotionBlur>, Has<ScopeCamera>),
-        Or<(With<WorldModelCamera>, With<ScopeCamera>)>,
+        (Entity, &Camera, &GlobalTransform, Option<&mut MotionBlur>, Has<ViewModelCamera>),
+        Or<(With<WorldModelCamera>, With<ScopeCamera>, With<ViewModelCamera>)>,
     >,
     // Where each camera was last frame it drew (none: it wasn't drawing).
     mut last: Local<bevy::platform::collections::HashMap<Entity, Vec3>>,
     mut commands: Commands,
 ) {
-    let level = tuning.level(settings.motion_blur);
     let dt = time.delta_secs().max(1e-4);
     let mut seen = Vec::new();
-    for (entity, camera, global, blur, scope) in &mut cameras {
+    for (entity, camera, global, blur, gun) in &mut cameras {
+        let level = tuning.level(if gun { settings.weapon_motion_blur } else { settings.motion_blur });
         let Some((exposure, samples)) = level else {
+            // (Only the blur itself: its prepasses stay — see the module docs.)
             if blur.is_some() {
-                let mut e = commands.entity(entity);
-                e.remove::<(MotionBlur, MotionVectorPrepass)>();
-                // (The world camera keeps its depth prepass — the water's.)
-                if scope {
-                    e.remove::<DepthPrepass>();
-                }
+                commands.entity(entity).remove::<MotionBlur>();
             }
             continue;
         };

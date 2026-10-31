@@ -130,6 +130,7 @@ fn sync_local_flashlight(
     current: Res<CurrentMap>,
     sway: Res<crate::weapons::WeaponSwayState>,
     sway_tuning: Res<crate::weapons::WeaponSwaySettings>,
+    inertia: (Res<crate::weapons::MoveInertia>, Res<crate::weapons::MoveInertiaSettings>),
     ads: Res<crate::Ads>,
     camera: Query<Entity, With<WorldModelCamera>>,
     local: Query<&LocalId, With<GameClient>>,
@@ -153,7 +154,8 @@ fn sync_local_flashlight(
         }
         return;
     }
-    let lag = crate::weapons::sway_pose(sway.offset, &sway_tuning, ads.t.clamp(0.0, 1.0));
+    let lag = crate::weapons::inertia_pose(&inertia.0, &inertia.1, ads.t)
+        * crate::weapons::sway_pose(sway.offset, &sway_tuning, ads.t.clamp(0.0, 1.0));
     for (mut light, mut tf, mut vis) in &mut lights {
         *light = settings.light(1.0, settings.shadows);
         *tf = lag * Transform::from_translation(settings.offset);

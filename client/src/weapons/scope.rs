@@ -199,7 +199,7 @@ impl Default for CrosshairSettings {
     fn default() -> Self {
         Self {
             scale: 1.2,
-            aim_in_frac: Vec2::new(3.0, 3.0),
+            aim_in_frac: Vec2::new(1.5, 1.5),
             sway_counter: Vec2::new(2.3, 2.0),
             center_dot_always: false,
         }

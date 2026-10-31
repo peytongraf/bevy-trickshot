@@ -17,6 +17,11 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "The scope's reticle now comes in as the lens centres, without a trail of dots.",
+        "Scoped in, the world around the lens now blurs and the lens picture has a soft edge (Settings → Graphics → Scope blur).",
+        "Weapons now sway with your movement — trailing strafes, tipping into them and dipping when you land.",
+        "Added weapon motion blur (Settings → Graphics), on low by default.",
+        "Bot kill cams now show the new sniper recoil.",
         "Added motion blur (Settings → Graphics), on by default.",
         "The sniper no longer kicks back into your face when you fire.",
         "Smoother sniper aim: steady scope zoom, a clean recoil kick and less jittery weapon sway.",

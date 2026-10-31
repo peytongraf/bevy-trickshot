@@ -112,7 +112,10 @@ impl Default for AdsTuning {
             lens_fit: lens_fit_default(),
             ads_duration_ms: ADS_DURATION * 1000.0,
             ads_ease: 0.8,
-            scope_picture_at: 0.25,
+            // (Late, as Call of Duty's does: the reticle only shows once the
+            // lens is nearly centred — earlier, its dot racing across the
+            // screen with the lens reads as a trail of dots.)
+            scope_picture_at: 0.6,
         }
     }
 }
