@@ -381,6 +381,16 @@ pub(crate) fn apply_player_hits(
         };
         combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
+        // (Diagnostics: set against the client's own `[predict]` lines.)
+        if is_bot_peer(ev.victim) && !is_bot_peer(ev.killer) {
+            info!(
+                "[predict] {:?} hit {:?} ({:?}): {taken:.0} of {health_before:.0} health -> {}",
+                ev.killer,
+                ev.victim,
+                ev.cause,
+                if combat.health <= 0.0 { "KILL" } else { "hit" },
+            );
+        }
         // A player hurt: maybe a word about it (`crate::quotes`) — burnt by
         // their own molotov, or hurt by someone else.
         if taken > 0.0 && !is_bot_peer(ev.victim) {

@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Fixed shot zombies sometimes falling then getting back up.",
+        "Zombies: new walks — shambling, limping and stumbling off balance — and two creepy new runs, every zombie moving its own way.",
         "Turning motion blur off now gives back its performance (after a restart).",
         "Added a sharpening setting (Settings → Graphics).",
         "Kill cams now show the killer's hit markers.",

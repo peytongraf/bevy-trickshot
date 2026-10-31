@@ -35,12 +35,12 @@ pub(crate) enum ZombieAnimState {
     /// `Idle`: standing, or climbing out of the ground.
     #[default]
     Idle,
-    /// `Walk1_InPlace`: arms down.
-    Walk,
+    /// Walking, arms down — in one of its gaits.
+    Walk(Gait),
     /// `Walk_InPlace`: arms up (a walker near who it's after).
     WalkArmsUp,
-    /// `Run_InPlace`.
-    Run,
+    /// Running — in one of its runs.
+    Run(RunGait),
     /// `Attack`: swinging at someone.
     Attack,
     /// `FallingBack` / `FallingForward`: dead, held on the last frame.
@@ -52,13 +52,110 @@ pub(crate) enum ZombieAnimState {
     Climb { run: bool },
 }
 
+/// How a zombie walks (arms down).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Gait {
+    /// `Walk1_InPlace`, the model's own.
+    Original,
+    /// `ShambleWalk`: hunched, limping, one arm dead and one reaching.
+    Shamble,
+    /// `ShambleWalkHeavy`: further gone — long, slow, lurching strides.
+    Heavy,
+    /// `StumbleWalk`: four steps a loop, none alike — off balance, swaying,
+    /// stumbling.
+    Stumble,
+}
+
+/// How far the heavy shamble's strides go (× the walk's — the mean of
+/// `client/tools/zombie_walk_clips.py`'s `HEAVY` strides): it plays this
+/// much slower for the same speed, so its feet keep to the ground.
+const HEAVY_STRIDE: f32 = 1.5;
+
+/// The stumble's strides, the same way (`STUMBLE`'s mean `stride`).
+const STUMBLE_STRIDE: f32 = 1.35;
+
+/// The scary run's strides (× the run's — `SCARY_RUN`'s mean `stride`).
+const SCARY_RUN_STRIDE: f32 = 1.2;
+
+/// The broken run's (`BROKEN_RUN`'s `stride`).
+const BROKEN_RUN_STRIDE: f32 = 1.15;
+
+/// How a zombie runs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RunGait {
+    /// `Run_InPlace`, the model's own.
+    Original,
+    /// `ScaryRun`: lunging, clawing, twitching — four steps a loop.
+    Scary,
+    /// `BrokenRun`: neck broken, wrenched round, one leg stiff, stop-start —
+    /// four steps a loop.
+    Broken,
+}
+
+/// Which walks zombies use (the debug panel's "Zombie model & animations"):
+/// each its own pick of them all, or all one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WalkStyle {
+    Mixed,
+    Only(Gait),
+}
+
+impl WalkStyle {
+    /// The gait for the zombie whose pick is `roll` (`0..1`, its own).
+    fn gait(self, roll: f32) -> Gait {
+        const ALL: [Gait; 4] = [Gait::Original, Gait::Shamble, Gait::Heavy, Gait::Stumble];
+        match self {
+            WalkStyle::Mixed => ALL[((roll * ALL.len() as f32) as usize).min(ALL.len() - 1)],
+            WalkStyle::Only(gait) => gait,
+        }
+    }
+
+    pub(crate) const ALL: [(WalkStyle, &'static str); 5] = [
+        (WalkStyle::Mixed, "mixed (each picks one)"),
+        (WalkStyle::Only(Gait::Shamble), "shamble"),
+        (WalkStyle::Only(Gait::Heavy), "heavy shamble"),
+        (WalkStyle::Only(Gait::Stumble), "stumble"),
+        (WalkStyle::Only(Gait::Original), "the model's own walk"),
+    ];
+}
+
+/// Which runs zombies use, the same way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RunStyle {
+    Mixed,
+    Only(RunGait),
+}
+
+impl RunStyle {
+    /// The run for the zombie whose pick is `roll` (`0..1`, its own).
+    fn gait(self, roll: f32) -> RunGait {
+        const ALL: [RunGait; 3] = [RunGait::Original, RunGait::Scary, RunGait::Broken];
+        match self {
+            RunStyle::Mixed => ALL[((roll * ALL.len() as f32) as usize).min(ALL.len() - 1)],
+            RunStyle::Only(gait) => gait,
+        }
+    }
+
+    pub(crate) const ALL: [(RunStyle, &'static str); 4] = [
+        (RunStyle::Mixed, "mixed (each picks one)"),
+        (RunStyle::Only(RunGait::Scary), "scary run"),
+        (RunStyle::Only(RunGait::Broken), "broken run"),
+        (RunStyle::Only(RunGait::Original), "the model's own run"),
+    ];
+}
+
 impl ZombieAnimState {
     fn label(self) -> &'static str {
         match self {
             ZombieAnimState::Idle => "idle",
-            ZombieAnimState::Walk => "walk (arms down)",
+            ZombieAnimState::Walk(Gait::Original) => "walk (arms down)",
+            ZombieAnimState::Walk(Gait::Shamble) => "shamble",
+            ZombieAnimState::Walk(Gait::Heavy) => "heavy shamble",
+            ZombieAnimState::Walk(Gait::Stumble) => "stumble",
             ZombieAnimState::WalkArmsUp => "walk (arms up)",
-            ZombieAnimState::Run => "run",
+            ZombieAnimState::Run(RunGait::Original) => "run",
+            ZombieAnimState::Run(RunGait::Scary) => "scary run",
+            ZombieAnimState::Run(RunGait::Broken) => "broken run",
             ZombieAnimState::Attack => "attack",
             ZombieAnimState::FallBack => "falling back",
             ZombieAnimState::FallForward => "falling forward",
@@ -69,7 +166,7 @@ impl ZombieAnimState {
     fn moving(self) -> bool {
         matches!(
             self,
-            ZombieAnimState::Walk | ZombieAnimState::WalkArmsUp | ZombieAnimState::Run
+            ZombieAnimState::Walk(_) | ZombieAnimState::WalkArmsUp | ZombieAnimState::Run(_)
         )
     }
 }
@@ -79,7 +176,18 @@ impl ZombieAnimState {
 pub(crate) struct ZombieAnimations {
     graph: Handle<AnimationGraph>,
     idle: AnimationNodeIndex,
+    /// The model's own walk (`Walk1_InPlace`), and the shambles made from it
+    /// (`ShambleWalk`, `ShambleWalkHeavy` — `client/tools/zombie_walk_clips.py`).
     walk: AnimationNodeIndex,
+    shamble: AnimationNodeIndex,
+    heavy_shamble: AnimationNodeIndex,
+    /// The four-step stumble (`StumbleWalk`, the same tool's).
+    stumble: AnimationNodeIndex,
+    /// The four-step scary run (`ScaryRun`, the same tool's, off `run`):
+    /// lunging, clawing, twitching.
+    scary_run: AnimationNodeIndex,
+    /// The four-step broken run (`BrokenRun`, the same tool's, off `run`).
+    broken_run: AnimationNodeIndex,
     walk_arms_up: AnimationNodeIndex,
     run: AnimationNodeIndex,
     attack: AnimationNodeIndex,
@@ -92,9 +200,14 @@ impl ZombieAnimations {
     fn node_for(&self, state: ZombieAnimState) -> AnimationNodeIndex {
         match state {
             ZombieAnimState::Idle => self.idle,
-            ZombieAnimState::Walk => self.walk,
+            ZombieAnimState::Walk(Gait::Original) => self.walk,
+            ZombieAnimState::Walk(Gait::Shamble) => self.shamble,
+            ZombieAnimState::Walk(Gait::Heavy) => self.heavy_shamble,
+            ZombieAnimState::Walk(Gait::Stumble) => self.stumble,
             ZombieAnimState::WalkArmsUp => self.walk_arms_up,
-            ZombieAnimState::Run => self.run,
+            ZombieAnimState::Run(RunGait::Original) => self.run,
+            ZombieAnimState::Run(RunGait::Scary) => self.scary_run,
+            ZombieAnimState::Run(RunGait::Broken) => self.broken_run,
             ZombieAnimState::Attack => self.attack,
             ZombieAnimState::FallBack => self.fall_back,
             ZombieAnimState::FallForward => self.fall_forward,
@@ -127,6 +240,14 @@ pub(crate) struct ZombieAvatarSettings {
     /// Below this speed (m/s) a zombie that should be walking stands idle
     /// instead of treading in place (stuck on something, say).
     pub(crate) min_move_speed: f32,
+    /// Which walks they use.
+    pub(crate) walk_style: WalkStyle,
+    /// Whether a walker near who it's after raises its arms
+    /// (`Walk_InPlace`) — off, it keeps its own walk all the way in.
+    /// (Off for now, to look the shambles over close up.)
+    pub(crate) arms_up_walk: bool,
+    /// Which runs they use.
+    pub(crate) run_style: RunStyle,
 }
 
 impl Default for ZombieAvatarSettings {
@@ -145,6 +266,9 @@ impl Default for ZombieAvatarSettings {
             death_speed: 1.0,
             blend_secs: 0.25,
             min_move_speed: 0.2,
+            walk_style: WalkStyle::Mixed,
+            arms_up_walk: false,
+            run_style: RunStyle::Mixed,
         }
     }
 }
@@ -204,11 +328,12 @@ fn setup_zombie_assets(
 ) {
     // `models/characters/zombie.glb`'s clips: 0 Idle, 1 Walk1_InPlace, 2 Walk_InPlace,
     // 3 Run_InPlace, 4 Attack, 5 FallingBack, 6 FallingForward, (7–9 unused,)
-    // 10 Mantle.
+    // 10 Mantle — and 11 ShambleWalk, 12 ShambleWalkHeavy, 13 StumbleWalk,
+    // 14 ScaryRun, 15 BrokenRun, ours (`client/tools/zombie_walk_clips.py`).
     let clip = |i: usize| -> Handle<AnimationClip> {
         asset_server.load(GltfAssetLabel::Animation(i).from_asset(ZOMBIE_MODEL))
     };
-    let (graph, nodes) = AnimationGraph::from_clips((0..7).chain([10]).map(clip));
+    let (graph, nodes) = AnimationGraph::from_clips((0..7).chain([10, 11, 12, 13, 14, 15]).map(clip));
     commands.insert_resource(ZombieAnimations {
         graph: graphs.add(graph),
         idle: nodes[0],
@@ -219,6 +344,11 @@ fn setup_zombie_assets(
         fall_back: nodes[5],
         fall_forward: nodes[6],
         climb: nodes[7],
+        shamble: nodes[8],
+        heavy_shamble: nodes[9],
+        stumble: nodes[10],
+        scary_run: nodes[11],
+        broken_run: nodes[12],
     });
 }
 
@@ -317,14 +447,17 @@ fn animate_zombie_avatars(
         let k = 1.0 - (-dt / 0.12).exp();
         motion.speed += (raw - motion.speed) * k;
 
+        // Its own picks — its fall, its gait — the same on every client: off
+        // its (shared) peer id.
+        let seed = id.map_or(avatar.src.to_bits(), |id| id.0.to_bits());
+        let seed = (seed ^ (seed >> 32)) as u32;
+
         // (Dead the moment our knife killed it, here — `melee_predict`.)
         let state = if !crate::melee_predict::alive(pose, predicted_death) {
             if matches!(motion.state, ZombieAnimState::FallBack | ZombieAnimState::FallForward) {
                 motion.state
             } else {
-                // The same pick on every client: off its (shared) peer id.
-                let seed = id.map_or(avatar.src.to_bits(), |id| id.0.to_bits());
-                if crate::util::rand01((seed ^ (seed >> 32)) as u32) < 0.5 {
+                if crate::util::rand01(seed) < 0.5 {
                     ZombieAnimState::FallBack
                 } else {
                     ZombieAnimState::FallForward
@@ -332,9 +465,15 @@ fn animate_zombie_avatars(
             }
         } else {
             let wanted = match pose.zombie {
-                ZombieAnim::Walk => ZombieAnimState::Walk,
-                ZombieAnim::WalkArmsUp => ZombieAnimState::WalkArmsUp,
-                ZombieAnim::Run => ZombieAnimState::Run,
+                ZombieAnim::Walk => {
+                    ZombieAnimState::Walk(settings.walk_style.gait(crate::util::rand01(seed ^ 0x9e37_79b9)))
+                }
+                ZombieAnim::WalkArmsUp if settings.arms_up_walk => ZombieAnimState::WalkArmsUp,
+                // (Arms-up walk off: its own walk all the way in.)
+                ZombieAnim::WalkArmsUp => {
+                    ZombieAnimState::Walk(settings.walk_style.gait(crate::util::rand01(seed ^ 0x9e37_79b9)))
+                }
+                ZombieAnim::Run => ZombieAnimState::Run(settings.run_style.gait(crate::util::rand01(seed ^ 0x85eb_ca6b))),
                 ZombieAnim::Attack => ZombieAnimState::Attack,
                 ZombieAnim::Climb => ZombieAnimState::Climb { run: false },
                 ZombieAnim::ClimbRun => ZombieAnimState::Climb { run: true },
@@ -387,9 +526,15 @@ fn animate_zombie_avatars(
         let speed = motion.speed;
         let rate = match motion.state {
             ZombieAnimState::Idle => settings.idle_speed,
-            ZombieAnimState::Walk => speed * settings.walk_per_mps,
+            // (The heavy shamble's strides are longer: slower legs, same speed.)
+            ZombieAnimState::Walk(Gait::Heavy) => speed * settings.walk_per_mps / HEAVY_STRIDE,
+            ZombieAnimState::Walk(Gait::Stumble) => speed * settings.walk_per_mps / STUMBLE_STRIDE,
+            ZombieAnimState::Walk(_) => speed * settings.walk_per_mps,
             ZombieAnimState::WalkArmsUp => speed * settings.walk_arms_up_per_mps,
-            ZombieAnimState::Run => speed * settings.run_per_mps,
+            // (The scary run's strides are longer: slower legs, same speed.)
+            ZombieAnimState::Run(RunGait::Scary) => speed * settings.run_per_mps / SCARY_RUN_STRIDE,
+            ZombieAnimState::Run(RunGait::Broken) => speed * settings.run_per_mps / BROKEN_RUN_STRIDE,
+            ZombieAnimState::Run(RunGait::Original) => speed * settings.run_per_mps,
             ZombieAnimState::Attack => settings.attack_speed,
             ZombieAnimState::FallBack | ZombieAnimState::FallForward => settings.death_speed,
             // (The clip is as long as a walker's climb.)

@@ -72,9 +72,10 @@ pub(crate) struct OwnProjectiles(Vec<OwnProjectile>);
 
 struct OwnProjectile {
     projectile: Projectile,
-    /// Where it was fired / thrown from, exactly as we sent it — how the
-    /// server knows which it was.
+    /// Where it was fired / thrown from, exactly as we sent it, and a bolt's
+    /// aim (zero for a knife) — how the server knows which it was.
     origin: Vec3,
+    dir: Vec3,
     /// When (`Time<Virtual>`) it left.
     fired_at: f32,
     /// Where it is when: `(seconds since it left, position)`. A knife's
@@ -91,6 +92,7 @@ impl OwnProjectiles {
         self.0.push(OwnProjectile {
             projectile: Projectile::Knife,
             origin,
+            dir: Vec3::ZERO,
             fired_at: now,
             path: None,
             tested: 0.0,
@@ -318,6 +320,7 @@ pub(crate) fn claim_shot_hits(
         own.0.push(OwnProjectile {
             projectile: Projectile::RayGun,
             origin,
+            dir: aim,
             fired_at: time.elapsed_secs(),
             path: Some(vec![(0.0, origin), (reach / RAYGUN_BOLT_SPEED, origin + aim * reach)]),
             tested: 0.0,
@@ -380,6 +383,7 @@ fn track_own_projectiles(
                 s.trigger::<shared::LobbyChannel>(shared::ProjectileClaim {
                     projectile: p.projectile,
                     origin: p.origin.to_array(),
+                    dir: p.dir.to_array(),
                     claim: Some(hit.claim),
                 });
             }
@@ -408,6 +412,7 @@ fn track_own_projectiles(
                 s.trigger::<shared::LobbyChannel>(shared::ProjectileClaim {
                     projectile: p.projectile,
                     origin: p.origin.to_array(),
+                    dir: p.dir.to_array(),
                     claim: None,
                 });
             }

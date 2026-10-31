@@ -143,6 +143,7 @@ impl Plugin for ClientNetPlugin {
                 crate::hit_detection::claim_shot_hits,
                 crate::melee_predict::time_stab,
                 write_input,
+                back_up_shot,
                 // (What it just sent, shown landing — `shot_predict`.)
                 crate::shot_predict::note_shot,
             )
@@ -646,6 +647,29 @@ pub(crate) fn write_input(
             action.noscope = ads.t <= NOSCOPE_ADS_MAX;
             trick.reset();
         }
+    }
+}
+
+/// Number this tick's shot or stab, if there's one ([`PlayerInput::shot_seq`]),
+/// and send it up again on its own, reliably ([`shared::ShotBackup`]): an
+/// input that gets to the server after its tick has run is dropped there —
+/// a frame that hitches as we fire into a horde is enough — and the shot
+/// with it, its kills shown here never happening. (The count runs on over
+/// games: the server only ever takes a number newer than the last.)
+fn back_up_shot(
+    mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
+    mut sender: Query<&mut TriggerSender<shared::ShotBackup>, With<GameClient>>,
+    mut seq: Local<u16>,
+) {
+    let Ok(mut action) = q.single_mut() else { return };
+    if !(action.fire || action.melee) {
+        action.shot_seq = 0;
+        return;
+    }
+    *seq = seq.wrapping_add(1).max(1);
+    action.shot_seq = *seq;
+    if let Ok(mut s) = sender.single_mut() {
+        s.trigger::<shared::LobbyChannel>(shared::ShotBackup(action.0.clone()));
     }
 }
 

@@ -127,6 +127,7 @@ pub(crate) fn fly_bolts(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut bolts: ResMut<RayGunBolts>,
+    mut early: ResMut<EarlyRayGunClaims>,
     lobbies: Query<&Lobby>,
     mut zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer, Option<&mut BotBrain>)>,
     mut player_hits: EventWriter<PlayerHit>,
@@ -135,6 +136,23 @@ pub(crate) fn fly_bolts(
     let tick = timeline.tick().0;
     let now = time.elapsed_secs();
     let step = RAYGUN_BOLT_SPEED * time.delta_secs();
+    // Claims that beat their bolt here: taken up now it's fired.
+    early.0.retain_mut(|e| {
+        let Some(bolt) = find_bolt(&mut bolts, e.shooter, &e.claim) else {
+            e.waited += time.delta_secs();
+            if e.waited >= EARLY_CLAIM_SECS {
+                info!("[predict] {:?}'s Ray Gun claim never found its bolt: {:?}", e.shooter, e.claim);
+            }
+            return e.waited < EARLY_CLAIM_SECS;
+        };
+        take_claim(bolt, &e.claim, |bits, lobby| {
+            zombies
+                .iter()
+                .find(|(id, _, c, lp, _)| id.0.to_bits() == bits && c.alive && lp.lobby == lobby && is_bot_peer(id.0))
+                .map(|(id, pose, ..)| (id.0, *pose))
+        });
+        false
+    });
     let mut i = 0;
     while i < bolts.0.len() {
         let bolt = &mut bolts.0[i];
@@ -279,9 +297,15 @@ pub(crate) fn fly_bolts(
 /// has it, and the spot's on the bolt's line before its surface, it bursts
 /// there ([`fly_bolts`], next tick). Otherwise — on its surface, or a claim
 /// that doesn't hold up — it bursts on its surface, now.
+///
+/// A claim can get here before its bolt does: the client fires ahead of the
+/// server's clock (its input's played a few ticks after it arrives), and a
+/// bolt into a zombie a few metres off strikes it at once there. So one with
+/// no bolt yet waits in [`EarlyRayGunClaims`] for it to be fired.
 pub(crate) fn on_raygun_claim(
     trigger: Trigger<RemoteTrigger<ProjectileClaim>>,
     mut bolts: ResMut<RayGunBolts>,
+    mut early: ResMut<EarlyRayGunClaims>,
     zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer)>,
 ) {
     let shooter = trigger.from;
@@ -289,29 +313,69 @@ pub(crate) fn on_raygun_claim(
     if req.projectile != Projectile::RayGun {
         return;
     }
+    match find_bolt(&mut bolts, shooter, req) {
+        Some(bolt) => take_claim(bolt, req, |bits, lobby| {
+            zombies
+                .iter()
+                .find(|(id, _, c, lp)| id.0.to_bits() == bits && c.alive && lp.lobby == lobby && is_bot_peer(id.0))
+                .map(|(id, pose, ..)| (id.0, *pose))
+        }),
+        None => early.0.push(EarlyClaim { shooter, claim: *req, waited: 0.0 }),
+    }
+}
+
+/// A claim that came in before its bolt was fired.
+struct EarlyClaim {
+    shooter: PeerId,
+    claim: ProjectileClaim,
+    /// Seconds it's waited for its bolt.
+    waited: f32,
+}
+
+/// Claims still waiting for their bolt ([`on_raygun_claim`]), taken up as
+/// it's fired ([`fly_bolts`]).
+#[derive(Resource, Default)]
+pub(crate) struct EarlyRayGunClaims(Vec<EarlyClaim>);
+
+/// How long (s) a claim waits for its bolt before it's dropped — well past
+/// any input lead.
+const EARLY_CLAIM_SECS: f32 = 2.0;
+
+/// The bolt `shooter` fired from `req`'s origin along its aim, still waiting
+/// for its claim. (By its aim too: standing still, every bolt leaves from
+/// the same spot — one's claim taken by another still in flight burst both
+/// in the wrong place, the zombie struck only by the burst.)
+fn find_bolt<'a>(bolts: &'a mut RayGunBolts, shooter: PeerId, req: &ProjectileClaim) -> Option<&'a mut Bolt> {
     let origin = Vec3::from_array(req.origin);
-    let Some(bolt) = bolts
-        .0
-        .iter_mut()
-        .find(|b| b.shooter == shooter && b.claim.is_none() && b.origin.distance(origin) < 0.01)
-    else {
-        return;
-    };
+    let dir = Vec3::from_array(req.dir).normalize_or_zero();
+    bolts.0.iter_mut().find(|b| {
+        b.shooter == shooter
+            && b.claim.is_none()
+            && b.held < CLAIM_GRACE_SECS
+            && b.origin.distance(origin) < 0.01
+            && b.dir.dot(dir) > 0.9999
+    })
+}
+
+/// Check `req` over (see [`on_raygun_claim`]) and set `bolt` to burst where
+/// it says — `zombie` finding a living zombie in a lobby by its id's bits.
+fn take_claim(bolt: &mut Bolt, req: &ProjectileClaim, zombie: impl Fn(u64, Entity) -> Option<(PeerId, PlayerPose)>) {
     let struck = req.claim.and_then(|claim| {
         let ClaimTarget::Player(bits) = claim.target else {
             return None;
         };
-        let (id, pose, _, _) = zombies
-            .iter()
-            .find(|(id, _, c, lp)| id.0.to_bits() == bits && c.alive && lp.lobby == bolt.lobby && is_bot_peer(id.0))?;
+        let (id, pose) = zombie(bits, bolt.lobby)?;
         let point = Vec3::from_array(claim.point);
         let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
         let (body, head) = shared::boss::hit_capsules(feet, pose.zombie, PLAYER_HEIGHT, PLAYER_RADIUS, HEAD_RADIUS);
         let on_line = along_path(&[bolt.origin, bolt.origin + bolt.dir * bolt.reach], point)
             .is_some_and(|(_, off)| off <= CLAIM_PATH_SLACK_M);
         (on_line && near_target(&Target { id: bits, body, head }, point))
-            .then_some((id.0, claim.zone == shared::ballistics::HitZone::Head, point))
+            .then_some((id, claim.zone == shared::ballistics::HitZone::Head, point))
     });
+    if struck.is_none() && req.claim.is_some() {
+        info!("[predict] {:?}'s Ray Gun claim {:?} turned down", bolt.shooter, req.claim);
+    }
     match struck {
         Some(claim) => bolt.claim = Some(claim),
         // On its surface: straight there, no waiting.

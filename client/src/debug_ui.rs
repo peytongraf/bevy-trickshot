@@ -1576,6 +1576,29 @@ pub(crate) fn ads_tuning_ui(
                     )),
                     None => ui.label("Nearest zombie: none"),
                 };
+                let style = crate::avatars::WalkStyle::ALL
+                    .iter()
+                    .find(|(s, _)| *s == z.walk_style)
+                    .map_or("?", |(_, label)| *label);
+                egui::ComboBox::from_label("walk (arms down)")
+                    .selected_text(style)
+                    .show_ui(ui, |ui| {
+                        for (s, label) in crate::avatars::WalkStyle::ALL {
+                            ui.selectable_value(&mut z.walk_style, s, label);
+                        }
+                    });
+                ui.checkbox(&mut z.arms_up_walk, "arms-up walk when close to who it's after");
+                let run = crate::avatars::RunStyle::ALL
+                    .iter()
+                    .find(|(s, _)| *s == z.run_style)
+                    .map_or("?", |(_, label)| *label);
+                egui::ComboBox::from_label("run")
+                    .selected_text(run)
+                    .show_ui(ui, |ui| {
+                        for (s, label) in crate::avatars::RunStyle::ALL {
+                            ui.selectable_value(&mut z.run_style, s, label);
+                        }
+                    });
                 ui.add(egui::Slider::new(&mut z.walk_per_mps, 0.05f32..=4.0).text("walk, arms down (× per m/s)"));
                 ui.add(
                     egui::Slider::new(&mut z.walk_arms_up_per_mps, 0.05f32..=4.0)

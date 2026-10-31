@@ -731,6 +731,13 @@ pub struct PlayerInput {
     /// the server resolves it itself ([`crate::melee::resolve_melee`]).
     #[reflect(ignore)]
     pub melee_hit: Option<ShotClaim>,
+    /// With `fire` / `melee`: which of this client's shots / stabs it is
+    /// (counting up from 1 over the connection; 0 for a bot's). Each also
+    /// goes up on its own, reliably, as a [`ShotBackup`] — lightyear drops
+    /// an input that gets to the server after its tick has run, shot and all
+    /// — and the server acts on each number once, whichever gets there
+    /// first.
+    pub shot_seq: u16,
 }
 
 /// One enemy a player's shot struck, as their client saw it
@@ -745,17 +752,26 @@ pub struct ShotClaim {
     pub point: [f32; 3],
 }
 
+/// Client → server: a shot or stab of ours — the input of the tick it went
+/// with ([`PlayerInput::shot_seq`]), sent again on its own, reliably, in
+/// case that tick's input gets to the server too late to count.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct ShotBackup(pub PlayerInput);
+
 /// Client → server: one of our projectiles — a Ray Gun bolt, a thrown
 /// knife — struck an enemy on our screen, as [`ShotClaim`]s do for bullets
 /// (`None`: a bolt reached its surface without striking one, so it can
 /// burst there at once).
-/// `origin` is where it was fired / thrown from, exactly as we sent it,
-/// which picks out which of ours it was. The server checks it over
+/// `origin` is where it was fired / thrown from, exactly as we sent it, and
+/// a bolt's `dir` the way it was aimed (zero for a knife) — which pick out
+/// which of ours it was (a bolt from the same spot as one still in flight,
+/// standing still, by its aim). The server checks it over
 /// (`server::raygun`, `server::knives`) before anything takes damage.
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct ProjectileClaim {
     pub projectile: Projectile,
     pub origin: [f32; 3],
+    pub dir: [f32; 3],
     pub claim: Option<ShotClaim>,
 }
 
@@ -798,6 +814,7 @@ impl Default for PlayerInput {
             fire_origin: [0.0; 3],
             fire_dir: [0.0, 0.0, -1.0],
             melee: false,
+            shot_seq: 0,
             weapon: WeaponId::Sniper.as_u8(),
             spin_deg: 0.0,
             airborne: false,
@@ -2984,6 +3001,8 @@ impl Plugin for ProtocolPlugin {
             .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<ProjectileClaim>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<ShotBackup>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)

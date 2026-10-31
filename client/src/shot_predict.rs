@@ -83,6 +83,7 @@ pub(crate) fn note_shot(
         return;
     }
     let Some(weapon) = WeaponId::from_u8(input.weapon) else { return };
+    info!("[predict] shot from {:.2} ({} claims)", Vec3::from_array(input.fire_origin), hits.len());
     fired.write(ShotFired {
         origin: Vec3::from_array(input.fire_origin),
         dir: Vec3::from_array(input.fire_dir),
@@ -297,6 +298,14 @@ impl Judge<'_, '_> {
         let health = self.healths.of(hit.src, hit.victim).unwrap_or(0.0);
         let insta = self.insta() && !hit.boss;
         let taken = if insta { health } else { damage.min(health) };
+        // (Diagnostics: kills we foresee that the server doesn't agree with.)
+        info!(
+            "[predict] {:?}: {damage:.0} of {health:.0} health{} at {:?} -> {}",
+            hit.victim,
+            if insta { " (insta)" } else { "" },
+            hit.claim.point,
+            if health > 0.0 && (insta || damage >= health) { "KILL" } else { "hit" },
+        );
         (
             health > 0.0 && (insta || damage >= health),
             (health > 0.0).then(|| taken.round().max(1.0) as u32),

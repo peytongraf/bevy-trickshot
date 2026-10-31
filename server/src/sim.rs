@@ -85,7 +85,10 @@ pub struct SimPlugin;
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<crate::raygun::RayGunBolts>()
+            .init_resource::<crate::raygun::EarlyRayGunClaims>()
+            .init_resource::<ShotBackups>()
             .add_observer(crate::raygun::on_raygun_claim)
+            .add_observer(on_shot_backup)
             .add_systems(
             FixedUpdate,
             (
@@ -198,6 +201,61 @@ fn nearest_bot_target(targets: &[Target], kind: &HashMap<u64, HitKind>, feet: Ve
         .map(|(id, _)| id)
 }
 
+/// Players' shots and stabs that came up on their own ([`shared::ShotBackup`]),
+/// for [`resolve_shots`]' next tick.
+#[derive(Resource, Default)]
+pub(crate) struct ShotBackups(Vec<(PeerId, PlayerInput)>);
+
+fn on_shot_backup(trigger: Trigger<RemoteTrigger<shared::ShotBackup>>, mut backups: ResMut<ShotBackups>) {
+    let from = trigger.from;
+    let input = &trigger.trigger.0;
+    if (input.fire || input.melee) && input.shot_seq != 0 {
+        backups.0.push((from, input.clone()));
+    }
+}
+
+/// Whether shot number `seq` is newer than `last` (the counts wrap).
+fn newer_shot(seq: u16, last: Option<u16>) -> bool {
+    last.is_none_or(|last| (seq.wrapping_sub(last) as i16) > 0)
+}
+
+/// `shooter`'s shots and stabs to resolve this tick: a bot's straight off
+/// its input; a player's numbered ones not yet resolved — from its backups
+/// that have come in, and this tick's input (each number once, whichever
+/// got here first: an input too late for its tick is dropped, and a missing
+/// tick's input is the last one again, which mustn't fire twice).
+fn shots_to_resolve(
+    shooter: PeerId,
+    input: &PlayerInput,
+    backups: &mut Vec<(PeerId, PlayerInput)>,
+    handled: &mut HashMap<PeerId, u16>,
+) -> Vec<PlayerInput> {
+    if shared::bot_players::has_no_client(shooter) {
+        return if input.fire || input.melee { vec![input.clone()] } else { Vec::new() };
+    }
+    let mut shots: Vec<PlayerInput> = Vec::new();
+    backups.retain(|(peer, shot)| {
+        if *peer != shooter {
+            return true;
+        }
+        shots.push(shot.clone());
+        false
+    });
+    if (input.fire || input.melee) && input.shot_seq != 0 {
+        shots.push(input.clone());
+    }
+    shots.sort_by_key(|s| s.shot_seq.wrapping_sub(handled.get(&shooter).copied().unwrap_or(0)));
+    shots.retain(|s| {
+        if !newer_shot(s.shot_seq, handled.get(&shooter).copied()) {
+            return false;
+        }
+        handled.insert(shooter, s.shot_seq);
+        true
+    });
+    shots
+}
+
+#[allow(clippy::too_many_arguments)]
 fn resolve_shots(
     timeline: Single<&LocalTimeline, With<Server>>,
     server: Single<&Server>,
@@ -211,6 +269,9 @@ fn resolve_shots(
     mut bot_hits: EventWriter<BotHit>,
     mut player_hits: EventWriter<PlayerHit>,
     mut bolts: ResMut<crate::raygun::RayGunBolts>,
+    mut backups: ResMut<ShotBackups>,
+    // The last shot number resolved for each player.
+    mut handled: Local<HashMap<PeerId, u16>>,
 ) {
     let tick = timeline.tick().0;
     let server = server.into_inner();
@@ -226,8 +287,19 @@ fn resolve_shots(
             .unwrap_or(true)
     };
 
-    for (shooter, input, shooter_lp) in &shooters {
-        let i = &input.0;
+    // (Anyone gone: their count goes with them.)
+    handled.retain(|peer, _| shooters.iter().any(|(id, ..)| id.0 == *peer));
+    let mut backups = std::mem::take(&mut backups.0);
+    let shots: Vec<_> = shooters
+        .iter()
+        .flat_map(|(shooter, input, lp)| {
+            shots_to_resolve(shooter.0, &input.0, &mut backups, &mut handled)
+                .into_iter()
+                .map(move |shot| (shooter, shot, lp))
+        })
+        .collect();
+    for (shooter, shot, shooter_lp) in shots {
+        let i = &shot;
         if !(i.fire || i.melee) || !is_alive(shooter.0) {
             continue;
         }
@@ -457,7 +529,12 @@ fn resolve_shots(
                         })
                     })
                     .collect();
-                resolve_claimed_hits(weapon, origin, dir, &claims, &targets, wall_dist)
+                let hits = resolve_claimed_hits(weapon, origin, dir, &claims, &targets, wall_dist);
+                if zombies {
+                    info!("[predict] {:?} shot from {origin:.2} ({} claims)", shooter.0, claims.len());
+                    log_rejected_claims(shooter.0, weapon, origin, dir, &claims, &targets, wall_dist, &hits);
+                }
+                hits
             }
             // A bot's: simple capsules.
             None => resolve_shot_pierce(
@@ -675,6 +752,41 @@ pub(crate) fn first_surface(origin: Vec3, aim: Vec3, wall: Option<(f32, Vec3)>) 
     wall.map(|(d, normal)| (origin + aim * d, normal))
 }
 
+/// Diagnostics: say why each of a player's claims that didn't become a hit
+/// was turned down — a kill their client showed that never happened here.
+#[allow(clippy::too_many_arguments)]
+fn log_rejected_claims(
+    shooter: PeerId,
+    weapon: WeaponId,
+    origin: Vec3,
+    dir: Vec3,
+    claims: &[Claim],
+    targets: &[Target],
+    wall_dist: Option<f32>,
+    hits: &[shared::ballistics::ShotHit],
+) {
+    let path = shared::ballistics::shot_path(weapon, origin, dir.normalize_or_zero());
+    for claim in claims {
+        if hits.iter().any(|h| h.target == claim.target) {
+            continue;
+        }
+        let why = match targets.iter().find(|t| t.id == claim.target) {
+            None => "not a live target here".to_string(),
+            Some(t) if !shared::ballistics::near_target(t, claim.point) => {
+                format!("{:.2} m from its body here", (t.body.a + t.body.b).distance(claim.point * 2.0) * 0.5)
+            }
+            Some(_) => match shared::ballistics::along_path(&path, claim.point) {
+                Some((_, off)) if off > shared::ballistics::CLAIM_PATH_SLACK_M => format!("{off:.2} m off the shot's line"),
+                _ if wall_dist.is_some_and(|d| origin.distance(claim.point) > d) => {
+                    format!("behind a wall ({:.1} m, wall at {:.1} m)", origin.distance(claim.point), wall_dist.unwrap_or(0.0))
+                }
+                _ => "past the shot's reach / piercing".to_string(),
+            },
+        };
+        info!("[predict] {shooter:?}'s {weapon:?} claim on {} turned down: {why}", claim.target);
+    }
+}
+
 /// `peer`'s Pack-a-Punch damage multiplier for `weapon` in `lobby` (1 for a
 /// zombie or anyone not packed).
 pub(crate) fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap::PapWeapon) -> f32 {
@@ -689,6 +801,33 @@ pub(crate) fn pap_mult(lobby: &shared::Lobby, peer: PeerId, weapon: shared::pap:
 mod tests {
     use super::*;
     use shared::hitbox::ray_capsule;
+
+    fn shot(seq: u16) -> PlayerInput {
+        PlayerInput { fire: true, shot_seq: seq, ..default() }
+    }
+
+    /// A player's shot resolves once, whether its input or its backup gets
+    /// there first — and one whose input was too late still does.
+    #[test]
+    fn each_numbered_shot_resolves_once() {
+        let me = PeerId::Netcode(7);
+        let mut handled = HashMap::new();
+        let seqs = |v: Vec<PlayerInput>| v.iter().map(|s| s.shot_seq).collect::<Vec<_>>();
+        // Backup first, then its input (and that input again, a tick's
+        // input missing).
+        let mut backups = vec![(me, shot(1))];
+        assert_eq!(seqs(shots_to_resolve(me, &shot(1), &mut backups, &mut handled)), vec![1]);
+        assert_eq!(seqs(shots_to_resolve(me, &shot(1), &mut backups, &mut handled)), Vec::<u16>::new());
+        // Shot 2's input lost: its backup and shot 3's input come together.
+        let mut backups = vec![(me, shot(3)), (me, shot(2))];
+        assert_eq!(seqs(shots_to_resolve(me, &shot(3), &mut backups, &mut handled)), vec![2, 3]);
+        assert!(backups.is_empty());
+        // No shot this tick.
+        assert!(shots_to_resolve(me, &PlayerInput::default(), &mut Vec::new(), &mut handled).is_empty());
+        // A bot's fire as it comes.
+        let bot = shared::bot_players::bot_peer(0);
+        assert_eq!(shots_to_resolve(bot, &shot(0), &mut Vec::new(), &mut handled).len(), 1);
+    }
 
     /// Whether a level shot at `height` m up, from 10 m off along +X, hits
     /// someone at the origin facing `yaw`, crouched by `drop`.

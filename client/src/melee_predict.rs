@@ -345,12 +345,19 @@ fn expire(
     mut predicted: ResMut<Predicted>,
     deaths: Query<(Entity, &RemoteAvatar, &PredictedDeath)>,
     poses: Query<&PlayerPose>,
+    ids: Query<&shared::PlayerId>,
+    healths: Healths,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     predicted.0.retain(|f| now - f.at < CONFIRM_SECS);
     for (entity, avatar, death) in &deaths {
         if now - death.since >= CONFIRM_SECS && poses.get(avatar.src).is_ok_and(|p| p.alive) {
+            let peer = ids.get(avatar.src).ok().map(|id| id.0);
+            warn!(
+                "[predict] the server never confirmed the kill of {peer:?}: health now {:?} — standing it back up",
+                healths.of(avatar.src, peer)
+            );
             commands.entity(entity).remove::<PredictedDeath>();
         }
     }

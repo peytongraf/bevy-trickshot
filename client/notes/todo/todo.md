@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Zombie walk / run variety
 - Scope blur, vignette and fringe
 - Weapon movement inertia
 - Weapon motion blur setting
@@ -25,6 +26,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
+- Re-enable zombie arms-up walk (`ZombieAvatarSettings::arms_up_walk`, off while testing the shambles)
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
 - Test and improve server performance for cpu and memory
