@@ -63,7 +63,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 # Asset todo
 
 - Add more fire pits
-- Make a better blood overlay
 - Could update pap camos
 - Finish other side of map but could keep it dark to keep fog look or at least allow the player to go out in the fog for something like a trap
 
@@ -82,7 +81,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Improve / Adjust
 
-- Dial in muffle ( low pass ) of sounds behind walls
+- Dial in muffle ( low pass ) of sounds behind walls. When going behind something like a pillar in an open space, the sound is muffled.
 - Knife arms too high and far out
 - Dial in molotov flame look
 - Dial in phd slider effect look ( trail and explosion )

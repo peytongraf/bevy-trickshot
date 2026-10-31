@@ -47,6 +47,9 @@ pub const VOLUME_DEFAULT: f32 = 1.0;
 /// `apply_vsync` / `limit_frame_rate`.
 pub const FRAME_LIMIT_MIN: f32 = 60.0;
 pub const FRAME_LIMIT_MAX: f32 = 360.0;
+/// `Settings::sharpening`'s default (Call of Duty's FidelityFX CAS slider,
+/// as a `0..=1` strength).
+pub const SHARPENING_DEFAULT: f32 = 0.35;
 pub const FRAME_LIMIT_DEFAULT: f32 = 240.0;
 
 /// Shadow map quality, named and tiered the way Call of Duty's "Shadow Map"
@@ -368,6 +371,9 @@ pub struct Settings {
     pub weapon_motion_blur: MotionBlurLevel,
     /// Blur the world around the scope's lens while aimed (`scope_fx`).
     pub scope_blur: bool,
+    /// How much the picture's sharpened (`sharpening`): AMD's
+    /// contrast-adaptive sharpening, `0` off … `1` strongest.
+    pub sharpening: f32,
     /// Master volume, linear `0.0` (silent) .. `1.0` (full).
     pub master_volume: f32,
     /// Main menu music volume, linear `0.0` .. `1.0`, on top of
@@ -417,6 +423,7 @@ impl Default for Settings {
             motion_blur: MotionBlurLevel::default(),
             weapon_motion_blur: MotionBlurLevel::Low,
             scope_blur: true,
+            sharpening: SHARPENING_DEFAULT,
             master_volume: VOLUME_DEFAULT,
             music_volume: VOLUME_DEFAULT,
             auto_reload: true,

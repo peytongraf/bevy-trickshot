@@ -14,17 +14,24 @@
 //! frame back on (it's off at the hip), whose last frame is from whenever we
 //! last aimed.
 //!
-//! The prepasses it needs (depth, motion vectors) are on those cameras from
-//! the start (`main.rs`), and never added or taken away here: changing them
-//! mid-game left meshes' cached prepass pipelines out of step with the
-//! camera's — a wgpu validation crash (on Der Tempel). Off
-//! (`Settings::motion_blur`), a camera just loses its [`MotionBlur`].
+//! The prepasses it needs (depth, motion vectors) go on those cameras right
+//! as they're made at startup ([`add_prepasses`]) — and only if that blur's
+//! on then: they cost a whole extra drawing of the scene every frame, so
+//! with blur off a camera has none. They're never added or taken away
+//! after that: changing them mid-game left meshes' cached prepass pipelines
+//! out of step with the camera's — a wgpu validation crash (on Der Tempel).
+//! So turning a blur off drops just its [`MotionBlur`] at once (the
+//! prepasses stay till a restart), and turning it on from off takes a
+//! restart; a camera without them is never given a blur (which would add
+//! them).
 //! Nothing to reset between games: the cameras are set afresh every frame.
 
 use bevy::core_pipeline::motion_blur::MotionBlur;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
+
+use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
 
 use crate::player::{ViewModelCamera, WorldModelCamera};
 use crate::weapons::ScopeCamera;
@@ -83,12 +90,32 @@ pub(crate) struct MotionBlurPlugin;
 
 impl Plugin for MotionBlurPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MotionBlurTuning>().add_systems(
+        app.init_resource::<MotionBlurTuning>()
+            .add_systems(PostStartup, add_prepasses)
+            .add_systems(
             PostUpdate,
             apply_motion_blur
                 .after(TransformSystem::TransformPropagate)
                 .run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+/// Give the cameras the prepasses their blur needs, as they're made (before
+/// the first frame) — the world's and the scope's if world motion blur's on,
+/// the gun's if weapon motion blur is. (The world camera always has its
+/// depth one: the water's.)
+#[allow(clippy::type_complexity)]
+fn add_prepasses(
+    settings: Res<Settings>,
+    cameras: Query<(Entity, Has<ViewModelCamera>), Or<(With<WorldModelCamera>, With<ScopeCamera>, With<ViewModelCamera>)>>,
+    mut commands: Commands,
+) {
+    for (camera, gun) in &cameras {
+        let level = if gun { settings.weapon_motion_blur } else { settings.motion_blur };
+        if level != MotionBlurLevel::Off {
+            commands.entity(camera).insert((DepthPrepass, MotionVectorPrepass));
+        }
     }
 }
 
@@ -102,7 +129,7 @@ fn apply_motion_blur(
     settings: Res<Settings>,
     tuning: Res<MotionBlurTuning>,
     mut cameras: Query<
-        (Entity, &Camera, &GlobalTransform, Option<&mut MotionBlur>, Has<ViewModelCamera>),
+        (Entity, &Camera, &GlobalTransform, Option<&mut MotionBlur>, Has<ViewModelCamera>, Has<MotionVectorPrepass>),
         Or<(With<WorldModelCamera>, With<ScopeCamera>, With<ViewModelCamera>)>,
     >,
     // Where each camera was last frame it drew (none: it wasn't drawing).
@@ -111,8 +138,11 @@ fn apply_motion_blur(
 ) {
     let dt = time.delta_secs().max(1e-4);
     let mut seen = Vec::new();
-    for (entity, camera, global, blur, gun) in &mut cameras {
-        let level = tuning.level(if gun { settings.weapon_motion_blur } else { settings.motion_blur });
+    for (entity, camera, global, blur, gun, vectors) in &mut cameras {
+        // (No motion vectors — blur was off at startup: none till a restart.)
+        let level = tuning
+            .level(if gun { settings.weapon_motion_blur } else { settings.motion_blur })
+            .filter(|_| vectors);
         let Some((exposure, samples)) = level else {
             // (Only the blur itself: its prepasses stay — see the module docs.)
             if blur.is_some() {

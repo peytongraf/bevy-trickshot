@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Turning motion blur off now gives back its performance (after a restart).",
+        "Added a sharpening setting (Settings → Graphics).",
         "Kill cams now show the killer's hit markers.",
         "Kill cams play back smoothly instead of jittering.",
         "The scope's reticle now comes in as the lens centres, without a trail of dots.",

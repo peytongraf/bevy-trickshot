@@ -559,6 +559,7 @@ enum SliderField {
     MasterVolume,
     MusicVolume,
     FrameLimit,
+    Sharpening,
 }
 
 #[derive(Component)]
@@ -774,6 +775,9 @@ fn step_field(settings: &mut Settings, field: SliderField, delta: f32) {
             settings.frame_limit =
                 (settings.frame_limit + delta).clamp(FRAME_LIMIT_MIN, FRAME_LIMIT_MAX);
         }
+        SliderField::Sharpening => {
+            settings.sharpening = ((settings.sharpening + delta) * 100.0).round().clamp(0.0, 100.0) / 100.0;
+        }
     }
 }
 
@@ -821,6 +825,9 @@ fn slider_drag(
                     .round()
                     .clamp(FRAME_LIMIT_MIN, FRAME_LIMIT_MAX);
             }
+            SliderField::Sharpening => {
+                settings.sharpening = (t * 100.0).round() / 100.0;
+            }
         }
     }
 }
@@ -844,6 +851,7 @@ fn field_fraction(settings: &Settings, field: SliderField) -> f32 {
         SliderField::FrameLimit => {
             (settings.frame_limit - FRAME_LIMIT_MIN) / (FRAME_LIMIT_MAX - FRAME_LIMIT_MIN)
         }
+        SliderField::Sharpening => settings.sharpening,
     }
     .clamp(0.0, 1.0)
 }
@@ -857,6 +865,7 @@ fn field_value_text(settings: &Settings, field: SliderField) -> String {
         SliderField::MasterVolume => format!("{:.0}%", settings.master_volume * 100.0),
         SliderField::MusicVolume => format!("{:.0}%", settings.music_volume * 100.0),
         SliderField::FrameLimit => format!("{:.0}", settings.frame_limit),
+        SliderField::Sharpening => format!("{:.0}", settings.sharpening * 100.0),
     }
 }
 
@@ -2355,6 +2364,14 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         );
     }
 
+    spawn_slider_row(content, asset_server, "SHARPENING", SliderField::Sharpening, settings, 0.05);
+    desc(
+        content,
+        asset_server,
+        "Sharpens the picture (AMD FidelityFX CAS), so textures and distant enemies look \
+         crisper. 0 turns it off; too high can look grainy.",
+    );
+
     setting_row(content, asset_server, "SHADOW MAP", |row| {
         for quality in ShadowQuality::ALL {
             option_button(
@@ -2391,7 +2408,8 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         content,
         asset_server,
         "Blurs the world as you turn and move, so fast flicks read as smooth motion. \
-         Higher settings blur more. Your weapon has its own setting below.",
+         Higher settings blur more. Your weapon has its own setting below. Turning it \
+         on from OFF takes effect after restarting the game; OFF saves performance.",
     );
 
     setting_row(content, asset_server, "WEAPON MOTION BLUR", |row| {
@@ -2410,7 +2428,8 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         content,
         asset_server,
         "Blurs the weapon in your hands as it moves — swinging, recoiling, working \
-         the bolt. Higher settings blur more.",
+         the bolt. Higher settings blur more. Turning it on from OFF takes effect after \
+         restarting the game.",
     );
 
     setting_row(content, asset_server, "SCOPE BLUR", |row| {

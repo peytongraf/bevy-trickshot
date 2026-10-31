@@ -75,6 +75,7 @@ mod round_counter;
 mod search_destroy;
 mod scope_fx;
 mod settings;
+mod sharpening;
 mod shot_predict;
 mod aether_shroud;
 mod ammo_crate;
@@ -321,6 +322,7 @@ fn main() {
         )
         .add_plugins(motion_blur::MotionBlurPlugin)
         .add_plugins(scope_fx::ScopeFxPlugin)
+        .add_plugins(sharpening::SharpeningPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)
@@ -1124,11 +1126,8 @@ fn setup_player(
                                         // anything standing in it, and what its
                                         // refraction mustn't pick up (`water.wgsl`).
                                         bevy::core_pipeline::prepass::DepthPrepass,
-                                        // Motion vectors for `motion_blur` — from the
-                                        // start, never added or taken away mid-game
-                                        // (that left meshes' cached prepass pipelines
-                                        // without them: a wgpu crash).
-                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
+                                        // (Motion vectors, if blur's on, come right
+                                        // after — `motion_blur::add_prepasses`.)
                                     ));
 
                                     // Scope camera: renders the world (layer 0)
@@ -1155,10 +1154,6 @@ fn setup_player(
                                         // the map's scene tuning changes it.
                                         DistanceFog::default(),
                                         RenderLayers::layer(0),
-                                        // For `motion_blur` — always on (see the
-                                        // world camera's).
-                                        bevy::core_pipeline::prepass::DepthPrepass,
-                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
                                     ))
                                     .with_child((
                                         ScopeReticle,
@@ -1217,10 +1212,6 @@ fn setup_player(
                                             ..default()
                                         }),
                                         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
-                                        // For `motion_blur`'s weapon blur — always on
-                                        // (see the world camera's).
-                                        bevy::core_pipeline::prepass::DepthPrepass,
-                                        bevy::core_pipeline::prepass::MotionVectorPrepass,
                                     ));
                                 });
 
