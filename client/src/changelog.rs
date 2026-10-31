@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "The sniper no longer kicks back into your face when you fire.",
         "Smoother sniper aim: steady scope zoom, a clean recoil kick and less jittery weapon sway.",
         "Kills, hit markers and damage numbers now show the instant your shot lands.",
         "Retuned the blood and red tint when you're hurt.",

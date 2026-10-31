@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Sniper shot kick-back removed
 - MW3 smoothness: zoom curve, sniper kick, smoother sway
 - Instant kill / hit feedback
 - Retuned blood overlay
@@ -19,7 +20,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
-- Sniper fire animation: remove the kick back toward the camera, then drop the camera's backward recoil kick that counters it
 - Motion blur on fast turns (Graphics setting) like MW3
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Bot sniper shots (server `sniper_feel`) still use the old trauma shake in kill cams — switch to the new kick

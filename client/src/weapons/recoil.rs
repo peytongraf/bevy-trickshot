@@ -28,10 +28,12 @@ use super::view_model::ViewModel;
 ///
 /// The forward / back move is separate again: a single backward *kick* on each
 /// shot, on the `CameraRecoil` node, which carries only the cameras (not the
-/// gun). It snaps the eye back and eases home over ~a tenth of a second, so the
-/// scope's rear lens — which the fire animation yanks toward the face — stays in
-/// front of the eye instead of sliding past it. All of this is live-tunable
-/// (`ShakeSettings`, "Camera shake" panel section).
+/// gun). It snaps the eye back and eases home over ~a tenth of a second. The
+/// sniper's is off: it only ever kept the eye clear of the scope's rear lens,
+/// which its fire animation used to yank toward the face — `sniper.glb`'s
+/// Shoot frames no longer move the gun or arms at all (just the trigger
+/// finger), the kick being [`Shake::fire_kick`]'s. All of this is
+/// live-tunable (`ShakeSettings`, "Camera shake" panel section).
 /// (The sniper's own shots kick through [`Shake::fire_kick`] instead — see
 /// [`ShakeSettings::trauma_per_shot`].)
 pub(crate) const SHAKE_ADD: f32 = 0.0;
@@ -48,8 +50,9 @@ pub(crate) const SHAKE_VIEW_JITTER_DEG: f32 = 2.9;
 pub(crate) const SHAKE_WEAPON_KICK: f32 = 0.2;
 /// Muzzle-climb rotation (degrees) applied to the view model at full trauma.
 pub(crate) const SHAKE_WEAPON_KICK_DEG: f32 = 7.5;
-/// Metres the camera (not the gun) snaps backward on each shot.
-pub(crate) const SHAKE_RECOIL_KICK: f32 = 0.05;
+/// Metres the camera (not the gun) snaps backward on each sniper shot — none:
+/// see the backward-kick note above.
+pub(crate) const SHAKE_RECOIL_KICK: f32 = 0.0;
 /// How fast that backward kick eases back to zero (larger = snappier return).
 pub(crate) const SHAKE_RECOIL_RETURN: f32 = 5.0;
 /// Fraction of the camera shake that survives at full ADS; it ramps linearly
@@ -63,9 +66,8 @@ pub(crate) const SHAKE_ADS_SCALE: f32 = 0.15;
 pub(crate) struct CameraShake;
 
 /// Child of [`CameraShake`] that carries only the cameras (not the gun).
-/// `camera_shake` sets its local Z to the current backward recoil kick, pulling
-/// the eye off the scope's rear lens when a shot's fire animation drags the lens
-/// toward the face.
+/// `camera_shake` sets its local Z to the current backward recoil kick (the
+/// AK-74's, the Ray Gun's, the M17's — the sniper's is none).
 #[derive(Component)]
 pub(crate) struct CameraRecoil;
 
