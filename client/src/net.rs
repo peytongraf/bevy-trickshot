@@ -476,11 +476,12 @@ pub(crate) fn write_input(
     settings: Res<crate::settings::Settings>,
     mut trick: ResMut<TrickState>,
     // Kill-cam recording resources, bundled — a system tops out at 16 params.
-    (mut snd, mut ground_hit, mut blood_hit, mut tracer_rec): (
+    (mut snd, mut ground_hit, mut blood_hit, mut tracer_rec, (virtual_time, fixed_time)): (
         ResMut<ReplaySoundBits>,
         ResMut<killcam::ReplayGroundImpact>,
         ResMut<killcam::ReplayBloodImpact>,
         ResMut<killcam::ReplayTracer>,
+        (Res<Time<Virtual>>, Res<Time<Fixed>>),
     ),
     mut pending: ResMut<PendingShot>,
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
@@ -551,6 +552,11 @@ pub(crate) fn write_input(
     action.shake_phase = shake.phase;
     action.shake_recoil = shake.recoil;
     action.shake_kick = shake.kick.to_array();
+    // What's recorded here is as last frame's `Update` left it — at the
+    // virtual time that frame ran — not this tick's own time: say how far
+    // off, so the kill cam can lay it out where it really was.
+    let captured = virtual_time.elapsed_secs_f64() - virtual_time.delta_secs_f64();
+    action.sample_offset = ((captured - fixed_time.elapsed_secs_f64()) as f32).clamp(-0.25, 0.25);
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
     // (The AK-74's iron sights zoom only a little, whatever scope is picked.)

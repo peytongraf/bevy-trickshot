@@ -606,6 +606,12 @@ pub struct PlayerInput {
     pub shake_recoil: f32,
     /// The sniper's kick this tick (`Shake::kick` on the client: yaw, pitch).
     pub shake_kick: [f32; 2],
+    /// When (s, relative to this tick's own time) the state recorded here
+    /// was really captured — the client samples it whenever the fixed tick
+    /// happens to run in a frame, up to a frame off the tick (and twice in
+    /// one frame, when it catches up). The kill cam lays its frames out by
+    /// it, so a replay moves as smoothly as the real thing did.
+    pub sample_offset: f32,
     /// Weapon-sway offset this tick (`WeaponSwayState::offset`: yaw, pitch) —
     /// replayed the same way, so the gun's turn-lag is exact rather than just
     /// easing back to neutral during playback.
@@ -800,6 +806,7 @@ impl Default for PlayerInput {
             shake_phase: 0.0,
             shake_recoil: 0.0,
             shake_kick: [0.0; 2],
+            sample_offset: 0.0,
             sway_offset: [0.0; 2],
             fov_deg: DEFAULT_FOV_DEG,
             scope_zoom: DEFAULT_SCOPE_ZOOM,
@@ -976,6 +983,9 @@ pub struct KillCamSample {
     pub shake_recoil: f32,
     /// The sniper's kick (yaw, pitch) this frame.
     pub shake_kick: [f32; 2],
+    /// When (s) this frame's state was really captured, relative to its
+    /// tick (`PlayerInput::sample_offset`).
+    pub sample_offset: f32,
     /// Weapon-sway offset (yaw, pitch) this frame.
     pub sway_offset: [f32; 2],
     /// The shooter's hip FOV setting, so the replay renders at their FOV.

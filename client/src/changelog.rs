@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Kill cams now show the killer's hit markers.",
+        "Kill cams play back smoothly instead of jittering.",
         "The scope's reticle now comes in as the lens centres, without a trail of dots.",
         "Scoped in, the world around the lens now blurs and the lens picture has a soft edge (Settings → Graphics → Scope blur).",
         "Weapons now sway with your movement — trailing strafes, tipping into them and dipping when you land.",

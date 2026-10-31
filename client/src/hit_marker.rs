@@ -156,6 +156,7 @@ fn receive_hit_markers(
     mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut flash: ResMut<HitMarkerFlash>,
     mut damaged: EventWriter<crate::hud::DamagedByMe>,
+    mut snd: ResMut<crate::killcam::ReplaySoundBits>,
     mut commands: Commands,
 ) {
     let mut got: Option<bool> = None;
@@ -183,6 +184,11 @@ fn receive_hit_markers(
     let Some(kill) = got else {
         return;
     };
+    // Noted for our next input, so a kill cam of this shows it flash too —
+    // not one a kill cam's replaying (that's the recording's own).
+    if killcam.0.is_none() {
+        snd.note(if kill { crate::killcam::REPLAY_KILL_MARKER } else { crate::killcam::REPLAY_HIT_MARKER });
+    }
     *flash = HitMarkerFlash {
         kill: Some(kill),
         age: 0.0,

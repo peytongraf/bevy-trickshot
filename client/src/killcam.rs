@@ -81,6 +81,12 @@ pub(crate) const SND_RAYGUN_SHOT: u32 = 1 << 14;
 pub(crate) const SND_RAYGUN_RELOAD: u32 = 1 << 15;
 /// The M17's shot.
 pub(crate) const SND_M17_SHOT: u32 = 1 << 16;
+/// Not sounds: our hit marker flashing — white for a hit, red for a kill
+/// (`hit_marker`) — so a kill cam can flash it where it did. Not in
+/// [`ALL_SND_BITS`]: nobody else hears anything for them.
+pub(crate) const REPLAY_HIT_MARKER: u32 = 1 << 17;
+pub(crate) const REPLAY_KILL_MARKER: u32 = 1 << 18;
+
 /// All bits currently in use, for iterating a `sound_bits` mask.
 pub(crate) const ALL_SND_BITS: [u32; 17] = [
     SND_SHOT,
@@ -416,11 +422,18 @@ pub(crate) fn begin_from_message(active: &mut ActiveKillCam, msg: shared::KillCa
         return;
     }
     let hz = shared::TICK_HZ as f32;
+    // Each frame where its state was really captured (its tick's time, put
+    // right by `sample_offset`) — not evenly a tick apart, which made a
+    // replay lurch. Never going back in time.
+    let mut latest = f32::MIN;
     let frames: Vec<(f32, KillCamSample)> = msg
         .samples
         .into_iter()
         .enumerate()
-        .map(|(i, s)| (i as f32 / hz, s))
+        .map(|(i, s)| {
+            latest = latest.max(i as f32 / hz + s.sample_offset);
+            (latest, s)
+        })
         .collect();
     // Ground bursts, blood squirts and tracers ride along in the samples
     // (networked path): one entry per frame that carried one, re-emitted as the
@@ -748,6 +761,7 @@ fn drive_killcam(
         EventWriter<GroundImpact>,
         EventWriter<BloodImpact>,
         EventWriter<FireTracer>,
+        EventWriter<crate::hit_marker::LocalHitMarker>,
     ),
     mut active: ResMut<ActiveKillCam>,
     (mut weapon, mut knife): (ResMut<Weapon>, ResMut<crate::ThrowingKnife>),
@@ -788,7 +802,7 @@ fn drive_killcam(
     }
     let (shake_cfg, tuning, footstep_cfg, current_map, mut sway_state) = cfg;
     let (ref mut muzzle, ref mut smoke) = fx;
-    let (ref mut impacts, ref mut bloods, ref mut tracers) = fx_events;
+    let (ref mut impacts, ref mut bloods, ref mut tracers, ref mut hit_markers) = fx_events;
     let (mut world_projection, view_model_single, knife_single) = cams;
     let (mut knife_tf, mut knife_vis) = knife_single.into_inner();
     let (mut view_model, mut view_model_vis) = view_model_single.into_inner();
@@ -972,9 +986,10 @@ fn drive_killcam(
     };
 
     // Pose the first-person weapon exactly where it was: seek its baked clip to
-    // the recorded playhead (nearest sample, so we don't lerp across the jumps
-    // between animation segments) and hold it paused there.
-    let anim_t = if frac < 0.5 { a.anim_time } else { b.anim_time };
+    // the recorded playhead — blended between the two samples while the clip's
+    // just playing on, the nearest across a jump between animation segments
+    // (or a weapon swap) — and hold it paused there.
+    let anim_t = playhead(a.anim_time, b.anim_time, frac, a.weapon == b.weapon);
     if let (Some(node), Some(mut ap)) = (anim_node, anim_players.iter_mut().next()) {
         if ap.animation(node).is_none() {
             ap.play(node);
@@ -988,7 +1003,7 @@ fn drive_killcam(
     }
     // The knife's slices, the same way — its own clip, its own recorded
     // playhead.
-    let knife_anim_t = if frac < 0.5 { a.knife_anim_time } else { b.knife_anim_time };
+    let knife_anim_t = playhead(a.knife_anim_time, b.knife_anim_time, frac, true);
     if let (Some(k), Some(mut ap)) = (knife_anims.iter().next(), knife_players.iter_mut().next()) {
         if ap.animation(k.index).is_none() {
             ap.play(k.index);
@@ -1045,6 +1060,14 @@ fn drive_killcam(
                     ));
                 }
             }
+        }
+        // The hit marker, as it flashed: red for a kill, white (with its
+        // tick) for a hit.
+        if bits & (REPLAY_HIT_MARKER | REPLAY_KILL_MARKER) != 0 {
+            hit_markers.write(crate::hit_marker::LocalHitMarker {
+                kill: bits & REPLAY_KILL_MARKER != 0,
+                victim: None,
+            });
         }
         // Footsteps aren't one fixed clip (live play picks randomly from
         // `sounds.footsteps`, or `water_footsteps` wading), so they don't go
@@ -1495,6 +1518,23 @@ fn slowmo_speed(t: f32, kill_time: f32) -> f32 {
     } else {
         let frac = dt / RAMP_SECS; // 0 at 0, 1 at +RAMP_SECS
         SLOWEST + (1.0 - SLOWEST) * frac
+    }
+}
+
+/// A recorded animation playhead `frac` of the way from sample `a` to `b`:
+/// blended while the clip just played on between them (forward, by no more
+/// than a few ticks' worth), otherwise the nearer one — a jump between
+/// segments, a loop, a fresh clip.
+fn playhead(a: f32, b: f32, frac: f32, same_clip: bool) -> f32 {
+    /// The most a clip moves on (s of clip) between two samples — a tick at
+    /// its fastest, with room for a dropped one.
+    const MAX_STEP: f32 = 0.12;
+    if same_clip && b >= a && b - a <= MAX_STEP {
+        a + (b - a) * frac
+    } else if frac < 0.5 {
+        a
+    } else {
+        b
     }
 }
 
