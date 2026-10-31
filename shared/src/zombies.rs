@@ -45,6 +45,20 @@ pub const ZOMBIE_SWIPE_DAMAGE: f32 = 40.0;
 /// A walker brings its arms up once it's this close (m) to who it's after.
 pub const ZOMBIE_ARMS_UP_DIST: f32 = 8.0;
 
+/// Crawlers, Call of Duty's: a player's explosion (a frag, a monkey bomb,
+/// PhD Flopper, a Bomb Shot, a Ray Gun bolt) that leaves a zombie alive on
+/// this little of its health or less...
+pub const CRAWLER_HEALTH_FRAC: f32 = 0.4;
+/// ...knocks it off its legs this often (`0..1`)...
+pub const CRAWLER_CHANCE: f32 = 0.6;
+/// ...taking this long (s) to go down (the client's `CrawlFall` clip), and
+/// from then on it drags itself along at this speed (m/s), swiping up from
+/// the ground — for the rest of its life.
+pub const CRAWLER_FALL_SECS: f32 = 1.167;
+pub const CRAWLER_SPEED: f32 = 0.55;
+/// How tall (m) a crawler is to hit, lying there.
+pub const CRAWLER_HEIGHT: f32 = 0.6;
+
 /// Highest starting round / starting points the party leader can pick for a
 /// `Zombies` game (`Lobby::start_round` / `Lobby::start_points`) — the
 /// server clamps to these.

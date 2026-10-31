@@ -256,6 +256,7 @@ impl Plugin for ZombiesPlugin {
                 FixedUpdate,
                 (
                     publish_zombie_anims.after(crate::sim::apply_client_pose),
+                    cripple_zombies.after(crate::pvp::apply_player_hits),
                     announce_zombie_swipes.after(crate::ai::drive_bots),
                     apply_board_tears.after(crate::ai::drive_bots),
                 ),
@@ -1087,11 +1088,29 @@ fn announce_zombie_swipes(
     }
 }
 
+/// Zombies a player's explosion left barely alive: maybe crawlers now
+/// ([`crate::ai::BotBrain::cripple`]).
+fn cripple_zombies(
+    time: Res<Time>,
+    mut crippled: EventReader<crate::pvp::ZombieCrippled>,
+    mut zombies: Query<(&PlayerId, &mut BotBrain), With<Zombie>>,
+) {
+    let now = time.elapsed_secs();
+    for ev in crippled.read() {
+        if let Some((_, mut brain)) = zombies.iter_mut().find(|(id, _)| id.0 == ev.victim) {
+            if brain.cripple(now) {
+                debug!("{:?} is a crawler now", ev.victim);
+            }
+        }
+    }
+}
+
 /// Copy each zombie's animation state from its brain onto its replicated
 /// pose (after `sim::apply_client_pose` has rewritten the rest from input).
-fn publish_zombie_anims(mut zombies: Query<(&BotBrain, &mut PlayerPose), With<Zombie>>) {
+fn publish_zombie_anims(time: Res<Time>, mut zombies: Query<(&BotBrain, &mut PlayerPose), With<Zombie>>) {
+    let now = time.elapsed_secs();
     for (brain, mut pose) in &mut zombies {
-        let anim = brain.zombie_anim();
+        let anim = brain.zombie_anim(now);
         if pose.zombie != anim {
             pose.zombie = anim;
         }

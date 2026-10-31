@@ -26,7 +26,17 @@ Appends them to `client/assets/models/characters/zombie.glb`, after its own
   its torso wrenched round and over, running half sideways; the right leg
   locked stiff, so it gallops on a hitch; a stuttering, stop-start pace;
   one arm trailing dead behind it, the other bent back on itself and
-  twitching. See `broken_run_at` / `BROKEN_RUN`.
+  twitching. See `broken_run_at` / `BROKEN_RUN`;
+* `CrawlFall` (16) — a crawler going down (an explosion's left it barely
+  alive): the model's own `FallingForward` (6), drawn back so it drops where
+  it stands, settling into...
+* `Crawl` (17) — dragging itself along on its belly, the chest up, the head
+  lifted to look ahead and twitching: each hand reaches out ahead, plants
+  and hauls the body over it (two-bone IK — the planted hand slides back at
+  exactly the crawl's own speed, [`CRAWL`]'s `reach_to` − `pull_to` over the
+  pull), the legs dragging behind, one twisted out. See `crawl_at`;
+* `CrawlAttack` (18) — its swipe: rearing up off the ground, the right arm
+  clawing up and raking across. See `crawl_attack_at`.
 
 Each is the model's own `Walk1_InPlace` (1) — its legs and footfalls — made
 a Call of Duty zombie's shamble on top:
@@ -552,6 +562,197 @@ def broken_run_at(glb, clip, x):
     p.turn('Base HumanLArmPalm_036', aa(BEND, deg(50.0)))
     return p
 
+# --- the crawler ---------------------------------------------------------------
+FALL_CLIP = 6  # FallingForward
+CRAWL_FALL_NAME = "CrawlFall"
+CRAWL_NAME = "Crawl"
+CRAWL_ATTACK_NAME = "CrawlAttack"
+CRAWL = dict(
+    # Where (cm, forward of its feet) the hips end up lying: the fall's own
+    # pitch them ~1.15 m on, which would leave the body far out ahead of
+    # where the zombie really is.
+    hips_at=10.0,
+)
+
+def smoothstep(x):
+    x=min(max(x,0.0),1.0); return x*x*(3-2*x)
+
+def fall_pose(glb, clip, t):
+    p=Pose(glb)
+    for node, path, times, values in clip.channels:
+        val=clip.sample(times, values, t, path=='rotation')
+        if path=='rotation': p.R[node]=qmat(val/np.linalg.norm(val))
+        elif path=='translation': p.T[node]=np.array(val,float)
+        elif path=='scale': p.S[node]=np.array(val,float)
+    return p
+
+CRAWL_LOOP_SECS = 2.4
+CRAWL_ATTACK_SECS = 1.0
+CRAWL.update(
+    # The chest held up off the ground, the back arched (deg, spine joints),
+    # the head lifted to look ahead.
+    arch=(14.0, 14.0, 10.0),
+    head_up=38.0,
+    # Each hand: how far ahead of its shoulder it plants, and back to (cm),
+    # out to the side, how high it lifts reaching forward, and what part of
+    # the loop that reach takes (the rest it drags the body on).
+    reach_to=58.0,
+    pull_to=-2.0,
+    hand_out=16.0,
+    lift=16.0,
+    reach_frac=0.35,
+    # The shoulders rolling toward the reaching arm, the chest heaving up
+    # each pull, the hips swaying (deg, cm, deg).
+    roll=14.0,
+    heave=4.0,
+    hip_sway=9.0,
+    # The legs dragging behind: knees bending in turn (deg), the right one
+    # twisted out, broken.
+    knee=18.0,
+    broken_leg=25.0,
+    # The head twitching, jerking at these points round the loop.
+    jerks=((0.18, 14.0), (0.61, -11.0)),
+)
+
+def shortest_arc(u, v):
+    """The rotation turning unit `u` onto unit `v` the short way."""
+    u=u/np.linalg.norm(u); v=v/np.linalg.norm(v); c=float(np.dot(u,v))
+    axis=np.cross(u,v); n=np.linalg.norm(axis)
+    if n<1e-8:
+        if c>0: return np.eye(3)
+        axis=np.cross(u, LEFT if abs(u[0])<0.9 else UP); n=np.linalg.norm(axis)
+    return aa(axis/n, math.atan2(n, c))
+
+def aim(p, bone, child, target):
+    """Turn `bone` so `child`'s joint lies along the way to world `target`."""
+    here=p.pos(bone)
+    p.turn(bone, shortest_arc(p.pos(child)-here, target-here))
+
+def two_bone(p, upper, lower, end, target, pole):
+    """Put `end`'s joint on `target` (as near as it reaches), the middle
+    joint bending out toward `pole` (a direction)."""
+    S=p.pos(upper); a=np.linalg.norm(p.pos(lower)-S); b=np.linalg.norm(p.pos(end)-p.pos(lower))
+    d=target-S; L=min(np.linalg.norm(d), (a+b)*0.999); L=max(L, abs(a-b)*1.001)
+    dn=d/np.linalg.norm(d)
+    x=(a*a-b*b+L*L)/(2*L); h=math.sqrt(max(a*a-x*x, 0.0))
+    side=pole-dn*np.dot(pole,dn); side=side/np.linalg.norm(side)
+    aim(p, upper, lower, S+dn*x+side*h)
+    aim(p, lower, end, S+dn*L)
+
+def blend(glb, a, b, t):
+    """Pose `a` turned `t` of the way to pose `b`, bone by bone."""
+    p=Pose(glb)
+    for i in range(len(p.R)):
+        qa=mquat(a.R[i]); qb=mquat(b.R[i])
+        if np.dot(qa,qb)<0: qb=-qb
+        p.R[i]=qmat(slerp(qa,qb,t)); p.T[i]=a.T[i]+(b.T[i]-a.T[i])*t; p.S[i]=a.S[i]+(b.S[i]-a.S[i])*t
+    return p
+
+ARMS = (
+    # (upper arm, forearm, palm, which side (+1 its left), phase)
+    ('Base HumanLArmUpperarm_034', 'Base HumanLArmForearm_035', 'Base HumanLArmPalm_036', 1.0, 0.0),
+    ('Base HumanRArmUpperarm_016', 'Base HumanRArmForearm_017', 'Base HumanRArmPalm_018', -1.0, 0.5),
+)
+
+def hand_track(x):
+    """Where a hand is (forward cm of its shoulder, height cm) `x` (0..1)
+    round its stroke: lifted and reaching ahead, then planted and dragged
+    back as the body is hauled over it."""
+    v=CRAWL; r=v['reach_frac']
+    if x<r:
+        k=smoothstep(x/r)
+        return v['pull_to']+(v['reach_to']-v['pull_to'])*k, v['lift']*math.sin(math.pi*x/r)
+    k=(x-r)/(1-r)
+    return v['reach_to']+(v['pull_to']-v['reach_to'])*k, 0.0
+
+def crawl_body(glb, clip, x, lift=0.0, rear=0.0):
+    """The crawler's body `x` (0..1) round its loop — everything but the
+    arms. `rear`: deg more the chest rears up (an attack)."""
+    v=CRAWL; psi=2*math.pi*x
+    p=fall_pose(glb, clip, clip.duration)
+    end=p.pos('Base HumanPelvis_01')[2]
+    p.shift('Base HumanPelvis_01', np.array([0.0, lift, v['hips_at']-end]))
+    # Hips swaying with the strokes; the shoulders rolling against them.
+    p.turn('Base HumanPelvis_01', aa(UP, deg(v['hip_sway'])*math.sin(psi)))
+    a=v['arch']; roll=deg(v['roll'])*math.sin(psi+0.6)
+    heave=deg(v['heave'])*(0.5-0.5*math.cos(2*psi))
+    p.turn('Base HumanSpine1_06', aa(BEND, -deg(a[0]+rear*0.4)-heave))
+    p.turn('Base HumanSpine2_00', aa(BEND, -deg(a[1]+rear*0.35))@aa(FWD, roll*0.5))
+    p.turn('Base HumanRibcage_07', aa(BEND, -deg(a[2]+rear*0.25))@aa(FWD, roll*0.5))
+    # The head up, looking ahead, twitching.
+    jerk=sum(deg(amt)*wrapped_pulse(x, at, 0.035) for at, amt in v['jerks'])
+    p.turn('Base HumanNeck_08', aa(BEND, -deg(v['head_up'])*0.5))
+    p.turn('Base HumanHead_09', aa(BEND, -deg(v['head_up'])*0.5)@aa(UP, jerk)@aa(FWD, -jerk*0.6))
+    # The legs dragging: knees bending in turn, pushing a little; the right
+    # turned out, broken.
+    p.turn('Base HumanRThigh_02', aa(UP, -deg(v['broken_leg'])))
+    for calf, foot, ph in (('Base HumanLLegCalf_052', 'Base HumanLLegFoot_053', 0.0),
+                           ('Base HumanRCalf_03', 'Base HumanRFoot_04', math.pi)):
+        bend=deg(v['knee'])*max(0.0, math.sin(psi+ph))
+        d=p.pos(foot)-p.pos(calf); d=d/np.linalg.norm(d)
+        p.turn(calf, shortest_arc(d, d*math.cos(bend)+UP*math.sin(bend)))
+    return p
+
+def place_arms(p, x, swipe=None):
+    """Plant / reach each hand round its stroke; `swipe(side)`, if given, a
+    world target (and elbow pole) overriding that hand's."""
+    v=CRAWL
+    for upper, fore, palm, side, ph in ARMS:
+        S=p.pos(upper)
+        fwd, up=hand_track((x+ph)%1.0)
+        target=np.array([S[0]+side*v['hand_out'], 3.0+up, S[2]+fwd])
+        pole=np.array([side*1.0, 0.6, -0.3])
+        if swipe is not None and swipe(side) is not None:
+            target, pole=swipe(side)
+        two_bone(p, upper, fore, palm, target, pole)
+        # The hand flat on the ground (pointing on ahead) when it's down.
+        aim(p, palm, palm.replace('Palm_036','Digit31_042').replace('Palm_018','Digit31_024'),
+            p.pos(palm)+np.array([0.0, -0.25 if up<1.0 else -0.6, 1.0]))
+
+def crawl_at(glb, clip, x):
+    """The crawl `x` (0..1) round its loop: a stroke of each arm."""
+    p=crawl_body(glb, clip, x)
+    place_arms(p, x)
+    return p
+
+def crawl_attack_at(glb, clip, x):
+    """A swipe from the ground `x` (0..1) through it: the chest rears up and
+    the right arm claws up and across at whoever's standing over it; back
+    down by the end, as the crawl starts."""
+    v=CRAWL
+    up=math.sin(math.pi*min(x/0.8, 1.0))**2
+    p=crawl_body(glb, clip, 0.0, lift=6.0*up, rear=28.0*up)
+    S=p.pos('Base HumanRArmUpperarm_016')
+    def swipe(side):
+        if side>0: return None
+        # Up and out to the right, then raking across and down.
+        rest=np.array([S[0]-v['hand_out'], 3.0, S[2]+hand_track(0.5)[0]])
+        raised=np.array([S[0]-38.0, S[1]+52.0, S[2]+30.0])
+        raked=np.array([S[0]+12.0, S[1]+8.0, S[2]+52.0])
+        if x<0.35: t=rest+(raised-rest)*smoothstep(x/0.35)
+        elif x<0.55: t=raised+(raked-raised)*smoothstep((x-0.35)/0.2)
+        else: t=raked+(rest-raked)*smoothstep((x-0.55)/0.45)
+        return t, np.array([-1.0, 0.3, -0.4])
+    place_arms(p, 0.0, swipe)
+    return p
+
+def crawl_fall_at(glb, clip, x):
+    """Going down (`x` 0..1): the model's own fall forward, drawn back as it
+    goes so it drops where it stands — settling, at the end, into the
+    crawl's first frame."""
+    p=fall_pose(glb, clip, x*clip.duration)
+    end=fall_pose(glb, clip, clip.duration).pos('Base HumanPelvis_01')[2]
+    p.shift('Base HumanPelvis_01', np.array([0.0, 0.0, -(end-CRAWL['hips_at'])*smoothstep(x)]))
+    if x<=0.55: return p
+    t=smoothstep((x-0.55)/0.45); goal=crawl_at(glb, clip, 0.0)
+    out=blend(glb, p, goal, t)
+    # (The hands steered there, not swung through the floor.)
+    for upper, fore, palm, side, _ in ARMS:
+        h=p.pos(palm)+(goal.pos(palm)-p.pos(palm))*t
+        h[1]=max(h[1], 3.0)
+        two_bone(out, upper, fore, palm, h, np.array([side*1.0, 0.6, -0.3]))
+    return out
+
 # --- writing it into the glb -------------------------------------------------
 def add_clip(glb, clip, name, times, poses, j, b):
     """Append an animation keying every channel `clip` keys, from `poses` at `times`."""
@@ -594,7 +795,8 @@ def write_glb(path, j, b):
 
 def main():
     glb=Glb(SRC); j=glb.json
-    names={name for name, _ in VARIANTS}|{STUMBLE_NAME, SCARY_RUN_NAME, BROKEN_RUN_NAME}
+    names={name for name, _ in VARIANTS}|{STUMBLE_NAME, SCARY_RUN_NAME, BROKEN_RUN_NAME,
+                                           CRAWL_FALL_NAME, CRAWL_NAME, CRAWL_ATTACK_NAME}
     # (Ours from a previous run go; the model's own 11 stay. Everything they
     # used sits at the end of the file — written last — so cut back to where
     # that starts.)
@@ -628,6 +830,15 @@ def main():
     poses=[broken_run_at(glb, run, k/frames) for k in range(frames+1)]
     add_clip(glb, run, BROKEN_RUN_NAME, times, poses, j, glb.bin)
     print(f"wrote {BROKEN_RUN_NAME} ({len(j['animations'])-1})")
+    # The crawler: going down, its crawl, its swipe from the ground.
+    fall=Clip(glb, FALL_CLIP)
+    for name, secs, at in ((CRAWL_FALL_NAME, fall.duration, crawl_fall_at),
+                           (CRAWL_NAME, CRAWL_LOOP_SECS, crawl_at),
+                           (CRAWL_ATTACK_NAME, CRAWL_ATTACK_SECS, crawl_attack_at)):
+        frames=int(round(secs*30))
+        times=[secs*k/frames for k in range(frames+1)]
+        add_clip(glb, fall, name, times, [at(glb, fall, k/frames) for k in range(frames+1)], j, glb.bin)
+        print(f"wrote {name} ({len(j['animations'])-1})")
     write_glb(SRC, j, glb.bin)
     print(f"into {os.path.normpath(SRC)}")
 

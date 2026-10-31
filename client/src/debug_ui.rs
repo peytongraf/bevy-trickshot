@@ -1605,6 +1605,8 @@ pub(crate) fn ads_tuning_ui(
                         .text("walk, arms up (× per m/s)"),
                 );
                 ui.add(egui::Slider::new(&mut z.run_per_mps, 0.02f32..=2.0).text("run (× per m/s)"));
+                ui.add(egui::Slider::new(&mut z.crawl_per_mps, 0.1f32..=6.0).text("crawl (× per m/s)"));
+                ui.add(egui::Slider::new(&mut z.crawl_min_speed, 0.0f32..=2.0).text("crawl lying still (×)"));
                 ui.add(egui::Slider::new(&mut z.idle_speed, 0.1f32..=3.0).text("idle speed (×)"));
                 ui.add(egui::Slider::new(&mut z.attack_speed, 0.1f32..=3.0).text("attack speed (×)"));
                 ui.add(egui::Slider::new(&mut z.death_speed, 0.1f32..=3.0).text("death speed (×)"));
@@ -1618,9 +1620,10 @@ pub(crate) fn ads_tuning_ui(
                 if ui.button("Copy zombie settings to console").clicked() {
                     info!(
                         "zombie: walk_per_mps: {:.3}, walk_arms_up_per_mps: {:.3}, run_per_mps: {:.3}, \
-                         idle_speed: {:.2}, attack_speed: {:.2}, death_speed: {:.2}, blend_secs: {:.2}, \
+                         crawl_per_mps: {:.3}, crawl_min_speed: {:.2}, idle_speed: {:.2}, attack_speed: {:.2}, death_speed: {:.2}, blend_secs: {:.2}, \
                          min_move_speed: {:.2}, scale: {:.3}, yaw_offset_deg: {:.1}",
-                        z.walk_per_mps, z.walk_arms_up_per_mps, z.run_per_mps, z.idle_speed,
+                        z.walk_per_mps, z.walk_arms_up_per_mps, z.run_per_mps, z.crawl_per_mps,
+                        z.crawl_min_speed, z.idle_speed,
                         z.attack_speed, z.death_speed, z.blend_secs, z.min_move_speed, z.scale,
                         z.yaw_offset_deg,
                     );

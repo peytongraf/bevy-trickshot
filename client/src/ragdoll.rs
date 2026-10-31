@@ -3,6 +3,13 @@
 //! thrown from it as a ragdoll instead of playing its death fall. Never a
 //! hellhound or a boss (the server only sends it for a zombie).
 //!
+//! A crawler (`shared::zombies`' `CRAWLER_*`) has no death fall of its own:
+//! whatever kills it, once the server says it's dead it goes limp where it
+//! lies — a ragdoll with no throw, just a nudge so it slumps over. (Killed by
+//! an explosion, it's thrown like any other: whichever comes first, the
+//! blast's word or its death, it's one ragdoll, the blast kicking it if it's
+//! already limp.)
+//!
 //! The ragdoll is eleven capsules — pelvis, chest, head, upper / lower arms
 //! and legs — on the model's own bones, laid where they were the moment it
 //! died, joined by limited joints (hinges for the elbows and knees) and
@@ -77,6 +84,10 @@ pub(crate) struct RagdollSettings {
     /// How thick (×) every capsule is, and how heavy (×) every part.
     pub(crate) thickness: f32,
     pub(crate) mass_scale: f32,
+    /// A crawler going limp where it dies (off: it stops dead, its crawl
+    /// frozen), and the push (m/s, a random way) it slumps over with.
+    pub(crate) crawlers: bool,
+    pub(crate) crawler_nudge: f32,
 }
 
 impl Default for RagdollSettings {
@@ -106,6 +117,8 @@ impl Default for RagdollSettings {
             gravity_scale: 1.0,
             thickness: 1.0,
             mass_scale: 1.0,
+            crawlers: true,
+            crawler_nudge: 0.8,
         }
     }
 }
@@ -323,32 +336,76 @@ fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -
         .map(|id| id.0)
 }
 
-/// Server → us: an explosion killed a zombie — throw it.
+/// Server → us: an explosion killed a zombie — throw it. And a crawler the
+/// server says is dead: let it go limp.
 #[allow(clippy::too_many_arguments)]
 fn start_ragdolls(
     mut commands: Commands,
     settings: Res<RagdollSettings>,
     mut receivers: Query<&mut MessageReceiver<shared::ZombieBlasted>>,
-    avatars: Query<(Entity, &RemoteAvatar, &ZombieAnimationPlayer, &Transform), (With<ZombieVisual>, Without<Ragdoll>)>,
-    active: Query<(), With<Ragdoll>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    avatars: Query<
+        (Entity, &RemoteAvatar, &ZombieAnimationPlayer, &Transform, &crate::ZombieMotion),
+        (With<ZombieVisual>, Without<Ragdoll>),
+    >,
+    (active, limp, mut velocities): (
+        Query<(), With<Ragdoll>>,
+        Query<(&RemoteAvatar, &Ragdoll)>,
+        Query<&mut Velocity, With<RagdollPart>>,
+    ),
+    (ids, interp, poses): (Query<&PlayerId>, Query<&Interpolated>, Query<&shared::PlayerPose>),
     (children, names, globals): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
     mut players: Query<&mut AnimationPlayer>,
     contexts: Query<Entity, With<RagdollContext>>,
 ) {
     let blasts: Vec<shared::ZombieBlasted> = receivers.iter_mut().flat_map(|mut rx| rx.receive().collect::<Vec<_>>()).collect();
-    if blasts.is_empty() || !settings.enabled {
+    if !settings.enabled {
+        return;
+    }
+    // What to throw: (avatar, the blast it's thrown from — `None` a dead
+    // crawler, just going limp).
+    let mut jobs: Vec<(Entity, Option<Vec3>, PeerId)> = Vec::new();
+    for blast in &blasts {
+        let from = Vec3::from_array(blast.from);
+        if let Some((avatar, ..)) =
+            avatars.iter().find(|(_, remote, ..)| peer_of(remote.src, &ids, &interp) == Some(blast.zombie))
+        {
+            jobs.push((avatar, Some(from), blast.zombie));
+        } else if let Some((_, ragdoll)) =
+            limp.iter().find(|(remote, _)| peer_of(remote.src, &ids, &interp) == Some(blast.zombie))
+        {
+            // Already gone limp (its death got here first): the blast kicks it.
+            for bone in &ragdoll.bones {
+                if let Ok(mut v) = velocities.get_mut(bone.part) {
+                    let at = ragdoll.pelvis_start;
+                    let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or(Vec3::X);
+                    let strength =
+                        (1.0 - at.distance(from) / settings.reach.max(0.1)).clamp(settings.min_strength, 1.0);
+                    v.linvel += (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
+                }
+            }
+        }
+    }
+    if settings.crawlers {
+        for (avatar, remote, _, _, motion) in &avatars {
+            // (Only on the server's word — a death foreseen here can still
+            // be taken back, and a ragdoll can't get up again.)
+            let dead = poses.get(remote.src).is_ok_and(|p| !p.alive);
+            if dead && motion.crawler_dead() && !jobs.iter().any(|(a, ..)| *a == avatar) {
+                let Some(peer) = peer_of(remote.src, &ids, &interp) else { continue };
+                jobs.push((avatar, None, peer));
+            }
+        }
+    }
+    if jobs.is_empty() {
         return;
     }
     let mut count = active.iter().count() as u32;
     let mut context = contexts.iter().next();
-    for blast in blasts {
+    for (avatar, from, zombie) in jobs {
         if count >= settings.max_ragdolls {
             break;
         }
-        let Some((avatar, _, anim_player, root)) =
-            avatars.iter().find(|(_, remote, ..)| peer_of(remote.src, &ids, &interp) == Some(blast.zombie))
-        else {
+        let Ok((avatar, _, anim_player, root, _)) = avatars.get(avatar) else {
             continue;
         };
         // Its bones, by name (its scene's in: it has an animation player).
@@ -382,19 +439,33 @@ fn start_ragdolls(
             player.pause_all();
         }
 
-        let from = Vec3::from_array(blast.from);
         let pelvis_pos = posed[0].1;
         // Its forward, from its hips (`R`/`L` are its own right and left).
         let right = posed[7].1 - posed[9].1;
         let forward = Vec3::Y.cross(right).normalize_or(root.rotation * Vec3::Z);
-        let away = Vec3::new(pelvis_pos.x - from.x, 0.0, pelvis_pos.z - from.z).normalize_or(-forward);
-        let strength = (1.0 - pelvis_pos.distance(from) / settings.reach.max(0.1)).clamp(settings.min_strength, 1.0);
-        let seed = blast.zombie.to_bits();
+        let seed = zombie.to_bits();
         let seed = (seed ^ (seed >> 32)) as u32;
         let jitter = |i: u32| rand01(seed.wrapping_add(i.wrapping_mul(0x9e37_79b9))) * 2.0 - 1.0;
-        let base_vel = (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
-        let base_spin = Vec3::Y.cross(away) * settings.tumble * strength
-            + Vec3::new(jitter(1), jitter(2), jitter(3)) * settings.spin_jitter * strength;
+        // Thrown from the blast — or, a crawler going limp, only nudged over
+        // (from a spot just beside it: the parts barely flung apart).
+        let (from, strength, base_vel, base_spin) = match from {
+            Some(from) => {
+                let away = Vec3::new(pelvis_pos.x - from.x, 0.0, pelvis_pos.z - from.z).normalize_or(-forward);
+                let strength =
+                    (1.0 - pelvis_pos.distance(from) / settings.reach.max(0.1)).clamp(settings.min_strength, 1.0);
+                (
+                    from,
+                    strength,
+                    (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength,
+                    Vec3::Y.cross(away) * settings.tumble * strength
+                        + Vec3::new(jitter(1), jitter(2), jitter(3)) * settings.spin_jitter * strength,
+                )
+            }
+            None => {
+                let away = Vec3::new(jitter(4), 0.0, jitter(5)).normalize_or(Vec3::X);
+                (pelvis_pos - away * 50.0, 0.0, away * settings.crawler_nudge, Vec3::ZERO)
+            }
+        };
 
         let mut parts: Vec<Entity> = Vec::with_capacity(PARTS.len());
         let mut driven = Vec::with_capacity(PARTS.len());
@@ -658,6 +729,9 @@ impl RagdollDebug<'_, '_> {
         ui.add(egui::Slider::new(&mut s.gravity_scale, 0.0f32..=3.0).text("gravity (×)"));
         ui.add(egui::Slider::new(&mut s.thickness, 0.3f32..=2.0).text("limb thickness (×)"));
         ui.add(egui::Slider::new(&mut s.mass_scale, 0.1f32..=5.0).text("weight (×)"));
+        ui.separator();
+        ui.checkbox(&mut s.crawlers, "Dead crawlers go limp");
+        ui.add(egui::Slider::new(&mut s.crawler_nudge, 0.0f32..=5.0).text("crawler slump push (m/s)"));
         ui.horizontal(|ui| {
             if ui.button("Reset ragdolls").clicked() {
                 *s = default();

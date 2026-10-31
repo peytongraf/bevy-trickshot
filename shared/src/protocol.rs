@@ -468,6 +468,14 @@ pub enum ZombieAnim {
     Climb,
     /// ...or a runner's quicker climb ([`crate::windows::RUN_CLIMB_SECS`]).
     ClimbRun,
+    /// A crawler (an explosion left it barely alive — `crate::zombies`'
+    /// `CRAWLER_*`): going down onto its belly
+    /// ([`crate::zombies::CRAWLER_FALL_SECS`])...
+    CrawlFall,
+    /// ...dragging itself along (or lying there, still)...
+    Crawl,
+    /// ...or swiping up from the ground.
+    CrawlAttack,
     /// A dog-round hellhound (`crate::dogs`) — always running; the client
     /// matches its legs to how fast it's really going.
     Dog,
@@ -491,6 +499,11 @@ impl ZombieAnim {
 
     pub fn is_dog(self) -> bool {
         self == ZombieAnim::Dog
+    }
+
+    /// A crawler, on the ground for good.
+    pub fn is_crawler(self) -> bool {
+        matches!(self, ZombieAnim::CrawlFall | ZombieAnim::Crawl | ZombieAnim::CrawlAttack)
     }
 
     pub fn is_boss(self) -> bool {

@@ -292,9 +292,31 @@ struct ZombieBody {
     /// other; flipped only when a wall's in the way).
     ring: f32,
     circle_dir: f32,
+    /// A crawler ([`BotBrain::cripple`]): when (`Time::elapsed_secs`) it went
+    /// down. On its belly from then on — going down for
+    /// `shared::zombies::CRAWLER_FALL_SECS`, then dragging itself along.
+    crawler: Option<f32>,
 }
 
 impl ZombieBody {
+    /// A crawler still going down: it neither moves nor swings.
+    fn falling(&self, now: f32) -> bool {
+        self.crawler.is_some_and(|since| now - since < shared::zombies::CRAWLER_FALL_SECS)
+    }
+
+    /// `anim` as a crawler does it — everything's a crawl on the ground.
+    fn crawler_anim(&self, now: f32, anim: ZombieAnim) -> ZombieAnim {
+        if self.crawler.is_none() {
+            anim
+        } else if self.falling(now) {
+            ZombieAnim::CrawlFall
+        } else if self.swing.is_some() || anim == ZombieAnim::Attack {
+            ZombieAnim::CrawlAttack
+        } else {
+            ZombieAnim::Crawl
+        }
+    }
+
     /// How far off straight toward its goal it's heading right now (rad),
     /// fading out as it gets close so the last couple of metres are direct.
     fn wander_angle(&self, now: f32, flat_dist: f32, visible: bool) -> f32 {
@@ -322,12 +344,17 @@ impl ZombieBody {
     /// Whether it runs (rather than walks) — a walker breaks into a run
     /// once the Rampage Inducer's fast enough.
     fn runs(&self, rampage: bool) -> bool {
-        self.runner || (rampage && !self.dog && !self.boss && shared::rampage::runs(self.speed))
+        self.crawler.is_none()
+            && (self.runner || (rampage && !self.dog && !self.boss && shared::rampage::runs(self.speed)))
     }
 
     /// Its speed right now, lurching a little either side of its own —
     /// never outside `shared::zombies`' min / max.
     fn speed_now(&self, now: f32, rampage: bool) -> f32 {
+        // (A crawler drags itself along at its own pace, Rampage or not.)
+        if self.crawler.is_some() {
+            return if self.falling(now) { 0.0 } else { shared::zombies::CRAWLER_SPEED };
+        }
         let speed = self.base_speed(rampage)
             * (1.0 + self.surge * (now * self.surge_hz * core::f32::consts::TAU + self.weave_phase * 1.7).sin());
         if self.boss {
@@ -520,6 +547,7 @@ impl BotBrain {
             blast_ready_at: 0.0,
             ring: MONKEY_RING_MIN + (MONKEY_RING_MAX - MONKEY_RING_MIN) * self.roll(),
             circle_dir: 1.0,
+            crawler: None,
         });
         self
     }
@@ -573,6 +601,23 @@ impl BotBrain {
 
     /// Stun a zombie until `until` (`Time::elapsed_secs()`) — PhD Flopper's
     /// blast. No effect on a bot that isn't a zombie.
+    /// A player's explosion left this zombie barely alive: maybe
+    /// ([`shared::zombies::CRAWLER_CHANCE`]) it's knocked off its legs, a
+    /// crawler for good — not a hellhound or a boss, nor one still climbing
+    /// out of the ground. Whether it went down.
+    pub(crate) fn cripple(&mut self, now: f32) -> bool {
+        let can = self.rise.is_none()
+            && self.zombie.is_some_and(|z| !z.dog && !z.boss && z.crawler.is_none());
+        if !can || self.roll() >= shared::zombies::CRAWLER_CHANCE {
+            return false;
+        }
+        if let Some(z) = self.zombie.as_mut() {
+            z.crawler = Some(now);
+            z.swing = None;
+        }
+        true
+    }
+
     pub(crate) fn stun(&mut self, until: f32) {
         if let Some(z) = self.zombie.as_mut() {
             z.stunned_until = z.stunned_until.max(until);
@@ -581,9 +626,9 @@ impl BotBrain {
 
     /// A zombie's current animation state ([`ZombieAnim::None`] for any
     /// other bot).
-    pub fn zombie_anim(&self) -> ZombieAnim {
+    pub fn zombie_anim(&self, now: f32) -> ZombieAnim {
         self.zombie
-            .map_or(ZombieAnim::None, |z| if z.dog { ZombieAnim::Dog } else { z.anim })
+            .map_or(ZombieAnim::None, |z| if z.dog { ZombieAnim::Dog } else { z.crawler_anim(now, z.anim) })
     }
 
     fn skill(&self) -> BotSkill {
@@ -940,7 +985,7 @@ pub(crate) fn drive_bots(
             let inward = rot * Vec3::Z;
             let face_in = f32::atan2(-inward.x, -inward.z);
             let (runs, speed, stunned) = brain.zombie.as_ref().map_or((false, 2.0, false), |z| {
-                (z.runs(lobby.rampage), z.speed_now(now, lobby.rampage), now < z.stunned_until)
+                (z.runs(lobby.rampage), z.speed_now(now, lobby.rampage), now < z.stunned_until || z.falling(now))
             });
             let mut climbing = false;
             let anim = match entry.phase {
@@ -1295,8 +1340,9 @@ pub(crate) fn drive_bots(
                 hold = true;
             }
         } else if let Some(z) = brain.zombie.as_mut() {
-            // Stunned (PhD Flopper): any swing is dropped, and none starts.
-            let stunned = z.stunned_until > now;
+            // Stunned (PhD Flopper), or a crawler going down: any swing is
+            // dropped, and none starts.
+            let stunned = z.stunned_until > now || z.falling(now);
             if stunned {
                 z.swing = None;
             }
@@ -1734,6 +1780,31 @@ pub(crate) fn drive_bots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A zombie an explosion knocks off its legs goes down, then crawls —
+    /// slowly, swiping from the ground — and stays a crawler.
+    #[test]
+    fn a_crippled_zombie_goes_down_then_crawls() {
+        let fall = shared::zombies::CRAWLER_FALL_SECS;
+        let mut brain = (0..32)
+            .map(|seed| BotBrain::new(BotDifficulty::Veteran, Vec3::ZERO, seed).zombie(false, 2.0))
+            .find_map(|mut b| b.cripple(10.0).then_some(b))
+            .expect("some zombie goes down");
+        assert_eq!(brain.zombie_anim(10.2), ZombieAnim::CrawlFall);
+        assert_eq!(brain.zombie_anim(10.0 + fall + 0.1), ZombieAnim::Crawl);
+        let z = brain.zombie.unwrap();
+        assert_eq!(z.speed_now(10.2, false), 0.0);
+        assert_eq!(z.speed_now(10.0 + fall + 0.1, true), shared::zombies::CRAWLER_SPEED);
+        assert!(!z.runs(true));
+        brain.zombie.as_mut().unwrap().swing = Some((20.0, false));
+        assert_eq!(brain.zombie_anim(20.1), ZombieAnim::CrawlAttack);
+        assert!(!brain.cripple(30.0), "only once");
+        // Never a hellhound.
+        assert!((0..32).all(|seed| !BotBrain::new(BotDifficulty::Veteran, Vec3::ZERO, seed)
+            .zombie(false, 2.0)
+            .dog(2.0)
+            .cripple(1.0)));
+    }
     use crate::collision::MapColliders;
     use shared::MapId;
 
@@ -2238,7 +2309,7 @@ mod tests {
         for _ in 0..4 {
             app.update();
         }
-        let anim = app.world().get::<BotBrain>(bot).unwrap().zombie_anim();
+        let anim = app.world().get::<BotBrain>(bot).unwrap().zombie_anim(0.0);
         assert!(anim.is_boss(), "a frozen boss became {anim:?}");
     }
 

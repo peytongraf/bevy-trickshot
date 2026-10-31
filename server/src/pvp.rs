@@ -282,6 +282,7 @@ impl Plugin for PvpPlugin {
             .add_event::<BombBlast>()
             .add_event::<PlayerKilled>()
             .add_event::<ZombieKilled>()
+            .add_event::<ZombieCrippled>()
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
             .add_observer(on_respawn_ready)
@@ -298,6 +299,21 @@ impl Plugin for PvpPlugin {
                 )
                     .chain(),
             );
+    }
+}
+
+/// A player's explosion left a zombie barely alive
+/// (`shared::zombies::CRAWLER_HEALTH_FRAC`) — maybe a crawler now
+/// (`crate::zombies::cripple_zombies`).
+#[derive(Event)]
+pub(crate) struct ZombieCrippled {
+    pub(crate) victim: PeerId,
+}
+
+impl HitCause {
+    /// An explosion — what can knock a zombie off its legs.
+    fn explosive(self) -> bool {
+        matches!(self, HitCause::RayGun | HitCause::Frag | HitCause::Phd | HitCause::BombShot | HitCause::MonkeyBomb)
     }
 }
 
@@ -323,6 +339,7 @@ pub(crate) fn apply_player_hits(
     endings: Res<crate::killcam::EndingLobbies>,
     mut quotes: EventWriter<crate::quotes::SayQuote>,
     brains: Query<(&PlayerId, &crate::ai::BotBrain), With<crate::zombies::Zombie>>,
+    mut crippled: EventWriter<ZombieCrippled>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
@@ -381,6 +398,14 @@ pub(crate) fn apply_player_hits(
         };
         combat.health -= taken;
         combat.last_damage = time.elapsed_secs();
+        if is_bot_peer(ev.victim)
+            && !is_bot_peer(ev.killer)
+            && ev.cause.explosive()
+            && combat.health > 0.0
+            && combat.health <= combat.max_health * shared::zombies::CRAWLER_HEALTH_FRAC
+        {
+            crippled.write(ZombieCrippled { victim: ev.victim });
+        }
         // (Diagnostics: set against the client's own `[predict]` lines.)
         if is_bot_peer(ev.victim) && !is_bot_peer(ev.killer) {
             info!(

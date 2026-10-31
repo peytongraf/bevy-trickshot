@@ -50,6 +50,15 @@ pub(crate) enum ZombieAnimState {
     /// moves it along the climb's path — `shared::windows`). Faster for a
     /// runner.
     Climb { run: bool },
+    /// A crawler (`shared::zombies`' `CRAWLER_*`): `CrawlFall`, going down
+    /// onto its belly, once...
+    CrawlFall,
+    /// ...`Crawl`, dragging itself along (as fast as it's really going)...
+    Crawl,
+    /// ...`CrawlAttack`, swiping up from the ground...
+    CrawlAttack,
+    /// ...and dead: where it lay, the crawl stopped.
+    CrawlDead,
 }
 
 /// How a zombie walks (arms down).
@@ -160,7 +169,19 @@ impl ZombieAnimState {
             ZombieAnimState::FallBack => "falling back",
             ZombieAnimState::FallForward => "falling forward",
             ZombieAnimState::Climb { .. } => "climbing in",
+            ZombieAnimState::CrawlFall => "crawler going down",
+            ZombieAnimState::Crawl => "crawl",
+            ZombieAnimState::CrawlAttack => "crawler swipe",
+            ZombieAnimState::CrawlDead => "crawler dead",
         }
+    }
+
+    /// On the ground for good.
+    fn crawler(self) -> bool {
+        matches!(
+            self,
+            ZombieAnimState::CrawlFall | ZombieAnimState::Crawl | ZombieAnimState::CrawlAttack | ZombieAnimState::CrawlDead
+        )
     }
 
     fn moving(self) -> bool {
@@ -194,6 +215,10 @@ pub(crate) struct ZombieAnimations {
     fall_back: AnimationNodeIndex,
     fall_forward: AnimationNodeIndex,
     climb: AnimationNodeIndex,
+    /// The crawler's (`CrawlFall`, `Crawl`, `CrawlAttack` — the same tool's).
+    crawl_fall: AnimationNodeIndex,
+    crawl: AnimationNodeIndex,
+    crawl_attack: AnimationNodeIndex,
 }
 
 impl ZombieAnimations {
@@ -212,6 +237,9 @@ impl ZombieAnimations {
             ZombieAnimState::FallBack => self.fall_back,
             ZombieAnimState::FallForward => self.fall_forward,
             ZombieAnimState::Climb { .. } => self.climb,
+            ZombieAnimState::CrawlFall => self.crawl_fall,
+            ZombieAnimState::Crawl | ZombieAnimState::CrawlDead => self.crawl,
+            ZombieAnimState::CrawlAttack => self.crawl_attack,
         }
     }
 }
@@ -231,6 +259,10 @@ pub(crate) struct ZombieAvatarSettings {
     pub(crate) walk_arms_up_per_mps: f32,
     /// `Run_InPlace` playback speed per m/s.
     pub(crate) run_per_mps: f32,
+    /// `Crawl` playback speed per m/s — and the least it plays at, lying
+    /// still (still clawing at the ground, slowly).
+    pub(crate) crawl_per_mps: f32,
+    pub(crate) crawl_min_speed: f32,
     /// Flat playback speeds for the rest.
     pub(crate) idle_speed: f32,
     pub(crate) attack_speed: f32,
@@ -258,6 +290,10 @@ impl Default for ZombieAvatarSettings {
             walk_per_mps: 2.5,
             walk_arms_up_per_mps: 2.5,
             run_per_mps: 0.35,
+            // (The crawl's hands drag back ~0.41 m/s at 1× —
+            // `zombie_walk_clips.py`'s `CRAWL`.)
+            crawl_per_mps: 2.46,
+            crawl_min_speed: 0.3,
             idle_speed: 1.0,
             // `Attack` is 1 s long, the same as a swing on the server
             // (`shared::zombies::ZOMBIE_ATTACK_SECS`), so at 1× a looping
@@ -296,11 +332,17 @@ impl ZombieMotion {
         self.speed
     }
 
-    /// Dead and falling (or fallen): `Some(true)` face-first, `Some(false)`
-    /// onto its back. `None` while it's still up.
+    /// A crawler, dead (its crawl stopped where it lay) — `ragdoll` lets it
+    /// go limp.
+    pub(crate) fn crawler_dead(&self) -> bool {
+        self.state == ZombieAnimState::CrawlDead
+    }
+
+    /// Dead and falling (or fallen): `Some(true)` face-first (a crawler
+    /// too), `Some(false)` onto its back. `None` while it's still up.
     pub(crate) fn fell_forward(&self) -> Option<bool> {
         match self.state {
-            ZombieAnimState::FallForward => Some(true),
+            ZombieAnimState::FallForward | ZombieAnimState::CrawlDead => Some(true),
             ZombieAnimState::FallBack => Some(false),
             _ => None,
         }
@@ -329,11 +371,12 @@ fn setup_zombie_assets(
     // `models/characters/zombie.glb`'s clips: 0 Idle, 1 Walk1_InPlace, 2 Walk_InPlace,
     // 3 Run_InPlace, 4 Attack, 5 FallingBack, 6 FallingForward, (7–9 unused,)
     // 10 Mantle — and 11 ShambleWalk, 12 ShambleWalkHeavy, 13 StumbleWalk,
-    // 14 ScaryRun, 15 BrokenRun, ours (`client/tools/zombie_walk_clips.py`).
+    // 14 ScaryRun, 15 BrokenRun, 16 CrawlFall, 17 Crawl, 18 CrawlAttack, ours
+    // (`client/tools/zombie_walk_clips.py`).
     let clip = |i: usize| -> Handle<AnimationClip> {
         asset_server.load(GltfAssetLabel::Animation(i).from_asset(ZOMBIE_MODEL))
     };
-    let (graph, nodes) = AnimationGraph::from_clips((0..7).chain([10, 11, 12, 13, 14, 15]).map(clip));
+    let (graph, nodes) = AnimationGraph::from_clips((0..7).chain(10..=18).map(clip));
     commands.insert_resource(ZombieAnimations {
         graph: graphs.add(graph),
         idle: nodes[0],
@@ -349,6 +392,9 @@ fn setup_zombie_assets(
         stumble: nodes[10],
         scary_run: nodes[11],
         broken_run: nodes[12],
+        crawl_fall: nodes[13],
+        crawl: nodes[14],
+        crawl_attack: nodes[15],
     });
 }
 
@@ -456,6 +502,9 @@ fn animate_zombie_avatars(
         let state = if !crate::melee_predict::alive(pose, predicted_death) {
             if matches!(motion.state, ZombieAnimState::FallBack | ZombieAnimState::FallForward) {
                 motion.state
+            } else if motion.state.crawler() || pose.zombie.is_crawler() {
+                // (Already down: it dies where it lies.)
+                ZombieAnimState::CrawlDead
             } else {
                 if crate::util::rand01(seed) < 0.5 {
                     ZombieAnimState::FallBack
@@ -477,6 +526,9 @@ fn animate_zombie_avatars(
                 ZombieAnim::Attack => ZombieAnimState::Attack,
                 ZombieAnim::Climb => ZombieAnimState::Climb { run: false },
                 ZombieAnim::ClimbRun => ZombieAnimState::Climb { run: true },
+                ZombieAnim::CrawlFall => ZombieAnimState::CrawlFall,
+                ZombieAnim::Crawl => ZombieAnimState::Crawl,
+                ZombieAnim::CrawlAttack => ZombieAnimState::CrawlAttack,
                 // (A hellhound gets its own avatar — `dogs`.)
                 ZombieAnim::Idle
                 | ZombieAnim::Rising
@@ -507,19 +559,24 @@ fn animate_zombie_avatars(
             continue;
         };
         if state != motion.state {
+            let was = motion.state;
             motion.state = state;
             let repeat = match state {
-                ZombieAnimState::FallBack | ZombieAnimState::FallForward | ZombieAnimState::Climb { .. } => {
-                    RepeatAnimation::Never
-                }
+                ZombieAnimState::FallBack
+                | ZombieAnimState::FallForward
+                | ZombieAnimState::Climb { .. }
+                | ZombieAnimState::CrawlFall => RepeatAnimation::Never,
                 _ => RepeatAnimation::Forever,
             };
-            let active = transitions
-                .play(&mut player, anims.node_for(state), blend)
-                .set_repeat(repeat);
-            // (From the top, each window — even one climbed a moment ago.)
-            if matches!(state, ZombieAnimState::Climb { .. }) {
-                active.replay();
+            // (A crawler dying mid-crawl just stops where it is.)
+            if !(state == ZombieAnimState::CrawlDead && was == ZombieAnimState::Crawl) {
+                let active = transitions
+                    .play(&mut player, anims.node_for(state), blend)
+                    .set_repeat(repeat);
+                // (From the top, each window — even one climbed a moment ago.)
+                if matches!(state, ZombieAnimState::Climb { .. }) {
+                    active.replay();
+                }
             }
         }
         // Every frame, so the panel's sliders and speed changes apply live.
@@ -542,9 +599,15 @@ fn animate_zombie_avatars(
                 let secs = if run { shared::windows::RUN_CLIMB_SECS } else { shared::windows::CLIMB_SECS };
                 shared::windows::CLIMB_SECS / secs
             }
+            // (The clip's as long as the server's fall, and its swipe as a
+            // swing.)
+            ZombieAnimState::CrawlFall | ZombieAnimState::CrawlAttack => settings.attack_speed,
+            ZombieAnimState::Crawl => (speed * settings.crawl_per_mps).max(settings.crawl_min_speed),
+            ZombieAnimState::CrawlDead => 0.0,
         };
         if let Some(active) = player.animation_mut(anims.node_for(motion.state)) {
-            active.set_speed(rate.max(0.01));
+            let rate = if motion.state == ZombieAnimState::CrawlDead { 0.0 } else { rate.max(0.01) };
+            active.set_speed(rate);
         }
 
         if let Some(me) = me {

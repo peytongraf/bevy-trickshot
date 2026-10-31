@@ -106,6 +106,11 @@ pub fn hit_capsules(feet: Vec3, anim: ZombieAnim, height: f32, radius: f32, head
             Capsule::standing(feet, BOSS_HEIGHT, BOSS_RADIUS),
             Capsule::head(feet, BOSS_HEIGHT, BOSS_HEAD_RADIUS),
         )
+    } else if anim.is_crawler() {
+        // Down on its belly — a squat lump (its yaw isn't known here; a
+        // player's own shots are tested on its model as drawn).
+        let height = crate::zombies::CRAWLER_HEIGHT;
+        (Capsule::standing(feet, height, radius * 1.6), Capsule::head(feet, height, head_radius))
     } else {
         (Capsule::standing(feet, height, radius), Capsule::head(feet, height, head_radius))
     }

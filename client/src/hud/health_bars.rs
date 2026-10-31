@@ -252,7 +252,13 @@ fn update_health_bars(
             // (...and a boss's is well over it.)
             let dog_drop = if dog { DOG_BAR_DROP } else { 0.0 };
             let boss_rise = if pose.zombie.is_boss() { shared::boss::BOSS_HEIGHT - 1.8 } else { 0.0 };
-            let anchor = pose.translation + Vec3::Y * (settings.height - dog_drop + boss_rise);
+            // (...and a crawler's down on the ground.)
+            let crawl_drop = if pose.zombie.is_crawler() {
+                crate::EYE_HEIGHT - shared::zombies::CRAWLER_HEIGHT
+            } else {
+                0.0
+            };
+            let anchor = pose.translation + Vec3::Y * (settings.height - dog_drop + boss_rise - crawl_drop);
             // `world_to_viewport` fails for points behind the camera.
             let screen = cam.world_to_viewport(&cam_gt, anchor).ok()?;
             let size = window.size();
@@ -270,7 +276,8 @@ fn update_health_bars(
                         .cast_ray(cam_pos, to / dist, dist - 0.05, true, QueryFilter::default())
                         .is_none()
             };
-            if !clear(pose.translation + Vec3::Y * 0.1) && !clear(pose.translation - Vec3::Y * 0.45) {
+            let eye = pose.translation - Vec3::Y * crawl_drop;
+            if !clear(eye + Vec3::Y * 0.1) && !clear(eye - Vec3::Y * 0.45) {
                 return None;
             }
             let frac = if bar.max > 0.0 { (health / bar.max).clamp(0.0, 1.0) } else { 1.0 };
