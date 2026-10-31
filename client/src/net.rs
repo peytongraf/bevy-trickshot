@@ -143,6 +143,8 @@ impl Plugin for ClientNetPlugin {
                 crate::hit_detection::claim_shot_hits,
                 crate::melee_predict::time_stab,
                 write_input,
+                // (What it just sent, shown landing — `shot_predict`.)
+                crate::shot_predict::note_shot,
             )
                 .chain()
                 .in_set(InputSet::WriteClientInputs)
@@ -1560,6 +1562,7 @@ fn animate_remote_avatars(
         &mut RemoteAvatarMotion,
         &crate::SoldierAnimationPlayer,
         Has<killcam::KillCamPlayerGhost>,
+        Has<crate::melee_predict::PredictedDeath>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     killcam: Res<killcam::ActiveKillCam>,
@@ -1625,10 +1628,12 @@ fn animate_remote_avatars(
     // slow-mo dip), so judge its walking speed against replay time.
     let replay_speed = killcam.0.as_ref().map_or(1.0, |run| run.speed).max(0.05);
 
-    for (avatar, mut motion, anim_player, in_replay) in &mut avatars {
+    for (avatar, mut motion, anim_player, in_replay, predicted_death) in &mut avatars {
         let Ok(pose) = poses.get(avatar.src) else {
             continue;
         };
+        // (Dead the moment our shot or knife killed it, here — `shot_predict`.)
+        let alive = crate::melee_predict::alive(pose, predicted_death);
         let dt = if in_replay { dt * replay_speed } else { dt };
 
         // Just respawned: `pose.translation` jumped straight from wherever
@@ -1637,7 +1642,7 @@ fn animate_remote_avatars(
         // of movement — a one-frame flash of `Sprint` (or worse) before it
         // settles on `Idle`. Priming `prev_translation` with *this* frame's
         // position first makes that delta (and so the computed speed) zero.
-        if motion.state == crate::SoldierAnimState::Dead && pose.alive {
+        if motion.state == crate::SoldierAnimState::Dead && alive {
             motion.prev_translation = Some(pose.translation);
         }
 
@@ -1675,7 +1680,7 @@ fn animate_remote_avatars(
         // below is picked again on the very next frame. `Jump` outranks
         // `Reload` since landing mid-reload should still show the jump/land
         // motion.
-        let new_state = if !pose.alive {
+        let new_state = if !alive {
             crate::SoldierAnimState::Dead
         } else if pose.diving && motion.dive_secs < DIVE_JUMP_SECS {
             // Leaving the ground: a running jump's take-off...
@@ -1975,8 +1980,9 @@ fn sync_held_weapons(
 #[derive(Component)]
 pub(crate) struct BotPose {
     pub(crate) bot: Entity,
-    /// Set once the bot's death has been seen, so the blood burst fires once.
-    died: bool,
+    /// Set once the bot's death has been seen (or our shot's foreseen it —
+    /// `shot_predict`), so the blood burst fires once.
+    pub(crate) died: bool,
 }
 
 const BOT_H: f32 = 1.8;

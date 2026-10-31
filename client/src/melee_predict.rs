@@ -8,19 +8,21 @@
 //! a claim ([`shared::PlayerInput::melee_hit`]) for the server to check
 //! (`shared::melee::check_melee_claim`; failing that it resolves the stab
 //! itself, as it always did). Then, at once, here ([`show_stab`]): the stab
-//! or swing sound, the enemy's blood, the hit marker and damage number,
-//! and — when the stab's sure to kill a zombie (its health against the
-//! knife's damage, with our Pack-a-Punch and an Insta-Kill counted) — its
-//! death fall and cry ([`PredictedDeath`]), and the kill's points and sound.
+//! or swing sound, and through `shot_predict` — which does the same for our
+//! shots, bolts and thrown knives — the enemy's blood, the hit marker and
+//! damage number, and when the stab's sure to kill (a zombie's health
+//! against the knife's damage, with our Pack-a-Punch and an Insta-Kill
+//! counted; a target always; a player's health against a knife's) its fall
+//! ([`PredictedDeath`]) and the kill's points and sound.
 //!
 //! The server's own word on each of those, arriving a moment later, is
 //! then passed over ([`Predicted`]) so nothing shows twice; anything it
 //! says that wasn't foreseen (a kill where only a hit was) still shows. If
-//! it doesn't agree a zombie died ([`CONFIRM_SECS`] on), that zombie gets
-//! back up. (The server doesn't send us our own stab's sound at all.)
+//! it doesn't agree one died ([`CONFIRM_SECS`] on), it gets back up. (The
+//! server doesn't send us our own stab's sound at all.)
 //!
 //! [`Stab`] and [`Predicted`] are cleared leaving a game; a
-//! [`PredictedDeath`] lives on its zombie's avatar and goes with it.
+//! [`PredictedDeath`] lives on its avatar and goes with it.
 
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
@@ -29,7 +31,7 @@ use shared::melee::{KNIFE_HIT_SECS, KNIFE_REACH_M, KNIFE_TIP_DROP_M};
 use shared::{GameMode, Lobby, PlayerHealth, PlayerPose, Projectile, ShotClaim};
 
 use crate::audio_engine::prelude::*;
-use crate::hit_detection::{may_hit, Kind, ModelHit, Models};
+use crate::hit_detection::{may_hit, ModelHit, Models};
 use crate::net::{GameClient, RemoteAvatar, STAB_ANIM_SECS};
 use crate::{AppState, KnifeSounds, PendingMelee, PendingShot, WorldModelCamera};
 
@@ -75,31 +77,15 @@ pub(crate) struct Stab {
 #[derive(Event)]
 pub(crate) struct StabLanded {
     eye: Vec3,
-    struck: Option<Struck>,
+    struck: Option<ModelHit>,
 }
 
-struct Struck {
-    /// Who (a player entity's peer id — `None` for a `Freestyle` target).
-    victim: Option<PeerId>,
-    avatar: Entity,
-    point: Vec3,
-    /// The way the knife went in.
-    dir: Vec3,
-    kind: Kind,
-    dog: bool,
-    boss: bool,
-    /// Whether it's sure to kill.
-    kill: bool,
-    /// A zombie's: the damage it'll show.
-    damage: Option<u32>,
-}
-
-/// What we've already shown of our stabs, for the server's word on them to
-/// be passed over.
+/// What we've already shown of our stabs, shots and throws, for the
+/// server's word on them to be passed over.
 #[derive(Resource, Default)]
 pub(crate) struct Predicted(Vec<Foreseen>);
 
-struct Foreseen {
+pub(crate) struct Foreseen {
     /// When (`Time`) it was shown.
     at: f32,
     victim: Option<PeerId>,
@@ -111,9 +97,46 @@ struct Foreseen {
     number: bool,
     /// The points shown for it.
     score: Option<u32>,
+    /// Another player's kill, whose sound we've played.
+    ffa_kill: bool,
+}
+
+impl Foreseen {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        at: f32,
+        victim: Option<PeerId>,
+        point: Vec3,
+        kill: bool,
+        blood: bool,
+        number: bool,
+        score: Option<u32>,
+        ffa_kill: bool,
+    ) -> Self {
+        Self { at, victim, point, kill, marker: true, blood, number, score, ffa_kill }
+    }
+
+    /// Just a shot's points (a `Freestyle` kill's, paid once for the lot).
+    pub(crate) fn score_only(at: f32, total: u32) -> Self {
+        Self {
+            at,
+            victim: None,
+            point: Vec3::ZERO,
+            kill: false,
+            marker: false,
+            blood: false,
+            number: false,
+            score: Some(total),
+            ffa_kill: false,
+        }
+    }
 }
 
 impl Predicted {
+    pub(crate) fn foresee(&mut self, f: Foreseen) {
+        self.0.push(f);
+    }
+
     /// Whether the server's hit marker for `victim` was foreseen (and so
     /// already flashed) — a kill one only if we saw the kill too.
     pub(crate) fn marker(&mut self, victim: Option<PeerId>, kill: bool) -> bool {
@@ -150,14 +173,31 @@ impl Predicted {
             .map(|f| f.score = None)
             .is_some()
     }
+
+    /// Whether a kill of another player that our score's just gone up for
+    /// was foreseen (its sound already played).
+    pub(crate) fn ffa_kill(&mut self) -> bool {
+        self.0
+            .iter_mut()
+            .find(|f| f.ffa_kill)
+            .map(|f| f.ffa_kill = false)
+            .is_some()
+    }
 }
 
-/// On a zombie's avatar we saw our knife kill, from when (`Time`): it falls
-/// and lies there at once — held where it fell, whatever the server says
-/// for its body — unless the server hasn't agreed by [`CONFIRM_SECS`].
+/// On an avatar we saw our knife, shot or throw kill, from when (`Time`):
+/// it falls and lies there at once — held where it fell, whatever the
+/// server says for its body — unless the server hasn't agreed by
+/// [`CONFIRM_SECS`].
 #[derive(Component)]
 pub(crate) struct PredictedDeath {
     since: f32,
+}
+
+impl PredictedDeath {
+    pub(crate) fn new(since: f32) -> Self {
+        Self { since }
+    }
 }
 
 /// Whether an avatar's alive: by the server, unless we saw it die.
@@ -184,7 +224,7 @@ pub(crate) fn time_stab(
     cam: Query<&GlobalTransform, With<WorldModelCamera>>,
     rapier: ReadRapierContext,
     models: Models,
-    (local, lobbies, healths): (Query<&LocalId, With<GameClient>>, Query<&Lobby>, Healths),
+    (local, lobbies): (Query<&LocalId, With<GameClient>>, Query<&Lobby>),
     mut stab: ResMut<Stab>,
     mut landed: EventWriter<StabLanded>,
 ) {
@@ -203,9 +243,8 @@ pub(crate) fn time_stab(
                 let aim = cam.forward().as_vec3();
                 let me = local.iter().next().map(|l| l.0);
                 let lobby = lobbies.iter().find(|l| me.is_some_and(|me| l.has(me)));
-                let hit = strike(eye, aim, &models, &rapier, lobby.map(|l| l.mode));
-                send = Some((eye, aim, hit.as_ref().map(|h| h.claim)));
-                let struck = hit.map(|h| foresee(h, eye, me, lobby, &healths));
+                let struck = strike(eye, aim, &models, &rapier, lobby.map(|l| l.mode));
+                send = Some((eye, aim, struck.as_ref().map(|h| h.claim)));
                 landed.write(StabLanded { eye, struck });
             }
         }
@@ -252,7 +291,7 @@ pub(crate) struct Healths<'w, 's> {
 
 impl Healths<'_, '_> {
     /// `src`'s health (an avatar's source), or failing that `peer`'s.
-    fn of(&self, src: Entity, peer: Option<PeerId>) -> Option<f32> {
+    pub(crate) fn of(&self, src: Entity, peer: Option<PeerId>) -> Option<f32> {
         self.healths
             .get(src)
             .ok()
@@ -265,67 +304,23 @@ impl Healths<'_, '_> {
     }
 }
 
-/// What a stab that struck will do, as far as we can tell: a zombie dies
-/// if the knife's damage (with our Pack-a-Punch on it) is at least what
-/// health it has left, or an Insta-Kill's on; a `Freestyle` target always
-/// does. (A player might have armour — that's left to the server.)
-fn foresee(hit: ModelHit, eye: Vec3, me: Option<PeerId>, lobby: Option<&Lobby>, healths: &Healths) -> Struck {
-    let point = Vec3::from_array(hit.claim.point);
-    let victim = hit.victim;
-    let (kill, damage) = match hit.kind {
-        Kind::Zombie => {
-            let health = healths.of(hit.src, hit.victim).unwrap_or(0.0);
-            let pap = lobby
-                .and_then(|l| l.members.iter().find(|m| Some(m.peer) == me))
-                .map_or(1.0, |m| shared::pap::damage_mult(m.pap.get(shared::pap::PapWeapon::Knife)));
-            let insta = lobby.is_some_and(|l| l.power_up_active(shared::power_ups::PowerUp::InstaKill));
-            let knife = shared::zombies::ZOMBIE_KNIFE_DAMAGE * pap;
-            let taken = if insta { health } else { knife.min(health) };
-            (health > 0.0 && (insta || knife >= health), (health > 0.0).then(|| taken.round().max(1.0) as u32))
-        }
-        Kind::Bot => (true, None),
-        Kind::Player => (false, None),
-    };
-    Struck {
-        victim,
-        avatar: hit.avatar,
-        point,
-        dir: (point - eye).normalize_or(Vec3::NEG_Z),
-        kind: hit.kind,
-        dog: hit.dog,
-        boss: hit.boss,
-        kill,
-        damage,
-    }
-}
-
 /// Show our stab landing: its sound, and on whoever it struck the blood,
-/// hit marker, damage number — and if it kills a zombie, its fall and the
-/// kill's points.
-#[allow(clippy::too_many_arguments)]
+/// hit marker, damage number — and if it kills, its fall and the kill's
+/// points (`shot_predict`).
 fn show_stab(
-    time: Res<Time>,
     mut landed: EventReader<StabLanded>,
     knife_sounds: Res<KnifeSounds>,
-    blood_settings: Res<crate::vfx::EnemyBloodSettings>,
-    (local, lobbies): (Query<&LocalId, With<GameClient>>, Query<&Lobby>),
-    mut predicted: ResMut<Predicted>,
-    mut out: (
-        EventWriter<crate::vfx::BloodImpact>,
-        EventWriter<crate::hit_marker::LocalHitMarker>,
-        EventWriter<crate::hud::ShowDamageNumber>,
-        EventWriter<crate::TrickScoredEvent>,
-    ),
+    judge: crate::shot_predict::Judge,
+    mut feedback: crate::shot_predict::Feedback,
     mut commands: Commands,
     mut seq: Local<u32>,
 ) {
-    let now = time.elapsed_secs();
     for stab in landed.read() {
         *seq = seq.wrapping_add(1);
         let variant = (seq.wrapping_mul(2_654_435_761) >> 24) as u8;
         // Its sound: a stab from where it went in, or a swing from us.
         let (set, at) = match &stab.struck {
-            Some(s) => (&knife_sounds.stab, s.point),
+            Some(s) => (&knife_sounds.stab, Vec3::from_array(s.claim.point)),
             None => (&knife_sounds.swing, stab.eye),
         };
         if let Some(clip) = set.pick(variant) {
@@ -335,70 +330,10 @@ fn show_stab(
                 crate::positional_playback(Volume::Linear(1.0)),
             ));
         }
-        let Some(s) = &stab.struck else { continue };
-        let zombie = s.kind == Kind::Zombie;
-
-        if zombie {
-            let enemy = if s.dog {
-                &blood_settings.dog
-            } else if s.boss {
-                &blood_settings.boss
-            } else {
-                &blood_settings.zombie
-            };
-            out.0.write(crate::vfx::BloodImpact {
-                point: s.point,
-                dir: s.dir,
-                style: Some(enemy.burst(s.kill)),
-            });
+        let Some(hit) = &stab.struck else { continue };
+        if let (Some(landed), score) = crate::shot_predict::foresee_stab(hit, stab.eye, &judge) {
+            feedback.show(&[landed], score);
         }
-        out.1.write(crate::hit_marker::LocalHitMarker {
-            kill: s.kill,
-            victim: s.victim,
-        });
-        if let Some(damage) = s.damage {
-            out.2.write(crate::hud::ShowDamageNumber {
-                point: s.point,
-                damage,
-                critical: true,
-            });
-        }
-
-        // A zombie's kill: its points (and the kill sound with them), the
-        // same the server pays — a knife kill's a critical one.
-        let mut score = None;
-        if zombie && s.kill && !s.dog && !s.boss {
-            let lobby = crate::zombies_hud::my_lobby(&local, &lobbies);
-            let mult = if lobby.is_some_and(|l| l.power_up_active(shared::power_ups::PowerUp::DoublePoints)) {
-                2
-            } else {
-                1
-            };
-            let lines = vec![
-                ("KILL".to_string(), shared::ZOMBIE_KILL_POINTS * mult),
-                ("CRITICAL".to_string(), shared::ZOMBIE_CRITICAL_POINTS * mult),
-            ];
-            let total = lines.iter().map(|(_, p)| p).sum();
-            score = Some(total);
-            out.3.write(crate::TrickScoredEvent {
-                total,
-                color: crate::hud::score_color(true, &lines),
-                lines,
-                sound: None,
-            });
-            commands.entity(s.avatar).try_insert(PredictedDeath { since: now });
-        }
-
-        predicted.0.push(Foreseen {
-            at: now,
-            victim: s.victim,
-            point: s.point,
-            kill: s.kill,
-            marker: true,
-            blood: zombie,
-            number: s.damage.is_some(),
-            score,
-        });
     }
 }
 

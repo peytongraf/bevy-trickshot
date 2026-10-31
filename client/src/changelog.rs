@@ -17,6 +17,8 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Kills, hit markers and damage numbers now show the instant your shot lands.",
+        "Retuned the blood and red tint when you're hurt.",
         "Zombies: dead zombies stay on the ground longer.",
         "Zombies: explosions throw zombies they kill as ragdolls.",
         "Sounds behind walls are now muffled.",

@@ -9,3 +9,4 @@
 - Could make shroom tea brighten map slightly like a sort of night vision
 - Make multiplayer and then zombies modes that are seen at the main screen like cod. When clicking on multiplayer it shows a different bg and plays different music than zombies.
 - On zombies could add a boss that can only take damage from trick shots
+- Can turn on flashlight if an area is too dark instead of having it only on when the power is off

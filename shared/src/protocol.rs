@@ -1634,6 +1634,11 @@ pub struct Bot {
     pub yaw: f32,
     /// `true` until shot.
     pub alive: bool,
+    /// What's left of [`crate::bots::BOT_HEALTH`] — shots take it off
+    /// (`server::sim`) and it dies at zero; a knife kills outright. Here so
+    /// the shooter's client can tell at once whether a shot kills
+    /// (`client::shot_predict`).
+    pub health: f32,
     /// `0.0` upright … `1.0` flat on the ground. Ramps up after death.
     pub fall: f32,
     /// A lobby member pinged it ([`PingBot`]) within the last
@@ -1648,6 +1653,7 @@ impl Ease for Bot {
             pos: Vec3::lerp(start.pos, end.pos, t),
             yaw: lerp_angle(start.yaw, end.yaw, t),
             alive: end.alive,
+            health: end.health,
             fall: start.fall + (end.fall - start.fall) * t,
             pinged: end.pinged,
         })

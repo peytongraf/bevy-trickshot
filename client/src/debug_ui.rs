@@ -30,12 +30,12 @@ pub(crate) fn ads_tuning_ui(
     mut rocks: ResMut<RockSettings>,
     mut dust: ResMut<DustSettings>,
     mut movement: ResMut<MovementSettings>,
-    (mut slide_cfg, mut footsteps, mut audio_mixer, mut crosshair_cfg, (local_health, mut hurt_fx), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
+    (mut slide_cfg, mut footsteps, mut audio_mixer, mut crosshair_cfg, (local_health, mut hurt_fx, mut hurt_preview), mut drink, mut nitro, mut drunk, local_id, lobbies, mut bots_passive_tx, mut shroom_kick, mut drunk_kick, (mut flashlight, (mut machines, mut classic), _current_map, mut map_lights, mut round_anim, mut explosion, mut bomb_test_tx, mut kanga, mut zombie_look, zombie_readout, mut zombie_voice, mut power_lever, mut pap, mut hum, (mut ammo_crate, mut power_ups, mut power_up_test_tx, mut molotov_dbg, mut drop_power_up_tx, mut ak_cfg), mut bots_frozen_tx)): (
         ResMut<SlideSettings>,
         ResMut<FootstepSettings>,
         ResMut<crate::audio_engine::AudioMixer>,
         ResMut<CrosshairSettings>,
-        (Res<LocalHealth>, ResMut<crate::health::HurtEffectSettings>),
+        (Res<LocalHealth>, ResMut<crate::health::HurtEffectSettings>, ResMut<crate::health::HurtPreview>),
         ResMut<crate::DrinkArmsSettings>,
         ResMut<crate::zombies_hud::NitroBrew>,
         ResMut<crate::DrunkSettings>,
@@ -1417,6 +1417,30 @@ pub(crate) fn ads_tuning_ui(
                     ui.label(format!(
                         "now: {:.0}%",
                         h.strength(local_health.health, local_health.max) * 100.0
+                    ));
+                    ui.label("Preview");
+                    let p = &mut *hurt_preview;
+                    ui.checkbox(&mut p.on, "Show the blood & tint at this health (not your real one)");
+                    let mut pct = p.health * 100.0;
+                    if ui
+                        .add(egui::Slider::new(&mut pct, 0.0f32..=100.0).step_by(1.0).text("preview health (% of max)"))
+                        .changed()
+                    {
+                        p.health = pct / 100.0;
+                        p.on = true;
+                    }
+                    ui.horizontal(|ui| {
+                        for step in [90.0f32, 75.0, 66.0, 50.0, 33.0, 25.0, 10.0] {
+                            if ui.button(format!("{step:.0}%")).clicked() {
+                                p.health = step / 100.0;
+                                p.on = true;
+                            }
+                        }
+                    });
+                    ui.label(format!(
+                        "at {:.0}% health: {:.0}% strength",
+                        p.health * 100.0,
+                        h.strength(p.health * local_health.max, local_health.max) * 100.0
                     ));
                     ui.label("Blood & tint (at full strength)");
                     ui.add(egui::Slider::new(&mut h.blood_opacity, 0.0f32..=1.0).text("blood opacity"));

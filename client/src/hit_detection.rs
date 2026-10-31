@@ -49,6 +49,7 @@ pub(crate) struct HitDetectionPlugin;
 impl Plugin for HitDetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotHits>()
+            .init_resource::<ShotModels>()
             .init_resource::<OwnProjectiles>()
             .add_systems(Update, track_own_projectiles.run_if(in_state(AppState::InGame)))
             .add_systems(OnExit(AppState::InGame), forget);
@@ -59,6 +60,11 @@ impl Plugin for HitDetectionPlugin {
 /// send with it. `None` with no shot waiting.
 #[derive(Resource, Default)]
 pub(crate) struct ShotHits(pub(crate) Option<Vec<ShotClaim>>);
+
+/// This tick's shot's hits as [`ModelHit`]s — what `shot_predict` shows
+/// landing once the shot's gone up.
+#[derive(Resource, Default)]
+pub(crate) struct ShotModels(pub(crate) Vec<ModelHit>);
 
 /// Our Ray Gun bolts and thrown knives still in flight.
 #[derive(Resource, Default)]
@@ -109,8 +115,9 @@ fn bounds(boss: bool) -> (f32, f32) {
     if boss { (1.5, 3.0) } else { (1.0, 2.0) }
 }
 
-fn forget(mut hits: ResMut<ShotHits>, mut own: ResMut<OwnProjectiles>) {
+fn forget(mut hits: ResMut<ShotHits>, mut models: ResMut<ShotModels>, mut own: ResMut<OwnProjectiles>) {
     hits.0 = None;
+    models.0.clear();
     own.0.clear();
 }
 
@@ -139,6 +146,8 @@ pub(crate) struct ModelHit {
     /// A hellhound's / a boss's.
     pub(crate) dog: bool,
     pub(crate) boss: bool,
+    /// A `Freestyle` target's health left (`Bot::health`).
+    pub(crate) bot_health: Option<f32>,
 }
 
 /// Every enemy's model, as drawn — for testing what we fire against them.
@@ -189,14 +198,15 @@ impl Models<'_, '_> {
             if !crate::melee_predict::alive(pose, predicted_death) {
                 continue;
             }
-            let (target, kind) = match (id, stand_in) {
+            let (target, kind, bot_health) = match (id, stand_in) {
                 (_, Some(stand_in)) => match self.bots.get(stand_in.bot) {
-                    Ok(bot) if bot.alive => (ClaimTarget::Bot(bot.pos.to_array()), Kind::Bot),
+                    Ok(bot) if bot.alive => (ClaimTarget::Bot(bot.pos.to_array()), Kind::Bot, Some(bot.health)),
                     _ => continue,
                 },
                 (Some(id), None) => (
                     ClaimTarget::Player(id.0.to_bits()),
                     if pose.zombie.is_zombie() { Kind::Zombie } else { Kind::Player },
+                    None,
                 ),
                 (None, None) => continue,
             };
@@ -265,6 +275,7 @@ impl Models<'_, '_> {
                 victim: id.map(|id| id.0),
                 dog,
                 boss,
+                bot_health,
             });
         }
         hits.sort_by(|a, b| a.along.total_cmp(&b.along));
@@ -283,7 +294,9 @@ pub(crate) fn claim_shot_hits(
     models: Models,
     mut own: ResMut<OwnProjectiles>,
     mut out: ResMut<ShotHits>,
+    mut struck: ResMut<ShotModels>,
 ) {
+    struck.0.clear();
     let Some(dir) = pending.0 else {
         out.0 = None;
         return;
@@ -315,7 +328,8 @@ pub(crate) fn claim_shot_hits(
     let path = shot_path(weapon.primary, origin, aim);
     let mut hits = models.hits_along(&path);
     hits.truncate(MAX_CLAIMS);
-    out.0 = Some(hits.into_iter().map(|h| h.claim).collect());
+    out.0 = Some(hits.iter().map(|h| h.claim).collect());
+    struck.0 = hits;
 }
 
 /// Follow our Ray Gun bolts and thrown knives in flight: this frame's
@@ -331,6 +345,7 @@ fn track_own_projectiles(
     mut flights: Query<&mut MessageReceiver<shared::KnifeFlight>>,
     mut sender: Query<&mut TriggerSender<shared::ProjectileClaim>, With<GameClient>>,
     mut landed: EventWriter<crate::RayGunLanded>,
+    mut struck: EventWriter<crate::shot_predict::ProjectileStruck>,
     mut own: ResMut<OwnProjectiles>,
 ) {
     // A knife's path, from the server.
@@ -375,6 +390,12 @@ fn track_own_projectiles(
                     claimed: true,
                 });
             }
+            // ...and shown landing at once (`shot_predict`).
+            struck.write(crate::shot_predict::ProjectileStruck {
+                projectile: p.projectile,
+                origin: p.origin,
+                hit,
+            });
             return false;
         }
         if to < end {

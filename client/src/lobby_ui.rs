@@ -355,6 +355,7 @@ fn play_ffa_kill_sound(
     lobbies: Query<&shared::Lobby, Changed<shared::Lobby>>,
     sounds: Res<crate::GameSounds>,
     mut last: ResMut<LastOwnScore>,
+    mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut commands: Commands,
 ) {
     let Some(me) = local_peer(&local) else {
@@ -372,7 +373,8 @@ fn play_ffa_kill_sound(
         return;
     };
     if let Some(prev) = last.0 {
-        if member.score > prev {
+        // (Already played, as our shot or knife landed — `shot_predict`.)
+        if member.score > prev && !predicted.ffa_kill() {
             commands.spawn((
                 AudioPlayer::new(sounds.kill_enemy.clone()),
                 PlaybackSettings::DESPAWN,

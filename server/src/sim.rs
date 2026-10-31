@@ -18,7 +18,7 @@ use shared::{
     RemoteSound, ShotOutcome, ShotResolved, TrickScore,
 };
 
-use crate::bots::{BotHealth, BotHit, LobbyBot};
+use crate::bots::{BotHit, LobbyBot};
 use crate::collision::MapColliders;
 use crate::pvp::{PlayerCombat, PlayerHit};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS};
@@ -90,7 +90,11 @@ impl Plugin for SimPlugin {
             FixedUpdate,
             (
                 apply_client_pose,
-                resolve_shots,
+                // (Its hits applied the same tick — a kill's word goes out
+                // with no tick's wait.)
+                resolve_shots
+                    .before(crate::pvp::apply_player_hits)
+                    .before(crate::bots::apply_bot_hits),
                 crate::raygun::fly_bolts,
                 broadcast_remote_sounds,
             )
@@ -201,7 +205,7 @@ fn resolve_shots(
     mut sender: ServerMultiMessageSender,
     shooters: Query<(&PlayerId, &ActionState<PlayerInput>, &crate::lobby::LobbyPlayer)>,
     poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
-    mut bots: Query<(Entity, &Bot, &LobbyBot, &mut BotHealth)>,
+    mut bots: Query<(Entity, &mut Bot, &LobbyBot)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
     mut bot_hits: EventWriter<BotHit>,
@@ -265,7 +269,7 @@ fn resolve_shots(
         }
         // No bots in `FreeForAll` — it's pure PvP.
         if lobby.mode == GameMode::Freestyle {
-            for (entity, bot, lb, _) in &bots {
+            for (entity, bot, lb) in &bots {
                 if lb.lobby != lobby_e || !bot.alive {
                     continue;
                 }
@@ -488,11 +492,11 @@ fn resolve_shots(
                     let Some(HitKind::Bot(bot)) = kind.get(&hit.target) else {
                         continue;
                     };
-                    let Ok((_, _, _, mut health)) = bots.get_mut(*bot) else {
+                    let Ok((_, mut bot_state, _)) = bots.get_mut(*bot) else {
                         continue;
                     };
-                    health.0 -= hit.damage;
-                    if health.0 <= 0.0 {
+                    bot_state.health -= hit.damage;
+                    if bot_state.health <= 0.0 {
                         bots_hit.push((*bot, hit.distance));
                     } else {
                         survivor = true;

@@ -74,6 +74,7 @@ mod revive;
 mod round_counter;
 mod search_destroy;
 mod settings;
+mod shot_predict;
 mod aether_shroud;
 mod ammo_crate;
 mod armor;
@@ -311,6 +312,7 @@ fn main() {
         .add_plugins(revive::RevivePlugin)
         .add_plugins(kill_chains::KillChainsPlugin)
         .add_plugins(ragdoll::RagdollPlugin)
+        .add_plugins(shot_predict::ShotPredictPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)

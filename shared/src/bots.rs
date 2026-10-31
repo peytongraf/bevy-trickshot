@@ -10,6 +10,9 @@ use crate::protocol::MapId;
 /// player's (`server::sim::PLAYER_*`), since bots are drawn with the same
 /// `models/characters/soldier.glb` avatar.
 pub const BOT_HEIGHT: f32 = 1.8;
+/// Every target bot spawns with this much health — the same bar a player
+/// has ([`crate::Bot::health`]).
+pub const BOT_HEALTH: f32 = 100.0;
 pub const BOT_RADIUS: f32 = 0.35;
 pub const BOT_HEAD_RADIUS: f32 = 0.12;
 

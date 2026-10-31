@@ -44,16 +44,6 @@ pub struct BotHit {
     pub points: u32,
 }
 
-/// A bot's health (server-only — clients only see whether it's alive). Shots
-/// deduct from it (`sim::resolve_shots`) and the bot dies at zero, just like a
-/// `FreeForAll` player's `PlayerCombat::health`. A knife stab or throw kills
-/// outright via [`BotHit`] without touching it.
-#[derive(Component)]
-pub struct BotHealth(pub f32);
-
-/// Every bot spawns with this much health — the same bar a player has.
-pub const BOT_HEALTH: f32 = 100.0;
-
 /// Which lobby's game a bot belongs to.
 #[derive(Component)]
 pub struct LobbyBot {
@@ -175,12 +165,12 @@ fn ensure_bots(
             commands.spawn((
                 Name::from("Bot"),
                 LobbyBot { lobby: lobby_e },
-                BotHealth(BOT_HEALTH),
                 BotWander::new(seed, time.elapsed_secs()),
                 Bot {
                     pos,
                     yaw,
                     alive: true,
+                    health: shared::bots::BOT_HEALTH,
                     fall: 0.0,
                     pinged: false,
                 },
@@ -193,7 +183,7 @@ fn ensure_bots(
 
 /// Apply queued hits: mark dead, record the time, score the shooter, and send
 /// them their red kill marker.
-fn apply_bot_hits(
+pub(crate) fn apply_bot_hits(
     time: Res<Time>,
     server: Single<&lightyear::prelude::server::Server>,
     mut sender: ServerMultiMessageSender,
@@ -490,6 +480,7 @@ mod tests {
                     pos: feet,
                     yaw: 0.0,
                     alive: true,
+                    health: shared::bots::BOT_HEALTH,
                     fall: 0.0,
                     pinged: false,
                 },
@@ -603,6 +594,7 @@ mod tests {
                     pos: Vec3::ZERO,
                     yaw: 0.0,
                     alive: true,
+                    health: shared::bots::BOT_HEALTH,
                     fall: 0.0,
                     pinged: false,
                 },

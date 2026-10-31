@@ -58,8 +58,8 @@ pub(crate) struct HurtEffectSettings {
 impl Default for HurtEffectSettings {
     fn default() -> Self {
         Self {
-            blood_opacity: 0.2,
-            tint_opacity: 0.55,
+            blood_opacity: 0.86,
+            tint_opacity: 0.6,
             start_at: 1.0,
             full_at: 0.5,
             curve: 0.6,
@@ -84,6 +84,21 @@ impl HurtEffectSettings {
         let frac = health / max;
         let t = ((self.start_at - frac) / (self.start_at - self.full_at).max(1e-3)).clamp(0.0, 1.0);
         t.powf(self.curve.max(0.05))
+    }
+}
+
+/// The debug panel's "Hurt effects" preview: while `on`, the blood and tint
+/// show as they would at `health` (a fraction of max health), whatever our
+/// real health is. Off again at the start of every game.
+#[derive(Resource)]
+pub(crate) struct HurtPreview {
+    pub(crate) on: bool,
+    pub(crate) health: f32,
+}
+
+impl Default for HurtPreview {
+    fn default() -> Self {
+        Self { on: false, health: 0.5 }
     }
 }
 
@@ -119,6 +134,7 @@ impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LocalHealth>()
             .init_resource::<HurtEffectSettings>()
+            .init_resource::<HurtPreview>()
             .add_systems(
                 OnEnter(AppState::InGame),
                 (reset_health, spawn_damage_overlay),
@@ -133,8 +149,9 @@ impl Plugin for HealthPlugin {
 }
 
 /// A fresh game starts at full health until the server's first update lands.
-fn reset_health(mut health: ResMut<LocalHealth>) {
+fn reset_health(mut health: ResMut<LocalHealth>, mut preview: ResMut<HurtPreview>) {
     *health = LocalHealth::default();
+    *preview = HurtPreview::default();
 }
 
 /// Respawning is a fresh start: full health at once — the display would
@@ -244,6 +261,7 @@ fn spawn_damage_overlay(mut commands: Commands, asset_server: Res<AssetServer>) 
 fn sync_damage_overlay(
     health: Res<LocalHealth>,
     settings: Res<HurtEffectSettings>,
+    preview: Res<HurtPreview>,
     death: Res<DeathEffect>,
     fall: Res<FallDeathState>,
     killcam: Res<ActiveKillCam>,
@@ -265,10 +283,18 @@ fn sync_damage_overlay(
     // "hurt": the death overlay covers that, and this one must not be left up
     // at full strength across the respawn.
     // (Not over a teammate we're watching.)
-    let show = opacity > 0.0
+    let mut show = opacity > 0.0
         && (health.health > 0.0 || down)
         && !suppressed(&death, &fall, &killcam)
         && !spectating.active();
+    // The debug panel's preview: as it'd be at that health, regardless.
+    let opacity = if preview.on {
+        let strength = settings.strength(preview.health * health.max, health.max);
+        show = strength > 0.0;
+        strength
+    } else {
+        opacity
+    };
     let (vis, tint) = &mut *root;
     vis.set_if_neq(if show {
         Visibility::Inherited
