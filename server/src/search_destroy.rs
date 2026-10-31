@@ -311,6 +311,7 @@ fn run_rounds(
                                     blast: true,
                                     critical: false,
                                     point: None,
+                                    blast_from: None,
                                 });
                             }
                             let msg = SndBombExploded { at: at.to_array() };

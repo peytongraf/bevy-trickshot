@@ -79,8 +79,9 @@ const RISE_SECS: f32 = shared::zombies::ZOMBIE_RISE_SECS;
 const FIRST_ROUND_DELAY_SECS: f32 = 4.0;
 /// Seconds between the last zombie of a round dying and the next round.
 const ROUND_BREAK_SECS: f32 = 7.0;
-/// Seconds a dead zombie lies there (its death animation) before it's removed.
-const CORPSE_SECS: f32 = 3.0;
+/// Seconds a dead zombie lies there (its death fall, or a blast's ragdoll —
+/// `client::ragdoll`) before it's removed.
+const CORPSE_SECS: f32 = 8.0;
 /// Seconds before retrying a spawn that found nowhere to go.
 const SPAWN_RETRY_SECS: f32 = 0.25;
 
@@ -1691,7 +1692,9 @@ mod tests {
             app.world_mut().get_mut::<PlayerCombat>(z).unwrap().alive = false;
         }
         run(&mut app, CORPSE_SECS + 0.5);
-        assert!(zombies_of(&mut app).is_empty());
+        // (Round 2's may have started coming by now — the corpses outlast
+        // the break.)
+        assert!(first.iter().all(|&z| app.world().get_entity(z).is_err()));
         assert_eq!(app.world().get::<Lobby>(lobby).unwrap().round, 2);
         assert_eq!(left(&app), zombies_in_round(2, 1));
         run(&mut app, ROUND_BREAK_SECS + 20.0);

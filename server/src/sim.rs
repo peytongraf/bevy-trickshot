@@ -353,6 +353,7 @@ fn resolve_shots(
                         // A knife kill is a critical one (`Zombies`).
                         critical: true,
                         point: Some(hit.point),
+                        blast_from: None,
                     });
                     info!("tick {tick}: {:?} knifed player {:?}", shooter.0, victim);
                 }
@@ -588,6 +589,7 @@ fn resolve_shots(
                                 blast: false,
                                 critical: hit.headshot,
                                 point: Some(hit.point),
+                                blast_from: None,
                             });
                             // `Zombies`: a player's shot goes on through the
                             // zombie into the ones behind it (Call of Duty's
@@ -614,6 +616,7 @@ fn resolve_shots(
                                         blast: false,
                                         critical: h.headshot,
                                         point: Some(h.point),
+                                        blast_from: None,
                                     });
                                 }
                             }

@@ -2078,6 +2078,17 @@ pub enum BloodTarget {
     Boss,
 }
 
+/// Server → every member of a `Zombies` lobby: an explosion that went off at
+/// `from` (a frag, PhD Flopper, a Bomb Shot, a monkey bomb, a Ray Gun bolt's
+/// burst) just killed `zombie` (its bot peer id) — every client throws its
+/// body from there, a ragdoll, in place of its death fall. Never a hellhound
+/// or a boss, nor one still climbing out of the ground.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieBlasted {
+    pub zombie: PeerId,
+    pub from: [f32; 3],
+}
+
 /// Server → everyone in a lobby: a thrown knife just killed someone (a bot in
 /// `Freestyle`, another player in `FreeForAll`) at `point` — every client
 /// plays the hit sound from there.
@@ -2726,6 +2737,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<ZombieDamaged>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<ZombieBlood>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<ZombieBlasted>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<KnifeFlight>()
             .add_direction(NetworkDirection::ServerToClient);

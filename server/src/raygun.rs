@@ -255,6 +255,7 @@ pub(crate) fn fly_bolts(
                     blast: point.is_none(),
                     critical,
                     point,
+                    blast_from: Some(at),
                 });
             }
         }

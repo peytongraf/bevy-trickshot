@@ -1172,6 +1172,7 @@ pub(crate) fn drive_bots(
                             blast: false,
                             critical: false,
                             point: None,
+                            blast_from: None,
                         });
                     }
                 }
@@ -1185,6 +1186,7 @@ pub(crate) fn drive_bots(
                     blast: true,
                     critical: false,
                     point: None,
+                    blast_from: None,
                 });
             }
             if z.exploded || (flat_dist <= ZOMBIE_STOP_DIST && height_diff <= ZOMBIE_ATTACK_HEIGHT) {
@@ -1222,6 +1224,7 @@ pub(crate) fn drive_bots(
                                 blast: false,
                                 critical: false,
                                 point: None,
+                                blast_from: None,
                             });
                             if let Some(t_eye) = target_pose {
                                 swipes.write(ZombieSwipeLanded {
@@ -1311,6 +1314,7 @@ pub(crate) fn drive_bots(
                             blast: false,
                             critical: false,
                             point: None,
+                            blast_from: None,
                         });
                         if let Some(t_eye) = target_pose {
                             swipes.write(ZombieSwipeLanded {

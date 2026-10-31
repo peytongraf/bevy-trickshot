@@ -2,6 +2,8 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Zombie explosion ragdolls
+- Longer zombie corpses
 - Muffled sounds through walls
 - Kill chain medals
 - Mantle breath + step sounds

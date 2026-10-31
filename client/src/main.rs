@@ -67,6 +67,7 @@ mod power_ups;
 mod power;
 mod quotes;
 mod radio;
+mod ragdoll;
 mod rampage;
 mod respawn;
 mod revive;
@@ -220,8 +221,10 @@ fn main() {
             ..default()
         })
         // Collision only (see the `bevy_rapier3d` dependency comment) — no
-        // `RigidBody` is ever spawned, so `PhysicsSet::StepSimulation` has
-        // nothing to integrate each frame, just static colliders to query.
+        // `RigidBody` is ever spawned in the default world, so
+        // `PhysicsSet::StepSimulation` has nothing to integrate there, just
+        // static colliders to query. (Zombie ragdolls get a world of their
+        // own — `ragdoll`.)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<AppState>()
         .enable_state_scoped_entities::<AppState>()
@@ -307,6 +310,7 @@ fn main() {
         .add_plugins(round_counter::RoundCounterPlugin)
         .add_plugins(revive::RevivePlugin)
         .add_plugins(kill_chains::KillChainsPlugin)
+        .add_plugins(ragdoll::RagdollPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)

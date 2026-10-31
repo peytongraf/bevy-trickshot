@@ -1271,13 +1271,15 @@ fn follow_remote_avatars(
         Has<crate::dogs::DogVisual>,
         Has<crate::boss::BossVisual>,
         Has<crate::melee_predict::PredictedDeath>,
+        Has<crate::ragdoll::Ragdoll>,
     )>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, motion, mut tf, zombie, dog, boss, predicted_death) in &mut avatars {
+    for (entity, avatar, motion, mut tf, zombie, dog, boss, predicted_death, ragdoll) in &mut avatars {
         match poses.get(avatar.src) {
-            // One our knife's just killed lies where it fell (`melee_predict`).
-            Ok(_) if predicted_death => {}
+            // One our knife's just killed lies where it fell (`melee_predict`),
+            // and a ragdoll goes where it's thrown (`ragdoll`).
+            Ok(_) if predicted_death || ragdoll => {}
             Ok(pose) => {
                 // The replicated pose is at eye level; the model's origin is
                 // at its feet (same convention `bot.pos` uses), so drop by

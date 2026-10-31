@@ -484,6 +484,7 @@ fn step_knives(
                         blast: false,
                         critical: false,
                         point: Some(hit.point),
+                        blast_from: None,
                     });
                     info!("{owner:?} killed {victim:?} with a throwing knife");
                 }

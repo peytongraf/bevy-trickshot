@@ -187,6 +187,10 @@ pub struct PlayerHit {
     /// a stab, a thrown knife) — where a `Zombies` damage number floats up
     /// from ([`shared::ZombieDamaged`]). `None`: the middle of the body.
     pub point: Option<Vec3>,
+    /// Where the explosion that made it went off (a frag, PhD Flopper, a
+    /// Bomb Shot, a monkey bomb, a Ray Gun bolt's burst): a `Zombies` zombie
+    /// it kills is thrown from there, a ragdoll ([`shared::ZombieBlasted`]).
+    pub blast_from: Option<Vec3>,
 }
 
 /// What a [`PlayerHit`] (or the [`BombBlast`] behind it) was made with.
@@ -508,6 +512,19 @@ pub(crate) fn apply_player_hits(
         // once everyone's down). No kill cams either way.
         if lobby.mode == GameMode::Zombies {
             combat.respawn_at = f32::INFINITY;
+            // Killed by an explosion: everyone sees it thrown from there.
+            let blasted = poses.iter().find(|(id, _)| id.0 == ev.victim).is_some_and(|(_, p)| {
+                p.zombie.is_zombie() && !p.zombie.is_dog() && !p.zombie.is_boss() && p.zombie != shared::ZombieAnim::Rising
+            });
+            if let Some(from) = ev.blast_from.filter(|_| blasted && is_bot_peer(ev.victim)) {
+                let msg = shared::ZombieBlasted {
+                    zombie: ev.victim,
+                    from: from.to_array(),
+                };
+                if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+                    error!("failed to send zombie blast: {e:?}");
+                }
+            }
             // Bomb Shot (or the debug `bomb_test`, for any player's kill):
             // the zombie explodes. A blast's own kills never chain.
             if is_bot_peer(ev.victim)
@@ -741,6 +758,7 @@ fn apply_bomb_blasts(
                     blast: true,
                     critical: false,
                     point: None,
+                    blast_from: Some(blast.feet),
                 });
             }
             info!("{:?}'s frag went off, catching {n}", blast.by);
@@ -772,6 +790,7 @@ fn apply_bomb_blasts(
                 blast: true,
                 critical: false,
                 point: None,
+                blast_from: Some(blast.feet),
             });
         }
         let what = if blast.phd { "PhD Flopper blast" } else { "bomb shot" };

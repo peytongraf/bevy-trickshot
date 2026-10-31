@@ -214,6 +214,7 @@ fn bring_in_bosses(
                         blast: false,
                         critical: false,
                         point: None,
+                        blast_from: None,
                     });
                 }
             }
@@ -339,6 +340,7 @@ fn run_blasts(
                     blast: false,
                     critical: false,
                     point: None,
+                    blast_from: None,
                 });
             }
         }

@@ -278,12 +278,16 @@ fn animate_zombie_avatars(
     settings: Res<ZombieAvatarSettings>,
     poses: Query<(&PlayerPose, Option<&PlayerId>)>,
     me: Query<&Transform, With<Player>>,
-    mut avatars: Query<(
-        &RemoteAvatar,
-        &mut ZombieMotion,
-        &ZombieAnimationPlayer,
-        Has<crate::melee_predict::PredictedDeath>,
-    )>,
+    // (Not a ragdoll — its animation's paused for good, `ragdoll`.)
+    mut avatars: Query<
+        (
+            &RemoteAvatar,
+            &mut ZombieMotion,
+            &ZombieAnimationPlayer,
+            Has<crate::melee_predict::PredictedDeath>,
+        ),
+        Without<crate::ragdoll::Ragdoll>,
+    >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut readout: ResMut<ZombieAnimReadout>,
 ) {
