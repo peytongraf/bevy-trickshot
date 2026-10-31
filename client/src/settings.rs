@@ -93,6 +93,36 @@ impl ShadowQuality {
     }
 }
 
+/// How much the world blurs as the view moves (`motion_blur`), named the way
+/// Call of Duty's "World Motion Blur" option is. Each level is a camera
+/// exposure time, so it looks the same at any frame rate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum MotionBlurLevel {
+    Off,
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+impl MotionBlurLevel {
+    pub const ALL: [MotionBlurLevel; 4] = [
+        MotionBlurLevel::Off,
+        MotionBlurLevel::Low,
+        MotionBlurLevel::Normal,
+        MotionBlurLevel::High,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MotionBlurLevel::Off => "OFF",
+            MotionBlurLevel::Low => "LOW",
+            MotionBlurLevel::Normal => "NORMAL",
+            MotionBlurLevel::High => "HIGH",
+        }
+    }
+}
+
 /// Which reticle texture the scope shows — the Loadout screen's only current
 /// option (see `menu::build_loadout`). The actual `assets/textures/reticles/*.png`
 /// path for each is `weapons::scope::crosshair_asset_path` — kept out of this
@@ -329,6 +359,8 @@ pub struct Settings {
     /// The low, patchy mist some maps have over their floor
     /// (`environment::ground_fog`) — off saves its full-screen pass.
     pub ground_fog: bool,
+    /// How much the world blurs as the view moves (`motion_blur`).
+    pub motion_blur: MotionBlurLevel,
     /// Master volume, linear `0.0` (silent) .. `1.0` (full).
     pub master_volume: f32,
     /// Main menu music volume, linear `0.0` .. `1.0`, on top of
@@ -375,6 +407,7 @@ impl Default for Settings {
             dev_auto_join_lobby: false,
             shadow_quality: ShadowQuality::default(),
             ground_fog: true,
+            motion_blur: MotionBlurLevel::default(),
             master_volume: VOLUME_DEFAULT,
             music_volume: VOLUME_DEFAULT,
             auto_reload: true,

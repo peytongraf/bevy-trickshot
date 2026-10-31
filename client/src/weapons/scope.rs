@@ -75,6 +75,32 @@ pub(crate) struct ScopeLens;
 #[derive(Component)]
 pub(crate) struct ScopeCamera;
 
+/// The scope camera's child that draws just the reticle over its picture,
+/// after its motion blur (`motion_blur`) — see [`sync_reticle_camera`].
+#[derive(Component)]
+pub(crate) struct ScopeReticleCamera;
+
+/// Keep the reticle's camera seeing exactly what the scope camera does: on
+/// when it is, at its FOV. (It's the scope camera's child, at its spot, so
+/// the view's the same.) Before the cameras' matrices are worked out.
+pub(crate) fn sync_reticle_camera(
+    scope: Query<(&Camera, &Projection), (With<ScopeCamera>, Without<ScopeReticleCamera>)>,
+    mut reticle: Query<(&mut Camera, &mut Projection), (With<ScopeReticleCamera>, Without<ScopeCamera>)>,
+) {
+    let (Ok((scope_cam, scope_proj)), Ok((mut cam, mut proj))) = (scope.single(), reticle.single_mut()) else {
+        return;
+    };
+    if cam.is_active != scope_cam.is_active {
+        cam.is_active = scope_cam.is_active;
+    }
+    if let (Projection::Perspective(from), Projection::Perspective(to)) = (scope_proj, proj.as_mut()) {
+        if to.fov != from.fov || to.aspect_ratio != from.aspect_ratio {
+            to.fov = from.fov;
+            to.aspect_ratio = from.aspect_ratio;
+        }
+    }
+}
+
 /// The reticle quad (texture picked by [`Settings::crosshair`]) in front of
 /// the scope camera; only that camera sees it, so the reticle appears in the
 /// scope image and nowhere else.

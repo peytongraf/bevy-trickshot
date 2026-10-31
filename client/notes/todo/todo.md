@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Motion blur setting
 - Sniper shot kick-back removed
 - MW3 smoothness: zoom curve, sniper kick, smoother sway
 - Instant kill / hit feedback
@@ -20,7 +21,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
-- Motion blur on fast turns (Graphics setting) like MW3
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Bot sniper shots (server `sniper_feel`) still use the old trauma shake in kill cams — switch to the new kick
 - Maybe: MW3-style scope where only the lens is magnified and the world outside zooms a little

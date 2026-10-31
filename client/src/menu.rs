@@ -482,6 +482,7 @@ enum Btn {
     /// Debug tab: show / hide the top-centre position / facing readout.
     ToggleDebugPosition,
     SetShadowQuality(ShadowQuality),
+    SetMotionBlur(crate::settings::MotionBlurLevel),
     SetCrosshair(CrosshairId),
     SetScopeZoom(ScopeZoom),
     SetAutoMantle(AutoMantle),
@@ -634,6 +635,10 @@ fn menu_click(
             }
             Btn::SetShadowQuality(q) => {
                 settings.shadow_quality = *q;
+                menu.dirty = true;
+            }
+            Btn::SetMotionBlur(level) => {
+                settings.motion_blur = *level;
                 menu.dirty = true;
             }
             Btn::ToggleVsync => {
@@ -2358,6 +2363,25 @@ fn build_graphics(content: &mut ChildSpawnerCommands, asset_server: &AssetServer
         "Adjusts the resolution and draw distance of shadows cast by the sun. Higher \
          settings look more accurate at longer range but cost more performance. Disabled \
          removes shadows entirely.",
+    );
+
+    setting_row(content, asset_server, "MOTION BLUR", |row| {
+        for level in crate::settings::MotionBlurLevel::ALL {
+            option_button(
+                row,
+                asset_server,
+                level.label(),
+                Btn::SetMotionBlur(level),
+                settings.motion_blur == level,
+                UiSound::BUTTON,
+            );
+        }
+    });
+    desc(
+        content,
+        asset_server,
+        "Blurs the world as you turn and move, so fast flicks read as smooth motion. \
+         Higher settings blur more. Your weapon is never blurred.",
     );
 
     setting_row(content, asset_server, "GROUND FOG", |row| {

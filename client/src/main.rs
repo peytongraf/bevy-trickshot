@@ -84,6 +84,7 @@ mod boss;
 mod knife_pickup;
 mod molotov;
 mod monkey_bomb;
+mod motion_blur;
 mod frag;
 mod flash_bang;
 mod mystery_box;
@@ -313,6 +314,11 @@ fn main() {
         .add_plugins(kill_chains::KillChainsPlugin)
         .add_plugins(ragdoll::RagdollPlugin)
         .add_plugins(shot_predict::ShotPredictPlugin)
+        .add_systems(
+            PostUpdate,
+            weapons::sync_reticle_camera.before(bevy::render::camera::CameraUpdateSystem),
+        )
+        .add_plugins(motion_blur::MotionBlurPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)
         .add_plugins(level_editor::LevelEditorPlugin)
         .add_plugins(avatars::held_weapon::HeldWeaponPlugin)
@@ -1116,17 +1122,16 @@ fn setup_player(
                                         bevy::core_pipeline::prepass::DepthPrepass,
                                     ));
 
-                                    // Scope camera: renders the world (layer 0) plus
-                                    // the reticle quad (layer 2, no view model)
+                                    // Scope camera: renders the world (layer 0)
                                     // through a narrow FOV into `scope_image`.
-                                    // `order: -1` so it runs before the main camera;
-                                    // inactive until ADS.
+                                    // `order: -2` so it runs before the main camera
+                                    // (and its reticle's, below); inactive until ADS.
                                     cams.spawn((
                                         ScopeCamera,
                                         Camera3d::default(),
                                         Camera {
                                             target: scope_image.clone().into(),
-                                            order: -1,
+                                            order: -2,
                                             is_active: false,
                                             hdr: true,
                                             clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
@@ -1140,13 +1145,40 @@ fn setup_player(
                                         // world camera's fog onto this every time
                                         // the map's scene tuning changes it.
                                         DistanceFog::default(),
-                                        RenderLayers::from_layers(&[0, SCOPE_OVERLAY_LAYER]),
+                                        RenderLayers::layer(0),
                                     ))
                                     .with_child((
                                         ScopeReticle,
                                         Mesh3d(reticle_mesh),
                                         MeshMaterial3d(reticle_material),
                                         Transform::from_xyz(0.0, 0.0, -RETICLE_DIST),
+                                        RenderLayers::layer(SCOPE_OVERLAY_LAYER),
+                                    ))
+                                    // The reticle's own camera: the scope camera's
+                                    // view exactly (`sync_reticle_camera` keeps its
+                                    // FOV and on/off in step), drawing only the
+                                    // reticle (layer 2) over the scope camera's
+                                    // picture — after its motion blur, which would
+                                    // otherwise smear the reticle with the world
+                                    // moving behind it. (Not tonemapped again: the
+                                    // picture under it already is.)
+                                    .with_child((
+                                        ScopeReticleCamera,
+                                        Camera3d::default(),
+                                        Camera {
+                                            target: scope_image.clone().into(),
+                                            order: -1,
+                                            is_active: false,
+                                            hdr: true,
+                                            clear_color: ClearColorConfig::None,
+                                            ..default()
+                                        },
+                                        bevy::core_pipeline::tonemapping::Tonemapping::None,
+                                        Projection::from(PerspectiveProjection {
+                                            fov: LENS_CAL_SCOPE_FOV_DEG.to_radians(),
+                                            ..default()
+                                        }),
+                                        Transform::IDENTITY,
                                         RenderLayers::layer(SCOPE_OVERLAY_LAYER),
                                     ));
 
