@@ -419,7 +419,12 @@ pub(crate) fn ads_tuning_ui(
                             .text("ADS strength (s of lag)"),
                     );
                     ui.add(
-                        egui::Slider::new(&mut w.return_speed, 1.0f32..=20.0).text("catch-up speed"),
+                        egui::Slider::new(&mut w.return_speed, 1.0f32..=40.0)
+                            .text("catch-up speed (spring, rad/s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut w.turn_smoothing_secs, 0.0f32..=0.2)
+                            .text("turn rate smoothed over (s)"),
                     );
                     ui.add(
                         egui::Slider::new(&mut w.max_offset_deg, 0.0f32..=30.0).text("max offset (°)"),
@@ -454,28 +459,14 @@ pub(crate) fn ads_tuning_ui(
                             .text("counts as moving above (m/s)"),
                     );
 
-                    if ui.button("Copy weapon sway to console").clicked() {
-                        info!(
-                            "weapon sway: hip_strength {:.4}, ads_strength {:.4}, \
-                             return_speed {:.4}, max_offset_deg {:.4}, hip_shift_m {:.4}, \
-                             ads_shift_m {:.4}, walk_bob {:.4}, walk_bob_hz {:.2}, \
-                             sprint_bob_hz {:.2}, walk_bob_ads {:.2}, bob_move_threshold {:.2}",
-                            w.hip_strength,
-                            w.ads_strength,
-                            w.return_speed,
-                            w.max_offset_deg,
-                            w.hip_shift_m,
-                            w.ads_shift_m,
-                            w.walk_bob,
-                            w.walk_bob_hz,
-                            w.sprint_bob_hz,
-                            w.walk_bob_ads,
-                            w.bob_move_threshold,
-                        );
-                    }
-                    if ui.button("Reset weapon sway").clicked() {
-                        *w = WeaponSwaySettings::default();
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset weapon sway").clicked() {
+                            *w = WeaponSwaySettings::default();
+                        }
+                        if ui.button("Print settings to console").clicked() {
+                            info!("{w:#?}");
+                        }
+                    });
                 });
 
             ui.separator();
@@ -1100,7 +1091,26 @@ pub(crate) fn ads_tuning_ui(
             ui.separator();
                 ui.collapsing("Camera shake", |ui| {
                     let c = &mut *shake_cfg;
-                    ui.label("per-shot kick — up/down + side/side only");
+                    ui.label("Sniper kick — one smooth punch up (and a little to one side), muzzle climbing on it");
+                    ui.add(egui::Slider::new(&mut c.kick_pitch_deg, 0.0f32..=10.0).text("kick up, at its peak (°)"));
+                    ui.add(egui::Slider::new(&mut c.kick_yaw_deg, 0.0f32..=4.0).text("kick to the side, at most (°)"));
+                    ui.add(
+                        egui::Slider::new(&mut c.kick_ads_scale, 0.0f32..=1.0)
+                            .text("left fully scoped (as of the shot)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.kick_spring, 4.0f32..=60.0)
+                            .text("spring speed (rad/s — peaks 1/this s after the shot)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut c.kick_damping, 0.2f32..=1.5)
+                            .text("spring damping (1 = straight back, less overshoots)"),
+                    );
+                    ui.add(egui::Slider::new(&mut c.kick_gun_climb, 0.0f32..=4.0).text("muzzle climb (× the view's)"));
+                    ui.add(egui::Slider::new(&mut c.kick_gun_rise_m, 0.0f32..=0.2).text("gun lift (m per rad)"));
+                    ui.label(format!("kick now: {:.2}° up", shake.kick.y.to_degrees()));
+                    ui.separator();
+                    ui.label("Trauma shake (explosions etc. — the sniper's off by default)");
                     ui.add(
                         egui::Slider::new(&mut c.trauma_per_shot, 0.0f32..=1.0).text("trauma per shot"),
                     );
@@ -1148,28 +1158,14 @@ pub(crate) fn ads_tuning_ui(
                     );
                     ui.label(format!("recoil now: {:.3} m", shake.recoil));
 
-                    if ui.button("Copy camera shake to console").clicked() {
-                        info!(
-                            "camera shake: trauma_per_shot {:.4}, decay {:.4}, frequency {:.4}, \
-                             pos_max {:.4}, view_punch_deg {:.4}, view_jitter_deg {:.4}, \
-                             weapon_kick {:.4}, weapon_kick_deg {:.4}, recoil_kick {:.4}, \
-                             recoil_return {:.4}, ads_scale {:.4}",
-                            c.trauma_per_shot,
-                            c.decay,
-                            c.frequency,
-                            c.pos_max,
-                            c.view_punch_deg,
-                            c.view_jitter_deg,
-                            c.weapon_kick,
-                            c.weapon_kick_deg,
-                            c.recoil_kick,
-                            c.recoil_return,
-                            c.ads_scale,
-                        );
-                    }
-                    if ui.button("Reset camera shake").clicked() {
-                        *c = ShakeSettings::default();
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset camera shake").clicked() {
+                            *c = ShakeSettings::default();
+                        }
+                        if ui.button("Print settings to console").clicked() {
+                            info!("{c:#?}");
+                        }
+                    });
                 });
                 ui.collapsing("Aim recoil", |ui| {
                     let r = &mut *aim_recoil;

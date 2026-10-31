@@ -22,11 +22,17 @@ pub(crate) fn breathing_offset(clock: f32, freq_hz: Vec2, amp_rad: Vec2) -> Vec2
     )
 }
 
-/// Running weapon-sway offset (radians), a low-passed lag behind the view.
+/// Running weapon-sway offset (radians), a sprung lag behind the view.
 #[derive(Resource, Default)]
 pub(crate) struct WeaponSwayState {
     /// `x` = yaw offset, `y` = pitch offset, applied on top of the ADS pose.
     pub(crate) offset: Vec2,
+    /// How fast `offset` is changing (rad/s) — the spring's.
+    vel: Vec2,
+    /// The view's turn rate (rad/s), smoothed over
+    /// [`WeaponSwaySettings::turn_smoothing_secs`] — one frame's own reading
+    /// is noisy (a frame with no mouse event in it reads as a dead stop).
+    turn_rate: Vec2,
 }
 
 /// Panel-adjustable weapon sway: the view model trails the direction you turn,
@@ -37,7 +43,7 @@ pub(crate) struct WeaponSwayState {
 /// visible "you're moving the mouse" feedback while scoped, on the model
 /// itself — the scope reticle only moves for the aim-in slide and the optional
 /// counter-sway (see [`update_scope`], [`CrosshairSettings`]).
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub(crate) struct WeaponSwaySettings {
     /// Seconds of lag at the hip: sway angle ≈ turn rate (rad/s) × this.
     pub(crate) hip_strength: f32,
@@ -46,8 +52,12 @@ pub(crate) struct WeaponSwaySettings {
     /// than it needs to be at the hip, since scoped is where this now carries
     /// all the "you're touching the mouse" feedback the reticle used to.
     pub(crate) ads_strength: f32,
-    /// How fast the weapon catches back up to centre (larger = snappier).
+    /// How fast the weapon catches back up to centre (larger = snappier): a
+    /// critically damped spring's speed (rad/s), so it eases in and out of
+    /// its lag rather than jerking toward each frame's.
     pub(crate) return_speed: f32,
+    /// Over how long (s) the turn rate the lag follows is smoothed.
+    pub(crate) turn_smoothing_secs: f32,
     /// Hard cap on the sway angle in any direction (degrees).
     pub(crate) max_offset_deg: f32,
     /// Metres of translation per radian of the current lag angle, at the hip.
@@ -73,7 +83,8 @@ impl Default for WeaponSwaySettings {
         Self {
             hip_strength: 0.03,
             ads_strength: 0.08,
-            return_speed: 6.0,
+            return_speed: 10.0,
+            turn_smoothing_secs: 0.04,
             max_offset_deg: 12.0,
             hip_shift_m: 0.01,
             ads_shift_m: 0.005,
@@ -243,11 +254,23 @@ pub(crate) fn weapon_sway(
     let strength = tuning.hip_strength.lerp(tuning.ads_strength, t);
 
     let max = tuning.max_offset_deg.to_radians();
-    // `-applied / dt` is the view's angular velocity, opposite the turn.
-    let target = (-applied / dt * strength).clamp(Vec2::splat(-max), Vec2::splat(max));
+    // `applied / dt` is the view's angular velocity this frame — smoothed,
+    // and the lag's opposite the turn.
+    let smooth = 1.0 - (-dt / tuning.turn_smoothing_secs.max(1e-3)).exp();
+    state.turn_rate = state.turn_rate.lerp(applied / dt, smooth);
+    let target = (-state.turn_rate * strength).clamp(Vec2::splat(-max), Vec2::splat(max));
 
-    let k = 1.0 - (-tuning.return_speed * dt).exp();
-    state.offset = state.offset.lerp(target, k);
+    // A critically damped spring toward it, in small steps so it's the same
+    // at any frame rate.
+    let w = tuning.return_speed.max(0.1);
+    let steps = (dt * 480.0).ceil().clamp(1.0, 64.0);
+    let h = dt / steps;
+    let state = &mut *state;
+    for _ in 0..steps as u32 {
+        let acc = w * w * (target - state.offset) - 2.0 * w * state.vel;
+        state.vel += acc * h;
+        state.offset += state.vel * h;
+    }
 
     **view_model = sway_pose(state.offset, &tuning, t) * **view_model;
 }

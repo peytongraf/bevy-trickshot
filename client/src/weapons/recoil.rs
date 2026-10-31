@@ -1,6 +1,9 @@
 //! Camera shake + weapon recoil feedback: per-shot trauma that drives a
 //! positional/rotational camera shake, a separate forward/back recoil kick,
-//! and the view-model shudder that rides alongside both.
+//! and the view-model shudder that rides alongside both — and the sniper's
+//! own smooth kick ([`Shake::fire_kick`]): one spring-damped punch of the
+//! view up (and a little to one side) with the muzzle climbing on it, the
+//! way Call of Duty's does, in place of the trauma shake's random wobble.
 
 use bevy::prelude::*;
 
@@ -29,7 +32,9 @@ use super::view_model::ViewModel;
 /// scope's rear lens — which the fire animation yanks toward the face — stays in
 /// front of the eye instead of sliding past it. All of this is live-tunable
 /// (`ShakeSettings`, "Camera shake" panel section).
-pub(crate) const SHAKE_ADD: f32 = 0.85;
+/// (The sniper's own shots kick through [`Shake::fire_kick`] instead — see
+/// [`ShakeSettings::trauma_per_shot`].)
+pub(crate) const SHAKE_ADD: f32 = 0.0;
 pub(crate) const SHAKE_DECAY: f32 = 2.0;
 pub(crate) const SHAKE_FREQ: f32 = 75.0;
 /// Peak camera translation (world units) on the X and Y axes at full trauma.
@@ -75,14 +80,80 @@ pub(crate) struct Shake {
     pub(crate) trauma: f32,
     pub(crate) phase: f32,
     pub(crate) recoil: f32,
+    /// The sniper's kick ([`Shake::fire_kick`]): how far (yaw, pitch —
+    /// radians, positive pitch up) the view's kicked right now, and how fast
+    /// that's changing. A spring pulls it back to zero, so it never drifts
+    /// the aim.
+    pub(crate) kick: Vec2,
+    pub(crate) kick_vel: Vec2,
+}
+
+impl Shake {
+    /// A sniper shot's kick: the view punched up by
+    /// [`ShakeSettings::kick_pitch_deg`] and to one side by up to
+    /// [`ShakeSettings::kick_yaw_deg`] (random, from `seed`), at its peak —
+    /// less while scoped, by how scoped in we were *as it fired*
+    /// ([`ShakeSettings::kick_ads_scale`]), so unscoping straight after a
+    /// quickscope doesn't grow it.
+    pub(crate) fn fire_kick(&mut self, cfg: &ShakeSettings, ads_t: f32, seed: u32) {
+        let scale = 1.0f32.lerp(cfg.kick_ads_scale, ads_t.clamp(0.0, 1.0));
+        let side = (crate::util::rand01(seed.wrapping_mul(0x2C1B_3C6D)) * 2.0 - 1.0) * cfg.kick_yaw_deg.to_radians();
+        let peak = Vec2::new(side, cfg.kick_pitch_deg.to_radians()) * scale;
+        // A critically damped spring struck at speed `v` peaks at `v / (ω·e)`.
+        self.kick_vel += peak * cfg.kick_spring.max(0.1) * std::f32::consts::E;
+    }
+
+    /// Move the kick on by `dt`: a spring of `ω = kick_spring` (rad/s) and
+    /// damping ratio `kick_damping`, in small steps so it's the same at any
+    /// frame rate.
+    fn step_kick(&mut self, cfg: &ShakeSettings, dt: f32) {
+        if self.kick == Vec2::ZERO && self.kick_vel == Vec2::ZERO {
+            return;
+        }
+        let w = cfg.kick_spring.max(0.1);
+        let zeta = cfg.kick_damping.max(0.0);
+        let steps = (dt * 480.0).ceil().clamp(1.0, 64.0);
+        let h = dt / steps;
+        for _ in 0..steps as u32 {
+            let acc = -w * w * self.kick - 2.0 * zeta * w * self.kick_vel;
+            self.kick_vel += acc * h;
+            self.kick += self.kick_vel * h;
+        }
+        if self.kick.length() < 1.0e-5 && self.kick_vel.length() < 1.0e-4 {
+            self.kick = Vec2::ZERO;
+            self.kick_vel = Vec2::ZERO;
+        }
+    }
+}
+
+/// Pure: the sniper kick's turn of the view (gun and cameras together) for a
+/// kick of `kick` (yaw, pitch — [`Shake::kick`]). Shared with the kill-cam
+/// replay.
+pub(crate) fn kick_camera_pose(kick: Vec2) -> Transform {
+    Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, kick.x, kick.y, 0.0))
+}
+
+/// Pure: the sniper kick's climb of the gun on top of the view's — the
+/// muzzle tipping up (and the gun lifting a touch) by
+/// [`ShakeSettings::kick_gun_climb`] / [`ShakeSettings::kick_gun_rise_m`] per
+/// radian the view's kicked. Never back toward the eye. Shared with the
+/// kill-cam replay.
+pub(crate) fn kick_gun_pose(cfg: &ShakeSettings, kick: Vec2) -> Transform {
+    let up = kick.y.max(0.0);
+    Transform {
+        translation: Vec3::Y * up * cfg.kick_gun_rise_m,
+        rotation: Quat::from_rotation_x(kick.y * cfg.kick_gun_climb),
+        scale: Vec3::ONE,
+    }
 }
 
 /// Panel-adjustable camera-shake tuning. The oscillation + view-punch half
 /// mirrors the `SHAKE_*` consts; the recoil half is the forward/back kick that
 /// keeps the eye behind the scope lens when firing.
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub(crate) struct ShakeSettings {
-    /// Trauma added per shot (result capped at 1).
+    /// Trauma added per sniper shot (result capped at 1) — none by default:
+    /// its kick is [`Shake::fire_kick`]'s smooth punch, not this shake.
     pub(crate) trauma_per_shot: f32,
     /// Trauma lost per second.
     pub(crate) decay: f32,
@@ -106,6 +177,21 @@ pub(crate) struct ShakeSettings {
     /// Fraction of the camera shake left at full ADS (`0` = none, `1` = full).
     /// Ramps linearly to the full effect as the player aims back out.
     pub(crate) ads_scale: f32,
+    /// The sniper's kick ([`Shake::fire_kick`]): how far (°) the view punches
+    /// up at its peak, and to one side at most (random either way)...
+    pub(crate) kick_pitch_deg: f32,
+    pub(crate) kick_yaw_deg: f32,
+    /// ...how much of that's left fully scoped (as of the shot)...
+    pub(crate) kick_ads_scale: f32,
+    /// ...the spring pulling it back: its speed (rad/s — the kick peaks
+    /// `1 / kick_spring` s after the shot) and damping ratio (`1` = straight
+    /// back, under it overshoots a little).
+    pub(crate) kick_spring: f32,
+    pub(crate) kick_damping: f32,
+    /// How much further the gun's muzzle climbs than the view (× the view's
+    /// kick), and how far (m per radian of kick) the gun lifts with it.
+    pub(crate) kick_gun_climb: f32,
+    pub(crate) kick_gun_rise_m: f32,
 }
 
 impl Default for ShakeSettings {
@@ -122,6 +208,13 @@ impl Default for ShakeSettings {
             recoil_kick: SHAKE_RECOIL_KICK,
             recoil_return: SHAKE_RECOIL_RETURN,
             ads_scale: SHAKE_ADS_SCALE,
+            kick_pitch_deg: 2.5,
+            kick_yaw_deg: 0.6,
+            kick_ads_scale: 0.6,
+            kick_spring: 18.0,
+            kick_damping: 0.85,
+            kick_gun_climb: 1.5,
+            kick_gun_rise_m: 0.02,
         }
     }
 }
@@ -221,8 +314,11 @@ pub(crate) fn camera_shake(
         shake.phase = 0.0;
     }
 
+    // --- the sniper's kick: a spring back to rest ---------------------------
+    shake.step_kick(&cfg, dt);
+
     // (Under it, an earthquake's rumble, if one's on — `earthquake.rs`.)
-    let want = quake.offset * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase);
+    let want = quake.offset * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_camera_pose(shake.kick);
     if **rig != want {
         **rig = want;
     }
@@ -268,6 +364,6 @@ pub(crate) fn weapon_recoil_shudder(
     shake: Res<Shake>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
-    let kick = weapon_kick_pose(&cfg, ads.t, shake.trauma, shake.phase);
+    let kick = weapon_kick_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_gun_pose(&cfg, shake.kick);
     **view_model = kick * **view_model;
 }

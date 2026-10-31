@@ -254,12 +254,24 @@ pub(crate) fn full_scope_fov_rad(optic: Optic, tuning: &AdsTuning) -> f32 {
     2.0 * ((full_ads_fov_rad(optic) * 0.5).tan() * tuning.lens_fit).atan()
 }
 
-/// Pure: the world camera's vertical FOV (radians), blended from the hip FOV
-/// toward the scope's full-ADS zoom by `ads_t`. Shared by the live [`apply_ads`]
-/// system and the kill-cam replay, so a replay renders at the *shooter's* hip
-/// FOV and scope instead of the viewer's own.
+/// Pure: a FOV (radians) `t` of the way from `from` to `to`, zooming at a
+/// steady rate — magnification goes with `1 / tan(fov / 2)`, so it's that
+/// that's blended (geometrically), not the angle. Blending the angle itself
+/// leaves nearly all of a big scope's zoom for the last few frames of the
+/// raise: a pop as it arrives, where Call of Duty's world grows steadily.
+pub(crate) fn zoom_fov_rad(from: f32, to: f32, t: f32) -> f32 {
+    let a = (from * 0.5).tan().max(1e-6);
+    let b = (to * 0.5).tan().max(1e-6);
+    2.0 * (a * (b / a).powf(t.clamp(0.0, 1.0))).atan()
+}
+
+/// Pure: the world camera's vertical FOV (radians), zoomed from the hip FOV
+/// toward the scope's full-ADS zoom by `ads_t` ([`zoom_fov_rad`]). Shared by
+/// the live [`apply_ads`] system and the kill-cam replay, so a replay renders
+/// at the *shooter's* hip FOV and scope instead of the viewer's own.
 pub(crate) fn ads_fov_rad(optic: Optic, tuning: &AdsTuning, ads_t: f32) -> f32 {
-    optic.hip_fov_deg.to_radians().lerp(
+    zoom_fov_rad(
+        optic.hip_fov_deg.to_radians(),
         full_ads_fov_rad(optic),
         ads_ease(ads_t, tuning.ads_ease),
     )

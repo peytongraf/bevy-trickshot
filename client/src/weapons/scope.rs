@@ -238,7 +238,7 @@ pub(crate) fn update_scope(
     // real scope magnification as the picture arrives.
     let optic = Optic::current(&settings, &killcam, &weapon, &ak, &ray, &m17);
     let world_fov = ads_fov_rad(optic, &tuning, ads.t);
-    let scope_fov = world_fov.lerp(full_scope_fov_rad(optic, &tuning), picture);
+    let scope_fov = super::ads::zoom_fov_rad(world_fov, full_scope_fov_rad(optic, &tuning), picture);
     if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = scope_fov;
     }

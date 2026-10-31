@@ -550,6 +550,7 @@ pub(crate) fn write_input(
     action.shake_trauma = shake.trauma;
     action.shake_phase = shake.phase;
     action.shake_recoil = shake.recoil;
+    action.shake_kick = shake.kick.to_array();
     action.sway_offset = sway.offset.to_array();
     action.fov_deg = settings.fov;
     // (The AK-74's iron sights zoom only a little, whatever scope is picked.)

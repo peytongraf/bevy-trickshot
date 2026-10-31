@@ -889,6 +889,7 @@ fn drive_killcam(
     let trauma = a.shake_trauma.lerp(b.shake_trauma, frac);
     let phase = a.shake_phase.lerp(b.shake_phase, frac);
     let recoil = a.shake_recoil.lerp(b.shake_recoil, frac);
+    let kick = Vec2::from_array(a.shake_kick).lerp(Vec2::from_array(b.shake_kick), frac);
     let sway = Vec2::from_array(a.sway_offset).lerp(Vec2::from_array(b.sway_offset), frac);
     let optic = crate::Optic {
         hip_fov_deg: a.fov_deg.lerp(b.fov_deg, frac),
@@ -903,7 +904,7 @@ fn drive_killcam(
     // killer performed.
     ads.t = a.ads_t.lerp(b.ads_t, frac).clamp(0.0, 1.0);
 
-    let shake_pose = crate::shake_camera_pose(&shake_cfg, ads.t, trauma, phase);
+    let shake_pose = crate::shake_camera_pose(&shake_cfg, ads.t, trauma, phase) * crate::kick_camera_pose(kick);
     for (mut tf, (is_player, is_head, is_shake, is_recoil)) in &mut rig {
         if is_player {
             *tf = Transform {
@@ -940,7 +941,7 @@ fn drive_killcam(
     // gated off while a kill cam is active, so there's no double-application).
     sway_state.offset = sway;
     let sway_rot = Quat::from_euler(EulerRot::YXZ, sway.x, sway.y, 0.0);
-    let kick = crate::weapon_kick_pose(&shake_cfg, ads.t, trauma, phase);
+    let kick = crate::weapon_kick_pose(&shake_cfg, ads.t, trauma, phase) * crate::kick_gun_pose(&shake_cfg, kick);
     *view_model = kick * Transform::from_rotation(sway_rot) * *view_model;
     // The knife sways the same way live (`knife_weapon_sway`), so replay it
     // too — just the recorded turn-lag, no recoil kick (the knife has none).

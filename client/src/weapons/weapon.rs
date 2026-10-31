@@ -2667,6 +2667,7 @@ pub(crate) fn weapon_system(
         shake.trauma = (shake.trauma + shake_cfg.trauma_per_shot).min(1.0);
         shake.recoil = shake_cfg.recoil_kick;
         muzzle.shots = muzzle.shots.wrapping_add(1);
+        shake.fire_kick(&shake_cfg, ads.t, muzzle.shots);
         muzzle.roll = rand_roll(muzzle.shots);
         muzzle.intensity = 1.0;
         smoke.0 = Some(0.0);

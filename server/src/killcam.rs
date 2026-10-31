@@ -352,6 +352,7 @@ fn sample_from_input(
         shake_trauma: i.shake_trauma,
         shake_phase: i.shake_phase,
         shake_recoil: i.shake_recoil,
+        shake_kick: i.shake_kick,
         sway_offset: i.sway_offset,
         fov_deg: i.fov_deg,
         scope_zoom: i.scope_zoom,

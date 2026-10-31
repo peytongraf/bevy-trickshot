@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- MW3 smoothness: zoom curve, sniper kick, smoother sway
 - Instant kill / hit feedback
 - Retuned blood overlay
 - Zombie explosion ragdolls
@@ -18,7 +19,11 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
-- Find out why mw3 sniping is smooth and this game isn't. Compare screen recordings.
+- Sniper fire animation: remove the kick back toward the camera, then drop the camera's backward recoil kick that counters it
+- Motion blur on fast turns (Graphics setting) like MW3
+- Default frame cap to the display's refresh rate (judder when uncapped)
+- Bot sniper shots (server `sniper_feel`) still use the old trauma shake in kill cams — switch to the new kick
+- Maybe: MW3-style scope where only the lens is magnified and the world outside zooms a little
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
 - Test and improve server performance for cpu and memory
 - Could download bottle model and replace the plastic model in the drinking arms with it and redo the animation, then just swap out the material that is used if they would all look correct.
