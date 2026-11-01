@@ -321,6 +321,11 @@ enum AuraPart {
 #[derive(Component)]
 pub(crate) struct BossTint(pub(crate) [f32; 3]);
 
+/// A boss avatar with a voice of its own (the easter egg's Hierophant,
+/// `easter_egg::fight`): no growls, no death roar.
+#[derive(Component)]
+pub(crate) struct BossVoiced;
+
 /// A boss's own copies of its model's materials, made to glow: each with
 /// the emissive it came with.
 #[derive(Component)]
@@ -786,7 +791,7 @@ fn animate_bosses(
     sounds: Option<Res<GameSounds>>,
     poses: Query<&PlayerPose>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
-    mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>)>,
+    mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>, Has<BossVoiced>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     orbs: Query<&BossOrb>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -802,7 +807,7 @@ fn animate_bosses(
     let s = &*settings;
     let blend = Duration::from_secs_f32(s.blend_secs.max(0.0));
 
-    for (entity, avatar, tf, mut motion, rig) in &mut avatars {
+    for (entity, avatar, tf, mut motion, rig, voiced) in &mut avatars {
         let Ok(pose) = poses.get(avatar.src) else { continue };
         let raw = match motion.prev {
             Some(prev) => (pose.translation - prev).with_y(0.0) / dt,
@@ -826,7 +831,7 @@ fn animate_bosses(
         };
 
         // Growls, every so often while it's up.
-        if state != BossState::Dead {
+        if state != BossState::Dead && !voiced {
             let next = *motion.next_growl.get_or_insert_with(|| {
                 *seq = seq.wrapping_add(1);
                 now + 1.0 + rand01(seq.wrapping_mul(2_654_435_761)) * s.growl_every.0
@@ -886,7 +891,9 @@ fn animate_bosses(
                     transitions
                         .play(&mut player, assets.death, Duration::from_secs_f32(0.15))
                         .set_repeat(RepeatAnimation::Never);
-                    commands.spawn(boss_sound(sounds.boss_death.clone(), head, false));
+                    if !voiced {
+                        commands.spawn(boss_sound(sounds.boss_death.clone(), head, false));
+                    }
                 }
             }
             motion.state = state;

@@ -249,6 +249,10 @@ pub struct ZombieKilled {
     /// outside, tearing boards or climbing over the sill) — so nothing it
     /// drops would land where the players can reach.
     pub outside: bool,
+    /// Whether it drops anything at all (a power-up, equipment) — not the
+    /// easter egg's Hierophant or the zombies he raises
+    /// (`ai::BotBrain::without_drops`).
+    pub drops: bool,
 }
 
 impl ZombieKilled {
@@ -257,6 +261,9 @@ impl ZombieKilled {
     /// at most one drops per kill. Seeded from where it died, so each of
     /// them reading it gets the same answer.
     pub fn equipment_drop(&self) -> Option<shared::lethal::LethalKind> {
+        if !self.drops {
+            return None;
+        }
         let seed = (self.feet.x.to_bits() as u64).rotate_left(11)
             ^ (self.feet.y.to_bits() as u64).rotate_left(29)
             ^ (self.feet.z.to_bits() as u64).rotate_left(47)
@@ -362,6 +369,13 @@ pub(crate) fn apply_player_hits(
             continue;
         };
         if !combat.alive {
+            continue;
+        }
+        // The easter egg's Hierophant, sunk into the ground mid-teleport.
+        if brains
+            .iter()
+            .any(|(id, b)| id.0 == ev.victim && b.untouchable(time.elapsed_secs()))
+        {
             continue;
         }
         // The Aether Shroud (a `Zombies` field upgrade): nothing hurts them.
@@ -609,6 +623,7 @@ pub(crate) fn apply_player_hits(
                             outside: brains
                                 .iter()
                                 .any(|(id, brain)| id.0 == ev.victim && brain.window_index().is_some()),
+                            drops: brains.iter().find(|(id, _)| id.0 == ev.victim).is_none_or(|(_, b)| b.drops()),
                         });
                     }
                 }

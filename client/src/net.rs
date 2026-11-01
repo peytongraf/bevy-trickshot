@@ -1288,7 +1288,7 @@ fn spawn_soldier_avatar(
         .observe(crate::start_soldier_animation);
 }
 
-fn follow_remote_avatars(
+pub(crate) fn follow_remote_avatars(
     poses: Query<&PlayerPose>,
     remote_avatar_settings: Res<crate::RemoteAvatarSettings>,
     zombie_settings: Res<crate::ZombieAvatarSettings>,

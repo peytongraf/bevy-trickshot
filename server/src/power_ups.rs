@@ -158,6 +158,10 @@ fn roll_drops(
         if !lobby.started || lobby.mode != GameMode::Zombies {
             continue;
         }
+        // (The easter egg's Hierophant and his raised zombies drop nothing.)
+        if !ev.drops {
+            continue;
+        }
         // A dog round drops nothing but its last dog's Max Ammo. (A dog
         // outside an exfil is always a dog round's — even when the last
         // one's kill is read after the round's already moved on.)

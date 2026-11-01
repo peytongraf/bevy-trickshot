@@ -43,7 +43,7 @@ use crate::zombies::Zombie;
 
 mod fight;
 
-pub(crate) use fight::Hierophant;
+pub(crate) use fight::{Hierophant, Raised};
 
 pub struct EasterEggPlugin;
 
@@ -54,6 +54,8 @@ impl Plugin for EasterEggPlugin {
             .init_resource::<Rituals>()
             .init_resource::<Unleashings>()
             .init_resource::<fight::Fights>()
+            .init_resource::<fight::DebugPokes>()
+            .add_observer(fight::on_hierophant_debug)
             .add_systems(
                 FixedUpdate,
                 (drop_vial, run_altar, run_ritual, run_unleashed, fight::run_fight)

@@ -97,12 +97,19 @@ pub struct EasterEgg {
     pub hierophant: Option<Hierophant>,
 }
 
-/// Who the Hierophant is in a game, and the health he came in with (for his
-/// health bar).
+/// Who the Hierophant is in a game, the health he came in with (for his
+/// health bar), and which phase of the fight he's in (1, 2 from
+/// [`PHASE_2_AT`] of his health; phase 3 is still to come).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Hierophant {
     pub peer: PeerId,
     pub max_health: f32,
+    #[serde(default = "first_phase")]
+    pub phase: u8,
+}
+
+fn first_phase() -> u8 {
+    1
 }
 
 /// What a player does with the easter egg ([`crate::EggInteract`]).
@@ -157,7 +164,7 @@ pub const WAKE_SPIRIT_TO: f32 = 4.2;
 /// ...a beat of stillness, then he snaps upright, screaming (`wake.mp3`,
 /// this long)...
 pub const WAKE_SNAP_AT: f32 = 6.2;
-pub const WAKE_SCREAM_SECS: f32 = 5.86;
+pub const WAKE_SCREAM_SECS: f32 = 8.28;
 /// ...and once he's done, the fight's on ([`EggStep::BossFight`]).
 pub const AWAKENING_SECS: f32 = WAKE_SNAP_AT + WAKE_SCREAM_SECS + 0.5;
 
@@ -196,8 +203,127 @@ pub const HIEROPHANT_MELEE_DAMAGE: f32 = 85.0;
 /// for this long, glaring at who he's after, while he says it.
 pub const TAUNTS: u8 = 6;
 pub const TAUNT_FIRST_SECS: f32 = 6.0;
-pub const TAUNT_GAP_SECS: (f32, f32) = (14.0, 24.0);
-pub const TAUNT_HOLD_SECS: f32 = 2.0;
+pub const TAUNT_GAP_SECS: (f32, f32) = (16.0, 26.0);
+pub const TAUNT_HOLD_SECS: f32 = 2.5;
+
+/// What the Hierophant says in the fight (`hierophant/<file>.mp3`, see
+/// `client/notes/quotes/hierophant-quotes.md`) — the server picks, every
+/// client plays it from where he stands ([`crate::HierophantSays`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HierophantLine {
+    /// `0..TAUNTS`.
+    Taunt(u8),
+    /// He's downed a player — `0..PLAYER_DOWN_LINES`.
+    PlayerDown(u8),
+    /// A big hit — `0..HURT_LINES`.
+    Hurt(u8),
+    /// Phase 2: raising the dead.
+    Phase2,
+    /// Phase 3: enraged.
+    Phase3,
+    /// Killed.
+    Death,
+}
+
+/// The debug panel's pokes at the Hierophant ([`crate::HierophantDebug`]).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub enum HierophantDebugAction {
+    /// Set his health to this share (0..=1) of the most he had — his phase
+    /// follows it.
+    SetHealth(f32),
+    /// Raise a ring of the dead now (phase 2 or not).
+    RaiseRing,
+    /// Teleport now (phase 2 or not).
+    Teleport,
+}
+
+pub const PLAYER_DOWN_LINES: u8 = 3;
+pub const HURT_LINES: u8 = 3;
+
+impl HierophantLine {
+    /// Its file, under `audio/zombies/easter_egg/hierophant/`.
+    pub fn file(self) -> String {
+        match self {
+            HierophantLine::Taunt(i) => format!("taunt_{}.mp3", i + 1),
+            HierophantLine::PlayerDown(i) => format!("player_down_{}.mp3", i + 1),
+            HierophantLine::Hurt(i) => format!("hurt_{}.mp3", i + 1),
+            HierophantLine::Phase2 => "phase_2.mp3".into(),
+            HierophantLine::Phase3 => "phase_3.mp3".into(),
+            HierophantLine::Death => "death.mp3".into(),
+        }
+    }
+
+    /// How long (s) the recording runs — nothing else of his starts over it.
+    pub fn secs(self) -> f32 {
+        const TAUNT: [f32; 6] = [5.56, 6.03, 4.44, 5.15, 5.15, 4.83];
+        const DOWN: [f32; 3] = [2.04, 3.24, 3.24];
+        const HURT: [f32; 3] = [1.41, 1.31, 4.28];
+        match self {
+            HierophantLine::Taunt(i) => TAUNT.get(i as usize).copied().unwrap_or(6.0),
+            HierophantLine::PlayerDown(i) => DOWN.get(i as usize).copied().unwrap_or(3.5),
+            HierophantLine::Hurt(i) => HURT.get(i as usize).copied().unwrap_or(4.5),
+            HierophantLine::Phase2 => 7.31,
+            HierophantLine::Phase3 => 5.41,
+            HierophantLine::Death => 6.27,
+        }
+    }
+
+    /// It cuts off whatever he was saying (his phase changing, his death);
+    /// anything else waits for him to finish, or isn't said.
+    pub fn interrupts(self) -> bool {
+        matches!(self, HierophantLine::Phase2 | HierophantLine::Phase3 | HierophantLine::Death)
+    }
+}
+
+/// A big hit, for a hurt line: this much of his health (of the most he
+/// had) gone within [`HURT_WINDOW_SECS`]...
+pub const HURT_SHARE: f32 = 0.05;
+pub const HURT_WINDOW_SECS: f32 = 0.75;
+/// ...at most once this often (s).
+pub const HURT_COOLDOWN_SECS: f32 = 9.0;
+/// After downing someone, his gloat at most once this often (s).
+pub const PLAYER_DOWN_COOLDOWN_SECS: f32 = 6.0;
+
+// --- phase 2 ---------------------------------------------------------------------------
+
+/// Phase 2 starts once he's down to this much of his health...
+pub const PHASE_2_AT: f32 = 2.0 / 3.0;
+/// ...and he stands roaring this long (s) as it does — raising the first
+/// ring of the dead this far (s) in.
+pub const PHASE_ROAR_SECS: f32 = 3.0;
+pub const RING_RISE_AT_SECS: f32 = 0.8;
+
+/// A ring of the dead he raises (phase 2 on): how many with `players` in
+/// the game...
+pub fn ring_size(players: usize) -> usize {
+    (6 + 2 * players.max(1).saturating_sub(1)).min(RING_MAX)
+}
+pub const RING_MAX: usize = 12;
+/// ...rising this far (m) around him...
+pub const RING_RADIUS: (f32, f32) = (3.5, 6.5);
+/// ...and another once at most this many of the last are left, at most
+/// this often (s, not counting pauses).
+pub const RING_REFILL_LEFT: usize = 2;
+pub const RING_EVERY_SECS: f32 = 25.0;
+
+/// His teleport (phase 2 on): every so often (a random gap, s)...
+pub const TELEPORT_GAP_SECS: (f32, f32) = (12.0, 18.0);
+/// ...or once no one's been within this far (m) of him for this long (s)...
+pub const TELEPORT_ALONE_DIST: f32 = 10.0;
+pub const TELEPORT_ALONE_SECS: f32 = 4.0;
+/// ...he sinks into the ground in green smoke over this long (s), is gone
+/// for this long, then rises up out of it near a player, over this long —
+/// nothing hurting him from the moment he starts sinking until he's up.
+pub const TELEPORT_SINK_SECS: f32 = 1.2;
+pub const TELEPORT_UNDER_SECS: f32 = 0.8;
+pub const TELEPORT_RISE_SECS: f32 = 1.4;
+/// He comes up this far (m, across the ground) from whoever he picks.
+pub const TELEPORT_NEAR: (f32, f32) = (4.0, 7.0);
+
+/// The whole teleport (s): sinking, gone, rising.
+pub const fn teleport_secs() -> f32 {
+    TELEPORT_SINK_SECS + TELEPORT_UNDER_SECS + TELEPORT_RISE_SECS
+}
 
 /// How close (m, across the ground) feet have to be to the vial to pick it
 /// up...
@@ -392,6 +518,15 @@ mod tests {
         assert!(Vec3::new(d.x, 0.0, d.z).length() <= SARCOPHAGUS_HALF_EXTENTS.z * at.scale, "on it, not off its end");
         assert!(d.y > 0.0 && d.y <= SARCOPHAGUS_HALF_EXTENTS.y * 2.0 * at.scale, "on top of it");
         assert!(hierophant_start(MapId::Shipment).is_none());
+    }
+
+    #[test]
+    fn his_lines_are_where_the_recordings_are() {
+        assert_eq!(HierophantLine::Taunt(0).file(), "taunt_1.mp3");
+        assert_eq!(HierophantLine::PlayerDown(2).file(), "player_down_3.mp3");
+        assert_eq!(HierophantLine::Hurt(1).file(), "hurt_2.mp3");
+        assert!(HierophantLine::Death.interrupts() && !HierophantLine::Taunt(0).interrupts());
+        assert!(ring_size(1) >= 6 && ring_size(8) == RING_MAX);
     }
 
     #[test]

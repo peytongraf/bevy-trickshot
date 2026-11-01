@@ -1198,6 +1198,7 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
     tx: Query<'w, 's, &'static mut TriggerSender<shared::SetEasterEgg>, With<GameClient>>,
+    hierophant_tx: Query<'w, 's, &'static mut TriggerSender<shared::HierophantDebug>, With<GameClient>>,
 }
 
 impl EasterEggDebug<'_, '_> {
@@ -1231,10 +1232,17 @@ impl EasterEggDebug<'_, '_> {
         });
         ui.collapsing("He wakes", |ui| wake::wake_section(ui, &mut self.wake_settings, &self.wake));
         let egg_lobby = egg_game(&self.local, &self.lobbies);
+        let leads = egg_lobby.is_some_and(|l| self.local.iter().next().is_some_and(|me| me.0 == l.leader));
         ui.collapsing("Music", |ui| {
             music::music_section(ui, &mut self.music_settings, &self.music_levels, self.ambient_level.0)
         });
-        ui.collapsing("The fight", |ui| fight::fight_section(ui, &mut self.fight_settings, egg_lobby));
+        let poke = ui
+            .collapsing("The fight", |ui| fight::fight_section(ui, &mut self.fight_settings, egg_lobby, leads))
+            .body_returned
+            .flatten();
+        if let (Some(action), Ok(mut tx)) = (poke, self.hierophant_tx.single_mut()) {
+            fight::send_poke(&mut tx, action);
+        }
         let me = self.local.iter().next().map(|l| l.0);
         let game = zombies_game(&self.local, &self.lobbies).filter(|l| shared::easter_egg::available(l));
         let Some(lobby) = game else {

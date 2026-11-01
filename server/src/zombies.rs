@@ -848,7 +848,7 @@ fn pick_zombie_spawn(
 /// A zombie as tough as `round`'s rising out of the ground at `feet`, facing
 /// `near` — outside window `window`, if it's coming in through one.
 #[allow(clippy::too_many_arguments)]
-fn spawn_zombie(
+pub(crate) fn spawn_zombie(
     commands: &mut Commands,
     next_id: &mut NextBotId,
     lobby_e: Entity,
@@ -928,8 +928,14 @@ fn recycle_far_zombies(
             Has<crate::dogs::Dog>,
             Has<crate::boss::Boss>,
         ),
-        // (Never the easter egg's Hierophant: he's not the round's.)
-        (With<Zombie>, Without<crate::power_ups::NukeDeath>, Without<crate::easter_egg::Hierophant>),
+        // (Never the easter egg's Hierophant or the dead he raises: they're
+        // not the round's.)
+        (
+            With<Zombie>,
+            Without<crate::power_ups::NukeDeath>,
+            Without<crate::easter_egg::Hierophant>,
+            Without<crate::easter_egg::Raised>,
+        ),
     >,
     mut commands: Commands,
 ) {

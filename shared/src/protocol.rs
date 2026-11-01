@@ -2237,11 +2237,28 @@ pub struct BossSpawned {
 }
 
 /// Server → every member of a `Zombies` lobby on Der Tempel: the easter
-/// egg's Hierophant taunts them — taunt `line` (`0..easter_egg::TAUNTS`,
-/// `hierophant/taunt_{line + 1}.mp3`), from where he stands.
+/// egg's Hierophant says `line`, from where he stands.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub struct HierophantTaunt {
-    pub line: u8,
+pub struct HierophantSays {
+    pub line: crate::easter_egg::HierophantLine,
+}
+
+/// Server → the same: the Hierophant's teleport has begun — sinking at
+/// `from` (feet), he'll rise at `to` facing `yaw`
+/// (`easter_egg::TELEPORT_*` timings from now).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HierophantTeleport {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
+    pub yaw: f32,
+}
+
+/// Server → the same: the Hierophant raises a ring of the dead around
+/// `at` (his feet) — its sound and burst there (the zombies rise as any
+/// do).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HierophantRaise {
+    pub at: [f32; 3],
 }
 
 /// Server → every member of a `Zombies` lobby: boss `boss` (its bot peer id)
@@ -2626,6 +2643,13 @@ pub struct SetEasterEgg {
     pub egg: crate::easter_egg::EasterEgg,
 }
 
+/// Client → server (debug, the party leader): poke the easter egg's
+/// Hierophant mid-fight. Ignored from anyone else, or with no fight on.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct HierophantDebug {
+    pub action: crate::easter_egg::HierophantDebugAction,
+}
+
 /// Client → server: the easter egg's interact ([`crate::easter_egg`]) —
 /// pick up the vial, take the dagger, accept or decline the ritual. The
 /// server checks they're alive and where it is, and that it's that step.
@@ -2854,7 +2878,11 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BossBlastLaunched>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<HierophantTaunt>()
+        app.add_message::<HierophantSays>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<HierophantTeleport>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<HierophantRaise>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BossBlastExploded>()
             .add_direction(NetworkDirection::ServerToClient);
@@ -2936,6 +2964,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<DropPowerUp>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetEasterEgg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<HierophantDebug>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<EggInteract>()
             .add_direction(NetworkDirection::ClientToServer);

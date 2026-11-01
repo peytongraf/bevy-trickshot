@@ -7,11 +7,49 @@ asset work that's yours; until it's done, that step runs on placeholders.
 
 ## Next session: start here
 
-Where things stand (Nov 1): steps through **boss fight phase 1** (step
-7) are built. "It goes wrong" is tested. "He wakes" and phase 1 still need
-testing: in the debug panel, jump to "It goes wrong", then "He wakes" (it
-replays from the start each time), then let it run into the fight (or
-jump straight to "Boss fight"). Next up is **phase 2** (step 8 below).
+Where things stand (Nov 1): steps through **boss fight phase 2** (step
+8) are built. "It goes wrong" is tested. "He wakes", phase 1, phase 2 and
+the music still need testing: in the debug panel, jump to "It goes
+wrong", then "He wakes" (it replays from the start each time), then let it
+run into the fight (or jump straight to "Boss fight"). Under "The fight"
+there are buttons to set his health (67% starts phase 2), raise a ring
+and teleport him. Next up is **phase 3** (step 9 below).
+
+- **Phase 2 as built** (the same two `fight.rs` files):
+  - At 2/3 health (`PHASE_2_AT`) he stops for 3 s and plays
+    `phase_2.mp3`. 0.8 s in, a ring of the dead rises around him:
+    6 zombies, plus 2 per extra player, up to 12 (`ring_size`), 3.5–6.5 m
+    out. They're tagged `Raised`.
+  - Another ring comes whenever 2 or fewer are left, at most every 25 s.
+  - Raised zombies give points but drop nothing:
+    `BotBrain::without_drops` → `ZombieKilled::drops`, which power-ups
+    and equipment both check. The Hierophant drops nothing either.
+  - Raised zombies are never recycled into the round. When he dies (or
+    the egg is set elsewhere), they all drop dead too, with no points.
+  - Teleport: every 12–18 s, or once nobody has been within 10 m of him
+    for 4 s. He sinks into the floor in green smoke (1.2 s), stays under
+    for 0.8 s, then rises out of the ground 4–7 m from his target, on
+    their floor (1.4 s). Nothing can hurt him for that whole time
+    (`BotBrain::untouchable`, checked in `pvp::apply_player_hits`).
+  - The client sinks his avatar (`Sinking`), plays the green bursts
+    (`Burst`), and plays `teleport_out` / `teleport_in` / `raise_dead`.
+  - Voice lines (`HierophantLine` in `shared::easter_egg`):
+    - taunts, as before;
+    - `player_down_*` when his hit downs someone (at most every 6 s);
+    - `hurt_*` when he loses 5% of his health within 0.75 s (at most
+      every 9 s);
+    - `phase_2`, and `death` when he dies.
+    He never talks over himself; the phase and death lines cut in. His
+    avatar has no boss growls or death roar (`boss::BossVoiced`).
+  - Phase 3 needs: `phase_3.mp3` (recorded) and the `phase` field on
+    `EasterEgg::hierophant` (currently 1 or 2).
+- **Recordings are all in** (Nov 1): every Hierophant line plus the three
+  phase-2 sounds. `WAKE_SCREAM_SECS` is now 8.28 to match the new
+  `wake.mp3`. Operator easter-egg quotes are still to come (the user
+  will add them). `boss_raises_dead` should play at the ring.
+- **Known failing (not from the egg work):** 4 `server` nav tests, e.g.
+  "DerTempel door 11: the ground either side of it is one zone", from
+  the map's door and spawn layout.
 
 - **The music** (`client/src/easter_egg/music.rs`):
   `audio/music/disastrous.mp3` (the user's track, 106 s, looped).
@@ -51,12 +89,11 @@ jump straight to "Boss fight"). Next up is **phase 2** (step 8 below).
     "zombies drop dead" step skips him, and Maddox's first-boss-kill
     line doesn't fire for him. Insta-Kill doesn't work on him, as with
     any boss.
-  - Taunts: the first comes 6 s into the fight, then one every 14–24 s.
-    He stops and glares for 2 s while each one plays
-    (`TAUNT_*`, `shared::HierophantTaunt`).
-    `hierophant/taunt_1.mp3`–`taunt_6.mp3` are placeholder copies of
-    the boss growl, set to "Hierophant voice" in `mix.ron`. Record over
-    them.
+  - Taunts: the first comes 6 s into the fight, then one every 16–26 s.
+    He stops and glares for 2.5 s while each one plays
+    (`TAUNT_*`, `shared::HierophantSays`). The whole `hierophant/`
+    folder is on "Hierophant voice" in `mix.ron`, except the whispers,
+    which stay on "Hierophant".
   - His health bar sits top centre under the compass. Tune it in the
     debug panel under "Easter egg (Der Tempel)" → "The fight".
   - Killed: the step moves to Ascension (which does nothing yet), so
@@ -198,8 +235,9 @@ Where the code is:
    during the fight.
    **Test:** use the debug panel to spawn him (jump to "Boss fight"); he
    chases, hits and taunts, and can be killed.
-8. **Phase 2 (66%):** he raises a ring of zombies and teleports between
-    the fire bowls.
+8. **Phase 2 (66%) (built, needs testing):** he raises a ring of zombies
+    and teleports, sinking into the ground and rising out of it near a
+    player (changed from the fire bowls).
     **Test:** use a debug button to set his health; check the zombie ring
     and the teleports.
 9. **Phase 3 (33%):** he's enraged and faster, in blood-red fog with

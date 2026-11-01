@@ -188,7 +188,7 @@
             reverb: Some(true),
         ),
         "zombies/easter_egg/hierophant": (
-            profile: Some("Hierophant"),
+            profile: Some("Hierophant voice"),
             bus: Some(Zombies),
             reverb: Some(true),
         ),
@@ -239,6 +239,15 @@
         ),
     },
     clips: {
+        "zombies/easter_egg/hierophant/whisper_1.mp3": (
+            profile: Some("Hierophant"),
+        ),
+        "zombies/easter_egg/hierophant/whisper_2.mp3": (
+            profile: Some("Hierophant"),
+        ),
+        "zombies/easter_egg/hierophant/whisper_3.mp3": (
+            profile: Some("Hierophant"),
+        ),
         "zombies/easter_egg/hierophant/during_ritual.mp3": (
             profile: Some("Hierophant voice"),
         ),
@@ -246,24 +255,6 @@
             profile: Some("Hierophant voice"),
         ),
         "zombies/easter_egg/hierophant/wake.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_1.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_2.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_3.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_4.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_5.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/taunt_6.mp3": (
             profile: Some("Hierophant voice"),
         ),
         "ambient/fire_crackle.mp3": (

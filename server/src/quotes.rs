@@ -502,6 +502,7 @@ mod tests {
             cause,
             anim,
             outside: false,
+            drops: true,
         }
     }
 

@@ -290,8 +290,11 @@ struct ZombieBody {
     /// never hurls blasts and hits harder...
     hierophant: bool,
     /// ...and stands glaring until then (`Time::elapsed_secs`) while he
-    /// taunts ([`BotBrain::taunt`]).
+    /// taunts ([`BotBrain::taunt`])...
     taunt_until: f32,
+    /// ...and nothing hurts him until then — sunk into the ground, mid-
+    /// teleport ([`BotBrain::untouchable_until`]).
+    untouchable_until: f32,
     /// Round a monkey bomb: its lane (m out from it, [`MONKEY_RING_MIN`]..
     /// [`MONKEY_RING_MAX`]) and which way it's going round (±1 — every
     /// zombie the same way, so they follow rather than walk into each
@@ -440,6 +443,10 @@ pub struct BotBrain {
     /// `SearchAndDestroy`: held where it stands, firing nothing — before a
     /// round starts.
     pub(crate) held: bool,
+    /// A `Zombies` kill of it drops nothing — no power-up, no equipment
+    /// ([`BotBrain::without_drops`]: the easter egg's Hierophant and the
+    /// zombies he raises).
+    no_drops: bool,
 }
 
 impl BotBrain {
@@ -482,6 +489,7 @@ impl BotBrain {
             rng: seed,
             objective: None,
             held: false,
+            no_drops: false,
         }
     }
 
@@ -553,6 +561,7 @@ impl BotBrain {
             blast_ready_at: 0.0,
             hierophant: false,
             taunt_until: f32::NEG_INFINITY,
+            untouchable_until: f32::NEG_INFINITY,
             ring: MONKEY_RING_MIN + (MONKEY_RING_MAX - MONKEY_RING_MIN) * self.roll(),
             circle_dir: 1.0,
             crawler: None,
@@ -570,6 +579,47 @@ impl BotBrain {
             since: 0.0,
         });
         self
+    }
+
+    /// Its kill drops nothing (`crate::pvp::ZombieKilled::drops`).
+    pub fn without_drops(mut self) -> Self {
+        self.no_drops = true;
+        self
+    }
+
+    /// Whether a kill of it drops anything — set on one already made.
+    pub(crate) fn set_drops(&mut self, drops: bool) {
+        self.no_drops = !drops;
+    }
+
+    /// Whether a kill of it drops anything.
+    pub fn drops(&self) -> bool {
+        !self.no_drops
+    }
+
+    /// Where its feet are.
+    pub(crate) fn feet(&self) -> Vec3 {
+        self.feet
+    }
+
+    /// Who it's after, if anyone.
+    pub(crate) fn target(&self) -> Option<PeerId> {
+        self.target
+    }
+
+    /// Pick it up and put it down at `feet`, facing `yaw` (the Hierophant's
+    /// teleport): still, its route forgotten.
+    pub(crate) fn move_to(&mut self, feet: Vec3, yaw: f32) {
+        self.feet = feet;
+        self.yaw = yaw;
+        self.vertical_velocity = 0.0;
+        self.path.clear();
+        self.path_index = 0;
+        self.repath_at = 0.0;
+        self.stall_from = feet;
+        self.stall_secs = 0.0;
+        self.blocked_for = 0.0;
+        self.detour_until = 0.0;
     }
 
     /// The window it's coming in through, if it is.
@@ -606,6 +656,34 @@ impl BotBrain {
             z.blast_ready_at = f32::INFINITY;
         }
         brain
+    }
+
+    /// The Hierophant stands where he is (facing who he's after), starting
+    /// nothing, for `secs` from `now` — whatever he was doing dropped (his
+    /// phase changing, a teleport).
+    pub(crate) fn hold_for(&mut self, now: f32, secs: f32) {
+        if let Some(z) = self.zombie.as_mut().filter(|z| z.hierophant) {
+            z.boss_attack = None;
+            z.stunned_until = f32::NEG_INFINITY;
+            z.taunt_until = z.taunt_until.max(now + secs);
+        }
+    }
+
+    /// Nothing hurts the Hierophant until `until` (`Time::elapsed_secs`).
+    pub(crate) fn untouchable_until(&mut self, until: f32) {
+        if let Some(z) = self.zombie.as_mut().filter(|z| z.hierophant) {
+            z.untouchable_until = until;
+        }
+    }
+
+    /// Whether nothing can hurt it right now (`now`, `Time::elapsed_secs`).
+    pub fn untouchable(&self, now: f32) -> bool {
+        self.zombie.is_some_and(|z| z.untouchable_until > now)
+    }
+
+    /// Whether the Hierophant's mid-smash.
+    pub(crate) fn attacking(&self) -> bool {
+        self.zombie.is_some_and(|z| z.boss_attack.is_some())
     }
 
     /// The Hierophant stops to taunt: he stands where he is, facing who he's

@@ -33,7 +33,22 @@ wrong" step, which isn't built yet.
 
 ---
 
-# NOT RECORDED YET
+# Also recorded (Nov 1)
+
+All of the lines below are recorded. Where each one plays:
+
+- `wake.mp3`: when he wakes.
+- Taunts, `phase_2`, `player_down_*`, `hurt_*` and `death`: in the
+  fight (`server/src/easter_egg/fight.rs` decides when).
+- `phase_3` and `pyramid_fade`: not wired up yet (phase 3 and the
+  pyramid are later steps).
+
+Phase 2 also uses three sound effects from this folder, not voice lines:
+`teleport_out.mp3`, `teleport_in.mp3` and `raise_dead.mp3`.
+
+If you re-record a fight line at a different length, change its length
+in `HierophantLine::secs` in `shared/src/easter_egg.rs`. The server uses
+those lengths so he never talks over himself.
 
 ## He wakes in his body (`wake.mp3`)
 
@@ -44,11 +59,11 @@ wrong" step, which isn't built yet.
 A random one every so often.
 
 - 1 [ guttural, distorted, screaming ] YOUR BLOOD IS IN MY VEINS! [ snarling ] I CAN HEAR YOUR HEARTS!
-- 2 [ deep, distorted, sadistic, slow ] Run. [ pause ] [ screaming ] RUN! [ guttural laugh ] I LOVE IT WHEN THEY RUN!
+- 2 [ sadistic, deep growl ] Yes.. Run! [ evil insane laugh ] [ screaming, growing louder ] I LOVE IT WHEN THEY RUN!!!
 - 3 [ roaring, distorted ] MY CHILDREN DIED FOR ME! [ snarling, screaming ] SO WILL YOU!
-- 4 [ deep, distorted, hissing ] You cannot kill what you brought back... [ screaming ] YOU MADE ME!
+- 4 [ deep, distorted, hissing ] You cannot kill what you brought back... [ screaming, demonic ] YOU MADE ME!
 - 5 [ guttural laugh ] [ screaming, distorted, commanding ] KNEEL! [ roaring ] KNEEL BEFORE YOUR MASTER!
-- 6 [ deep, distorted, mocking scream ] YOUR BULLETS ARE PRAYERS! [ snarling ] AND NO ONE IS LISTENING!
+- 6 [ deep, distorted, mocking scream ] YOUR BULLETS ARE PRAYERS! [ snarling, voice raising high, screaming ] AND NO ONE IS LISTENING!
 
 ## Phase 2: raising the dead (`phase_2.mp3`)
 
@@ -68,9 +83,9 @@ A random one every so often.
 
 Short pain roars when he takes a big hit (no words).
 
-- 1 [ distorted, pained, furious roar ]
-- 2 [ short, distorted, snarling shriek ]
-- 3 [ deep, distorted, agonized growl turning into a scream ]
+- 1 [ distorted, pained, furious roar ] AGH!
+- 2 [ short, distorted, snarling shriek ] UGH!
+- 2 [ deep, distorted, agonized growl turning into a scream ] AGGHHHH!!!!!
 
 ## His death (`death.mp3`)
 

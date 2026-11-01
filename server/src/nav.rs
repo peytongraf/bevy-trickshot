@@ -597,6 +597,11 @@ impl NavGraph {
         best.map(|(_, n)| n)
     }
 
+    /// Node `n`'s position (feet).
+    pub fn node(&self, n: u32) -> Vec3 {
+        self.nodes[n as usize]
+    }
+
     /// The nearest place a body can stand to feet position `p` (see
     /// [`Self::nearest_node`]) — somewhere guaranteed clear of walls.
     pub fn nearest_spot(&self, p: Vec3) -> Option<Vec3> {
