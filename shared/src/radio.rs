@@ -93,10 +93,22 @@ pub enum RadioLine {
     FirstRampageInducerOn,
     /// Everyone's down.
     GameOver,
+    /// The easter egg (Der Tempel's, `crate::easter_egg`): someone's picked
+    /// up Barrett's blood...
+    EggVialFound,
+    /// ...someone's taken the Hierophant's dagger...
+    EggDaggerTaken,
+    /// ...and the squad has both — a hint at the altar...
+    EggBothHeld,
+    /// ...the ritual's gone wrong ("I read it backwards") — said once that
+    /// step's built...
+    EggRitualGoesWrong,
+    /// ...and they're back from the pyramid — said once that step's built.
+    EggAfterPyramid,
 }
 
 impl RadioLine {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 22] = [
         Self::Intro,
         Self::FirstDogRound,
         Self::FirstBossRound,
@@ -114,6 +126,11 @@ impl RadioLine {
         Self::ExfilFewLeft,
         Self::FirstRampageInducerOn,
         Self::GameOver,
+        Self::EggVialFound,
+        Self::EggDaggerTaken,
+        Self::EggBothHeld,
+        Self::EggRitualGoesWrong,
+        Self::EggAfterPyramid,
     ];
 
     /// Its clip, under `client/assets/`.
@@ -136,6 +153,11 @@ impl RadioLine {
             Self::ExfilFewLeft => "audio/radio/maddox/exfil_few_enemies_left.mp3",
             Self::FirstRampageInducerOn => "audio/radio/maddox/first_rampage_inducer_on.mp3",
             Self::GameOver => "audio/radio/maddox/game_over.mp3",
+            Self::EggVialFound => "audio/radio/maddox/easter_egg_vial_found.mp3",
+            Self::EggDaggerTaken => "audio/radio/maddox/easter_egg_dagger_taken.mp3",
+            Self::EggBothHeld => "audio/radio/maddox/easter_egg_both_held.mp3",
+            Self::EggRitualGoesWrong => "audio/radio/maddox/easter_egg_ritual_goes_wrong.mp3",
+            Self::EggAfterPyramid => "audio/radio/maddox/easter_egg_after_pyramid.mp3",
         }
     }
 
@@ -160,6 +182,11 @@ impl RadioLine {
             Self::ExfilFewLeft => 6.77,
             Self::FirstRampageInducerOn => 7.50,
             Self::GameOver => 7.16,
+            Self::EggVialFound => 6.03,
+            Self::EggDaggerTaken => 9.64,
+            Self::EggBothHeld => 9.40,
+            Self::EggRitualGoesWrong => 5.64,
+            Self::EggAfterPyramid => 7.11,
         }
     }
 

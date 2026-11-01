@@ -19,6 +19,7 @@ pub mod boss;
 pub mod crafting;
 pub mod dogs;
 pub mod doors;
+pub mod easter_egg;
 pub mod exfil;
 pub mod field_upgrade;
 pub mod flash_bang;
@@ -64,7 +65,7 @@ pub use protocol::{
     HitMarker, ActorSample, KillCamActor, KillCamSample, KnifeAttackSound, KnifePickedUp, KnifeSample, LeaveLobby,
     Lobby, LobbyChannel, LobbyError,
     LobbyMember, MapId, MatchEnding, MatchOver, PingBot, PlayerId, PlayerInput, ShotClaim, ClaimTarget, ProjectileClaim, Projectile, ShotBackup, KnifeFlight, DamageTaken, KnockedBack, ReturnToLobby, QuoteSaid, RadioSaid, RequestQuote, SetQuoteDelays, PlayerKilledBy, PlayerName, PlayerPose,
-    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetFullPower, SetTeam, SetSndRounds, SndBombExploded, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
+    PickUpKnife, PowerUpDrop, PowerUpGrabbed, ZombieNuked, ZombiesDoomed, PhdSlam, ProneAtPerk, ProneBonus, RepairBarrier, BarrierRepaired, SetPerkSet, SetPerksNeedPower, SetFullPower, SetTeam, SetSndRounds, SndBombExploded, SetLoadout, SetOperator, SetPowerUpTest, DropPowerUp, SetEasterEgg, EggInteract, PlayerHealth, PlayerRespawn, ProtocolPlugin, RemoteSound, RespawnReady, ScoreLine, SetEndCam, SetGameMode, SetKillLimit, SetBotsPassive, SetBotsFrozen, SetBombTest, SetZombiesStart, BombExplosion, DogExploded, DogLightning, DogSpawned, SetMap, SetPaused,
     RayGunFired, SetTimeLimit, ShotOutcome, ShotResolved, StartGame, SwapProgress, ThrowProgress, ThrowStage, DrinkProgress, MantleProgress, ThrowKnife, ThrownKnife, ThrowingKnifeHit,
     ThrowingKnifeImpact, TrickScore, TurnOnPower, BuyDoor, CallExfil, ToggleRampage, ZombieAnim, ZombieBlasted, ZombieBlood, BloodTarget, ZombieDamaged, ZombieSwipeLanded,
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,

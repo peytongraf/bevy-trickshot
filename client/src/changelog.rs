@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Level editor: hide map pieces (V) or cut away above a height (C) to see inside.",
         "Zombies: explosions can leave zombies crawling — they drop and drag themselves after you.",
         "Fixed shot zombies sometimes falling then getting back up.",
         "Zombies: new walks — shambling, limping and stumbling off balance — and two creepy new runs, every zombie moving its own way.",

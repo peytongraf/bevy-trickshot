@@ -11,6 +11,7 @@ use bevy_egui::input::EguiWantsInput;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use shared::level::{Placement, ZombiesLayout};
 
+use super::hide::{self, MapPieces};
 use super::{Doc, Editor, EditorGizmos, ObjectId};
 use crate::player::{PlayerHead, WorldModelCamera};
 use crate::power::PowerLeverSettings;
@@ -609,7 +610,7 @@ pub(crate) fn player_view(
     let at = id.get(editor.doc())?;
     let (center, rot, half) = id.world_box(editor.doc(), at, lever);
     let (eye, target) = match id {
-        ObjectId::Reference(super::RefKind::Player) | ObjectId::PlayerSpawn(_) => {
+        ObjectId::Reference(super::RefKind::Player) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => {
             let eye = at.pos + Vec3::Y * crate::EYE_HEIGHT;
             (eye, eye + rot * Vec3::Z * 5.0)
         }
@@ -670,6 +671,7 @@ pub(crate) fn delete_selected(editor: &mut Editor, now: f32) {
             ObjectId::AmmoCrate(i)
             | ObjectId::MysteryBox(i)
             | ObjectId::PlayerSpawn(i)
+            | ObjectId::PyramidSpot(i)
             | ObjectId::PowerLight(i)
             | ObjectId::Flame(i)
             | ObjectId::Door(i)
@@ -906,6 +908,7 @@ pub(crate) fn edit_input(
     camera: Single<&Camera, With<WorldModelCamera>>,
     lever: Res<PowerLeverSettings>,
     rapier: ReadRapierContext,
+    pieces: MapPieces,
     mut next: ResMut<NextState<AppState>>,
     // Where the left button went down over the viewport, and on what.
     mut press: Local<Option<(Vec2, Option<ObjectId>)>>,
@@ -1055,6 +1058,43 @@ pub(crate) fn edit_input(
         editor.view.clean = Some(now);
         editor.box_from = None;
         *press = None;
+    } else if keys.just_pressed(KeyCode::KeyV) {
+        // Seeing past the map's pieces (the view only — never saved).
+        if alt {
+            let n = std::mem::take(&mut editor.view.hidden).len();
+            editor.toast(if n == 0 { "Nothing hidden".to_string() } else { format!("Showing {n} hidden map piece(s) again") }, now);
+        } else if shift {
+            match editor.view.hidden.pop() {
+                Some(name) => editor.toast(format!("Showing {name} again"), now),
+                None => editor.toast("Nothing hidden", now),
+            }
+        } else if over_ui {
+            // (Not through a panel.)
+        } else {
+            let piece = cursor
+                .and_then(|c| camera.viewport_to_world(&cam, c).ok())
+                .and_then(|ray| pieces.under(&rapier, ray));
+            match piece {
+                Some(name) => {
+                    editor.toast(format!("Hid {name}  ·  Shift+V: bring it back  ·  Alt+V: all"), now);
+                    editor.view.hidden.push(name);
+                }
+                None => editor.toast("No map piece under the cursor to hide", now),
+            }
+        }
+    } else if keys.just_pressed(KeyCode::KeyC) {
+        editor.view.cut = match editor.view.cut {
+            Some(_) => None,
+            None => Some(editor.cam.focus.y + hide::CUT_START_ABOVE_FOCUS),
+        };
+    } else if editor.view.cut.is_some()
+        && (keys.just_pressed(KeyCode::PageUp) || keys.just_pressed(KeyCode::PageDown))
+    {
+        let step = if shift { hide::CUT_STEP * 0.1 } else { hide::CUT_STEP };
+        let up = keys.just_pressed(KeyCode::PageUp);
+        if let Some(cut) = &mut editor.view.cut {
+            *cut += if up { step } else { -step };
+        }
     } else if keys.just_pressed(KeyCode::KeyA) {
         if alt {
             editor.selected.clear();
@@ -1262,9 +1302,10 @@ pub(crate) fn draw_gizmos(
             }
             continue;
         }
-        // The exfil area: its rectangle, always.
-        if id == ObjectId::ExfilArea {
-            if let Some(area) = doc.layout.exfil_area {
+        // The exfil area (and the ritual area): its rectangle, always.
+        if matches!(id, ObjectId::ExfilArea | ObjectId::RitualArea) {
+            let area = if id == ObjectId::ExfilArea { doc.layout.exfil_area } else { doc.layout.ritual_area };
+            if let Some(area) = area {
                 let c = area.corners().map(|p| p + Vec3::Y * 0.05);
                 let line = if selected { color } else { id.color() };
                 for i in 0..4 {

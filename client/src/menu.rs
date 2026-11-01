@@ -179,6 +179,7 @@ pub fn game_active(
     paused: Res<crate::pause::GamePaused>,
     spectate: Res<crate::revive::Spectate>,
     snd: Res<crate::search_destroy::SndLocal>,
+    ritual: Res<crate::easter_egg::EggRitual>,
 ) -> bool {
     // Killed in a `SearchAndDestroy` round: out until the next.
     if snd.dead {
@@ -195,12 +196,15 @@ pub fn game_active(
     // dead players can't move, aim, shoot or throw (only the menu still works).
     // Paused by the party leader (`pause`): frozen in place for everyone.
     !menu.is_open() && !freeze.active && !death.is_active() && !paused.0
+        // And the easter egg's ritual (`easter_egg`) holds every player still.
+        && !ritual.locked()
 }
 
 /// Run condition for the weapon: like [`game_active`], but it also keeps
 /// running under Der Wunderfizz's menu, so a perk bought there is drunk
 /// while it stays open (`weapon_system` itself takes no other input then).
-/// Off while we're down in `Zombies`, or reviving someone (`revive`).
+/// Off while we're down in `Zombies`, or reviving someone (`revive`), or
+/// during the easter egg's ritual.
 pub fn weapon_active(
     menu: Res<Menu>,
     freeze: Res<crate::match_end::MatchEndFreeze>,
@@ -208,8 +212,10 @@ pub fn weapon_active(
     paused: Res<crate::pause::GamePaused>,
     revive: Res<crate::revive::LocalRevive>,
     snd: Res<crate::search_destroy::SndLocal>,
+    ritual: Res<crate::easter_egg::EggRitual>,
 ) -> bool {
     (!menu.is_open() || menu.screen == Screen::Wunderfizz)
+        && !ritual.locked()
         && !snd.dead
         && !freeze.active
         && !death.is_active()

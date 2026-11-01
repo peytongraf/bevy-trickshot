@@ -3,6 +3,11 @@
 //! fire ([`FireMaterial`]) and a flickering light, lit the whole time, power
 //! on or off, day or night.
 //!
+//! A fire marked to (`Flame::shadows` — the big ones, whose light would
+//! otherwise shine through walls and floors into the rooms around them)
+//! casts shadows while we're in its reach: the nearest few, as many as the
+//! shadow quality allows ([`limit_flame_shadows`]).
+//!
 //! In a game each also crackles — `GameSounds::fire_crackle`, looped from the
 //! fire, fading with distance by the "Fire" profile in the audio mixer (and
 //! held silent out of earshot, so far-off fires cost nothing).
@@ -28,7 +33,7 @@ pub(crate) struct FlamesPlugin;
 impl Plugin for FlamesPlugin {
     fn build(&self, app: &mut App) {
         // (Ungated: leaving the game is what takes them away.)
-        app.add_systems(Update, (sync_game_flames, flicker_flames));
+        app.add_systems(Update, (sync_game_flames, flicker_flames, limit_flame_shadows));
     }
 }
 
@@ -50,6 +55,9 @@ struct FlameLight {
     lumens: f32,
     flicker: f32,
     seed: f32,
+    /// May cast shadows, out to its range (m).
+    shadows: bool,
+    range: f32,
 }
 
 /// On the game's fires (not the editor's).
@@ -139,6 +147,8 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         lumens: flame.light,
                         flicker: flame.flicker,
                         seed: seed * 10.0,
+                        shadows: flame.shadows,
+                        range: flame.range,
                     },
                     PointLight {
                         color: molotov.light_color(),
@@ -159,6 +169,41 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                     ));
                 }
             });
+    }
+}
+
+/// How much nearer (m) another fire has to be to take a shadow over from
+/// one casting it — so two about as far off don't keep swapping.
+const SHADOW_SWAP_MARGIN: f32 = 3.0;
+
+/// Let the nearest few shadow-casting fires we're in reach of cast shadows
+/// (as many as `ShadowQuality::fire_shadows`); the rest don't.
+fn limit_flame_shadows(
+    settings: Res<crate::settings::Settings>,
+    camera: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
+    mut lights: Query<(Entity, &FlameLight, &GlobalTransform, &mut PointLight)>,
+    mut chosen: Local<Vec<Entity>>,
+) {
+    let eye = camera.single().ok().map(GlobalTransform::translation);
+    let mut nearest: Vec<(f32, Entity)> = lights
+        .iter()
+        .filter_map(|(e, light, at, _)| {
+            let distance = eye.map_or(0.0, |eye| eye.distance(at.translation()));
+            (light.shadows && distance < light.range)
+                .then(|| (distance - if chosen.contains(&e) { SHADOW_SWAP_MARGIN } else { 0.0 }, e))
+        })
+        .collect();
+    nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
+    *chosen = nearest
+        .into_iter()
+        .take(settings.shadow_quality.fire_shadows())
+        .map(|(_, e)| e)
+        .collect();
+    for (e, _, _, mut light) in &mut lights {
+        let wanted = chosen.contains(&e);
+        if light.shadows_enabled != wanted {
+            light.shadows_enabled = wanted;
+        }
     }
 }
 

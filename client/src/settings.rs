@@ -77,6 +77,18 @@ impl ShadowQuality {
         }
     }
 
+    /// How many of a map's shadow-casting fires (`shared::level::Flame::
+    /// shadows`) — the nearest, in reach — cast shadows at once
+    /// (`flames::limit_flame_shadows`), each a point light as costly as a
+    /// power light's.
+    pub fn fire_shadows(self) -> usize {
+        match self {
+            ShadowQuality::Disabled | ShadowQuality::Low => 0,
+            ShadowQuality::Normal => 2,
+            ShadowQuality::High | ShadowQuality::Extra => 4,
+        }
+    }
+
     pub const ALL: [ShadowQuality; 5] = [
         ShadowQuality::Disabled,
         ShadowQuality::Low,

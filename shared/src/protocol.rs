@@ -1564,6 +1564,11 @@ pub struct Lobby {
     /// whenever a game starts or ends.
     #[serde(default)]
     pub carpenter: bool,
+    /// [`GameMode::Zombies`] on Der Tempel: how far the squad's got with
+    /// the easter egg ([`crate::easter_egg`]). Server-owned; cleared
+    /// whenever a game starts or ends.
+    #[serde(default)]
+    pub easter_egg: crate::easter_egg::EasterEgg,
     /// [`GameMode::SearchAndDestroy`]: rounds a team needs to win the match,
     /// set by the leader ([`SetSndRounds`]) — `0` is the default
     /// ([`Self::rounds_to_win`]).
@@ -1583,10 +1588,13 @@ impl Lobby {
     }
 
     /// Whether this lobby's bots and zombies hold off attacking right now:
-    /// the leader's debug "bots don't attack" ([`Self::bots_passive`]), or
-    /// an exfil being called ([`crate::exfil::Exfil::Calling`]).
+    /// the leader's debug "bots don't attack" ([`Self::bots_passive`]), an
+    /// exfil being called ([`crate::exfil::Exfil::Calling`]), or the easter
+    /// egg's ritual playing ([`crate::easter_egg::EggStep::Ritual`]).
     pub fn bots_hold_fire(&self) -> bool {
-        self.bots_passive || self.exfil == crate::exfil::Exfil::Calling
+        self.bots_passive
+            || self.exfil == crate::exfil::Exfil::Calling
+            || self.easter_egg.step == crate::easter_egg::EggStep::Ritual
     }
 
     /// Whether the timed power-up `p` is running in this lobby's game.
@@ -2601,6 +2609,23 @@ pub struct DropPowerUp {
     pub ahead: bool,
 }
 
+/// Client → server (debug): the party leader sets the easter egg's progress
+/// ([`Lobby::easter_egg`], [`crate::easter_egg`]) — to jump to a step, give
+/// or take its items, or reset it. Only in a running `Zombies` game on its
+/// map; ignored from anyone else.
+#[derive(Event, Serialize, Deserialize, Clone, Debug)]
+pub struct SetEasterEgg {
+    pub egg: crate::easter_egg::EasterEgg,
+}
+
+/// Client → server: the easter egg's interact ([`crate::easter_egg`]) —
+/// pick up the vial, take the dagger, accept or decline the ritual. The
+/// server checks they're alive and where it is, and that it's that step.
+#[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct EggInteract {
+    pub action: crate::easter_egg::EggAction,
+}
+
 /// Client → server: create a new lobby and join it as leader.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CreateLobby {
@@ -2899,6 +2924,10 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<SetPowerUpTest>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<DropPowerUp>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<SetEasterEgg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<EggInteract>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SpinTeddy>()
             .add_direction(NetworkDirection::ClientToServer);

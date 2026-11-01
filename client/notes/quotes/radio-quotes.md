@@ -71,7 +71,27 @@ d get your ass on the damn bird!! GO!"
 
 ---
 
----
+# Easter egg
+
+# Vial picked up
+
+[ serious ]That vial's got a society tag on it. [ concerned ]They were bleeding Barrett. [ confused, gravely ]...For what?
+
+# Dagger taken
+
+[ serious ]Those carvings on the upper altar match the society's papers. Some kind of rite. [ intrigued, low ]Huh... [ concerned ]Looks like they never got to finish it.
+
+# Both held
+
+[ serious ]Intel says that rite was meant to close something. [ slightly intense, serious ]Finish what they started. Maybe the dead lie back down. [pause][ low, unsure ]...Maybe.
+
+# Ritual goes wrong
+
+[ scared, stressed ]That wasn't a closing rite... [ gasps ] [ very afraid, screaming ] God help me, [ horrified, screaming, gravely ]I read it backwards!!!
+
+# After the pyramid
+
+[ concerned, serious ]Whatever you just did, my thermals went quiet for a full minute. [ low, gravely ]...Don't tell me what you saw up there.
 
 # NOT RECORDED YET: ideas (not in game)
 

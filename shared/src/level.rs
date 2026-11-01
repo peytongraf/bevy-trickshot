@@ -242,6 +242,11 @@ pub struct Flame {
     /// ...and how much it flickers (0 = steady).
     #[serde(default = "default_flame_flicker")]
     pub flicker: f32,
+    /// Whether its light casts shadows — so a big one doesn't shine through
+    /// walls and floors into the rooms around it. Costly: keep it to the few
+    /// that need it (the client lets only the nearest few cast at once).
+    #[serde(default)]
+    pub shadows: bool,
 }
 
 fn default_flame_height() -> f32 {
@@ -270,6 +275,7 @@ impl Flame {
             light: 60_000.0,
             range: 9.0,
             flicker: default_flame_flicker(),
+            shadows: false,
         }
     }
 
@@ -277,7 +283,7 @@ impl Flame {
     fn to_ron(self) -> String {
         let r = |v: f32, per: f64| ((v as f64 * per).round() / per) as f32;
         format!(
-            "(pos: ({:?}, {:?}, {:?}), size: {:?}, height: {:?}, brightness: {:?}, light: {:?}, range: {:?}, flicker: {:?})",
+            "(pos: ({:?}, {:?}, {:?}), size: {:?}, height: {:?}, brightness: {:?}, light: {:?}, range: {:?}, flicker: {:?}",
             r(self.pos.x, 1000.0),
             r(self.pos.y, 1000.0),
             r(self.pos.z, 1000.0),
@@ -287,7 +293,7 @@ impl Flame {
             self.light.round(),
             r(self.range, 100.0),
             r(self.flicker, 100.0),
-        )
+        ) + if self.shadows { ", shadows: true)" } else { ")" }
     }
 }
 
@@ -555,10 +561,16 @@ impl ExfilArea {
     /// A fresh one at `at`, [`crate::exfil::DEFAULT_AREA_SIZE`].
     pub fn new(at: Placement) -> Self {
         let size = crate::exfil::DEFAULT_AREA_SIZE;
+        Self::sized(at, size.x, size.y)
+    }
+
+    /// One `width` by `depth` (m) at `at` — the rectangle's used for the
+    /// easter egg's ritual area too ([`ZombiesLayout::ritual_area`]).
+    pub fn sized(at: Placement, width: f32, depth: f32) -> Self {
         Self {
             at: at.with_scale(1.0),
-            width: size.x,
-            depth: size.y,
+            width,
+            depth,
         }
     }
 
@@ -713,6 +725,23 @@ pub struct ZombiesLayout {
     /// they start where the other modes would put them.
     #[serde(default)]
     pub player_spawns: Vec<Placement>,
+    /// The easter egg's ([`crate::easter_egg`], Der Tempel's): the
+    /// sarcophagus on the upper altar, where the Hierophant waits...
+    #[serde(default)]
+    pub sarcophagus: Option<Placement>,
+    /// ...the society's locked case the dagger's in...
+    #[serde(default)]
+    pub society_case: Option<Placement>,
+    /// ...the area on the altar the whole squad stands in to do the ritual...
+    #[serde(default)]
+    pub ritual_area: Option<ExfilArea>,
+    /// ...and, inside the pyramid, the altar the wonder weapon lies on...
+    #[serde(default)]
+    pub pyramid_altar: Option<Placement>,
+    /// ...and the spots their souls arrive on — up to
+    /// [`MAX_PLAYER_SPAWNS`], one per player.
+    #[serde(default)]
+    pub pyramid_spots: Vec<Placement>,
 }
 
 /// Most ammo crates a layout keeps.
@@ -768,6 +797,9 @@ impl ZombiesLayout {
             ("crafting_table", &mut self.crafting_table),
             ("rampage_inducer", &mut self.rampage_inducer),
             ("power_station", &mut self.power_station),
+            ("sarcophagus", &mut self.sarcophagus),
+            ("society_case", &mut self.society_case),
+            ("pyramid_altar", &mut self.pyramid_altar),
         ] {
             if let Some(at) = slot.as_mut() {
                 out.push((key.into(), at));
@@ -870,6 +902,18 @@ impl ZombiesLayout {
         out += "    ],\n";
         out += "    player_spawns: [\n";
         for at in &self.player_spawns {
+            out += &format!("        {},\n", at.with_scale(1.0).to_ron());
+        }
+        out += "    ],\n";
+        out += &format!("    sarcophagus: {},\n", optional(self.sarcophagus));
+        out += &format!("    society_case: {},\n", optional(self.society_case));
+        out += &format!(
+            "    ritual_area: {},\n",
+            self.ritual_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
+        );
+        out += &format!("    pyramid_altar: {},\n", optional(self.pyramid_altar));
+        out += "    pyramid_spots: [\n";
+        for at in &self.pyramid_spots {
             out += &format!("        {},\n", at.with_scale(1.0).to_ron());
         }
         out += "    ],\n";
@@ -1111,6 +1155,25 @@ mod tests {
     fn day_and_night_share_a_layout() {
         assert_eq!(layout(MapId::BreakPoint), layout(MapId::BreakPointNight));
         assert_eq!(layout(MapId::Shipment), layout(MapId::ShipmentDay));
+    }
+
+    #[test]
+    fn easter_egg_pieces_survive_a_save_and_load() {
+        let mut layout = layout(MapId::DerTempel).clone();
+        layout.sarcophagus = Some(Placement::new(Vec3::new(1.0, -15.0, 2.0), 90.0));
+        layout.society_case = Some(Placement::new(Vec3::new(-3.5, 0.0, 4.25), -45.0));
+        layout.ritual_area = Some(ExfilArea::sized(Placement::new(Vec3::new(0.0, -15.0, 0.0), 30.0), 4.5, 6.0));
+        layout.pyramid_altar = Some(Placement::new(Vec3::new(0.0, 40.0, 0.0), 180.0));
+        layout.pyramid_spots = vec![
+            Placement::new(Vec3::new(1.0, 38.0, 2.0), 0.0),
+            Placement::new(Vec3::new(-1.0, 38.0, 2.0), 0.0),
+        ];
+        let back = ZombiesLayout::from_ron(&layout.to_ron()).unwrap();
+        assert_eq!(back.sarcophagus.map(|p| (p.pos, p.yaw_deg)), layout.sarcophagus.map(|p| (p.pos, p.yaw_deg)));
+        assert_eq!(back.society_case.map(|p| (p.pos, p.yaw_deg)), layout.society_case.map(|p| (p.pos, p.yaw_deg)));
+        assert_eq!(back.ritual_area, layout.ritual_area);
+        assert_eq!(back.pyramid_altar.map(|p| (p.pos, p.yaw_deg)), layout.pyramid_altar.map(|p| (p.pos, p.yaw_deg)));
+        assert_eq!(back.pyramid_spots, layout.pyramid_spots);
     }
 
     #[test]

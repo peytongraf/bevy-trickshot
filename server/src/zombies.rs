@@ -1594,6 +1594,7 @@ mod tests {
                 windows_torn: Vec::new(),
                 rampage: false,
                 carpenter: false,
+                easter_egg: Default::default(),
                 mystery_box: None,
                 box_spot: Default::default(),
                 members: vec![shared::LobbyMember {

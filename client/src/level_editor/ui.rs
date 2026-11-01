@@ -57,6 +57,9 @@ const CONTROLS: &[(&str, &str)] = &[
     ("Ctrl + Z  /  Ctrl + Shift + Z", "Undo / redo"),
     ("Ctrl + S", "Save this map"),
     ("H", "Clean view: just the map, for screenshots (H / Esc / mouse back to leave)"),
+    ("V  /  Shift + V  /  Alt + V", "Hide the map piece under the cursor, to see past it  /  bring the last back  /  all"),
+    ("C", "Cut away the map above a height, to look down into a floor"),
+    ("PageUp / PageDown", "Raise / lower the cut (Shift: finely)"),
     ("Esc  /  mouse back", "Exit (asks first if anything's unsaved)"),
 ];
 
@@ -264,6 +267,28 @@ fn menu_bar(
                     input::add_waterfall_at_view(ed, rapier);
                     ui.close();
                 }
+                // (The easter egg's — its map's only.)
+                if shared::easter_egg::on_map(ed.map) {
+                    ui.separator();
+                    ui.label("Easter egg");
+                    let egg_missing: Vec<ObjectId> = ObjectId::EGG.into_iter().filter(|o| o.get(ed.doc()).is_none()).collect();
+                    for id in egg_missing {
+                        if ui.button(id.label()).clicked() {
+                            input::add_at_view(ed, id, rapier);
+                            ui.close();
+                        }
+                    }
+                    let spots = ed.doc().layout.pyramid_spots.len();
+                    let max = shared::level::MAX_PLAYER_SPAWNS;
+                    if ui
+                        .add_enabled(spots < max, egui::Button::new(format!("Pyramid spot  ({spots}/{max})")))
+                        .on_hover_text("Where a player's soul arrives inside the pyramid — one per player (hide the pyramid's walls with V to get in)")
+                        .clicked()
+                    {
+                        input::add_at_view(ed, ObjectId::PyramidSpot(spots as u8), rapier);
+                        ui.close();
+                    }
+                }
                 ui.separator();
                 if missing.is_empty() {
                     ui.label("Everything else is on this map — perk machines can only be moved.");
@@ -285,6 +310,30 @@ fn menu_bar(
                 {
                     ed.view.clean = Some(now);
                     ui.close();
+                }
+                ui.separator();
+                ui.label("See through the map (the view only — never saved)");
+                ui.horizontal(|ui| {
+                    let mut on = ed.view.cut.is_some();
+                    if ui.checkbox(&mut on, "Cut away above").on_hover_text(
+                        "Hide everything of the map that sits wholly above this height — C, PageUp / PageDown move it",
+                    ).changed() {
+                        ed.view.cut = on.then(|| ed.cam.focus.y + super::hide::CUT_START_ABOVE_FOCUS);
+                    }
+                    if let Some(cut) = &mut ed.view.cut {
+                        ui.add(egui::DragValue::new(cut).speed(0.05).max_decimals(2).suffix(" m"));
+                    }
+                });
+                let hidden = ed.view.hidden.len();
+                if ui
+                    .add_enabled(
+                        hidden > 0,
+                        egui::Button::new(format!("Show the {hidden} hidden piece(s) again")).shortcut_text("Alt+V"),
+                    )
+                    .on_hover_text("V over a piece of the map hides it; Shift+V brings back the last one")
+                    .clicked()
+                {
+                    ed.view.hidden.clear();
                 }
                 ui.separator();
                 ui.label("Look");
@@ -397,6 +446,17 @@ fn status_bar(ctx: &egui::Context, ed: &mut Editor, map_state: &MapLoadState, no
                     ui.separator();
                     ui.colored_label(DIM, "Loading the map…");
                 }
+                if ed.view.cut.is_some() || !ed.view.hidden.is_empty() {
+                    let mut parts = Vec::new();
+                    if !ed.view.hidden.is_empty() {
+                        parts.push(format!("{} piece(s) hidden (Alt+V)", ed.view.hidden.len()));
+                    }
+                    if let Some(cut) = ed.view.cut {
+                        parts.push(format!("cut above {cut:.2} m (C)"));
+                    }
+                    ui.separator();
+                    ui.colored_label(WARN, format!("Map: {}", parts.join(", ")));
+                }
                 if let Some((message, _)) = &ed.toast {
                     ui.separator();
                     ui.label(message.as_str());
@@ -453,6 +513,26 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
                     }
                 };
                 listed(ui, ed, &ObjectId::OPTIONAL);
+                // The easter egg's — its map's only.
+                if shared::easter_egg::on_map(ed.map) {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("EASTER EGG").small().color(DIM));
+                    listed(ui, ed, &ObjectId::EGG);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("PYRAMID SPOTS").small().color(DIM));
+                        let n = ed.doc().layout.pyramid_spots.len();
+                        let room = n < shared::level::MAX_PLAYER_SPAWNS;
+                        if ui.add_enabled(room, egui::Button::new("Add").small()).clicked() && ed.op.is_none() {
+                            input::add_at_view(ed, ObjectId::PyramidSpot(n as u8), rapier);
+                        }
+                    });
+                    for &id in shown.iter().filter(|o| matches!(o, ObjectId::PyramidSpot(_))) {
+                        row(ui, ed, id);
+                    }
+                    if ed.doc().layout.pyramid_spots.is_empty() {
+                        ui.colored_label(DIM, "None yet — one per player, inside the pyramid");
+                    }
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("MYSTERY BOX SPOTS").small().color(DIM));
@@ -625,9 +705,11 @@ fn properties(
             let mut edited = at;
             let mut editing = false;
             // The exfil area's size (its own, not a kind's).
-            let area_size = (id == ObjectId::ExfilArea)
-                .then(|| ed.doc().layout.exfil_area.map(|a| (a.width, a.depth)))
-                .flatten();
+            let area_size = match id {
+                ObjectId::ExfilArea => ed.doc().layout.exfil_area.map(|a| (a.width, a.depth)),
+                ObjectId::RitualArea => ed.doc().layout.ritual_area.map(|a| (a.width, a.depth)),
+                _ => None,
+            };
             let mut size = area_size.unwrap_or_default();
             egui::Grid::new("level_editor_fields").num_columns(2).show(ui, |ui| {
                 for (label, v) in [("X", &mut edited.pos.x), ("Y", &mut edited.pos.y), ("Z", &mut edited.pos.z)] {
@@ -797,6 +879,11 @@ fn properties(
                         egui::DragValue::new(&mut f.light).speed(step).range(0.0..=50_000_000.0).suffix(" lm"),
                     );
                     editing |= r.dragged() || r.has_focus();
+                    ui.end_row();
+                    ui.label("Shadows").on_hover_text(
+                        "So its light doesn't shine through walls and floors — costly: keep it to the few big fires that need it",
+                    );
+                    ui.add_enabled(!busy, egui::Checkbox::without_text(&mut f.shadows));
                     ui.end_row();
                 });
             }
@@ -1037,7 +1124,9 @@ fn properties(
             }
             let resized = area_size.is_some_and(|s| s != size);
             if resized {
-                if let Some(area) = ed.doc_mut().layout.exfil_area.as_mut() {
+                let layout = &mut ed.doc_mut().layout;
+                let area = if id == ObjectId::ExfilArea { layout.exfil_area.as_mut() } else { layout.ritual_area.as_mut() };
+                if let Some(area) = area {
                     (area.width, area.depth) = size;
                 }
             }
@@ -1053,6 +1142,23 @@ fn properties(
             ui.add_space(6.0);
             if id == ObjectId::ExfilArea {
                 ui.colored_label(DIM, "During an exfil, only enemies killed inside it count");
+            } else if id == ObjectId::RitualArea {
+                ui.colored_label(DIM, "Easter egg: every living player stands inside it and accepts together to start the ritual — cover the top of the upper altar in the lower tomb");
+            } else if id == ObjectId::Sarcophagus {
+                ui.colored_label(DIM, "Easter egg: where the Hierophant waits, on the upper altar — he wakes out of it. A placeholder until its model's made; solid in game");
+            } else if id == ObjectId::SocietyCase {
+                ui.colored_label(DIM, "Easter egg: the society's case the dagger's locked in — it opens once the power's on. A placeholder until its model's made; solid in game");
+            } else if id == ObjectId::PyramidAltar {
+                ui.colored_label(DIM, "Easter egg: inside the pyramid, where the wonder weapon lies. A placeholder until its model's made; solid in game");
+            } else if let ObjectId::PyramidSpot(_) = id {
+                ui.colored_label(
+                    DIM,
+                    format!(
+                        "Easter egg: a player's soul arrives here inside the pyramid, facing its arrow ({} of {} placed — one per player)",
+                        ed.doc().layout.pyramid_spots.len(),
+                        shared::level::MAX_PLAYER_SPAWNS
+                    ),
+                );
             } else if let ObjectId::PowerLight(_) = id {
                 ui.colored_label(DIM, "Night maps only: off until the power's on in a Zombies game; always on in the other modes");
             } else if let ObjectId::Door(_) = id {

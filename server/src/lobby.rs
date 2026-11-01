@@ -212,6 +212,7 @@ fn on_create(
                 windows_torn: Vec::new(),
                 rampage: false,
                 carpenter: false,
+                easter_egg: Default::default(),
                 mystery_box: None,
                 box_spot: Default::default(),
                 members: vec![LobbyMember {
@@ -370,6 +371,7 @@ fn on_start(
     lobby.windows_torn.clear();
     lobby.rampage = false;
     lobby.carpenter = false;
+    lobby.easter_egg = Default::default();
     lobby.exfil = Default::default();
     lobby.mystery_box = None;
     // The box starts on a random one of the map's spots.
@@ -1098,6 +1100,7 @@ fn back_to_room(lobby: &mut Lobby) {
     lobby.windows_torn.clear();
     lobby.rampage = false;
     lobby.carpenter = false;
+    lobby.easter_egg = Default::default();
     lobby.mystery_box = None;
     lobby.box_spot = Default::default();
     lobby.active_power_ups.clear();
@@ -1196,6 +1199,7 @@ mod tests {
             windows_torn: Vec::new(),
             rampage: false,
             carpenter: false,
+            easter_egg: Default::default(),
             mystery_box: None,
             box_spot: Default::default(),
             members: vec![LobbyMember {

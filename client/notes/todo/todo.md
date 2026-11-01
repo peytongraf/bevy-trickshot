@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Level editor map hiding / height cut
 - Zombie walk / run variety
 - Scope blur, vignette and fringe
 - Weapon movement inertia
@@ -26,6 +27,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
+- Fix fire light getting inside temple
 - Re-enable zombie arms-up walk (`ZombieAvatarSettings::arms_up_walk`, off while testing the shambles)
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally

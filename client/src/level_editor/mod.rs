@@ -33,6 +33,11 @@
 //! spot people — leaving just the map as it renders, for a screenshot; the
 //! camera still moves. H, Esc or the mouse back button bring it all back.
 //!
+//! V over a piece of the map hides it to see past it (a roof, say — Shift+V
+//! brings the last back, Alt+V them all), and C cuts away everything above a
+//! height (PageUp / PageDown move it) for a look down into a floor — the view
+//! only, never saved ([`hide`]).
+//!
 //! Esc (with nothing to cancel) and the mouse back button do what EXIT does:
 //! leave — asking first if there's anything unsaved.
 //!
@@ -44,6 +49,7 @@
 //! **Anything new a `Zombies` game puts on a map needs adding here** (an
 //! [`ObjectId`], its model and box) as well as to `shared::level`.
 
+mod hide;
 mod input;
 mod ui;
 
@@ -75,7 +81,7 @@ impl Plugin for LevelEditorPlugin {
             .init_gizmo_group::<EditorGizmos>()
             .add_systems(Startup, configure_gizmos)
             .add_systems(OnEnter(AppState::LevelEditor), enter)
-            .add_systems(OnExit(AppState::LevelEditor), exit)
+            .add_systems(OnExit(AppState::LevelEditor), (exit, hide::unhide_all))
             .add_systems(
                 Update,
                 (
@@ -95,6 +101,7 @@ impl Plugin for LevelEditorPlugin {
                         sync_editor_flames,
                         sync_editor_water,
                         sync_editor_windows,
+                        hide::sync_map_hiding,
                         input::draw_gizmos,
                     )
                         .chain(),
@@ -176,6 +183,19 @@ pub(crate) enum ObjectId {
     /// spot is the middle of its lip, its arrow the way it pours; its
     /// width, drop and look are the properties panel's.
     Waterfall(u8),
+    /// The easter egg's (Der Tempel's, `shared::easter_egg`): the
+    /// sarcophagus on the upper altar...
+    Sarcophagus,
+    /// ...the society's case the dagger's locked in...
+    SocietyCase,
+    /// ...the area on the altar the squad stands in for the ritual (a
+    /// rectangle, like the exfil area)...
+    RitualArea,
+    /// ...the altar inside the pyramid the wonder weapon lies on...
+    PyramidAltar,
+    /// ...and a spot a soul arrives on in there
+    /// (`ZombiesLayout::pyramid_spots`, by index — one per player).
+    PyramidSpot(u8),
     /// A stand-in model, just to judge sizes against — never saved.
     Reference(RefKind),
 }
@@ -208,6 +228,38 @@ impl ObjectId {
         ObjectId::WallBuy(WeaponId::Sniper),
         ObjectId::WallBuy(WeaponId::Ak74),
     ];
+
+    /// The easter egg's one-offs (only on its map — Der Tempel).
+    pub(crate) const EGG: [ObjectId; 4] =
+        [ObjectId::Sarcophagus, ObjectId::SocietyCase, ObjectId::RitualArea, ObjectId::PyramidAltar];
+
+    /// Names for the pyramid's spots ([`ObjectId::PyramidSpot`]).
+    const PYRAMID_SPOT_LABELS: [&'static str; shared::level::MAX_PLAYER_SPAWNS] = [
+        "Pyramid spot 1",
+        "Pyramid spot 2",
+        "Pyramid spot 3",
+        "Pyramid spot 4",
+        "Pyramid spot 5",
+        "Pyramid spot 6",
+        "Pyramid spot 7",
+        "Pyramid spot 8",
+    ];
+
+    /// The easter egg piece with a model it is, if it's one.
+    pub(crate) fn egg_piece(self) -> Option<crate::easter_egg::EggPiece> {
+        use crate::easter_egg::EggPiece;
+        match self {
+            ObjectId::Sarcophagus => Some(EggPiece::Sarcophagus),
+            ObjectId::SocietyCase => Some(EggPiece::SocietyCase),
+            ObjectId::PyramidAltar => Some(EggPiece::PyramidAltar),
+            _ => None,
+        }
+    }
+
+    /// Whether it's the easter egg's.
+    pub(crate) fn is_egg(self) -> bool {
+        Self::EGG.contains(&self) || matches!(self, ObjectId::PyramidSpot(_))
+    }
 
     /// Names for the ammo crates ([`ObjectId::AmmoCrate`]).
     const CRATE_LABELS: [&'static str; shared::level::MAX_AMMO_CRATES] = [
@@ -440,6 +492,13 @@ impl ObjectId {
             ObjectId::Window(i) => Self::WINDOW_LABELS[(i as usize).min(Self::WINDOW_LABELS.len() - 1)],
             ObjectId::Water(i) => Self::WATER_LABELS[(i as usize).min(Self::WATER_LABELS.len() - 1)],
             ObjectId::Waterfall(i) => Self::WATERFALL_LABELS[(i as usize).min(Self::WATERFALL_LABELS.len() - 1)],
+            ObjectId::Sarcophagus => "Sarcophagus",
+            ObjectId::SocietyCase => "Society case (dagger)",
+            ObjectId::RitualArea => "Ritual area",
+            ObjectId::PyramidAltar => "Pyramid altar",
+            ObjectId::PyramidSpot(i) => {
+                Self::PYRAMID_SPOT_LABELS[(i as usize).min(Self::PYRAMID_SPOT_LABELS.len() - 1)]
+            }
             ObjectId::Reference(RefKind::Player) => "Player (reference)",
             ObjectId::Reference(RefKind::Zombie) => "Zombie (reference)",
         }
@@ -454,7 +513,9 @@ impl ObjectId {
             ObjectId::Reference(_)
                 | ObjectId::WallBuy(_)
                 | ObjectId::ExfilArea
+                | ObjectId::RitualArea
                 | ObjectId::PlayerSpawn(_)
+                | ObjectId::PyramidSpot(_)
                 | ObjectId::PowerLight(_)
                 | ObjectId::Flame(_)
                 | ObjectId::Door(_)
@@ -480,7 +541,12 @@ impl ObjectId {
             ObjectId::ExfilRadio => Some("exfil_radio".into()),
             ObjectId::RampageInducer => Some("rampage_inducer".into()),
             ObjectId::PowerStation => Some("power_station".into()),
+            ObjectId::Sarcophagus => Some("sarcophagus".into()),
+            ObjectId::SocietyCase => Some("society_case".into()),
+            ObjectId::PyramidAltar => Some("pyramid_altar".into()),
             ObjectId::ExfilArea
+            | ObjectId::RitualArea
+            | ObjectId::PyramidSpot(_)
             | ObjectId::WallBuy(_)
             | ObjectId::Reference(_)
             | ObjectId::PlayerSpawn(_)
@@ -501,6 +567,7 @@ impl ObjectId {
     /// Whether it can be added and removed (everything but the machines).
     pub(crate) fn is_optional(self) -> bool {
         Self::OPTIONAL.contains(&self)
+            || self.is_egg()
             || self.is_reference()
             || matches!(
                 self,
@@ -525,6 +592,9 @@ impl ObjectId {
             ObjectId::ExfilRadio => Some(&mut layout.exfil_radio),
             ObjectId::RampageInducer => Some(&mut layout.rampage_inducer),
             ObjectId::PowerStation => Some(&mut layout.power_station),
+            ObjectId::Sarcophagus => Some(&mut layout.sarcophagus),
+            ObjectId::SocietyCase => Some(&mut layout.society_case),
+            ObjectId::PyramidAltar => Some(&mut layout.pyramid_altar),
             _ => None,
         }
     }
@@ -576,6 +646,11 @@ impl ObjectId {
             ObjectId::Window(i) => layout.windows.get(i as usize).map(|w| w.at),
             ObjectId::Water(i) => layout.waters.get(i as usize).map(|w| w.at),
             ObjectId::Waterfall(i) => layout.waterfalls.get(i as usize).map(|f| f.at),
+            ObjectId::Sarcophagus => layout.sarcophagus,
+            ObjectId::SocietyCase => layout.society_case,
+            ObjectId::RitualArea => layout.ritual_area.map(|a| a.at),
+            ObjectId::PyramidAltar => layout.pyramid_altar,
+            ObjectId::PyramidSpot(i) => layout.pyramid_spots.get(i as usize).copied(),
         }
     }
 
@@ -674,6 +749,23 @@ impl ObjectId {
                 Some(area) => area.at = at.with_scale(1.0),
                 None => layout.exfil_area = Some(ExfilArea::new(at)),
             },
+            ObjectId::RitualArea => match layout.ritual_area.as_mut() {
+                Some(area) => area.at = at.with_scale(1.0),
+                None => {
+                    let (w, d) = shared::easter_egg::DEFAULT_RITUAL_AREA_SIZE;
+                    layout.ritual_area = Some(ExfilArea::sized(at, w, d));
+                }
+            },
+            // (A new one goes on the end.)
+            ObjectId::PyramidSpot(i) => {
+                let at = at.with_scale(1.0);
+                let spots = &mut layout.pyramid_spots;
+                if let Some(spot) = spots.get_mut(i as usize) {
+                    *spot = at;
+                } else if spots.len() < shared::level::MAX_PLAYER_SPAWNS {
+                    spots.push(at);
+                }
+            }
             other => {
                 if let Some(slot) = other.slot(layout) {
                     *slot = Some(at);
@@ -685,6 +777,13 @@ impl ObjectId {
     fn remove_in(self, layout: &mut ZombiesLayout) -> bool {
         if self == ObjectId::ExfilArea {
             return layout.exfil_area.take().is_some();
+        }
+        if self == ObjectId::RitualArea {
+            return layout.ritual_area.take().is_some();
+        }
+        if let ObjectId::PyramidSpot(i) = self {
+            let i = i as usize;
+            return (i < layout.pyramid_spots.len()).then(|| layout.pyramid_spots.remove(i)).is_some();
         }
         if let ObjectId::AmmoCrate(i) = self {
             let i = i as usize;
@@ -757,6 +856,11 @@ impl ObjectId {
             ObjectId::Window(_) => Color::srgb(0.8, 0.62, 0.4),
             ObjectId::Water(_) => Color::srgb(0.2, 0.75, 0.85),
             ObjectId::Waterfall(_) => Color::srgb(0.55, 0.9, 1.0),
+            ObjectId::Sarcophagus
+            | ObjectId::SocietyCase
+            | ObjectId::RitualArea
+            | ObjectId::PyramidAltar
+            | ObjectId::PyramidSpot(_) => crate::easter_egg::EGG_RED,
         }
     }
 
@@ -771,9 +875,11 @@ impl ObjectId {
             ObjectId::ExfilRadio => shared::exfil::USE_RADIUS,
             ObjectId::RampageInducer => shared::rampage::USE_RADIUS,
             // (Not used — stood in. See `draw_gizmos`' rectangle.)
-            ObjectId::ExfilArea => 0.0,
+            ObjectId::ExfilArea | ObjectId::RitualArea => 0.0,
             // (Not used — stood on. Its circle's about a body's width.)
-            ObjectId::PlayerSpawn(_) => 0.4,
+            ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => 0.4,
+            // (Not used — it wakes up.)
+            ObjectId::Sarcophagus => 0.0,
             // (Not used — its reach is drawn as a sphere instead.)
             ObjectId::PowerLight(_) | ObjectId::Flame(_) => 0.0,
             // (Bought from in front of or behind it — a rectangle, drawn by
@@ -847,9 +953,12 @@ impl ObjectId {
             ObjectId::ExfilRadio => standing(shared::exfil::RADIO_HALF_EXTENTS),
             ObjectId::RampageInducer => standing(shared::rampage::HALF_EXTENTS),
             ObjectId::PowerStation => standing(shared::power_station::HALF_EXTENTS),
+            ObjectId::Sarcophagus => standing(shared::easter_egg::SARCOPHAGUS_HALF_EXTENTS),
+            ObjectId::SocietyCase => standing(shared::easter_egg::SOCIETY_CASE_HALF_EXTENTS),
+            ObjectId::PyramidAltar => standing(shared::easter_egg::PYRAMID_ALTAR_HALF_EXTENTS),
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
-            ObjectId::ExfilArea => standing(Vec3::splat(0.4)),
+            ObjectId::ExfilArea | ObjectId::RitualArea => standing(Vec3::splat(0.4)),
             // A light: a small box round where it hangs (to click).
             ObjectId::PowerLight(_) => (Vec3::ZERO, Vec3::splat(0.3)),
             // A fire: a small box over where its flames start (to click).
@@ -859,7 +968,7 @@ impl ObjectId {
             // The sign: post and board.
             ObjectId::WallBuy(_) => (Vec3::new(-0.02, 1.3, 0.0), Vec3::new(1.0, 1.5, 0.15)),
             // A person: the in-game body's height.
-            ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) => {
+            ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => {
                 standing(Vec3::new(0.35, crate::EYE_HEIGHT * 0.5 + 0.1, 0.25))
             }
             ObjectId::PowerSwitch => {
@@ -886,6 +995,8 @@ pub(crate) fn objects(doc: &Doc, set: PerkSet) -> Vec<ObjectId> {
     out.extend((0..doc.layout.windows.len() as u8).map(ObjectId::Window));
     out.extend((0..doc.layout.waters.len() as u8).map(ObjectId::Water));
     out.extend((0..doc.layout.waterfalls.len() as u8).map(ObjectId::Waterfall));
+    out.extend(ObjectId::EGG.into_iter().filter(|o| o.get(doc).is_some()));
+    out.extend((0..doc.layout.pyramid_spots.len() as u8).map(ObjectId::PyramidSpot));
     out.extend(ObjectId::REFERENCES.into_iter().filter(|o| o.get(doc).is_some()));
     out
 }
@@ -1007,6 +1118,12 @@ pub(crate) struct ViewOptions {
     /// Clean view (H): nothing of the editor's own shows, just the map —
     /// since when (elapsed seconds), for the hint that it's on.
     pub(crate) clean: Option<f32>,
+    /// The map pieces hidden to see past them (V), by name (their glTF
+    /// node's — the Blender object's), the latest last. Just the view:
+    /// never saved.
+    pub(crate) hidden: Vec<String>,
+    /// Everything of the map wholly above this height (m) hidden too (C).
+    pub(crate) cut: Option<f32>,
 }
 
 /// How the editor lights the map.
@@ -1042,6 +1159,8 @@ impl Default for ViewOptions {
             ranges: false,
             look: Look::Editor,
             clean: None,
+            hidden: Vec::new(),
+            cut: None,
         }
     }
 }
@@ -1159,6 +1278,9 @@ impl Editor {
         self.prune_selection();
         if new_place {
             self.selected.clear();
+            // (Another map's pieces, another height.)
+            self.view.hidden.clear();
+            self.view.cut = None;
             self.cam_goto = Some(input::frame(self, &self.objects(), lever));
         }
     }
@@ -1582,7 +1704,13 @@ fn model_of(
         // (A window's drawn by `input::draw_gizmos`: its opening, boards and
         // the way zombies come in.)
         // (The water draws itself, live — `sync_editor_water`.)
+        // (The easter egg's pieces are placeholders for now —
+        // `sync_objects` builds them; its area has no model.)
         ObjectId::ExfilArea
+        | ObjectId::RitualArea
+        | ObjectId::Sarcophagus
+        | ObjectId::SocietyCase
+        | ObjectId::PyramidAltar
         | ObjectId::PowerLight(_)
         | ObjectId::Flame(_)
         | ObjectId::Window(_)
@@ -1595,7 +1723,7 @@ fn model_of(
         // At their in-game sizes; both models face +Z as made (the zombie's
         // panel turn is from the game's -Z facing).
         // (A start spot shows who'll stand there.)
-        ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) => (
+        ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => (
             "models/characters/soldier.glb",
             Transform::from_scale(Vec3::splat(avatars.0.scale)),
         ),
@@ -1634,6 +1762,7 @@ fn sync_objects(
     wall_buys: Option<Res<crate::wall_buys::WallBuyAssets>>,
     avatars: (Res<crate::RemoteAvatarSettings>, Res<crate::ZombieAvatarSettings>),
     asset_server: Res<AssetServer>,
+    egg: Res<crate::easter_egg::EggPlaceholders>,
     mut spawned: Query<(Entity, &EditorObject, &mut Transform, &mut Visibility)>,
     mut commands: Commands,
 ) {
@@ -1648,7 +1777,8 @@ fn sync_objects(
                 t.set_if_neq(root_transform_of(obj.0, doc, at));
                 // (The people standing in for a player / zombie and on the
                 // start spots are the editor's own — not in a clean view.)
-                let stand_in = matches!(obj.0, ObjectId::Reference(_) | ObjectId::PlayerSpawn(_));
+                let stand_in =
+                    matches!(obj.0, ObjectId::Reference(_) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_));
                 vis.set_if_neq(if stand_in && editor.view.clean.is_some() {
                     Visibility::Hidden
                 } else {
@@ -1669,13 +1799,22 @@ fn sync_objects(
             root_transform_of(id, doc, at),
             Visibility::default(),
         ));
+        // (The easter egg's placeholders, as the game has them.)
+        if let Some(piece) = id.egg_piece() {
+            object.with_children(|o| {
+                for part in egg.parts(piece) {
+                    o.spawn(part);
+                }
+            });
+            continue;
+        }
         let Some((model, offset)) = model_of(id, &machines, &pap, &ammo, &lever, &avatars) else {
             continue;
         };
         let scene = SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
         // The stand-ins stand idling, as in game.
         match id {
-            ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) => {
+            ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => {
                 object.with_children(|o| {
                     o.spawn((
                         crate::SoldierVisual,
