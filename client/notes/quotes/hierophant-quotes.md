@@ -5,9 +5,17 @@ screams more than it speaks. Ancient and furious, with a guttural growl
 under every word. He's been trapped for a thousand years and he hates
 everyone alive.
 
-Each recording goes in `client/assets/audio/zombies/easter_egg/hierophant/`
-under the file name in its heading. Record over a file that's already
-there to replace it.
+Record each line clean, with no effects, and put it in
+`client/voice_src/hierophant/` under the file name in its heading (mp3,
+wav, flac or ogg). Replace a file that's already there to re-record it.
+Then run `client/tools/voice_layers.sh`. It mixes two quieter copies
+under each new or changed line, pitched 3 semitones up and down, and
+writes the finished mp3 to
+`client/assets/audio/zombies/easter_egg/hierophant/voice/`. The game adds
+the echo and reverb as the line plays (debug panel → Audio → Voice
+effect). The whispers and the sound effects (teleports, raise_dead) skip
+all of this and still go straight in
+`client/assets/audio/zombies/easter_egg/hierophant/`.
 
 ---
 

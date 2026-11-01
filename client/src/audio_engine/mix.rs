@@ -7,8 +7,8 @@
 //! `weapons/sniper/shot.wav` sits in `weapons/sniper` and `weapons`):
 //! - level: its bus's level + every enclosing folder's + its own (all dB),
 //!   plus — when it's played positionally — every `positional_db` too;
-//! - bus / reverb / profile: its own setting, else the nearest folder's
-//!   that has one.
+//! - bus / reverb / voice FX / profile: its own setting, else the nearest
+//!   folder's that has one.
 //!
 //! Positional sounds also go by a [`Profile`]: how they fade with distance
 //! (and lose their highs to the air), how widely they pan — one shared
@@ -94,6 +94,10 @@ pub(crate) struct MixEntry {
     /// on for positional sounds, off for the rest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reverb: Option<bool>,
+    /// Through the voice effect too (its echo and reverb — [`super::voice_fx`]).
+    /// `None`: whatever the enclosing folder says — and if nothing does, off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) voice_fx: Option<bool>,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -115,6 +119,7 @@ pub(crate) struct Resolved {
     pub(crate) positional_db: f32,
     pub(crate) bus: Bus,
     pub(crate) reverb: Option<bool>,
+    pub(crate) voice_fx: bool,
     pub(crate) profile: String,
 }
 
@@ -232,6 +237,7 @@ impl Mix {
         let mut positional_db = 0.0;
         let mut bus = None;
         let mut reverb = None;
+        let mut voice_fx = None;
         let mut profile = None;
         // Innermost first, so the nearest setting wins.
         let own = self.clips.get(clip);
@@ -241,6 +247,7 @@ impl Mix {
             positional_db += entry.positional_db;
             bus = bus.or(entry.bus);
             reverb = reverb.or(entry.reverb);
+            voice_fx = voice_fx.or(entry.voice_fx);
             profile = profile.or(entry.profile.as_deref());
         }
         let bus = bus.unwrap_or(Bus::DEFAULT);
@@ -249,6 +256,7 @@ impl Mix {
             positional_db,
             bus,
             reverb,
+            voice_fx: voice_fx.unwrap_or(false),
             profile: profile.unwrap_or(DEFAULT_PROFILE).to_owned(),
         }
     }
@@ -349,11 +357,11 @@ mod tests {
         mix.buses.insert(Bus::Weapons, -2.0);
         mix.folders.insert(
             "weapons".into(),
-            MixEntry { volume_db: -1.0, bus: Some(Bus::Weapons), reverb: Some(true), ..default() },
+            MixEntry { volume_db: -1.0, bus: Some(Bus::Weapons), reverb: Some(true), voice_fx: Some(true), ..default() },
         );
         mix.folders.insert(
             "weapons/sniper".into(),
-            MixEntry { volume_db: 3.0, reverb: Some(false), profile: Some("Close".into()), ..default() },
+            MixEntry { volume_db: 3.0, reverb: Some(false), voice_fx: Some(false), profile: Some("Close".into()), ..default() },
         );
         mix.clips.insert(
             "weapons/sniper/shot.wav".into(),
@@ -363,9 +371,11 @@ mod tests {
         assert_eq!(r.volume_db, -2.0 - 1.0 + 3.0 + 0.5);
         assert_eq!(r.bus, Bus::Weapons);
         assert_eq!(r.reverb, Some(false));
+        assert!(!r.voice_fx);
+        assert!(mix.resolve("weapons/ak.wav").voice_fx);
         assert_eq!(r.profile, "Close");
         let other = mix.resolve("ui/denied.mp3");
-        assert_eq!((other.volume_db, other.bus, other.reverb), (0.0, Bus::DEFAULT, None));
+        assert_eq!((other.volume_db, other.bus, other.reverb, other.voice_fx), (0.0, Bus::DEFAULT, None, false));
         assert_eq!(other.profile, DEFAULT_PROFILE);
     }
 

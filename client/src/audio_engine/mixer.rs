@@ -212,8 +212,9 @@ fn mixer_ui(
                 "Levels are dB, added up: bus + each folder + the clip (+ each \"pos\" offset \
                  when it's played positionally). Bus, reverb and profile come from the clip, \
                  else its nearest folder that sets one. \"world\" sounds feed the room's \
-                 reverb; \"auto\" = positional sounds do, others don't. Reverb changes apply \
-                 to sounds started afterwards; everything else is live.",
+                 reverb; \"auto\" = positional sounds do, others don't. \"voice FX\" sounds go \
+                 through the voice effect's echo and reverb too (Audio → Voice effect). Reverb \
+                 and voice FX changes apply to sounds started afterwards; everything else is live.",
             );
             ui.separator();
 
@@ -387,7 +388,8 @@ fn clip_row(
             None => "auto",
         };
         let pos = if r.positional_db != 0.0 { format!(" ({:+.1} pos)", r.positional_db) } else { String::new() };
-        ui.weak(format!("= {:+.1} dB{pos} · {} · {reverb} · {}", r.volume_db, r.bus.label(), r.profile));
+        let voice = if r.voice_fx { " · voice FX" } else { "" };
+        ui.weak(format!("= {:+.1} dB{pos} · {} · {reverb}{voice} · {}", r.volume_db, r.bus.label(), r.profile));
     });
 }
 
@@ -416,6 +418,18 @@ fn entry_controls(ui: &mut egui::Ui, key: &str, names: &[String], entry: &mut Mi
             ui.selectable_value(&mut entry.reverb, None, "inherit");
             ui.selectable_value(&mut entry.reverb, Some(true), "world (reverb)");
             ui.selectable_value(&mut entry.reverb, Some(false), "dry");
+        });
+    egui::ComboBox::from_id_salt(("mixer_voice_fx", key))
+        .width(100.0)
+        .selected_text(match entry.voice_fx {
+            None => "voice: inherit",
+            Some(true) => "voice FX",
+            Some(false) => "no voice FX",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut entry.voice_fx, None, "inherit");
+            ui.selectable_value(&mut entry.voice_fx, Some(true), "voice FX (echo + reverb)");
+            ui.selectable_value(&mut entry.voice_fx, Some(false), "no voice FX");
         });
     egui::ComboBox::from_id_salt(("mixer_profile", key))
         .width(110.0)

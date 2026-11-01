@@ -20,6 +20,9 @@
 //! overrides that per folder / clip (our own shots and footsteps are world
 //! sounds; UI, music and announcers stay dry).
 //!
+//! Spoken lines the mix marks `voice_fx` also go through the voice effect's
+//! echo and reverb ([`voice_fx`]), the same for every one of them.
+//!
 //! A positional sound with the map between it and the listener is muffled
 //! ([`occlusion`]): its profile's wall cutoff and level drop, by how much of
 //! it is blocked.
@@ -33,6 +36,7 @@ mod mixer;
 mod occlusion;
 mod pending;
 mod room;
+mod voice_fx;
 
 use std::sync::Arc;
 
@@ -55,6 +59,8 @@ pub(crate) use mixer::AudioMixer;
 pub(crate) use occlusion::{OcclusionDebug, OcclusionSettings};
 pub(crate) use pending::PendingSounds;
 pub(crate) use room::ReverbDebug;
+pub(crate) use voice_fx::VoiceFxDebug;
+use voice_fx::{VoiceFxSettings, VoiceFxTracks};
 
 /// What call sites need: `use crate::audio_engine::prelude::*;`.
 pub(crate) mod prelude {
@@ -80,7 +86,7 @@ pub(crate) struct AudioEnginePlugin;
 
 impl Plugin for AudioEnginePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((room::RoomReverbPlugin, mixer::MixerPlugin))
+        app.add_plugins((room::RoomReverbPlugin, mixer::MixerPlugin, voice_fx::VoiceFxPlugin))
             .insert_resource(Mix::load())
             .init_resource::<BusMonitor>()
             .init_asset::<AudioSource>()
@@ -118,14 +124,17 @@ struct AudioEngine {
     /// Where non-positional world sounds play, so they feed the reverb too
     /// (the rest play straight on the main track).
     world: TrackHandle,
+    /// The voice effect ([`voice_fx`]).
+    voice: VoiceFxTracks,
 }
 
 impl AudioEngine {
     fn new() -> Result<Self, String> {
         let mut manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
             capacities: Capacities {
-                // (+1: the `world` track.)
-                sub_track_capacity: MAX_SOUNDS + 1,
+                // (+1: the `world` track; +2: the voice effect's track, and
+                // its replacement while the echo's rebuilt.)
+                sub_track_capacity: MAX_SOUNDS + 3,
                 ..default()
             },
             main_track_builder: MainTrackBuilder::new().sound_capacity(MAX_SOUNDS),
@@ -146,12 +155,14 @@ impl AudioEngine {
                     .with_send(reverb_send.id(), Decibels::IDENTITY),
             )
             .map_err(|e| e.to_string())?;
+        let voice = VoiceFxTracks::new(&mut manager, &VoiceFxSettings::default())?;
         Ok(Self {
             manager,
             listener,
             reverb_send,
             reverb,
             world,
+            voice,
         })
     }
 }
@@ -479,6 +490,11 @@ fn play_queued(
             if reverb {
                 builder = builder.with_send(engine.reverb_send.id(), Decibels::IDENTITY);
             }
+            if resolved.voice_fx {
+                builder = builder
+                    .with_send(engine.voice.echo_send.id(), Decibels::IDENTITY)
+                    .with_send(engine.voice.reverb_send.id(), Decibels::IDENTITY);
+            }
             let track = engine.manager.add_spatial_sub_track(&engine.listener, mint_vec(position), builder);
             let Ok(mut track) = track else {
                 warn!("too many sounds playing; dropped {:?}", player.0.path());
@@ -501,7 +517,10 @@ fn play_queued(
                 probed: false,
             });
         } else {
-            let played = if reverb {
+            // (A non-positional voice-FX sound skips the room's reverb.)
+            let played = if resolved.voice_fx {
+                engine.voice.track.play(data).is_ok()
+            } else if reverb {
                 engine.world.play(data).is_ok()
             } else {
                 engine.manager.play(data).is_ok()

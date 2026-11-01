@@ -192,6 +192,9 @@
             bus: Some(Zombies),
             reverb: Some(true),
         ),
+        "zombies/easter_egg/hierophant/voice": (
+            voice_fx: Some(true),
+        ),
         "zombies/enemy": (
             profile: Some("Zombies"),
             bus: Some(Zombies),
@@ -247,15 +250,6 @@
         ),
         "zombies/easter_egg/hierophant/whisper_3.mp3": (
             profile: Some("Hierophant"),
-        ),
-        "zombies/easter_egg/hierophant/during_ritual.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/ritual_gone_wrong.mp3": (
-            profile: Some("Hierophant voice"),
-        ),
-        "zombies/easter_egg/hierophant/wake.mp3": (
-            profile: Some("Hierophant voice"),
         ),
         "ambient/fire_crackle.mp3": (
             profile: Some("Fire"),

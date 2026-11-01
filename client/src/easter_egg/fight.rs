@@ -115,6 +115,9 @@ impl Default for EggFightSettings {
 }
 
 const DIR: &str = "audio/zombies/easter_egg/hierophant";
+/// His spoken lines (made from the clean recordings in
+/// `client/voice_src/hierophant/` by `client/tools/voice_layers.sh`).
+const VOICE_DIR: &str = "audio/zombies/easter_egg/hierophant/voice";
 
 /// Him, while he's in the fight: who he is.
 fn in_fight(lobby: Option<&Lobby>) -> Option<Hierophant> {
@@ -197,7 +200,7 @@ fn his_lines(
                     commands.entity(e).try_despawn();
                 }
             }
-            let clip: Handle<AudioSource> = asset_server.load(format!("{DIR}/{}", msg.line.file()));
+            let clip: Handle<AudioSource> = asset_server.load(format!("{VOICE_DIR}/{}", msg.line.file()));
             // (Under his avatar, which is scaled.)
             let scale = scales.get(avatar).map_or(1.0, |t| t.scale.y.max(0.001));
             commands.entity(avatar).with_child((

@@ -255,12 +255,12 @@ struct BossPreview {
 
 /// Shared handles, built once.
 #[derive(Resource)]
-struct BossAssets {
-    graph: Handle<AnimationGraph>,
-    idle: AnimationNodeIndex,
+pub(crate) struct BossAssets {
+    pub(crate) graph: Handle<AnimationGraph>,
+    pub(crate) idle: AnimationNodeIndex,
     walk: AnimationNodeIndex,
     attack: AnimationNodeIndex,
-    death: AnimationNodeIndex,
+    pub(crate) death: AnimationNodeIndex,
     sphere: Handle<Mesh>,
     arc: Handle<Mesh>,
 }

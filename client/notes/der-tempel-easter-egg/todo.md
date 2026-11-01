@@ -15,6 +15,24 @@ run into the fight (or jump straight to "Boss fight"). Under "The fight"
 there are buttons to set his health (67% starts phase 2), raise a ring
 and teleport him. Next up is **phase 3** (step 9 below).
 
+- **His body in the sarcophagus** (built Nov 1, needs a look): the
+  box-figure placeholder is gone. The boss model lies on its back in the
+  sarcophagus, posed on the last frame of its `death` clip. It rises by
+  playing that clip backwards, then stands in `idle` (`wake.rs`,
+  `pose_body`). The sarcophagus placeholder grew to 1.6 × 1 × 3.2 m and is
+  hollow (`SARCOPHAGUS_HALF_EXTENTS`), so the body fits. When his real
+  model comes, it needs a lying-down pose or clip; also re-check
+  `lying_at` ("He wakes" in the panel). The new sarcophagus model should
+  keep roughly that inside size.
+- **His voice effect** (built Nov 1, needs a listen): his spoken lines
+  are recorded clean into `client/voice_src/hierophant/`.
+  `client/tools/voice_layers.sh` bakes in ±3 semitone layers and writes
+  them to `assets/audio/zombies/easter_egg/hierophant/voice/`. That folder
+  is marked `voice_fx` in mix.ron, so the engine sends it through its own
+  echo + reverb (`client/src/audio_engine/voice_fx.rs`, debug panel →
+  Audio → Voice effect). The whispers and sound effects stay in
+  `hierophant/` without it.
+
 - **Phase 2 as built** (the same two `fight.rs` files):
   - At 2/3 health (`PHASE_2_AT`) he stops for 3 s and plays
     `phase_2.mp3`. 0.8 s in, a ring of the dead rises around him:

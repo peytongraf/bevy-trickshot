@@ -233,10 +233,16 @@ fn make_placeholders(
         (piece, role, meshes.add(Cuboid::from_size(size)), material.clone(), Transform::from_translation(at))
     };
     let parts = vec![
-        // The sarcophagus: a stone chest, a gold-edged lid on top.
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.9, 0.85, 2.2), Vec3::Y * 0.425, &stone),
-        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(0.98, 0.15, 2.3), LID_REST, &gold),
-        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(0.6, 0.02, 1.8), Vec3::Y * 1.01, &dark_stone),
+        // The sarcophagus: a hollow stone chest (a thick base, four walls,
+        // dark inside — his body lies in it, `wake`), a gold-edged lid on top.
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.6, 0.3, 3.2), Vec3::Y * 0.15, &stone),
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.01, 2.96), Vec3::Y * 0.305, &dark_stone),
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.12, 0.55, 3.2), Vec3::new(0.74, 0.575, 0.0), &stone),
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.12, 0.55, 3.2), Vec3::new(-0.74, 0.575, 0.0), &stone),
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.55, 0.12), Vec3::new(0.0, 0.575, 1.54), &stone),
+        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.55, 0.12), Vec3::new(0.0, 0.575, -1.54), &stone),
+        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(1.68, 0.15, 3.3), LID_REST, &gold),
+        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(1.1, 0.02, 2.6), Vec3::Y * 1.01, &dark_stone),
         // The case: a wooden stand, the dagger lying in a glass box on it.
         part(EggPiece::SocietyCase, PartRole::Solid, Vec3::new(0.6, 0.8, 0.4), Vec3::Y * 0.4, &wood),
         part(EggPiece::SocietyCase, PartRole::Dagger, Vec3::new(0.06, 0.02, 0.35), Vec3::new(0.0, 0.82, 0.0), &steel),
@@ -907,8 +913,8 @@ const WHISPERS: [&str; 3] = [
 
 /// His line from the sarcophagus near the ritual's end, and once it's gone
 /// wrong.
-const DURING_RITUAL: &str = "audio/zombies/easter_egg/hierophant/during_ritual.mp3";
-const RITUAL_GONE_WRONG: &str = "audio/zombies/easter_egg/hierophant/ritual_gone_wrong.mp3";
+const DURING_RITUAL: &str = "audio/zombies/easter_egg/hierophant/voice/during_ritual.mp3";
+const RITUAL_GONE_WRONG: &str = "audio/zombies/easter_egg/hierophant/voice/ritual_gone_wrong.mp3";
 
 #[derive(Resource)]
 struct EggSounds {

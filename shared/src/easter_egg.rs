@@ -241,7 +241,8 @@ pub const PLAYER_DOWN_LINES: u8 = 3;
 pub const HURT_LINES: u8 = 3;
 
 impl HierophantLine {
-    /// Its file, under `audio/zombies/easter_egg/hierophant/`.
+    /// Its file, under `audio/zombies/easter_egg/hierophant/voice/` (made from the clean
+    /// recording in `client/voice_src/hierophant/` by `client/tools/voice_layers.sh`).
     pub fn file(self) -> String {
         match self {
             HierophantLine::Taunt(i) => format!("taunt_{}.mp3", i + 1),
@@ -430,9 +431,10 @@ pub fn holds_spawns(lobby: &Lobby) -> bool {
 
 // --- its pieces (placeholders for now — sizes as the models will be made) ---------
 
-/// The sarcophagus on the upper altar: about 2.2 m long (along its own z),
-/// 0.9 m wide and 1 m tall, standing on the ground — half extents.
-pub const SARCOPHAGUS_HALF_EXTENTS: Vec3 = Vec3::new(0.45, 0.5, 1.1);
+/// The sarcophagus on the upper altar: 3.2 m long (along its own z), 1.6 m
+/// wide and 1 m tall, standing on the ground — half extents. Big enough for
+/// the Hierophant's body (the boss model) to lie in, arms out, head at -z.
+pub const SARCOPHAGUS_HALF_EXTENTS: Vec3 = Vec3::new(0.8, 0.5, 1.6);
 /// The society's locked case (the dagger's): a display case on a stand,
 /// 0.8 m wide, 1.3 m tall, 0.5 m deep — its front facing the way it's turned.
 pub const SOCIETY_CASE_HALF_EXTENTS: Vec3 = Vec3::new(0.4, 0.65, 0.25);

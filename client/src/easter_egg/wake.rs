@@ -9,16 +9,18 @@
 //!    spiral of glowing wisps, a green glow growing over it, the body
 //!    twitching as they go in;
 //! 3. stillness: the glow cut, the lights steady, nothing;
-//! 4. he snaps upright, eyes lit, screaming — a hard hit, the camera
-//!    shaken hard (less the further off we are), the lights stuttering
-//!    again.
+//! 4. he rises up out of it, screaming — a hard hit, the camera shaken
+//!    hard (less the further off we are), the lights stuttering again.
 //!
-//! The body's a placeholder of plain boxes ([`WakeFx`]) — robed, gaunt,
-//! lying in the sarcophagus — and stays standing there once the fight's on
-//! until the Hierophant himself is in, standing where it stood (`fight`). The lid lies
+//! The body ([`WakeFx`]) is his own model (the boss's, `boss::BOSS_MODEL`,
+//! until his is made): lying on his back in the sarcophagus, held on the
+//! last frame of its `death` clip, and rising by playing that clip
+//! backwards, lifted to where he stands ([`FEET`]) as it goes; then
+//! standing in `idle`. It stays there once the fight's on until the
+//! Hierophant himself is in, standing where it stood (`fight`). The lid lies
 //! where it landed from then on, back on the sarcophagus once the egg's
 //! reset. Its sounds are placeholders at their final paths
-//! (`audio/zombies/easter_egg/awakening/`, `hierophant/wake.mp3`).
+//! (`audio/zombies/easter_egg/awakening/`, `hierophant/voice/wake.mp3`).
 //!
 //! The clock ([`EggWake`]), the camera's shake ([`EggCameraShake`]) and
 //! which sounds have played are reset on leaving the game; the body,
@@ -26,10 +28,11 @@
 //! as soon as the egg isn't there. Tuned in the debug panel's "Easter egg
 //! (Der Tempel)" → "He wakes".
 
-use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::f32::consts::{PI, TAU};
 
 use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
@@ -51,6 +54,7 @@ impl Plugin for WakePlugin {
             .init_resource::<EggWakeSettings>()
             .init_resource::<EggCameraShake>()
             .add_systems(Startup, (make_assets, load_sounds))
+            .add_systems(Update, pose_body.after(animate_wake).run_if(in_state(AppState::InGame)))
             .add_systems(OnExit(AppState::InGame), |mut wake: ResMut<EggWake>, mut shake: ResMut<EggCameraShake>| {
                 *wake = default();
                 *shake = default();
@@ -116,6 +120,13 @@ pub(crate) struct EggWakeSettings {
     /// the lid goes and he snaps up (lumens).
     pub(crate) spirit_light: f32,
     pub(crate) flash_light: f32,
+    /// Where his body lies in the sarcophagus (its model's root, in the
+    /// sarcophagus' frame, m): on the floor inside, off centre so his body
+    /// (head at -z, his left arm flung out to +x) sits in the middle.
+    pub(crate) lying_at: [f32; 3],
+    /// How long (s) he takes to rise (the `death` clip backwards, sped up
+    /// to fit).
+    pub(crate) rise_secs: f32,
 }
 
 impl Default for EggWakeSettings {
@@ -137,6 +148,8 @@ impl Default for EggWakeSettings {
             lid_throw: 2.4,
             spirit_light: 150_000.0,
             flash_light: 600_000.0,
+            lying_at: [-0.2, 0.31, 0.8],
+            rise_secs: 0.9,
         }
     }
 }
@@ -181,7 +194,7 @@ fn track_wake(
 pub(super) fn lid_pose(t: f32, rest: Vec3, settings: &EggWakeSettings) -> Transform {
     let s = ramp(t, 0.0, WAKE_LID_SECS);
     // (Where it ends up: flat on the ground beside it, turned a bit.)
-    let landed = Vec3::new(0.55 + settings.lid_throw, 0.075, 0.25);
+    let landed = Vec3::new(0.9 + settings.lid_throw, 0.075, 0.25);
     let start = rest;
     let across = start.lerp(landed, s);
     let arc = settings.lid_height * 4.0 * s * (1.0 - s);
@@ -194,41 +207,18 @@ pub(super) fn lid_pose(t: f32, rest: Vec3, settings: &EggWakeSettings) -> Transf
 
 #[derive(Resource)]
 struct WakeAssets {
-    robe: (Handle<Mesh>, Handle<StandardMaterial>),
-    head: (Handle<Mesh>, Handle<StandardMaterial>),
-    arm: Handle<Mesh>,
-    skin: Handle<StandardMaterial>,
-    eye: (Handle<Mesh>, Handle<StandardMaterial>),
+    body: Handle<Scene>,
     wisp: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
-fn make_assets(mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>, mut commands: Commands) {
-    let skin = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.42, 0.38, 0.3),
-        perceptual_roughness: 0.85,
-        ..default()
-    });
+fn make_assets(
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut commands: Commands,
+) {
     commands.insert_resource(WakeAssets {
-        robe: (
-            meshes.add(Cuboid::new(0.45, 1.5, 0.28)),
-            materials.add(StandardMaterial {
-                base_color: Color::srgb(0.12, 0.08, 0.06),
-                perceptual_roughness: 0.95,
-                ..default()
-            }),
-        ),
-        head: (meshes.add(Sphere::new(0.13)), skin.clone()),
-        arm: meshes.add(Cuboid::new(0.08, 0.8, 0.08)),
-        skin,
-        eye: (
-            meshes.add(Sphere::new(0.025)),
-            materials.add(StandardMaterial {
-                base_color: Color::srgb(0.4, 1.0, 0.45),
-                emissive: LinearRgba::rgb(4.0, 30.0, 6.0),
-                unlit: true,
-                ..default()
-            }),
-        ),
+        body: asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::boss::BOSS_MODEL)),
         wisp: (
             meshes.add(Sphere::new(0.09)),
             materials.add(StandardMaterial {
@@ -247,29 +237,27 @@ const WISP_TRAVEL: f32 = 1.3;
 /// How high (m) over the body they come from.
 const WISP_HEIGHT: f32 = 8.0;
 
-/// The wake-up's placeholder body, wisps and lights, under one root in the
-/// sarcophagus' own frame.
+/// The wake-up's body, wisps and lights, under one root in the sarcophagus'
+/// own frame.
 #[derive(Component)]
 struct WakeFx;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 enum WakePart {
-    /// The body, pivoting at its feet — lying until he snaps up.
+    /// The body: his model's root, lying in the sarcophagus until he rises.
     Body,
-    Eyes,
     Wisp(usize),
     SpiritLight,
     Flash,
 }
 
-/// The body's feet (the pivot it snaps up on), lying along -z from there
-/// on top of the sarcophagus' chest (`super::make_placeholders`) — where
-/// the fight's Hierophant starts, too.
+/// Where his feet are once he's up, in the sarcophagus' frame — where the
+/// fight's Hierophant starts, too.
 const FEET: Vec3 = shared::easter_egg::HIEROPHANT_FEET;
-/// Lying, face up.
-fn lying() -> Quat {
-    Quat::from_rotation_x(-FRAC_PI_2)
-}
+
+/// His body's `AnimationPlayer`, once its scene is in.
+#[derive(Component)]
+struct BodyRig(Entity);
 
 /// The body's there while he's waking, and into the fight until he's in
 /// (`EasterEgg::hierophant`), on a map with the sarcophagus placed.
@@ -277,6 +265,7 @@ fn sync_wake_fx(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     assets: Res<WakeAssets>,
+    boss: Res<crate::boss::BossSettings>,
     roots: Query<Entity, With<WakeFx>>,
     mut root_at: Query<&mut Transform, With<WakeFx>>,
     mut commands: Commands,
@@ -304,28 +293,17 @@ fn sync_wake_fx(
     commands
         .spawn((StateScoped(AppState::InGame), WakeFx, crate::util::placed(at), Visibility::default()))
         .with_children(|fx| {
-            fx.spawn((WakePart::Body, Transform::from_translation(FEET).with_rotation(lying()), Visibility::default()))
-                .with_children(|body| {
-                    body.spawn((Mesh3d(a.robe.0.clone()), MeshMaterial3d(a.robe.1.clone()), Transform::from_xyz(0.0, 0.75, 0.0)));
-                    body.spawn((Mesh3d(a.head.0.clone()), MeshMaterial3d(a.head.1.clone()), Transform::from_xyz(0.0, 1.64, 0.0)));
-                    for side in [-1.0, 1.0] {
-                        body.spawn((
-                            Mesh3d(a.arm.clone()),
-                            MeshMaterial3d(a.skin.clone()),
-                            Transform::from_xyz(0.29 * side, 1.02, 0.0),
-                        ));
-                    }
-                    body.spawn((WakePart::Eyes, Transform::IDENTITY, Visibility::Hidden)).with_children(|eyes| {
-                        for side in [-1.0, 1.0] {
-                            eyes.spawn((
-                                Mesh3d(a.eye.0.clone()),
-                                MeshMaterial3d(a.eye.1.clone()),
-                                Transform::from_xyz(0.045 * side, 1.67, 0.115),
-                                NotShadowCaster,
-                            ));
-                        }
-                    });
-                });
+            // (Its model faces +z as made — the way the sarcophagus does —
+            // so no turn; `animate_wake` places it every frame.)
+            fx.spawn((
+                WakePart::Body,
+                Transform::from_scale(Vec3::splat(boss.scale.max(0.001))),
+                // (Hidden until `pose_body` has it posed — not a frame of
+                // its T-pose sticking out of the sarcophagus.)
+                Visibility::Hidden,
+                SceneRoot(a.body.clone()),
+            ))
+            .observe(body_ready);
             for i in 0..WISPS {
                 fx.spawn((
                     WakePart::Wisp(i),
@@ -358,28 +336,91 @@ fn wisp_start(i: usize) -> f32 {
     WAKE_SPIRIT_FROM + span * i as f32 / (WISPS - 1).max(1) as f32
 }
 
-/// How far (0..1) he's snapped up, `t` s into the wake-up — fast, and
-/// overshooting a touch before he settles.
-fn snap(t: f32) -> f32 {
-    let x = ramp(t, WAKE_SNAP_AT, WAKE_SNAP_AT + 0.17);
-    let c = 2.2;
-    1.0 + (c + 1.0) * (x - 1.0).powi(3) + c * (x - 1.0).powi(2)
+/// How far (0..1) he's risen, `t` s into the wake-up — quick out of the
+/// coffin, slowing as he straightens.
+fn rise(t: f32, settings: &EggWakeSettings) -> f32 {
+    let x = ramp(t, WAKE_SNAP_AT, WAKE_SNAP_AT + settings.rise_secs.max(0.05));
+    1.0 - (1.0 - x).powi(3)
 }
 
-/// Play the wake-up out on the body, wisps and lights by its clock.
+/// Once his body's scene is in: animate it with the boss's clips, and keep
+/// it from being culled in poses its rest-pose box doesn't cover.
+fn body_ready(
+    trigger: Trigger<SceneInstanceReady>,
+    children: Query<&Children>,
+    players: Query<(), With<AnimationPlayer>>,
+    boss: Option<Res<crate::boss::BossAssets>>,
+    mut bounds: crate::CharacterBounds,
+    mut commands: Commands,
+) {
+    let Some(boss) = boss else { return };
+    let root = trigger.target();
+    for entity in children.iter_descendants(root) {
+        bounds.fit(&mut commands, root, entity);
+        if players.contains(entity) {
+            commands.entity(entity).insert(AnimationGraphHandle(boss.graph.clone()));
+            commands.entity(root).insert(BodyRig(entity));
+        }
+    }
+}
+
+/// His body's pose by the clock: dead (the `death` clip's last frame)
+/// until he rises, that clip backwards as he does, then `idle`.
+fn pose_body(
+    wake: Res<EggWake>,
+    settings: Res<EggWakeSettings>,
+    boss: Option<Res<crate::boss::BossAssets>>,
+    graphs: Res<Assets<AnimationGraph>>,
+    clips: Res<Assets<AnimationClip>>,
+    mut rigs: Query<(&BodyRig, &mut Visibility)>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    let (Some(t), Some(boss)) = (wake.t, boss) else { return };
+    // (Its length, from the clip itself — the model's own.)
+    let death_secs = graphs
+        .get(&boss.graph)
+        .and_then(|g| g.get(boss.death))
+        .and_then(|node| match &node.node_type {
+            AnimationNodeType::Clip(clip) => clips.get(clip).map(AnimationClip::duration),
+            _ => None,
+        })
+        .unwrap_or(1.77);
+    let up = if t < WAKE_SNAP_AT { 0.0 } else { ramp(t, WAKE_SNAP_AT, WAKE_SNAP_AT + settings.rise_secs.max(0.05)) };
+    for (rig, mut vis) in &mut rigs {
+        let Ok(mut player) = players.get_mut(rig.0) else { continue };
+        vis.set_if_neq(Visibility::Inherited);
+        if up < 1.0 {
+            if !player.is_playing_animation(boss.death) {
+                player.stop_all();
+                player.play(boss.death);
+            }
+            if let Some(clip) = player.animation_mut(boss.death) {
+                clip.set_speed(0.0).seek_to(death_secs * (1.0 - up));
+            }
+        } else if !player.is_playing_animation(boss.idle) {
+            player.stop_all();
+            player.play(boss.idle).repeat();
+        }
+    }
+}
+
+/// Play the wake-up out on the body, wisps and lights by its clock (the
+/// body's pose is `pose_body`'s).
 #[allow(clippy::type_complexity)]
 fn animate_wake(
     time: Res<Time>,
     wake: Res<EggWake>,
     settings: Res<EggWakeSettings>,
+    boss: Res<crate::boss::BossSettings>,
     mut parts: Query<(&WakePart, &mut Transform, Option<&mut Visibility>), Without<PointLight>>,
     // (Apart from `parts` by the light.)
     mut lights: Query<(&WakePart, &mut PointLight, &mut Transform)>,
 ) {
     let Some(t) = wake.t else { return };
     let now = time.elapsed_secs();
-    // The body's chest, lying.
-    let chest = FEET + lying() * Vec3::Y * 1.0;
+    let lying_at = Vec3::from_array(settings.lying_at);
+    // The middle of his body, lying (it stretches 2 m or so to -z of its root).
+    let chest = lying_at + Vec3::new(0.2, 0.25, -0.8);
     for (part, mut transform, vis) in &mut parts {
         match *part {
             WakePart::Body => {
@@ -390,17 +431,13 @@ fn animate_wake(
                 } else {
                     0.0
                 };
-                // ...then up, and breathing, his head lolling a little.
-                let up = snap(t);
-                let breathe = if t >= WAKE_SNAP_AT + 0.4 { (now * 1.7).sin() * 0.015 } else { 0.0 };
-                let rotation = Quat::from_rotation_x(-FRAC_PI_2 * (1.0 - up) + twitch + breathe)
-                    * Quat::from_rotation_z(twitch * 0.5);
-                *transform = Transform::from_translation(FEET).with_rotation(rotation);
-            }
-            WakePart::Eyes => {
-                if let Some(mut vis) = vis {
-                    vis.set_if_neq(if t >= WAKE_SNAP_AT { Visibility::Inherited } else { Visibility::Hidden });
-                }
+                // ...then lifted up out of it to where he stands as he
+                // rises (`pose_body` plays the clip).
+                let up = rise(t, &settings);
+                let rotation = Quat::from_rotation_x(twitch * 0.4) * Quat::from_rotation_z(twitch * 0.25);
+                *transform = Transform::from_translation(lying_at.lerp(FEET, up))
+                    .with_rotation(rotation)
+                    .with_scale(Vec3::splat(boss.scale.max(0.001)));
             }
             WakePart::Wisp(i) => {
                 let s = (t - wisp_start(i)) / WISP_TRAVEL;
@@ -495,7 +532,7 @@ fn load_sounds(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(WakeSounds {
         blast: asset_server.load("audio/zombies/easter_egg/awakening/lid_blast.mp3"),
         spirit: asset_server.load("audio/zombies/easter_egg/awakening/spirit.mp3"),
-        scream: asset_server.load("audio/zombies/easter_egg/hierophant/wake.mp3"),
+        scream: asset_server.load("audio/zombies/easter_egg/hierophant/voice/wake.mp3"),
         hit: asset_server.load("audio/zombies/easter_egg/awakening/wake_hit.mp3"),
     });
 }
@@ -651,6 +688,12 @@ pub(crate) fn wake_section(ui: &mut egui::Ui, s: &mut EggWakeSettings, wake: &Eg
     ui.add(egui::Slider::new(&mut s.lid_throw, 0.0f32..=8.0).text("lid lands out (m)"));
     ui.add(egui::Slider::new(&mut s.spirit_light, 0.0f32..=1_000_000.0).text("spirit glow (lm)"));
     ui.add(egui::Slider::new(&mut s.flash_light, 0.0f32..=3_000_000.0).text("flashes (lm)"));
+    ui.separator();
+    ui.label("His body, lying in the sarcophagus (its frame: +z = its foot end)");
+    ui.add(egui::Slider::new(&mut s.lying_at[0], -0.8f32..=0.8).text("lies at x (m)"));
+    ui.add(egui::Slider::new(&mut s.lying_at[1], 0.0f32..=1.0).text("lies at height (m)"));
+    ui.add(egui::Slider::new(&mut s.lying_at[2], -1.6f32..=1.6).text("lies at z (m)"));
+    ui.add(egui::Slider::new(&mut s.rise_secs, 0.1f32..=3.0).text("rises over (s)"));
     ui.horizontal(|ui| {
         if ui.button("Reset").clicked() {
             *s = EggWakeSettings::default();
