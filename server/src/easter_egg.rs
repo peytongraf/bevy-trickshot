@@ -18,8 +18,17 @@
 //!   game's paused) — the zombies holding off meanwhile
 //!   (`Lobby::bots_hold_fire`), the clients locking their players in place
 //!   — then it goes wrong ([`run_ritual`]);
+//! * once it's gone wrong (however it got there — the ritual or the debug
+//!   panel), every zombie up drops dead — no points, no drops — the round's
+//!   own spawns are held until he's dead (`shared::easter_egg::holds_spawns`,
+//!   `crate::zombies::run_rounds`), and once the Hierophant's had his say
+//!   from the sarcophagus (the clients play that), the man on the radio
+//!   realises what he's done; a breath after, he wakes
+//!   ([`shared::easter_egg::EggStep::Awakening`] — the clients play it out)
+//!   and once he's up the fight's on ([`run_unleashed`]) — the Hierophant
+//!   himself, until he's killed ([`fight`]);
 //! * the leader's debug panel can set any of it ([`shared::SetEasterEgg`])
-//!   — without the radio.
+//!   — without the gathering's radio.
 
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -30,6 +39,11 @@ use shared::{EggInteract, Lobby, PlayerId, PlayerPose, SetEasterEgg};
 use crate::lobby::LobbyPlayer;
 use crate::pvp::{PlayerCombat, ZombieKilled};
 use crate::sim::EYE_HEIGHT;
+use crate::zombies::Zombie;
+
+mod fight;
+
+pub(crate) use fight::Hierophant;
 
 pub struct EasterEggPlugin;
 
@@ -38,9 +52,13 @@ impl Plugin for EasterEggPlugin {
         app.add_observer(on_set_easter_egg)
             .add_observer(on_egg_interact)
             .init_resource::<Rituals>()
+            .init_resource::<Unleashings>()
+            .init_resource::<fight::Fights>()
             .add_systems(
                 FixedUpdate,
-                (drop_vial, run_altar, run_ritual).chain().after(crate::pvp::apply_player_hits),
+                (drop_vial, run_altar, run_ritual, run_unleashed, fight::run_fight)
+                    .chain()
+                    .after(crate::pvp::apply_player_hits),
             );
     }
 }
@@ -184,6 +202,99 @@ fn run_ritual(time: Res<Time>, mut rituals: ResMut<Rituals>, mut lobbies: Query<
             rituals.0.remove(&lobby_e);
             lobby.easter_egg.step = EggStep::Unleashed;
             info!("lobby {lobby_e:?}: the ritual's done — and it's gone wrong");
+        }
+    }
+}
+
+/// Each lobby where it's gone wrong: how long (s, not counting pauses)
+/// since, and whether its zombies have dropped and the radio's spoken yet.
+#[derive(Resource, Default)]
+struct Unleashings(bevy::platform::collections::HashMap<Entity, Unleashing>);
+
+#[derive(Default)]
+struct Unleashing {
+    t: f32,
+    dropped: bool,
+    radioed: bool,
+    /// How long (s) he's been waking, while he is.
+    waking: f32,
+    /// The step it was at last tick.
+    last: Option<EggStep>,
+}
+
+/// Once it's gone wrong ([`shared::easter_egg::EggStep::is_unleashed`]):
+/// every zombie up in the game (not him — a debug jump straight to the
+/// fight) drops dead a moment after — killed outright,
+/// so no points, drop or kill counted — then, the Hierophant done speaking,
+/// the radio line; [`shared::easter_egg::unleashed_secs`] in, he wakes, and
+/// [`shared::easter_egg::AWAKENING_SECS`] after that, the fight's on. A
+/// lobby that's moved on (or reset) forgets its clock, so it all happens
+/// again if it goes wrong again.
+#[allow(clippy::type_complexity)]
+fn run_unleashed(
+    time: Res<Time>,
+    endings: Res<crate::killcam::EndingLobbies>,
+    mut unleashings: ResMut<Unleashings>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    mut zombies: Query<(&LobbyPlayer, &mut PlayerCombat), (With<Zombie>, Without<Hierophant>)>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
+) {
+    let dt = time.delta_secs();
+    unleashings
+        .0
+        .retain(|e, _| lobbies.get(*e).is_ok_and(|(_, l)| shared::easter_egg::holds_spawns(l)));
+    for (lobby_e, mut lobby) in &mut lobbies {
+        if !shared::easter_egg::holds_spawns(&lobby) {
+            continue;
+        }
+        let u = unleashings.0.entry(lobby_e).or_default();
+        // (Back to it going wrong from further on — a debug jump: all over
+        // again.)
+        let step = lobby.easter_egg.step;
+        if step == EggStep::Unleashed && u.last.is_some_and(|l| l != EggStep::Unleashed) {
+            *u = Unleashing::default();
+        }
+        u.last = Some(step);
+        if lobby.paused || endings.is_ending(lobby_e) {
+            continue;
+        }
+        u.t += dt;
+        if !u.dropped && u.t >= shared::easter_egg::UNLEASHED_ZOMBIES_DROP_SECS {
+            u.dropped = true;
+            let mut dropped = 0;
+            for (lp, mut combat) in &mut zombies {
+                if lp.lobby != lobby_e || !combat.alive {
+                    continue;
+                }
+                combat.alive = false;
+                combat.health = 0.0;
+                combat.respawn_at = f32::INFINITY;
+                dropped += 1;
+            }
+            info!("lobby {lobby_e:?}: it's gone wrong — {dropped} zombies dropped dead");
+        }
+        // (Not if a debug jump's gone past it.)
+        if !u.radioed && u.t >= shared::easter_egg::UNLEASHED_RADIO_SECS && step == EggStep::Unleashed {
+            u.radioed = true;
+            radio.write(crate::radio::SayRadio {
+                lobby: lobby_e,
+                line: RadioLine::EggRitualGoesWrong,
+            });
+        }
+        match step {
+            EggStep::Unleashed if u.t >= shared::easter_egg::unleashed_secs() => {
+                lobby.easter_egg.step = EggStep::Awakening;
+                u.waking = 0.0;
+                info!("lobby {lobby_e:?}: the Hierophant wakes");
+            }
+            EggStep::Awakening => {
+                u.waking += dt;
+                if u.waking >= shared::easter_egg::AWAKENING_SECS {
+                    lobby.easter_egg.step = EggStep::BossFight;
+                    info!("lobby {lobby_e:?}: the Hierophant's up — the fight's on");
+                }
+            }
+            _ => u.waking = 0.0,
         }
     }
 }

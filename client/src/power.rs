@@ -60,7 +60,7 @@ impl Plugin for PowerPlugin {
             )
             // Not gated on `InGame`: it's what takes the lights away (and
             // resets the fade) once the game is left.
-            .add_systems(Update, (sync_map_lights, limit_power_shadows).chain());
+            .add_systems(Update, (sync_map_lights, limit_power_shadows, flicker_power_glows).chain());
     }
 }
 
@@ -304,6 +304,31 @@ fn sync_map_lights(
         &mut materials,
         || (StateScoped(AppState::InGame), GameLight),
     );
+}
+
+/// Dim the power lights' glowing bulbs with the lights as they stutter
+/// (Der Tempel's easter egg gone wrong, `environment::egg_mood` — which
+/// dims the lights themselves) — and back up once they're steady.
+fn flicker_power_glows(
+    flicker: Res<crate::environment::LightFlicker>,
+    current: Res<CurrentMap>,
+    level: Res<PowerLevel>,
+    slots: Query<&PowerLightSlot, With<GameLight>>,
+    glows: Query<(&ChildOf, &MeshMaterial3d<StandardMaterial>), With<PowerLightGlow>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !flicker.is_changed() && flicker.0 == 1.0 {
+        return;
+    }
+    let wanted = &shared::level::layout(current.0).power_lights;
+    let fade = level.0 * level.0 * (3.0 - 2.0 * level.0);
+    for (parent, material) in &glows {
+        let Ok(slot) = slots.get(parent.parent()) else { continue };
+        let Some(light) = wanted.get(slot.index) else { continue };
+        if let Some(m) = materials.get_mut(material) {
+            m.emissive = glow_emissive(light, fade * flicker.0);
+        }
+    }
 }
 
 /// How much nearer (m) another power light has to be than one already

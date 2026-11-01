@@ -310,6 +310,21 @@ impl FireMaterial {
             params: settings.params(brightness, 0.0, 1.0, wind),
         }
     }
+
+    /// [`Self::flame`] (still air), its colours — core, middle, tips —
+    /// blended `t` of the way to `toward`'s (a map fire burning green in the
+    /// easter egg, `flames`).
+    pub(crate) fn flame_tinted(settings: &MolotovSettings, brightness: f32, toward: [[f32; 3]; 3], t: f32) -> Self {
+        let mut flame = Self::flame(settings, brightness, Vec3::ZERO);
+        let c = |own: [f32; 3], to: [f32; 3]| {
+            let v = crate::environment::blend3(own, to, t);
+            Vec4::new(v[0], v[1], v[2], 1.0)
+        };
+        flame.params.core = c(settings.core_color, toward[0]);
+        flame.params.mid = c(settings.mid_color, toward[1]);
+        flame.params.tip = c(settings.tip_color, toward[2]);
+        flame
+    }
 }
 
 /// A flame / smoke quad's scale: `size` (m) across and up, and the seed the

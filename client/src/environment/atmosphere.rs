@@ -291,12 +291,19 @@ pub(crate) fn apply_scene_tuning(
     looks: Res<MapLooks>,
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
+    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodLook>),
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
 ) {
-    if !current.is_changed() && !looks.is_changed() && !dog_fade.is_changed() && !dog_look.is_changed() {
+    if !current.is_changed()
+        && !looks.is_changed()
+        && !dog_fade.is_changed()
+        && !dog_look.is_changed()
+        && !egg_fade.is_changed()
+        && !egg_look.is_changed()
+    {
         return;
     }
     let active = looks.get(current.0);
@@ -306,20 +313,27 @@ pub(crate) fn apply_scene_tuning(
     let lerp = |a: f32, b: f32| a + (b - a) * t;
     let mix = |a: [f32; 3], b: [f32; 3]| color_from_parts(a).mix(&color_from_parts(b), t);
     let sun_mult = lerp(1.0, dog_look.sun_mult);
+    let ambient_color = mix(active.ambient_color, dog_look.ambient_color);
+    let ambient_lux = active.ambient_lux * lerp(1.0, dog_look.ambient_mult);
+    let fog_color = mix(active.fog_color, dog_look.fog_color);
+    let fog_visibility = lerp(active.fog_visibility_m, dog_look.fog_visibility_m.min(active.fog_visibility_m));
 
-    ambient.color = mix(active.ambient_color, dog_look.ambient_color);
-    ambient.brightness = active.ambient_lux * lerp(1.0, dog_look.ambient_mult);
+    // ...and the easter egg gone wrong turns it all, `e` of the way, on top
+    // (`egg_mood.rs`).
+    let e = egg_fade.0;
+    let egg_lerp = |a: f32, b: f32| a + (b - a) * e;
+    let sun_mult = sun_mult * egg_lerp(1.0, egg_look.sun_mult);
+
+    ambient.color = ambient_color.mix(&color_from_parts(egg_look.ambient_color), e);
+    ambient.brightness = ambient_lux * egg_lerp(1.0, egg_look.ambient_mult);
 
     sun.illuminance = active.sun_lux * sun_mult;
     sun.color = color_from_parts(active.sun_color);
 
-    fog.color = mix(active.fog_color, dog_look.fog_color);
+    fog.color = fog_color.mix(&color_from_parts(egg_look.fog_color), e);
     fog.directional_light_color = Color::LinearRgba(LinearRgba::from(color_from_parts(active.sun_color)) * sun_mult);
     fog.directional_light_exponent = active.fog_sun_exponent;
-    fog.falloff = FogFalloff::from_visibility(lerp(
-        active.fog_visibility_m,
-        dog_look.fog_visibility_m.min(active.fog_visibility_m),
-    ));
+    fog.falloff = FogFalloff::from_visibility(egg_lerp(fog_visibility, egg_look.fog_visibility_m.min(fog_visibility)));
 
     bloom.intensity = active.bloom_intensity;
 }

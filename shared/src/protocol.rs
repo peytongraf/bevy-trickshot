@@ -2236,6 +2236,14 @@ pub struct BossSpawned {
     pub at: [f32; 3],
 }
 
+/// Server → every member of a `Zombies` lobby on Der Tempel: the easter
+/// egg's Hierophant taunts them — taunt `line` (`0..easter_egg::TAUNTS`,
+/// `hierophant/taunt_{line + 1}.mp3`), from where he stands.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HierophantTaunt {
+    pub line: u8,
+}
+
 /// Server → every member of a `Zombies` lobby: boss `boss` (its bot peer id)
 /// just hurled blast `id` from `from`, flying along `dir` (unit) at `speed`
 /// (m/s) until it blows up ([`BossBlastExploded`]).
@@ -2845,6 +2853,8 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<BossSpawned>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BossBlastLaunched>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<HierophantTaunt>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BossBlastExploded>()
             .add_direction(NetworkDirection::ServerToClient);

@@ -71,7 +71,7 @@ pub use protocol::{
     MolotovBurst, MolotovDrop, MolotovFire, MolotovPickedUp, PickUpMolotov, SetMolotovTest, ThrowMolotov,
     ThrownMolotov, BuyWallWeapon, WallWeaponBought, PickUpWeapon, WeaponPickedUp, WeaponDrop, GiveWeapon,
     SpinMysteryBox, TakeBoxPrize, BoxPrizeTaken, BuyArmor, RefillArmor, UseFieldUpgrade, FillFieldUpgrade,
-    BossLightning, BossSpawned, BossBlastLaunched, BossBlastExploded, SpawnBoss, SpinTeddy,
+    BossLightning, BossSpawned, BossBlastLaunched, BossBlastExploded, HierophantTaunt, SpawnBoss, SpinTeddy,
     ThrownMonkey, MonkeyDrop, ThrowMonkey, PickUpMonkey, MonkeyPickedUp, SetMonkeyFuse,
     ThrownFrag, FragDrop, ThrowFrag, PickUpFrag, FragPickedUp,
     ThrownFlashBang, FlashBangDrop, ThrowFlashBang, PickUpFlashBang, FlashBangPickedUp, FlashBangDetonated,

@@ -10,6 +10,10 @@
 //! some other way), then fades out over [`EXFIL_FADE_SECS`] — and only once
 //! it's gone does the game-over music start.
 //!
+//! The ambience is turned down by [`ZombiesAmbientLevel`] — the easter
+//! egg's music takes its place while the Hierophant's loose
+//! (`easter_egg::music`).
+//!
 //! All three are `StateScoped(InGame)`, so leaving the game cuts them off;
 //! none is positional. [`ZombiesGameOverPlayed`] is cleared whenever a game is
 //! running (and on entering the game), so the next game plays it again.
@@ -48,6 +52,17 @@ struct ZombiesExfilMusic {
     fade: f32,
 }
 
+/// How loud the ambience is (0..=1 of [`AMBIENT_VOLUME`]) — set by the
+/// easter egg's music (`easter_egg::music`), back to 1 on entering a game.
+#[derive(Resource)]
+pub(crate) struct ZombiesAmbientLevel(pub(crate) f32);
+
+impl Default for ZombiesAmbientLevel {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
 /// This game's game-over music has been started.
 #[derive(Resource, Default)]
 struct ZombiesGameOverPlayed(bool);
@@ -57,6 +72,7 @@ pub(crate) struct ZombiesAudioPlugin;
 impl Plugin for ZombiesAudioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZombiesGameOverPlayed>()
+            .init_resource::<ZombiesAmbientLevel>()
             .add_systems(OnEnter(AppState::InGame), reset_game_over)
             .add_systems(
                 Update,
@@ -65,8 +81,9 @@ impl Plugin for ZombiesAudioPlugin {
     }
 }
 
-fn reset_game_over(mut played: ResMut<ZombiesGameOverPlayed>) {
+fn reset_game_over(mut played: ResMut<ZombiesGameOverPlayed>, mut level: ResMut<ZombiesAmbientLevel>) {
     played.0 = false;
+    level.0 = 1.0;
 }
 
 /// Ambience while a `Zombies` game runs, and the exfil music once it's
@@ -80,12 +97,13 @@ fn sync_zombies_audio(
     freeze: Res<MatchEndFreeze>,
     sounds: Res<GameSounds>,
     mut played: ResMut<ZombiesGameOverPlayed>,
-    ambient: Query<Entity, With<ZombiesAmbient>>,
-    mut exfil: Query<(Entity, &mut ZombiesExfilMusic, Option<&mut AudioSink>)>,
+    ambient_level: Res<ZombiesAmbientLevel>,
+    mut ambient: Query<(Entity, Option<&mut AudioSink>), (With<ZombiesAmbient>, Without<ZombiesExfilMusic>)>,
+    mut exfil: Query<(Entity, &mut ZombiesExfilMusic, Option<&mut AudioSink>), Without<ZombiesAmbient>>,
     mut commands: Commands,
 ) {
     let Some(lobby) = my_lobby(&local, &lobbies).filter(|l| l.mode == GameMode::Zombies) else {
-        for e in ambient.iter().chain(exfil.iter().map(|(e, ..)| e)) {
+        for e in ambient.iter().map(|(e, _)| e).chain(exfil.iter().map(|(e, ..)| e)) {
             commands.entity(e).despawn();
         }
         return;
@@ -122,12 +140,17 @@ fn sync_zombies_audio(
                 StateScoped(AppState::InGame),
                 AudioPlayer::new(sounds.zombies_ambient.clone()),
                 PlaybackSettings::LOOP
-                    .with_volume(Volume::Linear(AMBIENT_VOLUME)),
+                    .with_volume(Volume::Linear(AMBIENT_VOLUME * ambient_level.0)),
             ));
+        }
+        for (_, sink) in &mut ambient {
+            if let Some(mut sink) = sink {
+                sink.set_volume(Volume::Linear(AMBIENT_VOLUME * ambient_level.0.clamp(0.0, 1.0)));
+            }
         }
         return;
     }
-    for e in &ambient {
+    for (e, _) in &ambient {
         commands.entity(e).despawn();
     }
     // (Not until the exfil music's faded out.)

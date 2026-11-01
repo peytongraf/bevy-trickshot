@@ -316,6 +316,11 @@ enum AuraPart {
     Light,
 }
 
+/// A boss avatar's aura colour (linear) in place of [`BossSettings`]'
+/// `aura_color` — the easter egg's Hierophant's (`easter_egg::fight`).
+#[derive(Component)]
+pub(crate) struct BossTint(pub(crate) [f32; 3]);
+
 /// A boss's own copies of its model's materials, made to glow: each with
 /// the emissive it came with.
 #[derive(Component)]
@@ -512,7 +517,7 @@ fn start_boss_animation(
 
 /// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
 /// entity's).
-fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+pub(crate) fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
     ids.get(src)
         .ok()
         .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
@@ -1253,7 +1258,7 @@ fn update_boss_auras(
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     new: Query<Entity, (With<BossVisual>, Without<BossAura>)>,
     mut bosses: Query<
-        (&Transform, &BossMotion, &mut BossAura, Option<&BossBodyGlow>, Option<&Children>),
+        (&Transform, &BossMotion, &mut BossAura, Option<&BossBodyGlow>, Option<&Children>, Option<&BossTint>),
         With<BossVisual>,
     >,
     mut parts: Query<(&AuraPart, &mut Transform, Option<&mut PointLight>), Without<BossVisual>>,
@@ -1307,7 +1312,9 @@ fn update_boss_auras(
     let cam = camera.into_inner();
     let (cam_pos, cam_up, cam_right) = (cam.translation(), cam.up().as_vec3(), cam.right().as_vec3());
 
-    for (tf, motion, mut aura, body, children) in &mut bosses {
+    for (tf, motion, mut aura, body, children, tint) in &mut bosses {
+        let c = tint.map_or(s.aura_color, |t| t.0);
+        let color = |b: f32| LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b);
         // In as it appears, out as it dies.
         let (target, secs) = if motion.state == BossState::Dead { (0.0, 0.8) } else { (1.0, 0.5) };
         let step = dt / secs;

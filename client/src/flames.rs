@@ -12,6 +12,10 @@
 //! fire, fading with distance by the "Fire" profile in the audio mixer (and
 //! held silent out of earshot, so far-off fires cost nothing).
 //!
+//! While Der Tempel's easter egg has gone wrong they burn green, light and
+//! all, and gutter as every light stutters ([`tint_flames`],
+//! `environment::egg_mood`) — back to themselves once it's over.
+//!
 //! In a game they're the current map's ([`sync_game_flames`], all
 //! `StateScoped(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`sync_flames`]). Each set is
@@ -33,7 +37,10 @@ pub(crate) struct FlamesPlugin;
 impl Plugin for FlamesPlugin {
     fn build(&self, app: &mut App) {
         // (Ungated: leaving the game is what takes them away.)
-        app.add_systems(Update, (sync_game_flames, flicker_flames, limit_flame_shadows));
+        app.add_systems(
+            Update,
+            (sync_game_flames, tint_flames, flicker_flames, limit_flame_shadows).chain(),
+        );
     }
 }
 
@@ -45,9 +52,10 @@ struct FlameSound;
 /// and its seed — so it has depth instead of reading as one flat sprite.
 const LAYERS: [(f32, f32, f32); 3] = [(1.0, 1.0, 0.17), (0.72, 0.88, 0.53), (0.5, 0.68, 0.81)];
 
-/// On a fire's root: its material (its own, freed when it goes).
+/// On a fire's root: its material (its own, freed when it goes), and its
+/// brightness.
 #[derive(Component)]
-pub(crate) struct MapFlame(Handle<FireMaterial>);
+pub(crate) struct MapFlame(Handle<FireMaterial>, f32);
 
 /// On a fire's light.
 #[derive(Component)]
@@ -125,7 +133,7 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
         commands
             .spawn((
                 marker(),
-                MapFlame(material.clone()),
+                MapFlame(material.clone(), flame.brightness),
                 Transform::from_translation(flame.pos),
                 Visibility::default(),
             ))
@@ -207,10 +215,44 @@ fn limit_flame_shadows(
     }
 }
 
-/// Flicker every fire's light.
-fn flicker_flames(time: Res<Time>, mut lights: Query<(&FlameLight, &mut PointLight)>) {
+/// Turn the fires green as the easter egg goes wrong (and back after), and
+/// gutter their flames as the lights stutter — only when either moves (or a
+/// fire's new).
+fn tint_flames(
+    fade: Res<crate::environment::EggMoodFade>,
+    stutter: Res<crate::environment::LightFlicker>,
+    look: Res<crate::environment::EggMoodLook>,
+    molotov: Res<MolotovSettings>,
+    flames: Query<&MapFlame>,
+    new: Query<(), Added<MapFlame>>,
+    mut materials: ResMut<Assets<FireMaterial>>,
+) {
+    if !fade.is_changed() && !stutter.is_changed() && !look.is_changed() && new.is_empty() {
+        return;
+    }
+    // (A flame gutters rather than going out with the lights.)
+    let gutter = 0.35 + 0.65 * stutter.0;
+    let toward = [look.fire_core, look.fire_mid, look.fire_tip];
+    for flame in &flames {
+        if let Some(m) = materials.get_mut(&flame.0) {
+            *m = FireMaterial::flame_tinted(&molotov, flame.1 * gutter, toward, fade.0);
+        }
+    }
+}
+
+/// Flicker every fire's light (green, as far as the easter egg's gone
+/// wrong).
+fn flicker_flames(
+    time: Res<Time>,
+    molotov: Res<MolotovSettings>,
+    fade: Res<crate::environment::EggMoodFade>,
+    look: Res<crate::environment::EggMoodLook>,
+    mut lights: Query<(&FlameLight, &mut PointLight)>,
+) {
     let t = time.elapsed_secs();
+    let color = crate::util::color_from_parts(crate::environment::blend3(molotov.light_color, look.fire_light, fade.0));
     for (light, mut point) in &mut lights {
         point.intensity = light.lumens * flicker(t, light.seed, light.flicker);
+        point.color = color;
     }
 }

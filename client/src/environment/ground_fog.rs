@@ -189,7 +189,8 @@ impl Plugin for GroundFogPlugin {
 /// Copy the current map's [`GroundFogLook`] onto the world and scope
 /// cameras' [`GroundFogUniform`] — adding it, and making their depth
 /// readable, the first time a camera shows up (they're respawned each game).
-/// A dog round darkens it along with the rest of the fog.
+/// A dog round darkens it along with the rest of the fog, and the easter
+/// egg gone wrong thickens and tints it (`egg_mood.rs`).
 #[allow(clippy::too_many_arguments)]
 fn sync_ground_fog(
     mut commands: Commands,
@@ -200,6 +201,7 @@ fn sync_ground_fog(
     settings: Res<crate::settings::Settings>,
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
+    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodLook>),
     mut new_cams: Query<
         (Entity, &mut Camera3d),
         (Or<(With<WorldModelCamera>, With<ScopeCamera>)>, Without<GroundFogUniform>),
@@ -213,7 +215,11 @@ fn sync_ground_fog(
     }
 
     let g = &looks.get(current.0).ground_fog;
-    let color = color_from_parts(g.color).mix(&color_from_parts(dog_look.fog_color), dog_fade.0);
+    let e = egg_fade.0;
+    let egg_lerp = |a: f32, b: f32| a + (b - a) * e;
+    let color = color_from_parts(g.color)
+        .mix(&color_from_parts(dog_look.fog_color), dog_fade.0)
+        .mix(&color_from_parts(egg_look.ground_fog_color), e);
     let color = LinearRgba::from(color) * g.brightness;
     let (sin, cos) = g.drift_dir_deg.to_radians().sin_cos();
     // (Wrapped so it never loses precision; the pattern jumps once an hour.)
@@ -221,11 +227,15 @@ fn sync_ground_fog(
     let value = GroundFogUniform {
         color: Vec4::new(color.red, color.green, color.blue, 1.0),
         drift: drift.extend(0.0).extend(0.0),
-        density: if hidden.0 || !settings.ground_fog { 0.0 } else { g.density },
+        density: if hidden.0 || !settings.ground_fog {
+            0.0
+        } else {
+            egg_lerp(g.density, egg_look.ground_fog_density.max(g.density))
+        },
         base_height: g.base_height,
-        falloff_height: g.falloff_height.max(0.01),
+        falloff_height: egg_lerp(g.falloff_height, egg_look.ground_fog_falloff.max(g.falloff_height)).max(0.01),
         max_distance: g.max_distance.max(0.1),
-        max_opacity: g.max_opacity,
+        max_opacity: egg_lerp(g.max_opacity, egg_look.ground_fog_opacity.max(g.max_opacity)),
         splotch_size: g.splotch_size.max(0.01),
         splotchiness: g.splotchiness,
         contrast: g.contrast,

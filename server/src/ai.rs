@@ -286,6 +286,12 @@ struct ZombieBody {
     boss_attack: Option<BossAttack>,
     /// ...and when (`Time::elapsed_secs`) it may next hurl a blast.
     blast_ready_at: f32,
+    /// The easter egg's Hierophant ([`BotBrain::hierophant`]): a boss that
+    /// never hurls blasts and hits harder...
+    hierophant: bool,
+    /// ...and stands glaring until then (`Time::elapsed_secs`) while he
+    /// taunts ([`BotBrain::taunt`]).
+    taunt_until: f32,
     /// Round a monkey bomb: its lane (m out from it, [`MONKEY_RING_MIN`]..
     /// [`MONKEY_RING_MAX`]) and which way it's going round (±1 — every
     /// zombie the same way, so they follow rather than walk into each
@@ -545,6 +551,8 @@ impl BotBrain {
             boss: false,
             boss_attack: None,
             blast_ready_at: 0.0,
+            hierophant: false,
+            taunt_until: f32::NEG_INFINITY,
             ring: MONKEY_RING_MIN + (MONKEY_RING_MAX - MONKEY_RING_MIN) * self.roll(),
             circle_dir: 1.0,
             crawler: None,
@@ -584,6 +592,33 @@ impl BotBrain {
             z.surge = 0.0;
         }
         brain
+    }
+
+    /// Make it the easter egg's Hierophant (`shared::easter_egg`): a boss
+    /// at [`shared::easter_egg::HIEROPHANT_SPEED`] that only smashes — for
+    /// [`shared::easter_egg::HIEROPHANT_MELEE_DAMAGE`] — never hurling a
+    /// blast.
+    pub fn hierophant(self, now: f32) -> Self {
+        let mut brain = self.boss(now);
+        if let Some(z) = brain.zombie.as_mut() {
+            z.hierophant = true;
+            z.speed = shared::easter_egg::HIEROPHANT_SPEED;
+            z.blast_ready_at = f32::INFINITY;
+        }
+        brain
+    }
+
+    /// The Hierophant stops to taunt: he stands where he is, facing who he's
+    /// after, for `secs` — unless he's mid-smash or stunned. Whether he did.
+    pub(crate) fn taunt(&mut self, now: f32, secs: f32) -> bool {
+        let Some(z) = self.zombie.as_mut().filter(|z| z.hierophant) else {
+            return false;
+        };
+        if z.boss_attack.is_some() || z.stunned_until > now {
+            return false;
+        }
+        z.taunt_until = now + secs;
+        true
     }
 
     /// Make it a dog-round hellhound: a zombie that always runs, at `speed`
@@ -1251,6 +1286,13 @@ pub(crate) fn drive_bots(
             let stunned = z.stunned_until > now;
             if stunned {
                 z.boss_attack = None;
+                z.taunt_until = f32::NEG_INFINITY;
+            }
+            // (The Hierophant taunting: he stands and glares, starting
+            // nothing until he's done.)
+            let taunting = z.taunt_until > now;
+            if taunting && z.boss_attack.is_none() {
+                hold = true;
             }
             if let Some(mut attack) = z.boss_attack {
                 hold = true;
@@ -1270,7 +1312,11 @@ pub(crate) fn drive_bots(
                                 cause: crate::pvp::HitCause::Enemy,
                                 victim,
                                 killer: id.0,
-                                damage: shared::boss::MELEE_DAMAGE,
+                                damage: if z.hierophant {
+                                    shared::easter_egg::HIEROPHANT_MELEE_DAMAGE
+                                } else {
+                                    shared::boss::MELEE_DAMAGE
+                                },
                                 bomb_shot: false,
                                 blast: false,
                                 critical: false,
@@ -1312,7 +1358,7 @@ pub(crate) fn drive_bots(
                     _ => {}
                 }
                 z.boss_attack = (t < shared::boss::ATTACK_SECS).then_some(attack);
-            } else if !stunned && !lobby.bots_hold_fire() && visible && brain.target.is_some() {
+            } else if !stunned && !taunting && !lobby.bots_hold_fire() && visible && brain.target.is_some() {
                 if flat_dist <= shared::boss::MELEE_RANGE && height_diff <= shared::boss::MELEE_HEIGHT {
                     z.boss_attack = Some(BossAttack {
                         kind: BossAttackKind::Smash,
@@ -2274,6 +2320,54 @@ mod tests {
             blasts.extend(app.world_mut().resource_mut::<Events<BossBlastFired>>().drain());
         }
         (hits, blasts)
+    }
+
+    /// The easter egg's Hierophant in a one-lobby world, its target standing
+    /// at `target_feet`, for `secs`: when (s) each hit landed and for how
+    /// much, and how many blasts it threw. `taunt` has him taunt the moment
+    /// he's in.
+    fn hierophant_run(target_feet: Vec3, secs: f32, taunt: bool) -> (Vec<(f32, f32)>, usize) {
+        let feet = Vec3::new(-30.0, 0.0, -40.0);
+        let (mut app, bot) = world(BotDifficulty::Veteran, feet, target_feet);
+        app.world_mut()
+            .entity_mut(bot)
+            .insert(BotBrain::new(BotDifficulty::Veteran, feet, 7).hierophant(0.0));
+        app.update(); // (the first update has no time delta)
+        if taunt {
+            let now = app.world().resource::<Time>().elapsed_secs();
+            let mut brain = app.world_mut().get_mut::<BotBrain>(bot).unwrap();
+            assert!(brain.taunt(now, shared::easter_egg::TAUNT_HOLD_SECS));
+        }
+        let mut hits = Vec::new();
+        let mut blasts = 0;
+        for tick in 0..(secs * 64.0) as usize {
+            app.update();
+            for hit in app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().drain() {
+                hits.push((tick as f32 / 64.0, hit.damage));
+            }
+            blasts += app.world_mut().resource_mut::<Events<BossBlastFired>>().drain().count();
+        }
+        (hits, blasts)
+    }
+
+    #[test]
+    fn the_hierophant_never_hurls_a_blast_and_smashes_harder() {
+        let (_, blasts) = hierophant_run(Vec3::new(-10.0, 0.0, -40.0), 8.0, false);
+        assert_eq!(blasts, 0, "he threw a blast");
+        let (hits, _) = hierophant_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, false);
+        assert_eq!(hits.len(), 1, "hits: {hits:?}");
+        assert_eq!(hits[0].1, shared::easter_egg::HIEROPHANT_MELEE_DAMAGE);
+    }
+
+    #[test]
+    fn the_hierophant_starts_nothing_while_he_taunts() {
+        let (hits, _) = hierophant_run(Vec3::new(-28.5, 0.0, -40.0), 4.0, true);
+        assert!(!hits.is_empty(), "he never smashed once he was done");
+        let first = hits[0].0;
+        assert!(
+            first >= shared::easter_egg::TAUNT_HOLD_SECS + shared::boss::MELEE_HIT_SECS - 0.1,
+            "he smashed at {first} s, mid-taunt"
+        );
     }
 
     #[test]

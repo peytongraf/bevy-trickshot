@@ -20,6 +20,16 @@
 //!   sarcophagus and lighting it up — each phase captioned until its
 //!   animations are made ([`animate_ritual`]). Once it's done, they stay as
 //!   they ended;
+//! * the Hierophant's line from the sarcophagus near the ritual's end, and
+//!   once it's gone wrong, his gloating — the radio following him, from the
+//!   server ([`hierophant_speaks`]). What the map does then, and its
+//!   lights stuttering, is `environment::egg_mood`'s; the zombies dropping
+//!   dead and the round held are the server's;
+//! * him waking — the lid blasting off, his spirit pouring into the body,
+//!   the stillness, the snap upright (`wake`);
+//! * the fight — his health bar, his taunts, his look (`fight`);
+//! * the music — the ambience out and `disastrous.mp3` in just before his
+//!   ritual line, on until he's dead (`music`);
 //! * before the ritual, the Hierophant whispering out of the sarcophagus
 //!   now and then while we're near it ([`whisper`] — just ours to hear,
 //!   positional, reverb and all; [`EggWhisperSettings`]);
@@ -33,7 +43,9 @@
 //! whenever they stop applying; the debug drawing's switch
 //! ([`EggDebugView`]), the whispers' timing ([`EggLocal`]) and the
 //! ritual's clock ([`EggRitual`]) are reset on
-//! leaving the game, and a whisper playing is `StateScoped(InGame)` too. Nothing carries into the
+//! leaving the game (his lines' timing is in [`EggLocal`] too), and a
+//! whisper or line playing is `StateScoped(InGame)` too — a line also stops
+//! if the egg's reset under it. Nothing carries into the
 //! next one.
 
 use bevy::ecs::system::SystemParam;
@@ -53,11 +65,19 @@ use crate::net::GameClient;
 use crate::zombies_hud::zombies_game;
 use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
+mod fight;
+mod music;
+mod wake;
+
+pub(crate) use fight::EggFightSettings;
+pub(crate) use wake::{EggCameraShake, EggWake, EggWakeSettings};
+
 pub(crate) struct EasterEggPlugin;
 
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EggDebugView>()
+        app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin))
+            .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
             .init_resource::<EggRitual>()
@@ -85,6 +105,7 @@ impl Plugin for EasterEggPlugin {
                     egg_interact.run_if(menu::game_active.and(killcam::no_killcam)),
                     update_egg_hud,
                     whisper,
+                    hierophant_speaks,
                     draw_spots,
                 )
                     .chain()
@@ -154,7 +175,18 @@ pub(crate) enum PartRole {
     CaseGlass,
     /// The dagger in the case — gone once it's taken.
     Dagger,
+    /// The sarcophagus' lid — blasted off as he wakes (`wake`).
+    Lid,
 }
+
+/// Where a lid box sits on the sarcophagus (in its own frame) — moved off it
+/// as he wakes.
+#[derive(Component)]
+pub(crate) struct LidRest(Vec3);
+
+/// The middle of the sarcophagus' lid (its gold slab), in its own frame —
+/// what the lid tumbles about.
+const LID_REST: Vec3 = Vec3::new(0.0, 0.925, 0.0);
 
 impl EggPlaceholders {
     /// `piece`'s boxes, as children to put under its root.
@@ -203,8 +235,8 @@ fn make_placeholders(
     let parts = vec![
         // The sarcophagus: a stone chest, a gold-edged lid on top.
         part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.9, 0.85, 2.2), Vec3::Y * 0.425, &stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.98, 0.15, 2.3), Vec3::Y * 0.925, &gold),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.6, 0.02, 1.8), Vec3::Y * 1.01, &dark_stone),
+        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(0.98, 0.15, 2.3), LID_REST, &gold),
+        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(0.6, 0.02, 1.8), Vec3::Y * 1.01, &dark_stone),
         // The case: a wooden stand, the dagger lying in a glass box on it.
         part(EggPiece::SocietyCase, PartRole::Solid, Vec3::new(0.6, 0.8, 0.4), Vec3::Y * 0.4, &wood),
         part(EggPiece::SocietyCase, PartRole::Dagger, Vec3::new(0.06, 0.02, 0.35), Vec3::new(0.0, 0.82, 0.0), &steel),
@@ -264,7 +296,11 @@ fn sync_pieces(
             .spawn((StateScoped(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
             .with_children(|root| {
                 for part in placeholders.parts(piece) {
-                    root.spawn(part);
+                    let lid = (part.3 == PartRole::Lid).then_some(part.2.translation);
+                    let mut e = root.spawn(part);
+                    if let Some(rest) = lid {
+                        e.insert(LidRest(rest));
+                    }
                 }
                 root.spawn((
                     Collider::cuboid(half.x, half.y, half.z),
@@ -291,7 +327,7 @@ fn show_case_parts(
     let taken = lobby.easter_egg.dagger;
     for (role, mut vis) in &mut parts {
         let shown = match role {
-            PartRole::Solid => true,
+            PartRole::Solid | PartRole::Lid => true,
             PartRole::CaseGlass => !open,
             PartRole::Dagger => !taken,
         };
@@ -869,14 +905,23 @@ const WHISPERS: [&str; 3] = [
     "audio/zombies/easter_egg/hierophant/whisper_3.mp3",
 ];
 
+/// His line from the sarcophagus near the ritual's end, and once it's gone
+/// wrong.
+const DURING_RITUAL: &str = "audio/zombies/easter_egg/hierophant/during_ritual.mp3";
+const RITUAL_GONE_WRONG: &str = "audio/zombies/easter_egg/hierophant/ritual_gone_wrong.mp3";
+
 #[derive(Resource)]
 struct EggSounds {
     whispers: Vec<Handle<AudioSource>>,
+    during_ritual: Handle<AudioSource>,
+    gone_wrong: Handle<AudioSource>,
 }
 
 fn load_sounds(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(EggSounds {
         whispers: WHISPERS.iter().map(|p| asset_server.load(*p)).collect(),
+        during_ritual: asset_server.load(DURING_RITUAL),
+        gone_wrong: asset_server.load(RITUAL_GONE_WRONG),
     });
 }
 
@@ -897,6 +942,10 @@ pub(crate) struct EggWhisperSettings {
     pub(crate) volume: f32,
     /// How high (m) over the sarcophagus' foot they come from.
     pub(crate) height: f32,
+    /// His lines' volume (the ritual's and its going wrong — linear,
+    /// before the mix; heard much further off, `mix.ron`'s
+    /// "Hierophant voice").
+    pub(crate) line_volume: f32,
 }
 
 impl Default for EggWhisperSettings {
@@ -908,6 +957,7 @@ impl Default for EggWhisperSettings {
             gap: (9.0, 20.0),
             volume: 2.0,
             height: 0.8,
+            line_volume: 2.0,
         }
     }
 }
@@ -922,6 +972,14 @@ pub(crate) struct EggLocal {
     seq: u32,
     /// Debug: whisper now, wherever we are.
     pub(crate) whisper_now: bool,
+    /// His ritual line's been said this ritual.
+    ritual_line: bool,
+    /// How long (s, not counting pauses) since it went wrong, while it has —
+    /// and whether he's said his piece.
+    unleashed_for: Option<f32>,
+    gone_wrong_line: bool,
+    /// The step it was at last frame.
+    last_step: Option<EggStep>,
 }
 
 /// A whisper playing.
@@ -999,6 +1057,82 @@ fn whisper(
     ));
 }
 
+/// One of his lines from the sarcophagus.
+#[derive(Component)]
+struct HierophantLine;
+
+/// The Hierophant from the sarcophagus: his line as the ritual nears its
+/// end ([`shared::easter_egg::RITUAL_VOICE_AT_SECS`]), then — it gone
+/// wrong, and that line done ([`shared::easter_egg::UNLEASHED_VOICE_SECS`]
+/// after, not counting pauses) — his gloating; the man on the radio comes
+/// in after him (the server's). Each once, until the egg's reset — which
+/// stops one playing.
+#[allow(clippy::too_many_arguments)]
+fn hierophant_speaks(
+    time: Res<Time>,
+    paused: Res<crate::pause::GamePaused>,
+    ritual: Res<EggRitual>,
+    settings: Res<EggWhisperSettings>,
+    sounds: Res<EggSounds>,
+    mut egg_local: ResMut<EggLocal>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    playing: Query<Entity, With<HierophantLine>>,
+    mut commands: Commands,
+) {
+    let Some(lobby) = egg_game(&local, &lobbies) else {
+        egg_local.ritual_line = false;
+        egg_local.unleashed_for = None;
+        egg_local.gone_wrong_line = false;
+        return;
+    };
+    let step = lobby.easter_egg.step;
+    // (Back to it going wrong from further on — a debug jump: all over
+    // again.)
+    if step == EggStep::Unleashed && egg_local.last_step.is_some_and(|l| l > EggStep::Unleashed) {
+        egg_local.unleashed_for = None;
+        egg_local.gone_wrong_line = false;
+    }
+    egg_local.last_step = Some(step);
+    let Some(at) = shared::level::layout(lobby.map).sarcophagus else { return };
+    let say = |commands: &mut Commands, clip: &Handle<AudioSource>| {
+        commands.spawn((
+            StateScoped(AppState::InGame),
+            HierophantLine,
+            AudioPlayer::new(clip.clone()),
+            Transform::from_translation(at.pos + Vec3::Y * settings.height * at.scale),
+            crate::positional_playback(Volume::Linear(settings.line_volume)),
+        ));
+    };
+    // Reset (or not there yet): quiet, and ready to say it all again.
+    if step < EggStep::Ritual {
+        for e in &playing {
+            commands.entity(e).despawn();
+        }
+        egg_local.ritual_line = false;
+    }
+    if ritual.t.is_some_and(|t| t >= shared::easter_egg::RITUAL_VOICE_AT_SECS) && !egg_local.ritual_line {
+        egg_local.ritual_line = true;
+        say(&mut commands, &sounds.during_ritual);
+    }
+    if !step.is_unleashed() {
+        egg_local.unleashed_for = None;
+        egg_local.gone_wrong_line = false;
+        return;
+    }
+    let t = egg_local.unleashed_for.get_or_insert(0.0);
+    if !paused.0 {
+        *t += time.delta_secs();
+    }
+    if *t >= shared::easter_egg::UNLEASHED_VOICE_SECS && !egg_local.gone_wrong_line {
+        egg_local.gone_wrong_line = true;
+        // (Not if he's already up — a debug jump past it.)
+        if step == EggStep::Unleashed {
+            say(&mut commands, &sounds.gone_wrong);
+        }
+    }
+}
+
 /// Debug: the ritual area, the pyramid's spots and the pieces' boxes, drawn
 /// over the map (the debug panel's switch).
 fn draw_spots(
@@ -1053,6 +1187,14 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     view: ResMut<'w, EggDebugView>,
     whispers: ResMut<'w, EggWhisperSettings>,
     egg_local: ResMut<'w, EggLocal>,
+    mood: ResMut<'w, crate::environment::EggMoodLook>,
+    mood_fade: Res<'w, crate::environment::EggMoodFade>,
+    wake_settings: ResMut<'w, EggWakeSettings>,
+    wake: Res<'w, EggWake>,
+    fight_settings: ResMut<'w, EggFightSettings>,
+    music_settings: ResMut<'w, music::EggMusicSettings>,
+    music_levels: Res<'w, music::EggMusicLevels>,
+    ambient_level: Res<'w, crate::zombies_audio::ZombiesAmbientLevel>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
     tx: Query<'w, 's, &'static mut TriggerSender<shared::SetEasterEgg>, With<GameClient>>,
@@ -1071,6 +1213,7 @@ impl EasterEggDebug<'_, '_> {
             ui.add(egui::Slider::new(&mut s.gap.1, 1.0f32..=120.0).text("gap to (s)"));
             ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=3.0).text("volume"));
             ui.add(egui::Slider::new(&mut s.height, 0.0f32..=3.0).text("height over it (m)"));
+            ui.add(egui::Slider::new(&mut s.line_volume, 0.0f32..=3.0).text("his ritual / gone-wrong lines' volume"));
             ui.horizontal(|ui| {
                 if ui.button("Whisper now").clicked() {
                     self.egg_local.whisper_now = true;
@@ -1083,6 +1226,15 @@ impl EasterEggDebug<'_, '_> {
                 }
             });
         });
+        ui.collapsing("It goes wrong — the map", |ui| {
+            crate::environment::egg_mood_section(ui, &mut self.mood, self.mood_fade.0);
+        });
+        ui.collapsing("He wakes", |ui| wake::wake_section(ui, &mut self.wake_settings, &self.wake));
+        let egg_lobby = egg_game(&self.local, &self.lobbies);
+        ui.collapsing("Music", |ui| {
+            music::music_section(ui, &mut self.music_settings, &self.music_levels, self.ambient_level.0)
+        });
+        ui.collapsing("The fight", |ui| fight::fight_section(ui, &mut self.fight_settings, egg_lobby));
         let me = self.local.iter().next().map(|l| l.0);
         let game = zombies_game(&self.local, &self.lobbies).filter(|l| shared::easter_egg::available(l));
         let Some(lobby) = game else {

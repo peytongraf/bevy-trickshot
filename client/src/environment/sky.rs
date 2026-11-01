@@ -16,6 +16,7 @@ use crate::WorldModelCamera;
 
 use super::atmosphere::MapLooks;
 use super::dog_round::{DogRoundFade, DogRoundLook};
+use super::egg_mood::{EggMoodFade, EggMoodLook};
 use super::map::CurrentMap;
 
 /// A map's sky look — separate from its fog, which doesn't reach the sky.
@@ -143,21 +144,32 @@ pub(crate) fn sky_follow_camera(
 }
 
 /// Push the map's [`SkyLook`] onto the sky sphere and its haze shell,
-/// blended toward the dog-round sky by [`DogRoundFade`] (`dog_round.rs`).
+/// blended toward the dog-round sky by [`DogRoundFade`] (`dog_round.rs`),
+/// and that darkened further by the easter egg gone wrong ([`EggMoodFade`],
+/// `egg_mood.rs`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_sky_look(
     fade: Res<DogRoundFade>,
     dog_look: Res<DogRoundLook>,
+    (egg_fade, egg_look): (Res<EggMoodFade>, Res<EggMoodLook>),
     current: Res<CurrentMap>,
     looks: Res<MapLooks>,
     mut sky: Query<(&SkyMaterial, &mut Transform), With<SkySphere>>,
     mut veil: Query<(&SkyHazeVeil, &mut Visibility)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !fade.is_changed() && !dog_look.is_changed() && !current.is_changed() && !looks.is_changed() {
+    if !fade.is_changed()
+        && !dog_look.is_changed()
+        && !current.is_changed()
+        && !looks.is_changed()
+        && !egg_fade.is_changed()
+        && !egg_look.is_changed()
+    {
         return;
     }
     let look = looks.get(current.0).sky;
     let t = fade.0;
+    let e = egg_fade.0;
     if let Ok((sky, mut transform)) = sky.single_mut() {
         // Bevy's UV sphere has its poles on +Z/-Z; tip it so the equirect
         // map's zenith points up, then turn it.
@@ -166,13 +178,19 @@ pub(crate) fn apply_sky_look(
         if let Some(material) = materials.get_mut(&sky.0) {
             let own = LinearRgba::from(color_from_parts(look.tint)) * look.brightness;
             let dark = LinearRgba::from(color_from_parts(dog_look.sky_tint)) * dog_look.sky_brightness;
-            material.base_color = Color::LinearRgba(own * (1.0 - t) + dark * t);
+            let sky = own * (1.0 - t) + dark * t;
+            let tint = LinearRgba::from(color_from_parts(egg_look.sky_tint));
+            let egg = LinearRgba::rgb(sky.red * tint.red, sky.green * tint.green, sky.blue * tint.blue) * egg_look.sky_mult;
+            material.base_color = Color::LinearRgba(sky * (1.0 - e) + egg * e);
         }
     }
     let Ok((veil, mut vis)) = veil.single_mut() else { return };
     let alpha = look.haze + (dog_look.sky_fog - look.haze) * t;
+    let alpha = alpha + (egg_look.sky_haze.max(alpha) - alpha) * e;
     vis.set_if_neq(if alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden });
     let Some(material) = materials.get_mut(&veil.0) else { return };
-    let color = color_from_parts(look.haze_color).mix(&color_from_parts(dog_look.fog_color), t);
+    let color = color_from_parts(look.haze_color)
+        .mix(&color_from_parts(dog_look.fog_color), t)
+        .mix(&color_from_parts(egg_look.fog_color), e);
     material.base_color = color.with_alpha(alpha);
 }

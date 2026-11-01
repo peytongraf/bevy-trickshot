@@ -95,7 +95,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Clear and glassy at the lip, whiter (full of air) as it falls.
     let aerated = clamp(0.35 + along * 0.55 + (n - 0.5) * 0.6, 0.0, 1.0);
     let clear = vec3(0.55, 0.75, 0.78);
-    pbr_input.material.base_color = vec4(mix(clear, vec3(0.95, 0.97, 0.98), aerated), alpha);
+    // (The material's own colour tints it — white, unless the easter egg's
+    // turned the water to blood.)
+    let tint = pbr_input.material.base_color.rgb;
+    pbr_input.material.base_color = vec4(mix(clear, vec3(0.95, 0.97, 0.98), aerated) * tint, alpha);
     pbr_input.material.perceptual_roughness = mix(0.15, 0.45, aerated);
 
     // The streaks ripple its surface, so highlights run down it.

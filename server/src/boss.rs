@@ -169,33 +169,12 @@ fn bring_in_bosses(
             let max = shared::boss::boss_health(round, lobby.real_count());
             // (One brought back in comes as hurt as it was.)
             let health = boss.health.map_or(max, |h| h.min(max));
-            let mut combat = PlayerCombat::zombie(max);
-            combat.health = health;
-            let real = lobby.real_peers();
-            commands.spawn((
-                Name::from("Boss"),
-                Zombie,
-                Boss,
-                LobbyPlayer { lobby: lobby_e },
-                PlayerId(peer),
-                PlayerName("Boss".into()),
-                PlayerPose {
-                    translation: boss.feet + Vec3::Y * EYE_HEIGHT,
-                    yaw: boss.yaw,
-                    zombie: shared::ZombieAnim::BossIdle,
-                    ..default()
-                },
-                ActionState::<PlayerInput>::default(),
-                BotBrain::new(BotDifficulty::Recruit, boss.feet, seed)
-                    .facing(boss.yaw)
-                    .with_skill(skill)
-                    .boss(now),
-                combat,
-                shared::PlayerHealth(health),
-                Replicate::to_clients(NetworkTarget::Only(real.clone())),
-                InterpolationTarget::to_clients(NetworkTarget::Only(real)),
-                crate::zombies::OutOfTouch::default(),
-            ));
+            let brain = BotBrain::new(BotDifficulty::Recruit, boss.feet, seed)
+                .facing(boss.yaw)
+                .with_skill(skill)
+                .boss(now);
+            spawn_boss(&mut commands, lobby_e, lobby, peer, "Boss", boss.feet, boss.yaw, brain, max, health)
+                .insert(Boss);
             // It arrives in an explosion: everyone close by's hurt (the
             // nearest part of them within reach — feet to eyes).
             for (id, pose, lp, combat) in &players {
@@ -222,6 +201,47 @@ fn bring_in_bosses(
             info!("lobby {lobby_e:?}: a boss appeared ({health:.0} health)");
         }
     }
+}
+
+/// Spawn a boss-bodied zombie (a boss's, or the easter egg's Hierophant's
+/// — `crate::easter_egg`) for `lobby`: bot `peer`, standing at `feet`
+/// facing `yaw`, thinking with `brain`, with `health` of `max`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_boss<'a>(
+    commands: &'a mut Commands,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    peer: PeerId,
+    name: &str,
+    feet: Vec3,
+    yaw: f32,
+    brain: BotBrain,
+    max: f32,
+    health: f32,
+) -> EntityCommands<'a> {
+    let mut combat = PlayerCombat::zombie(max);
+    combat.health = health;
+    let real = lobby.real_peers();
+    commands.spawn((
+        Name::from(name.to_string()),
+        Zombie,
+        LobbyPlayer { lobby: lobby_e },
+        PlayerId(peer),
+        PlayerName(name.into()),
+        PlayerPose {
+            translation: feet + Vec3::Y * EYE_HEIGHT,
+            yaw,
+            zombie: shared::ZombieAnim::BossIdle,
+            ..default()
+        },
+        ActionState::<PlayerInput>::default(),
+        brain,
+        combat,
+        shared::PlayerHealth(health),
+        Replicate::to_clients(NetworkTarget::Only(real.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+        crate::zombies::OutOfTouch::default(),
+    ))
 }
 
 /// A boss let go of a blast: start it flying, and tell the lobby.

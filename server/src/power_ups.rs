@@ -500,10 +500,11 @@ fn fire_nukes(
     mut sender: ServerMultiMessageSender,
     mut nukes: ResMut<PendingNukes>,
     lobbies: Query<&Lobby>,
-    // (A boss, `shared::boss`, shrugs a Nuke off.)
+    // (A boss, `shared::boss`, shrugs a Nuke off — and so does the easter
+    // egg's Hierophant.)
     zombies: Query<
         (Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<NukeDeath>),
-        (With<Zombie>, Without<crate::boss::Boss>),
+        (With<Zombie>, Without<crate::boss::Boss>, Without<crate::easter_egg::Hierophant>),
     >,
     poses: Query<&PlayerPose>,
     mut commands: Commands,

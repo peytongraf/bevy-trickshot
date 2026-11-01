@@ -5,7 +5,7 @@
 
 mod aim_assist;
 mod camera;
-mod flashlight;
+pub(crate) mod flashlight;
 mod footsteps;
 mod mantle;
 mod movement;

@@ -290,6 +290,7 @@ pub(crate) fn camera_shake(
     cfg: Res<ShakeSettings>,
     ads: Res<Ads>,
     quake: Res<crate::earthquake::Quake>,
+    egg: Res<crate::easter_egg::EggCameraShake>,
     mut shake: ResMut<Shake>,
     mut rig: Single<&mut Transform, (With<CameraShake>, Without<CameraRecoil>)>,
     mut recoil_node: Single<&mut Transform, (With<CameraRecoil>, Without<CameraShake>)>,
@@ -319,8 +320,9 @@ pub(crate) fn camera_shake(
     // --- the sniper's kick: a spring back to rest ---------------------------
     shake.step_kick(&cfg, dt);
 
-    // (Under it, an earthquake's rumble, if one's on — `earthquake.rs`.)
-    let want = quake.offset * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_camera_pose(shake.kick);
+    // (Under it, an earthquake's rumble, if one's on — `earthquake.rs` —
+    // and the easter egg's Hierophant waking, `easter_egg::wake`.)
+    let want = quake.offset * egg.0 * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_camera_pose(shake.kick);
     if **rig != want {
         **rig = want;
     }

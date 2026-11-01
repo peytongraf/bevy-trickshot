@@ -7,26 +7,125 @@ asset work that's yours; until it's done, that step runs on placeholders.
 
 ## Next session: start here
 
-Where things stand (Oct 31): steps through the ritual are built and
-tested. Nothing is committed to git yet. Next up is the code for **"It goes
-wrong"** (step 5 below). Do this first:
+Where things stand (Nov 1): steps through **boss fight phase 1** (step
+7) are built. "It goes wrong" is tested. "He wakes" and phase 1 still need
+testing: in the debug panel, jump to "It goes wrong", then "He wakes" (it
+replays from the start each time), then let it run into the fight (or
+jump straight to "Boss fight"). Next up is **phase 2** (step 8 below).
 
-- **Wire in the two Hierophant lines that are already in the game:**
-  - `audio/zombies/easter_egg/hierophant/during_ritual.mp3` plays during
-    the ritual, around its last phase (`RITUAL_PHASES` in
-    `client/src/easter_egg.rs`, at 13 s; it's 5.6 s long), coming from
-    the sarcophagus.
-  - `ritual_gone_wrong.mp3` (8.4 s) plays in step 5, from the
-    sarcophagus, along with the radio line `RadioLine::EggRitualGoesWrong`
-    (recorded). Have the radio wait until the Hierophant is done.
-  - Peyton may re-record both more aggressive (`hierophant-quotes.md`);
-    record over the same file names.
-- **The "Hierophant" mix profile** (`client/assets/audio/mix.ron`, folder
-  `zombies/easter_egg/hierophant`) fades out by 16 m, which is right for
-  the whispers. His fight lines will need longer reach: give them their
-  own subfolder or profile.
+- **The music** (`client/src/easter_egg/music.rs`):
+  `audio/music/disastrous.mp3` (the user's track, 106 s, looped).
+  - At 9.5 s into the ritual the Zombies ambience starts fading out, and
+    it's gone by 12 s. At 12.2 s the music starts fading in, over 3 s.
+    His "every drop given freely" line comes at 13 s.
+  - It plays for as long as `is_unleashed()`. After that (he's dead, the
+    egg is reset, or the game ends) it fades out over 4 s, then the
+    ambience fades back in over 4 s.
+  - The ambience's level is `zombies_audio::ZombiesAmbientLevel`. Tune
+    the timings in the debug panel under "Easter egg (Der Tempel)" →
+    "Music".
+  - It's one track for the whole thing. If separate boss-fight music
+    gets made (step 6), it can cross-fade from this at BossFight.
+- **Phase 1 as built** (`server/src/easter_egg/fight.rs`,
+  `client/src/easter_egg/fight.rs`):
+  - **He's the normal boss's model (`boss.glb`) for now.** The user is
+    making his real model (occult look, his own animations) and will swap
+    it in later. Until then the only visible difference is his green aura
+    (`boss::BossTint`) and the name on his health bar. When the model
+    lands, he needs his own avatar and clips instead of
+    `boss::spawn_boss_avatar`, and probably his own `ZombieAnim` states
+    (taunt, teleport, summon, etc.). Right now his pose uses the
+    `Boss*` states, which also give him the boss hitbox.
+  - The moment the step is BossFight, the server spawns him on top of
+    the sarcophagus (`shared::easter_egg::hierophant_start`, the same
+    `HIEROPHANT_FEET` the wake-up's placeholder body stands on). He
+    steps down off it. The placeholder body disappears once
+    `EasterEgg::hierophant` is set.
+  - His brain is `BotBrain::hierophant`. It's a boss that only smashes,
+    never blasts, walks at `HIEROPHANT_SPEED` (1.95 vs a boss's 1.7) and
+    hits for `HIEROPHANT_MELEE_DAMAGE` (85 vs 70). His health is
+    `hierophant_health`: 3× that round's boss health. All of these are
+    in `shared::easter_egg`.
+  - He has no `boss::Boss` component, so recycling far-off bosses and
+    the round's boss counting skip him. Nukes don't touch him, the
+    "zombies drop dead" step skips him, and Maddox's first-boss-kill
+    line doesn't fire for him. Insta-Kill doesn't work on him, as with
+    any boss.
+  - Taunts: the first comes 6 s into the fight, then one every 14–24 s.
+    He stops and glares for 2 s while each one plays
+    (`TAUNT_*`, `shared::HierophantTaunt`).
+    `hierophant/taunt_1.mp3`–`taunt_6.mp3` are placeholder copies of
+    the boss growl, set to "Hierophant voice" in `mix.ron`. Record over
+    them.
+  - His health bar sits top centre under the compass. Tune it in the
+    debug panel under "Easter egg (Der Tempel)" → "The fight".
+  - Killed: the step moves to Ascension (which does nothing yet), so
+    the round resumes and the map's mood fades back. Step 10 replaces
+    that with his death sequence. `EasterEgg::hierophant` keeps who he
+    was until the egg is set back before the fight.
+  - Ideas for when the real model and animations exist (discussed with
+    the user): an overhead slam with a ground shockwave, a dagger lunge,
+    and a cursed orb thrown at anyone keeping their distance (phase 1).
+    Floor sigils that erupt under players (phase 2). A life-drain grab
+    (phase 3).
+
+- **"He wakes" as built** (`client/src/easter_egg/wake.rs`):
+  - The server moves from Unleashed to Awakening once the radio line is
+    done plus 2.5 s (`shared::easter_egg::unleashed_secs`), then from
+    Awakening to BossFight after `AWAKENING_SECS`. That's the
+    `run_unleashed` system in `server/src/easter_egg.rs`.
+  - The timeline is the `WAKE_*` consts in `shared::easter_egg`:
+    - 0 s: the lid blasts off (it's two `PartRole::Lid` boxes on the
+      sarcophagus placeholder), with a flash, a camera jolt and the lights
+      stuttering.
+    - 1.2–4.2 s: the wisps spiral down into the body.
+    - 4.2–6.2 s: stillness. The glow and the spirit sound cut dead, and
+      the lights hold steady (`EggLightCue::steady`).
+    - 6.2 s: he snaps upright with glowing eyes and the scream, plus a
+      non-positional hit, a hard camera shake (`EggCameraShake`, layered
+      in `weapons::camera_shake`) and another stutter.
+  - The placeholder body stays standing on the sarcophagus through
+    BossFight. **Step 7 has to replace it with the real boss** (despawn
+    `WakeFx` once the boss entity exists, spawning him where it stands:
+    `FEET` on the sarcophagus).
+  - Placeholder sounds, copied from existing ones (record over them):
+    `audio/zombies/easter_egg/awakening/{lid_blast,spirit,wake_hit}.mp3`
+    and `hierophant/wake.mp3`. If the real scream isn't 5.86 s long,
+    change `WAKE_SCREAM_SECS`.
+  - BossFight currently does nothing, and the round stays held (no
+    spawns) until the boss is built.
+- **"It goes wrong" as built:**
+  - `during_ritual.mp3` plays from the sarcophagus at 13 s into the
+    ritual. Because it runs 5.6 s, it carries on past the change at 15 s.
+    `ritual_gone_wrong.mp3` follows 0.6 s after it ends, then the radio
+    line 0.5 s after that. The timings are in `shared::easter_egg`
+    (`RITUAL_VOICE_*`, `UNLEASHED_*`). A re-recording of a different
+    length means changing `RITUAL_VOICE_SECS` / `UNLEASHED_VOICE_LEN_SECS`.
+  - Both lines use their own mix profile, "Hierophant voice" (heard out
+    to 60 m), set per clip in `mix.ron`. The whispers keep "Hierophant"
+    (16 m). The fight lines will probably want "Hierophant voice" too.
+  - Every zombie drops dead 0.2 s after the change, silently: no points,
+    no drops, no death cries. The round's own spawns, its clocks, dogs
+    and Big Steves are all held while `EggStep::is_unleashed()`
+    (Unleashed, Awakening, BossFight), via
+    `shared::easter_egg::holds_spawns` in `server/src/zombies.rs`
+    `run_rounds`. The round picks up where it left off after he dies.
+    The boss's own zombie ring (step 8) needs its own spawning and
+    mustn't go through the held round.
+  - The map's change is `client/src/environment/egg_mood.rs`. It fades
+    in over 2.5 s, layered over the map's own look (and a dog round's),
+    and lasts as long as `is_unleashed()`. It covers fog, ambient, sky,
+    ground fog, green fires and fire light (`flames.rs`), red pools and
+    waterfalls (`water.rs`, and `waterfall.wgsl` now tints by the
+    material's colour), and every light in the world stuttering
+    **in unison** (`LightFlicker`, `flicker_lights` / `unflicker_lights`
+    in `First`/`Last`, flashlights excluded; the power bulbs dim in
+    `power.rs`). Tune it in the debug panel under "Easter egg (Der
+    Tempel)" → "It goes wrong — the map" (there's a preview checkbox).
+  - Step 9 (phase 3's blood-red fog) can blend on top of
+    `EggMoodFade` the same way.
 - **The pyramid altar isn't placed** in `shared/levels/der_tempel.ron`
-  yet (`pyramid_altar: None`). It's needed by step 16. The pyramid spots
+  yet (`pyramid_altar: None`). It's needed by step 14. The pyramid spots
   are placed.
 - **Quote scripts** (ElevenLabs `[ ]` direction) are in
   `client/notes/quotes/`: `hierophant-quotes.md`, `radio-quotes.md`
@@ -45,8 +144,13 @@ Where the code is:
 - `server/src/easter_egg.rs`: the vial drop, interact handling, the altar,
   the ritual clock and the debug `SetEasterEgg`.
 - `client/src/easter_egg.rs`: placeholders, vial, prompts, HUD, ritual
-  visuals and captions, whispers, and the debug panel section ("Easter
-  egg (Der Tempel)").
+  visuals and captions, whispers, his two lines (`hierophant_speaks`),
+  and the debug panel section ("Easter egg (Der Tempel)").
+- `client/src/environment/egg_mood.rs`: the map gone wrong and the light
+  stutter.
+- `client/src/easter_egg/wake.rs`: the wake-up.
+- `server/src/easter_egg.rs` `run_unleashed`: zombies dropping, the
+  radio line.
 - Layout fields `sarcophagus`, `society_case`, `ritual_area`,
   `pyramid_altar` and `pyramid_spots` are in `shared/src/level.rs`. The
   editor objects are `ObjectId::{Sarcophagus, SocietyCase, RitualArea,
@@ -74,67 +178,62 @@ Where the code is:
    (`client/notes/quotes/hierophant-quotes.md`). The current recordings are
    in the game and will be used either way. (The "read it backwards"
    radio line is recorded too: `RadioLine::EggRitualGoesWrong`.)
-5. **It goes wrong:** the fires turn green, the water turns red, the sky
-   darkens and the fog thickens, the lights flicker, every zombie drops
-   dead, the sarcophagus speaks, and the radio line plays.
-   **Test:** use the debug button to jump to this step; everything changes
-   together, and it all goes back to normal on reset or in a new game.
 
 ### The boss
 
-6. **[you]** Model, rig and animate the Hierophant: lying in the
+5. **[you]** Model, rig and animate the Hierophant: lying in the
    sarcophagus, waking, walking, attacking, teleporting, raising zombies
    and dying. Model the sarcophagus and its lid.
-7. **He wakes:** the lid blasts off, his spirit pours into the body, a
-   beat of stillness, then he snaps up with a scream, a hard audio hit and
-   a camera shake.
-   **Test:** use the debug button to jump to the wake-up and check the
-   timing; it should make you jump.
-8. **[you]** Record the boss voice lines (waking, taunts, phase 2, phase
+6. **[you]** Record the boss voice lines (waking, taunts, phase 2, phase
    3, downing a player, hurt, death, the pyramid scream:
-   `client/notes/quotes/hierophant-quotes.md`), the operators' reactions
+   `client/notes/quotes/hierophant-quotes.md`; `wake.mp3` is in with a
+   placeholder), the wake-up's sounds (`audio/zombies/easter_egg/awakening/`:
+   `lid_blast.mp3`, the spirit pouring in `spirit.mp3` (≤ 3 s, it's cut
+   at the stillness) and the hard hit as he snaps up `wake_hit.mp3`, all
+   placeholders now), the operators' reactions
    (`operator_quotes/*/…-easter-egg-quotes.md`), and the boss fight
    music.
-9. **Boss fight phase 1:** a heavy melee stalker with taunts, his own
-   health bar, and normal zombie spawns stopped during the fight.
-   **Test:** use the debug panel to spawn him; he chases, hits and taunts,
-   and can be killed.
-10. **Phase 2 (66%):** he raises a ring of zombies and teleports between
+7. **Boss fight phase 1 (built, needs testing):** a heavy melee stalker
+   with taunts, his own health bar, and normal zombie spawns stopped
+   during the fight.
+   **Test:** use the debug panel to spawn him (jump to "Boss fight"); he
+   chases, hits and taunts, and can be killed.
+8. **Phase 2 (66%):** he raises a ring of zombies and teleports between
     the fire bowls.
     **Test:** use a debug button to set his health; check the zombie ring
     and the teleports.
-11. **Phase 3 (33%):** he's enraged and faster, in blood-red fog with
+9. **Phase 3 (33%):** he's enraged and faster, in blood-red fog with
     glowing eyes.
     **Test:** use a debug button to set his health; check that he's faster
     and the fog comes in.
-12. **His death:** the body collapses, his spirit flies screaming into the
+10. **His death:** the body collapses, his spirit flies screaming into the
     pyramid, and the environment goes back to normal.
     **Test:** kill him; everything resets to how it looked before the
     ritual.
 
 ### The pyramid
 
-13. **[you]** Model the pyramid's inner chamber and its altar, and record
+11. **[you]** Model the pyramid's inner chamber and its altar, and record
     the sound for floating up and the chamber's ambience.
-14. **Astral projection:** the players' bodies slump at the altar, their
+12. **Astral projection:** the players' bodies slump at the altar, their
     souls float up through the pyramid's apex into the chamber, and the
     zombies pause.
     **Test:** use the debug button to jump to after the boss's death; float
     up, look around, and check that nothing can hurt the bodies left below.
-15. **[you]** Model and animate the wonder weapon and record its sounds:
+13. **[you]** Model and animate the wonder weapon and record its sounds:
     firing, reloading and pickup. Decide what it does, plus its magazine
     sizes for each Pack-a-Punch level.
-16. **The wonder weapon:** one for each player, taken from the chamber
+14. **The wonder weapon:** one for each player, taken from the chamber
     altar, then a white flash and they wake at the altar holding it.
     **Test:** take it; you're back below with the gun, and the round
     carries on.
-17. **The wonder weapon's behaviour + Pack-a-Punch upgrades.**
+15. **The wonder weapon's behaviour + Pack-a-Punch upgrades.**
     **Test:** shoot zombies at each Pack-a-Punch level.
-18. **Finish:** the final radio line (`RadioLine::EggAfterPyramid`, recorded) plays, the egg can't be done twice in
+16. **Finish:** the final radio line (`RadioLine::EggAfterPyramid`, recorded) plays, the egg can't be done twice in
     one game, and everything resets.
     **Test:** a full run start to finish, solo and with 2 players, then a
     new game to check that nothing carries over.
-19. **Changelog line** (keep it vague so it doesn't spoil the easter egg).
+17. **Changelog line** (keep it vague so it doesn't spoil the easter egg).
 
 ## Models needed
 
@@ -177,6 +276,8 @@ fixes that.
 
 ## Done
 
+- He wakes (lid blast, spirit, stillness, snap + scream, shake)
+- It goes wrong (map change, light stutter, zombies drop, lines + radio)
 - Whispers twice as loud
 - Hierophant + operator easter egg quote scripts
 - Ritual sequence (placeholder visuals + captions)

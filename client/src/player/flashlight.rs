@@ -103,11 +103,11 @@ impl FlashlightSettings {
 
 /// The local player's flashlight (a child of the world camera).
 #[derive(Component)]
-struct LocalFlashlight;
+pub(crate) struct LocalFlashlight;
 
 /// Another player's flashlight, following the [`PlayerPose`] on `src`.
 #[derive(Component)]
-struct RemoteFlashlight {
+pub(crate) struct RemoteFlashlight {
     src: Entity,
 }
 

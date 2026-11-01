@@ -452,6 +452,7 @@ fn main() {
         .init_resource::<WaterSettings>()
         .init_resource::<DogRoundLook>()
         .init_resource::<DogRoundFade>()
+        .add_plugins(EggMoodPlugin)
         .init_resource::<RainSettings>()
         .init_resource::<RemoteAvatarSettings>()
         .init_resource::<SniperGlintSettings>()
@@ -557,7 +558,7 @@ fn main() {
                 sync_shipment_only_visibility,
                 sync_sky_texture,
                 // (Ungated, so leaving a game mid-dog-round puts the sky back.)
-                (update_dog_round_fade, apply_sky_look).chain(),
+                (update_dog_round_fade, update_egg_mood, apply_sky_look).chain(),
             ),
         )
         // Dev tuning panels — only in-game, and only while debug mode is on.

@@ -8,7 +8,8 @@
 //! * a death cry where it drops — cutting off whatever it was still saying
 //!   (groan, moan, final call), so the cry is all you hear — except a zombie
 //!   a Nuke doomed ([`shared::ZombiesDoomed`], [`NukeDoomed`]), which only
-//!   screams its soul out as it burns (`molotov`),
+//!   screams its soul out as it burns (`molotov`), or every zombie dropping
+//!   dead at once as Der Tempel's easter egg goes wrong — in silence,
 //! * the swipe landing on someone (the server's [`shared::ZombieSwipeLanded`]
 //!   — only it knows a swing connected), heard from where that player is,
 //! * and once a round is down to its last zombie, its "final zombie" call on
@@ -189,9 +190,10 @@ fn after(now: f32, min: f32, max: f32, roll: f32) -> f32 {
 
 /// A new zombie avatar: its spawn groan (it's climbing out of the ground)
 /// or splash (out of water), and a voice. A zombie that just dropped: its death cry.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn zombie_rise_and_fall(
     time: Res<Time>,
+    (local, lobbies): (Query<&LocalId, With<GameClient>>, Query<&Lobby>),
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
     (game_sounds, current_map): (Option<Res<crate::GameSounds>>, Res<crate::CurrentMap>),
@@ -253,7 +255,9 @@ fn zombie_rise_and_fall(
             }
             let feet = pose.translation - Vec3::Y * crate::EYE_HEIGHT;
             let nuked = ids.get(avatar.src).is_ok_and(|id| doomed.0.remove(&id.0));
-            if !nuked {
+            // (All dropping dead as the easter egg goes wrong: not a sound.)
+            let unleashed = crate::zombies_hud::zombies_game(&local, &lobbies).is_some_and(shared::easter_egg::holds_spawns);
+            if !nuked && !unleashed {
                 if let Some(clip) = pick(&sounds.deaths, roll()) {
                     spawn_sound(&mut commands, clip, feet + Vec3::Y * MOUTH_HEIGHT);
                 }

@@ -20,6 +20,9 @@
 //!
 //! Nothing here is solid or slows anyone down.
 //!
+//! While Der Tempel's easter egg has gone wrong it all runs red as blood
+//! ([`tint_water`], `environment::egg_mood`) — clear again once it's over.
+//!
 //! In a game they're the current map's ([`sync_game_water`], all
 //! `StateScoped(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`WaterBuilder::sync`]).
@@ -194,7 +197,10 @@ impl Plugin for WaterPlugin {
         .init_resource::<WaterRipples>()
         // (Nothing of a game's ripples carries into the next.)
         .add_systems(OnExit(AppState::InGame), reset_ripples)
-        .add_systems(Update, (sync_game_water, upload_ripples, animate_spray, animate_splashes).chain());
+        .add_systems(
+            Update,
+            (sync_game_water, tint_water, upload_ripples, animate_spray, animate_splashes).chain(),
+        );
     }
 }
 
@@ -243,6 +249,8 @@ pub(crate) struct MapWater {
     mesh: Handle<Mesh>,
     water: Option<Handle<WaterMaterial>>,
     fall: Option<Handle<WaterfallMaterial>>,
+    /// A pool's own colour deeper down, and its clarity (m).
+    own: ([f32; 3], f32),
 }
 
 /// On a waterfall's root: where (in its own frame) its spray comes up.
@@ -594,6 +602,7 @@ impl WaterBuilder<'_> {
                     mesh: mesh.clone(),
                     water: Some(material.clone()),
                     fall: None,
+                    own: (water.color, water.clarity),
                 },
                 Mesh3d(mesh),
                 MeshMaterial3d(material),
@@ -635,6 +644,7 @@ impl WaterBuilder<'_> {
                         mesh: mesh.clone(),
                         water: None,
                         fall: Some(material.clone()),
+                        own: ([1.0; 3], 1.0),
                     },
                     SprayOrigin {
                         foot,
@@ -695,6 +705,36 @@ impl WaterBuilder<'_> {
 }
 
 /// `water`'s material: told where each of `falls` lands in it.
+/// Run the pools and waterfalls red as Der Tempel's easter egg goes wrong
+/// (and clear again after) — only when that moves, or water's new.
+fn tint_water(
+    fade: Res<crate::environment::EggMoodFade>,
+    look: Res<crate::environment::EggMoodLook>,
+    water: Query<&MapWater>,
+    new: Query<(), Added<MapWater>>,
+    mut waters: ResMut<Assets<WaterMaterial>>,
+    mut falls: ResMut<Assets<WaterfallMaterial>>,
+) {
+    if !fade.is_changed() && !look.is_changed() && new.is_empty() {
+        return;
+    }
+    use crate::environment::blend3;
+    let t = fade.0;
+    let srgb = |c: [f32; 3]| Color::srgb(c[0], c[1], c[2]);
+    for w in &water {
+        if let Some(m) = w.water.as_ref().and_then(|h| waters.get_mut(h)) {
+            let (color, clarity) = w.own;
+            m.base.base_color = srgb(blend3([1.0; 3], look.water_tint, t));
+            m.base.attenuation_color = srgb(blend3(color, look.water_deep, t));
+            let clarity = clarity.max(0.01);
+            m.base.attenuation_distance = clarity + (look.water_clarity.min(clarity) - clarity) * t;
+        }
+        if let Some(m) = w.fall.as_ref().and_then(|h| falls.get_mut(h)) {
+            m.base.base_color = srgb(blend3([1.0; 3], look.waterfall_tint, t));
+        }
+    }
+}
+
 fn water_material(water: &Water, falls: &[Waterfall]) -> WaterMaterial {
     let mut params = WaterParams {
         waves: water.waves,

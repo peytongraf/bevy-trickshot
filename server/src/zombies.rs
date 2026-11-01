@@ -327,9 +327,30 @@ pub(crate) fn run_rounds(
             continue;
         }
         let members = lobby.real_count();
-        // Paused: push every pending time back by the pause, so the break /
-        // next spawn is exactly as far off when it resumes.
-        if lobby.paused {
+        // Paused — or the round on hold while the easter egg's Hierophant
+        // is loose (`shared::easter_egg::holds_spawns`): push every pending
+        // time back by it, so the break / next spawn is exactly as far off
+        // when it resumes.
+        let held = shared::easter_egg::holds_spawns(&lobby);
+        if lobby.paused || held {
+            if held && !lobby.paused {
+                // (The HUD's counts still follow the zombies standing —
+                // none, once they've dropped.)
+                if let Some(rounds) = rounds.as_ref() {
+                    let alive = zombies.iter().filter(|(_, _, lp, c, _)| lp.lobby == lobby_e && c.alive).count();
+                    let coming = rounds.pending_dogs.len() + rounds.pending_bosses.len() + rounds.bosses_to_spawn as usize;
+                    let left = match &rounds.exfil {
+                        Some(exfil) => exfil.kills_left,
+                        None => rounds.to_spawn + rounds.surge + (alive + coming) as u32,
+                    };
+                    if lobby.enemies_left != left {
+                        lobby.enemies_left = left;
+                    }
+                    if lobby.enemies_active != alive as u32 {
+                        lobby.enemies_active = alive as u32;
+                    }
+                }
+            }
             if let Some(mut rounds) = rounds {
                 rounds.break_until += time.delta_secs();
                 rounds.next_spawn_at += time.delta_secs();
@@ -907,7 +928,8 @@ fn recycle_far_zombies(
             Has<crate::dogs::Dog>,
             Has<crate::boss::Boss>,
         ),
-        (With<Zombie>, Without<crate::power_ups::NukeDeath>),
+        // (Never the easter egg's Hierophant: he's not the round's.)
+        (With<Zombie>, Without<crate::power_ups::NukeDeath>, Without<crate::easter_egg::Hierophant>),
     >,
     mut commands: Commands,
 ) {

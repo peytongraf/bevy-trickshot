@@ -131,11 +131,12 @@ fn direct_radio(
     director.games.retain(|e, _| running(*e).is_some());
 
     let mut asks: Vec<(Entity, RadioLine)> = requests.read().map(|r| (r.lobby, r.line)).collect();
-    // The game's first boss down.
+    // The game's first boss down (not the easter egg's Hierophant — he's
+    // no boss of the round's).
     asks.extend(
         kills
             .read()
-            .filter(|k| k.anim.is_boss())
+            .filter(|k| k.anim.is_boss() && running(k.lobby).is_none_or(|l| !l.easter_egg.is_hierophant(k.victim)))
             .map(|k| (k.lobby, RadioLine::FirstBossKill)),
     );
 
