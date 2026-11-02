@@ -155,7 +155,9 @@ fn at_crate(
     let lobby = zombies_game(local, lobbies)?;
     let me = local.iter().next()?.0;
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
+    // (The Exhumer takes no ammo from a crate: souls fill it, and Max Ammo.)
     if weapon.slot != WeaponSlot::Primary
+        || weapon.primary == shared::weapon::WeaponId::Exhumer
         || weapon.ammo_full(GameMode::Zombies)
         || !shared::ammo::crates(lobby.map).iter().any(|at| in_reach(at.pos, feet))
     {

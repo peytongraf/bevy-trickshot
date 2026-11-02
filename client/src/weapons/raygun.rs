@@ -178,7 +178,7 @@ pub(crate) fn raygun_draw_lower(
 ) {
     let vm = view_model.into_inner();
     let mut value = 0.0;
-    if vm.weapon == WeaponId::RayGun {
+    if vm.weapon.base() == WeaponId::RayGun {
         let (show, hide) = (vm.nodes.get(CLIP_SHOW).copied(), vm.nodes.get(CLIP_HIDE).copied());
         if let Some((player, transitions, _)) = players.iter().find(|(.., g)| g.0 == vm.graph) {
             let played = |node: Option<AnimationNodeIndex>| {

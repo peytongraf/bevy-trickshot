@@ -8,6 +8,11 @@
 //! (`textures/camos/pap_<level>.webp`), scrolling across it. Buying happens
 //! in `pap_menu`.
 //!
+//! The Exhumer (`shared::exhumer`, never packed) always wears its own
+//! texture (`textures/camos/exhumer.webp`) the same way, scrolling — ours
+//! burning brighter the more souls it holds (`Weapon::souls`),
+//! anyone else's (and the altar's) at its resting glow.
+//!
 //! The machine is `StateScoped(InGame)` and taken away whenever we're not in
 //! such a game; our levels are read off the replicated lobby every frame
 //! (nothing packed outside a `Zombies` game), so nothing carries into the
@@ -93,6 +98,9 @@ pub(crate) struct PapSettings {
     pub(crate) camo_tiling: f32,
     /// How much the camo glows by itself (0 = only lit by the scene).
     pub(crate) camo_glow: f32,
+    /// The Exhumer's texture's glow with no souls in it, and full.
+    pub(crate) wonder_glow: f32,
+    pub(crate) wonder_charged_glow: f32,
 }
 
 impl Default for PapSettings {
@@ -113,6 +121,8 @@ impl Default for PapSettings {
             camo_scroll: Vec2::new(0.08, 0.03),
             camo_tiling: 2.0,
             camo_glow: 1.5,
+            wonder_glow: 0.8,
+            wonder_charged_glow: 6.0,
         }
     }
 }
@@ -309,26 +319,36 @@ fn sync_pap_levels(
 #[derive(Resource)]
 struct PapCamo {
     levels: [Handle<StandardMaterial>; shared::pap::MAX_LEVEL as usize],
+    /// The Exhumer's texture: ours (glowing with its charge), and everyone
+    /// else's.
+    wonder_mine: Handle<StandardMaterial>,
+    wonder_other: Handle<StandardMaterial>,
+}
+
+impl PapCamo {
+    /// Whether `m` is one of ours — a camo or the Exhumer's texture.
+    fn has(&self, m: &Handle<StandardMaterial>) -> bool {
+        self.levels.contains(m) || *m == self.wonder_mine || *m == self.wonder_other
+    }
 }
 
 impl FromWorld for PapCamo {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
         // Repeat, not clamp: it tiles and scrolls.
-        let textures = [1, 2, 3].map(|level| -> Handle<Image> {
-            asset_server.load_with_settings(
-                format!("textures/camos/pap_{level}.webp"),
-                |s: &mut ImageLoaderSettings| {
-                    s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                        address_mode_u: ImageAddressMode::Repeat,
-                        address_mode_v: ImageAddressMode::Repeat,
-                        ..ImageSamplerDescriptor::linear()
-                    });
-                },
-            )
-        });
+        let load = |path: String| -> Handle<Image> {
+            asset_server.load_with_settings(path, |s: &mut ImageLoaderSettings| {
+                s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            })
+        };
+        let textures = [1, 2, 3].map(|level| load(format!("textures/camos/pap_{level}.webp")));
+        let wonder = load("textures/camos/exhumer.webp".to_string());
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
-        let levels = textures.map(|tex| {
+        let mut camo = |tex: Handle<Image>| {
             materials.add(StandardMaterial {
                 base_color_texture: Some(tex.clone()),
                 emissive_texture: Some(tex),
@@ -336,8 +356,9 @@ impl FromWorld for PapCamo {
                 metallic: 0.2,
                 ..default()
             })
-        });
-        Self { levels }
+        };
+        let levels = textures.map(&mut camo);
+        Self { levels, wonder_mine: camo(wonder.clone()), wonder_other: camo(wonder) }
     }
 }
 
@@ -346,7 +367,9 @@ impl FromWorld for PapCamo {
 pub(crate) fn camo_parts(weapon: SlotWeapon) -> &'static [&'static str] {
     match weapon {
         SlotWeapon::Gun(shared::weapon::WeaponId::Ak74) => &AK_CAMO_PARTS,
-        SlotWeapon::Gun(shared::weapon::WeaponId::RayGun) => &crate::weapons::RAYGUN_CAMO_PARTS,
+        SlotWeapon::Gun(shared::weapon::WeaponId::RayGun | shared::weapon::WeaponId::Exhumer) => {
+            &crate::weapons::RAYGUN_CAMO_PARTS
+        }
         SlotWeapon::Gun(shared::weapon::WeaponId::M17) => &crate::weapons::M17_CAMO_PARTS,
         SlotWeapon::Gun(_) => &SNIPER_CAMO_PARTS,
         SlotWeapon::Knife => &KNIFE_CAMO_PARTS,
@@ -371,6 +394,8 @@ enum CamoOwner {
     Avatar(Entity),
     /// A dropped weapon (`weapon_drops`) — its own level.
     Fixed(u8),
+    /// A dropped Exhumer (the pyramid's altar's): its texture.
+    Wonder,
 }
 
 /// One object of a weapon's model ([`object_name`]) — which the WEAPON
@@ -439,7 +464,12 @@ fn tag_camo_parts(
         let weapon = SlotWeapon::Gun(anim.weapon);
         (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(weapon), Some(GripKey::of(weapon)))
     } else if let Ok(drop) = drops.get(root) {
-        (CamoOwner::Fixed(drop.pap), camo_parts(drop.weapon), Some(GripKey::of(drop.weapon)))
+        let owner = if drop.weapon == SlotWeapon::Gun(shared::weapon::WeaponId::Exhumer) {
+            CamoOwner::Wonder
+        } else {
+            CamoOwner::Fixed(drop.pap)
+        };
+        (owner, camo_parts(drop.weapon), Some(GripKey::of(drop.weapon)))
     } else if knife.contains(root) {
         (CamoOwner::Mine(PapWeapon::Knife), &KNIFE_CAMO_PARTS, Some(GripKey::Knife))
     } else if avatars.contains(root) {
@@ -490,21 +520,37 @@ fn apply_pap_camo(
     avatars: Query<&crate::net::RemoteAvatar>,
     ids: Query<&shared::PlayerId>,
     grips: Res<WeaponGrips>,
+    weapon: Res<Weapon>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut parts: Query<(&mut PapCamoPart, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
     let mine = my_pap_levels(&local, &lobbies);
     let lobby = zombies_game(&local, &lobbies);
-    let level_of = |owner: CamoOwner| match owner {
-        CamoOwner::Mine(weapon) => mine.get(weapon),
+    // What a part wears: nothing (0), a level's camo, or the Exhumer's
+    // texture (ours, or another's).
+    enum Wear {
+        Level(u8),
+        WonderMine,
+        WonderOther,
+    }
+    let wear_of = |owner: CamoOwner| match owner {
+        CamoOwner::Mine(PapWeapon::Exhumer) => Wear::WonderMine,
+        CamoOwner::Mine(weapon) => Wear::Level(mine.get(weapon)),
         CamoOwner::Avatar(avatar) => avatars
             .get(avatar)
             .ok()
             .and_then(|a| ids.get(a.src).ok())
             .zip(lobby)
             .and_then(|(id, l)| l.members.iter().find(|m| m.peer == id.0))
-            .map_or(0, |m| m.pap.get(PapWeapon::gun(m.primary))),
-        CamoOwner::Fixed(level) => level,
+            .map_or(Wear::Level(0), |m| {
+                if m.primary == shared::weapon::WeaponId::Exhumer {
+                    Wear::WonderOther
+                } else {
+                    Wear::Level(m.pap.get(PapWeapon::gun(m.primary)))
+                }
+            }),
+        CamoOwner::Fixed(level) => Wear::Level(level),
+        CamoOwner::Wonder => Wear::WonderOther,
     };
     let mut in_use = false;
     for (mut part, mut mat) in &mut parts {
@@ -514,18 +560,26 @@ fn apply_pap_camo(
                 part.wears = wears;
             }
         }
-        let level = level_of(part.owner).min(shared::pap::MAX_LEVEL);
-        if level == 0 || !part.wears {
+        let wanted = match wear_of(part.owner) {
+            _ if !part.wears => None,
+            Wear::Level(0) => None,
+            Wear::Level(level) => Some(&camo.levels[level.min(shared::pap::MAX_LEVEL) as usize - 1]),
+            Wear::WonderMine => Some(&camo.wonder_mine),
+            Wear::WonderOther => Some(&camo.wonder_other),
+        };
+        match wanted {
             // (Only ever taking our camo off — whatever else a part's
             // material is, it's someone else's.)
-            if camo.levels.contains(&mat.0) {
-                mat.0 = part.original.clone();
+            None => {
+                if camo.has(&mat.0) {
+                    mat.0 = part.original.clone();
+                }
             }
-        } else {
-            in_use = true;
-            let wanted = &camo.levels[level as usize - 1];
-            if mat.0 != *wanted {
-                mat.0 = wanted.clone();
+            Some(wanted) => {
+                in_use = true;
+                if mat.0 != *wanted {
+                    mat.0 = wanted.clone();
+                }
             }
         }
     }
@@ -539,6 +593,16 @@ fn apply_pap_camo(
     for handle in &camo.levels {
         if let Some(m) = materials.get_mut(handle) {
             m.uv_transform = uv;
+            m.emissive = LinearRgba::rgb(glow, glow, glow);
+        }
+    }
+    // The Exhumer's: ours burning brighter the more souls it holds.
+    let charged = (weapon.souls as f32 / shared::exhumer::MAX_SOULS as f32).clamp(0.0, 1.0);
+    let ours = settings.wonder_glow + (settings.wonder_charged_glow - settings.wonder_glow) * charged;
+    for (handle, glow) in [(&camo.wonder_mine, ours), (&camo.wonder_other, settings.wonder_glow)] {
+        if let Some(m) = materials.get_mut(handle) {
+            m.uv_transform = uv;
+            let glow = glow.max(0.0);
             m.emissive = LinearRgba::rgb(glow, glow, glow);
         }
     }

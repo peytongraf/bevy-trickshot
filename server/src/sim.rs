@@ -123,6 +123,8 @@ pub(crate) fn apply_client_pose(
         pose.prone = i.prone;
         pose.diving = i.diving;
         pose.stabbing = i.stabbing;
+        // (Only with the Exhumer in hand.)
+        pose.beaming = i.beaming && i.weapon == WeaponId::Exhumer.as_u8();
         pose.held = i.held;
         pose.swap = i.swap;
         pose.throw = i.throw;
@@ -482,6 +484,12 @@ fn resolve_shots(
             .for_lobby(lobby)
             .raycast(origin, aim, weapon.spec().max_range);
         let wall_dist = wall.map(|h| h.distance);
+
+        // The Exhumer fires no bullet: its beam and its souls are
+        // `crate::exhumer`'s.
+        if weapon == WeaponId::Exhumer {
+            continue;
+        }
 
         // A Ray Gun bolt isn't resolved here: it flies (`crate::raygun`),
         // hurting nothing until it reaches the first zombie in its way or

@@ -83,6 +83,7 @@ mod ammo_crate;
 mod armor;
 mod crafting;
 mod exfil;
+mod exhumer;
 mod boss;
 mod knife_pickup;
 mod molotov;
@@ -356,6 +357,7 @@ fn main() {
         .add_plugins(minimap::MinimapPlugin)
         .add_plugins(rampage::RampagePlugin)
         .add_plugins(easter_egg::EasterEggPlugin)
+        .add_plugins(exhumer::ExhumerPlugin)
         // The telemetry row's CPU / memory readouts (`hud::fps_text`).
         .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
         .add_plugins(hud::DrawCallsPlugin)

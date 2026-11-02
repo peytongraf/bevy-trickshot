@@ -130,7 +130,9 @@ fn wanted(lobby: Option<&Lobby>, ritual: &EggRitual, s: &EggMusicSettings, runni
         (step, _) if step.is_unleashed() => (0.0, true),
         // He's fallen: the music dies with him, the ambience back once his
         // spirit's in the pyramid.
-        (EggStep::HisDeath, _) => (0.0, false),
+        // (And it stays quiet while the souls are up in the pyramid, with
+        // its own hum — `ascension`.)
+        (EggStep::HisDeath | EggStep::Ascension, _) => (0.0, false),
         _ => (1.0, false),
     }
 }

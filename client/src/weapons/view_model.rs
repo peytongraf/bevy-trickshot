@@ -278,9 +278,9 @@ impl<'a> PrimaryRig<'a> {
 
 /// `weapon`'s view-model segment for `act`.
 pub(crate) fn primary_seg(weapon: WeaponId, act: SegAct) -> AnimationSegment {
-    match weapon {
+    match weapon.base() {
         WeaponId::Ak74 => super::ak::ak_seg(act),
-        WeaponId::RayGun => super::raygun::raygun_seg(act),
+        WeaponId::RayGun | WeaponId::Exhumer => super::raygun::raygun_seg(act),
         WeaponId::M17 => super::m17::m17_seg(act),
         WeaponId::Sniper | WeaponId::Marksman => sniper_seg(act),
     }
@@ -506,7 +506,7 @@ pub(crate) fn start_view_model_animation(
         if let Ok(mut player) = players.get_mut(entity) {
             if anim.weapon != WeaponId::Sniper {
                 let mut transitions = AnimationTransitions::new();
-                let idle = match anim.weapon {
+                let idle = match anim.weapon.base() {
                     WeaponId::RayGun => super::raygun::raygun_idle_seg(),
                     WeaponId::M17 => super::m17::m17_idle_seg(),
                     _ => super::ak::ak_idle_seg(),

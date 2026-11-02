@@ -180,6 +180,7 @@ pub fn game_active(
     spectate: Res<crate::revive::Spectate>,
     snd: Res<crate::search_destroy::SndLocal>,
     ritual: Res<crate::easter_egg::EggRitual>,
+    soul: Res<crate::easter_egg::EggSoul>,
 ) -> bool {
     // Killed in a `SearchAndDestroy` round: out until the next.
     if snd.dead {
@@ -196,8 +197,10 @@ pub fn game_active(
     // dead players can't move, aim, shoot or throw (only the menu still works).
     // Paused by the party leader (`pause`): frozen in place for everyone.
     !menu.is_open() && !freeze.active && !death.is_active() && !paused.0
-        // And the easter egg's ritual (`easter_egg`) holds every player still.
+        // And the easter egg's ritual (`easter_egg`) holds every player still,
+        // as does our soul's way up into the pyramid (`easter_egg::ascension`).
         && !ritual.locked()
+        && !soul.locked()
 }
 
 /// Run condition for the weapon: like [`game_active`], but it also keeps
@@ -213,9 +216,12 @@ pub fn weapon_active(
     revive: Res<crate::revive::LocalRevive>,
     snd: Res<crate::search_destroy::SndLocal>,
     ritual: Res<crate::easter_egg::EggRitual>,
+    soul: Res<crate::easter_egg::EggSoul>,
 ) -> bool {
     (!menu.is_open() || menu.screen == Screen::Wunderfizz)
         && !ritual.locked()
+        // (No weapon for a soul in the pyramid.)
+        && !soul.out()
         && !snd.dead
         && !freeze.active
         && !death.is_active()

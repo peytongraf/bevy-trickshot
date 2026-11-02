@@ -272,9 +272,15 @@ fn kill_quote(kill: &ZombieKilled) -> Quote {
     }
 }
 
-/// Every kill a player made: their line about it.
-fn kill_quotes(mut kills: EventReader<ZombieKilled>, mut quotes: EventWriter<SayQuote>) {
+/// Every kill a player made: their line about it — none for the easter
+/// egg's Hierophant (his death is his own moment: his scream, his spirit
+/// fleeing — `easter_egg::fight`), whose operator lines come from its own
+/// script.
+fn kill_quotes(mut kills: EventReader<ZombieKilled>, lobbies: Query<&Lobby>, mut quotes: EventWriter<SayQuote>) {
     for kill in kills.read() {
+        if lobbies.get(kill.lobby).is_ok_and(|l| l.easter_egg.is_hierophant(kill.victim)) {
+            continue;
+        }
         quotes.write(SayQuote::by(kill.lobby, kill.killer, kill_quote(kill)));
     }
 }

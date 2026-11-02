@@ -25,9 +25,16 @@ pub enum PapWeapon {
     RayGun,
     M17,
     Knife,
+    /// The Exhumer — never packed ([`PapWeapon::packable`]).
+    Exhumer,
 }
 
 impl PapWeapon {
+    /// Whether the machine takes it (never the Exhumer).
+    pub fn packable(self) -> bool {
+        self != PapWeapon::Exhumer
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             PapWeapon::Sniper => "Sniper",
@@ -35,6 +42,7 @@ impl PapWeapon {
             PapWeapon::RayGun => "Ray Gun",
             PapWeapon::M17 => "M17",
             PapWeapon::Knife => "Knife",
+            PapWeapon::Exhumer => "Exhumer",
         }
     }
 
@@ -51,6 +59,7 @@ impl PapWeapon {
             WeaponId::Ak74 => PapWeapon::Ak74,
             WeaponId::RayGun => PapWeapon::RayGun,
             WeaponId::M17 => PapWeapon::M17,
+            WeaponId::Exhumer => PapWeapon::Exhumer,
             WeaponId::Sniper | WeaponId::Marksman => PapWeapon::Sniper,
         }
     }
@@ -78,6 +87,7 @@ impl PapLevels {
             PapWeapon::RayGun => self.raygun,
             PapWeapon::M17 => self.m17,
             PapWeapon::Knife => self.knife,
+            PapWeapon::Exhumer => 0,
         }
     }
 
@@ -88,6 +98,8 @@ impl PapLevels {
             PapWeapon::RayGun => self.raygun = level,
             PapWeapon::M17 => self.m17 = level,
             PapWeapon::Knife => self.knife = level,
+            // (Never packed.)
+            PapWeapon::Exhumer => {}
         }
     }
 }

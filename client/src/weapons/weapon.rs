@@ -60,6 +60,8 @@ pub(crate) fn mag_size(gun: WeaponId, level: u8) -> u32 {
     let sizes = match gun {
         WeaponId::Ak74 => AK_MAG_SIZES,
         WeaponId::RayGun => RAYGUN_MAG_SIZES,
+        // (No magazines: its souls are its ammo, never packed — `shared::exhumer`.)
+        WeaponId::Exhumer => [shared::exhumer::MAX_SOULS; 4],
         WeaponId::M17 => M17_MAG_SIZES,
         WeaponId::Sniper | WeaponId::Marksman => MAG_SIZES,
     };
@@ -73,6 +75,10 @@ pub(crate) fn mag_size(gun: WeaponId, level: u8) -> u32 {
 fn reserve_for(mode: shared::GameMode, gun: WeaponId, level: u8) -> u32 {
     let mag = mag_size(gun, level);
     let packed = PAP_EXTRA_MAGS_PER_LEVEL * level as u32;
+    // (The Exhumer holds every orb it has at once: no reserve, no reload.)
+    if gun == WeaponId::Exhumer {
+        return 0;
+    }
     match mode {
         shared::GameMode::Freestyle => FREESTYLE_RESERVE,
         shared::GameMode::FreeForAll | shared::GameMode::SearchAndDestroy => mag * (TOTAL_MAGS - 1),
@@ -274,6 +280,14 @@ pub(crate) enum WeaponSlot {
 /// `busy` is `Some` neither firing nor reloading is accepted.
 #[derive(Resource)]
 pub(crate) struct Weapon {
+    /// The Exhumer's souls — its only ammo, of `shared::exhumer::MAX_SOULS`
+    /// (the server's word, `exhumer`; its mag shows them while it's in hand).
+    pub(crate) souls: u32,
+    /// Asked to let them out (`exhumer` sends it).
+    pub(crate) release_request: bool,
+    /// Its beam's drawing souls in — the aim button held with it in hand
+    /// (`exhumer`); sent with our input.
+    pub(crate) beaming: bool,
     /// Rounds in the current magazine.
     pub(crate) mag: u32,
     /// Rounds not in the magazine.
@@ -451,6 +465,9 @@ pub(crate) enum KnifeFinish {
 impl Default for Weapon {
     fn default() -> Self {
         Self {
+            souls: 0,
+            release_request: false,
+            beaming: false,
             mag: MAG_SIZES[0],
             // Both filled per game mode by `apply_loadout`.
             reserve: 0,
@@ -491,6 +508,11 @@ impl Weapon {
     /// Whether the sniper holds every round it can in `mode` (mag + reserve).
     pub(crate) fn ammo_full(&self, mode: shared::GameMode) -> bool {
         self.mag + self.reserve >= self.mag_size() + self.max_reserve(mode)
+    }
+
+    /// The Exhumer in our hands (not stowed, not the knife out).
+    pub(crate) fn exhumer_in_hand(&self) -> bool {
+        self.slot == WeaponSlot::Primary && self.primary == WeaponId::Exhumer
     }
 
     /// The AK's walk / jump animation state (the debug panel shows it).
@@ -1436,7 +1458,7 @@ fn begin_segment(
     snd: &mut killcam::ReplaySoundBits,
 ) {
     let ak = rig.weapon == WeaponId::Ak74;
-    let raygun = rig.weapon == WeaponId::RayGun;
+    let raygun = rig.weapon.base() == WeaponId::RayGun;
     let m17 = rig.weapon == WeaponId::M17;
     let (sound, bit, sound_speed, anim_speed) = match seg.act {
         // (For now the AK's fast reload sound, for either reload.)
@@ -1597,13 +1619,13 @@ pub(crate) fn weapon_system(
         nitro.swap(),
     );
     // The primary's own draw / hide (the AK's panel speed on top).
-    let primary_swap = match weapon.primary {
+    let primary_swap = match weapon.primary.base() {
         WeaponId::Ak74 => swap_speed * ak_cfg.draw_speed,
-        WeaponId::RayGun => swap_speed * ray_cfg.draw_speed,
+        WeaponId::RayGun | WeaponId::Exhumer => swap_speed * ray_cfg.draw_speed,
         WeaponId::M17 => swap_speed * m17_cfg.draw_speed,
         WeaponId::Sniper | WeaponId::Marksman => swap_speed,
     };
-    let blend_secs = match weapon.primary {
+    let blend_secs = match weapon.primary.base() {
         WeaponId::RayGun => ray_cfg.blend_secs,
         WeaponId::M17 => m17_cfg.blend_secs,
         _ => ak_cfg.blend_secs,
@@ -1707,7 +1729,7 @@ pub(crate) fn weapon_system(
                 weapon.slot = WeaponSlot::Primary;
                 **view_model_vis = Visibility::Inherited;
                 // (The Ray Gun's own sound when it first comes into our hands.)
-                let equip = if first && weapon.primary == WeaponId::RayGun {
+                let equip = if first && weapon.primary.base() == WeaponId::RayGun {
                     &sounds.raygun_equip
                 } else {
                     &sounds.sniper_equip
@@ -2398,7 +2420,7 @@ pub(crate) fn weapon_system(
     // The Ray Gun, out and free: its idle clip, looping — or, aimed down
     // sights, held still in its rest pose — unless a shot's still playing
     // out.
-    if weapon.slot == WeaponSlot::Primary && rig.weapon == WeaponId::RayGun {
+    if weapon.slot == WeaponSlot::Primary && rig.weapon.base() == WeaponId::RayGun {
         let shot = rig.seg(SegAct::Shoot);
         let shooting = rig.is_main(shot) && !rig.reached(shot, shot.end_secs());
         let (rest, speed) = if ads.t > 0.05 {
@@ -2452,6 +2474,37 @@ pub(crate) fn weapon_system(
         return;
     }
     // Only `WeaponSlot::Primary` is left.
+
+    // The Exhumer (`shared::exhumer`): no bullet. A pull of the trigger,
+    // with souls in it, lets them all out (no sooner than its cooldown after
+    // the last) — the Ray Gun's clip, a hard kick. Its beam's the aim
+    // button's (`exhumer`). Its souls are its ammo: it never reloads.
+    if rig.weapon == WeaponId::Exhumer {
+        let now = time.elapsed_secs();
+        let pulled = binds.fire.just_pressed(&keys, &mouse) && now >= weapon.next_shot_at;
+        if pulled && weapon.souls > 0 {
+            weapon.next_shot_at = now + shared::exhumer::RELEASE_COOLDOWN_SECS;
+            shake.trauma = (shake.trauma + ray_cfg.trauma_per_shot * 4.0).min(1.0);
+            shake.recoil = ray_cfg.recoil_kick * 1.5;
+            muzzle.shots = muzzle.shots.wrapping_add(1);
+            muzzle.roll = rand_roll(muzzle.shots);
+            muzzle.intensity = 1.0;
+            commands.spawn((AudioPlayer::new(sounds.raygun_shot.clone()), PlaybackSettings::DESPAWN));
+            snd.note(killcam::SND_RAYGUN_SHOT);
+            // (`exhumer` sends it; the server says how many went.)
+            weapon.release_request = true;
+            let shot = rig.seg(SegAct::Shoot);
+            rig.play_with(
+                shot,
+                ray_cfg.shot_speed,
+                RepeatAnimation::Never,
+                std::time::Duration::from_secs_f32(ray_cfg.shot_blend_secs.max(0.0)),
+            );
+        } else if binds.fire.just_pressed(&keys, &mouse) && weapon.mag == 0 {
+            commands.spawn((AudioPlayer::new(sounds.out_of_ammo.clone()), PlaybackSettings::DESPAWN));
+        }
+        return;
+    }
 
     // The Ray Gun: full-auto — a bolt every `fire_interval` while the
     // trigger's held, each restarting its shoot clip. The last one out

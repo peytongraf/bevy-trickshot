@@ -111,7 +111,8 @@ impl GripKey {
     pub(crate) fn of(weapon: SlotWeapon) -> GripKey {
         match weapon {
             SlotWeapon::Gun(WeaponId::Ak74) => GripKey::Ak74,
-            SlotWeapon::Gun(WeaponId::RayGun) => GripKey::RayGun,
+            // (The Exhumer's held as the Ray Gun it's built on.)
+            SlotWeapon::Gun(WeaponId::RayGun | WeaponId::Exhumer) => GripKey::RayGun,
             SlotWeapon::Gun(WeaponId::M17) => GripKey::M17,
             SlotWeapon::Gun(WeaponId::Sniper | WeaponId::Marksman) => GripKey::Sniper,
             SlotWeapon::Knife => GripKey::Knife,

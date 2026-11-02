@@ -20,7 +20,7 @@ use bevy::scene::SceneInstanceReady;
 use shared::weapon::{SlotWeapon, WeaponId};
 use shared::WeaponDrop;
 
-use crate::knife_pickup::{OutlineTint, OutlineWhenLoaded, OUTLINE_BLUE};
+use crate::knife_pickup::{OutlineTint, OutlineWhenLoaded, OUTLINE_BLUE, OUTLINE_YELLOW};
 use crate::AppState;
 
 pub(crate) struct WeaponDropsPlugin;
@@ -43,11 +43,21 @@ pub(crate) fn outline_color(level: u8) -> Color {
     }
 }
 
+/// A drop's outline: a wonder weapon's yellow (the Exhumer, on the
+/// pyramid's altar), or its level's colour ([`outline_color`]).
+pub(crate) fn drop_outline(drop: &WeaponDrop) -> Color {
+    if drop.weapon == SlotWeapon::Gun(WeaponId::Exhumer) {
+        OUTLINE_YELLOW
+    } else {
+        outline_color(drop.pap)
+    }
+}
+
 /// The view model scene a weapon's drawn from.
 pub(crate) fn model_path(weapon: SlotWeapon) -> &'static str {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => "models/weapons/ak_74.glb",
-        SlotWeapon::Gun(WeaponId::RayGun) => crate::weapons::RAYGUN_MODEL,
+        SlotWeapon::Gun(WeaponId::RayGun | WeaponId::Exhumer) => crate::weapons::RAYGUN_MODEL,
         SlotWeapon::Gun(WeaponId::M17) => crate::weapons::M17_MODEL,
         SlotWeapon::Gun(_) => "models/weapons/sniper.glb",
         SlotWeapon::Knife => "models/weapons/knife.glb",
@@ -58,7 +68,7 @@ pub(crate) fn model_path(weapon: SlotWeapon) -> &'static str {
 pub(crate) fn real_length(weapon: SlotWeapon) -> f32 {
     match weapon {
         SlotWeapon::Gun(WeaponId::Ak74) => 0.95,
-        SlotWeapon::Gun(WeaponId::RayGun) => 0.45,
+        SlotWeapon::Gun(WeaponId::RayGun | WeaponId::Exhumer) => 0.45,
         SlotWeapon::Gun(WeaponId::M17) => 0.2,
         SlotWeapon::Gun(_) => 1.25,
         SlotWeapon::Knife => 0.32,
@@ -118,7 +128,7 @@ fn sync_drop_visuals(
                 // (Hidden until it's laid down — see `fit_dropped_model`.)
                 Visibility::Hidden,
                 OutlineWhenLoaded,
-                OutlineTint(outline_color(drop.pap)),
+                OutlineTint(drop_outline(drop)),
             ));
     }
 }

@@ -277,7 +277,7 @@ pub(crate) struct FlickerClock {
 /// Whether our game's easter egg has gone wrong (and he's not dead yet).
 fn unleashed(local: &Query<&LocalId, With<GameClient>>, lobbies: &Query<&Lobby>) -> bool {
     crate::zombies_hud::zombies_game(local, lobbies)
-        .is_some_and(|l| shared::easter_egg::holds_spawns(l))
+        .is_some_and(|l| shared::easter_egg::available(l) && l.easter_egg.step.map_gone_wrong())
 }
 
 /// Whether he's alive in the fight and enraged (phase 3).

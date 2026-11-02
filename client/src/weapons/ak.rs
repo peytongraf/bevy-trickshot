@@ -389,7 +389,7 @@ pub(crate) fn sync_primary_model(
             }
             Some(if lobby.started { m.primary } else { lobby.mode.starting_primary(m.loadout) })
         })
-        .filter(|w| LOADOUT_WEAPONS.contains(w) || matches!(w, WeaponId::RayGun | WeaponId::M17))
+        .filter(|w| LOADOUT_WEAPONS.contains(w) || matches!(w, WeaponId::RayGun | WeaponId::M17 | WeaponId::Exhumer))
         .unwrap_or(WeaponId::Sniper);
     if weapon.primary != wanted {
         weapon.set_primary(wanted);
@@ -401,7 +401,9 @@ pub(crate) fn sync_primary_model(
     }
     let (scene_handle, graph, nodes) = match wanted {
         WeaponId::Ak74 => (models.ak_scene.clone(), models.ak_graph.clone(), models.ak_nodes.clone()),
-        WeaponId::RayGun => (models.raygun_scene.clone(), models.raygun_graph.clone(), models.raygun_nodes.clone()),
+        WeaponId::RayGun | WeaponId::Exhumer => {
+            (models.raygun_scene.clone(), models.raygun_graph.clone(), models.raygun_nodes.clone())
+        }
         WeaponId::M17 => (models.m17_scene.clone(), models.m17_graph.clone(), models.m17_nodes.clone()),
         _ => (models.sniper_scene.clone(), models.sniper_graph.clone(), vec![models.sniper_index]),
     };

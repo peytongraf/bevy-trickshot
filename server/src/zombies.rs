@@ -1282,8 +1282,8 @@ fn on_buy_pap(
     let Some(member) = lobby.members.iter_mut().find(|m| m.peer == peer) else {
         return;
     };
-    // (Only a weapon they're carrying.)
-    if !member.weapons.iter().any(|&w| shared::pap::PapWeapon::of(w) == weapon) {
+    // (Only a weapon they're carrying — and never the Exhumer.)
+    if !weapon.packable() || !member.weapons.iter().any(|&w| shared::pap::PapWeapon::of(w) == weapon) {
         return;
     }
     let current = member.pap.get(weapon);

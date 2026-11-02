@@ -20,6 +20,11 @@ pub enum WeaponId {
     /// The M17 pistol — semi-auto, what every `Zombies` player starts with
     /// ([`crate::GameMode::starting_primary`]).
     M17,
+    /// The Exhumer — Der Tempel's wonder weapon (`crate::exhumer`): built on
+    /// the Ray Gun (its model, its handling — [`WeaponId::base`]), but it
+    /// fires no bullet: its beam (aim) draws souls in, its trigger lets
+    /// them out. Its souls are its only ammo; never packed.
+    Exhumer,
 }
 
 /// How fast (m/s) a Ray Gun bolt flies — it hurts nothing until it gets
@@ -229,6 +234,20 @@ pub mod sniper_feel {
 }
 
 impl WeaponId {
+    /// What it's built on — its model, animations and handling: the
+    /// Exhumer's the Ray Gun's; everything else is its own.
+    pub const fn base(self) -> WeaponId {
+        match self {
+            WeaponId::Exhumer => WeaponId::RayGun,
+            other => other,
+        }
+    }
+
+    /// Whether the Pack-a-Punch machine takes it.
+    pub const fn packable(self) -> bool {
+        !matches!(self, WeaponId::Exhumer)
+    }
+
     pub const fn spec(self) -> WeaponSpec {
         match self {
             WeaponId::Sniper => WeaponSpec {
@@ -298,6 +317,17 @@ impl WeaponId {
                 min_damage_fraction: 0.6,
                 lower_body_multiplier: 0.75,
             },
+            WeaponId::Exhumer => WeaponSpec {
+                // It fires no bullet (`crate::exhumer`).
+                max_range: 120.0,
+                muzzle_velocity: f32::INFINITY,
+                gravity: 0.0,
+                base_damage: 0.0,
+                falloff_start: 120.0,
+                headshot_multiplier: 1.0,
+                min_damage_fraction: 1.0,
+                lower_body_multiplier: 1.0,
+            },
             WeaponId::RayGun => WeaponSpec {
                 // The bolt's direct hit, on top of its burst
                 // (`raygun_splash_damage`) — a zombie's head is no softer to
@@ -322,6 +352,7 @@ impl WeaponId {
             WeaponId::Ak74 => 2,
             WeaponId::RayGun => 3,
             WeaponId::M17 => 4,
+            WeaponId::Exhumer => 5,
         }
     }
 
@@ -332,6 +363,7 @@ impl WeaponId {
             2 => Some(WeaponId::Ak74),
             3 => Some(WeaponId::RayGun),
             4 => Some(WeaponId::M17),
+            5 => Some(WeaponId::Exhumer),
             _ => None,
         }
     }
@@ -344,6 +376,7 @@ impl WeaponId {
             WeaponId::Ak74 => "AK-74",
             WeaponId::RayGun => "RAY GUN",
             WeaponId::M17 => "M17",
+            WeaponId::Exhumer => "EXHUMER",
         }
     }
 
@@ -353,7 +386,7 @@ impl WeaponId {
             WeaponId::Sniper => "SNIPER RIFLE",
             WeaponId::Marksman => "MARKSMAN RIFLE",
             WeaponId::Ak74 => "ASSAULT RIFLE",
-            WeaponId::RayGun => "WONDER WEAPON",
+            WeaponId::RayGun | WeaponId::Exhumer => "WONDER WEAPON",
             WeaponId::M17 => "PISTOL",
         }
     }
@@ -376,7 +409,7 @@ impl WeaponId {
     /// Whether a shot keeps going through what it hits (the sniper's
     /// collaterals) — the Ray Gun's bolt bursts on the first.
     pub const fn pierces(self) -> bool {
-        !matches!(self, WeaponId::RayGun)
+        !matches!(self, WeaponId::RayGun | WeaponId::Exhumer)
     }
 
     /// How many more zombies past the first a shot of it goes through in
@@ -389,7 +422,7 @@ impl WeaponId {
         match self {
             WeaponId::Sniper => (3, 0.7),
             WeaponId::Ak74 => (1, 0.5),
-            WeaponId::Marksman | WeaponId::RayGun | WeaponId::M17 => (0, 1.0),
+            WeaponId::Marksman | WeaponId::RayGun | WeaponId::M17 | WeaponId::Exhumer => (0, 1.0),
         }
     }
 
@@ -421,6 +454,16 @@ mod tests {
         assert_eq!(raygun_splash_damage(RAYGUN_SPLASH_RADIUS + 0.01), 0.0);
         assert_eq!(WeaponId::from_u8(WeaponId::RayGun.as_u8()), Some(WeaponId::RayGun));
         assert!(!WeaponId::RayGun.pierces() && WeaponId::Sniper.pierces());
+    }
+
+    #[test]
+    fn the_exhumer_is_built_on_the_ray_gun_but_never_packed() {
+        let ex = WeaponId::Exhumer;
+        assert_eq!(WeaponId::from_u8(ex.as_u8()), Some(ex));
+        assert_eq!(ex.base(), WeaponId::RayGun);
+        assert_eq!(WeaponId::Ak74.base(), WeaponId::Ak74);
+        assert!(!ex.packable() && WeaponId::RayGun.packable());
+        assert!(!ex.full_auto() && !ex.pierces());
     }
 
     #[test]

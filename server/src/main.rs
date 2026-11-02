@@ -26,6 +26,7 @@ mod collision;
 mod crafting;
 mod dogs;
 mod exfil;
+mod exhumer;
 mod rampage;
 mod easter_egg;
 mod field_upgrades;
@@ -98,6 +99,7 @@ fn main() {
         .add_plugins(exfil::ExfilPlugin)
         .add_plugins(rampage::RampagePlugin)
         .add_plugins(easter_egg::EasterEggPlugin)
+        .add_plugins(exhumer::ExhumerPlugin)
         .add_plugins(power_ups::PowerUpsPlugin)
         .add_plugins(wall_buys::WallBuysPlugin)
         .add_plugins(mystery_box::MysteryBoxPlugin)

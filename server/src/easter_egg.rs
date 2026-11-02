@@ -43,6 +43,7 @@ use crate::pvp::{PlayerCombat, ZombieKilled};
 use crate::sim::EYE_HEIGHT;
 use crate::zombies::Zombie;
 
+mod ascension;
 mod fight;
 
 pub(crate) use fight::{Hierophant, Raised};
@@ -57,10 +58,12 @@ impl Plugin for EasterEggPlugin {
             .init_resource::<Unleashings>()
             .init_resource::<fight::Fights>()
             .init_resource::<fight::DebugPokes>()
+            .init_resource::<ascension::Ascents>()
+            .init_resource::<ascension::Returned>()
             .add_observer(fight::on_hierophant_debug)
             .add_systems(
                 FixedUpdate,
-                (drop_vial, run_altar, run_ritual, run_unleashed, fight::run_fight)
+                (drop_vial, run_altar, run_ritual, run_unleashed, fight::run_fight, ascension::run_ascension)
                     .chain()
                     .after(crate::pvp::apply_player_hits),
             );

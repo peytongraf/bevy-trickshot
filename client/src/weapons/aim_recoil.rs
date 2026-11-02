@@ -87,9 +87,9 @@ impl Default for AimRecoilSettings {
 
 impl AimRecoilSettings {
     pub(crate) fn for_weapon(&self, weapon: WeaponId) -> WeaponRecoil {
-        match weapon {
+        match weapon.base() {
             WeaponId::Ak74 => self.ak,
-            WeaponId::RayGun => self.raygun,
+            WeaponId::RayGun | WeaponId::Exhumer => self.raygun,
             WeaponId::M17 => self.m17,
             WeaponId::Sniper | WeaponId::Marksman => self.sniper,
         }

@@ -21,6 +21,7 @@ pub mod dogs;
 pub mod doors;
 pub mod easter_egg;
 pub mod exfil;
+pub mod exhumer;
 pub mod field_upgrade;
 pub mod flash_bang;
 pub mod frag;

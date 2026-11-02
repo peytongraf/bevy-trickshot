@@ -71,9 +71,16 @@ impl EggStep {
     /// Whether he's loose — from the ritual going wrong until he's dead: the
     /// map's changed (green fires, red water, dark sky, thick fog,
     /// flickering lights) and the round's own zombies are held back
-    /// ([`holds_spawns`] — which holds them through [`EggStep::HisDeath`] too).
+    /// ([`holds_spawns`] — which holds them through his death and the souls'
+/// trip into the pyramid too).
     pub fn is_unleashed(self) -> bool {
         matches!(self, EggStep::Unleashed | EggStep::Awakening | EggStep::BossFight)
+    }
+
+    /// Whether the map's gone wrong: while he's loose, and through his
+    /// death until his spirit's in the pyramid.
+    pub fn map_gone_wrong(self) -> bool {
+        self.is_unleashed() || self == EggStep::HisDeath
     }
 }
 
@@ -101,6 +108,20 @@ pub struct EasterEgg {
     /// the egg's set back before the fight.
     #[serde(default)]
     pub hierophant: Option<Hierophant>,
+    /// Up in the pyramid ([`EggStep::Ascension`]): where each player's body
+    /// was left, slumped — set by the server as it starts, in the order
+    /// their souls take the pyramid's spots ([`pyramid_spot`]).
+    #[serde(default)]
+    pub bodies: Vec<SoulBody>,
+}
+
+/// A player's body left below while their soul's up in the pyramid.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SoulBody {
+    pub peer: PeerId,
+    /// Where its feet are, and the way it faced (a `PlayerPose::yaw`).
+    pub feet: Vec3,
+    pub yaw: f32,
 }
 
 /// Who the Hierophant is in a game, the health he came in with (for his
@@ -380,6 +401,41 @@ pub const fn death_spirit_in_secs() -> f32 {
     DEATH_FLY_AT + DEATH_FLY_SECS
 }
 
+// --- into the pyramid ([`EggStep::Ascension`]), in s from it ---------------------------
+
+/// Each player slumps where they stand (the view sinking, darkening)...
+pub const ASCEND_SLUMP_SECS: f32 = 1.6;
+/// ...then their soul leaves the body: rising out of it over this long...
+pub const ASCEND_RISE_SECS: f32 = 1.2;
+/// ...gliding up over the pyramid's apex over this long...
+pub const ASCEND_GLIDE_SECS: f32 = 3.6;
+/// ...and sinking down through it, into the chamber, onto their spot
+/// ([`pyramid_spot`]), over this long.
+pub const ASCEND_DESCEND_SECS: f32 = 2.0;
+/// His last scream (`pyramid_fade.mp3`, 5.8 s), from the chamber's altar,
+/// this long (s) after the souls arrive.
+pub const PYRAMID_FADE_AFTER_SECS: f32 = 1.5;
+
+/// Back in their bodies with the Exhumer ([`EggStep::Complete`]), the man
+/// on the radio's closing word this long (s, not counting pauses) after
+/// (`RadioLine::EggAfterPyramid`).
+pub const AFTER_PYRAMID_RADIO_SECS: f32 = 3.0;
+
+/// When the souls arrive in the chamber, free to move.
+pub const fn ascend_arrive_secs() -> f32 {
+    ASCEND_SLUMP_SECS + ASCEND_RISE_SECS + ASCEND_GLIDE_SECS + ASCEND_DESCEND_SECS
+}
+
+/// Where the `i`th soul arrives in `map`'s pyramid: its spot's feet and the
+/// yaw it faces (a `PlayerPose::yaw` — the way the spot's turned), the
+/// spots taken in turn (round again past the last).
+pub fn pyramid_spot(map: MapId, i: usize) -> Option<(Vec3, f32)> {
+    let spots = &crate::level::layout(map).pyramid_spots;
+    let at = spots.get(i % spots.len().max(1))?;
+    let facing = at.rotation() * Vec3::Z;
+    Some((at.pos, f32::atan2(-facing.x, -facing.z)))
+}
+
 /// How close (m, across the ground) feet have to be to the vial to pick it
 /// up...
 pub const VIAL_REACH: f32 = 1.6;
@@ -480,7 +536,8 @@ pub fn available(lobby: &Lobby) -> bool {
 /// boss of its own comes (and its clocks wait) while he's loose
 /// ([`EggStep::is_unleashed`]) — the round carries on where it was after.
 pub fn holds_spawns(lobby: &Lobby) -> bool {
-    available(lobby) && (lobby.easter_egg.step.is_unleashed() || lobby.easter_egg.step == EggStep::HisDeath)
+    let step = lobby.easter_egg.step;
+    available(lobby) && (step.map_gone_wrong() || step == EggStep::Ascension)
 }
 
 // --- its pieces (placeholders for now — sizes as the models will be made) ---------
@@ -583,6 +640,24 @@ mod tests {
         assert_eq!(HierophantLine::Hurt(1).file(), "hurt_2.mp3");
         assert!(HierophantLine::Death.interrupts() && !HierophantLine::Taunt(0).interrupts());
         assert!(ring_size(1) >= 6 && ring_size(8) == RING_MAX);
+    }
+
+    #[test]
+    fn the_round_waits_for_the_souls_but_the_map_comes_back() {
+        assert!(!EggStep::Ascension.map_gone_wrong());
+        assert!(EggStep::HisDeath.map_gone_wrong() && EggStep::BossFight.map_gone_wrong());
+        assert!(!EggStep::Complete.map_gone_wrong() && !EggStep::Gathering.map_gone_wrong());
+    }
+
+    #[test]
+    fn every_soul_gets_a_spot_in_the_pyramid() {
+        let spots = crate::level::layout(MapId::DerTempel).pyramid_spots.len();
+        assert!(spots > 0, "Der Tempel has its pyramid spots placed");
+        for i in 0..spots * 2 {
+            assert!(pyramid_spot(MapId::DerTempel, i).is_some());
+        }
+        assert_ne!(pyramid_spot(MapId::DerTempel, 0), pyramid_spot(MapId::DerTempel, 1).filter(|_| spots > 1));
+        assert!(pyramid_spot(MapId::Shipment, 0).is_none());
     }
 
     #[test]

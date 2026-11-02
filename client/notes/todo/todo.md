@@ -27,6 +27,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
+- Windows in spawn are too high up. Could just shift down the vertices a certain amount.
 - Fix fire light getting inside temple
 - Re-enable zombie arms-up walk (`ZombieAvatarSettings::arms_up_walk`, off while testing the shambles)
 - Default frame cap to the display's refresh rate (judder when uncapped)

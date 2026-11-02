@@ -77,11 +77,62 @@ rite wakes the Hierophant.
     ever.
     - Inside is a dark chamber with the society's original altar. His
       spirit makes a last scream and fades out for good.
-    - **The wonder weapon** sits on the altar, made from his relic (staff,
-      dagger or skull — TBD). Each player takes one.
-13. **Back to the body:** a white flash and they wake at the altar holding
+    - **The wonder weapon, the Exhumer,** sits on the altar, one for each
+      player (see "The Exhumer" below). Each player takes theirs.
+13. **Back to the body:** once the last of them has taken theirs, a white
+    flash and they all wake in their bodies, where they slumped, holding
     it. The round resumes. Radio closer plays. The easter egg can't be
     done twice in a game.
+
+## The Exhumer (the wonder weapon)
+
+**What it is.** The relic the Hierophant's first rite was done with: the
+instrument that pulls a soul out of a body. It's ancient, and the society
+fitted it with their own hardware later, the same mix of old and modern as
+the dagger and the vial. In game it's the Ray Gun for now, wearing its own
+glowing texture.
+
+**Why it's on the altar.** The first rite didn't only fail. It tore the
+Hierophant's soul out of his body and left it loose, and that tear is what
+"opened the way for the dead." The society built the chamber's altar
+around the relic that did it. While his spirit was loose the relic was
+bound to him, and no one could reach it anyway: the chamber can only be
+entered as a soul. His last scream in the chamber is him fading out for
+good. With him gone nothing holds the relic, and whoever takes it can do
+what he did.
+
+**Why it works on zombies.** The zombies are bodies his rite put souls
+back into. The Exhumer pulls those souls out.
+
+**Why it lifts them.** Souls in this temple go *up*. His spirit fled
+upward into the pyramid, and the squad's own souls have just risen out of
+their bodies and up through the apex. The Exhumer does the same to a
+zombie from a distance: it drags the soul upward, the body comes with it,
+and then the soul tears loose and the empty body drops.
+
+**What it does.** Two triggers, the way Call of Duty's wonder weapons
+work:
+- **Aim (held) draws souls in.** A beam reaches out a short way and takes
+  hold of the zombies it touches. It drains them, and they rise into the
+  air as it does, twisting, a soul-light growing in their chests. When
+  one's drained dead its soul's torn out and streaks back into the
+  Exhumer, and the empty body drops limp. It never runs out, but it takes
+  time: a zombie takes over a second to drain.
+- **Fire lets them out.** One pull sends every soul it holds out at once,
+  one after each of the nearest zombies, and each tears that zombie's
+  soul out. With fewer zombies about than souls, only as many go as
+  there are zombies, and the rest stay in it.
+- **Its souls are its only ammo.** It has no magazines, never reloads,
+  and takes nothing from an ammo crate or a Max Ammo. Its glow burns
+  brighter the more souls it holds.
+- **What it can't lift:** Big Steve, the bosses and the hellhounds. Their
+  souls hold, so the beam drains them far slower, and a soul let out at
+  one only hurts it.
+- There's no aiming down its sights, and it can't be Pack-a-Punched.
+
+**The closing radio line fits it:** "my thermals went quiet for a full
+minute... Don't tell me what you saw up there." What went quiet was the
+squad's own bodies, left without their souls.
 
 **Why the fight comes before the pyramid (recommended):** the scare lands
 best in the map they already know, and the pyramid stays a sacred,

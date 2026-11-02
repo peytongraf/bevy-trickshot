@@ -55,6 +55,7 @@
         (pos: (68.0, 9.9, -20.25), color: (0.924, 0.795, 0.629), intensity: 9500000.0, range: 41.0, radius: 0.3, shadows: false),
         (pos: (0.0, -2.1, 0.0), color: (1.0, 0.95, 0.85), intensity: 16200000.0, range: 132.5, radius: 0.3, shadows: true),
         (pos: (-0.398, 7.55, 3.95), color: (0.243, 0.0, 1.0), intensity: 22500000.0, range: 30.0, radius: 0.3, shadows: true),
+        (pos: (0.0, 14.8, 0.0), color: (1.0, 0.603, 0.995), intensity: 11300000.0, range: 45.5, radius: 0.3, shadows: true),
     ],
     flames: [
         (pos: (1.514, -2.8, 41.832), size: 0.502, height: 2.0, brightness: 1.0, light: 100000.0, range: 10.0, flicker: 0.5),
@@ -108,11 +109,11 @@
     sarcophagus: Some((pos: (0.0, 0.0, -11.396), yaw_deg: -90.0)),
     society_case: Some((pos: (-10.532, -0.0, -2.65), yaw_deg: 19.2)),
     ritual_area: Some((at: (pos: (0.0, 0.5, -0.01), yaw_deg: 0.0), width: 10.8, depth: 12.2)),
-    pyramid_altar: Some((pos: (0.932, 10.0, 2.769), yaw_deg: 24.7)),
+    pyramid_altar: Some((pos: (0.0, 10.1, 0.0), yaw_deg: 180.0)),
     pyramid_spots: [
-        (pos: (0.224, 10.0, -6.347), yaw_deg: 8.6),
-        (pos: (-1.553, 10.0, -5.013), yaw_deg: 37.8),
-        (pos: (1.712, 10.0, -7.427), yaw_deg: 39.8),
-        (pos: (-3.826, 10.0, -4.96), yaw_deg: 39.8),
+        (pos: (0.659, 10.1, -5.971), yaw_deg: 0.0),
+        (pos: (-1.553, 10.1, -5.013), yaw_deg: 10.0),
+        (pos: (3.083, 10.1, -7.086), yaw_deg: -22.0),
+        (pos: (-3.826, 10.1, -4.96), yaw_deg: 25.0),
     ],
 )

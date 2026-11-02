@@ -141,7 +141,8 @@ fn weapon_icon_path(slot: WeaponSlot, primary: shared::weapon::WeaponId) -> &'st
 pub(crate) fn primary_icon_path(primary: shared::weapon::WeaponId) -> &'static str {
     match primary {
         shared::weapon::WeaponId::Ak74 => "textures/icons/weapons/ak_74.png",
-        shared::weapon::WeaponId::RayGun => "textures/icons/weapons/raygun.png",
+        // (The Exhumer's own icon still to be made: the Ray Gun's.)
+        shared::weapon::WeaponId::RayGun | shared::weapon::WeaponId::Exhumer => "textures/icons/weapons/raygun.png",
         shared::weapon::WeaponId::M17 => "textures/icons/weapons/m17.png",
         shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => "textures/icons/weapons/sniper.png",
     }
@@ -456,7 +457,14 @@ pub(crate) fn update_ammo_ui(
         group.display = display;
     }
     set_text(&mut texts.p0(), weapon.mag.to_string());
-    set_text(&mut texts.p1(), weapon.reserve.to_string());
+    // (The Exhumer has no reserve: its souls are its ammo, the big number —
+    // `exhumer` keeps its mag on them.)
+    let small = if weapon.primary == shared::weapon::WeaponId::Exhumer {
+        "SOULS".to_string()
+    } else {
+        weapon.reserve.to_string()
+    };
+    set_text(&mut texts.p1(), small);
     set_text(&mut texts.p2(), weapon.lethal_count().to_string());
 }
 

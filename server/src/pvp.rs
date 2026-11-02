@@ -115,6 +115,11 @@ impl PlayerCombat {
         self.down = Some(crate::revive::LastStand::new(perks, solo));
     }
 
+    /// What `health` starts at (a zombie's for its round).
+    pub(crate) fn max_health(&self) -> f32 {
+        self.max_health
+    }
+
     /// `Zombies`: back up from a last stand — full health, targetable.
     pub(crate) fn revive(&mut self) {
         self.alive = true;
@@ -198,6 +203,8 @@ pub struct PlayerHit {
 pub enum HitCause {
     Gun,
     RayGun,
+    /// The Exhumer's orb, or a soul it tore out (`crate::exhumer`).
+    Exhumer,
     /// A knife stab.
     Melee,
     ThrowingKnife,

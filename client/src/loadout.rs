@@ -234,6 +234,7 @@ pub(crate) fn weapon_stats(weapon: WeaponId) -> [(&'static str, f32); 5] {
         WeaponId::Marksman => (0.35, 0.8, 0.55),
         WeaponId::Ak74 => (0.78, 0.58, 0.72),
         WeaponId::RayGun => (0.4, 0.8, 0.85),
+        WeaponId::Exhumer => (0.3, 0.75, 0.85),
         WeaponId::M17 => (0.5, 0.65, 0.95),
     };
     [

@@ -139,7 +139,7 @@ pub(crate) fn update_ads(
     death: Res<crate::death_effect::DeathEffect>,
     nitro: Res<crate::zombies_hud::NitroBrew>,
     revive: Res<crate::revive::LocalRevive>,
-    (lethal, mantle): (Res<crate::ThrowingKnife>, Res<super::MantleView>),
+    (lethal, mantle, weapon): (Res<crate::ThrowingKnife>, Res<super::MantleView>, Res<super::Weapon>),
 ) {
     if tuning.force_full {
         ads.t = 1.0;
@@ -158,6 +158,9 @@ pub(crate) fn update_ads(
         && !lethal.in_use()
         // (Nor mid-mantle, with the weapon away.)
         && !mantle.busy()
+        // (Nor with the Exhumer in hand: its aim button's its beam —
+        // `exhumer`.)
+        && !weapon.exhumer_in_hand()
         && binds.aim.pressed(&keys, &mouse);
 
     // One-shot cue the instant the player starts / stops aiming.
@@ -231,9 +234,9 @@ pub(crate) fn iron_sight_zoom(
     ray: &super::RayGunSettings,
     m17: &super::M17Settings,
 ) -> Option<f32> {
-    match gun {
+    match gun.base() {
         shared::weapon::WeaponId::Ak74 => Some(ak.ads_zoom),
-        shared::weapon::WeaponId::RayGun => Some(ray.ads_zoom),
+        shared::weapon::WeaponId::RayGun | shared::weapon::WeaponId::Exhumer => Some(ray.ads_zoom),
         shared::weapon::WeaponId::M17 => Some(m17.ads_zoom),
         shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => None,
     }
@@ -313,9 +316,9 @@ pub(crate) fn apply_ads(
         perspective.fov = ads_fov_rad(Optic::current(&settings, &killcam, &weapon, &ak, &ray, &m17), &tuning, ads.t);
     }
 
-    let mut pose = match weapon.primary {
+    let mut pose = match weapon.primary.base() {
         shared::weapon::WeaponId::Ak74 => lerp_pose(&ak.hip, &ak.ads, e),
-        shared::weapon::WeaponId::RayGun => lerp_pose(&ray.hip, &ray.ads, e),
+        shared::weapon::WeaponId::RayGun | shared::weapon::WeaponId::Exhumer => lerp_pose(&ray.hip, &ray.ads, e),
         shared::weapon::WeaponId::M17 => lerp_pose(&m17.hip, &m17.ads, e),
         shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => lerp_pose(&poses.hip, &poses.ads, e),
     };

@@ -51,6 +51,8 @@ const SHADER_ASSET_PATH: &str = "shaders/knife_outline.wgsl";
 
 /// The outline's colour (sRGB).
 pub(crate) const OUTLINE_BLUE: Color = Color::srgb(0.2, 0.6, 1.0);
+/// A wonder weapon's outline (the Exhumer on the pyramid's altar).
+pub(crate) const OUTLINE_YELLOW: Color = Color::srgb(1.0, 0.82, 0.15);
 /// Outline thickness (m) per metre from the camera — about 2 px at 1080p.
 const OUTLINE_WIDTH_PER_M: f32 = 0.004;
 /// Least outline thickness (m), up close.
@@ -358,12 +360,18 @@ fn lethal_in_reach<'a>(
         .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
-/// The nearest dropped weapon in pickup range of the local player, with how
-/// far (squared, from the eye) it is.
-fn weapon_in_reach<'a>(player: &Transform, drops: impl Iterator<Item = &'a WeaponDrop>) -> Option<(WeaponDrop, f32)> {
+/// The nearest dropped weapon in pickup range of the local player (`me`)
+/// that's theirs to take (not another's Exhumer), with how far (squared,
+/// from the eye) it is.
+fn weapon_in_reach<'a>(
+    player: &Transform,
+    drops: impl Iterator<Item = &'a WeaponDrop>,
+    me: Option<lightyear::prelude::PeerId>,
+) -> Option<(WeaponDrop, f32)> {
     let eye = player.translation;
     let feet = eye - Vec3::Y * EYE_HEIGHT;
     drops
+        .filter(|d| d.owner.is_none_or(|o| Some(o) == me))
         .filter(|d| shared::throwing_knife::in_pickup_range(feet, eye, d.pos))
         .map(|d| (*d, d.pos.distance_squared(eye)))
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -527,7 +535,8 @@ fn update_pickup_card(
             });
             let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
                 || crate::mystery_box::usable_in_reach(&local, &lobbies, &player);
-            offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall)
+            let me = local.iter().next().map(|l| l.0);
+            offer(lethal, weapon_in_reach(&player, weapon_drops.iter(), me), wall)
         })
         .flatten();
     card.set_if_neq(if what.is_some() { Visibility::Inherited } else { Visibility::Hidden });
@@ -552,8 +561,16 @@ fn update_pickup_card(
                 0 => drop.weapon.label().to_string(),
                 level => format!("{}  {}", drop.weapon.label(), shared::pap::numeral(level)),
             },
-            if weapon.carries(drop.weapon) { "ALREADY CARRYING".to_string() } else { press },
-            crate::weapon_drops::outline_color(drop.pap),
+            if weapon.carries(drop.weapon) {
+                "ALREADY CARRYING".to_string()
+            } else if drop.owner.is_some() {
+                // (The Exhumer, off the pyramid's altar: taken, not swapped
+                // where it lies.)
+                format!("PRESS {} TO TAKE", binds.interact.label().to_uppercase())
+            } else {
+                press
+            },
+            crate::weapon_drops::drop_outline(&drop),
         ),
     };
     let (mut title_text, mut title_color) = title.into_inner();
@@ -628,7 +645,8 @@ fn swap_lethal(
     let lethal = lethal_in_reach(&player, knives.iter(), dropped(&drops), |k| !auto_kind(&weapon, k));
     let wall = crate::wall_buys::buyable_in_reach(&local, &lobbies, &weapon, &player)
                 || crate::mystery_box::usable_in_reach(&local, &lobbies, &player);
-    match offer(lethal, weapon_in_reach(&player, weapon_drops.iter()), wall) {
+    let me = local.iter().next().map(|l| l.0);
+    match offer(lethal, weapon_in_reach(&player, weapon_drops.iter(), me), wall) {
         Some(Offer::Lethal(kind)) => {
             request_pickup(kind, weapon.carried_other_than(kind), &mut senders);
             pending.0 = Some(now);

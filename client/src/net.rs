@@ -545,6 +545,8 @@ pub(crate) fn write_input(
         action.melee_hit = claim;
     }
     action.stabbing = stab.stabbing;
+    // The Exhumer's beam (`exhumer`) — the server drains what it touches.
+    action.beaming = weapon.beaming;
     // Kill-cam recording: the camera-shake state, weapon-sway offset and hip
     // FOV, so a replay can reproduce shake / recoil / sway and render at this
     // player's FOV instead of re-deriving an absolute camera transform that
@@ -1219,6 +1221,7 @@ fn shot_anim_speed(
     let interval = match weapon {
         shared::weapon::WeaponId::Ak74 => ak.fire_interval,
         shared::weapon::WeaponId::RayGun => raygun.fire_interval,
+        shared::weapon::WeaponId::Exhumer => shared::exhumer::RELEASE_COOLDOWN_SECS,
         // (Semi-auto: about as fast as a trigger's really tapped.)
         shared::weapon::WeaponId::M17 => m17.fire_interval.max(0.25),
         shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => return 1.0,

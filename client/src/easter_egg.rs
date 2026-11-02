@@ -65,6 +65,8 @@ use crate::net::GameClient;
 use crate::zombies_hud::zombies_game;
 use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
+pub(crate) use ascension::{EggSoul, EggSoulSettings, EggSoulView};
+mod ascension;
 mod death;
 mod fight;
 mod music;
@@ -77,7 +79,7 @@ pub(crate) struct EasterEggPlugin;
 
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin))
+        app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin, ascension::AscensionPlugin))
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -161,8 +163,6 @@ pub(crate) struct EggPlaceholders {
     vial: (Handle<Mesh>, Handle<StandardMaterial>),
     /// The ritual's: the dagger, the pool of blood (a unit disc) and the
     /// channel (a unit box, stretched) — and their materials.
-    ritual_dagger: Handle<Mesh>,
-    steel: Handle<StandardMaterial>,
     pool: Handle<Mesh>,
     channel: Handle<Mesh>,
     glowing_blood: Handle<StandardMaterial>,
@@ -192,6 +192,45 @@ pub(crate) const SARCOPHAGUS_MODEL: &str = "models/props/sarcophagus.glb";
 /// Its lid's object, by name.
 const LID_NODE: &str = "sarcophagus_lid";
 
+/// The altar in the pyramid's chamber (where the Exhumers lie): a base, its
+/// body and a flat top at 1 m, origin on the ground under its middle, its
+/// front facing +z. (Its UVs are an even box projection — see the easter
+/// egg's `todo.md` on re-exporting it.)
+pub(crate) const PYRAMID_ALTAR_MODEL: &str = "models/props/pyramid_altar.glb";
+
+/// The Hierophant's dagger (`models/props/hierophant_dagger.glb`, the 1k
+/// textures — a 4k copy waits unused in `client/model_src/easter_egg/` for
+/// a close-up, such as a first-person hand cut). As made it lies along +Z,
+/// its tip that way, its flat facing ±X, [`DAGGER_MADE_LENGTH`] long; it's
+/// drawn [`DAGGER_LENGTH`] long.
+pub(crate) const DAGGER_MODEL: &str = "models/props/hierophant_dagger.glb";
+const DAGGER_MADE_LENGTH: f32 = 4.45;
+const DAGGER_LENGTH: f32 = 0.35;
+
+/// How the dagger's held: lying flat (in the society's case), or point
+/// down (driven into the altar in the ritual).
+#[derive(Clone, Copy)]
+enum DaggerPose {
+    Flat,
+    PointDown,
+}
+
+/// The dagger's model at `at` (its middle), posed `pose`.
+fn dagger(asset_server: &AssetServer, at: Vec3, pose: DaggerPose) -> impl Bundle {
+    let rotation = match pose {
+        // (Its flat, ±X as made, up.)
+        DaggerPose::Flat => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        // (Its tip, +Z as made, down.)
+        DaggerPose::PointDown => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+    };
+    (
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DAGGER_MODEL))),
+        Transform::from_translation(at)
+            .with_rotation(rotation)
+            .with_scale(Vec3::splat(DAGGER_LENGTH / DAGGER_MADE_LENGTH)),
+    )
+}
+
 /// `piece`'s look under `root` (its root, placed): its model, or its
 /// placeholder boxes until it has one — for the game and the level editor
 /// alike. In game (`in_game`), the sarcophagus' lid is found once its model's
@@ -205,6 +244,17 @@ pub(crate) fn spawn_piece_look(
 ) {
     for part in placeholders.parts(piece) {
         root.spawn(part);
+    }
+    // The dagger in the society's case, lying flat on its stand (gone once
+    // it's taken — `show_case_parts`).
+    if piece == EggPiece::SocietyCase {
+        root.spawn((PartRole::Dagger, Visibility::default(), dagger(asset_server, Vec3::Y * 0.812, DaggerPose::Flat)));
+    }
+    if piece == EggPiece::PyramidAltar {
+        root.spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PYRAMID_ALTAR_MODEL))),
+            Transform::IDENTITY,
+        ));
     }
     if piece == EggPiece::Sarcophagus {
         let mut model = root.spawn((
@@ -265,12 +315,8 @@ fn make_placeholders(
             ..default()
         })
     };
-    let stone = material(Color::srgb(0.32, 0.29, 0.25), 0.0, 0.9);
-    let dark_stone = material(Color::srgb(0.18, 0.16, 0.15), 0.0, 0.9);
     let wood = material(Color::srgb(0.24, 0.13, 0.07), 0.0, 0.7);
     let glass = material(Color::srgba(0.7, 0.85, 0.9, 0.25), 0.0, 0.05);
-    let steel = material(Color::srgb(0.7, 0.7, 0.72), 1.0, 0.25);
-    let blood = material(Color::srgb(0.35, 0.02, 0.03), 0.0, 0.5);
     let vial_glass = materials.add(StandardMaterial {
         base_color: Color::srgb(0.5, 0.02, 0.04),
         emissive: LinearRgba::rgb(4.0, 0.1, 0.15),
@@ -285,12 +331,8 @@ fn make_placeholders(
     let parts = vec![
         // The case: a wooden stand, the dagger lying in a glass box on it.
         part(EggPiece::SocietyCase, PartRole::Solid, Vec3::new(0.6, 0.8, 0.4), Vec3::Y * 0.4, &wood),
-        part(EggPiece::SocietyCase, PartRole::Dagger, Vec3::new(0.06, 0.02, 0.35), Vec3::new(0.0, 0.82, 0.0), &steel),
         part(EggPiece::SocietyCase, PartRole::CaseGlass, Vec3::new(0.8, 0.5, 0.5), Vec3::Y * 1.05, &glass),
-        // The pyramid's altar: a dark block, a stone slab on top, stained.
-        part(EggPiece::PyramidAltar, PartRole::Solid, Vec3::new(1.8, 0.9, 1.0), Vec3::Y * 0.45, &dark_stone),
-        part(EggPiece::PyramidAltar, PartRole::Solid, Vec3::new(1.9, 0.1, 1.1), Vec3::Y * 0.95, &stone),
-        part(EggPiece::PyramidAltar, PartRole::Solid, Vec3::new(0.9, 0.01, 0.5), Vec3::Y * 1.005, &blood),
+        // (The pyramid's altar has its model — `PYRAMID_ALTAR_MODEL`.)
     ];
     let glowing_blood = materials.add(StandardMaterial {
         base_color: Color::srgb(0.45, 0.01, 0.02),
@@ -301,8 +343,6 @@ fn make_placeholders(
     commands.insert_resource(EggPlaceholders {
         parts,
         vial,
-        ritual_dagger: meshes.add(Cuboid::new(0.06, 0.35, 0.02)),
-        steel: steel.clone(),
         pool: meshes.add(Cylinder::new(1.0, 0.02)),
         channel: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
         glowing_blood,
@@ -779,6 +819,7 @@ fn sync_ritual_fx(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     placeholders: Res<EggPlaceholders>,
+    asset_server: Res<AssetServer>,
     roots: Query<Entity, With<RitualFx>>,
     mut commands: Commands,
 ) {
@@ -800,7 +841,9 @@ fn sync_ritual_fx(
     commands
         .spawn((StateScoped(AppState::InGame), RitualFx, Transform::IDENTITY, Visibility::default()))
         .with_children(|fx| {
-            fx.spawn((RitualPart::Dagger, Mesh3d(p.ritual_dagger.clone()), MeshMaterial3d(p.steel.clone()), Visibility::Hidden));
+            // (The ritual moves its root; the model's point down under it.)
+            fx.spawn((RitualPart::Dagger, Transform::default(), Visibility::Hidden))
+                .with_child(dagger(&asset_server, Vec3::ZERO, DaggerPose::PointDown));
             fx.spawn((RitualPart::Vial, Mesh3d(p.vial.0.clone()), MeshMaterial3d(p.vial.1.clone()), Visibility::Hidden));
             fx.spawn((RitualPart::Pool, Mesh3d(p.pool.clone()), MeshMaterial3d(p.glowing_blood.clone()), Visibility::Hidden));
             fx.spawn((RitualPart::Channel, Mesh3d(p.channel.clone()), MeshMaterial3d(p.glowing_blood.clone()), Visibility::Hidden));
@@ -1235,6 +1278,12 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     fight_settings: ResMut<'w, EggFightSettings>,
     death_settings: ResMut<'w, death::EggDeathSettings>,
     death: Res<'w, death::EggDeath>,
+    soul_settings: ResMut<'w, ascension::EggSoulSettings>,
+    exhumer: ResMut<'w, crate::exhumer::ExhumerFxSettings>,
+    // (Not `Weapon` or a `GiveWeapon` sender: the debug panel's system
+    // already has both, elsewhere — `exhumer::ExhumerDebug` goes between.)
+    exhumer_debug: ResMut<'w, crate::exhumer::ExhumerDebug>,
+    soul: Res<'w, EggSoul>,
     music_settings: ResMut<'w, music::EggMusicSettings>,
     music_levels: Res<'w, music::EggMusicLevels>,
     ambient_level: Res<'w, crate::zombies_audio::ZombiesAmbientLevel>,
@@ -1287,6 +1336,11 @@ impl EasterEggDebug<'_, '_> {
             fight::send_poke(&mut tx, action);
         }
         ui.collapsing("His death", |ui| death::death_section(ui, &mut self.death_settings, &self.death));
+        ui.collapsing("Into the pyramid", |ui| ascension::ascension_section(ui, &mut self.soul_settings, &self.soul));
+        let in_zombies = zombies_game(&self.local, &self.lobbies).is_some();
+        ui.collapsing("The Exhumer", |ui| {
+            crate::exhumer::exhumer_section(ui, &mut self.exhumer, &mut self.exhumer_debug, in_zombies)
+        });
         let me = self.local.iter().next().map(|l| l.0);
         let game = zombies_game(&self.local, &self.lobbies).filter(|l| shared::easter_egg::available(l));
         let Some(lobby) = game else {

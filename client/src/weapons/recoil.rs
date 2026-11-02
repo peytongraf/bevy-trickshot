@@ -291,6 +291,7 @@ pub(crate) fn camera_shake(
     ads: Res<Ads>,
     quake: Res<crate::earthquake::Quake>,
     egg: Res<crate::easter_egg::EggCameraShake>,
+    soul: Res<crate::easter_egg::EggSoulView>,
     mut shake: ResMut<Shake>,
     mut rig: Single<&mut Transform, (With<CameraShake>, Without<CameraRecoil>)>,
     mut recoil_node: Single<&mut Transform, (With<CameraRecoil>, Without<CameraShake>)>,
@@ -321,8 +322,9 @@ pub(crate) fn camera_shake(
     shake.step_kick(&cfg, dt);
 
     // (Under it, an earthquake's rumble, if one's on — `earthquake.rs` —
-    // and the easter egg's Hierophant waking, `easter_egg::wake`.)
-    let want = quake.offset * egg.0 * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_camera_pose(shake.kick);
+    // and the easter egg's Hierophant waking, `easter_egg::wake`, and our
+    // slump as our soul leaves us, `easter_egg::ascension`.)
+    let want = soul.0 * quake.offset * egg.0 * shake_camera_pose(&cfg, ads.t, shake.trauma, shake.phase) * kick_camera_pose(shake.kick);
     if **rig != want {
         **rig = want;
     }

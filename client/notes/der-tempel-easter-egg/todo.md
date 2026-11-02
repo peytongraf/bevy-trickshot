@@ -5,15 +5,136 @@ item at a time. Each code step uses placeholder models and sounds, and has
 a **Test** line so you can check it before moving on. **[you]** marks the
 asset work that's yours; until it's done, that step runs on placeholders.
 
+# Bugs / fix
+
+- Blood on the ground should look real
+- Add hand cutting animation for current and remote players with blood effect
+- Should text on screen have a quote that is read aloud?
+- Boss zombie should be more difficult. It should spawn closer to player when teleporting. It should have a long range attack as well like a purple electric thing like frieze used to blow up planets similar to big steves orange blast
+- Boss zombie should be faster
+- on phase 3 zombies should spawn in and also dogs too to make it more intense
+- wonder weapon beam should look much better
+- when floating zombies they shouldn't jump quickly. They should instead smoothly float up as the beam is held on them
+- Beam should have a wider radius so that the player doesn't have to perfectly be aimed on zombies to hit them with the sucking beam.
+- Soul of boss zombie, and of sucking and shooting zombies should look more realistic
+- particle animation that is shown after top is blown of sarcophagus should look more realistic
+
 ## Next session: start here
 
-Where things stand (Nov 1): steps through **his death** (step 10) are
-built. "It goes wrong", "He wakes", phases 1–3 and the music are tested.
-The wake-up's body standing up as the lid flew off is fixed (a seek to
-the death clip's very end wrapped round to its first frame). His death
-needs testing: in the debug panel, "The fight" → "Kill him" (or jump to
-"His death"). Next up is **the astral projection** (step 12 below; step
-11 is yours).
+Where things stand (Nov 1): **every code step is built (1–17).** The
+whole egg plays start to finish on placeholders, and it's tested through
+the Exhumer. Still to test: the finish (step 16, below). What's left is
+**your assets** (the `[you]` steps and "Models needed"): each drops in
+where its placeholder is, and some need a small hook-up from me then
+(noted on each). Also: the operators' easter egg quotes, still to be
+recorded. Wire them up with care: time them so they never talk over his
+lines or the radio.
+
+- **The finish as built** (Nov 1, needs testing): once every soul has
+  taken its Exhumer, the server moves to Complete (everyone's flashed
+  back into their bodies). 3 s later (`AFTER_PYRAMID_RADIO_SECS`) the
+  man on the radio has his closing line (`RadioLine::EggAfterPyramid`,
+  `ascension::Returned`). Complete stays for the rest of the game:
+  nothing earlier can start again (the vial drop, whispers, altar and
+  ritual all key off their own step), and `lobby` resets the egg to
+  default at the next game's start and end. The changelog line is in
+  (0.4.10, kept vague).
+- **The pyramid altar model is in** (Nov 1):
+  `models/props/pyramid_altar.glb` (base, body and a flat top at 1 m),
+  in game and in the level editor. Its UVs were Blender's default cube
+  ones, with the base's scale unapplied, so the marble stretched
+  differently on every face. They were rewritten in the `.glb` as an even
+  box projection (1 m per repeat). **Re-exporting from Blender will bring
+  the old UVs back** unless they're fixed there too: Ctrl+A → Scale on
+  each piece, then in Edit Mode select all → U → Cube Projection, Cube
+  Size 1.0. (Or Smart UV Project, then scale the islands to match.)
+- **The dagger model is in** (Nov 1):
+  `models/props/hierophant_dagger.glb` (the 1k textures). It lies flat
+  in the society's case and is driven point down into the altar in the
+  ritual (`easter_egg::dagger`, `DaggerPose`). The model's a 4.45 m
+  "redSword" as exported, scaled to 35 cm (`DAGGER_LENGTH`). The 4k copy
+  is in `client/model_src/easter_egg/hierophant_dagger_4k.glb`, unused
+  and outside `assets/` so it doesn't ship. It's there for a close-up
+  later, such as a first-person hand cut in the ritual.
+
+- **The Exhumer as built** (Nov 1, reworked to two triggers, needs
+  testing): `shared/src/exhumer.rs` (what it does, all its numbers),
+  `server/src/exhumer.rs`, `client/src/exhumer.rs`.
+  - It's `WeaponId::Exhumer`, built on the Ray Gun: `WeaponId::base()`
+    gives it the Ray Gun's model, clips and grips. It fires no bullet
+    (`sim` skips its shots) and has no ADS (`weapons::ads` skips it).
+  - **Aim (held): the beam.** `Weapon::beaming` →
+    `PlayerInput::beaming` → `PlayerPose::beaming` (only with it in
+    hand). The server (`run_beams`) holds the nearest 3 zombies within
+    0.8 m of its line, out to 18 m or the first wall. It drains an
+    ordinary one by a share of its health (dead in 1.4 s at any round)
+    and holds it in place; bosses, Big Steve and hellhounds drain at 150
+    a second. What's drained is applied every 0.25 s (`ExhumerDrain`
+    tells the clients how far, and they lift the bodies up to 2.2 m with
+    it). One drained dead is the shooter's kill and points: its soul's
+    torn out into the gun (`ExhumerSouls`) and the body's thrown limp
+    out of the air (a ragdoll). Clients draw every beam (a glowing core,
+    a light, motes drawn back into the gun, the `beam.mp3` hum).
+  - **Fire: let them out.** `ReleaseSouls` (1 s cooldown): one soul after
+    each of the nearest zombies within 50 m, as many as it holds but
+    only as many as there are zombies; the rest are kept (`ExhumerSwarm`,
+    16 m/s). Each tears its zombie's soul out (no soul back). What can't
+    be lifted takes 900 damage instead.
+  - **Souls are its only ammo:** up to 24, the server's count per player
+    per game, starting at 0. The client mirrors it into the mag
+    (`sync_soul_mag`) and the HUD reads "n SOULS". No reload, no crate,
+    no Max Ammo, no Pack-a-Punch. The camo's glow grows with them
+    (`pap.rs`: `wonder_glow` → `wonder_charged_glow`).
+  - Its texture is `textures/camos/exhumer.webp`, always worn, scrolling
+    like the Pack-a-Punch camo.
+  - On the altar: one per soul (`WeaponDrop` with an `owner`), yellow
+    outline, "PRESS F TO TAKE". The gun swapped for it drops by that
+    player's body. Once every soul carries one, it's Complete: everyone's
+    flashed back into their body.
+  - Placeholder sounds in `audio/zombies/exhumer/`: `beam.mp3` (its
+    hum), `lift.mp3` (the beam taking hold), `soul_tear.mp3`,
+    `release.mp3`. Letting the souls out also plays the Ray Gun's shot
+    for now.
+  - The numbers are first guesses (`shared::exhumer`).
+- **No operator kill quotes for him** (Nov 1): `quotes::kill_quotes`
+  skips a kill whose victim is the Hierophant. Normal kills still get
+  them. When the operators' easter egg lines go in, make sure they're
+  timed so they don't overlap his lines or the radio's.
+- **The astral projection as built** (`client/src/easter_egg/ascension.rs`,
+  `server/src/easter_egg/ascension.rs`, built Nov 1, needs testing):
+  - As Ascension starts, the server records each player's body
+    (`EasterEgg::bodies`: feet and yaw, in join order, which is also
+    the order of the pyramid spots, `pyramid_spot`). It gets anyone
+    who's down back up. A player who's bled out stays out.
+  - `holds_spawns` now covers Ascension too, and so does
+    `bots_hold_fire`. The map's own look follows `map_gone_wrong()`, so
+    it still comes back as his spirit goes in.
+  - Each client, from Ascension's start (`ASCEND_*` in `shared`):
+    - 0–1.6 s: the view sinks 1.2 m, tips over and darkens
+      (`EggSoulView`, layered in `camera_shake`).
+    - 1.6 s: the soul leaves. `float_up.mp3` plays, the world is
+      washed out with a pale tint, and the gun is hidden
+      (`revive::apply_down_view`). Every body crumples where it was
+      left (`soldier.glb`'s death clip, played once and held).
+    - It rises 2.5 m (1.2 s), glides in an arc to 14 m over the
+      pyramid spots (3.6 s), then sinks down through the apex onto its
+      spot (2 s). Input is locked until then (`EggSoul::locked` in
+      `menu::game_active`).
+    - In the chamber, players walk about with no weapon, with
+      `chamber_ambience.mp3` looping. 1.5 s after arriving, his
+      `pyramid_fade.mp3` scream comes from the pyramid altar with a
+      green glow that flickers out.
+  - Leaving Ascension (step 14 will do it; for now the "Complete"
+    jump): a white flash, and each player is back in their body where
+    it lay.
+  - Sounds are placeholders at their final paths:
+    `audio/zombies/easter_egg/pyramid/float_up.mp3` (a copy of the
+    wake-up's spirit) and `chamber_ambience.mp3` (a copy of the power
+    station hum). Record over them.
+  - Tune it in the panel under "Into the pyramid".
+  - Other players' souls float up as their normal soldier models. A
+    ghostly look for them (and for players in the chamber) can come
+    later.
 
 - **His death as built** (`client/src/easter_egg/death.rs`, built Nov 1,
   needs testing):
@@ -113,8 +234,8 @@ needs testing: in the debug panel, "The fight" → "Kill him" (or jump to
     - `hurt_*` when he loses 5% of his health within 0.75 s (at most
       every 9 s);
     - `phase_2`, `phase_3`, and `death` when he dies.
-    He never talks over himself; the phase and death lines cut in. His
-    avatar has no boss growls or death roar (`boss::BossVoiced`).
+      He never talks over himself; the phase and death lines cut in. His
+      avatar has no boss growls or death roar (`boss::BossVoiced`).
 - **Recordings are all in** (Nov 1): every Hierophant line plus the three
   phase-2 sounds. `WAKE_SCREAM_SECS` is now 8.28 to match the new
   `wake.mp3`. Operator easter-egg quotes are still to come (the user
@@ -262,7 +383,7 @@ Where the code is:
 - Layout fields `sarcophagus`, `society_case`, `ritual_area`,
   `pyramid_altar` and `pyramid_spots` are in `shared/src/level.rs`. The
   editor objects are `ObjectId::{Sarcophagus, SocietyCase, RitualArea,
-  PyramidAltar, PyramidSpot}` in `client/src/level_editor/`.
+PyramidAltar, PyramidSpot}` in `client/src/level_editor/`.
 - The ritual locks input through `EggRitual` in `menu::game_active` /
   `weapon_active`, and zombies hold fire through `Lobby::bots_hold_fire`.
 
@@ -271,8 +392,8 @@ Where the code is:
 ### Gathering
 
 1. **[you]** Model the vial and record its pickup sound.
-2. **[you]** Model the society case (shut and open) and the dagger, and
-   record the case-unlock sound.
+2. **[you]** Model the society case (shut and open) and record the
+   case-unlock sound. (The dagger's done.)
 
 ### The ritual
 
@@ -307,15 +428,15 @@ Where the code is:
    **Test:** use the debug panel to spawn him (jump to "Boss fight"); he
    chases, hits and taunts, and can be killed.
 8. **Phase 2 (66%) (built, needs testing):** he raises a ring of zombies
-    and teleports, sinking into the ground and rising out of it near a
-    player (changed from the fire bowls).
-    **Test:** use a debug button to set his health; check the zombie ring
-    and the teleports.
+   and teleports, sinking into the ground and rising out of it near a
+   player (changed from the fire bowls).
+   **Test:** use a debug button to set his health; check the zombie ring
+   and the teleports.
 9. **Phase 3 (33%) (built, needs testing):** he's enraged and faster,
-    in blood-red fog with glowing eyes, turning red himself; each new
-    phase shakes the ground.
-    **Test:** use a debug button to set his health; check that he's faster
-    and the fog comes in.
+   in blood-red fog with glowing eyes, turning red himself; each new
+   phase shakes the ground.
+   **Test:** use a debug button to set his health; check that he's faster
+   and the fog comes in.
 10. **His death (built, needs testing):** the body collapses, his spirit
     flies screaming into the pyramid, and the environment goes back to
     normal.
@@ -326,25 +447,34 @@ Where the code is:
 
 11. **[you]** Model the pyramid's inner chamber and its altar, and record
     the sound for floating up and the chamber's ambience.
-12. **Astral projection:** the players' bodies slump at the altar, their
-    souls float up through the pyramid's apex into the chamber, and the
-    zombies pause.
+12. **Astral projection (built, needs testing):** the players' bodies
+    slump where they stand, their souls float up through the pyramid's
+    apex into the chamber, and the zombies pause.
     **Test:** use the debug button to jump to after the boss's death; float
     up, look around, and check that nothing can hurt the bodies left below.
-13. **[you]** Model and animate the wonder weapon and record its sounds:
-    firing, reloading and pickup. Decide what it does, plus its magazine
-    sizes for each Pack-a-Punch level.
-14. **The wonder weapon:** one for each player, taken from the chamber
-    altar, then a white flash and they wake at the altar holding it.
+13. **[you]** Model and animate the Exhumer (it uses the Ray Gun until
+    then) and record its sounds: the beam's hum, it taking hold, a soul
+    tearing out, letting the souls out, and pickup. Make its HUD icon. (Decided: it
+    lifts zombies and tears their souls out, has no magazines, and can't
+    be Pack-a-Punched — see `story.md`.)
+14. **The wonder weapon (built, needs testing):** one Exhumer for each
+    player on the chamber's altar. Once they've all taken theirs, a white
+    flash and they wake in their bodies holding it.
     **Test:** take it; you're back below with the gun, and the round
     carries on.
-15. **The wonder weapon's behaviour + Pack-a-Punch upgrades.**
-    **Test:** shoot zombies at each Pack-a-Punch level.
-16. **Finish:** the final radio line (`RadioLine::EggAfterPyramid`, recorded) plays, the egg can't be done twice in
-    one game, and everything resets.
+15. **The Exhumer's behaviour (built, needs testing):** the beam on aim
+    (draining, lifting, souls in) and the release on fire.
+    **Test:** hold aim on a crowd and watch them rise and the souls come
+    in; fire with fewer zombies about than souls and check the rest are
+    kept; check the HUD count, the camo brightening, and that
+    Pack-a-Punch, the ammo crate, Max Ammo and reloading do nothing.
+16. **Finish (built, needs testing):** the final radio line
+    (`RadioLine::EggAfterPyramid`) plays 3 s after they're back, the egg
+    can't be done twice in one game, and everything resets.
     **Test:** a full run start to finish, solo and with 2 players, then a
     new game to check that nothing carries over.
-17. **Changelog line** (keep it vague so it doesn't spoil the easter egg).
+17. **Changelog line (done):** "Der Tempel: the temple is hiding a
+    secret..." (0.4.10).
 
 ## Models needed
 
@@ -359,13 +489,13 @@ fixes that.
   brass keypad or lock. It looks out of place in the ruins. Make the
   **glass lid / door a separate object** so it can open. Leave the dagger
   out; it's its own model.
-- **Hierophant's dagger** (about 35 cm long): ceremonial, with a curved
-  black blade, a bone or gold handle, and the society's sigil on the
-  pommel. Needs a first-person version for the ritual animation.
+- **Hierophant's dagger**: done (`models/props/hierophant_dagger.glb`).
+  A first-person version for the ritual animation can use the 4k copy in
+  `client/model_src/easter_egg/`.
 - **Barrett's vial** (about 12 cm): a sealed lab vial of glowing dark-red
   blood, with a metal cap and a printed society tag reading "Vessel
   candidate 07". Clinical and modern, unlike the dagger.
-- **Pyramid altar** (1.8 m wide, 1 m tall, 1 m deep): older and rougher
+- **Pyramid altar**: done (`models/props/pyramid_altar.glb`). Was: (1.8 m wide, 1 m tall, 1 m deep): older and rougher
   than the tomb's, black stone, blood-stained, with candles and a slot or
   stand on top for the wonder weapon.
 - **Pyramid inner chamber**: a dark room inside the pyramid's top, with
@@ -377,11 +507,22 @@ fixes that.
   with long fingers, ritual scars and the sigil branded on his chest.
   Glowing eyes once he's awake. Needs to be rigged. The animations are
   listed in his step below.
-- **Wonder weapon**: made from his relic (staff, dagger or skull — still
-  to be decided).
+- **The Exhumer (wonder weapon)**: the relic the first rite was done
+  with, an ancient soul-pulling instrument later fitted with the
+  society's hardware (see `story.md`). Built like a view model gun, the
+  Ray Gun's size (about 45 cm). Its camo parts wear
+  `textures/camos/exhumer.webp`.
 
 ## Done
 
+- Pyramid altar model in (UVs evened out)
+- The finish: closing radio line, done for the game
+- Changelog line
+- Dagger model in (case and ritual)
+- The Exhumer (wonder weapon) on the altar
+- Exhumer abilities: beam on aim, release on fire
+- Astral projection into the pyramid
+- No operator quotes for killing him
 - Sarcophagus model swapped in
 - His voice never muffled by walls
 - His death (spirit flees into the pyramid)

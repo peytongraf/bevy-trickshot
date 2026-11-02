@@ -237,6 +237,8 @@ fn update_pap_prompt(
     let held = held_weapon(&weapon);
     let line = if !shared::power::has_power(lobby.map, lobby.power_on) {
         "The power must be activated first".to_string()
+    } else if !held.packable() {
+        format!("The {} can't be packed", held_label(&weapon))
     } else if my_pap_levels(&local, &lobbies).get(held) >= MAX_LEVEL {
         format!("Your {} is fully packed", held_label(&weapon))
     } else {
@@ -278,6 +280,10 @@ fn open_pap_menu(
         return;
     }
     let held = held_weapon(&weapon);
+    // (Never the Exhumer.)
+    if !held.packable() {
+        return;
+    }
     let current = my_pap_levels(&local, &lobbies).get(held);
     *state = PapMenu {
         weapon: held,

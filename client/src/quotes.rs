@@ -197,6 +197,8 @@ fn ammo_quotes(
     }
     let held = weapon.held_weapon();
     let state = match held {
+        // (Its souls are its ammo, and come and go: nothing to say.)
+        SlotWeapon::Gun(shared::weapon::WeaponId::Exhumer) => AmmoState::Plenty,
         SlotWeapon::Gun(_) => {
             let (mag, reserve) = weapon.held_ammo();
             ammo_state(mag, reserve)

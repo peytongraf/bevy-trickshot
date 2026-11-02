@@ -30,8 +30,23 @@ use crate::sim::EYE_HEIGHT;
 
 /// The server side of one [`WeaponDrop`]: whose game it's in.
 #[derive(Component)]
-struct DropSim {
-    lobby: Entity,
+pub(crate) struct DropSim {
+    pub(crate) lobby: Entity,
+}
+
+/// Lay `drop` in `lobby_e`'s game, for its players to see (and take).
+pub(crate) fn spawn_drop<'a>(
+    commands: &'a mut Commands,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    drop: WeaponDrop,
+) -> EntityCommands<'a> {
+    commands.spawn((
+        Name::from("WeaponDrop"),
+        drop,
+        DropSim { lobby: lobby_e },
+        Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+    ))
 }
 
 pub struct WallBuysPlugin;
@@ -92,21 +107,17 @@ pub(crate) fn swap_into_slot(
     let dropped_pap = member.pap.get(PapWeapon::of(dropped));
     let seed = (feet.x * 7.31 + feet.z * 3.17).fract().abs();
     let pos = shared::molotov::drop_spot(feet, seed, &colliders.for_lobby(lobby));
-    let real = lobby.real_peers();
-    commands.spawn((
-        Name::from("WeaponDrop"),
-        WeaponDrop {
-            weapon: dropped,
-            pap: dropped_pap,
-            // (Only a gun's rounds mean anything.)
-            mag: if dropped.gun().is_some() { mag } else { 0 },
-            reserve: if dropped.gun().is_some() { reserve } else { 0 },
-            pos,
-            yaw: seed * std::f32::consts::TAU,
-        },
-        DropSim { lobby: lobby_e },
-        Replicate::to_clients(NetworkTarget::Only(real)),
-    ));
+    let drop = WeaponDrop {
+        weapon: dropped,
+        pap: dropped_pap,
+        // (Only a gun's rounds mean anything.)
+        mag: if dropped.gun().is_some() { mag } else { 0 },
+        reserve: if dropped.gun().is_some() { reserve } else { 0 },
+        pos,
+        yaw: seed * std::f32::consts::TAU,
+        owner: None,
+    };
+    spawn_drop(commands, lobby_e, lobby, drop);
     let member = lobby.members.iter_mut().find(|m| m.peer == peer)?;
     member.pap.set(PapWeapon::of(dropped), 0);
     member.pap.set(PapWeapon::of(taken), pap);
@@ -236,13 +247,22 @@ fn on_pick_up_weapon(
     let nearest = drops
         .iter()
         .filter(|(_, sim, d)| {
-            sim.lobby == lobby_e && in_server_pickup_range(feet, eye, d.pos) && !carried.contains(&d.weapon)
+            sim.lobby == lobby_e
+                && in_server_pickup_range(feet, eye, d.pos)
+                && !carried.contains(&d.weapon)
+                && d.owner.is_none_or(|o| o == peer)
         })
         .min_by(|a, b| a.2.pos.distance_squared(eye).total_cmp(&b.2.pos.distance_squared(eye)));
     let Some((entity, _, drop)) = nearest else {
         return;
     };
     let drop = *drop;
+    // (An Exhumer off the pyramid's altar: what it's swapped for drops by
+    // the body they left below, not up in the chamber.)
+    let feet = match drop.owner {
+        Some(_) => lobby.easter_egg.bodies.iter().find(|b| b.peer == peer).map_or(feet, |b| b.feet),
+        None => feet,
+    };
     if swap_into_slot(
         &mut commands,
         &colliders,

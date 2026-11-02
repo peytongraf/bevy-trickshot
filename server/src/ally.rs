@@ -144,6 +144,13 @@ fn gun_stats(gun: WeaponId) -> GunStats {
         // (A reload from empty — the long one.)
         WeaponId::Ak74 => GunStats { mag: 30, reserve: 30 * 5, reload_secs: 2.83, interval: 0.1 },
         WeaponId::RayGun => GunStats { mag: 20, reserve: 20 * 8, reload_secs: 2.5, interval: 0.33 },
+        // (Never a bot's — the easter egg's.)
+        WeaponId::Exhumer => GunStats {
+            mag: shared::exhumer::MAX_SOULS,
+            reserve: 0,
+            reload_secs: 2.5,
+            interval: shared::exhumer::RELEASE_COOLDOWN_SECS,
+        },
         // Semi-auto: as fast as a player taps it.
         WeaponId::M17 => GunStats { mag: 17, reserve: 17 * 6, reload_secs: 3.33, interval: 0.2 },
         // A bolt-action: the shot, then the rechamber.
@@ -159,6 +166,7 @@ fn gun_rank(weapon: SlotWeapon) -> u32 {
         SlotWeapon::Gun(WeaponId::Sniper | WeaponId::Marksman) => 2,
         SlotWeapon::Gun(WeaponId::Ak74) => 3,
         SlotWeapon::Gun(WeaponId::RayGun) => 4,
+        SlotWeapon::Gun(WeaponId::Exhumer) => 5,
     }
 }
 

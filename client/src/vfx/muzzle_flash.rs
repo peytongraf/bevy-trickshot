@@ -97,10 +97,10 @@ pub(crate) fn update_muzzle_flash(
         Visibility::Hidden
     };
 
-    let raygun = weapon.primary == shared::weapon::WeaponId::RayGun;
-    let (hip, muzzle, size) = match weapon.primary {
+    let raygun = weapon.primary.base() == shared::weapon::WeaponId::RayGun;
+    let (hip, muzzle, size) = match weapon.primary.base() {
         shared::weapon::WeaponId::Ak74 => (ak.hip.transform(), ak.muzzle_translation, ak.muzzle_size),
-        shared::weapon::WeaponId::RayGun => (ray.hip.transform(), ray.muzzle_translation, ray.muzzle_size),
+        shared::weapon::WeaponId::RayGun | shared::weapon::WeaponId::Exhumer => (ray.hip.transform(), ray.muzzle_translation, ray.muzzle_size),
         shared::weapon::WeaponId::M17 => (m17.hip.transform(), m17.muzzle_translation, m17.muzzle_size),
         shared::weapon::WeaponId::Sniper | shared::weapon::WeaponId::Marksman => {
             (poses.hip.transform(), settings.translation, settings.size)

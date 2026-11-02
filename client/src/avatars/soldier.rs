@@ -129,6 +129,11 @@ impl SoldierAnimations {
         &self.graph
     }
 
+    /// The `death` clip's node (the easter egg's bodies left below).
+    pub(crate) fn death(&self) -> AnimationNodeIndex {
+        self.death
+    }
+
     /// `shooting` on the upper body alone, over the aiming-while-moving
     /// legs (`AimWalk` / `AimSprint`) — played alongside them, its own
     /// weight eased in and out (`net::animate_remote_avatars`).

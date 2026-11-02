@@ -2064,16 +2064,21 @@ pub(crate) fn ads_tuning_ui(
                     ui.add(egui::Slider::new(&mut p.camo_scroll.y, -1.0f32..=1.0).text("scroll v (/s)"));
                     ui.add(egui::Slider::new(&mut p.camo_tiling, 0.1f32..=10.0).logarithmic(true).text("tiling"));
                     ui.add(egui::Slider::new(&mut p.camo_glow, 0.0f32..=10.0).text("glow"));
+                    ui.label("The Exhumer's texture (scrolls with the camo)");
+                    ui.add(egui::Slider::new(&mut p.wonder_glow, 0.0f32..=10.0).text("glow, no souls"));
+                    ui.add(egui::Slider::new(&mut p.wonder_charged_glow, 0.0f32..=20.0).text("glow, fully charged"));
                     if ui.button("Copy Pack-a-Punch settings to console").clicked() {
                         info!(
                             "pap machine: scale: {:.3}, model_yaw_deg: {:.1}, camo_scroll: ({:.3}, {:.3}), \
-                             camo_tiling: {:.2}, camo_glow: {:.2}",
+                             camo_tiling: {:.2}, camo_glow: {:.2}, wonder_glow: {:.2}, wonder_charged_glow: {:.2}",
                             p.scale,
                             p.model_yaw_deg,
                             p.camo_scroll.x,
                             p.camo_scroll.y,
                             p.camo_tiling,
                             p.camo_glow,
+                            p.wonder_glow,
+                            p.wonder_charged_glow,
                         );
                     }
                     if ui.button("Reset Pack-a-Punch machine").clicked() {

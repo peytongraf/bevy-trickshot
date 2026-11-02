@@ -386,7 +386,8 @@ pub(crate) fn hold_downed_stance(local: &LocalRevive, slide: &mut Slide, was_dow
 /// once we're out) — and behind the end-of-game results, as far and as fast
 /// as `end_screen_fx` says — and the view model's hidden while we're down, out or
 /// reviving someone (an empty render layer on its camera, so the screen
-/// passes it carries — Shroom Tea, Liquid Courage — still run). Back to
+/// passes it carries — Shroom Tea, Liquid Courage — still run) — and while
+/// our soul's up in the easter egg's pyramid, washed out too. Back to
 /// normal at once otherwise, including outside a game.
 fn apply_down_view(
     time: Res<Time>,
@@ -398,6 +399,7 @@ fn apply_down_view(
         Res<crate::end_screen_fx::EndScreenFx>,
         Res<crate::end_screen_fx::EndScreenFxSettings>,
     ),
+    (soul, soul_settings): (Res<crate::easter_egg::EggSoul>, Res<crate::easter_egg::EggSoulSettings>),
     mut saturation: Local<Option<f32>>,
     mut grading: Query<&mut ColorGrading, Or<(With<WorldModelCamera>, With<ViewModelCamera>)>>,
     mut vm_layers: Query<&mut RenderLayers, With<ViewModelCamera>>,
@@ -414,6 +416,9 @@ fn apply_down_view(
         s
     } else if spectating.active() {
         1.0
+    } else if soul.out() {
+        // (Our soul up in the pyramid: the world washed out.)
+        soul_settings.saturation
     } else if local.bled_out {
         0.0
     } else if local.downed {
@@ -436,7 +441,7 @@ fn apply_down_view(
         }
     }
     // (Nor once we're killed in a `SearchAndDestroy` round.)
-    let want = if local.blocks_weapon() || results || snd.dead {
+    let want = if local.blocks_weapon() || results || snd.dead || soul.out() {
         RenderLayers::none()
     } else {
         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER)

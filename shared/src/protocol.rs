@@ -298,6 +298,12 @@ pub struct PlayerPose {
     /// stab rather than the one-tick `PlayerInput::melee` pulse, for the
     /// same reason as `jumping`.
     pub stabbing: bool,
+    /// Whether the owner's drawing souls in with the Exhumer's beam
+    /// (`crate::exhumer`) — copied from `PlayerInput::beaming` (only with
+    /// the Exhumer in hand), so every client draws their beam. Discrete,
+    /// same as `crouching`.
+    #[serde(default)]
+    pub beaming: bool,
     /// Whether the owner is alive, copied server-side from their
     /// `PlayerCombat::alive` (`server::sim::apply_client_pose`) — unlike
     /// every other field above, this one is **not** taken from the owner's
@@ -528,6 +534,7 @@ impl Default for PlayerPose {
             prone: false,
             diving: false,
             stabbing: false,
+            beaming: false,
             alive: true,
             zombie: ZombieAnim::None,
             held: Some(SlotWeapon::Gun(WeaponId::Sniper)),
@@ -553,6 +560,7 @@ impl Ease for PlayerPose {
             prone: end.prone,
             diving: end.diving,
             stabbing: end.stabbing,
+            beaming: end.beaming,
             alive: end.alive,
             zombie: end.zombie,
             held: end.held,
@@ -702,6 +710,10 @@ pub struct PlayerInput {
     /// Whether a knife stab is playing out this tick (from the stab until
     /// its swing is over) — see `PlayerPose::stabbing`.
     pub stabbing: bool,
+    /// The aim button's held with the Exhumer in hand: its beam's drawing
+    /// souls in (`crate::exhumer`; the server drains what it touches).
+    #[serde(default)]
+    pub beaming: bool,
     /// Camera Y offset from standing this tick (metres, `<= 0.0` — see the
     /// client's `Slide::drop`), so the kill cam can reproduce crouch / slide /
     /// prone height exactly instead of always replaying at standing height.
@@ -861,6 +873,7 @@ impl Default for PlayerInput {
             prone: false,
             diving: false,
             stabbing: false,
+            beaming: false,
             crouch_drop: 0.0,
             revive: false,
             snd_use: false,
@@ -1594,7 +1607,10 @@ impl Lobby {
     pub fn bots_hold_fire(&self) -> bool {
         self.bots_passive
             || self.exfil == crate::exfil::Exfil::Calling
-            || self.easter_egg.step == crate::easter_egg::EggStep::Ritual
+            || matches!(
+                self.easter_egg.step,
+                crate::easter_egg::EggStep::Ritual | crate::easter_egg::EggStep::Ascension
+            )
     }
 
     /// Whether the timed power-up `p` is running in this lobby's game.
@@ -1889,6 +1905,10 @@ pub struct WeaponDrop {
     pub reserve: u32,
     pub pos: Vec3,
     pub yaw: f32,
+    /// Only this player can take it (an Exhumer on the pyramid's altar,
+    /// `crate::exhumer`) — `None`: anyone.
+    #[serde(default)]
+    pub owner: Option<PeerId>,
 }
 
 /// Client → server: buy `weapon` at its `Zombies` wall buy
@@ -2882,6 +2902,12 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<HierophantTeleport>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::exhumer::ExhumerDrain>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::exhumer::ExhumerSouls>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::exhumer::ExhumerSwarm>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<HierophantRaise>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<BossBlastExploded>()
@@ -2964,6 +2990,8 @@ impl Plugin for ProtocolPlugin {
         app.add_trigger::<DropPowerUp>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<SetEasterEgg>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_trigger::<crate::exhumer::ReleaseSouls>()
             .add_direction(NetworkDirection::ClientToServer);
         app.add_trigger::<HierophantDebug>()
             .add_direction(NetworkDirection::ClientToServer);
