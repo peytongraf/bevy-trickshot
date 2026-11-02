@@ -61,6 +61,14 @@ needs testing: in the debug panel, "The fight" → "Kill him" (or jump to
     (`earthquake::Quake::rumble`), silent by default because its sound
     has the power-on music in it. There's a checkbox to turn the sound on.
 
+- **The sarcophagus model is in** (Nov 1, needs a look):
+  `models/props/sarcophagus.glb`, in game and in the level editor
+  (`easter_egg::spawn_piece_look`). Its `sarcophagus_lid` object is found
+  by name once it loads and is what blasts off (`tag_lid`, resting where
+  it was made, landing 0.05 m up). The body lies on its inner floor
+  (`lying_at` y 0.1), and he stands up level with the top of its walls
+  (`HIEROPHANT_FEET` y 1.0). Its solid box is still 1.6 × 1 × 3.2 m, so
+  the lid (to 1.1 m) pokes 0.1 m above it until it's blown off.
 - **His body in the sarcophagus** (built Nov 1, needs a look): the
   box-figure placeholder is gone. The boss model lies on its back in the
   sarcophagus, posed on the last frame of its `death` clip. It rises by
@@ -283,7 +291,7 @@ Where the code is:
 
 5. **[you]** Model, rig and animate the Hierophant: lying in the
    sarcophagus, waking, walking, attacking, teleporting, raising zombies
-   and dying. Model the sarcophagus and its lid.
+   and dying. (The sarcophagus is done.)
 6. **[you]** Record the boss voice lines (waking, taunts, phase 2, phase
    3, downing a player, hurt, death, the pyramid scream:
    `client/notes/quotes/hierophant-quotes.md`; `wake.mp3` is in with a
@@ -346,11 +354,6 @@ its front along +Z, and use metres, so it drops in where the placeholder
 is. If it comes out a different size, the level editor's Scale field
 fixes that.
 
-- **Sarcophagus** (2.2 m long, 0.9 m wide, 1 m tall, long side along Z):
-  old carved stone, ancient Egyptian / occult. Gold trim, worn
-  hieroglyphs, and the society's sigil scratched in more recently. Make
-  the **lid a separate object** so it can blast off. Hollow inside, with
-  the body lying in it.
 - **Society case** (0.8 m wide, 1.3 m tall, 0.5 m deep): a modern,
   expensive display case on a dark wood stand, with a glass top and a
   brass keypad or lock. It looks out of place in the ruins. Make the
@@ -379,6 +382,7 @@ fixes that.
 
 ## Done
 
+- Sarcophagus model swapped in
 - His voice never muffled by walls
 - His death (spirit flees into the pyramid)
 - Wake-up body no longer stands early

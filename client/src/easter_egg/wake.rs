@@ -148,7 +148,7 @@ impl Default for EggWakeSettings {
             lid_throw: 2.4,
             spirit_light: 150_000.0,
             flash_light: 600_000.0,
-            lying_at: [-0.2, 0.31, 0.8],
+            lying_at: [-0.2, 0.1, 0.8],
             rise_secs: 0.9,
         }
     }
@@ -194,7 +194,7 @@ fn track_wake(
 pub(super) fn lid_pose(t: f32, rest: Vec3, settings: &EggWakeSettings) -> Transform {
     let s = ramp(t, 0.0, WAKE_LID_SECS);
     // (Where it ends up: flat on the ground beside it, turned a bit.)
-    let landed = Vec3::new(0.9 + settings.lid_throw, 0.075, 0.25);
+    let landed = Vec3::new(0.9 + settings.lid_throw, LID_HALF_THICKNESS, 0.25);
     let start = rest;
     let across = start.lerp(landed, s);
     let arc = settings.lid_height * 4.0 * s * (1.0 - s);
@@ -479,18 +479,17 @@ fn animate_wake(
     }
 }
 
-/// The lid's boxes, moved by the wake-up — as they sit until it, flying
-/// off as it starts, lying beside the sarcophagus after.
+/// Half the sarcophagus model's lid's thickness (m) — how high its middle
+/// is once it's landed flat on the ground.
+const LID_HALF_THICKNESS: f32 = 0.05;
+
+/// The sarcophagus' lid, moved by the wake-up — on it until then, flying
+/// off as it starts, lying beside it after.
 fn animate_lid(wake: Res<EggWake>, settings: Res<EggWakeSettings>, mut lids: Query<(&super::LidRest, &mut Transform)>) {
     for (rest, mut transform) in &mut lids {
         let want = match wake.t {
             None => Transform::from_translation(rest.0),
-            // (Each box keeps its place on the lid as it goes.)
-            Some(t) => {
-                let pose = lid_pose(t, super::LID_REST, &settings);
-                Transform::from_translation(pose.translation + pose.rotation * (rest.0 - super::LID_REST))
-                    .with_rotation(pose.rotation)
-            }
+            Some(t) => lid_pose(t, rest.0, &settings),
         };
         transform.set_if_neq(want);
     }

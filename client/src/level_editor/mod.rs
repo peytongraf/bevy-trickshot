@@ -1704,8 +1704,9 @@ fn model_of(
         // (A window's drawn by `input::draw_gizmos`: its opening, boards and
         // the way zombies come in.)
         // (The water draws itself, live — `sync_editor_water`.)
-        // (The easter egg's pieces are placeholders for now —
-        // `sync_objects` builds them; its area has no model.)
+        // (The easter egg's pieces — their models or placeholders — are
+        // `sync_objects`' (`easter_egg::spawn_piece_look`); its area has no
+        // model.)
         ObjectId::ExfilArea
         | ObjectId::RitualArea
         | ObjectId::Sarcophagus
@@ -1799,13 +1800,9 @@ fn sync_objects(
             root_transform_of(id, doc, at),
             Visibility::default(),
         ));
-        // (The easter egg's placeholders, as the game has them.)
+        // (The easter egg's pieces, as the game has them.)
         if let Some(piece) = id.egg_piece() {
-            object.with_children(|o| {
-                for part in egg.parts(piece) {
-                    o.spawn(part);
-                }
-            });
+            object.with_children(|o| crate::easter_egg::spawn_piece_look(o, piece, &egg, &asset_server, false));
             continue;
         }
         let Some((model, offset)) = model_of(id, &machines, &pap, &ammo, &lever, &avatars) else {

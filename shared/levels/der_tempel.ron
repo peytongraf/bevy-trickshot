@@ -105,9 +105,9 @@
         (pos: (0.799, -4.0, 64.896), yaw_deg: -180.0),
         (pos: (-2.831, -4.0, 65.391), yaw_deg: -180.0),
     ],
-    sarcophagus: Some((pos: (-10.213, -0.0, 7.543), yaw_deg: 19.2)),
+    sarcophagus: Some((pos: (0.0, 0.0, -11.396), yaw_deg: -90.0)),
     society_case: Some((pos: (-10.532, -0.0, -2.65), yaw_deg: 19.2)),
-    ritual_area: Some((at: (pos: (0.0, 0.5, -0.01), yaw_deg: 0.0), width: 10.6, depth: 12.0)),
+    ritual_area: Some((at: (pos: (0.0, 0.5, -0.01), yaw_deg: 0.0), width: 10.8, depth: 12.2)),
     pyramid_altar: Some((pos: (0.932, 10.0, 2.769), yaw_deg: 24.7)),
     pyramid_spots: [
         (pos: (0.224, 10.0, -6.347), yaw_deg: 8.6),

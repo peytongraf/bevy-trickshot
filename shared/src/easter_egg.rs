@@ -181,9 +181,9 @@ pub const AWAKENING_SECS: f32 = WAKE_SNAP_AT + WAKE_SCREAM_SECS + 0.5;
 // --- the fight ([`EggStep::BossFight`]) ------------------------------------------------
 
 /// Where his feet are once he's snapped upright, in the sarcophagus' own
-/// frame (unscaled): on top of its chest — the fight's Hierophant starts
+/// frame (unscaled): level with the top of its walls (the model's 1 m) — the fight's Hierophant starts
 /// there, and steps down off it.
-pub const HIEROPHANT_FEET: Vec3 = Vec3::new(0.0, 0.88, 0.85);
+pub const HIEROPHANT_FEET: Vec3 = Vec3::new(0.0, 1.0, 0.85);
 
 /// Where the Hierophant stands up on `map`, and the yaw he faces (the way
 /// the sarcophagus does — `+z` in its frame).

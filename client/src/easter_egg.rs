@@ -180,14 +180,63 @@ pub(crate) enum PartRole {
     Lid,
 }
 
-/// Where a lid box sits on the sarcophagus (in its own frame) — moved off it
-/// as he wakes.
+/// Where the sarcophagus' lid sits on it (its middle, in the sarcophagus'
+/// own frame — what it tumbles about) — moved off it as he wakes.
 #[derive(Component)]
 pub(crate) struct LidRest(Vec3);
 
-/// The middle of the sarcophagus' lid (its gold slab), in its own frame —
-/// what the lid tumbles about.
-const LID_REST: Vec3 = Vec3::new(0.0, 0.925, 0.0);
+/// The sarcophagus' model: `sarcophagus_base` (a hollow stone chest) and
+/// `sarcophagus_lid` ([`LID_NODE`] — blasted off as he wakes), origin on the
+/// ground under its middle, its foot end facing +z.
+pub(crate) const SARCOPHAGUS_MODEL: &str = "models/props/sarcophagus.glb";
+/// Its lid's object, by name.
+const LID_NODE: &str = "sarcophagus_lid";
+
+/// `piece`'s look under `root` (its root, placed): its model, or its
+/// placeholder boxes until it has one — for the game and the level editor
+/// alike. In game (`in_game`), the sarcophagus' lid is found once its model's
+/// in and made the lid ([`tag_lid`]).
+pub(crate) fn spawn_piece_look(
+    root: &mut ChildSpawnerCommands,
+    piece: EggPiece,
+    placeholders: &EggPlaceholders,
+    asset_server: &AssetServer,
+    in_game: bool,
+) {
+    for part in placeholders.parts(piece) {
+        root.spawn(part);
+    }
+    if piece == EggPiece::Sarcophagus {
+        let mut model = root.spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SARCOPHAGUS_MODEL))),
+            Transform::IDENTITY,
+        ));
+        if in_game {
+            model.observe(tag_lid);
+        }
+    }
+}
+
+/// The sarcophagus' model's in: its lid ([`LID_NODE`], straight under the
+/// model's root, so in the sarcophagus' own frame) is the lid, resting where
+/// it was made.
+fn tag_lid(
+    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    transforms: Query<&Transform>,
+    mut commands: Commands,
+) {
+    let lid = children
+        .iter_descendants(trigger.target())
+        .find(|&e| names.get(e).is_ok_and(|n| n.as_str() == LID_NODE));
+    let Some(lid) = lid else {
+        warn!("{SARCOPHAGUS_MODEL} has no {LID_NODE:?} — its lid won't blast off");
+        return;
+    };
+    let rest = transforms.get(lid).map_or(Vec3::ZERO, |t| t.translation);
+    commands.entity(lid).insert((PartRole::Lid, LidRest(rest)));
+}
 
 impl EggPlaceholders {
     /// `piece`'s boxes, as children to put under its root.
@@ -218,7 +267,6 @@ fn make_placeholders(
     };
     let stone = material(Color::srgb(0.32, 0.29, 0.25), 0.0, 0.9);
     let dark_stone = material(Color::srgb(0.18, 0.16, 0.15), 0.0, 0.9);
-    let gold = material(Color::srgb(0.75, 0.56, 0.2), 0.9, 0.35);
     let wood = material(Color::srgb(0.24, 0.13, 0.07), 0.0, 0.7);
     let glass = material(Color::srgba(0.7, 0.85, 0.9, 0.25), 0.0, 0.05);
     let steel = material(Color::srgb(0.7, 0.7, 0.72), 1.0, 0.25);
@@ -233,17 +281,8 @@ fn make_placeholders(
     let mut part = |piece, role, size: Vec3, at: Vec3, material: &Handle<StandardMaterial>| {
         (piece, role, meshes.add(Cuboid::from_size(size)), material.clone(), Transform::from_translation(at))
     };
+    // (The sarcophagus has its model — `SARCOPHAGUS_MODEL`.)
     let parts = vec![
-        // The sarcophagus: a hollow stone chest (a thick base, four walls,
-        // dark inside — his body lies in it, `wake`), a gold-edged lid on top.
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.6, 0.3, 3.2), Vec3::Y * 0.15, &stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.01, 2.96), Vec3::Y * 0.305, &dark_stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.12, 0.55, 3.2), Vec3::new(0.74, 0.575, 0.0), &stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(0.12, 0.55, 3.2), Vec3::new(-0.74, 0.575, 0.0), &stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.55, 0.12), Vec3::new(0.0, 0.575, 1.54), &stone),
-        part(EggPiece::Sarcophagus, PartRole::Solid, Vec3::new(1.36, 0.55, 0.12), Vec3::new(0.0, 0.575, -1.54), &stone),
-        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(1.68, 0.15, 3.3), LID_REST, &gold),
-        part(EggPiece::Sarcophagus, PartRole::Lid, Vec3::new(1.1, 0.02, 2.6), Vec3::Y * 1.01, &dark_stone),
         // The case: a wooden stand, the dagger lying in a glass box on it.
         part(EggPiece::SocietyCase, PartRole::Solid, Vec3::new(0.6, 0.8, 0.4), Vec3::Y * 0.4, &wood),
         part(EggPiece::SocietyCase, PartRole::Dagger, Vec3::new(0.06, 0.02, 0.35), Vec3::new(0.0, 0.82, 0.0), &steel),
@@ -278,6 +317,7 @@ fn sync_pieces(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     placeholders: Res<EggPlaceholders>,
+    asset_server: Res<AssetServer>,
     mut spawned: Query<(Entity, &EggPiece, &mut Transform)>,
     mut commands: Commands,
 ) {
@@ -302,13 +342,7 @@ fn sync_pieces(
         commands
             .spawn((StateScoped(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
             .with_children(|root| {
-                for part in placeholders.parts(piece) {
-                    let lid = (part.3 == PartRole::Lid).then_some(part.2.translation);
-                    let mut e = root.spawn(part);
-                    if let Some(rest) = lid {
-                        e.insert(LidRest(rest));
-                    }
-                }
+                spawn_piece_look(root, piece, &placeholders, &asset_server, true);
                 root.spawn((
                     Collider::cuboid(half.x, half.y, half.z),
                     Transform::from_translation(Vec3::Y * half.y),
