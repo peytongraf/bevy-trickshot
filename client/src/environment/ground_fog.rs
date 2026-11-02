@@ -201,7 +201,7 @@ fn sync_ground_fog(
     settings: Res<crate::settings::Settings>,
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
-    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodLook>),
+    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodNow>),
     mut new_cams: Query<
         (Entity, &mut Camera3d),
         (Or<(With<WorldModelCamera>, With<ScopeCamera>)>, Without<GroundFogUniform>),

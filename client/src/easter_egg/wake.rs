@@ -394,8 +394,10 @@ fn pose_body(
                 player.stop_all();
                 player.play(boss.death);
             }
+            // (Never right at its end: a seek to exactly its length wraps
+            // round to its first frame — him standing.)
             if let Some(clip) = player.animation_mut(boss.death) {
-                clip.set_speed(0.0).seek_to(death_secs * (1.0 - up));
+                clip.set_speed(0.0).seek_to((death_secs * (1.0 - up)).min(death_secs - 0.02).max(0.0));
             }
         } else if !player.is_playing_animation(boss.idle) {
             player.stop_all();

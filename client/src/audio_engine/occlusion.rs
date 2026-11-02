@@ -15,7 +15,8 @@
 //!
 //! How much a fully blocked sound loses is its [`super::mix::Profile`]'s
 //! (`wall_hz`, `wall_db` — the audio mixer's profile editor), applied in
-//! `apply_profiles`. The rays' settings are the debug panel's "Audio →
+//! `apply_profiles`; a profile with both off (20 kHz, 0 dB — "Hierophant
+//! voice") is never muffled, and never probed. The rays' settings are the debug panel's "Audio →
 //! Sounds through walls".
 
 use bevy::ecs::system::SystemParam;
@@ -72,8 +73,10 @@ pub(super) fn occlude(
     for (entity, mut sink, transform) in &mut sinks {
         let at = transform.map_or(Vec3::ZERO, GlobalTransform::translation);
         let distance = ears.distance(at);
-        let audible = distance < mix.profile(&sink.profile).far;
-        if !settings.enabled || !audible || distance < 0.5 {
+        let profile = mix.profile(&sink.profile);
+        let audible = distance < profile.far;
+        // (Nothing to probe for a sound walls can't muffle.)
+        if !settings.enabled || !audible || distance < 0.5 || !profile.walls_matter() {
             sink.occlusion = 0.0;
             sink.probed = settings.enabled && audible;
             continue;

@@ -22,13 +22,20 @@
 //!   as he's been left alone a while — he sinks into the ground and rises
 //!   out of it near a player ([`shared::HierophantTeleport`]), nothing
 //!   hurting him while he's under.
+//! * **Phase 3** (from [`shared::easter_egg::PHASE_3_AT`]) — he roars again
+//!   ("enough"), and comes on enraged: faster
+//!   ([`shared::easter_egg::HIEROPHANT_ENRAGED_SPEED`]) and teleporting
+//!   more often, his dead still rising. (The clients turn the map, and
+//!   him, blood-red.)
 //! * **His voice** ([`shared::HierophantSays`]): taunts, a gloat when he
 //!   downs someone, a roar of pain at a big hit, his phase lines and his
 //!   death — never one over another (bar the phase and death lines, which
 //!   cut in).
-//! * Killed, the fight's over ([`EggStep::Ascension`]): the dead he raised
-//!   drop with him (no points), and the round picks up where it left off.
-//!   His corpse lies there like any zombie's.
+//! * Killed, the fight's over ([`EggStep::HisDeath`], where he fell kept on
+//!   `EasterEgg::hierophant` for his spirit): the dead he raised drop with
+//!   him (no points). His corpse lies there like any zombie's; once his
+//!   spirit's in the pyramid the round picks up where it left off
+//!   (`run_unleashed`).
 //! * The egg set anywhere but the fight (a debug jump, a reset, the game
 //!   ending) takes him and his dead away; jumping to the fight again
 //!   brings a fresh one in.
@@ -41,8 +48,7 @@ use lightyear::prelude::server::Server;
 use lightyear::prelude::*;
 use shared::bot_players::{bot_peer, is_bot_peer, BotDifficulty};
 use shared::easter_egg::{
-    EggStep, Hierophant as HierophantInfo, HierophantDebugAction, HierophantLine, PHASE_2_AT, TELEPORT_SINK_SECS,
-    TELEPORT_UNDER_SECS,
+    EggStep, Hierophant as HierophantInfo, HierophantDebugAction, HierophantLine, TELEPORT_SINK_SECS, TELEPORT_UNDER_SECS,
 };
 use shared::{GameChannel, HierophantDebug, Lobby, PlayerId, PlayerPose};
 
@@ -140,6 +146,16 @@ impl Fight {
     /// A random gap (s) in `range`.
     fn gap(&mut self, range: (f32, f32), salt: u64) -> f32 {
         range.0 + self.roll(salt) * (range.1 - range.0)
+    }
+}
+
+/// The gap (s) between his teleports in `phase` — shorter once he's
+/// enraged.
+fn teleport_gap(phase: u8) -> (f32, f32) {
+    if phase >= 3 {
+        shared::easter_egg::TELEPORT_GAP_ENRAGED_SECS
+    } else {
+        shared::easter_egg::TELEPORT_GAP_SECS
     }
 }
 
@@ -275,7 +291,7 @@ pub(super) fn run_fight(
             let max = shared::easter_egg::hierophant_health(lobby.round, lobby.real_count());
             crate::boss::spawn_boss(&mut commands, lobby_e, &lobby, peer, "The Hierophant", feet, yaw, brain, max, max)
                 .insert(Hierophant);
-            lobby.easter_egg.hierophant = Some(HierophantInfo { peer, max_health: max, phase: 1 });
+            lobby.easter_egg.hierophant = Some(HierophantInfo { peer, max_health: max, phase: 1, fell_at: None });
             fights.0.insert(lobby_e, Fight::new());
             info!("lobby {lobby_e:?}: the Hierophant's in the fight ({max:.0} health)");
             continue;
@@ -289,7 +305,11 @@ pub(super) fn run_fight(
             say(fight, HierophantLine::Death, &mut sender, server, &lobby);
             fights.0.remove(&lobby_e);
             drop_raised(lobby_e, &mut raised);
-            lobby.easter_egg.step = EggStep::Ascension;
+            let fell_at = brain.feet();
+            if let Some(h) = lobby.easter_egg.hierophant.as_mut() {
+                h.fell_at = Some(fell_at);
+            }
+            lobby.easter_egg.step = EggStep::HisDeath;
             info!("lobby {lobby_e:?}: the Hierophant's dead — the fight's over");
             continue;
         }
@@ -308,31 +328,44 @@ pub(super) fn run_fight(
                     info!("lobby {lobby_e:?}: the Hierophant's health set to {:.0} (debug)", combat.health);
                 }
                 HierophantDebugAction::RaiseRing => force_ring = true,
+                // (He falls next tick, as if shot.)
+                HierophantDebugAction::Kill => {
+                    combat.health = 0.0;
+                    combat.alive = false;
+                    combat.respawn_at = f32::INFINITY;
+                    brain.untouchable_until(f32::NEG_INFINITY);
+                }
                 HierophantDebugAction::Teleport => force_teleport = true,
             }
+        }
+        if !combat.alive {
+            continue;
         }
 
         // His phase follows his health (back up too — a debug set).
         let share = combat.health / max;
-        let phase = if share <= PHASE_2_AT { 2 } else { 1 };
+        let phase = shared::easter_egg::phase_at(share);
         if phase != info.phase {
             if let Some(h) = lobby.easter_egg.hierophant.as_mut() {
                 h.phase = phase;
             }
-            if phase == 2 {
-                // Phase 2: he stops and roars, and the dead rise.
-                fight.roar = Some((t, false));
-                fight.teleport = None;
-                fight.next_teleport = t + shared::easter_egg::PHASE_ROAR_SECS + fight.gap(shared::easter_egg::TELEPORT_GAP_SECS, salt ^ 1);
+            fight.teleport = None;
+            brain.untouchable_until(f32::NEG_INFINITY);
+            brain.enrage(phase >= 3);
+            if phase > info.phase {
+                // Phase 2 or 3: he stops and roars — the dead rising at
+                // phase 2's (or phase 3's, if it skipped straight past 2).
+                fight.roar = Some((t, info.phase >= 2));
+                let gap = teleport_gap(phase);
+                fight.next_teleport = t + shared::easter_egg::PHASE_ROAR_SECS + fight.gap(gap, salt ^ 1);
                 fight.alone_for = 0.0;
-                brain.untouchable_until(f32::NEG_INFINITY);
                 brain.hold_for(now, shared::easter_egg::PHASE_ROAR_SECS);
-                say(fight, HierophantLine::Phase2, &mut sender, server, &lobby);
-                info!("lobby {lobby_e:?}: the Hierophant's in phase 2");
+                let line = if phase >= 3 { HierophantLine::Phase3 } else { HierophantLine::Phase2 };
+                say(fight, line, &mut sender, server, &lobby);
+                info!("lobby {lobby_e:?}: the Hierophant's in phase {phase}");
             } else {
+                // (Healed back by the debug panel.)
                 fight.roar = None;
-                fight.teleport = None;
-                brain.untouchable_until(f32::NEG_INFINITY);
             }
         }
 
@@ -426,7 +459,7 @@ pub(super) fn run_fight(
                 fight.teleport = None;
                 brain.untouchable_until(f32::NEG_INFINITY);
                 fight.alone_for = 0.0;
-                fight.next_teleport = t + fight.gap(shared::easter_egg::TELEPORT_GAP_SECS, salt ^ 5);
+                fight.next_teleport = t + fight.gap(teleport_gap(phase), salt ^ 5);
             }
         } else {
             let due = phase >= 2

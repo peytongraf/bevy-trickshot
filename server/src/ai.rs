@@ -669,6 +669,18 @@ impl BotBrain {
         }
     }
 
+    /// The Hierophant enraged (phase 3) or not: his walk speed,
+    /// [`shared::easter_egg::HIEROPHANT_ENRAGED_SPEED`] or his own.
+    pub(crate) fn enrage(&mut self, on: bool) {
+        if let Some(z) = self.zombie.as_mut().filter(|z| z.hierophant) {
+            z.speed = if on {
+                shared::easter_egg::HIEROPHANT_ENRAGED_SPEED
+            } else {
+                shared::easter_egg::HIEROPHANT_SPEED
+            };
+        }
+    }
+
     /// Nothing hurts the Hierophant until `until` (`Time::elapsed_secs`).
     pub(crate) fn untouchable_until(&mut self, until: f32) {
         if let Some(z) = self.zombie.as_mut().filter(|z| z.hierophant) {

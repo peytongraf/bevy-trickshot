@@ -46,7 +46,7 @@ pub(crate) struct HeadBone(Entity);
 /// Whether a model's bone called `name` is its head (every rig's: `soldier`,
 /// `zombie`, `dog`, `boss.glb`) — not the neck, jaw, eyes, the boss's
 /// `HeadNub` or the zombie's `Z_Head` mesh.
-fn is_head_bone(name: &str) -> bool {
+pub(crate) fn is_head_bone(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n.contains("head") && !["neck", "jaw", "eye", "nub", "top", "z_head"].iter().any(|w| n.contains(w))
 }

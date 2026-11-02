@@ -16,6 +16,12 @@
 //!   [`Sinking`], after it's put at his pose.
 //! * **Raising the dead** (phase 2) — [`shared::HierophantRaise`]: a wide
 //!   green burst round him and `raise_dead.mp3`; the zombies rise as any do.
+//! * **Enraged** (phase 3) — his aura, glow and bursts fade from green to
+//!   blood-red with the map (`environment::EggRageFade`), and his eyes
+//!   ([`HisEye`], glowing the whole fight) burn red and brighter.
+//! * **Each new phase** shakes the ground: Der Tempel's power-on earthquake
+//!   (`earthquake::Quake::rumble`), silent by default (its sound has the
+//!   power-on's music in it, over the fight's).
 //! * **His health bar** — top centre, under the compass: his name over a
 //!   long bar of what's left of the health he came in with
 //!   (`EasterEgg::hierophant`), a paler chunk trailing behind each hit.
@@ -24,7 +30,9 @@
 //!
 //! The bar's `StateScoped(InGame)`, hidden (and its trail reset) whenever
 //! there's no fight; his lines go with his avatar, and the bursts and their
-//! sounds are `StateScoped(InGame)` and gone once they've played out.
+//! sounds are `StateScoped(InGame)` and gone once they've played out. His
+//! eyes are `StateScoped(InGame)`, hidden whenever he's not alive in the
+//! fight; the phase the quake last saw is forgotten out of a game.
 //! Tuned in the debug panel's "Easter egg (Der Tempel)" → "The fight".
 
 use bevy::pbr::NotShadowCaster;
@@ -39,7 +47,8 @@ use shared::easter_egg::{
 use shared::{Lobby, PlayerHealth, PlayerId};
 
 use crate::audio_engine::prelude::*;
-use crate::boss::{BossTint, BossVisual, BossVoiced};
+use crate::boss::{BossSettings, BossTint, BossVisual, BossVoiced};
+use crate::environment::{blend3, EggRageFade};
 use crate::net::{GameClient, RemoteAvatar};
 use crate::vfx::{smoke_billboard_rotation, ExplosionAssets};
 use crate::{killcam, menu, AppState, WorldModelCamera, HUD_FONT};
@@ -51,7 +60,9 @@ pub(super) struct FightPlugin;
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EggFightSettings>()
+            .init_resource::<SeenPhase>()
             .add_systems(OnEnter(AppState::InGame), spawn_bar)
+            .add_systems(OnExit(AppState::InGame), |mut seen: ResMut<SeenPhase>| *seen = default())
             .add_systems(
                 Update,
                 (
@@ -60,8 +71,16 @@ impl Plugin for FightPlugin {
                     sink_him.after(crate::net::follow_remote_avatars),
                     run_bursts,
                     update_bar,
+                    phase_quake,
                 )
                     .chain()
+                    .run_if(in_state(AppState::InGame)),
+            )
+            // (Once his bones have been posed and placed this frame.)
+            .add_systems(
+                PostUpdate,
+                place_eyes
+                    .after(bevy::transform::TransformSystem::TransformPropagate)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -76,8 +95,26 @@ pub(crate) struct EggFightSettings {
     pub(crate) voice_height: f32,
     /// The teleport's and raising's sounds' volume.
     pub(crate) fx_volume: f32,
-    /// His aura's colour (linear) — a boss's is orange — and his bursts'.
+    /// His aura's colour (linear) — a boss's is orange — and his bursts'...
     pub(crate) aura_color: [f32; 3],
+    /// ...and enraged (phase 3), faded to with the map.
+    pub(crate) rage_aura_color: [f32; 3],
+    /// His glowing eyes: their colour (linear), and enraged; how bright,
+    /// and this many times that enraged; how big (m).
+    pub(crate) eye_color: [f32; 3],
+    pub(crate) rage_eye_color: [f32; 3],
+    pub(crate) eye_glow: f32,
+    pub(crate) rage_eye_boost: f32,
+    pub(crate) eye_size: f32,
+    /// Where they sit from his head bone (m, along his facing): forward, up,
+    /// and apart.
+    pub(crate) eye_forward: f32,
+    pub(crate) eye_up: f32,
+    pub(crate) eye_spacing: f32,
+    /// Each new phase shakes the ground (the power-on's earthquake), with
+    /// its sound or without.
+    pub(crate) phase_quake: bool,
+    pub(crate) phase_quake_sound: bool,
     /// A teleport's burst: how wide (m) its glow on the ground, how many
     /// puffs of smoke, how bright its light (lumens) and how bright the
     /// glow.
@@ -102,6 +139,17 @@ impl Default for EggFightSettings {
             voice_height: 2.3,
             fx_volume: 1.5,
             aura_color: [0.35, 1.0, 0.32],
+            rage_aura_color: [1.0, 0.06, 0.03],
+            eye_color: [0.55, 1.0, 0.45],
+            rage_eye_color: [1.0, 0.04, 0.02],
+            eye_glow: 4.0,
+            rage_eye_boost: 1.8,
+            eye_size: 0.16,
+            eye_forward: 0.14,
+            eye_up: 0.06,
+            eye_spacing: 0.1,
+            phase_quake: true,
+            phase_quake_sound: false,
             burst_size: 2.6,
             burst_puffs: 14,
             burst_light: 400_000.0,
@@ -111,6 +159,13 @@ impl Default for EggFightSettings {
             trail_speed: 0.35,
             trail_hold_secs: 0.5,
         }
+    }
+}
+
+impl EggFightSettings {
+    /// His aura's colour now, `rage` (0..=1) of the way to enraged.
+    fn aura_now(&self, rage: f32) -> [f32; 3] {
+        blend3(self.aura_color, self.rage_aura_color, rage)
     }
 }
 
@@ -144,6 +199,7 @@ fn his_avatar(
 #[allow(clippy::too_many_arguments)]
 fn mark_him(
     settings: Res<EggFightSettings>,
+    rage: Res<EggRageFade>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
@@ -157,14 +213,15 @@ fn mark_him(
     let Some(avatar) = his_avatar(him, &avatars, &ids, &interp) else {
         return;
     };
+    let color = settings.aura_now(rage.0);
     match tints.get_mut(avatar) {
         Ok(mut tint) => {
-            if tint.0 != settings.aura_color {
-                tint.0 = settings.aura_color;
+            if tint.0 != color {
+                tint.0 = color;
             }
         }
         Err(_) => {
-            commands.entity(avatar).insert((BossTint(settings.aura_color), BossVoiced));
+            commands.entity(avatar).insert((BossTint(color), BossVoiced));
         }
     }
 }
@@ -201,6 +258,20 @@ fn his_lines(
                 }
             }
             let clip: Handle<AudioSource> = asset_server.load(format!("{VOICE_DIR}/{}", msg.line.file()));
+            // His death cry: from where he falls, then with his spirit
+            // (`death`).
+            if msg.line == shared::easter_egg::HierophantLine::Death {
+                let at = scales.get(avatar).map_or(Vec3::ZERO, |t| t.translation);
+                commands.spawn((
+                    HisLine,
+                    super::death::DeathCry,
+                    StateScoped(AppState::InGame),
+                    AudioPlayer::new(clip),
+                    Transform::from_translation(at + Vec3::Y * settings.voice_height),
+                    crate::positional_playback(Volume::Linear(settings.voice_volume)),
+                ));
+                continue;
+            }
             // (Under his avatar, which is scaled.)
             let scale = scales.get(avatar).map_or(1.0, |t| t.scale.y.max(0.001));
             commands.entity(avatar).with_child((
@@ -240,6 +311,8 @@ struct Burst {
     start: f32,
     life: f32,
     size: f32,
+    /// Its colour (linear) — his aura's as it went up.
+    color: [f32; 3],
     sound: Option<Handle<AudioSource>>,
     glow: Handle<StandardMaterial>,
     smoke: Handle<StandardMaterial>,
@@ -265,8 +338,8 @@ fn spawn_burst(
     size: f32,
     sound: Option<Handle<AudioSource>>,
     seed: u32,
+    c: [f32; 3],
 ) {
-    let c = s.aura_color;
     let glow = materials.add(StandardMaterial {
         base_color: LinearRgba::rgb(0.0, 0.0, 0.0).into(),
         base_color_texture: Some(fx.glow.clone()),
@@ -289,7 +362,7 @@ fn spawn_burst(
     commands
         .spawn((
             StateScoped(AppState::InGame),
-            Burst { start, life, size, sound, glow: glow.clone(), smoke: smoke.clone() },
+            Burst { start, life, size, color: c, sound, glow: glow.clone(), smoke: smoke.clone() },
             Transform::from_translation(at),
             Visibility::default(),
         ))
@@ -338,6 +411,7 @@ fn spawn_burst(
 fn receive_teleports(
     time: Res<Time>,
     settings: Res<EggFightSettings>,
+    rage: Res<EggRageFade>,
     asset_server: Res<AssetServer>,
     fx: Option<Res<ExplosionAssets>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -359,7 +433,8 @@ fn receive_teleports(
             let out = asset_server.load(format!("{DIR}/teleport_out.mp3"));
             let inn = asset_server.load(format!("{DIR}/teleport_in.mp3"));
             *seq = seq.wrapping_add(2);
-            spawn_burst(&mut commands, fx, &mut materials, s, from, now, TELEPORT_SINK_SECS + 1.2, s.burst_size, Some(out), *seq);
+            let c = s.aura_now(rage.0);
+            spawn_burst(&mut commands, fx, &mut materials, s, from, now, TELEPORT_SINK_SECS + 1.2, s.burst_size, Some(out), *seq, c);
             let rise_at = now + TELEPORT_SINK_SECS + TELEPORT_UNDER_SECS;
             spawn_burst(
                 &mut commands,
@@ -372,6 +447,7 @@ fn receive_teleports(
                 s.burst_size,
                 Some(inn),
                 seq.wrapping_add(1),
+                c,
             );
             if let Some(avatar) = him.and_then(|h| his_avatar(h, &avatars, &ids, &interp)) {
                 commands.entity(avatar).insert(Sinking { start: now, from, to });
@@ -385,6 +461,7 @@ fn receive_teleports(
 fn receive_raises(
     time: Res<Time>,
     settings: Res<EggFightSettings>,
+    rage: Res<EggRageFade>,
     asset_server: Res<AssetServer>,
     fx: Option<Res<ExplosionAssets>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -400,7 +477,8 @@ fn receive_raises(
             *seq = seq.wrapping_add(1);
             let sound = asset_server.load(format!("{DIR}/raise_dead.mp3"));
             let at = Vec3::from_array(msg.at);
-            spawn_burst(&mut commands, fx, &mut materials, s, at, now, 2.8, s.burst_size * s.raise_scale, Some(sound), *seq ^ 0x5eed);
+            let c = s.aura_now(rage.0);
+            spawn_burst(&mut commands, fx, &mut materials, s, at, now, 2.8, s.burst_size * s.raise_scale, Some(sound), *seq ^ 0x5eed, c);
         }
     }
 }
@@ -443,8 +521,8 @@ fn run_bursts(
     let s = &*settings;
     let Some(cam) = camera.map(|c| c.into_inner()) else { return };
     let (cam_pos, cam_up, cam_right) = (cam.translation(), cam.up().as_vec3(), cam.right().as_vec3());
-    let c = s.aura_color;
     for (e, mut burst, root, children) in &mut bursts {
+        let c = burst.color;
         let t = now - burst.start;
         if t >= burst.life {
             commands.entity(e).try_despawn();
@@ -498,6 +576,131 @@ fn run_bursts(
                 }
             }
         }
+    }
+}
+
+// --- his eyes, and the ground shaking -----------------------------------------------
+
+/// One of his glowing eyes (-1 left, 1 right): billboarded glows put in
+/// front of his head bone each frame, after his pose and bones are placed.
+#[derive(Component)]
+struct HisEye(f32);
+
+/// His eyes: glowing his colour the whole fight, red and brighter as he's
+/// enraged — hidden whenever he's not alive in it.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn place_eyes(
+    settings: Res<EggFightSettings>,
+    boss_settings: Res<BossSettings>,
+    rage: Res<EggRageFade>,
+    fx: Option<Res<ExplosionAssets>>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    healths: Query<(&PlayerId, &PlayerHealth)>,
+    avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
+    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    (children, names): (Query<&Children>, Query<&Name>),
+    bones: Query<&GlobalTransform, Without<HisEye>>,
+    camera: Option<Single<&GlobalTransform, (With<WorldModelCamera>, Without<HisEye>)>>,
+    mut eyes: Query<(&HisEye, &mut Transform, &mut GlobalTransform, &mut Visibility, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    // His avatar and its head bone, once found.
+    mut head: Local<Option<(Entity, Entity)>>,
+    mut commands: Commands,
+) {
+    let Some(fx) = fx else { return };
+    if eyes.is_empty() {
+        let material = materials.add(StandardMaterial {
+            base_color: LinearRgba::rgb(0.0, 0.0, 0.0).into(),
+            base_color_texture: Some(fx.glow.clone()),
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+        for side in [-1.0, 1.0] {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                HisEye(side),
+                Mesh3d(fx.quad.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_scale(Vec3::ZERO),
+                Visibility::Hidden,
+                NotShadowCaster,
+                NoFrustumCulling,
+            ));
+        }
+        return;
+    }
+    // Him, alive in the fight, and his head bone.
+    let him = in_fight(egg_game(&local, &lobbies)).filter(|h| {
+        healths.iter().any(|(id, hp)| id.0 == h.peer && hp.0 > 0.0)
+    });
+    let avatar = him.and_then(|h| his_avatar(h, &avatars, &ids, &interp));
+    if head.is_some_and(|(a, b)| Some(a) != avatar || !bones.contains(b)) {
+        *head = None;
+    }
+    if let (None, Some(avatar)) = (*head, avatar) {
+        *head = children
+            .iter_descendants(avatar)
+            .find(|&e| names.get(e).is_ok_and(|n| crate::player::is_head_bone(n.as_str())))
+            .map(|bone| (avatar, bone));
+    }
+    let placed = head.and_then(|(a, b)| Some((bones.get(a).ok()?, bones.get(b).ok()?)));
+    let (Some((root, bone)), Some(cam)) = (placed, camera) else {
+        for (_, _, _, mut vis, _) in &mut eyes {
+            vis.set_if_neq(Visibility::Hidden);
+        }
+        return;
+    };
+    let cam = cam.into_inner();
+    let (cam_pos, cam_up, cam_right) = (cam.translation(), cam.up().as_vec3(), cam.right().as_vec3());
+    // His facing (his pose's -Z; the model's turned by the boss' offset).
+    let (_, rotation, _) = root.to_scale_rotation_translation();
+    let facing = rotation * Quat::from_rotation_y(-boss_settings.yaw_offset_deg.to_radians());
+    let (forward, right) = (facing * Vec3::NEG_Z, facing * Vec3::X);
+    let s = &*settings;
+    let r = rage.0;
+    let c = blend3(s.eye_color, s.rage_eye_color, r);
+    let b = s.eye_glow * (1.0 + (s.rage_eye_boost - 1.0) * r);
+    for (eye, mut tf, mut gtf, mut vis, material) in &mut eyes {
+        let at = bone.translation() + forward * s.eye_forward + Vec3::Y * s.eye_up + right * eye.0 * s.eye_spacing * 0.5;
+        *tf = Transform::from_translation(at)
+            .with_rotation(smoke_billboard_rotation(at, cam_pos, cam_up, cam_right, 0.0))
+            .with_scale(Vec3::new(s.eye_size, s.eye_size, 1.0));
+        // (Placed after this frame's transforms went round.)
+        *gtf = GlobalTransform::from(*tf);
+        vis.set_if_neq(Visibility::Inherited);
+        if let Some(m) = materials.get_mut(&material.0) {
+            let want: Color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
+            if m.base_color != want {
+                m.base_color = want;
+            }
+        }
+    }
+}
+
+/// His phase last frame, while he's in the fight — forgotten out of a game.
+#[derive(Resource, Default)]
+struct SeenPhase(Option<u8>);
+
+/// Each new phase he goes into shakes the ground (not a debug heal back).
+fn phase_quake(
+    settings: Res<EggFightSettings>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    mut quake: ResMut<crate::earthquake::Quake>,
+    mut seen: ResMut<SeenPhase>,
+) {
+    let phase = in_fight(egg_game(&local, &lobbies)).map(|h| h.phase);
+    if let (Some(was), Some(now)) = (seen.0, phase) {
+        if now > was && settings.phase_quake {
+            quake.rumble(settings.phase_quake_sound);
+        }
+    }
+    if seen.0 != phase {
+        seen.0 = phase;
     }
 }
 
@@ -680,7 +883,9 @@ pub(crate) fn fight_section(
     };
     ui.add_enabled_ui(fight.is_some() && is_leader, |ui| {
         ui.horizontal_wrapped(|ui| {
-            for (label, share) in [("Health 100%", 1.0), ("Health 67% (phase 2)", 0.66), ("Health 34%", 0.34), ("Health 5%", 0.05)] {
+            for (label, share) in
+                [("Health 100%", 1.0), ("Health 66% (phase 2)", 0.66), ("Health 33% (phase 3)", 0.33), ("Health 5%", 0.05)]
+            {
                 if ui.button(label).clicked() {
                     poke = Some(HierophantDebugAction::SetHealth(share));
                 }
@@ -693,6 +898,9 @@ pub(crate) fn fight_section(
             if ui.button("Teleport now").clicked() {
                 poke = Some(HierophantDebugAction::Teleport);
             }
+            if ui.button("Kill him").clicked() {
+                poke = Some(HierophantDebugAction::Kill);
+            }
         });
     });
     ui.separator();
@@ -702,7 +910,23 @@ pub(crate) fn fight_section(
     ui.horizontal(|ui| {
         ui.label("aura & burst colour");
         ui.color_edit_button_rgb(&mut s.aura_color);
+        ui.label("enraged");
+        ui.color_edit_button_rgb(&mut s.rage_aura_color);
     });
+    ui.horizontal(|ui| {
+        ui.label("eyes");
+        ui.color_edit_button_rgb(&mut s.eye_color);
+        ui.label("enraged");
+        ui.color_edit_button_rgb(&mut s.rage_eye_color);
+    });
+    ui.add(egui::Slider::new(&mut s.eye_glow, 0.0f32..=20.0).text("eye glow"));
+    ui.add(egui::Slider::new(&mut s.rage_eye_boost, 0.0f32..=5.0).text("enraged eye glow (×)"));
+    ui.add(egui::Slider::new(&mut s.eye_size, 0.01f32..=0.6).text("eye size (m)"));
+    ui.add(egui::Slider::new(&mut s.eye_forward, -0.5f32..=0.5).text("eyes forward of head bone (m)"));
+    ui.add(egui::Slider::new(&mut s.eye_up, -0.5f32..=0.5).text("eyes up from head bone (m)"));
+    ui.add(egui::Slider::new(&mut s.eye_spacing, 0.0f32..=0.4).text("eyes apart (m)"));
+    ui.checkbox(&mut s.phase_quake, "earthquake at each new phase");
+    ui.checkbox(&mut s.phase_quake_sound, "...with the power-on's sound (rumble + music)");
     ui.add(egui::Slider::new(&mut s.burst_size, 0.2f32..=10.0).text("teleport burst size (m)"));
     ui.add(egui::Slider::new(&mut s.burst_puffs, 0..=40).text("smoke puffs"));
     ui.add(egui::Slider::new(&mut s.burst_light, 0.0f32..=3_000_000.0).text("burst light (lm)"));

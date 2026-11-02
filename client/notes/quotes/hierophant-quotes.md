@@ -48,8 +48,8 @@ All of the lines below are recorded. Where each one plays:
 - `wake.mp3`: when he wakes.
 - Taunts, `phase_2`, `player_down_*`, `hurt_*` and `death`: in the
   fight (`server/src/easter_egg/fight.rs` decides when).
-- `phase_3` and `pyramid_fade`: not wired up yet (phase 3 and the
-  pyramid are later steps).
+- `pyramid_fade`: not wired up yet (the
+  pyramid is a later step). `phase_3` plays as phase 3 starts.
 
 Phase 2 also uses three sound effects from this folder, not voice lines:
 `teleport_out.mp3`, `teleport_in.mp3` and `raise_dead.mp3`.

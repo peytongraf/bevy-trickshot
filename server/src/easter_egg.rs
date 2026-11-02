@@ -26,7 +26,9 @@
 //!   realises what he's done; a breath after, he wakes
 //!   ([`shared::easter_egg::EggStep::Awakening`] — the clients play it out)
 //!   and once he's up the fight's on ([`run_unleashed`]) — the Hierophant
-//!   himself, until he's killed ([`fight`]);
+//!   himself, until he's killed ([`fight`]); then his death plays out
+//!   ([`shared::easter_egg::EggStep::HisDeath`], the round still held) before
+//!   it moves on;
 //! * the leader's debug panel can set any of it ([`shared::SetEasterEgg`])
 //!   — without the gathering's radio.
 
@@ -218,8 +220,10 @@ struct Unleashing {
     t: f32,
     dropped: bool,
     radioed: bool,
-    /// How long (s) he's been waking, while he is.
+    /// How long (s) he's been waking, while he is...
     waking: f32,
+    /// ...or dying (his spirit fleeing into the pyramid).
+    dying: f32,
     /// The step it was at last tick.
     last: Option<EggStep>,
 }
@@ -296,7 +300,17 @@ fn run_unleashed(
                     info!("lobby {lobby_e:?}: the Hierophant's up — the fight's on");
                 }
             }
-            _ => u.waking = 0.0,
+            EggStep::HisDeath => {
+                u.dying += dt;
+                if u.dying >= shared::easter_egg::DEATH_SECS {
+                    lobby.easter_egg.step = EggStep::Ascension;
+                    info!("lobby {lobby_e:?}: his spirit's in the pyramid — the round goes on");
+                }
+            }
+            _ => {
+                u.waking = 0.0;
+                u.dying = 0.0;
+            }
         }
     }
 }

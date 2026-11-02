@@ -206,6 +206,12 @@ impl Profile {
         Some(AIR_OFF_HZ * (self.wall_hz.max(20.0) / AIR_OFF_HZ).powf(blocked.min(1.0)))
     }
 
+    /// Whether walls do anything to it — off, nothing muffles it however
+    /// much is in the way (the Hierophant's voice).
+    pub(crate) fn walls_matter(&self) -> bool {
+        self.wall_hz < AIR_OFF_HZ || self.wall_db < 0.0
+    }
+
     /// The linear gain left for a sound `blocked` by walls.
     pub(crate) fn wall_gain(&self, blocked: f32) -> f32 {
         db_to_linear(self.wall_db.min(0.0) * blocked.clamp(0.0, 1.0))

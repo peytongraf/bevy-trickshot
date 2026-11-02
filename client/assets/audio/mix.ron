@@ -56,6 +56,8 @@
             curve: 1.5,
             width: 0.75,
             air_hz: 20000.0,
+            wall_hz: 20000.0,
+            wall_db: 0.0,
         ),
         "Machine hum": (
             volume_db: 0.0,

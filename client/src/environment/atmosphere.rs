@@ -291,7 +291,7 @@ pub(crate) fn apply_scene_tuning(
     looks: Res<MapLooks>,
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
-    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodLook>),
+    (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodNow>),
     mut ambient: ResMut<AmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,

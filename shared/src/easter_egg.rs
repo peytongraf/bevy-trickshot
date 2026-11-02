@@ -33,6 +33,10 @@ pub enum EggStep {
     Awakening,
     /// The fight.
     BossFight,
+    /// He's dead: his body falls and his spirit flees screaming up into the
+    /// pyramid ([`DEATH_SECS`]) — the map still gone wrong and the round
+    /// still held until it's in.
+    HisDeath,
     /// He's dead; the squad's souls go up into the pyramid.
     Ascension,
     /// They're back with the wonder weapon — over for this game.
@@ -40,12 +44,13 @@ pub enum EggStep {
 }
 
 impl EggStep {
-    pub const ALL: [EggStep; 7] = [
+    pub const ALL: [EggStep; 8] = [
         EggStep::Gathering,
         EggStep::Ritual,
         EggStep::Unleashed,
         EggStep::Awakening,
         EggStep::BossFight,
+        EggStep::HisDeath,
         EggStep::Ascension,
         EggStep::Complete,
     ];
@@ -57,6 +62,7 @@ impl EggStep {
             EggStep::Unleashed => "It goes wrong",
             EggStep::Awakening => "He wakes",
             EggStep::BossFight => "Boss fight",
+            EggStep::HisDeath => "His death",
             EggStep::Ascension => "Into the pyramid",
             EggStep::Complete => "Complete",
         }
@@ -65,7 +71,7 @@ impl EggStep {
     /// Whether he's loose — from the ritual going wrong until he's dead: the
     /// map's changed (green fires, red water, dark sky, thick fog,
     /// flickering lights) and the round's own zombies are held back
-    /// ([`holds_spawns`]).
+    /// ([`holds_spawns`] — which holds them through [`EggStep::HisDeath`] too).
     pub fn is_unleashed(self) -> bool {
         matches!(self, EggStep::Unleashed | EggStep::Awakening | EggStep::BossFight)
     }
@@ -98,14 +104,18 @@ pub struct EasterEgg {
 }
 
 /// Who the Hierophant is in a game, the health he came in with (for his
-/// health bar), and which phase of the fight he's in (1, 2 from
-/// [`PHASE_2_AT`] of his health; phase 3 is still to come).
+/// health bar), and which phase of the fight he's in (1; 2 from
+/// [`PHASE_2_AT`] of his health; 3, enraged, from [`PHASE_3_AT`]).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Hierophant {
     pub peer: PeerId,
     pub max_health: f32,
     #[serde(default = "first_phase")]
     pub phase: u8,
+    /// Where his feet were as he fell — his spirit tears out of him there
+    /// ([`EggStep::HisDeath`]).
+    #[serde(default)]
+    pub fell_at: Option<Vec3>,
 }
 
 fn first_phase() -> u8 {
@@ -235,6 +245,8 @@ pub enum HierophantDebugAction {
     RaiseRing,
     /// Teleport now (phase 2 or not).
     Teleport,
+    /// Kill him now.
+    Kill,
 }
 
 pub const PLAYER_DOWN_LINES: u8 = 3;
@@ -307,8 +319,10 @@ pub const RING_RADIUS: (f32, f32) = (3.5, 6.5);
 pub const RING_REFILL_LEFT: usize = 2;
 pub const RING_EVERY_SECS: f32 = 25.0;
 
-/// His teleport (phase 2 on): every so often (a random gap, s)...
+/// His teleport (phase 2 on): every so often (a random gap, s — shorter
+/// once he's enraged)...
 pub const TELEPORT_GAP_SECS: (f32, f32) = (12.0, 18.0);
+pub const TELEPORT_GAP_ENRAGED_SECS: (f32, f32) = (8.0, 12.0);
 /// ...or once no one's been within this far (m) of him for this long (s)...
 pub const TELEPORT_ALONE_DIST: f32 = 10.0;
 pub const TELEPORT_ALONE_SECS: f32 = 4.0;
@@ -324,6 +338,46 @@ pub const TELEPORT_NEAR: (f32, f32) = (4.0, 7.0);
 /// The whole teleport (s): sinking, gone, rising.
 pub const fn teleport_secs() -> f32 {
     TELEPORT_SINK_SECS + TELEPORT_UNDER_SECS + TELEPORT_RISE_SECS
+}
+
+// --- phase 3 ---------------------------------------------------------------------------
+
+/// Phase 3 starts once he's down to this much of his health: he stops and
+/// roars (as phase 2's, [`PHASE_ROAR_SECS`]) and comes on enraged — faster
+/// (m/s, vs [`HIEROPHANT_SPEED`]), teleporting more often
+/// ([`TELEPORT_GAP_ENRAGED_SECS`]), still raising his dead. The map goes
+/// blood-red, and so does he.
+pub const PHASE_3_AT: f32 = 1.0 / 3.0;
+pub const HIEROPHANT_ENRAGED_SPEED: f32 = 2.6;
+
+/// His phase (1..=3) with `share` (0..=1) of his health left.
+pub fn phase_at(share: f32) -> u8 {
+    if share <= PHASE_3_AT {
+        3
+    } else if share <= PHASE_2_AT {
+        2
+    } else {
+        1
+    }
+}
+
+// --- his death ([`EggStep::HisDeath`]), in s from it ---------------------------------
+
+/// His body falls (the boss's death), and his spirit tears up out of it
+/// then, rising to hang over him, shrieking...
+pub const DEATH_SPIRIT_AT: f32 = 1.3;
+pub const DEATH_SPIRIT_RISE_SECS: f32 = 1.1;
+/// ...until it flies, screaming, up into the pyramid (at its altar, inside
+/// it) over this long...
+pub const DEATH_FLY_AT: f32 = 2.9;
+pub const DEATH_FLY_SECS: f32 = 2.3;
+/// ...and once his scream's died away (`death.mp3`, 6.27 s), it's over
+/// ([`EggStep::Ascension`]): the map comes back and the round with it.
+pub const DEATH_SECS: f32 = 6.8;
+
+/// When his spirit reaches the pyramid.
+pub const fn death_spirit_in_secs() -> f32 {
+    DEATH_FLY_AT + DEATH_FLY_SECS
 }
 
 /// How close (m, across the ground) feet have to be to the vial to pick it
@@ -426,7 +480,7 @@ pub fn available(lobby: &Lobby) -> bool {
 /// boss of its own comes (and its clocks wait) while he's loose
 /// ([`EggStep::is_unleashed`]) — the round carries on where it was after.
 pub fn holds_spawns(lobby: &Lobby) -> bool {
-    available(lobby) && lobby.easter_egg.step.is_unleashed()
+    available(lobby) && (lobby.easter_egg.step.is_unleashed() || lobby.easter_egg.step == EggStep::HisDeath)
 }
 
 // --- its pieces (placeholders for now — sizes as the models will be made) ---------
@@ -529,6 +583,25 @@ mod tests {
         assert_eq!(HierophantLine::Hurt(1).file(), "hurt_2.mp3");
         assert!(HierophantLine::Death.interrupts() && !HierophantLine::Taunt(0).interrupts());
         assert!(ring_size(1) >= 6 && ring_size(8) == RING_MAX);
+    }
+
+    #[test]
+    fn his_spirit_is_in_the_pyramid_before_its_over() {
+        assert!(DEATH_SPIRIT_AT + DEATH_SPIRIT_RISE_SECS <= DEATH_FLY_AT);
+        assert!(death_spirit_in_secs() < DEATH_SECS);
+        assert!(DEATH_SECS >= HierophantLine::Death.secs(), "his scream's cut off");
+        assert!(!EggStep::HisDeath.is_unleashed(), "the fight's bar, music and red are gone as he falls");
+    }
+
+    #[test]
+    fn his_phase_follows_his_health() {
+        assert_eq!(phase_at(1.0), 1);
+        assert_eq!(phase_at(0.67), 1);
+        assert_eq!(phase_at(0.66), 2);
+        assert_eq!(phase_at(0.34), 2);
+        assert_eq!(phase_at(0.33), 3);
+        assert_eq!(phase_at(0.01), 3);
+        assert!(HIEROPHANT_ENRAGED_SPEED > HIEROPHANT_SPEED);
     }
 
     #[test]

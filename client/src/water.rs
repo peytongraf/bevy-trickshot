@@ -709,7 +709,7 @@ impl WaterBuilder<'_> {
 /// (and clear again after) — only when that moves, or water's new.
 fn tint_water(
     fade: Res<crate::environment::EggMoodFade>,
-    look: Res<crate::environment::EggMoodLook>,
+    look: Res<crate::environment::EggMoodNow>,
     water: Query<&MapWater>,
     new: Query<(), Added<MapWater>>,
     mut waters: ResMut<Assets<WaterMaterial>>,

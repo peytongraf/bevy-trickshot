@@ -16,7 +16,7 @@ use crate::WorldModelCamera;
 
 use super::atmosphere::MapLooks;
 use super::dog_round::{DogRoundFade, DogRoundLook};
-use super::egg_mood::{EggMoodFade, EggMoodLook};
+use super::egg_mood::{EggMoodFade, EggMoodNow};
 use super::map::CurrentMap;
 
 /// A map's sky look — separate from its fog, which doesn't reach the sky.
@@ -151,7 +151,7 @@ pub(crate) fn sky_follow_camera(
 pub(crate) fn apply_sky_look(
     fade: Res<DogRoundFade>,
     dog_look: Res<DogRoundLook>,
-    (egg_fade, egg_look): (Res<EggMoodFade>, Res<EggMoodLook>),
+    (egg_fade, egg_look): (Res<EggMoodFade>, Res<EggMoodNow>),
     current: Res<CurrentMap>,
     looks: Res<MapLooks>,
     mut sky: Query<(&SkyMaterial, &mut Transform), With<SkySphere>>,

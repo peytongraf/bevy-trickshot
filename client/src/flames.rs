@@ -221,7 +221,7 @@ fn limit_flame_shadows(
 fn tint_flames(
     fade: Res<crate::environment::EggMoodFade>,
     stutter: Res<crate::environment::LightFlicker>,
-    look: Res<crate::environment::EggMoodLook>,
+    look: Res<crate::environment::EggMoodNow>,
     molotov: Res<MolotovSettings>,
     flames: Query<&MapFlame>,
     new: Query<(), Added<MapFlame>>,
@@ -246,7 +246,7 @@ fn flicker_flames(
     time: Res<Time>,
     molotov: Res<MolotovSettings>,
     fade: Res<crate::environment::EggMoodFade>,
-    look: Res<crate::environment::EggMoodLook>,
+    look: Res<crate::environment::EggMoodNow>,
     mut lights: Query<(&FlameLight, &mut PointLight)>,
 ) {
     let t = time.elapsed_secs();

@@ -65,6 +65,7 @@ use crate::net::GameClient;
 use crate::zombies_hud::zombies_game;
 use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
+mod death;
 mod fight;
 mod music;
 mod wake;
@@ -76,7 +77,7 @@ pub(crate) struct EasterEggPlugin;
 
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin))
+        app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin))
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -1198,6 +1199,8 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     wake_settings: ResMut<'w, EggWakeSettings>,
     wake: Res<'w, EggWake>,
     fight_settings: ResMut<'w, EggFightSettings>,
+    death_settings: ResMut<'w, death::EggDeathSettings>,
+    death: Res<'w, death::EggDeath>,
     music_settings: ResMut<'w, music::EggMusicSettings>,
     music_levels: Res<'w, music::EggMusicLevels>,
     ambient_level: Res<'w, crate::zombies_audio::ZombiesAmbientLevel>,
@@ -1249,6 +1252,7 @@ impl EasterEggDebug<'_, '_> {
         if let (Some(action), Ok(mut tx)) = (poke, self.hierophant_tx.single_mut()) {
             fight::send_poke(&mut tx, action);
         }
+        ui.collapsing("His death", |ui| death::death_section(ui, &mut self.death_settings, &self.death));
         let me = self.local.iter().next().map(|l| l.0);
         let game = zombies_game(&self.local, &self.lobbies).filter(|l| shared::easter_egg::available(l));
         let Some(lobby) = game else {

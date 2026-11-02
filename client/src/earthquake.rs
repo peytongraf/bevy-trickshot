@@ -16,6 +16,10 @@
 //! positional, its volume following the shake's strength (on top of the
 //! lever's own power-on sound, which still plays).
 //!
+//! The easter egg's Hierophant changing phase starts one too
+//! ([`Quake::rumble`], from `easter_egg::fight`), without the sound unless
+//! that asks for it.
+//!
 //! Only a flip of `Lobby::power_on` seen while in the game starts it — joining
 //! with the power already on doesn't. Out of a game it's dropped straight
 //! back to nothing, and the debris is `StateScoped(InGame)`, so nothing
@@ -200,6 +204,17 @@ pub(crate) struct Quake {
     owed: f32,
     /// Debug: start one now (the panel's "Test").
     test: bool,
+    /// Something else asks for one now — with its sound or without
+    /// ([`Quake::rumble`]).
+    cue: Option<bool>,
+}
+
+impl Quake {
+    /// Start one now (starting over if one's going), with the power-on's
+    /// rumble and music or silently — the easter egg's boss changing phase.
+    pub(crate) fn rumble(&mut self, sound: bool) {
+        self.cue = Some(sound);
+    }
 }
 
 /// On the earthquake's sound while it plays.
@@ -224,7 +239,7 @@ fn start_quake(
 ) {
     if *state.get() != AppState::InGame {
         *was_on = None;
-        if quake.started.is_some() || quake.level != 0.0 || quake.test {
+        if quake.started.is_some() || quake.level != 0.0 || quake.test || quake.cue.is_some() {
             *quake = Quake::default();
         }
         return;
@@ -233,14 +248,15 @@ fn start_quake(
     let flipped = *was_on == Some(false) && on == Some(true);
     *was_on = on;
     let test = std::mem::take(&mut quake.bypass_change_detection().test);
-    if (flipped && settings.enabled) || test {
+    let cue = quake.bypass_change_detection().cue.take();
+    if (flipped && settings.enabled) || test || cue.is_some() {
         quake.started = Some(time.elapsed_secs());
         quake.owed = 0.0;
         // (Starting over if one was still going.)
         for e in &playing {
             commands.entity(e).despawn();
         }
-        if let Some(sounds) = &sounds {
+        if let Some(sounds) = sounds.as_ref().filter(|_| cue != Some(false)) {
             commands.spawn((
                 QuakeSound,
                 StateScoped(AppState::InGame),

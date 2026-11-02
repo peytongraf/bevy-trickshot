@@ -20,8 +20,13 @@
 //! again — so it works over any light without each one knowing. The fires'
 //! flames and the power lights' bulbs dim with it too (`flames`, `power`).
 //!
+//! **Enraged** (the Hierophant's phase 3): it all turns blood-red — fog,
+//! sky, ambient, the low fog and the fires — faded in by [`EggRageFade`]
+//! over the rest. What reads the look reads [`EggMoodNow`]: the panel's
+//! [`EggMoodLook`] with that blended in (rebuilt only when either moves).
+//!
 //! Tuned in the debug panel's "Easter egg (Der Tempel)" → "It goes wrong —
-//! the map". Out of a game the fade and flicker drop straight back to
+//! the map". Out of a game the fades and flicker drop straight back to
 //! nothing, so none of it carries into the next one.
 
 use bevy::prelude::*;
@@ -37,7 +42,9 @@ pub(crate) struct EggMoodPlugin;
 impl Plugin for EggMoodPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EggMoodLook>()
+            .init_resource::<EggMoodNow>()
             .init_resource::<EggMoodFade>()
+            .init_resource::<EggRageFade>()
             .init_resource::<LightFlicker>()
             .init_resource::<EggLightCue>()
             .add_systems(First, unflicker_lights)
@@ -46,7 +53,7 @@ impl Plugin for EggMoodPlugin {
 }
 
 /// Panel-tunable look of it gone wrong.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Clone, Debug, PartialEq)]
 pub(crate) struct EggMoodLook {
     pub(crate) enabled: bool,
     /// Debug: act as if it's gone wrong (untick to fade back out).
@@ -110,6 +117,27 @@ pub(crate) struct EggMoodLook {
     pub(crate) flicker_low: f32,
     /// A long stutter right as it goes wrong (s).
     pub(crate) onset_secs: f32,
+
+    // --- enraged (the Hierophant's phase 3), over the rest ---
+    /// Debug: act as if he's enraged (with `preview`, or in the fight).
+    pub(crate) rage_preview: bool,
+    /// Seconds to turn red as he's enraged, and back once he isn't.
+    pub(crate) rage_fade_in_secs: f32,
+    pub(crate) rage_fade_out_secs: f32,
+    pub(crate) rage_sky_mult: f32,
+    pub(crate) rage_sky_tint: [f32; 3],
+    pub(crate) rage_sky_haze: f32,
+    pub(crate) rage_fog_visibility_m: f32,
+    pub(crate) rage_fog_color: [f32; 3],
+    pub(crate) rage_ambient_mult: f32,
+    pub(crate) rage_ambient_color: [f32; 3],
+    pub(crate) rage_ground_fog_density: f32,
+    pub(crate) rage_ground_fog_opacity: f32,
+    pub(crate) rage_ground_fog_color: [f32; 3],
+    pub(crate) rage_fire_core: [f32; 3],
+    pub(crate) rage_fire_mid: [f32; 3],
+    pub(crate) rage_fire_tip: [f32; 3],
+    pub(crate) rage_fire_light: [f32; 3],
 }
 
 impl Default for EggMoodLook {
@@ -146,9 +174,70 @@ impl Default for EggMoodLook {
             flicker_off_chance: 0.55,
             flicker_low: 0.04,
             onset_secs: 2.2,
+            rage_preview: false,
+            rage_fade_in_secs: 3.0,
+            rage_fade_out_secs: 4.0,
+            rage_sky_mult: 0.2,
+            rage_sky_tint: [1.0, 0.25, 0.2],
+            rage_sky_haze: 0.75,
+            rage_fog_visibility_m: 32.0,
+            rage_fog_color: [0.09, 0.008, 0.006],
+            rage_ambient_mult: 0.75,
+            rage_ambient_color: [1.0, 0.3, 0.26],
+            rage_ground_fog_density: 0.2,
+            rage_ground_fog_opacity: 0.8,
+            rage_ground_fog_color: [0.2, 0.02, 0.015],
+            rage_fire_core: [1.0, 0.8, 0.6],
+            rage_fire_mid: [0.95, 0.12, 0.04],
+            rage_fire_tip: [0.35, 0.0, 0.0],
+            rage_fire_light: [1.0, 0.18, 0.08],
         }
     }
 }
+
+impl EggMoodLook {
+    /// This look with enraged's blended in by `r` (0..=1).
+    fn enraged(&self, r: f32) -> Self {
+        if r <= 0.0 {
+            return self.clone();
+        }
+        let f = |own: f32, to: f32| own + (to - own) * r;
+        Self {
+            sky_mult: f(self.sky_mult, self.rage_sky_mult),
+            sky_tint: blend3(self.sky_tint, self.rage_sky_tint, r),
+            sky_haze: f(self.sky_haze, self.rage_sky_haze),
+            fog_visibility_m: f(self.fog_visibility_m, self.rage_fog_visibility_m),
+            fog_color: blend3(self.fog_color, self.rage_fog_color, r),
+            ambient_mult: f(self.ambient_mult, self.rage_ambient_mult),
+            ambient_color: blend3(self.ambient_color, self.rage_ambient_color, r),
+            ground_fog_density: f(self.ground_fog_density, self.rage_ground_fog_density),
+            ground_fog_opacity: f(self.ground_fog_opacity, self.rage_ground_fog_opacity),
+            ground_fog_color: blend3(self.ground_fog_color, self.rage_ground_fog_color, r),
+            fire_core: blend3(self.fire_core, self.rage_fire_core, r),
+            fire_mid: blend3(self.fire_mid, self.rage_fire_mid, r),
+            fire_tip: blend3(self.fire_tip, self.rage_fire_tip, r),
+            fire_light: blend3(self.fire_light, self.rage_fire_light, r),
+            ..self.clone()
+        }
+    }
+}
+
+/// The look as it is right now — [`EggMoodLook`] with [`EggRageFade`]
+/// blended in — for everything that reads it (as an `EggMoodLook`).
+#[derive(Resource, Default)]
+pub(crate) struct EggMoodNow(EggMoodLook);
+
+impl std::ops::Deref for EggMoodNow {
+    type Target = EggMoodLook;
+    fn deref(&self) -> &EggMoodLook {
+        &self.0
+    }
+}
+
+/// How far he's turned it blood-red (his phase 3), 0..=1 (smoothed) — his
+/// own aura and eyes follow it too (`easter_egg::fight`).
+#[derive(Resource, Default)]
+pub(crate) struct EggRageFade(pub(crate) f32);
 
 /// How far it's faded in, 0..=1 (smoothed).
 #[derive(Resource, Default)]
@@ -191,6 +280,27 @@ fn unleashed(local: &Query<&LocalId, With<GameClient>>, lobbies: &Query<&Lobby>)
         .is_some_and(|l| shared::easter_egg::holds_spawns(l))
 }
 
+/// Whether he's alive in the fight and enraged (phase 3).
+fn enraged(local: &Query<&LocalId, With<GameClient>>, lobbies: &Query<&Lobby>) -> bool {
+    crate::zombies_hud::zombies_game(local, lobbies).is_some_and(|l| {
+        shared::easter_egg::holds_spawns(l)
+            && l.easter_egg.step == shared::easter_egg::EggStep::BossFight
+            && l.easter_egg.hierophant.is_some_and(|h| h.phase >= 3)
+    })
+}
+
+/// `progress` (linear) stepped toward `target` over `secs`; eased.
+fn fade_toward(progress: &mut f32, target: f32, secs: f32, dt: f32) -> f32 {
+    *progress = if secs <= 0.0 {
+        target
+    } else {
+        let step = dt / secs;
+        *progress + (target - *progress).clamp(-step, step)
+    };
+    let t = *progress;
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// Fade it toward on while it's gone wrong (or the panel's preview) and off
 /// otherwise — straight to off out of a game — and stutter the lights while
 /// it's in.
@@ -201,33 +311,39 @@ pub(crate) fn update_egg_mood(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     time: Res<Time>,
-    // (Linear; `EggMoodFade` is it eased.)
-    mut progress: Local<f32>,
+    // (Linear; `EggMoodFade` and `EggRageFade` are them eased.)
+    (mut progress, mut rage_progress): (Local<f32>, Local<f32>),
     mut clock: Local<FlickerClock>,
-    mut fade: ResMut<EggMoodFade>,
+    (mut fade, mut rage, mut now): (ResMut<EggMoodFade>, ResMut<EggRageFade>, ResMut<EggMoodNow>),
     mut flicker: ResMut<LightFlicker>,
     mut cue: ResMut<EggLightCue>,
 ) {
     let in_game = *state.get() == AppState::InGame;
     let on = in_game && look.enabled && (look.preview || unleashed(&local, &lobbies));
+    let raging = on && (look.rage_preview || enraged(&local, &lobbies));
+    let dt = time.delta_secs();
     if !in_game {
         *progress = 0.0;
+        *rage_progress = 0.0;
         *clock = default();
         *cue = default();
-    } else {
-        let (target, secs) = if on { (1.0, look.fade_in_secs) } else { (0.0, look.fade_out_secs) };
-        *progress = if secs <= 0.0 {
-            target
-        } else {
-            let step = time.delta_secs() / secs;
-            *progress + (target - *progress).clamp(-step, step)
-        };
     }
-    let t = *progress;
-    let eased = t * t * (3.0 - 2.0 * t);
-    // (Only when it moves — what reads it re-applies on a change.)
+    let (target, secs) = if on { (1.0, look.fade_in_secs) } else { (0.0, look.fade_out_secs) };
+    let eased = if in_game { fade_toward(&mut progress, target, secs, dt) } else { 0.0 };
+    let (target, secs) = if raging { (1.0, look.rage_fade_in_secs) } else { (0.0, look.rage_fade_out_secs) };
+    let rage_eased = if in_game { fade_toward(&mut rage_progress, target, secs, dt) } else { 0.0 };
+    // (Only when they move — what reads them re-applies on a change.)
     if fade.0 != eased {
         fade.0 = eased;
+    }
+    if rage.0 != rage_eased {
+        rage.0 = rage_eased;
+    }
+    if look.is_changed() || rage.is_changed() {
+        let blended = look.enraged(rage_eased);
+        if now.0 != blended {
+            now.0 = blended;
+        }
     }
 
     // (A jolt: the long stutter it starts with, over again.)
@@ -404,10 +520,34 @@ pub(crate) fn egg_mood_section(ui: &mut egui::Ui, look: &mut EggMoodLook, fade: 
     ui.add(egui::Slider::new(&mut look.flicker_off_chance, 0.0f32..=1.0).text("chance of being out"));
     ui.add(egui::Slider::new(&mut look.flicker_low, 0.02f32..=1.0).text("out to (× brightness)"));
     ui.add(egui::Slider::new(&mut look.onset_secs, 0.0f32..=10.0).text("stutter as it goes wrong (s)"));
+    ui.separator();
+    ui.label("Enraged (his phase 3) — blood-red over the rest");
+    ui.checkbox(&mut look.rage_preview, "preview enraged (with the preview above, or in the fight)");
+    ui.add(egui::Slider::new(&mut look.rage_fade_in_secs, 0.0f32..=20.0).text("turn red over (s)"));
+    ui.add(egui::Slider::new(&mut look.rage_fade_out_secs, 0.0f32..=20.0).text("back over (s)"));
+    ui.add(egui::Slider::new(&mut look.rage_sky_mult, 0.0f32..=1.0).text("sky brightness ×"));
+    color(ui, &mut look.rage_sky_tint, "sky tint");
+    ui.add(egui::Slider::new(&mut look.rage_sky_haze, 0.0f32..=1.0).text("haze on the sky"));
+    ui.add(
+        egui::Slider::new(&mut look.rage_fog_visibility_m, 5.0f32..=1500.0)
+            .logarithmic(true)
+            .text("fog visibility (m)"),
+    );
+    color(ui, &mut look.rage_fog_color, "fog colour");
+    ui.add(egui::Slider::new(&mut look.rage_ambient_mult, 0.0f32..=2.0).text("ambient ×"));
+    color(ui, &mut look.rage_ambient_color, "ambient colour");
+    ui.add(egui::Slider::new(&mut look.rage_ground_fog_density, 0.0f32..=1.0).text("ground fog thickness"));
+    ui.add(egui::Slider::new(&mut look.rage_ground_fog_opacity, 0.0f32..=1.0).text("ground fog most opacity"));
+    color(ui, &mut look.rage_ground_fog_color, "ground fog colour");
+    color(ui, &mut look.rage_fire_core, "flame core");
+    color(ui, &mut look.rage_fire_mid, "flame middle");
+    color(ui, &mut look.rage_fire_tip, "flame tips");
+    color(ui, &mut look.rage_fire_light, "fire light");
     ui.horizontal(|ui| {
         if ui.button("Reset").clicked() {
             *look = EggMoodLook {
                 preview: look.preview,
+                rage_preview: look.rage_preview,
                 ..default()
             };
         }

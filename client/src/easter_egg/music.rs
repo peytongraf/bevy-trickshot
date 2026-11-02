@@ -5,7 +5,14 @@
 //! silence — looping through it going wrong, him waking and the fight,
 //! for as long as he's loose (`EggStep::is_unleashed`). Once he isn't (he's
 //! dead, the egg's reset) or the game's over, it fades out and the ambience
-//! comes back.
+//! comes back — after his death's played out (`EggStep::HisDeath`), if
+//! that's why.
+//!
+//! The fight changes track with his phase ([`TRACKS`]): as he goes into
+//! phase 2, what's playing fades out, then `hierophant_phase_2.mp3` starts
+//! (fading in quickly); the same into phase 3 with
+//! `hierophant_phase_3.mp3`. A debug heal back to an earlier phase
+//! goes back to that phase's track the same way.
 //!
 //! A debug jump straight past the ritual brings it (and takes the ambience)
 //! at once, faded in the same way. The music's `StateScoped(InGame)` and
@@ -28,7 +35,13 @@ use crate::AppState;
 
 use super::{egg_game, EggRitual};
 
-const MUSIC: &str = "audio/music/disastrous.mp3";
+/// Its tracks, one for each phase of the fight (the first from the ritual
+/// on), each looped.
+const TRACKS: [&str; 3] = [
+    "audio/music/disastrous.mp3",
+    "audio/music/hierophant_phase_2.mp3",
+    "audio/music/hierophant_phase_3.mp3",
+];
 
 pub(super) struct MusicPlugin;
 
@@ -37,7 +50,7 @@ impl Plugin for MusicPlugin {
         app.init_resource::<EggMusicSettings>()
             .init_resource::<EggMusicLevels>()
             .add_systems(Startup, |asset_server: Res<AssetServer>, mut commands: Commands| {
-                commands.insert_resource(EggMusicTrack(asset_server.load(MUSIC)));
+                commands.insert_resource(EggMusicTracks(TRACKS.map(|path| asset_server.load(path))));
             })
             .add_systems(OnExit(AppState::InGame), |mut levels: ResMut<EggMusicLevels>| *levels = default())
             .add_systems(Update, run_music.run_if(in_state(AppState::InGame)));
@@ -45,7 +58,7 @@ impl Plugin for MusicPlugin {
 }
 
 #[derive(Resource)]
-struct EggMusicTrack(Handle<AudioSource>);
+struct EggMusicTracks([Handle<AudioSource>; 3]);
 
 /// Panel-tunable music ("Music").
 #[derive(Resource, Clone, Debug)]
@@ -64,6 +77,10 @@ pub(crate) struct EggMusicSettings {
     /// and the ambience comes back in over this long (s).
     pub(crate) music_out_secs: f32,
     pub(crate) ambient_in_secs: f32,
+    /// His phase changing: the track playing fades out over this long (s),
+    /// then the next fades in over this long (s).
+    pub(crate) phase_out_secs: f32,
+    pub(crate) phase_in_secs: f32,
 }
 
 impl Default for EggMusicSettings {
@@ -76,19 +93,32 @@ impl Default for EggMusicSettings {
             music_in_secs: 3.0,
             music_out_secs: 4.0,
             ambient_in_secs: 4.0,
+            phase_out_secs: 2.0,
+            phase_in_secs: 1.0,
         }
     }
 }
 
-/// How far in (0..=1) the music is, this game.
+/// How far in (0..=1) the music is, and which of [`TRACKS`] it is, this
+/// game.
 #[derive(Resource, Default)]
 pub(crate) struct EggMusicLevels {
     music: f32,
+    track: usize,
 }
 
-/// The music playing.
+/// The music playing: which of [`TRACKS`].
 #[derive(Component)]
-struct EggMusic;
+struct EggMusic(usize);
+
+/// The track wanted for `lobby`'s fight: his phase's (the first's until
+/// he's in).
+fn wanted_track(lobby: Option<&Lobby>) -> usize {
+    lobby
+        .filter(|l| l.easter_egg.step == EggStep::BossFight)
+        .and_then(|l| l.easter_egg.hierophant)
+        .map_or(0, |h| (h.phase.max(1) as usize - 1).min(TRACKS.len() - 1))
+}
 
 /// What's wanted now: (the ambience's level, the music on).
 fn wanted(lobby: Option<&Lobby>, ritual: &EggRitual, s: &EggMusicSettings, running: bool) -> (f32, bool) {
@@ -98,6 +128,9 @@ fn wanted(lobby: Option<&Lobby>, ritual: &EggRitual, s: &EggMusicSettings, runni
     match (step, ritual.t) {
         (EggStep::Ritual, Some(t)) => (if t >= s.ambient_out_at { 0.0 } else { 1.0 }, t >= s.music_in_at),
         (step, _) if step.is_unleashed() => (0.0, true),
+        // He's fallen: the music dies with him, the ambience back once his
+        // spirit's in the pyramid.
+        (EggStep::HisDeath, _) => (0.0, false),
         _ => (1.0, false),
     }
 }
@@ -112,14 +145,14 @@ fn approach(level: &mut f32, target: f32, secs: f32, dt: f32) {
 fn run_music(
     time: Res<Time<Real>>,
     settings: Res<EggMusicSettings>,
-    track: Res<EggMusicTrack>,
+    tracks: Res<EggMusicTracks>,
     ritual: Res<EggRitual>,
     freeze: Res<MatchEndFreeze>,
     mut levels: ResMut<EggMusicLevels>,
     mut ambient: ResMut<ZombiesAmbientLevel>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut music: Query<(Entity, Option<&mut AudioSink>), With<EggMusic>>,
+    mut music: Query<(Entity, &EggMusic, Option<&mut AudioSink>)>,
     mut commands: Commands,
 ) {
     let s = &*settings;
@@ -136,25 +169,42 @@ fn run_music(
         approach(&mut ambient.0, ambient_target, ambient_secs, dt);
     }
 
-    let (target, secs) = if music_on { (1.0, s.music_in_secs) } else { (0.0, s.music_out_secs) };
+    // His phase changed: the one playing fades out first, then the next.
+    let track = wanted_track(lobby);
+    let switching = music_on && track != levels.track;
+    let (target, secs) = if switching {
+        (0.0, s.phase_out_secs)
+    } else if music_on {
+        (1.0, if levels.track == 0 { s.music_in_secs } else { s.phase_in_secs })
+    } else {
+        (0.0, s.music_out_secs)
+    };
     approach(&mut levels.music, target, secs, dt);
-    if levels.music <= 0.0 && !music_on {
-        for (e, _) in &music {
+    if levels.music <= 0.0 && switching {
+        levels.track = track;
+    }
+    // (Anything but the current track is gone — and that too, once faded
+    // right out with nothing wanted.)
+    let silent = levels.music <= 0.0 && !music_on;
+    for (e, m, _) in &music {
+        if silent || m.0 != levels.track {
             commands.entity(e).despawn();
         }
+    }
+    if silent || (levels.music <= 0.0 && switching) {
         return;
     }
-    if music.is_empty() {
+    if !music.iter().any(|(_, m, _)| m.0 == levels.track) {
         commands.spawn((
-            EggMusic,
+            EggMusic(levels.track),
             StateScoped(AppState::InGame),
-            AudioPlayer::new(track.0.clone()),
+            AudioPlayer::new(tracks.0[levels.track].clone()),
             PlaybackSettings::LOOP.with_volume(Volume::Linear(s.volume * levels.music)),
         ));
         return;
     }
-    for (_, sink) in &mut music {
-        if let Some(mut sink) = sink {
+    for (_, m, sink) in &mut music {
+        if let Some(mut sink) = sink.filter(|_| m.0 == levels.track) {
             sink.set_volume(Volume::Linear(s.volume * levels.music));
         }
     }
@@ -164,7 +214,13 @@ fn run_music(
 
 /// The debug panel's controls for it.
 pub(crate) fn music_section(ui: &mut egui::Ui, s: &mut EggMusicSettings, levels: &EggMusicLevels, ambient: f32) {
-    ui.label(format!("now: music {:.0}%, ambience {:.0}%", levels.music * 100.0, ambient * 100.0));
+    ui.label(format!(
+        "now: music {:.0}% (track {} of {}), ambience {:.0}%",
+        levels.music * 100.0,
+        levels.track + 1,
+        TRACKS.len(),
+        ambient * 100.0
+    ));
     ui.label("(times are seconds into the 15 s ritual; his line from the sarcophagus is at 13 s)");
     ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=2.0).text("music volume"));
     ui.add(egui::Slider::new(&mut s.ambient_out_at, 0.0f32..=15.0).text("ambience fades out from (s)"));
@@ -173,6 +229,8 @@ pub(crate) fn music_section(ui: &mut egui::Ui, s: &mut EggMusicSettings, levels:
     ui.add(egui::Slider::new(&mut s.music_in_secs, 0.1f32..=10.0).text("over (s) "));
     ui.add(egui::Slider::new(&mut s.music_out_secs, 0.1f32..=15.0).text("after him: music fades out over (s)"));
     ui.add(egui::Slider::new(&mut s.ambient_in_secs, 0.1f32..=15.0).text("then the ambience back in over (s)"));
+    ui.add(egui::Slider::new(&mut s.phase_out_secs, 0.1f32..=10.0).text("new phase: track fades out over (s)"));
+    ui.add(egui::Slider::new(&mut s.phase_in_secs, 0.1f32..=10.0).text("then the next fades in over (s)"));
     ui.horizontal(|ui| {
         if ui.button("Reset").clicked() {
             *s = EggMusicSettings::default();

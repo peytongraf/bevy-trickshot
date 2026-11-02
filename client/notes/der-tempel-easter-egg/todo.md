@@ -7,13 +7,59 @@ asset work that's yours; until it's done, that step runs on placeholders.
 
 ## Next session: start here
 
-Where things stand (Nov 1): steps through **boss fight phase 2** (step
-8) are built. "It goes wrong" is tested. "He wakes", phase 1, phase 2 and
-the music still need testing: in the debug panel, jump to "It goes
-wrong", then "He wakes" (it replays from the start each time), then let it
-run into the fight (or jump straight to "Boss fight"). Under "The fight"
-there are buttons to set his health (67% starts phase 2), raise a ring
-and teleport him. Next up is **phase 3** (step 9 below).
+Where things stand (Nov 1): steps through **his death** (step 10) are
+built. "It goes wrong", "He wakes", phases 1–3 and the music are tested.
+The wake-up's body standing up as the lid flew off is fixed (a seek to
+the death clip's very end wrapped round to its first frame). His death
+needs testing: in the debug panel, "The fight" → "Kill him" (or jump to
+"His death"). Next up is **the astral projection** (step 12 below; step
+11 is yours).
+
+- **His death as built** (`client/src/easter_egg/death.rs`, built Nov 1,
+  needs testing):
+  - Killed, the step goes to the new `EggStep::HisDeath` (between
+    BossFight and Ascension), with where he fell on
+    `Hierophant::fell_at`. `holds_spawns` counts it, so the round stays
+    held and the map stays gone wrong. His health bar, eyes, the fight
+    music and phase 3's red all go as he falls.
+  - His body falls with the boss's own death (clip, aura fading).
+    `death.mp3` plays from where he falls (`DeathCry`).
+  - At 1.3 s (`DEATH_SPIRIT_AT`) his spirit tears out of the body: a
+    green glow with a tail of wisps and its own light, the lights
+    stuttering. It rises and hangs over him, writhing, and his death
+    cry goes with it.
+  - At 2.9 s it flies in an arc for 2.3 s, up into the pyramid at its
+    altar (`pyramid_altar`, + 1.5 m), with `spirit_flee.mp3`. That's a
+    placeholder copied from `awakening/spirit.mp3`, so record over it.
+    It goes in with a flash and another stutter.
+  - At 6.8 s (`DEATH_SECS`, after his scream) the server moves on to
+    Ascension. The map fades back to normal, the ambience comes back
+    and the round carries on. Step 12 will take over from Ascension.
+  - Tune it in the panel under "His death". When his real model comes,
+    he needs his own death clip.
+
+- **Phase 3 as built** (built Nov 1, needs testing):
+  - At 1/3 health (`PHASE_3_AT`, `shared::easter_egg::phase_at`) he
+    stops and roars for 3 s with `phase_3.mp3`. Skipping straight from
+    phase 1 (a debug set) also raises phase 2's ring.
+  - Enraged: he walks at `HIEROPHANT_ENRAGED_SPEED` (2.6 vs 1.95,
+    `BotBrain::enrage`) and teleports every 8–12 s
+    (`TELEPORT_GAP_ENRAGED_SECS`). Rings carry on as in phase 2.
+  - The map goes blood-red on top of "it goes wrong": fog, sky, ambient,
+    the ground fog and the fires (`EggRageFade`; the `rage_*` fields of
+    `EggMoodLook`, panel → "It goes wrong — the map" → "Enraged", with
+    its own preview). Everything that read `EggMoodLook` now reads
+    `EggMoodNow`, the look with the red blended in.
+  - He fades from green to red with it: his aura, body glow, light and
+    teleport / raise bursts (`rage_aura_color`).
+  - His eyes now glow the whole fight (`HisEye` in
+    `client/src/easter_egg/fight.rs`, placed off his head bone), green,
+    then red and brighter enraged. Their spot is a guess for `boss.glb`:
+    tune "eyes forward / up / apart" under "The fight" (and again once
+    his real model's in).
+  - Each new phase (2 and 3) sets off the power-on earthquake
+    (`earthquake::Quake::rumble`), silent by default because its sound
+    has the power-on music in it. There's a checkbox to turn the sound on.
 
 - **His body in the sarcophagus** (built Nov 1, needs a look): the
   box-figure placeholder is gone. The boss model lies on its back in the
@@ -31,7 +77,9 @@ and teleport him. Next up is **phase 3** (step 9 below).
   is marked `voice_fx` in mix.ron, so the engine sends it through its own
   echo + reverb (`client/src/audio_engine/voice_fx.rs`, debug panel →
   Audio → Voice effect). The whispers and sound effects stay in
-  `hierophant/` without it.
+  `hierophant/` without it. Nothing muffles the "Hierophant voice"
+  profile through walls or the floor (its `wall_hz` 20 kHz, `wall_db` 0
+  in mix.ron), so he's clear while sunk mid-teleport or dying.
 
 - **Phase 2 as built** (the same two `fight.rs` files):
   - At 2/3 health (`PHASE_2_AT`) he stops for 3 s and plays
@@ -56,11 +104,9 @@ and teleport him. Next up is **phase 3** (step 9 below).
     - `player_down_*` when his hit downs someone (at most every 6 s);
     - `hurt_*` when he loses 5% of his health within 0.75 s (at most
       every 9 s);
-    - `phase_2`, and `death` when he dies.
+    - `phase_2`, `phase_3`, and `death` when he dies.
     He never talks over himself; the phase and death lines cut in. His
     avatar has no boss growls or death roar (`boss::BossVoiced`).
-  - Phase 3 needs: `phase_3.mp3` (recorded) and the `phase` field on
-    `EasterEgg::hierophant` (currently 1 or 2).
 - **Recordings are all in** (Nov 1): every Hierophant line plus the three
   phase-2 sounds. `WAKE_SCREAM_SECS` is now 8.28 to match the new
   `wake.mp3`. Operator easter-egg quotes are still to come (the user
@@ -80,8 +126,11 @@ and teleport him. Next up is **phase 3** (step 9 below).
   - The ambience's level is `zombies_audio::ZombiesAmbientLevel`. Tune
     the timings in the debug panel under "Easter egg (Der Tempel)" →
     "Music".
-  - It's one track for the whole thing. If separate boss-fight music
-    gets made (step 6), it can cross-fade from this at BossFight.
+  - Each phase has its own track (`TRACKS` in `music.rs`, built Nov 1,
+    needs a listen): `disastrous.mp3` from the ritual through phase 1,
+    then `hierophant_phase_2.mp3` and `hierophant_phase_3.mp3` (60 s
+    each, looped). As his phase changes, what's playing fades out over
+    2 s, then the next fades in over 1 s ("Music" in the panel).
 - **Phase 1 as built** (`server/src/easter_egg/fight.rs`,
   `client/src/easter_egg/fight.rs`):
   - **He's the normal boss's model (`boss.glb`) for now.** The user is
@@ -177,11 +226,7 @@ and teleport him. Next up is **phase 3** (step 9 below).
     in `First`/`Last`, flashlights excluded; the power bulbs dim in
     `power.rs`). Tune it in the debug panel under "Easter egg (Der
     Tempel)" → "It goes wrong — the map" (there's a preview checkbox).
-  - Step 9 (phase 3's blood-red fog) can blend on top of
-    `EggMoodFade` the same way.
-- **The pyramid altar isn't placed** in `shared/levels/der_tempel.ron`
-  yet (`pyramid_altar: None`). It's needed by step 14. The pyramid spots
-  are placed.
+- **The pyramid altar and spots are placed** in `shared/levels/der_tempel.ron`.
 - **Quote scripts** (ElevenLabs `[ ]` direction) are in
   `client/notes/quotes/`: `hierophant-quotes.md`, `radio-quotes.md`
   ("Easter egg", all recorded), and
@@ -258,12 +303,14 @@ Where the code is:
     player (changed from the fire bowls).
     **Test:** use a debug button to set his health; check the zombie ring
     and the teleports.
-9. **Phase 3 (33%):** he's enraged and faster, in blood-red fog with
-    glowing eyes.
+9. **Phase 3 (33%) (built, needs testing):** he's enraged and faster,
+    in blood-red fog with glowing eyes, turning red himself; each new
+    phase shakes the ground.
     **Test:** use a debug button to set his health; check that he's faster
     and the fog comes in.
-10. **His death:** the body collapses, his spirit flies screaming into the
-    pyramid, and the environment goes back to normal.
+10. **His death (built, needs testing):** the body collapses, his spirit
+    flies screaming into the pyramid, and the environment goes back to
+    normal.
     **Test:** kill him; everything resets to how it looked before the
     ritual.
 
@@ -332,6 +379,11 @@ fixes that.
 
 ## Done
 
+- His voice never muffled by walls
+- His death (spirit flees into the pyramid)
+- Wake-up body no longer stands early
+- Phase 2 and 3 music
+- Phase 3 (enraged, red fog, red eyes, phase quakes)
 - He wakes (lid blast, spirit, stillness, snap + scream, shake)
 - It goes wrong (map change, light stutter, zombies drop, lines + radio)
 - Whispers twice as loud
