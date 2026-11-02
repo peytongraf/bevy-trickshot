@@ -20,6 +20,36 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Mantle breath + step sounds
 - Downed breathing loop
 
+# Latest play
+
+- Some operator quotes are overlapping instead of being in a queue and waiting on the first to finish with a timer the keeps the operator from saying an old line serveral seconds later after the event that triggered it has occurred.
+- Ensure a priority queue is used for operator quotes with the priority set correctly
+- Maybe some more important quotes can interupt and cut off quotes that are already playing
+- Kill sound ( seems like power up accept sound is the same ) is too loud. It should be about 80 percent the volume
+- Ak74 ammo seems like its reloaded around a half or more second after the reload animation visually completes. If the sound and animation seem like they're finished then you switch weapons thinking its done, when you switch back the reload animation has to play again because it wasn't actually done. Can show a video of this with a screen recording.
+- Need to remove whatever was done to "correct" the materials of the walls using the same material. In the future this should instead just be done in blender.
+- Need to add a ledge in the lower temple upper level near where the sarcophagus is.
+- Currently the perk quote waits for the full jingle to play. If the player runs away and can barely hear it anymore this seems odd. Maybe if the player goes a certain distance away from the perk machine after buying it go ahead and play the perk quote then.
+- Find what level of sharpness looks good, then set that as the default.
+- Possibly test out different final pass effects / coloring as long as it doesn't decrease fps. Need to check fps before and after making the change.
+- Change pap prices to 5k, 15k, 30k.
+- When pausing, sometimes fps weapon animations keep playing.
+- vial and dagger pickup sounds should play the normal dropped eqiupment pickup sounds
+- When astral projecting up to inside the pyramid, player can just get the weapon before the final zombei quote plays. Maybe this quote should play as the player is astral projecting.
+- Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
+- Probably would be better to cause some sort of damage with the wonder weapon with the zombies staying on the ground while they are being sucked then once complete, only then have them smoothly animate upwards and souls removed then killed.
+- ensure no boss zombies are affected by instakill or nukes
+- Create wonder weapon model
+- Create animated easter egg boss zombie model and give it a name different from the regular boss
+- active zombies who aren't dead when ritual starts should have speed greatly reduced and should stop further away from players instead of getting right up on them.
+- Need a scary sound that plays when these zombies are killed due to the ritual. Could also add a smoke effect on the zombies like magic is killing them.
+- Diamond above in pyramid altar table should be much lower
+- More zombies should be spawned when the boss awakens zombies on phase 2 and 3. Phase 2 and 3 should have the same amount of zombies awakened but phase 3 should of course also add in dogs but now many.
+- Ensure that on phases 2 and 3 a small amount of zombies keep spawning after they are killed to keep the distraction from the main boss during the fight. They shouldn't spawn instantly otherwise the player would have to just keep shotting the zombies the entire time.
+- Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
+- Add some sort of glow / light around the wonder weapon when inside the pyramid
+- For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
+
 # Level editor
 
 - Add lights to zone above lower tomb
