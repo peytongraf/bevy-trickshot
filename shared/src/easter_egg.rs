@@ -604,10 +604,13 @@ pub fn holds_spawns(lobby: &Lobby) -> bool {
 
 // --- its pieces (placeholders for now — sizes as the models will be made) ---------
 
-/// The sarcophagus on the upper altar: 3.2 m long (along its own z), 1.6 m
-/// wide and 1 m tall, standing on the ground — half extents. Big enough for
-/// the Hierophant's body (the boss model) to lie in, arms out, head at -z.
-pub const SARCOPHAGUS_HALF_EXTENTS: Vec3 = Vec3::new(0.8, 0.5, 1.6);
+/// The sarcophagus on the upper altar: 3.3 m long (along its own z), 1.7 m
+/// wide and 1.1 m tall, standing on the ground — half extents: its model
+/// with its lid on (the chest 1.6 × 1 × 3.2 m, the lid overhanging it, up
+/// to 1.1 m), so nothing pokes out of it. Big enough for the Hierophant's
+/// body (the boss model) to lie in, arms out, head at -z. (Once the lid's
+/// blown off, the box still stands to where it was.)
+pub const SARCOPHAGUS_HALF_EXTENTS: Vec3 = Vec3::new(0.85, 0.55, 1.65);
 /// The society's locked case (the dagger's): a display case on a stand,
 /// 0.8 m wide, 1.3 m tall, 0.5 m deep — its front facing the way it's turned.
 pub const SOCIETY_CASE_HALF_EXTENTS: Vec3 = Vec3::new(0.4, 0.65, 0.25);

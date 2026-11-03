@@ -12,7 +12,6 @@ on each).
 
 # Bugs / fix
 
-- When first firing the beam, it shouldn't just appear at full length but instead move outward from the gun over time to its full length.
 - Blood on the ground should look real
 - Add hand cutting animation for current and remote players with blood effect
 - Should text on screen have a quote that is read aloud?
@@ -21,12 +20,9 @@ on each).
 - Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
 - Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
 - For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
-- Add some sort of glow / light around the wonder weapon when inside the pyramid
 - Probably would be better to cause some sort of damage with the wonder weapon with the zombies staying on the ground while they are being sucked then once complete, only then have them smoothly animate upwards and souls removed then killed. (Right now they float up steadily the whole time they're drained — decide which you want.)
 - Other players' souls float up to the pyramid as their normal soldier
   models. Give them (and players in the chamber) a ghostly look.
-- Sarcophagus needs a look: its solid box is still 1.6 × 1 × 3.2 m, so
-  the lid (to 1.1 m) pokes 0.1 m above it until it's blown off.
 
 # Test
 

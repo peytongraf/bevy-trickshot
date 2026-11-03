@@ -2,6 +2,9 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Exhumer beam shoots out from the gun
+- Glow round the Exhumers on the altar
+- Sarcophagus box fits its model
 - Society case model, lid opens, dagger across the velvet
 - Ritual stalls zombies; souls torn out as it goes wrong
 - Pyramid diamond lowered

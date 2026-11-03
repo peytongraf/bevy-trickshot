@@ -81,6 +81,7 @@ impl Plugin for ExhumerPlugin {
                     draw_beams,
                     fly_motes,
                     fly_wisps,
+                    altar_glows,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -120,6 +121,8 @@ pub(crate) struct ExhumerFxSettings {
     /// (lumens); the motes drawn back along it — how many a second, how fast
     /// (m/s), how big (m).
     pub(crate) beam_width_near: f32,
+    /// How long (s) it takes to shoot out from the gun to its full reach.
+    pub(crate) beam_extend_secs: f32,
     pub(crate) beam_width_far: f32,
     pub(crate) beam_glow: f32,
     pub(crate) beam_flicker: f32,
@@ -139,6 +142,13 @@ pub(crate) struct ExhumerFxSettings {
     pub(crate) lift_spin: f32,
     pub(crate) lift_tilt_deg: f32,
     pub(crate) chest_light: f32,
+    /// Each Exhumer waiting on the pyramid's altar: its light (lumens), and
+    /// the swirl of soul-smoke turning round it — its streaks' length (m),
+    /// how far out (m) and how fast (rad/s) they circle.
+    pub(crate) altar_light: f32,
+    pub(crate) altar_swirl_len: f32,
+    pub(crate) altar_swirl_radius: f32,
+    pub(crate) altar_swirl_speed: f32,
     /// The sounds' volume (linear, before the mix), and the beam's hum's.
     pub(crate) volume: f32,
     pub(crate) beam_volume: f32,
@@ -159,6 +169,7 @@ impl Default for ExhumerFxSettings {
             return_secs: 0.75,
             arc: 1.6,
             beam_width_near: 0.12,
+            beam_extend_secs: 0.22,
             beam_width_far: 1.1,
             beam_glow: 2.0,
             beam_flicker: 0.35,
@@ -175,6 +186,10 @@ impl Default for ExhumerFxSettings {
             lift_spin: 0.6,
             lift_tilt_deg: 22.0,
             chest_light: 120_000.0,
+            altar_light: 60_000.0,
+            altar_swirl_len: 0.55,
+            altar_swirl_radius: 0.3,
+            altar_swirl_speed: 0.9,
             volume: 1.4,
             beam_volume: 0.9,
         }
@@ -556,14 +571,16 @@ pub(crate) fn along_rotation(pos: Vec3, along: Vec3, cam_pos: Vec3, roll: f32) -
 }
 
 /// A beam being drawn: whose (`None`: ours), where it starts, the way it
-/// goes and how far (m) — this frame — motes owed (fractional), and its
-/// seed (1..2, so no two look alike).
+/// goes and how far (m) it's drawn — this frame (shooting out from the gun
+/// to its reach as it comes on, `reach` how far it's got) — motes owed
+/// (fractional), and its seed (1..2, so no two look alike).
 #[derive(Component)]
 struct BeamVisual {
     peer: Option<PeerId>,
     from: Vec3,
     dir: Vec3,
     len: f32,
+    reach: f32,
     owed: f32,
     seed: f32,
 }
@@ -681,7 +698,7 @@ fn draw_beams(
             commands
                 .spawn((
                     StateScoped(AppState::InGame),
-                    BeamVisual { peer, from, dir, len, owed: 0.0, seed },
+                    BeamVisual { peer, from, dir, len: 0.1, reach: 0.0, owed: 0.0, seed },
                     Transform::from_translation(from),
                     Visibility::default(),
                 ))
@@ -721,6 +738,11 @@ fn draw_beams(
                 });
             continue;
         };
+        // (Shooting out from the gun as it comes on — eased, quick off the
+        // mark and slowing as it reaches — then held to wherever it hits.)
+        beam.reach = (beam.reach + time.delta_secs() / s.beam_extend_secs.max(0.01)).min(1.0);
+        let out = 1.0 - (1.0 - beam.reach).powi(2);
+        let len = len.min(BEAM_RANGE * out).max(0.1);
         beam.from = from;
         beam.dir = dir;
         beam.len = len;
@@ -1134,6 +1156,110 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 
+// --- on the altar -----------------------------------------------------------------------
+
+/// The glow round an Exhumer waiting on the pyramid's altar (a
+/// `WeaponDrop` of it with an owner, `server::easter_egg::ascension`) —
+/// gone the moment it's taken.
+#[derive(Component)]
+struct AltarGlow {
+    src: Entity,
+    seed: f32,
+}
+
+/// One streak of an [`AltarGlow`]'s swirl (its `i`th of [`ALTAR_STREAKS`]).
+#[derive(Component)]
+struct AltarStreak(u32);
+
+const ALTAR_STREAKS: u32 = 4;
+
+/// A soft green light on each Exhumer waiting on the altar, pulsing slowly,
+/// and the souls' smoke circling it, rising and falling — so they read as
+/// the prize the moment the squad arrives.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn altar_glows(
+    time: Res<Time>,
+    settings: Res<ExhumerFxSettings>,
+    (fx, smoke): (Option<Res<ExplosionAssets>>, Option<Res<SoulSmoke>>),
+    camera: Option<Single<&GlobalTransform, With<WorldModelCamera>>>,
+    drops: Query<(Entity, &shared::WeaponDrop)>,
+    mut glows: Query<(Entity, &AltarGlow, &mut Transform, &Children), Without<AltarStreak>>,
+    mut streaks: Query<(&AltarStreak, &mut Transform, Option<&mut PointLight>), Without<AltarGlow>>,
+    mut commands: Commands,
+) {
+    let s = &*settings;
+    let on_altar = |d: &shared::WeaponDrop| d.owner.is_some() && d.weapon == shared::weapon::SlotWeapon::Gun(shared::weapon::WeaponId::Exhumer);
+    for (e, glow, ..) in &glows {
+        if !drops.get(glow.src).is_ok_and(|(_, d)| on_altar(d)) {
+            commands.entity(e).despawn();
+        }
+    }
+    let (Some(fx), Some(smoke)) = (fx, smoke) else { return };
+    for (src, drop) in &drops {
+        if !on_altar(drop) || glows.iter().any(|(_, g, ..)| g.src == src) {
+            continue;
+        }
+        let c = s.color;
+        let seed = crate::util::rand01(src.index() ^ 0x5eed);
+        commands
+            .spawn((
+                StateScoped(AppState::InGame),
+                AltarGlow { src, seed },
+                Transform::from_translation(drop.pos + Vec3::Y * 0.12),
+                Visibility::default(),
+            ))
+            .with_children(|g| {
+                g.spawn((
+                    AltarStreak(u32::MAX),
+                    PointLight {
+                        color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
+                        intensity: 0.0,
+                        range: 3.5,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::Y * 0.2),
+                ));
+                for i in 0..ALTAR_STREAKS {
+                    g.spawn((
+                        AltarStreak(i),
+                        Mesh3d(fx.quad.clone()),
+                        MeshMaterial3d(smoke.swirl_material(1 + (i % 2) as usize)),
+                        Transform::from_scale(Vec3::ZERO),
+                        NotShadowCaster,
+                        NoFrustumCulling,
+                    ));
+                }
+            });
+    }
+    let Some(cam) = camera.map(|c| c.into_inner()) else { return };
+    let cam_pos = cam.translation();
+    let t = time.elapsed_secs();
+    for (_, glow, root, children) in &mut glows {
+        let centre = root.translation;
+        for child in children.iter() {
+            let Ok((streak, mut tf, light)) = streaks.get_mut(child) else { continue };
+            if let Some(mut light) = light {
+                light.intensity = s.altar_light * (0.8 + 0.2 * (t * 1.7 + glow.seed * 9.0).sin());
+                continue;
+            }
+            // (Each on its own tilted orbit, a quarter turn apart, rising
+            // and falling.)
+            let k = streak.0 as f32;
+            let a = t * s.altar_swirl_speed + k * std::f32::consts::FRAC_PI_2 + glow.seed * 6.0;
+            let bob = 0.12 * (t * 0.8 + k * 1.9).sin();
+            let r = s.altar_swirl_radius * (0.8 + 0.2 * (t * 1.3 + k).sin());
+            let p = Vec3::new(a.cos() * r, 0.1 + bob, a.sin() * r);
+            let going = Vec3::new(-a.sin(), 0.15 * (t * 0.8 + k * 1.9).cos(), a.cos());
+            let len = s.altar_swirl_len * (0.85 + 0.15 * (t * 2.1 + k * 3.0).sin());
+            let flip = if streak.0 % 2 == 0 { 1.0 } else { -1.0 };
+            *tf = Transform::from_translation(p)
+                .with_rotation(along_rotation(centre + p, going, cam_pos, 0.0))
+                .with_scale(Vec3::new(len, len * 0.5 * flip, 1.0));
+        }
+    }
+}
+
 // --- the debug panel --------------------------------------------------------------------
 
 /// Between the debug panel's "The Exhumer" section and the game: what it
@@ -1190,6 +1316,7 @@ pub(crate) fn exhumer_section(ui: &mut egui::Ui, s: &mut ExhumerFxSettings, debu
         ui.color_edit_button_rgb(&mut s.color);
         ui.label("souls' colour");
     });
+    ui.add(egui::Slider::new(&mut s.beam_extend_secs, 0.01f32..=1.5).text("beam shoots out over (s)"));
     ui.add(egui::Slider::new(&mut s.beam_width_near, 0.01f32..=1.0).text("beam width at the gun (m)"));
     ui.add(egui::Slider::new(&mut s.beam_width_far, 0.05f32..=4.0).text("beam width at its end (m)"));
     ui.add(egui::Slider::new(&mut s.beam_glow, 0.0f32..=12.0).text("beam brightness"));
@@ -1217,6 +1344,14 @@ pub(crate) fn exhumer_section(ui: &mut egui::Ui, s: &mut ExhumerFxSettings, debu
     ui.add(egui::Slider::new(&mut s.lift_spin, 0.0f32..=6.0).text("drained body turns (rad/s)"));
     ui.add(egui::Slider::new(&mut s.lift_tilt_deg, 0.0f32..=90.0).text("drained body tips back (°)"));
     ui.add(egui::Slider::new(&mut s.chest_light, 0.0f32..=1_000_000.0).text("glow in its chest (lm)"));
+    ui.add(
+        egui::Slider::new(&mut s.altar_light, 0.0f32..=1_000_000.0)
+            .logarithmic(true)
+            .text("on the altar: light (lm)"),
+    );
+    ui.add(egui::Slider::new(&mut s.altar_swirl_len, 0.05f32..=2.0).text("on the altar: swirl streak length (m)"));
+    ui.add(egui::Slider::new(&mut s.altar_swirl_radius, 0.0f32..=1.5).text("on the altar: swirl out (m)"));
+    ui.add(egui::Slider::new(&mut s.altar_swirl_speed, 0.0f32..=6.0).text("on the altar: swirl speed (rad/s)"));
     ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=3.0).text("sounds' volume"));
     ui.add(egui::Slider::new(&mut s.beam_volume, 0.0f32..=3.0).text("beam hum volume (next time it's on)"));
     ui.horizontal(|ui| {
