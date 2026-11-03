@@ -161,6 +161,19 @@ pub enum EggAction {
 /// ([`EggStep::Unleashed`]).
 pub const RITUAL_SECS: f32 = 15.0;
 
+/// While the ritual runs ([`EggStep::Ritual`]), whatever's still up stalls
+/// in awe of it: slowed to this share of its pace (runners shambling)...
+pub const RITUAL_ZOMBIE_SPEED_MULT: f32 = 0.3;
+/// ...and coming no closer than this (m, across the ground) to anyone —
+/// standing off, watching, until it goes wrong and they all drop.
+pub const RITUAL_ZOMBIE_KEEP_BACK: f32 = 5.0;
+
+/// Whether `lobby`'s zombies are stalled by the ritual (see
+/// [`RITUAL_ZOMBIE_SPEED_MULT`]).
+pub fn ritual_stalls(lobby: &Lobby) -> bool {
+    lobby.easter_egg.step == EggStep::Ritual
+}
+
 /// How far (s) into the ritual the Hierophant starts on his line from the
 /// sarcophagus (`during_ritual.mp3`), and how long it is.
 pub const RITUAL_VOICE_AT_SECS: f32 = 13.0;

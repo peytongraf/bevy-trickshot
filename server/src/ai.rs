@@ -1549,6 +1549,15 @@ pub(crate) fn drive_bots(
             }
         }
 
+        // The easter egg's ritual under way: whatever's up stands off from
+        // everyone, watching (`shared::easter_egg::RITUAL_ZOMBIE_KEEP_BACK`).
+        if brain.zombie.is_some()
+            && shared::easter_egg::ritual_stalls(&lobby)
+            && flat_dist <= shared::easter_egg::RITUAL_ZOMBIE_KEEP_BACK
+        {
+            hold = true;
+        }
+
         // Where to walk if not engaged: along the planned route to the target,
         // re-planned now and then; `None` (no route / no target) falls back to
         // heading straight at it below.
@@ -1690,12 +1699,15 @@ pub(crate) fn drive_bots(
 
         // Movement: stand and aim while engaged; otherwise close in.
         let mut wish = Vec3::ZERO;
+        let stalled = shared::easter_egg::ritual_stalls(&lobby);
         let mut speed = brain.zombie.map_or(WALK_SPEED, |z| {
-            // A stunned zombie (PhD Flopper) barely moves.
+            // A stunned zombie (PhD Flopper) barely moves — nor does one
+            // stalled by the easter egg's ritual.
+            let k = if stalled { shared::easter_egg::RITUAL_ZOMBIE_SPEED_MULT } else { 1.0 };
             if z.stunned_until > now {
-                z.speed_now(now, lobby.rampage) * shared::perks::PHD_STUN_SPEED_MULT
+                z.speed_now(now, lobby.rampage) * shared::perks::PHD_STUN_SPEED_MULT * k
             } else {
-                z.speed_now(now, lobby.rampage)
+                z.speed_now(now, lobby.rampage) * k
             }
         });
         if !engaged && !hold {
@@ -1809,7 +1821,7 @@ pub(crate) fn drive_bots(
                 ZombieAnim::WalkArmsUp
             } else if wish == Vec3::ZERO {
                 ZombieAnim::Idle
-            } else if z.runs(lobby.rampage) {
+            } else if z.runs(lobby.rampage) && !stalled {
                 ZombieAnim::Run
             } else if flat_dist <= ZOMBIE_ARMS_UP_DIST {
                 ZombieAnim::WalkArmsUp

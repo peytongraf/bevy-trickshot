@@ -70,6 +70,7 @@ mod ascension;
 mod death;
 mod fight;
 mod music;
+mod ritual_deaths;
 mod wake;
 
 pub(crate) use fight::EggFightSettings;
@@ -80,6 +81,7 @@ pub(crate) struct EasterEggPlugin;
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin, ascension::AscensionPlugin))
+            .add_plugins(ritual_deaths::RitualDeathsPlugin)
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -1327,6 +1329,7 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     death: Res<'w, death::EggDeath>,
     soul_settings: ResMut<'w, ascension::EggSoulSettings>,
     exhumer: ResMut<'w, crate::exhumer::ExhumerFxSettings>,
+    ritual_deaths: ResMut<'w, ritual_deaths::RitualDeathSettings>,
     // (Not `Weapon` or a `GiveWeapon` sender: the debug panel's system
     // already has both, elsewhere — `exhumer::ExhumerDebug` goes between.)
     exhumer_debug: ResMut<'w, crate::exhumer::ExhumerDebug>,
@@ -1384,6 +1387,9 @@ impl EasterEggDebug<'_, '_> {
         }
         ui.collapsing("His death", |ui| death::death_section(ui, &mut self.death_settings, &self.death));
         ui.collapsing("Into the pyramid", |ui| ascension::ascension_section(ui, &mut self.soul_settings, &self.soul));
+        ui.collapsing("Ritual deaths (souls torn out as it goes wrong)", |ui| {
+            ritual_deaths::ritual_deaths_section(ui, &mut self.ritual_deaths)
+        });
         let in_zombies = zombies_game(&self.local, &self.lobbies).is_some();
         ui.collapsing("The Exhumer", |ui| {
             crate::exhumer::exhumer_section(ui, &mut self.exhumer, &mut self.exhumer_debug, in_zombies)

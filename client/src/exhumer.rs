@@ -547,7 +547,7 @@ impl Material for SoulSmokeMaterial {
 /// A sprite at `pos` facing the camera with its width laid along `along`
 /// (as it's seen), turned a further `roll` about the way it faces — for the
 /// swirl, which is a streak, drawn along the way it's going.
-fn along_rotation(pos: Vec3, along: Vec3, cam_pos: Vec3, roll: f32) -> Quat {
+pub(crate) fn along_rotation(pos: Vec3, along: Vec3, cam_pos: Vec3, roll: f32) -> Quat {
     let n = (cam_pos - pos).normalize_or(Vec3::Z);
     let x = (along - n * along.dot(n)).normalize_or(n.any_orthonormal_vector());
     let x = Quat::from_axis_angle(n, roll) * x;
@@ -840,6 +840,16 @@ const SMOKE_TIERS: [f32; 3] = [1.0, 0.6, 0.32];
 const PUFF_STRENGTH: f32 = 0.25;
 
 impl SoulSmoke {
+    /// The swirl at strength `tier` (0 brightest .. 2 faintest).
+    pub(crate) fn swirl_material(&self, tier: usize) -> Handle<SoulSmokeMaterial> {
+        self.swirls[tier.min(2)].clone()
+    }
+
+    /// The soft puff of haze.
+    pub(crate) fn puff_material(&self) -> Handle<SoulSmokeMaterial> {
+        self.puff.clone()
+    }
+
     /// The swirl for the `i`th of a soul's `n` streaks (its head first).
     fn tier(&self, i: u32, n: u32) -> Handle<SoulSmokeMaterial> {
         let k = i as f32 / (n.max(1)) as f32;

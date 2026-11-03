@@ -2,6 +2,8 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Ritual stalls zombies; souls torn out as it goes wrong
+- Pyramid diamond lowered
 - Vial/dagger pickup sound
 - Pyramid scream plays while floating up
 - Hierophant: bigger rings, phase 3 dogs, trickle
