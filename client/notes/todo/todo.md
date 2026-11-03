@@ -2,6 +2,8 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Vial/dagger pickup sound
+- Pyramid scream plays while floating up
 - Hierophant: bigger rings, phase 3 dogs, trickle
 - Hierophant faster, teleports closer
 - Hierophant's dark energy ball

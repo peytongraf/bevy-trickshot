@@ -9,10 +9,12 @@
 //!    while the body crumples below, as every player's does on every client
 //!    ([`SoulBodyVisual`]: `soldier.glb`'s `death`, played once, held);
 //! 3. it glides up over the pyramid's apex and sinks down through it into
-//!    the chamber, onto our spot (`shared::easter_egg::pyramid_spot`);
+//!    the chamber, onto our spot (`shared::easter_egg::pyramid_spot`) — his
+//!    spirit making its last scream from the altar as we go
+//!    (`pyramid_fade.mp3`, from `PYRAMID_FADE_AT_SECS`), its glow dying with
+//!    it, so he's gone just as we arrive;
 //! 4. there we're free to walk about (no weapon) in the chamber's hum
-//!    (`chamber_ambience.mp3`), and a moment later his spirit makes its last
-//!    scream from the altar (`pyramid_fade.mp3`), its glow dying with it.
+//!    (`chamber_ambience.mp3`).
 //!
 //! Until we've arrived we're locked (`menu::game_active`), the weapon the
 //! whole trip (`menu::weapon_active`). The souls come back down when the
@@ -33,7 +35,7 @@ use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
     ascend_arrive_secs, EggStep, ASCEND_DESCEND_SECS, ASCEND_GLIDE_SECS, ASCEND_RISE_SECS, ASCEND_SLUMP_SECS,
-    PYRAMID_FADE_AFTER_SECS,
+    PYRAMID_FADE_AT_SECS, PYRAMID_FADE_SECS,
 };
 use shared::Lobby;
 
@@ -466,7 +468,7 @@ fn soul_sounds(
             PlaybackSettings::LOOP.with_volume(Volume::Linear(s.ambience_volume)),
         ));
     }
-    let scream_at = ascend_arrive_secs() + PYRAMID_FADE_AFTER_SECS;
+    let scream_at = PYRAMID_FADE_AT_SECS;
     if t >= scream_at && !soul.faded {
         soul.faded = true;
         let map = egg_game(&local, &lobbies).map(|l| l.map);
@@ -494,9 +496,9 @@ fn soul_sounds(
                 ));
         }
     }
-    // His glow flickering out with his scream (5.8 s).
+    // His glow flickering out with his scream.
     for (e, fade, mut light) in &mut spirit {
-        let x = (t - fade.start) / 5.8;
+        let x = (t - fade.start) / PYRAMID_FADE_SECS;
         if x >= 1.0 {
             commands.entity(e).despawn();
             continue;

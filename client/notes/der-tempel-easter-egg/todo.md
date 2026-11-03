@@ -18,12 +18,14 @@ on each).
 - Should text on screen have a quote that is read aloud?
 - Soul of boss zombie should look more realistic (the Exhumer's souls are smoke now — maybe match them)
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
-- vial and dagger pickup sounds should play the normal dropped eqiupment pickup sounds
-- Diamond above in pyramid altar table should be much lower
+- **[you]** Diamond above in pyramid altar table should be much lower. It's
+  in the map's `.glb` (`floating_diamond`, `floating_ring_1`,
+  `floating_ring_1.001`), so move it in Blender: its bottom is at 15 m and
+  the altar's top at 11.1 m — moving all three down ~2.7 m leaves it
+  hovering ~1.2 m over the altar.
 - active zombies who aren't dead when ritual starts should have speed greatly reduced and should stop further away from players instead of getting right up on them.
 - Need a scary sound that plays when these zombies are killed due to the ritual. Could also add a smoke effect on the zombies like magic is killing them.
 - Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
-- When astral projecting up to inside the pyramid, player can just get the weapon before the final zombei quote plays. Maybe this quote should play as the player is astral projecting.
 - Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
 - For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
 - Add some sort of glow / light around the wonder weapon when inside the pyramid

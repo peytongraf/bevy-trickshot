@@ -106,6 +106,7 @@ impl Plugin for EasterEggPlugin {
                     update_ritual_caption,
                     update_egg_prompt,
                     egg_interact.run_if(menu::game_active.and(killcam::no_killcam)),
+                    pickup_sounds,
                     update_egg_hud,
                     whisper,
                     hierophant_speaks,
@@ -721,6 +722,52 @@ fn egg_interact(
     };
     if let Ok(mut tx) = tx.single_mut() {
         tx.trigger::<shared::LobbyChannel>(shared::EggInteract { action });
+    }
+}
+
+/// What [`pickup_sounds`] last saw: the vial and dagger had, and where the
+/// vial lay.
+#[derive(Default)]
+struct LastGathered {
+    vial: bool,
+    dagger: bool,
+    vial_at: Option<Vec3>,
+}
+
+/// The vial or the dagger just taken — by us (we're the one standing at
+/// it): the normal equipment pickup sound, as for anything picked up.
+fn pickup_sounds(
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    player: Option<Single<&Transform, With<Player>>>,
+    sounds: Option<Res<crate::GameSounds>>,
+    mut last: Local<LastGathered>,
+    mut commands: Commands,
+) {
+    let Some(lobby) = egg_game(&local, &lobbies) else {
+        // (Out of a game: forgotten, so the next starts fresh.)
+        *last = default();
+        return;
+    };
+    let egg = &lobby.easter_egg;
+    let feet = player.map(|p| p.translation - Vec3::Y * EYE_HEIGHT);
+    // (A little slack: the server's had it a tick or two.)
+    let took_vial = egg.vial
+        && !last.vial
+        && last.vial_at.zip(feet).is_some_and(|(at, feet)| {
+            shared::easter_egg::within(at, feet, shared::easter_egg::VIAL_REACH, 1.0)
+        });
+    let took_dagger =
+        egg.dagger && !last.dagger && feet.is_some_and(|feet| shared::easter_egg::at_case(lobby.map, feet, 1.0));
+    if took_vial || took_dagger {
+        if let Some(sounds) = sounds {
+            commands.spawn((AudioPlayer::new(sounds.pick_up_equipment.clone()), PlaybackSettings::DESPAWN));
+        }
+    }
+    last.vial = egg.vial;
+    last.dagger = egg.dagger;
+    if egg.vial_at.is_some() || !egg.vial {
+        last.vial_at = egg.vial_at;
     }
 }
 

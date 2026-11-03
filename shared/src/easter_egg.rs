@@ -458,9 +458,12 @@ pub const ASCEND_GLIDE_SECS: f32 = 3.6;
 /// ...and sinking down through it, into the chamber, onto their spot
 /// ([`pyramid_spot`]), over this long.
 pub const ASCEND_DESCEND_SECS: f32 = 2.0;
-/// His last scream (`pyramid_fade.mp3`, 5.8 s), from the chamber's altar,
-/// this long (s) after the souls arrive.
-pub const PYRAMID_FADE_AFTER_SECS: f32 = 1.5;
+/// His last scream (`pyramid_fade.mp3`, [`PYRAMID_FADE_SECS`]), from the
+/// chamber's altar: starting as the souls begin their glide up to the apex,
+/// so it's played out — and he's gone — just as they arrive, before anyone
+/// can take the Exhumer off his altar.
+pub const PYRAMID_FADE_AT_SECS: f32 = ASCEND_SLUMP_SECS + ASCEND_RISE_SECS;
+pub const PYRAMID_FADE_SECS: f32 = 5.8;
 
 /// Back in their bodies with the Exhumer ([`EggStep::Complete`]), the man
 /// on the radio's closing word this long (s, not counting pauses) after
