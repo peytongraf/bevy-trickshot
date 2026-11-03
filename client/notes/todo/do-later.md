@@ -1,6 +1,7 @@
 ## Do Later
 
 - Update to bevy 0.19 from 0.16
+- Add sun flare when looking near sun on day maps
 - Download high quality arms model along with a sniper and knife. Create own custom animations with it.
 - Can remove some things from the top right controls ui (skipped for now — asked which sections to trim, told to come back to it later)
 - Replay in kill cam isn't smooth. Movement of sniper is jittery like it is snapping from one position to the next very quickly
@@ -11,5 +12,5 @@
 - On windows terminal pops up to play prod client
 - Use Large file storage, r2, etc to store assets so that a map can be used that is over 100mb. Use whatever makes the most sense and is cheap. Only a few friends will be playing occasionally in production.
 - Add tdm
-- Look into "2026-10-04T22:28:47.509421Z WARN bevy_gltf::loader: Unknown vertex attribute TEXCOORD_3" client log on startup
 - Clear all client runtime errors
+- Add semtex

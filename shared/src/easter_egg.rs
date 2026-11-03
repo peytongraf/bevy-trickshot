@@ -1,6 +1,6 @@
 //! Der Tempel's easter egg — the plan's in
 //! `client/notes/der-tempel-easter-egg/` (`story.md` for what happens,
-//! `todo.md` for what's built).
+//! `todo.md` for what's left).
 //!
 //! How far the squad's got ([`EasterEgg`]) is the server's, kept on the lobby
 //! (`Lobby::easter_egg`) so every client sees it; it's reset whenever a game

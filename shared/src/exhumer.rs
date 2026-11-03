@@ -34,8 +34,10 @@ pub const MAX_SOULS: u32 = 24;
 /// The beam: how far (m) it reaches...
 pub const BEAM_RANGE: f32 = 18.0;
 /// ...how close (m) to its line a zombie's chest has to be for it to take
-/// hold...
-pub const BEAM_RADIUS: f32 = 0.8;
+/// hold, right at the gun — a cone, so a little more (m) for every metre
+/// out (2 m off its line at its full reach): it doesn't need dead-on aim...
+pub const BEAM_RADIUS: f32 = 1.0;
+pub const BEAM_SPREAD: f32 = 0.055;
 /// ...and how many it holds at once, the nearest first.
 pub const BEAM_MAX_TARGETS: usize = 3;
 /// How long (s) it takes to drain an ordinary zombie dead (its damage a
@@ -71,15 +73,21 @@ pub fn beam_dir(yaw: f32, pitch: f32) -> Vec3 {
     Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0) * Vec3::NEG_Z
 }
 
+/// How far (m) off the beam's line it takes hold, `along` (m) out from the
+/// gun.
+pub fn beam_radius(along: f32) -> f32 {
+    BEAM_RADIUS + BEAM_SPREAD * along.max(0.0)
+}
+
 /// Which of `chests` (each with what it's tagged by) the beam from `eye`
-/// along `dir` (unit) takes hold of, reaching `reach` (m): the ones close
-/// enough to its line, nearest first, [`BEAM_MAX_TARGETS`] at most.
+/// along `dir` (unit) takes hold of, reaching `reach` (m): the ones inside
+/// its cone ([`beam_radius`]), nearest first, [`BEAM_MAX_TARGETS`] at most.
 pub fn beam_targets<T: Copy>(eye: Vec3, dir: Vec3, reach: f32, chests: impl Iterator<Item = (T, Vec3)>) -> Vec<T> {
     let mut held: Vec<(f32, T)> = chests
         .filter_map(|(tag, at)| {
             let along = (at - eye).dot(dir);
             let off = (at - (eye + dir * along)).length();
-            (along > 0.0 && along <= reach && off <= BEAM_RADIUS).then_some((along, tag))
+            (along > 0.0 && along <= reach && off <= beam_radius(along)).then_some((along, tag))
         })
         .collect();
     held.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -178,5 +186,17 @@ mod tests {
         assert_eq!(held, vec![2, 1, 6]);
         // A wall in the way: nothing past it.
         assert_eq!(beam_targets(eye, dir, 3.0, chests.into_iter()), vec![2]);
+    }
+
+    #[test]
+    fn the_beam_widens_into_a_cone() {
+        let eye = Vec3::ZERO;
+        let dir = beam_dir(0.0, 0.0);
+        // 1.5 m off its line: too far out near the gun, held further out.
+        let near = [(1, Vec3::new(1.5, 0.0, -2.0))];
+        let far = [(1, Vec3::new(1.5, 0.0, -15.0))];
+        assert!(beam_targets(eye, dir, BEAM_RANGE, near.into_iter()).is_empty());
+        assert_eq!(beam_targets(eye, dir, BEAM_RANGE, far.into_iter()), vec![1]);
+        assert!(beam_radius(BEAM_RANGE) < 2.5, "too wide at its reach");
     }
 }

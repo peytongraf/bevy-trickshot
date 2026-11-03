@@ -184,7 +184,7 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
 /// one casting it — so two about as far off don't keep swapping.
 const SHADOW_SWAP_MARGIN: f32 = 3.0;
 
-/// Let the nearest few shadow-casting fires we're in reach of cast shadows
+/// Let the few shadow-casting fires whose reach we're nearest cast shadows
 /// (as many as `ShadowQuality::fire_shadows`); the rest don't.
 fn limit_flame_shadows(
     settings: Res<crate::settings::Settings>,
@@ -196,8 +196,13 @@ fn limit_flame_shadows(
     let mut nearest: Vec<(f32, Entity)> = lights
         .iter()
         .filter_map(|(e, light, at, _)| {
-            let distance = eye.map_or(0.0, |eye| eye.distance(at.translation()));
-            (light.shadows && distance < light.range)
+            // How far we are from the edge of its reach (negative inside
+            // it). Not "only while we're inside its reach": standing just
+            // outside it, the walls nearer the fire still are — and an
+            // unshadowed light shines straight through them.
+            let distance = eye.map_or(0.0, |eye| eye.distance(at.translation())) - light.range;
+            light
+                .shadows
                 .then(|| (distance - if chosen.contains(&e) { SHADOW_SWAP_MARGIN } else { 0.0 }, e))
         })
         .collect();

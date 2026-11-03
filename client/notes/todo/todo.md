@@ -2,23 +2,11 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
-- Level editor map hiding / height cut
-- Zombie walk / run variety
-- Scope blur, vignette and fringe
-- Weapon movement inertia
-- Weapon motion blur setting
-- Bot kill cam sniper kick
-- Motion blur setting
-- Sniper shot kick-back removed
-- MW3 smoothness: zoom curve, sniper kick, smoother sway
-- Instant kill / hit feedback
-- Retuned blood overlay
-- Zombie explosion ragdolls
-- Longer zombie corpses
-- Muffled sounds through walls
-- Kill chain medals
-- Mantle breath + step sounds
-- Downed breathing loop
+- Exhumer beam: wider cone, new look
+- Exhumer lift floats smoothly
+- Exhumer souls as green smoke, no hard beam end, slower spin
+- Exhumer swirl smoke texture, soft smoke edges
+- Fire light through temple walls
 
 # Latest play
 
@@ -34,21 +22,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Possibly test out different final pass effects / coloring as long as it doesn't decrease fps. Need to check fps before and after making the change.
 - Change pap prices to 5k, 15k, 30k.
 - When pausing, sometimes fps weapon animations keep playing.
-- vial and dagger pickup sounds should play the normal dropped eqiupment pickup sounds
-- When astral projecting up to inside the pyramid, player can just get the weapon before the final zombei quote plays. Maybe this quote should play as the player is astral projecting.
-- Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
-- Probably would be better to cause some sort of damage with the wonder weapon with the zombies staying on the ground while they are being sucked then once complete, only then have them smoothly animate upwards and souls removed then killed.
 - ensure no boss zombies are affected by instakill or nukes
-- Create wonder weapon model
-- Create animated easter egg boss zombie model and give it a name different from the regular boss
-- active zombies who aren't dead when ritual starts should have speed greatly reduced and should stop further away from players instead of getting right up on them.
-- Need a scary sound that plays when these zombies are killed due to the ritual. Could also add a smoke effect on the zombies like magic is killing them.
-- Diamond above in pyramid altar table should be much lower
-- More zombies should be spawned when the boss awakens zombies on phase 2 and 3. Phase 2 and 3 should have the same amount of zombies awakened but phase 3 should of course also add in dogs but now many.
-- Ensure that on phases 2 and 3 a small amount of zombies keep spawning after they are killed to keep the distraction from the main boss during the fight. They shouldn't spawn instantly otherwise the player would have to just keep shotting the zombies the entire time.
-- Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
-- Add some sort of glow / light around the wonder weapon when inside the pyramid
-- For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
 
 # Level editor
 
@@ -57,8 +31,8 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Current todo
 
+- 4 `server` nav tests were failing (Nov 1), e.g. "DerTempel door 11: the ground either side of it is one zone", from the map's door and spawn layout
 - Windows in spawn are too high up. Could just shift down the vertices a certain amount.
-- Fix fire light getting inside temple
 - Re-enable zombie arms-up walk (`ZombieAvatarSettings::arms_up_walk`, off while testing the shambles)
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
@@ -123,10 +97,6 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Night shipment is a little too dark in shaded areas and can't see remote player model that well
 - Increase aim sway
 
-# Big features
-
-- Add semtex
-
 ## Sound
 
 - Can add a flash light on off sound
@@ -141,5 +111,3 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Look into using different footstep sounds based on surface
 
 # Nice to have
-
-- Add sun flare when looking near sun on day maps

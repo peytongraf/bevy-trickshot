@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Der Tempel: fire light no longer shines through the walls into the tomb.",
         "Der Tempel: the temple is hiding a secret...",
         "Level editor: hide map pieces (V) or cut away above a height (C) to see inside.",
         "Zombies: explosions can leave zombies crawling — they drop and drag themselves after you.",
