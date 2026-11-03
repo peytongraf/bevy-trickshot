@@ -5,9 +5,10 @@
 //!
 //! * its pieces standing where the map's layout puts them (placed in the
 //!   level editor) — the sarcophagus, the society's case and the pyramid's
-//!   altar, each a placeholder of plain boxes until its model's made
-//!   ([`EggPlaceholders`], shared with the editor). The case's glass is
-//!   gone once the power's on, its dagger once it's taken;
+//!   altar, each its model ([`spawn_piece_look`], shared with the editor).
+//!   Once the power's on the case can be opened: taking the dagger swings
+//!   its glass lid up on its hinges, and the dagger's gone once it's open
+//!   ([`animate_case`]);
 //! * Barrett's blood lying where a Big Steve dropped it, glowing and turning;
 //! * the prompt and interact key ([`shared::EggInteract`]) at the vial, at
 //!   the case, and in the ritual area once both are had — accept (or back
@@ -100,7 +101,7 @@ impl Plugin for EasterEggPlugin {
                 Update,
                 (
                     sync_pieces,
-                    show_case_parts,
+                    animate_case,
                     sync_vial,
                     track_ritual,
                     sync_ritual_fx,
@@ -174,10 +175,8 @@ pub(crate) struct EggPlaceholders {
 /// What a placeholder box is, for the ones that come and go in game.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Component)]
 pub(crate) enum PartRole {
-    Solid,
-    /// The case's glass — gone once it's open (the power's on).
-    CaseGlass,
-    /// The dagger in the case — gone once it's taken.
+    /// The dagger in the case — gone once it's taken (and the lid's open,
+    /// [`animate_case`]).
     Dagger,
     /// The sarcophagus' lid — blasted off as he wakes (`wake`).
     Lid,
@@ -195,6 +194,23 @@ pub(crate) const SARCOPHAGUS_MODEL: &str = "models/props/sarcophagus.glb";
 /// Its lid's object, by name.
 const LID_NODE: &str = "sarcophagus_lid";
 
+/// The society's case: a dark stand with a gold-trimmed glass case on top,
+/// the dagger lying on its velvet; origin on the ground under its middle,
+/// its front facing +z. Its lid — the glass top ([`CASE_LID_NODES`]) —
+/// swings up on its hinges along the back top edge ([`CASE_HINGE`]) as the
+/// dagger's taken.
+pub(crate) const SOCIETY_CASE_MODEL: &str = "models/props/society_case.glb";
+/// The lid's objects, by name: the glass top and the gold trim round it.
+const CASE_LID_NODES: [&str; 2] = ["glass_case_top", "upper_case_trim"];
+/// The hinge line (in the case's own frame): along x, at the back top edge.
+const CASE_HINGE: Vec3 = Vec3::new(0.0, 1.303, -0.23);
+/// How far (rad) it swings open (back past upright), and over how long (s).
+const CASE_LID_OPEN_ANGLE: f32 = 105.0 * std::f32::consts::PI / 180.0;
+const CASE_LID_OPEN_SECS: f32 = 0.9;
+/// Where the dagger lies on the velvet (its middle — the velvet's top at
+/// 1.04 m, the blade ~1 cm thick either side of it).
+const CASE_DAGGER_AT: Vec3 = Vec3::new(0.0, 1.051, 0.0);
+
 /// The altar in the pyramid's chamber (where the Exhumers lie): a base, its
 /// body and a flat top at 1 m, origin on the ground under its middle, its
 /// front facing +z. (Its UVs are an even box projection — see the easter
@@ -210,8 +226,9 @@ pub(crate) const DAGGER_MODEL: &str = "models/props/hierophant_dagger.glb";
 const DAGGER_MADE_LENGTH: f32 = 4.45;
 const DAGGER_LENGTH: f32 = 0.35;
 
-/// How the dagger's held: lying flat (in the society's case), or point
-/// down (driven into the altar in the ritual).
+/// How the dagger's held: lying flat across the society's case (its length
+/// along the case's width, its flat facing up so its edges face the sides),
+/// or point down (driven into the altar in the ritual).
 #[derive(Clone, Copy)]
 enum DaggerPose {
     Flat,
@@ -221,8 +238,11 @@ enum DaggerPose {
 /// The dagger's model at `at` (its middle), posed `pose`.
 fn dagger(asset_server: &AssetServer, at: Vec3, pose: DaggerPose) -> impl Bundle {
     let rotation = match pose {
-        // (Its flat, ±X as made, up.)
-        DaggerPose::Flat => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        // (Its flat, ±X as made, up — then its length, +Z as made, turned
+        // to lie along +X, across the case.)
+        DaggerPose::Flat => {
+            Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)
+        }
         // (Its tip, +Z as made, down.)
         DaggerPose::PointDown => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
     };
@@ -248,10 +268,17 @@ pub(crate) fn spawn_piece_look(
     for part in placeholders.parts(piece) {
         root.spawn(part);
     }
-    // The dagger in the society's case, lying flat on its stand (gone once
-    // it's taken — `show_case_parts`).
+    // The society's case, the dagger lying across its velvet (gone once
+    // it's taken — `animate_case`).
     if piece == EggPiece::SocietyCase {
-        root.spawn((PartRole::Dagger, Visibility::default(), dagger(asset_server, Vec3::Y * 0.812, DaggerPose::Flat)));
+        let mut model = root.spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SOCIETY_CASE_MODEL))),
+            Transform::IDENTITY,
+        ));
+        if in_game {
+            model.observe(tag_case_lid);
+        }
+        root.spawn((PartRole::Dagger, Visibility::default(), dagger(asset_server, CASE_DAGGER_AT, DaggerPose::Flat)));
     }
     if piece == EggPiece::PyramidAltar {
         root.spawn((
@@ -291,6 +318,31 @@ fn tag_lid(
     commands.entity(lid).insert((PartRole::Lid, LidRest(rest)));
 }
 
+/// One of the case's lid's objects ([`CASE_LID_NODES`]), and how it sits
+/// shut (in the case's own frame — they're straight under the model's root).
+#[derive(Component)]
+pub(crate) struct CaseLid(Transform);
+
+/// The case's model's in: its lid's objects are the lid, shut as made.
+fn tag_case_lid(
+    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    transforms: Query<&Transform>,
+    mut commands: Commands,
+) {
+    let mut found = 0;
+    for e in children.iter_descendants(trigger.target()) {
+        if names.get(e).is_ok_and(|n| CASE_LID_NODES.contains(&n.as_str())) {
+            commands.entity(e).insert(CaseLid(transforms.get(e).copied().unwrap_or_default()));
+            found += 1;
+        }
+    }
+    if found < CASE_LID_NODES.len() {
+        warn!("{SOCIETY_CASE_MODEL} is missing some of {CASE_LID_NODES:?} — its lid won't all open");
+    }
+}
+
 impl EggPlaceholders {
     /// `piece`'s boxes, as children to put under its root.
     pub(crate) fn parts(
@@ -309,17 +361,6 @@ fn make_placeholders(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let mut material = |color: Color, metal: f32, rough: f32| {
-        materials.add(StandardMaterial {
-            base_color: color,
-            metallic: metal,
-            perceptual_roughness: rough,
-            alpha_mode: if color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-            ..default()
-        })
-    };
-    let wood = material(Color::srgb(0.24, 0.13, 0.07), 0.0, 0.7);
-    let glass = material(Color::srgba(0.7, 0.85, 0.9, 0.25), 0.0, 0.05);
     let vial_glass = materials.add(StandardMaterial {
         base_color: Color::srgb(0.5, 0.02, 0.04),
         emissive: LinearRgba::rgb(4.0, 0.1, 0.15),
@@ -327,16 +368,10 @@ fn make_placeholders(
         ..default()
     });
     let vial = (meshes.add(Capsule3d::new(0.025, 0.09)), vial_glass);
-    let mut part = |piece, role, size: Vec3, at: Vec3, material: &Handle<StandardMaterial>| {
-        (piece, role, meshes.add(Cuboid::from_size(size)), material.clone(), Transform::from_translation(at))
-    };
-    // (The sarcophagus has its model — `SARCOPHAGUS_MODEL`.)
-    let parts = vec![
-        // The case: a wooden stand, the dagger lying in a glass box on it.
-        part(EggPiece::SocietyCase, PartRole::Solid, Vec3::new(0.6, 0.8, 0.4), Vec3::Y * 0.4, &wood),
-        part(EggPiece::SocietyCase, PartRole::CaseGlass, Vec3::new(0.8, 0.5, 0.5), Vec3::Y * 1.05, &glass),
-        // (The pyramid's altar has its model — `PYRAMID_ALTAR_MODEL`.)
-    ];
+    // (Every piece has its model now — `SARCOPHAGUS_MODEL`,
+    // `SOCIETY_CASE_MODEL`, `PYRAMID_ALTAR_MODEL` — so no boxes, until the
+    // next piece that needs a stand-in.)
+    let parts = Vec::new();
     let glowing_blood = materials.add(StandardMaterial {
         base_color: Color::srgb(0.45, 0.01, 0.02),
         emissive: LinearRgba::rgb(6.0, 0.05, 0.08),
@@ -399,21 +434,45 @@ fn egg_game<'a>(local: &Query<&LocalId, With<GameClient>>, lobbies: &'a Query<&L
     zombies_game(local, lobbies).filter(|l| shared::easter_egg::on_map(l.map))
 }
 
-/// The case's glass gone once it's open (the power's on), its dagger once
-/// it's taken.
-fn show_case_parts(
+/// The case: its lid swinging up on its hinges once the dagger's been taken
+/// (back down if the egg's reset), and the dagger gone once it's open — so
+/// it's opened, then taken. How open it is (0..=1) is kept here; out of a
+/// game it's shut again, so the next starts with it closed.
+fn animate_case(
+    time: Res<Time>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     mut parts: Query<(&PartRole, &mut Visibility), Without<EggPiece>>,
+    mut lids: Query<(&CaseLid, &mut Transform)>,
+    new_lids: Query<(), Added<CaseLid>>,
+    mut open: Local<f32>,
 ) {
-    let Some(lobby) = egg_game(&local, &lobbies) else { return };
-    let open = shared::easter_egg::case_open(lobby);
+    let Some(lobby) = egg_game(&local, &lobbies) else {
+        *open = 0.0;
+        return;
+    };
     let taken = lobby.easter_egg.dagger;
+    let step = time.delta_secs() / CASE_LID_OPEN_SECS;
+    let before = *open;
+    *open = (*open + if taken { step } else { -step }).clamp(0.0, 1.0);
+    if *open != before || !new_lids.is_empty() {
+        // (Up and back about the hinge: the front edge rises first, eased
+        // in and out.)
+        let x = *open;
+        let swing = Quat::from_rotation_x(-CASE_LID_OPEN_ANGLE * x * x * (3.0 - 2.0 * x));
+        for (shut, mut tf) in &mut lids {
+            let shut = shut.0;
+            *tf = Transform {
+                translation: CASE_HINGE + swing * (shut.translation - CASE_HINGE),
+                rotation: swing * shut.rotation,
+                scale: shut.scale,
+            };
+        }
+    }
     for (role, mut vis) in &mut parts {
         let shown = match role {
-            PartRole::Solid | PartRole::Lid => true,
-            PartRole::CaseGlass => !open,
-            PartRole::Dagger => !taken,
+            PartRole::Lid => true,
+            PartRole::Dagger => !taken || *open < 1.0,
         };
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
     }
@@ -497,7 +556,7 @@ impl Here {
         match self {
             Here::Vial => format!("Press {key} to pick up the vial"),
             Here::CaseLocked => "Locked. It's wired into the power".to_string(),
-            Here::Dagger => format!("Press {key} to take the dagger"),
+            Here::Dagger => format!("Press {key} to open the case and take the dagger"),
             Here::Altar { accepted: false, ready, of } => {
                 format!("Press {key} to offer your blood  ({ready}/{of} ready)")
             }

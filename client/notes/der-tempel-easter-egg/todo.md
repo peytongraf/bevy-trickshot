@@ -38,10 +38,10 @@ on each).
 ## Gathering
 
 1. **[you]** Model the vial and record its pickup sound.
-2. **[you]** Model the society case (shut and open) and record the
-   case-unlock sound. **Me after:** swing its lid open with the power
-   (right now the glass just disappears) and match the dagger's height
-   to the velvet bed (now 0.812 m).
+2. **[you]** Record the case-unlock sound (it plays as the lid swings
+   open), and give the case its real materials. **Me after:** the
+   custom glass shader for `case_glass` (fresnel rim + faint moving
+   reflections — Bevy has no reflections here on its own).
 
 ## The ritual
 
@@ -100,12 +100,6 @@ its front along +Z (Blender's −Y, the side Front view shows), use metres,
 and apply scale (Ctrl+A → Scale) before UVs. If it comes out a different
 size, the level editor's Scale field fixes that.
 
-- **Society case** (0.8 m wide, 1.3 m tall, 0.5 m deep at most): a
-  modern, expensive museum case on a dark wood stand, with a glass lid
-  hinged at the back and a brass keypad / magnetic lock with a red → green
-  light. It looks out of place in the ruins. Separate objects: body,
-  **lid** (origin on its hinge line), lock, and the light (its own
-  material). Leave the dagger out; it's its own model.
 - **Barrett's vial** (about 12 cm): a sealed lab vial of glowing dark-red
   blood, with a metal cap and a printed society tag reading "Vessel
   candidate 07". Clinical and modern, unlike the dagger.

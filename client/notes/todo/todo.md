@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Society case model, lid opens, dagger across the velvet
 - Ritual stalls zombies; souls torn out as it goes wrong
 - Pyramid diamond lowered
 - Vial/dagger pickup sound
