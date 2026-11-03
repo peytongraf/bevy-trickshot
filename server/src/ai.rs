@@ -125,13 +125,16 @@ pub struct BossSmashed {
 }
 
 /// A boss let go of a blast (`shared::boss`) from `from`, flying along `dir`
-/// — written by [`drive_bots`], flown by `boss::run_blasts`.
+/// — written by [`drive_bots`], flown by `boss::run_blasts`. `hierophant`:
+/// the easter egg's Hierophant's ball of dark energy, with his own numbers
+/// (`shared::easter_egg::HIEROPHANT_BLAST_*`).
 #[derive(Event)]
 pub struct BossBlastFired {
     pub lobby: Entity,
     pub boss: PeerId,
     pub from: Vec3,
     pub dir: Vec3,
+    pub hierophant: bool,
 }
 
 /// Which of a boss's two attacks it's in the middle of.
@@ -286,8 +289,8 @@ struct ZombieBody {
     boss_attack: Option<BossAttack>,
     /// ...and when (`Time::elapsed_secs`) it may next hurl a blast.
     blast_ready_at: f32,
-    /// The easter egg's Hierophant ([`BotBrain::hierophant`]): a boss that
-    /// never hurls blasts and hits harder...
+    /// The easter egg's Hierophant ([`BotBrain::hierophant`]): a boss with
+    /// his own ball, that hits harder...
     hierophant: bool,
     /// ...and stands glaring until then (`Time::elapsed_secs`) while he
     /// taunts ([`BotBrain::taunt`])...
@@ -645,15 +648,16 @@ impl BotBrain {
     }
 
     /// Make it the easter egg's Hierophant (`shared::easter_egg`): a boss
-    /// at [`shared::easter_egg::HIEROPHANT_SPEED`] that only smashes — for
-    /// [`shared::easter_egg::HIEROPHANT_MELEE_DAMAGE`] — never hurling a
-    /// blast.
+    /// at [`shared::easter_egg::HIEROPHANT_SPEED`] that smashes for
+    /// [`shared::easter_egg::HIEROPHANT_MELEE_DAMAGE`] and hurls his ball of
+    /// dark energy at anyone keeping their distance
+    /// (`shared::easter_egg::HIEROPHANT_BLAST_*`).
     pub fn hierophant(self, now: f32) -> Self {
         let mut brain = self.boss(now);
         if let Some(z) = brain.zombie.as_mut() {
             z.hierophant = true;
             z.speed = shared::easter_egg::HIEROPHANT_SPEED;
-            z.blast_ready_at = f32::INFINITY;
+            z.blast_ready_at = now + shared::easter_egg::HIEROPHANT_BLAST_FIRST_DELAY_SECS;
         }
         brain
     }
@@ -1443,6 +1447,7 @@ pub(crate) fn drive_bots(
                             boss: id.0,
                             from,
                             dir,
+                            hierophant: z.hierophant,
                         });
                     }
                     _ => {}
@@ -1456,7 +1461,12 @@ pub(crate) fn drive_bots(
                         done: false,
                     });
                     hold = true;
-                } else if (shared::boss::BLAST_MIN_RANGE..=shared::boss::BLAST_MAX_RANGE).contains(&distance)
+                } else if ((if z.hierophant {
+                    shared::easter_egg::HIEROPHANT_BLAST_MIN_RANGE
+                } else {
+                    shared::boss::BLAST_MIN_RANGE
+                })..=shared::boss::BLAST_MAX_RANGE)
+                    .contains(&distance)
                     && now >= z.blast_ready_at
                 {
                     z.boss_attack = Some(BossAttack {
@@ -1466,9 +1476,14 @@ pub(crate) fn drive_bots(
                     });
                     // (A jitter off the clock, so two bosses drift apart.)
                     let jitter = (now * 7.31 + id.0.to_bits() as f32 * 0.013).fract().abs();
-                    z.blast_ready_at = now
-                        + shared::boss::BLAST_COOLDOWN_SECS
-                        + shared::boss::BLAST_COOLDOWN_JITTER * jitter;
+                    let (gap, spread) = if !z.hierophant {
+                        (shared::boss::BLAST_COOLDOWN_SECS, shared::boss::BLAST_COOLDOWN_JITTER)
+                    } else if z.speed >= shared::easter_egg::HIEROPHANT_ENRAGED_SPEED {
+                        shared::easter_egg::HIEROPHANT_BLAST_GAP_ENRAGED_SECS
+                    } else {
+                        shared::easter_egg::HIEROPHANT_BLAST_GAP_SECS
+                    };
+                    z.blast_ready_at = now + gap + spread * jitter;
                     hold = true;
                 }
             }
@@ -2441,9 +2456,9 @@ mod tests {
     }
 
     #[test]
-    fn the_hierophant_never_hurls_a_blast_and_smashes_harder() {
+    fn the_hierophant_hurls_his_ball_from_range_and_smashes_harder() {
         let (_, blasts) = hierophant_run(Vec3::new(-10.0, 0.0, -40.0), 8.0, false);
-        assert_eq!(blasts, 0, "he threw a blast");
+        assert!(blasts >= 1, "he never threw his ball at someone 20 m off");
         let (hits, _) = hierophant_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, false);
         assert_eq!(hits.len(), 1, "hits: {hits:?}");
         assert_eq!(hits[0].1, shared::easter_egg::HIEROPHANT_MELEE_DAMAGE);

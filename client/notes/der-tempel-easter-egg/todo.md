@@ -12,11 +12,10 @@ on each).
 
 # Bugs / fix
 
+- When first firing the beam, it shouldn't just appear at full length but instead move outward from the gun over time to its full length.
 - Blood on the ground should look real
 - Add hand cutting animation for current and remote players with blood effect
 - Should text on screen have a quote that is read aloud?
-- Boss zombie should be more difficult. It should spawn closer to player when teleporting. It should have a long range attack as well like a purple electric thing like frieze used to blow up planets similar to big steves orange blast
-- Boss zombie should be faster
 - Soul of boss zombie should look more realistic (the Exhumer's souls are smoke now — maybe match them)
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
 - vial and dagger pickup sounds should play the normal dropped eqiupment pickup sounds
@@ -24,8 +23,6 @@ on each).
 - active zombies who aren't dead when ritual starts should have speed greatly reduced and should stop further away from players instead of getting right up on them.
 - Need a scary sound that plays when these zombies are killed due to the ritual. Could also add a smoke effect on the zombies like magic is killing them.
 - Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
-- More zombies should be spawned when the boss awakens zombies on phase 2 and 3. Phase 2 and 3 should have the same amount of zombies awakened but phase 3 should of course also add in dogs but now many.
-- Ensure that on phases 2 and 3 a small amount of zombies keep spawning after they are killed to keep the distraction from the main boss during the fight. They shouldn't spawn instantly otherwise the player would have to just keep shotting the zombies the entire time.
 - When astral projecting up to inside the pyramid, player can just get the weapon before the final zombei quote plays. Maybe this quote should play as the player is astral projecting.
 - Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
 - For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.

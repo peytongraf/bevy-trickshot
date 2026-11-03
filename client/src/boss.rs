@@ -20,6 +20,14 @@
 //!   fireball at the boss's size (`vfx::Explosion::boss`), with the blast
 //!   hit sound.
 //!
+//! * **The Hierophant's ball** — the easter egg's Hierophant (his avatar's
+//!   [`BossVoiced`]) winds up and hurls the same way, but his is a ball of
+//!   dark energy ([`DeathOrbMaterial`], `shaders/death_orb.wgsl`): a sphere
+//!   of near-black purple, its darkness churning, glowing bright purple round
+//!   its rim, red lightning crackling through it and arcing off it — its
+//!   wisps, sparks, embers and light purple and red, going off in PhD
+//!   Flopper's purple. Tuned in "The Hierophant's ball" ([`DeathOrbSettings`]).
+//!
 //! * **Aura** — so it stands out in a crowd: its body glows ([`BossBodyGlow`],
 //!   its skin lit from within), a soft orange halo radiates from behind it
 //!   ([`AuraPart`]) and it casts its own light — pulsing slowly, and fading
@@ -33,9 +41,11 @@
 use std::time::Duration;
 
 use bevy::animation::RepeatAnimation;
-use bevy::pbr::NotShadowCaster;
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
 
 use crate::audio_engine::prelude::*;
 use bevy::render::view::NoFrustumCulling;
@@ -251,6 +261,7 @@ impl std::fmt::Debug for DebugSettings<'_> {
 struct BossPreview {
     lightning: bool,
     orb: bool,
+    death_orb: bool,
 }
 
 /// Shared handles, built once.
@@ -354,6 +365,8 @@ struct BossOrb {
     /// Embers / smoke / sparks owed.
     owed: [f32; 3],
     seed: u32,
+    /// The Hierophant's ball of dark energy, not a boss's fireball.
+    death: bool,
     next_arc: f32,
     materials: OrbMaterials,
 }
@@ -374,11 +387,15 @@ struct OrbMaterials {
     flame: Handle<StandardMaterial>,
     wisp: Handle<StandardMaterial>,
     arc: Handle<StandardMaterial>,
+    /// The Hierophant's ball's sphere.
+    death: Option<Handle<DeathOrbMaterial>>,
 }
 
 /// A part of a [`BossOrb`].
 #[derive(Component, Clone, Copy)]
 enum OrbPart {
+    /// The Hierophant's ball itself.
+    Sphere,
     Core,
     Glow,
     Halo,
@@ -404,11 +421,156 @@ struct OrbParticle {
     smoke: bool,
 }
 
+/// The Hierophant's ball of dark energy ("The Hierophant's ball" in the
+/// "Boss (Zombies)" debug section).
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct DeathOrbSettings {
+    /// The quad it's drawn on (m across, glow and all), and the sphere's
+    /// share of its half-width.
+    pub(crate) size: f32,
+    pub(crate) core: f32,
+    /// Linear colours: the sphere's darkness, its rim and glow, its
+    /// lightning.
+    pub(crate) dark: [f32; 3],
+    pub(crate) rim: [f32; 3],
+    pub(crate) bolt: [f32; 3],
+    /// Brightness: its rim, the glow round it, the lightning through it.
+    pub(crate) rim_brightness: f32,
+    pub(crate) glow: f32,
+    pub(crate) bolt_brightness: f32,
+    /// How fast its darkness churns (rad/s), how much lightning there is
+    /// (0..), and how often it re-forks (Hz).
+    pub(crate) swirl: f32,
+    pub(crate) bolts: f32,
+    pub(crate) bolt_hz: f32,
+    /// The red arcs off it, and its purple wisps, sparks and embers:
+    /// brightness, of the boss ball's.
+    pub(crate) arc_brightness: f32,
+    pub(crate) wisp_brightness: f32,
+    /// Its light (lumens).
+    pub(crate) light: f32,
+}
+
+impl Default for DeathOrbSettings {
+    fn default() -> Self {
+        Self {
+            size: 2.4,
+            core: 0.42,
+            dark: [0.035, 0.0, 0.06],
+            rim: [0.55, 0.08, 1.0],
+            bolt: [1.0, 0.1, 0.06],
+            rim_brightness: 6.0,
+            glow: 0.9,
+            bolt_brightness: 9.0,
+            swirl: 0.9,
+            bolts: 1.0,
+            bolt_hz: 14.0,
+            arc_brightness: 0.6,
+            wisp_brightness: 0.5,
+            light: 700_000.0,
+        }
+    }
+}
+
+const DEATH_ORB_SHADER_ASSET_PATH: &str = "shaders/death_orb.wgsl";
+
+// Own module only so the allow covers the unused per-field layout checks
+// `ShaderType`'s derive generates next to the struct (as in `power_ups`).
+#[allow(dead_code)]
+mod params {
+    use bevy::prelude::*;
+    use bevy::render::render_resource::ShaderType;
+
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(crate) struct OrbParams {
+        pub(crate) dark: Vec4,
+        pub(crate) rim: Vec4,
+        pub(crate) bolt: Vec4,
+        pub(crate) core: f32,
+        pub(crate) glow: f32,
+        pub(crate) swirl: f32,
+        pub(crate) bolts: f32,
+        pub(crate) bolt_hz: f32,
+        pub(crate) seed: f32,
+        pub(crate) _pad0: f32,
+        pub(crate) _pad1: f32,
+    }
+}
+use params::OrbParams;
+
+/// The Hierophant's ball (`shaders/death_orb.wgsl`), on a camera-facing
+/// quad: drawn premultiplied, so its sphere can be dark over what's behind
+/// it while its rim, glow and lightning add light. One per ball (its seed).
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct DeathOrbMaterial {
+    #[uniform(0)]
+    params: OrbParams,
+}
+
+impl DeathOrbMaterial {
+    fn params(d: &DeathOrbSettings, seed: f32) -> OrbParams {
+        let v = |c: [f32; 3], a: f32| Vec4::new(c[0], c[1], c[2], a);
+        OrbParams {
+            dark: v(d.dark, 1.0),
+            rim: v(d.rim, d.rim_brightness),
+            bolt: v(d.bolt, d.bolt_brightness),
+            core: d.core,
+            glow: d.glow,
+            swirl: d.swirl,
+            bolts: d.bolts,
+            bolt_hz: d.bolt_hz,
+            seed,
+            ..default()
+        }
+    }
+}
+
+impl Material for DeathOrbMaterial {
+    fn fragment_shader() -> ShaderRef {
+        DEATH_ORB_SHADER_ASSET_PATH.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Premultiplied
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // (Both faces, depth-tested but never writing depth.)
+        descriptor.primitive.cull_mode = None;
+        if let Some(depth) = descriptor.depth_stencil.as_mut() {
+            depth.depth_write_enabled = false;
+        }
+        Ok(())
+    }
+}
+
+/// A ball's two colours — its hot one (core, arcs, sparks) and its outer
+/// one (fire, wisps, embers, light): a boss's, or the Hierophant's red
+/// lightning and purple.
+fn orb_colors(s: &BossSettings, d: &DeathOrbSettings, death: bool) -> ([f32; 3], [f32; 3]) {
+    if death {
+        (d.bolt, d.rim)
+    } else {
+        (s.core_color, s.fire_color)
+    }
+}
+
 pub(crate) struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BossSettings>()
+        app.add_plugins(MaterialPlugin::<DeathOrbMaterial> {
+            prepass_enabled: false,
+            shadows_enabled: false,
+            ..default()
+        })
+        .init_resource::<BossSettings>()
+        .init_resource::<DeathOrbSettings>()
             .init_resource::<BossPreview>()
             .add_systems(Startup, setup_boss_assets)
             .add_systems(
@@ -558,6 +720,14 @@ fn glow_material(color: [f32; 3], brightness: f32, texture: Option<Handle<Image>
     }
 }
 
+/// Where [`spawn_orb`] gets the Hierophant's ball's look from (with
+/// `death`, his ball rather than a boss's).
+struct DeathOrbLook<'a> {
+    death: bool,
+    settings: &'a DeathOrbSettings,
+    materials: &'a mut Assets<DeathOrbMaterial>,
+}
+
 /// A new ball, forming (or, with `flight`, already hurled) at `pos`.
 #[allow(clippy::too_many_arguments)]
 fn spawn_orb(
@@ -566,6 +736,7 @@ fn spawn_orb(
     fx: &ExplosionAssets,
     settings: &BossSettings,
     materials: &mut Assets<StandardMaterial>,
+    look: DeathOrbLook,
     pos: Vec3,
     avatar: Option<Entity>,
     peer: Option<PeerId>,
@@ -573,16 +744,21 @@ fn spawn_orb(
     seed: u32,
 ) -> Entity {
     let s = settings;
+    let death = look.death;
+    let (hot, outer) = orb_colors(s, look.settings, death);
     let mats = OrbMaterials {
-        core: materials.add(glow_material(s.core_color, s.brightness * 1.5, None)),
-        glow: materials.add(glow_material(s.core_color, s.brightness * 0.35, Some(fx.glow.clone()))),
-        halo: materials.add(glow_material(s.fire_color, s.brightness * 0.12, Some(fx.glow.clone()))),
-        flame: materials.add(glow_material(s.fire_color, s.brightness * 0.22, Some(fx.fire[0].clone()))),
-        wisp: materials.add(glow_material(s.fire_color, s.brightness * 0.5, Some(fx.glow.clone()))),
-        arc: materials.add(glow_material(s.core_color, s.brightness * 0.8, None)),
+        core: materials.add(glow_material(hot, s.brightness * 1.5, None)),
+        glow: materials.add(glow_material(hot, s.brightness * 0.35, Some(fx.glow.clone()))),
+        halo: materials.add(glow_material(outer, s.brightness * 0.12, Some(fx.glow.clone()))),
+        flame: materials.add(glow_material(outer, s.brightness * 0.22, Some(fx.fire[0].clone()))),
+        wisp: materials.add(glow_material(outer, s.brightness * 0.5, Some(fx.glow.clone()))),
+        arc: materials.add(glow_material(hot, s.brightness * 0.8, None)),
+        death: death.then(|| {
+            look.materials.add(DeathOrbMaterial { params: DeathOrbMaterial::params(look.settings, rand01(seed) * 100.0) })
+        }),
     };
     let charged = flight.is_some();
-    let c = s.fire_color;
+    let c = outer;
     commands
         .spawn((
             StateScoped(AppState::InGame),
@@ -596,6 +772,7 @@ fn spawn_orb(
                 offset: Vec3::ZERO,
                 owed: [0.0; 3],
                 seed,
+                death,
                 next_arc: 0.0,
                 materials: mats.clone(),
             },
@@ -614,18 +791,31 @@ fn spawn_orb(
                     NoFrustumCulling,
                 )
             };
-            o.spawn((
-                OrbPart::Core,
-                Mesh3d(assets.sphere.clone()),
-                MeshMaterial3d(mats.core.clone()),
-                Transform::from_scale(Vec3::ZERO),
-                NotShadowCaster,
-                NoFrustumCulling,
-            ));
-            o.spawn(sprite(OrbPart::Glow, &mats.glow));
-            o.spawn(sprite(OrbPart::Halo, &mats.halo));
-            for i in 0..s.flames.min(24) {
-                o.spawn(sprite(OrbPart::Flame(i), &mats.flame));
+            if let Some(sphere) = &mats.death {
+                // His: the dark sphere and its glow, on one quad (no
+                // fire).
+                o.spawn((
+                    OrbPart::Sphere,
+                    Mesh3d(quad.clone()),
+                    MeshMaterial3d(sphere.clone()),
+                    Transform::from_scale(Vec3::ZERO),
+                    NotShadowCaster,
+                    NoFrustumCulling,
+                ));
+            } else {
+                o.spawn((
+                    OrbPart::Core,
+                    Mesh3d(assets.sphere.clone()),
+                    MeshMaterial3d(mats.core.clone()),
+                    Transform::from_scale(Vec3::ZERO),
+                    NotShadowCaster,
+                    NoFrustumCulling,
+                ));
+                o.spawn(sprite(OrbPart::Glow, &mats.glow));
+                o.spawn(sprite(OrbPart::Halo, &mats.halo));
+                for i in 0..s.flames.min(24) {
+                    o.spawn(sprite(OrbPart::Flame(i), &mats.flame));
+                }
             }
             for i in 0..s.wisps.min(32) {
                 o.spawn(sprite(OrbPart::Wisp(i), &mats.wisp));
@@ -645,7 +835,7 @@ fn spawn_orb(
             o.spawn((
                 OrbPart::Light,
                 PointLight {
-                    color: Color::srgb(c[0], c[1] * 1.2, c[2] * 2.0),
+                    color: if death { Color::srgb(c[0], c[1], c[2]) } else { Color::srgb(c[0], c[1] * 1.2, c[2] * 2.0) },
                     intensity: 0.0,
                     range: s.light_range,
                     shadows_enabled: false,
@@ -669,11 +859,11 @@ fn receive_boss_messages(
     (dog_assets, dog_settings): (Option<Res<DogAssets>>, Res<DogSettings>),
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
-    settings: Res<BossSettings>,
-    avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
+    (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
+    avatars: Query<(Entity, &RemoteAvatar, Has<BossVoiced>), With<BossVisual>>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
     mut orbs: Query<(Entity, &mut BossOrb)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
     mut boom: EventWriter<crate::vfx::Explosion>,
     mut seq: Local<u32>,
     mut commands: Commands,
@@ -734,16 +924,18 @@ fn receive_boss_messages(
                 }
                 None => {
                     *seq = seq.wrapping_add(1);
-                    let avatar = avatars
+                    let found = avatars
                         .iter()
-                        .find(|(_, a)| peer_of(a.src, &ids, &interp) == Some(msg.boss))
-                        .map(|(e, _)| e);
+                        .find(|(_, a, _)| peer_of(a.src, &ids, &interp) == Some(msg.boss));
+                    let avatar = found.map(|(e, ..)| e);
+                    let death = found.is_some_and(|(_, _, voiced)| voiced);
                     spawn_orb(
                         &mut commands,
                         &assets,
                         &fx,
                         &settings,
                         &mut materials,
+                        DeathOrbLook { death, settings: &death_settings, materials: &mut death_materials },
                         from,
                         avatar,
                         Some(msg.boss),
@@ -762,15 +954,18 @@ fn receive_boss_messages(
     for mut rx in &mut exploded {
         for msg in rx.receive() {
             let at = Vec3::from_array(msg.at);
+            let mut death = false;
             for (entity, orb) in &orbs {
                 if orb.flight.as_ref().is_some_and(|f| f.id == msg.id) {
+                    death |= orb.death;
                     commands.entity(entity).try_despawn();
                 }
             }
+            // (His goes off in PhD Flopper's purple.)
             boom.write(crate::vfx::Explosion {
                 feet: at,
                 variant: 0,
-                phd: false,
+                phd: death,
                 dog: false,
                 boss: true,
                 frag: false,
@@ -786,7 +981,7 @@ fn receive_boss_messages(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn animate_bosses(
     time: Res<Time>,
-    settings: Res<BossSettings>,
+    (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
     poses: Query<&PlayerPose>,
@@ -794,7 +989,7 @@ fn animate_bosses(
     mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>, Has<BossVoiced>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     orbs: Query<&BossOrb>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -878,6 +1073,11 @@ fn animate_bosses(
                                 &fx,
                                 s,
                                 &mut materials,
+                                DeathOrbLook {
+                                    death: voiced,
+                                    settings: &death_settings,
+                                    materials: &mut death_materials,
+                                },
                                 head,
                                 Some(entity),
                                 Some(peer),
@@ -911,7 +1111,7 @@ fn animate_bosses(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_orbs(
     time: Res<Time>,
-    settings: Res<BossSettings>,
+    (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     fx: Option<Res<ExplosionAssets>>,
     avatars: Query<(&Transform, &RemoteAvatar, Option<&BossRig>), With<BossVisual>>,
     poses: Query<&PlayerPose>,
@@ -972,6 +1172,11 @@ fn update_orbs(
         tf.translation = orb.pos + orb.offset;
         let at = tf.translation;
         let charge = orb.charge;
+        let (hot, outer) = orb_colors(s, &death_settings, orb.death);
+        // (His sparks and embers a little dimmer — the lightning's the
+        // bright part — and his smoke a deep purple.)
+        let spark_k = if orb.death { death_settings.wisp_brightness } else { 1.0 };
+        let smoke_color = if orb.death { [0.07, 0.01, 0.1] } else { [0.12, 0.08, 0.06] };
 
         // Sparks drawn in while it charges; embers and smoke streaming off
         // it in flight.
@@ -1003,7 +1208,7 @@ fn update_orbs(
                 for _ in 0..emit(s.charge_sparks * charge, &mut owed) {
                     let dir = Vec3::new(roll(1) - 0.5, roll(2) - 0.5, roll(3) - 0.5).normalize_or(Vec3::Y);
                     let from = at + dir * (0.9 + roll(4) * 0.8);
-                    let material = materials.add(glow_material(s.core_color, s.brightness * 0.6, Some(fx.glow.clone())));
+                    let material = materials.add(glow_material(hot, s.brightness * 0.6 * spark_k, Some(fx.glow.clone())));
                     spawn(
                         OrbParticle {
                             vel: Vec3::ZERO,
@@ -1013,8 +1218,8 @@ fn update_orbs(
                             into: Some(at),
                             roll: 0.0,
                             material,
-                            brightness: s.brightness * 0.6,
-                            color: s.core_color,
+                            brightness: s.brightness * 0.6 * spark_k,
+                            color: hot,
                             smoke: false,
                         },
                         from,
@@ -1025,13 +1230,15 @@ fn update_orbs(
             }
         } else {
             let dir = orb.flight.as_ref().map_or(Vec3::NEG_Z, |f| f.dir);
+            let hot_color = hot;
             let mut owed = orb.owed[1];
             for _ in 0..emit(s.trail_rate, &mut owed) {
                 let jitter = Vec3::new(roll(11) - 0.5, roll(12) - 0.5, roll(13) - 0.5) * 2.0;
                 let back = -dir * (roll(14) * 0.3);
                 let hot = roll(15) < 0.35;
-                let color = if hot { s.core_color } else { s.fire_color };
-                let brightness = s.brightness * if hot { 0.5 } else { 0.3 };
+                let orb_hot = hot_color;
+                let brightness = s.brightness * if hot { 0.5 } else { 0.3 } * spark_k;
+                let color = if hot { orb_hot } else { outer };
                 let material = materials.add(glow_material(color, brightness, Some(fx.glow.clone())));
                 spawn(
                     OrbParticle {
@@ -1054,7 +1261,7 @@ fn update_orbs(
             let mut owed = orb.owed[2];
             for _ in 0..emit(s.smoke_rate, &mut owed) {
                 let material = materials.add(StandardMaterial {
-                    base_color: Color::srgba(0.12, 0.08, 0.06, 0.0),
+                    base_color: Color::srgba(smoke_color[0], smoke_color[1], smoke_color[2], 0.0),
                     base_color_texture: Some(fx.fire[1].clone()),
                     unlit: true,
                     alpha_mode: AlphaMode::Blend,
@@ -1072,7 +1279,7 @@ fn update_orbs(
                         roll: roll(25) * std::f32::consts::TAU,
                         material,
                         brightness: 0.45,
-                        color: [0.12, 0.08, 0.06],
+                        color: smoke_color,
                         smoke: true,
                     },
                     at - dir * 0.4,
@@ -1091,13 +1298,14 @@ fn update_orbs(
 #[allow(clippy::type_complexity)]
 fn update_orb_parts(
     time: Res<Time>,
-    settings: Res<BossSettings>,
+    (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
     mut orbs: Query<(&mut BossOrb, &Transform, &Children)>,
     mut parts: Query<(&OrbPart, &mut Transform, Option<&mut PointLight>), Without<BossOrb>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
 ) {
     let s = &*settings;
+    let d = &*death_settings;
     let t = time.elapsed_secs();
     let cam = camera.into_inner();
     let cam_pos = cam.translation();
@@ -1126,16 +1334,35 @@ fn update_orb_parts(
                 mat.base_color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
             }
         };
-        set(&mut materials, &m.core, s.core_color, s.brightness * 1.5 * k);
-        set(&mut materials, &m.glow, s.core_color, s.brightness * 0.35 * k * pulse);
-        set(&mut materials, &m.halo, s.fire_color, s.brightness * 0.12 * k);
-        set(&mut materials, &m.flame, s.fire_color, s.brightness * 0.22 * k);
-        set(&mut materials, &m.wisp, s.fire_color, s.brightness * 0.5 * k);
-        set(&mut materials, &m.arc, s.core_color, s.brightness * 0.8 * k);
+        let (hot, outer) = orb_colors(s, d, orb.death);
+        let (wisp_k, arc_k) = if orb.death { (d.wisp_brightness, d.arc_brightness) } else { (1.0, 1.0) };
+        if orb.death {
+            // (His sphere's look follows the panel.)
+            if death_settings.is_changed() {
+                if let Some(h) = &m.death {
+                    if let Some(mat) = death_materials.get_mut(h) {
+                        let seed = mat.params.seed;
+                        mat.params = DeathOrbMaterial::params(d, seed);
+                    }
+                }
+            }
+        } else {
+            set(&mut materials, &m.core, hot, s.brightness * 1.5 * k);
+            set(&mut materials, &m.glow, hot, s.brightness * 0.35 * k * pulse);
+            set(&mut materials, &m.halo, outer, s.brightness * 0.12 * k);
+            set(&mut materials, &m.flame, outer, s.brightness * 0.22 * k);
+        }
+        set(&mut materials, &m.wisp, outer, s.brightness * 0.5 * k * wisp_k);
+        set(&mut materials, &m.arc, hot, s.brightness * 0.8 * k * arc_k);
 
         for child in children.iter() {
             let Ok((part, mut ptf, light)) = parts.get_mut(child) else { continue };
             match *part {
+                OrbPart::Sphere => {
+                    // (Its own churn and lightning: only a slow breath here.)
+                    let breathe = 1.0 + 0.04 * (t * 5.0 + seed).sin();
+                    *ptf = Transform::from_rotation(billboard(0.0)).with_scale(Vec3::splat(d.size * k * breathe));
+                }
                 OrbPart::Core => {
                     *ptf = Transform::from_scale(Vec3::splat(s.core_size * k * pulse));
                 }
@@ -1200,7 +1427,7 @@ fn update_orb_parts(
                 OrbPart::Light => {
                     if let Some(mut light) = light {
                         let flicker = 0.75 + 0.25 * (t * 31.0 + seed).sin().abs();
-                        light.intensity = s.light * k * flicker;
+                        light.intensity = if orb.death { d.light } else { s.light } * k * flicker;
                         light.range = s.light_range;
                     }
                 }
@@ -1381,17 +1608,18 @@ fn update_boss_auras(
 /// The debug section's previews: the orange lightning 10 m ahead, or a ball
 /// thrown from in front of us, straight ahead.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn run_previews(
     mut preview: ResMut<BossPreview>,
     (dog_assets, dog_settings): (Option<Res<DogAssets>>, Res<DogSettings>),
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
-    settings: Res<BossSettings>,
+    (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     sounds: Option<Res<GameSounds>>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
     mut commands: Commands,
 ) {
-    if !(preview.lightning || preview.orb) {
+    if !(preview.lightning || preview.orb || preview.death_orb) {
         return;
     }
     let (Some(dog_assets), Some(assets), Some(fx), Some(sounds)) = (dog_assets, assets, fx, sounds) else {
@@ -1413,7 +1641,8 @@ fn run_previews(
         );
         commands.spawn(boss_sound(sounds.boss_spawn.clone(), at + Vec3::Y, false));
     }
-    if std::mem::take(&mut preview.orb) {
+    let wanted = [std::mem::take(&mut preview.orb), std::mem::take(&mut preview.death_orb)];
+    for death in [false, true].into_iter().filter(|d| wanted[*d as usize]) {
         // (Slow, and a long way off: something to look at, with no message
         // to end it — it goes on its own.)
         let orb = spawn_orb(
@@ -1422,6 +1651,7 @@ fn run_previews(
             &fx,
             &settings,
             &mut materials,
+            DeathOrbLook { death, settings: &death_settings, materials: &mut death_materials },
             cam.translation() + fwd * 3.0,
             None,
             None,
@@ -1445,6 +1675,7 @@ fn run_previews(
 #[derive(SystemParam)]
 pub(crate) struct BossDebug<'w, 's> {
     settings: ResMut<'w, BossSettings>,
+    death: ResMut<'w, DeathOrbSettings>,
     preview: ResMut<'w, BossPreview>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
@@ -1481,6 +1712,9 @@ impl BossDebug<'_, '_> {
             }
             if ui.button("Preview blast").clicked() {
                 preview.orb = true;
+            }
+            if ui.button("Preview the Hierophant's ball").clicked() {
+                preview.death_orb = true;
             }
         });
         let s = &mut *settings;
@@ -1523,6 +1757,39 @@ impl BossDebug<'_, '_> {
             ui.add(egui::Slider::new(&mut s.trail_size, 0.02f32..=2.0).text("ember size (m)"));
             ui.add(egui::Slider::new(&mut s.trail_spread, 0.0f32..=5.0).text("ember scatter (m/s)"));
             ui.add(egui::Slider::new(&mut s.smoke_rate, 0.0f32..=100.0).text("smoke puffs / s"));
+        });
+        let d = &mut *self.death;
+        ui.collapsing("The Hierophant's ball", |ui| {
+            ui.label("Its wind-up, flight and sparks follow \"Energy ball\" above; this is its look.");
+            ui.add(egui::Slider::new(&mut d.size, 0.2f32..=8.0).text("size, glow and all (m)"));
+            ui.add(egui::Slider::new(&mut d.core, 0.05f32..=0.95).text("sphere's share of it"));
+            ui.horizontal(|ui| {
+                ui.label("darkness / rim / lightning");
+                ui.color_edit_button_rgb(&mut d.dark);
+                ui.color_edit_button_rgb(&mut d.rim);
+                ui.color_edit_button_rgb(&mut d.bolt);
+            });
+            ui.add(egui::Slider::new(&mut d.rim_brightness, 0.0f32..=30.0).text("rim brightness"));
+            ui.add(egui::Slider::new(&mut d.glow, 0.0f32..=5.0).text("glow round it"));
+            ui.add(egui::Slider::new(&mut d.bolt_brightness, 0.0f32..=40.0).text("lightning brightness"));
+            ui.add(egui::Slider::new(&mut d.bolts, 0.0f32..=4.0).text("lightning amount"));
+            ui.add(egui::Slider::new(&mut d.bolt_hz, 1.0f32..=60.0).text("lightning re-forks / s"));
+            ui.add(egui::Slider::new(&mut d.swirl, 0.0f32..=6.0).text("darkness churns (rad/s)"));
+            ui.add(egui::Slider::new(&mut d.arc_brightness, 0.0f32..=3.0).text("red arcs off it (× a boss's)"));
+            ui.add(egui::Slider::new(&mut d.wisp_brightness, 0.0f32..=3.0).text("purple wisps, sparks, embers (× a boss's)"));
+            ui.add(
+                egui::Slider::new(&mut d.light, 0.0f32..=20_000_000.0)
+                    .logarithmic(true)
+                    .text("light (lm)"),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Reset").clicked() {
+                    *d = DeathOrbSettings::default();
+                }
+                if ui.button("Print settings to console").clicked() {
+                    info!("{d:#?}");
+                }
+            });
         });
         ui.collapsing("Aura", |ui| {
             ui.horizontal(|ui| {

@@ -222,11 +222,42 @@ pub fn hierophant_health(round: u32, players: usize) -> f32 {
 }
 pub const HIEROPHANT_HEALTH_MULT: f32 = 3.0;
 
-/// He walks a little quicker than a boss (`crate::boss::BOSS_SPEED`), m/s...
-pub const HIEROPHANT_SPEED: f32 = 1.95;
-/// ...hits harder (before perks — a boss's is `crate::boss::MELEE_DAMAGE`),
-/// and never hurls a blast: he's a melee stalker.
+/// He walks much quicker than a boss (`crate::boss::BOSS_SPEED`), m/s —
+/// a brisk stride you can't just stroll away from...
+pub const HIEROPHANT_SPEED: f32 = 2.7;
+/// ...and hits harder (before perks — a boss's is
+/// `crate::boss::MELEE_DAMAGE`).
 pub const HIEROPHANT_MELEE_DAMAGE: f32 = 85.0;
+
+/// His ball of dark energy, hurled (with a boss's wind-up,
+/// `crate::boss::BLAST_RELEASE_SECS`) at anyone keeping their distance:
+/// someone he can see this far off (m) or more (up to a boss's
+/// `crate::boss::BLAST_MAX_RANGE`)...
+pub const HIEROPHANT_BLAST_MIN_RANGE: f32 = 6.0;
+/// ...not in his first moments in the fight (s)...
+pub const HIEROPHANT_BLAST_FIRST_DELAY_SECS: f32 = 4.0;
+/// ...then at most every so often (s, plus up to the second more) — sooner
+/// once he's enraged.
+pub const HIEROPHANT_BLAST_GAP_SECS: (f32, f32) = (6.0, 3.0);
+pub const HIEROPHANT_BLAST_GAP_ENRAGED_SECS: (f32, f32) = (3.5, 2.0);
+/// It's bigger and slower than a boss's (m/s; a boss's is
+/// `crate::boss::BLAST_SPEED`) — a looming thing you've a moment to get out
+/// of the way of — set off by anyone its ball (m) touches...
+pub const HIEROPHANT_BLAST_SPEED: f32 = 13.0;
+pub const HIEROPHANT_BLAST_HIT_RADIUS: f32 = 0.65;
+/// ...and goes off harder and wider: this much at its heart, falling off
+/// to nothing this far (m) out.
+pub const HIEROPHANT_BLAST_DAMAGE: f32 = 95.0;
+pub const HIEROPHANT_BLAST_RADIUS: f32 = 5.5;
+
+/// What his blast takes off someone `distance` (m) from where it went off.
+pub fn hierophant_blast_damage(distance: f32) -> f32 {
+    if distance >= HIEROPHANT_BLAST_RADIUS {
+        0.0
+    } else {
+        HIEROPHANT_BLAST_DAMAGE * (1.0 - distance.max(0.0) / HIEROPHANT_BLAST_RADIUS)
+    }
+}
 
 /// His taunts (`hierophant/taunt_1.mp3`…): how many there are, the first
 /// this long (s, not counting pauses) into the fight, then one every so
@@ -327,18 +358,32 @@ pub const PHASE_2_AT: f32 = 2.0 / 3.0;
 pub const PHASE_ROAR_SECS: f32 = 3.0;
 pub const RING_RISE_AT_SECS: f32 = 0.8;
 
-/// A ring of the dead he raises (phase 2 on): how many with `players` in
-/// the game...
+/// A ring of the dead he raises at each phase's roar (2 and 3 alike): how
+/// many with `players` in the game...
 pub fn ring_size(players: usize) -> usize {
-    (6 + 2 * players.max(1).saturating_sub(1)).min(RING_MAX)
+    (9 + 3 * players.max(1).saturating_sub(1)).min(RING_MAX)
 }
-pub const RING_MAX: usize = 12;
+pub const RING_MAX: usize = 18;
 /// ...rising this far (m) around him...
 pub const RING_RADIUS: (f32, f32) = (3.5, 6.5);
-/// ...and another once at most this many of the last are left, at most
-/// this often (s, not counting pauses).
-pub const RING_REFILL_LEFT: usize = 2;
-pub const RING_EVERY_SECS: f32 = 25.0;
+/// ...and at phase 3's, a few hellhounds too, each struck in by lightning
+/// (`crate::dogs::DOG_PRE_SPAWN_SECS`) round him, a little further out.
+pub fn ring_dogs(players: usize) -> usize {
+    (2 + players.max(1).saturating_sub(1)).min(RING_DOGS_MAX)
+}
+pub const RING_DOGS_MAX: usize = 4;
+pub const RING_DOG_RADIUS: (f32, f32) = (5.0, 9.0);
+
+/// Between rings (phase 2 on), his dead keep coming — a trickle, never a
+/// flood: whenever fewer than this many he's raised are still up...
+pub fn trickle_keep(players: usize) -> usize {
+    (4 + 2 * players.max(1).saturating_sub(1)).min(TRICKLE_KEEP_MAX)
+}
+pub const TRICKLE_KEEP_MAX: usize = 10;
+/// ...another rises round him, one at a time, at most this often (s, not
+/// counting pauses) — quicker once he's enraged.
+pub const TRICKLE_EVERY_SECS: f32 = 4.0;
+pub const TRICKLE_EVERY_ENRAGED_SECS: f32 = 3.0;
 
 /// His teleport (phase 2 on): every so often (a random gap, s — shorter
 /// once he's enraged)...
@@ -353,8 +398,9 @@ pub const TELEPORT_ALONE_SECS: f32 = 4.0;
 pub const TELEPORT_SINK_SECS: f32 = 1.2;
 pub const TELEPORT_UNDER_SECS: f32 = 0.8;
 pub const TELEPORT_RISE_SECS: f32 = 1.4;
-/// He comes up this far (m, across the ground) from whoever he picks.
-pub const TELEPORT_NEAR: (f32, f32) = (4.0, 7.0);
+/// He comes up this far (m, across the ground) from whoever he picks —
+/// right on top of them, just out of his smash's reach as he rises.
+pub const TELEPORT_NEAR: (f32, f32) = (2.0, 3.5);
 
 /// The whole teleport (s): sinking, gone, rising.
 pub const fn teleport_secs() -> f32 {
@@ -369,7 +415,7 @@ pub const fn teleport_secs() -> f32 {
 /// ([`TELEPORT_GAP_ENRAGED_SECS`]), still raising his dead. The map goes
 /// blood-red, and so does he.
 pub const PHASE_3_AT: f32 = 1.0 / 3.0;
-pub const HIEROPHANT_ENRAGED_SPEED: f32 = 2.6;
+pub const HIEROPHANT_ENRAGED_SPEED: f32 = 3.6;
 
 /// His phase (1..=3) with `share` (0..=1) of his health left.
 pub fn phase_at(share: f32) -> u8 {
@@ -639,7 +685,13 @@ mod tests {
         assert_eq!(HierophantLine::PlayerDown(2).file(), "player_down_3.mp3");
         assert_eq!(HierophantLine::Hurt(1).file(), "hurt_2.mp3");
         assert!(HierophantLine::Death.interrupts() && !HierophantLine::Taunt(0).interrupts());
-        assert!(ring_size(1) >= 6 && ring_size(8) == RING_MAX);
+        assert!(ring_size(1) >= 9 && ring_size(8) == RING_MAX);
+        assert!(ring_dogs(1) >= 1 && ring_dogs(8) == RING_DOGS_MAX);
+        // (The trickle keeps fewer up than a ring raises — it's a
+        // distraction, not a fresh wave.)
+        for players in 1..=8 {
+            assert!(trickle_keep(players) < ring_size(players), "{players} players");
+        }
     }
 
     #[test]

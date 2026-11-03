@@ -85,49 +85,78 @@ fn bring_in_dogs(
                 continue;
             }
             let dog = rounds.pending_dogs.swap_remove(i);
-
-            let peer = bot_peer(next_id.0);
-            next_id.0 += 1;
-            let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
-            let speed = shared::dogs::dog_speed(speed_round, rand01(seed ^ 0x2a2a));
-            // Quick to pick a player up and quick on its feet.
-            let mut skill = crate::zombies::zombie_skill(round);
-            skill.reaction_secs = skill.reaction_secs.min(0.3);
-            skill.turn_deg_per_sec = skill.turn_deg_per_sec.max(320.0);
-            skill.sight_range = skill.sight_range.max(80.0);
-            let max = shared::dogs::dog_health(round);
-            // (One brought back in comes as hurt as it was.)
-            let health = dog.health.map_or(max, |h| h.min(max));
-            let mut combat = PlayerCombat::zombie(max);
-            combat.health = health;
-            let real = lobby.real_peers();
-            commands.spawn((
-                Name::from("Hellhound"),
-                Zombie,
-                Dog,
-                LobbyPlayer { lobby: lobby_e },
-                PlayerId(peer),
-                PlayerName("Hellhound".into()),
-                PlayerPose {
-                    translation: dog.feet + Vec3::Y * EYE_HEIGHT,
-                    yaw: dog.yaw,
-                    zombie: shared::ZombieAnim::Dog,
-                    ..default()
-                },
-                ActionState::<PlayerInput>::default(),
-                BotBrain::new(BotDifficulty::Recruit, dog.feet, seed)
-                    .facing(dog.yaw)
-                    .with_skill(skill)
-                    .dog(speed),
-                combat,
-                shared::PlayerHealth(health),
-                Replicate::to_clients(NetworkTarget::Only(real.clone())),
-                InterpolationTarget::to_clients(NetworkTarget::Only(real)),
-                crate::zombies::OutOfTouch::default(),
-            ));
+            spawn_hellhound(
+                &mut commands,
+                &mut next_id,
+                lobby_e,
+                lobby,
+                (round, speed_round),
+                dog.feet,
+                dog.yaw,
+                dog.health,
+                now,
+            );
             send_to_lobby(&mut sender, server, lobby, &shared::DogSpawned { at: dog.feet.to_array() });
         }
     }
+}
+
+/// A hellhound at `feet` facing `yaw`, in `lobby_e` (as hurt as `health`,
+/// if one's being brought back in) — its lightning's already struck; the
+/// lobby's told it's appeared by the caller (`shared::DogSpawned`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_hellhound(
+    commands: &mut Commands,
+    next_id: &mut NextBotId,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    (round, speed_round): (u32, u32),
+    feet: Vec3,
+    yaw: f32,
+    health: Option<f32>,
+    now: f32,
+) -> Entity {
+    let peer = bot_peer(next_id.0);
+    next_id.0 += 1;
+    let seed = (now.to_bits() as u64) << 20 ^ next_id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lobby_e.to_bits();
+    let speed = shared::dogs::dog_speed(speed_round, rand01(seed ^ 0x2a2a));
+    // Quick to pick a player up and quick on its feet.
+    let mut skill = crate::zombies::zombie_skill(round);
+    skill.reaction_secs = skill.reaction_secs.min(0.3);
+    skill.turn_deg_per_sec = skill.turn_deg_per_sec.max(320.0);
+    skill.sight_range = skill.sight_range.max(80.0);
+    let max = shared::dogs::dog_health(round);
+    // (One brought back in comes as hurt as it was.)
+    let health = health.map_or(max, |h| h.min(max));
+    let mut combat = PlayerCombat::zombie(max);
+    combat.health = health;
+    let real = lobby.real_peers();
+    commands
+        .spawn((
+            Name::from("Hellhound"),
+            Zombie,
+            Dog,
+            LobbyPlayer { lobby: lobby_e },
+            PlayerId(peer),
+            PlayerName("Hellhound".into()),
+            PlayerPose {
+                translation: feet + Vec3::Y * EYE_HEIGHT,
+                yaw,
+                zombie: shared::ZombieAnim::Dog,
+                ..default()
+            },
+            ActionState::<PlayerInput>::default(),
+            BotBrain::new(BotDifficulty::Recruit, feet, seed)
+                .facing(yaw)
+                .with_skill(skill)
+                .dog(speed),
+            combat,
+            shared::PlayerHealth(health),
+            Replicate::to_clients(NetworkTarget::Only(real.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+            crate::zombies::OutOfTouch::default(),
+        ))
+        .id()
 }
 
 /// A hellhound that's died (blown up on a player, or killed) explodes where

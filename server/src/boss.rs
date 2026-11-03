@@ -68,6 +68,8 @@ struct Blast {
     lobby: Entity,
     /// The boss that hurled it (who a kill is credited to).
     boss: PeerId,
+    /// The Hierophant's ball (his own speed, size and damage).
+    hierophant: bool,
     pos: Vec3,
     dir: Vec3,
     /// Seconds it's been flying (not counting pauses).
@@ -244,6 +246,15 @@ pub(crate) fn spawn_boss<'a>(
     ))
 }
 
+/// A blast's speed (m/s) — a boss's, or the Hierophant's ball's.
+fn blast_speed(hierophant: bool) -> f32 {
+    if hierophant {
+        shared::easter_egg::HIEROPHANT_BLAST_SPEED
+    } else {
+        BLAST_SPEED
+    }
+}
+
 /// A boss let go of a blast: start it flying, and tell the lobby.
 fn launch_blasts(
     server: Single<&Server>,
@@ -261,6 +272,7 @@ fn launch_blasts(
             id,
             lobby: ev.lobby,
             boss: ev.boss,
+            hierophant: ev.hierophant,
             pos: ev.from,
             dir: ev.dir,
             age: 0.0,
@@ -274,7 +286,7 @@ fn launch_blasts(
                 boss: ev.boss,
                 from: ev.from.to_array(),
                 dir: ev.dir.to_array(),
-                speed: BLAST_SPEED,
+                speed: blast_speed(ev.hierophant),
             },
         );
     }
@@ -312,12 +324,13 @@ fn run_blasts(
             i += 1;
             continue;
         }
-        let step = BLAST_SPEED * dt;
+        let step = blast_speed(blast.hierophant) * dt;
+        let ball = if blast.hierophant { shared::easter_egg::HIEROPHANT_BLAST_HIT_RADIUS } else { BLAST_HIT_RADIUS };
         let world = colliders.for_lobby(lobby);
         // The nearest thing it touches this tick, as a distance along its
         // path: the map...
         let mut hit_at: Option<f32> = world
-            .sweep_sphere(blast.pos, blast.pos + blast.dir * step, BLAST_HIT_RADIUS * 0.5)
+            .sweep_sphere(blast.pos, blast.pos + blast.dir * step, ball * 0.5)
             .map(|h| h.fraction * step);
         // ...or a player (their body, fattened by the ball's size).
         for (id, pose, lp, combat) in &players {
@@ -325,7 +338,7 @@ fn run_blasts(
                 continue;
             }
             let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
-            let body = Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS + BLAST_HIT_RADIUS);
+            let body = Capsule::standing(feet, PLAYER_HEIGHT, PLAYER_RADIUS + ball);
             if let Some(t) = ray_capsule(blast.pos, blast.dir, &body).filter(|t| *t <= step) {
                 hit_at = Some(hit_at.map_or(t, |h| h.min(t)));
             }
@@ -349,7 +362,11 @@ fn run_blasts(
             }
             let feet = pose.translation - Vec3::Y * EYE_HEIGHT;
             let d = shared::boss::segment_point_distance(feet, pose.translation, at);
-            let damage = blast_damage(d);
+            let damage = if blast.hierophant {
+                shared::easter_egg::hierophant_blast_damage(d)
+            } else {
+                blast_damage(d)
+            };
             if damage > 0.0 {
                 hits.write(PlayerHit {
                     cause: crate::pvp::HitCause::Enemy,

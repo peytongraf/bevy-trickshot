@@ -4,29 +4,36 @@
 //!   debug panel jumped to it), he's in: standing on the sarcophagus where
 //!   the wake-up left him (`shared::easter_egg::hierophant_start`), with
 //!   [`shared::easter_egg::hierophant_health`] — a boss's body (its model,
-//!   hitbox and smash) on a brain that never hurls blasts and hits harder
-//!   (`ai::BotBrain::hierophant`). Who he is, and his phase, go on the lobby
+//!   hitbox, smash and wind-up) on a brain that's quicker, hits harder and
+//!   hurls his own ball of dark energy (`ai::BotBrain::hierophant`). Who he is, and his phase, go on the lobby
 //!   (`EasterEgg::hierophant`), for the clients.
 //! * He's not one of the round's: no `boss::Boss`, so the round's boss
 //!   counting and bringing far-off bosses back in leave him alone
 //!   (`zombies::recycle_far_zombies` skips him), and nothing drops from him
 //!   — the round's own spawns are held throughout
 //!   (`shared::easter_egg::holds_spawns`).
-//! * **Phase 1** — a heavy melee stalker. Every so often he stops to taunt,
-//!   standing and glaring for [`shared::easter_egg::TAUNT_HOLD_SECS`].
+//! * **Phase 1** — a heavy stalker, smashing anyone close and hurling his
+//!   ball of dark energy at anyone keeping their distance
+//!   (`shared::easter_egg::HIEROPHANT_BLAST_*` — more often once enraged).
+//!   Every so often he stops to taunt, standing and glaring for
+//!   [`shared::easter_egg::TAUNT_HOLD_SECS`].
 //! * **Phase 2** (from [`shared::easter_egg::PHASE_2_AT`] of his health) —
 //!   he stops and roars ("rise, my children"), raising a ring of the dead
-//!   around him ([`Raised`]: worth points, dropping nothing), and another
-//!   whenever the last is nearly gone (at most every
-//!   [`shared::easter_egg::RING_EVERY_SECS`]). Every so often — or as soon
+//!   around him ([`Raised`]: worth points, dropping nothing,
+//!   [`shared::easter_egg::ring_size`]); from then on his dead keep coming,
+//!   a trickle rather than a flood — one rising round him every few seconds
+//!   whenever fewer than [`shared::easter_egg::trickle_keep`] are up. Every
+//!   so often — or as soon
 //!   as he's been left alone a while — he sinks into the ground and rises
 //!   out of it near a player ([`shared::HierophantTeleport`]), nothing
 //!   hurting him while he's under.
 //! * **Phase 3** (from [`shared::easter_egg::PHASE_3_AT`]) — he roars again
 //!   ("enough"), and comes on enraged: faster
 //!   ([`shared::easter_egg::HIEROPHANT_ENRAGED_SPEED`]) and teleporting
-//!   more often, his dead still rising. (The clients turn the map, and
-//!   him, blood-red.)
+//!   more often; another full ring rises at his roar, with a few hellhounds
+//!   struck in by lightning round him ([`shared::easter_egg::ring_dogs`]),
+//!   and the trickle comes quicker. (The clients turn the map, and him,
+//!   blood-red.)
 //! * **His voice** ([`shared::HierophantSays`]): taunts, a gloat when he
 //!   downs someone, a roar of pain at a big hit, his phase lines and his
 //!   death — never one over another (bar the phase and death lines, which
@@ -99,9 +106,14 @@ struct Fight {
     down_ready_at: f32,
     last_hurt: Option<u8>,
     last_down: Option<u8>,
-    /// His phase-2 roar: when it began, and whether its ring's up yet.
+    /// His phase-2 (or -3) roar: when it began, and whether its ring's up
+    /// yet.
     roar: Option<(f32, bool)>,
-    last_ring_at: f32,
+    /// When the next of the trickle of his dead may rise.
+    next_trickle: f32,
+    /// Hellhounds struck in by lightning at phase 3's roar, still to
+    /// appear: when, where, facing.
+    dogs_coming: Vec<(f32, Vec3, f32)>,
     next_teleport: f32,
     alone_for: f32,
     teleport: Option<Teleport>,
@@ -121,7 +133,8 @@ impl Fight {
             last_hurt: None,
             last_down: None,
             roar: None,
-            last_ring_at: f32::NEG_INFINITY,
+            next_trickle: 0.0,
+            dogs_coming: Vec::new(),
             next_teleport: 0.0,
             alone_for: 0.0,
             teleport: None,
@@ -171,6 +184,36 @@ fn drop_raised(lobby_e: Entity, raised: &mut RaisedQuery) {
             combat.respawn_at = f32::INFINITY;
         }
     }
+}
+
+/// One of his dead rising `r` m from his `feet`, `angle` round him (on the
+/// nearest walkable spot there, on his floor): a zombie of the round's,
+/// tagged [`Raised`], dropping nothing. Whether there was anywhere.
+#[allow(clippy::too_many_arguments)]
+fn raise_dead(
+    commands: &mut Commands,
+    next_id: &mut NextBotId,
+    lobby_e: Entity,
+    lobby: &Lobby,
+    nav: &crate::nav::NavGraph,
+    feet: Vec3,
+    angle: f32,
+    r: f32,
+    seed: u64,
+    now: f32,
+) -> bool {
+    let dir = Vec3::new(angle.cos(), 0.0, angle.sin());
+    let want = feet + dir * r;
+    let Some(spot) = nav
+        .nearest_spot(want)
+        .filter(|s| (*s - want).with_y(0.0).length() < 2.5 && (s.y - feet.y).abs() < 1.5)
+    else {
+        return false;
+    };
+    let round = lobby.round.max(1);
+    let e = crate::zombies::spawn_zombie(commands, next_id, lobby_e, lobby, (round, round), spot, spot + dir * 10.0, None, seed, now);
+    commands.entity(e).insert(Raised).entry::<BotBrain>().and_modify(|mut b| b.set_drops(false));
+    true
 }
 
 /// He says `line` — to every client, unless he's still speaking (a phase or
@@ -353,9 +396,9 @@ pub(super) fn run_fight(
             brain.untouchable_until(f32::NEG_INFINITY);
             brain.enrage(phase >= 3);
             if phase > info.phase {
-                // Phase 2 or 3: he stops and roars — the dead rising at
-                // phase 2's (or phase 3's, if it skipped straight past 2).
-                fight.roar = Some((t, info.phase >= 2));
+                // Phase 2 or 3: he stops and roars — a ring of the dead
+                // rising at each (and hellhounds at phase 3's).
+                fight.roar = Some((t, false));
                 let gap = teleport_gap(phase);
                 fight.next_teleport = t + shared::easter_egg::PHASE_ROAR_SECS + fight.gap(gap, salt ^ 1);
                 fight.alone_for = 0.0;
@@ -378,8 +421,8 @@ pub(super) fn run_fight(
         let feet = brain.feet();
         let nav = navs.graph(lobby.map);
 
-        // A ring of the dead around him: at his roar, whenever the last's
-        // nearly gone — or the debug panel's.
+        // A ring of the dead around him: at each phase's roar — or the
+        // debug panel's.
         let mut raise = false;
         if let Some((start, risen)) = fight.roar.as_mut() {
             if !*risen && t - *start >= shared::easter_egg::RING_RISE_AT_SECS {
@@ -389,53 +432,89 @@ pub(super) fn run_fight(
             if t - *start >= shared::easter_egg::PHASE_ROAR_SECS {
                 fight.roar = None;
             }
-        } else if phase >= 2 && fight.teleport.is_none() && t - fight.last_ring_at >= shared::easter_egg::RING_EVERY_SECS {
-            let left = raised.iter().filter(|(lp, c)| lp.lobby == lobby_e && c.alive).count();
-            if left <= shared::easter_egg::RING_REFILL_LEFT && !brain.attacking() {
-                raise = true;
-                brain.hold_for(now, 1.5);
-            }
         }
+        let players_in = lobby.real_count();
+        let round = lobby.round.max(1);
+        let trickle_gap = if phase >= 3 {
+            shared::easter_egg::TRICKLE_EVERY_ENRAGED_SECS
+        } else {
+            shared::easter_egg::TRICKLE_EVERY_SECS
+        };
         if raise || force_ring {
-            fight.last_ring_at = t;
-            let n = shared::easter_egg::ring_size(lobby.real_count());
-            let round = lobby.round.max(1);
+            let n = shared::easter_egg::ring_size(players_in);
             let turn = fight.roll(salt ^ 2) * std::f32::consts::TAU;
             let mut up = 0;
             for i in 0..n {
                 let a = turn + i as f32 / n as f32 * std::f32::consts::TAU;
                 let (lo, hi) = shared::easter_egg::RING_RADIUS;
                 let r = lo + fight.roll(salt ^ 3) * (hi - lo);
-                let dir = Vec3::new(a.cos(), 0.0, a.sin());
-                let want = feet + dir * r;
-                let Some(spot) = nav
-                    .nearest_spot(want)
-                    .filter(|s| (*s - want).with_y(0.0).length() < 2.5 && (s.y - feet.y).abs() < 1.5)
-                else {
-                    continue;
-                };
                 let seed = (fight.roll(salt ^ 4) * u32::MAX as f32) as u64 ^ (i as u64) << 40 ^ salt;
-                let e = crate::zombies::spawn_zombie(
-                    &mut commands,
-                    &mut next_id,
-                    lobby_e,
-                    &lobby,
-                    (round, round),
-                    spot,
-                    spot + dir * 10.0,
-                    None,
-                    seed,
-                    now,
-                );
-                commands
-                    .entity(e)
-                    .insert(Raised)
-                    .entry::<BotBrain>()
-                    .and_modify(|mut b| b.set_drops(false));
-                up += 1;
+                up += raise_dead(&mut commands, &mut next_id, lobby_e, &lobby, nav, feet, a, r, seed, now) as usize;
+            }
+            // Phase 3's: hellhounds too, struck in by lightning round him.
+            if phase >= 3 {
+                let dogs = shared::easter_egg::ring_dogs(players_in);
+                let turn = fight.roll(salt ^ 8) * std::f32::consts::TAU;
+                for i in 0..dogs {
+                    let a = turn + (i as f32 + 0.5) / dogs as f32 * std::f32::consts::TAU;
+                    let (lo, hi) = shared::easter_egg::RING_DOG_RADIUS;
+                    let r = lo + fight.roll(salt ^ 9) * (hi - lo);
+                    let want = feet + Vec3::new(a.cos(), 0.0, a.sin()) * r;
+                    let Some(spot) = nav
+                        .nearest_spot(want)
+                        .filter(|s| (*s - want).with_y(0.0).length() < 2.5 && (s.y - feet.y).abs() < 1.5)
+                    else {
+                        continue;
+                    };
+                    // (Facing whoever's nearest.)
+                    let face = living
+                        .iter()
+                        .map(|(_, p)| *p)
+                        .min_by(|a, b| a.distance(spot).total_cmp(&b.distance(spot)))
+                        .map_or(feet - spot, |p| p - spot);
+                    let yaw = f32::atan2(-face.x, -face.z);
+                    send_to_lobby(&mut sender, server, &lobby, &shared::DogLightning { at: spot.to_array() });
+                    fight.dogs_coming.push((t + shared::dogs::DOG_PRE_SPAWN_SECS, spot, yaw));
+                }
             }
             send_to_lobby(&mut sender, server, &lobby, &shared::HierophantRaise { at: feet.to_array() });
             info!("lobby {lobby_e:?}: the Hierophant raised {up} of the dead");
+            fight.next_trickle = t + trickle_gap;
+        } else if phase >= 2 && fight.roar.is_none() && t >= fight.next_trickle {
+            // The trickle: one more of his dead, if too few are up.
+            fight.next_trickle = t + trickle_gap;
+            let left = raised.iter().filter(|(lp, c)| lp.lobby == lobby_e && c.alive).count();
+            if left < shared::easter_egg::trickle_keep(players_in) {
+                let a = fight.roll(salt ^ 10) * std::f32::consts::TAU;
+                let (lo, hi) = shared::easter_egg::RING_RADIUS;
+                let r = lo + fight.roll(salt ^ 11) * (hi - lo);
+                let seed = (fight.roll(salt ^ 12) * u32::MAX as f32) as u64 ^ salt;
+                raise_dead(&mut commands, &mut next_id, lobby_e, &lobby, nav, feet, a, r, seed, now);
+            }
+        }
+        // The hellhounds whose lightning's done: in, as his.
+        let speed_round = round;
+        let mut k = 0;
+        while k < fight.dogs_coming.len() {
+            let (due, spot, yaw) = fight.dogs_coming[k];
+            if t < due {
+                k += 1;
+                continue;
+            }
+            fight.dogs_coming.swap_remove(k);
+            let e = crate::dogs::spawn_hellhound(
+                &mut commands,
+                &mut next_id,
+                lobby_e,
+                &lobby,
+                (round, speed_round),
+                spot,
+                yaw,
+                None,
+                now,
+            );
+            commands.entity(e).insert(Raised).entry::<BotBrain>().and_modify(|mut b| b.set_drops(false));
+            send_to_lobby(&mut sender, server, &lobby, &shared::DogSpawned { at: spot.to_array() });
         }
 
         // His teleport: sink, gone, rise near a player.

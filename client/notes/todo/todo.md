@@ -2,6 +2,9 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Hierophant: bigger rings, phase 3 dogs, trickle
+- Hierophant faster, teleports closer
+- Hierophant's dark energy ball
 - Exhumer beam: wider cone, new look
 - Exhumer lift floats smoothly
 - Exhumer souls as green smoke, no hard beam end, slower spin
