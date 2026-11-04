@@ -10,16 +10,17 @@ on placeholders. **[you]** marks asset work; each asset drops in where its
 placeholder is, and some need a small hook-up from me afterwards (noted
 on each).
 
+# Added
+
+- Exhumer should only be able to kill zombies that are visible when the shot is fired ( not the sucking beam which has to be aimed near a zombie within a certain distance). If there is for instance only a few souls in the ammo then the zombies that are killed should be the ones the player can see and are aiming closest to rather than the zombies that are closest to the player.
+
 # Bugs / fix
 
 - Add hand cutting animation for current and remote players with blood effect
 - Should text on screen have a quote that is read aloud?
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
-- Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
-- For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
 - Probably would be better to cause some sort of damage with the wonder weapon with the zombies staying on the ground while they are being sucked then once complete, only then have them smoothly animate upwards and souls removed then killed. (Right now they float up steadily the whole time they're drained — decide which you want.)
-- Other players' souls float up to the pyramid as their normal soldier
-  models. Give them (and players in the chamber) a ghostly look.
+- Ensure everything works correctly with bot team mates. Currently bots move during ritual and they don't go up to the pyramid to get their weapon so once the real players go up to it they can never escape.
 
 # Test
 

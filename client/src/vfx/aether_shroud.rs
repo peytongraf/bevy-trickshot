@@ -444,7 +444,7 @@ fn sync_aether_screen(
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct AetherLabel;
+pub(super) struct AetherLabel;
 
 #[derive(Default)]
 struct AetherNode;

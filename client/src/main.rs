@@ -291,6 +291,8 @@ fn main() {
         .add_plugins(DrunkPlugin)
         // After `DrunkPlugin`: its pass chains onto the drunk one.
         .add_plugins(AetherScreenPlugin)
+        // After `AetherScreenPlugin`: its pass chains onto that one.
+        .add_plugins(AstralPlugin)
         .add_plugins(aether_shroud::AetherShroudPlugin)
         .add_plugins(ShroomXrayPlugin)
         .add_plugins(knife_pickup::KnifePickupPlugin)

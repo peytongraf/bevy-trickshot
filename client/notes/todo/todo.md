@@ -2,6 +2,8 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Astral screen effect and binaural drone
+- Other players' souls look ghostly
 - Hierophant's spirit as soul smoke (death and wake)
 - Vial model in game
 - Ritual altar model, realistic blood pour

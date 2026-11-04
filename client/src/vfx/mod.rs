@@ -6,6 +6,7 @@
 //! zombie.
 
 mod aether_shroud;
+mod astral;
 mod bullet_holes;
 mod drunk;
 mod explosion;
@@ -23,6 +24,7 @@ mod tracers;
 mod zombie_rise;
 
 pub(crate) use aether_shroud::*;
+pub(crate) use astral::*;
 pub(crate) use bullet_holes::*;
 pub(crate) use drunk::*;
 pub(crate) use explosion::*;

@@ -5,7 +5,13 @@
 //! 1. we slump where we stand — the view sinking toward the floor, tipping
 //!    over, darkening ([`EggSoulView`], layered in by `weapons::camera_shake`);
 //! 2. our soul leaves the body — rising out of it (`float_up.mp3`), the
-//!    world washed out and pale, the gun gone (`revive::apply_down_view`) —
+//!    world washed out and pale, the gun gone (`revive::apply_down_view`),
+//!    the world seen astrally (`vfx::astral`: the edges breathing, swirling
+//!    and splitting into colour, a lattice of sacred geometry glimmering
+//!    round them — strongest in flight, gentler in the chamber) and the
+//!    astral drone in our ears (`astral_drone.ogg`: a binaural beat — a
+//!    different pitch in each ear, 6 Hz apart — under a hum, a fluttering
+//!    buzz, a shimmer and breathing noise; [`astral`]) —
 //!    while the body crumples below, as every player's does on every client
 //!    ([`SoulBodyVisual`]: `soldier.glb`'s `death`, played once, held);
 //! 3. it glides up over the pyramid's apex and sinks down through it into
@@ -15,6 +21,12 @@
 //!    it, so he's gone just as we arrive;
 //! 4. there we're free to walk about (no weapon) in the chamber's hum
 //!    (`chamber_ambience.mp3`).
+//!
+//! Every other player's soul, from the moment it's out of their body until
+//! they're back down — rising, gliding over and in the chamber — is their
+//! avatar made a ghost ([`GhostMaterial`], `ghost.wgsl`: see-through,
+//! glowing the souls' green, brightest at its edges, light rippling up it;
+//! [`ghost_souls`]). Their bodies left below stay as they are.
 //!
 //! Until we've arrived we're locked (`menu::game_active`), the weapon the
 //! whole trip (`menu::weapon_active`). The souls come back down when the
@@ -29,7 +41,14 @@
 //! (`audio/zombies/easter_egg/pyramid/`). Tuned in the debug panel's "Easter
 //! egg (Der Tempel)" → "Into the pyramid".
 
+use std::collections::HashMap;
+
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
+use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
+};
 use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
@@ -37,7 +56,7 @@ use shared::easter_egg::{
     ascend_arrive_secs, EggStep, ASCEND_DESCEND_SECS, ASCEND_GLIDE_SECS, ASCEND_RISE_SECS, ASCEND_SLUMP_SECS,
     PYRAMID_FADE_AT_SECS, PYRAMID_FADE_SECS,
 };
-use shared::Lobby;
+use shared::{Lobby, PlayerId};
 
 use crate::audio_engine::prelude::*;
 use crate::net::GameClient;
@@ -50,21 +69,27 @@ pub(super) struct AscensionPlugin;
 
 impl Plugin for AscensionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EggSoul>()
+        app.add_plugins(MaterialPlugin::<GhostMaterial> {
+            prepass_enabled: false,
+            shadows_enabled: false,
+            ..default()
+        })
+        .init_resource::<EggSoul>()
             .init_resource::<EggSoulView>()
             .init_resource::<EggSoulSettings>()
             .add_systems(Startup, load_sounds)
             .add_systems(OnEnter(AppState::InGame), spawn_overlay)
             .add_systems(
                 OnExit(AppState::InGame),
-                |mut soul: ResMut<EggSoul>, mut view: ResMut<EggSoulView>| {
+                |mut soul: ResMut<EggSoul>, mut view: ResMut<EggSoulView>, mut astral: ResMut<crate::vfx::AstralScreen>| {
                     *soul = default();
                     *view = default();
+                    *astral = default();
                 },
             )
             .add_systems(
                 Update,
-                (run_soul, sync_bodies, soul_sounds, update_overlay)
+                (run_soul, sync_bodies, ghost_souls, soul_sounds, astral, update_overlay)
                     .chain()
                     .run_if(in_state(AppState::InGame))
                     .before(crate::camera_shake),
@@ -141,6 +166,29 @@ pub(crate) struct EggSoulSettings {
     /// (linear).
     pub(crate) fade_light: f32,
     pub(crate) fade_color: [f32; 3],
+    /// The other souls' ghostly look: their colour (linear), how bright,
+    /// how bright their rim and their inside, and how much light ripples up
+    /// through them.
+    pub(crate) ghost_color: [f32; 3],
+    pub(crate) ghost_glow: f32,
+    pub(crate) ghost_rim: f32,
+    pub(crate) ghost_body: f32,
+    pub(crate) ghost_flow: f32,
+    /// The astral look while we're out (`vfx::astral`): how strong in
+    /// flight and once in the chamber, and how much it warps, splits the
+    /// colours, shows its lattice, shimmers and glows (its colour, linear).
+    pub(crate) astral_flight: f32,
+    pub(crate) astral_chamber: f32,
+    pub(crate) astral_warp: f32,
+    pub(crate) astral_aberration: f32,
+    pub(crate) astral_pattern: f32,
+    pub(crate) astral_iridescence: f32,
+    pub(crate) astral_glow: f32,
+    pub(crate) astral_tint: [f32; 3],
+    /// The astral drone's volume in flight, and in the chamber (linear,
+    /// before the mix).
+    pub(crate) drone_volume: f32,
+    pub(crate) drone_chamber_volume: f32,
 }
 
 impl Default for EggSoulSettings {
@@ -161,6 +209,21 @@ impl Default for EggSoulSettings {
             scream_volume: 2.0,
             fade_light: 400_000.0,
             fade_color: [0.4, 1.0, 0.45],
+            ghost_color: [0.55, 1.0, 0.75],
+            ghost_glow: 1.0,
+            ghost_rim: 1.6,
+            ghost_body: 0.22,
+            ghost_flow: 0.7,
+            astral_flight: 1.0,
+            astral_chamber: 0.55,
+            astral_warp: 1.0,
+            astral_aberration: 1.0,
+            astral_pattern: 1.0,
+            astral_iridescence: 0.8,
+            astral_glow: 1.0,
+            astral_tint: [0.6, 0.95, 0.85],
+            drone_volume: 0.9,
+            drone_chamber_volume: 0.45,
         }
     }
 }
@@ -170,6 +233,7 @@ struct SoulSounds {
     float_up: Handle<AudioSource>,
     ambience: Handle<AudioSource>,
     scream: Handle<AudioSource>,
+    drone: Handle<AudioSource>,
 }
 
 fn load_sounds(asset_server: Res<AssetServer>, mut commands: Commands) {
@@ -177,6 +241,7 @@ fn load_sounds(asset_server: Res<AssetServer>, mut commands: Commands) {
         float_up: asset_server.load("audio/zombies/easter_egg/pyramid/float_up.mp3"),
         ambience: asset_server.load("audio/zombies/easter_egg/pyramid/chamber_ambience.mp3"),
         scream: asset_server.load("audio/zombies/easter_egg/hierophant/voice/pyramid_fade.mp3"),
+        drone: asset_server.load("audio/zombies/easter_egg/pyramid/astral_drone.ogg"),
     });
 }
 
@@ -334,6 +399,141 @@ fn run_soul(
     *physics = PlayerPhysics::default();
 }
 
+// --- the other souls -------------------------------------------------------------------
+
+// Own module only so the allow covers the unused per-field layout checks
+// `ShaderType`'s derive generates next to the struct (as in `power_ups`).
+#[allow(dead_code)]
+mod params {
+    use bevy::prelude::*;
+    use bevy::render::render_resource::ShaderType;
+
+    /// Mirrors `GhostParams` in `ghost.wgsl`.
+    #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
+    pub(super) struct GhostParams {
+        pub(super) color: Vec4,
+        pub(super) rim: f32,
+        pub(super) body: f32,
+        pub(super) flow: f32,
+        pub(super) _pad0: f32,
+    }
+}
+use params::GhostParams;
+
+impl GhostParams {
+    fn new(s: &EggSoulSettings) -> Self {
+        let [r, g, b] = s.ghost_color;
+        Self { color: Vec4::new(r, g, b, s.ghost_glow), rim: s.ghost_rim, body: s.ghost_body, flow: s.ghost_flow, _pad0: 0.0 }
+    }
+}
+
+/// A soul out of its body (`ghost.wgsl`): see-through and glowing, drawn
+/// additively — one per material of the avatar it's made from (its
+/// texture's detail shows faintly through).
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct GhostMaterial {
+    #[uniform(0)]
+    params: GhostParams,
+    #[texture(1)]
+    #[sampler(2)]
+    texture: Option<Handle<Image>>,
+}
+
+impl Material for GhostMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/ghost.wgsl".into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // (Both its sides, never writing depth — a ghost hides nothing.)
+        descriptor.primitive.cull_mode = None;
+        if let Some(depth) = descriptor.depth_stencil.as_mut() {
+            depth.depth_write_enabled = false;
+        }
+        Ok(())
+    }
+}
+
+/// A mesh of a soul's avatar, made a ghost: the material it had.
+#[derive(Component)]
+struct GhostOriginal(Handle<StandardMaterial>);
+
+/// Every other player whose soul's out (in the egg's bodies, once it's left
+/// them) is a ghost — each mesh of their avatar swapped to a
+/// [`GhostMaterial`] (one per original, shared), and back once they're down
+/// again (or the egg's anywhere else).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn ghost_souls(
+    soul: Res<EggSoul>,
+    settings: Res<EggSoulSettings>,
+    local: Query<&LocalId, With<GameClient>>,
+    lobbies: Query<&Lobby>,
+    avatars: Query<(Entity, &crate::net::RemoteAvatar), With<crate::SoldierVisual>>,
+    ids: Query<&PlayerId>,
+    children: Query<&Children>,
+    meshes: Query<(Option<&MeshMaterial3d<StandardMaterial>>, Option<&GhostOriginal>)>,
+    ghosted: Query<(), With<GhostOriginal>>,
+    standard: Res<Assets<StandardMaterial>>,
+    mut ghosts: ResMut<Assets<GhostMaterial>>,
+    mut copies: Local<HashMap<AssetId<StandardMaterial>, Handle<GhostMaterial>>>,
+    mut commands: Commands,
+) {
+    let out = egg_game(&local, &lobbies)
+        .filter(|l| l.easter_egg.step == EggStep::Ascension && soul.t.is_some_and(|t| t >= ASCEND_SLUMP_SECS))
+        .map(|l| l.easter_egg.bodies.iter().map(|b| b.peer).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if out.is_empty() && ghosted.is_empty() {
+        return;
+    }
+    // A new look: every ghost made over.
+    if settings.is_changed() {
+        let params = GhostParams::new(&settings);
+        for handle in copies.values() {
+            if let Some(m) = ghosts.get_mut(handle) {
+                m.params = params;
+            }
+        }
+    }
+    for (root, avatar) in &avatars {
+        let ghost = ids.get(avatar.src).is_ok_and(|id| out.contains(&id.0));
+        for e in children.iter_descendants(root) {
+            let Ok((material, original)) = meshes.get(e) else { continue };
+            match (ghost, material, original) {
+                (true, Some(material), None) => {
+                    let id = material.0.id();
+                    let copy = copies
+                        .entry(id)
+                        .or_insert_with(|| {
+                            let texture = standard.get(id).and_then(|m| m.base_color_texture.clone());
+                            ghosts.add(GhostMaterial { params: GhostParams::new(&settings), texture })
+                        })
+                        .clone();
+                    commands
+                        .entity(e)
+                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert((GhostOriginal(material.0.clone()), MeshMaterial3d(copy)));
+                }
+                (false, _, Some(original)) => {
+                    commands
+                        .entity(e)
+                        .remove::<(GhostOriginal, MeshMaterial3d<GhostMaterial>)>()
+                        .insert(MeshMaterial3d(original.0.clone()));
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 // --- the bodies left below -------------------------------------------------------------
 
 /// A player's body, slumped where they left it (`peer`'s).
@@ -422,6 +622,75 @@ fn body_ready(
 
 #[derive(Component)]
 struct ChamberAmbience;
+
+/// The astral drone, while our soul's out.
+#[derive(Component)]
+struct AstralDrone;
+
+/// How strongly the astral look and drone are on `t` s into the trip (0 ..
+/// `flight`, or `chamber` once there), and how much we're flying (0..1).
+fn astral_level(t: f32, arrived: bool, s: &EggSoulSettings) -> (f32, f32) {
+    let out = ease((t - ASCEND_SLUMP_SECS + 0.3) / 1.5);
+    let arrive = ascend_arrive_secs();
+    let travel = if arrived { 0.0 } else { out * (1.0 - ease((t - (arrive - 1.0)) / 1.0)) };
+    let settle = if arrived { 1.0 } else { ease((t - (arrive - 1.0)) / 1.0) };
+    (out * s.astral_flight.lerp(s.astral_chamber, settle), travel)
+}
+
+/// The astral look ([`crate::vfx::AstralScreen`]) and drone while our soul's
+/// out — off the moment it's back (the white flash covers it).
+fn astral(
+    soul: Res<EggSoul>,
+    settings: Res<EggSoulSettings>,
+    sounds: Res<SoulSounds>,
+    mut screen: ResMut<crate::vfx::AstralScreen>,
+    mut drones: Query<(Entity, Option<&mut AudioSink>), With<AstralDrone>>,
+    mut commands: Commands,
+) {
+    let s = &*settings;
+    let Some(t) = soul.t.filter(|_| soul.going) else {
+        if screen.strength != 0.0 {
+            *screen = default();
+        }
+        for (e, _) in &drones {
+            commands.entity(e).despawn();
+        }
+        return;
+    };
+    let (level, travel) = astral_level(t, soul.arrived, s);
+    let want = crate::vfx::AstralScreen {
+        strength: level,
+        travel,
+        warp: s.astral_warp,
+        aberration: s.astral_aberration,
+        pattern: s.astral_pattern,
+        iridescence: s.astral_iridescence,
+        glow: s.astral_glow,
+        tint: s.astral_tint,
+    };
+    if *screen != want {
+        *screen = want;
+    }
+    // The drone: in as we leave the body, quieter once we're there.
+    let out = ease((t - ASCEND_SLUMP_SECS + 0.3) / 1.5);
+    let volume = out * if soul.arrived { s.drone_chamber_volume } else { s.drone_volume };
+    if drones.is_empty() {
+        if out > 0.0 {
+            commands.spawn((
+                StateScoped(AppState::InGame),
+                AstralDrone,
+                AudioPlayer::new(sounds.drone.clone()),
+                PlaybackSettings::LOOP.with_volume(Volume::Linear(volume)),
+            ));
+        }
+        return;
+    }
+    for (_, sink) in &mut drones {
+        if let Some(mut sink) = sink {
+            sink.set_volume(Volume::Linear(volume));
+        }
+    }
+}
 
 /// His spirit's glow over the chamber's altar as he screams his last.
 #[derive(Component)]
@@ -592,6 +861,27 @@ pub(crate) fn ascension_section(ui: &mut egui::Ui, s: &mut EggSoulSettings, soul
         ui.color_edit_button_rgb(&mut s.fade_color);
         ui.label("his glow's colour");
     });
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut s.ghost_color);
+        ui.label("other souls' colour");
+    });
+    ui.add(egui::Slider::new(&mut s.ghost_glow, 0.0f32..=5.0).text("other souls: brightness"));
+    ui.add(egui::Slider::new(&mut s.ghost_rim, 0.0f32..=5.0).text("other souls: rim"));
+    ui.add(egui::Slider::new(&mut s.ghost_body, 0.0f32..=2.0).text("other souls: inside"));
+    ui.add(egui::Slider::new(&mut s.ghost_flow, 0.0f32..=1.0).text("other souls: light rippling up"));
+    ui.add(egui::Slider::new(&mut s.astral_flight, 0.0f32..=2.0).text("astral look: in flight"));
+    ui.add(egui::Slider::new(&mut s.astral_chamber, 0.0f32..=2.0).text("astral look: in the chamber"));
+    ui.add(egui::Slider::new(&mut s.astral_warp, 0.0f32..=3.0).text("astral look: warp"));
+    ui.add(egui::Slider::new(&mut s.astral_aberration, 0.0f32..=3.0).text("astral look: colour split"));
+    ui.add(egui::Slider::new(&mut s.astral_pattern, 0.0f32..=3.0).text("astral look: geometry"));
+    ui.add(egui::Slider::new(&mut s.astral_iridescence, 0.0f32..=2.0).text("astral look: iridescence"));
+    ui.add(egui::Slider::new(&mut s.astral_glow, 0.0f32..=3.0).text("astral look: edge glow"));
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut s.astral_tint);
+        ui.label("astral glow's colour");
+    });
+    ui.add(egui::Slider::new(&mut s.drone_volume, 0.0f32..=3.0).text("astral drone volume (flight)"));
+    ui.add(egui::Slider::new(&mut s.drone_chamber_volume, 0.0f32..=3.0).text("astral drone volume (chamber)"));
     ui.horizontal(|ui| {
         if ui.button("Reset").clicked() {
             *s = EggSoulSettings::default();
