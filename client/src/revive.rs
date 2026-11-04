@@ -399,7 +399,11 @@ fn apply_down_view(
         Res<crate::end_screen_fx::EndScreenFx>,
         Res<crate::end_screen_fx::EndScreenFxSettings>,
     ),
-    (soul, soul_settings): (Res<crate::easter_egg::EggSoul>, Res<crate::easter_egg::EggSoulSettings>),
+    (soul, soul_settings, cinematic): (
+        Res<crate::easter_egg::EggSoul>,
+        Res<crate::easter_egg::EggSoulSettings>,
+        Res<crate::easter_egg::EggCinematic>,
+    ),
     mut saturation: Local<Option<f32>>,
     mut grading: Query<&mut ColorGrading, Or<(With<WorldModelCamera>, With<ViewModelCamera>)>>,
     mut vm_layers: Query<&mut RenderLayers, With<ViewModelCamera>>,
@@ -440,8 +444,9 @@ fn apply_down_view(
             g.global.post_saturation = next;
         }
     }
-    // (Nor once we're killed in a `SearchAndDestroy` round.)
-    let want = if local.blocks_weapon() || results || snd.dead || soul.out() {
+    // (Nor once we're killed in a `SearchAndDestroy` round, nor through the
+    // easter egg's cut scene.)
+    let want = if local.blocks_weapon() || results || snd.dead || soul.out() || cinematic.locked() {
         RenderLayers::none()
     } else {
         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER)

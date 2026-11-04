@@ -17,7 +17,6 @@ on each).
 - Should text on screen have a quote that is read aloud?
 - Soul of boss zombie should look more realistic (the Exhumer's souls are smoke now — maybe match them)
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
-- Maybe make the player face the main altar during the ritual where the blood is poured and also face the zombie while the initial quotes are being player and it awakes but still keep the player from being able to do anything until the boss zombie is active. Maybe even add in black bars on the top and bottom of the screen so it is clear it is a cienamatic scene almost like a cut scene.
 - Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
 - For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
 - Probably would be better to cause some sort of damage with the wonder weapon with the zombies staying on the ground while they are being sucked then once complete, only then have them smoothly animate upwards and souls removed then killed. (Right now they float up steadily the whole time they're drained — decide which you want.)

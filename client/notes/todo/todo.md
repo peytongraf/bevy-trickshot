@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Egg cut scene: view on altar/boss, black bars, HUD fades
 - Exhumer beam shoots out from the gun
 - Glow round the Exhumers on the altar
 - Sarcophagus box fits its model

@@ -134,5 +134,6 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     let border = smoothstep(-BORDER_WIDTH - 1.0, -BORDER_WIDTH, edge);
     rgb = mix(rgb, BORDER, border * 0.7);
 
-    return vec4<f32>(rgb, inside * OPACITY);
+    // (`mode.y`: faded out with the rest of the HUD.)
+    return vec4<f32>(rgb, inside * OPACITY * (1.0 - mode.y));
 }

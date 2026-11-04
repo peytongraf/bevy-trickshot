@@ -23,6 +23,7 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
     commands
         .spawn((
             DebugReadoutRoot,
+            super::KeepThroughHudFade,
             StateScoped(AppState::InGame),
             GlobalZIndex(5),
             Visibility::Hidden,

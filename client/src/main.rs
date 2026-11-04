@@ -306,6 +306,7 @@ fn main() {
         .add_plugins(zombies_audio::ZombiesAudioPlugin)
         .add_plugins(radio::RadioPlugin)
         .add_plugins(zombies_hud::ZombiesHudPlugin)
+        .add_plugins(hud::HudFadePlugin)
         .add_plugins(power::PowerPlugin)
         .add_plugins(earthquake::EarthquakePlugin)
         .add_plugins(flames::FlamesPlugin)

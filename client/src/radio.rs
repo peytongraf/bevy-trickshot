@@ -117,6 +117,8 @@ fn spawn_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
         .with_children(|band| {
             band.spawn((
                 RadioPanel,
+                // (He's talking through the easter egg's cut scene.)
+                crate::hud::KeepThroughHudFade,
                 Node {
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,

@@ -181,6 +181,7 @@ pub fn game_active(
     snd: Res<crate::search_destroy::SndLocal>,
     ritual: Res<crate::easter_egg::EggRitual>,
     soul: Res<crate::easter_egg::EggSoul>,
+    cinematic: Res<crate::easter_egg::EggCinematic>,
 ) -> bool {
     // Killed in a `SearchAndDestroy` round: out until the next.
     if snd.dead {
@@ -201,6 +202,8 @@ pub fn game_active(
         // as does our soul's way up into the pyramid (`easter_egg::ascension`).
         && !ritual.locked()
         && !soul.locked()
+        // (And its cut scene, from the ritual until he's up and fighting.)
+        && !cinematic.locked()
 }
 
 /// Run condition for the weapon: like [`game_active`], but it also keeps
@@ -217,9 +220,11 @@ pub fn weapon_active(
     snd: Res<crate::search_destroy::SndLocal>,
     ritual: Res<crate::easter_egg::EggRitual>,
     soul: Res<crate::easter_egg::EggSoul>,
+    cinematic: Res<crate::easter_egg::EggCinematic>,
 ) -> bool {
     (!menu.is_open() || menu.screen == Screen::Wunderfizz)
         && !ritual.locked()
+        && !cinematic.locked()
         // (No weapon for a soul in the pyramid.)
         && !soul.out()
         && !snd.dead

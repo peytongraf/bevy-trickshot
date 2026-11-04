@@ -140,7 +140,8 @@ struct MinimapMaterial {
     #[uniform(4)]
     heights: Vec4,
     /// x: 1 to draw our arrow and view cone in the middle (the minimap; the
-    /// full map has its own arrow, wherever we are).
+    /// full map has its own arrow, wherever we are); y: how much of it's
+    /// faded out with the rest of the HUD (`hud::HudFade` — 0 not at all).
     #[uniform(5)]
     mode: Vec4,
 }
@@ -820,6 +821,7 @@ fn update_minimap(
         ),
     >,
     poses: Query<&PlayerPose>,
+    hud_fade: Res<crate::hud::HudFade>,
 ) {
     let drawn = picture.picture.as_ref().filter(|_| picture.drawn_for == Some(current.0));
     let (Some(drawn), Ok(camera)) = (drawn, camera.single()) else {
@@ -859,6 +861,10 @@ fn update_minimap(
             m.view = projection.view();
             m.rect = drawn.rect;
             m.heights = drawn.heights.extend(eyes - EYE_HEIGHT).extend(0.0);
+            let faded = 1.0 - hud_fade.0.clamp(0.0, 1.0);
+            if m.mode.y != faded {
+                m.mode.y = faded;
+            }
             if m.map != drawn.image {
                 m.map = drawn.image.clone();
             }

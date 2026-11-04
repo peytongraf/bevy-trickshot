@@ -26,6 +26,9 @@
 //!   server ([`hierophant_speaks`]). What the map does then, and its
 //!   lights stuttering, is `environment::egg_mood`'s; the zombies dropping
 //!   dead and the round held are the server's;
+//! * the cut scene from the ritual until the fight's on — everyone held
+//!   still, no weapon, the view turned onto the altar, the sarcophagus and
+//!   him, black bars top and bottom (`cinematic`);
 //! * him waking — the lid blasting off, his spirit pouring into the body,
 //!   the stillness, the snap upright (`wake`);
 //! * the fight — his health bar, his taunts, his look (`fight`);
@@ -68,12 +71,14 @@ use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
 pub(crate) use ascension::{EggSoul, EggSoulSettings, EggSoulView};
 mod ascension;
+mod cinematic;
 mod death;
 mod fight;
 mod music;
 mod ritual_deaths;
 mod wake;
 
+pub(crate) use cinematic::EggCinematic;
 pub(crate) use fight::EggFightSettings;
 pub(crate) use wake::{EggCameraShake, EggWake, EggWakeSettings};
 
@@ -82,7 +87,7 @@ pub(crate) struct EasterEggPlugin;
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin, ascension::AscensionPlugin))
-            .add_plugins(ritual_deaths::RitualDeathsPlugin)
+            .add_plugins((ritual_deaths::RitualDeathsPlugin, cinematic::CinematicPlugin))
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -707,6 +712,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         .spawn((
             StateScoped(AppState::InGame),
             RitualCaption,
+            crate::hud::KeepThroughHudFade,
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,

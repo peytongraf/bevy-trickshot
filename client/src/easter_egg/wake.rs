@@ -79,6 +79,13 @@ pub(crate) struct EggWake {
     cued: u8,
 }
 
+impl EggWake {
+    /// How far (s) into the wake-up we are, if it's begun.
+    pub(crate) fn t(&self) -> Option<f32> {
+        self.t
+    }
+}
+
 /// The camera's shake from the wake-up right now — `weapons::camera_shake`
 /// layers it in, under everything else.
 #[derive(Resource)]
