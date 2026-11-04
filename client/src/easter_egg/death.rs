@@ -5,8 +5,10 @@
 //!    its aura dying away; his eyes go out, `fight`), and he screams
 //!    (`death.mp3`, [`DeathCry`] — it goes with his spirit once it's out);
 //! 2. [`DEATH_SPIRIT_AT`] in, his spirit tears up out of the body — a
-//!    blazing green glow with a tail of wisps — the lights stuttering, and
-//!    hangs over him, writhing;
+//!    churning mass of the souls' green smoke (the Exhumer's,
+//!    `exhumer::SoulSmoke`: streaks swirling round a dim glow, a haze round
+//!    them and a long smoky tail along its path) — the lights stuttering,
+//!    and hangs over him, writhing;
 //! 3. [`DEATH_FLY_AT`] in, it flies, screaming (`spirit_flee.mp3`, a
 //!    placeholder to record over), in an arc up into the pyramid — at its
 //!    altar, inside it (`ZombiesLayout::pyramid_altar`; straight up without
@@ -35,6 +37,7 @@ use shared::Lobby;
 
 use crate::audio_engine::prelude::*;
 use crate::net::GameClient;
+use crate::exhumer::{along_rotation, SoulSmoke};
 use crate::vfx::{smoke_billboard_rotation, ExplosionAssets};
 use crate::{AppState, WorldModelCamera};
 
@@ -72,7 +75,10 @@ pub(crate) struct EggDeathSettings {
     pub(crate) color: [f32; 3],
     pub(crate) size: f32,
     pub(crate) glow: f32,
-    /// Its tail: how many wisps, how far behind (s) each, and how big (of
+    /// How big its smoke is (of `size`) — the streaks swirling round it and
+    /// its haze.
+    pub(crate) smoke_size: f32,
+    /// Its tail: how many streaks, how far behind (s) each, and how big (of
     /// the spirit's) the first.
     pub(crate) trail: u32,
     pub(crate) trail_lag: f32,
@@ -100,10 +106,11 @@ impl Default for EggDeathSettings {
         Self {
             color: [0.4, 1.0, 0.45],
             size: 1.4,
-            glow: 3.0,
-            trail: 14,
-            trail_lag: 0.035,
-            trail_size: 0.75,
+            glow: 1.2,
+            smoke_size: 1.0,
+            trail: 16,
+            trail_lag: 0.04,
+            trail_size: 0.7,
             light: 500_000.0,
             light_range: 16.0,
             chest_height: 1.4,
@@ -124,12 +131,44 @@ pub(super) struct DeathCry;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 enum SpiritPart {
-    /// The spirit itself, with its light.
+    /// The dim glow at its heart, with its light.
     Core,
+    /// A streak of smoke swirling round it.
+    Head(u32),
+    /// The haze round it.
+    Puff(u32),
     /// Its tail, `0` nearest it.
     Trail(u32),
     /// The flash where it goes into the pyramid.
     Flash,
+}
+
+/// How many streaks swirl round it, and how many puffs of haze.
+const HEAD_STREAKS: u32 = 6;
+const PUFFS: u32 = 2;
+
+/// A smoke part's own look: where it starts in its swirl, which way and
+/// how fast it turns, its size (of its kind's) and its mirroring — so no
+/// two look alike.
+#[derive(Component, Clone, Copy)]
+struct SmokeBits {
+    phase: f32,
+    turn: f32,
+    size: f32,
+    flip: Vec2,
+}
+
+impl SmokeBits {
+    fn new(seed: u32) -> Self {
+        let r = |k: u32| crate::util::rand01(seed.wrapping_mul(2_654_435_761).wrapping_add(k));
+        let sign = |x: f32| if x < 0.5 { -1.0 } else { 1.0 };
+        Self {
+            phase: r(1) * std::f32::consts::TAU,
+            turn: sign(r(2)) * (0.6 + r(3)),
+            size: 0.75 + 0.5 * r(4),
+            flip: Vec2::new(sign(r(5)), sign(r(6))),
+        }
+    }
 }
 
 /// Where its parts are: where it tears out (his chest), where it hangs,
@@ -177,6 +216,7 @@ fn sync_spirit(
     lobbies: Query<&Lobby>,
     parts: Query<Entity, With<SpiritPart>>,
     path: Option<Res<SpiritPath>>,
+    smoke: Option<Res<SoulSmoke>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
@@ -198,7 +238,7 @@ fn sync_spirit(
     if !parts.is_empty() {
         return;
     }
-    let Some(fx) = fx else { return };
+    let (Some(fx), Some(smoke)) = (fx, smoke) else { return };
     let s = &*settings;
     let chest = from + Vec3::Y * s.chest_height;
     let hover = chest + Vec3::Y * s.hover_height;
@@ -241,9 +281,31 @@ fn sync_spirit(
         },
         Transform::default(),
     ));
-    let trail = glow(&mut materials);
+    let smoky = |part: SpiritPart, material: Handle<crate::exhumer::SoulSmokeMaterial>, seed: u32| {
+        (
+            StateScoped(AppState::InGame),
+            part,
+            SmokeBits::new(seed),
+            Mesh3d(fx.quad.clone()),
+            MeshMaterial3d(material),
+            Transform::from_translation(chest).with_scale(Vec3::ZERO),
+            Visibility::Hidden,
+            NotShadowCaster,
+            NoFrustumCulling,
+        )
+    };
+    for j in 0..PUFFS {
+        commands.spawn(smoky(SpiritPart::Puff(j), smoke.puff_material(), 900 + j));
+    }
+    for j in 0..HEAD_STREAKS {
+        commands.spawn(smoky(SpiritPart::Head(j), smoke.swirl_material(0), 100 + j));
+    }
+    let n = s.trail.max(1);
     for i in 0..s.trail {
-        commands.spawn(sprite(SpiritPart::Trail(i), trail.clone()));
+        // (Fainter further back.)
+        let k = i as f32 / n as f32;
+        let tier = if k < 0.3 { 0 } else if k < 0.65 { 1 } else { 2 };
+        commands.spawn(smoky(SpiritPart::Trail(i), smoke.swirl_material(tier), 300 + i));
     }
     commands.spawn((
         StateScoped(AppState::InGame),
@@ -304,7 +366,15 @@ fn run_spirit(
     flee: Option<Res<FleeSound>>,
     camera: Option<Single<&GlobalTransform, With<WorldModelCamera>>>,
     mut parts: Query<
-        (Entity, &SpiritPart, &mut Transform, &mut Visibility, Option<&MeshMaterial3d<StandardMaterial>>, Option<&mut PointLight>),
+        (
+            Entity,
+            &SpiritPart,
+            &mut Transform,
+            &mut Visibility,
+            Option<&MeshMaterial3d<StandardMaterial>>,
+            Option<&mut PointLight>,
+            Option<&SmokeBits>,
+        ),
         Without<WorldModelCamera>,
     >,
     mut lights: Query<&mut PointLight, Without<SpiritPart>>,
@@ -328,13 +398,46 @@ fn run_spirit(
         death.arrived = true;
         light_cue.jolt = true;
     }
-    for (e, part, mut tf, mut vis, material, light) in &mut parts {
+    let now_at = spirit_at(t, &path, s);
+    // The way it's going at `t` (rising, while it hangs there) — its smoke
+    // laid along it.
+    let going = |t: f32| {
+        let (Some((a, _)), Some((b, _))) = (spirit_at(t - 0.04, &path, s), spirit_at(t + 0.04, &path, s)) else {
+            return Vec3::Y;
+        };
+        ((b - a) / 0.08 + Vec3::Y * 1.5).normalize_or(Vec3::Y)
+    };
+    let smoke_size = s.size * s.smoke_size;
+    for (e, part, mut tf, mut vis, material, light, bits) in &mut parts {
+        let bits = bits.copied().unwrap_or(SmokeBits::new(0));
         match *part {
+            SpiritPart::Head(_) => {
+                vis.set_if_neq(if now_at.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+                let Some((head, size)) = now_at else { continue };
+                let dir = going(t);
+                let (a, b) = (dir.any_orthonormal_vector(), dir.cross(dir.any_orthonormal_vector()));
+                let swirl = bits.phase + t * 3.2 * bits.turn;
+                let pos = head + (a * swirl.cos() + b * swirl.sin()) * smoke_size * 0.16;
+                let w = (smoke_size * 0.8 * bits.size * size).max(1.0e-4);
+                let roll = 0.35 * (t * 4.0 * bits.turn + bits.phase).sin();
+                *tf = Transform::from_translation(pos)
+                    .with_rotation(along_rotation(pos, dir, cam_pos, roll))
+                    .with_scale(Vec3::new(w * bits.flip.x, w * 0.5 * bits.flip.y, 1.0));
+            }
+            SpiritPart::Puff(_) => {
+                vis.set_if_neq(if now_at.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+                let Some((head, size)) = now_at else { continue };
+                let w = (smoke_size * 1.1 * bits.size * size).max(1.0e-4);
+                *tf = Transform::from_translation(head)
+                    .with_rotation(smoke_billboard_rotation(head, cam_pos, cam_up, cam_right, bits.phase + t * 0.7 * bits.turn))
+                    .with_scale(Vec3::new(w, w, 1.0));
+            }
             SpiritPart::Core => {
-                let at = spirit_at(t, &path, s);
+                let at = now_at;
                 vis.set_if_neq(if at.is_some() { Visibility::Inherited } else { Visibility::Hidden });
                 let (pos, size) = at.unwrap_or((tf.translation, 0.0));
-                let size = (s.size * size).max(1.0e-4);
+                // (A dim heart inside the smoke.)
+                let size = (s.size * 0.45 * size).max(1.0e-4);
                 *tf = Transform::from_translation(pos)
                     .with_rotation(smoke_billboard_rotation(pos, cam_pos, cam_up, cam_right, t * 2.0))
                     .with_scale(Vec3::new(size, size, 1.0));
@@ -360,23 +463,25 @@ fn run_spirit(
                     }
                 }
             }
+            // Streaks of smoke left behind along its path, each laid along
+            // the way it went there, spiralling out wider and growing
+            // further back — dying away at the very end.
             SpiritPart::Trail(i) => {
-                let back = (i + 1) as f32;
-                let at = spirit_at(t - back * s.trail_lag, &path, s).filter(|_| spirit_at(t, &path, s).is_some());
+                let back = (i + 1) as f32 * s.trail_lag;
+                let at = spirit_at(t - back, &path, s).filter(|_| now_at.is_some());
                 vis.set_if_neq(if at.is_some() { Visibility::Inherited } else { Visibility::Hidden });
                 let Some((pos, size)) = at else { continue };
-                let k = 1.0 - back / (s.trail.max(1) as f32 + 1.0);
-                let size = (s.size * s.trail_size * size * k).max(1.0e-4);
+                let k = (i + 1) as f32 / (s.trail.max(1) as f32 + 1.0);
+                let dir = going(t - back);
+                let (a, b) = (dir.any_orthonormal_vector(), dir.cross(dir.any_orthonormal_vector()));
+                let swirl = bits.phase + (t - back) * 3.0 * bits.turn;
+                let pos = pos + (a * swirl.cos() + b * swirl.sin()) * smoke_size * 0.25 * (0.2 + 0.8 * k);
+                let tail = 1.0 - 0.6 * ((k - 0.7) / 0.3).clamp(0.0, 1.0);
+                let w = (smoke_size * s.trail_size * bits.size * size * (0.75 + 0.6 * k) * tail).max(1.0e-4);
+                let roll = 0.3 * ((t - back) * 4.0 * bits.turn + bits.phase).sin();
                 *tf = Transform::from_translation(pos)
-                    .with_rotation(smoke_billboard_rotation(pos, cam_pos, cam_up, cam_right, back))
-                    .with_scale(Vec3::new(size, size, 1.0));
-                // (They share one material: the first sets it.)
-                if i == 0 {
-                    if let Some(m) = material.and_then(|m| materials.get_mut(&m.0)) {
-                        let b = s.glow * 0.45 * flicker;
-                        m.base_color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
-                    }
-                }
+                    .with_rotation(along_rotation(pos, dir, cam_pos, roll))
+                    .with_scale(Vec3::new(w * bits.flip.x, w * 0.5 * bits.flip.y, 1.0));
             }
             SpiritPart::Flash => {
                 if let Some(mut light) = light {
@@ -419,8 +524,9 @@ pub(crate) fn death_section(ui: &mut egui::Ui, s: &mut EggDeathSettings, death: 
     };
     color(ui, &mut s.color, "spirit colour");
     ui.add(egui::Slider::new(&mut s.size, 0.1f32..=5.0).text("spirit size (m)"));
-    ui.add(egui::Slider::new(&mut s.glow, 0.0f32..=20.0).text("spirit glow"));
-    ui.add(egui::Slider::new(&mut s.trail, 0..=40).text("tail wisps (next time)"));
+    ui.add(egui::Slider::new(&mut s.glow, 0.0f32..=20.0).text("glow at its heart"));
+    ui.add(egui::Slider::new(&mut s.smoke_size, 0.1f32..=3.0).text("smoke size (× spirit)"));
+    ui.add(egui::Slider::new(&mut s.trail, 0..=40).text("tail streaks (next time)"));
     ui.add(egui::Slider::new(&mut s.trail_lag, 0.005f32..=0.2).text("tail spacing (s)"));
     ui.add(egui::Slider::new(&mut s.trail_size, 0.05f32..=2.0).text("tail size (× spirit)"));
     ui.add(egui::Slider::new(&mut s.light, 0.0f32..=3_000_000.0).text("spirit light (lm)"));

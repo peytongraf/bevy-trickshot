@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Hierophant's spirit as soul smoke (death and wake)
 - Vial model in game
 - Ritual altar model, realistic blood pour
 - Egg cut scene: view on altar/boss, black bars, HUD fades

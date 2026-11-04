@@ -6,8 +6,9 @@
 //!    it ([`lid_pose`]) — with a bang, a flash, a jolt of the camera and
 //!    every light stuttering;
 //! 2. his spirit pours down out of the dark into the body lying there — a
-//!    spiral of glowing wisps, a green glow growing over it, the body
-//!    twitching as they go in;
+//!    spiral of the souls' green smoke (the Exhumer's, `exhumer::SoulSmoke`:
+//!    each wisp a few streaks laid along its way down), a green glow growing
+//!    over it, the body twitching as they go in;
 //! 3. stillness: the glow cut, the lights steady, nothing;
 //! 4. he rises up out of it, screaming — a hard hit, the camera shaken
 //!    hard (less the further off we are), the lights stuttering again.
@@ -41,8 +42,9 @@ use shared::easter_egg::{
 use shared::Lobby;
 
 use crate::audio_engine::prelude::*;
+use crate::exhumer::{along_rotation, SoulSmoke};
 use crate::net::GameClient;
-use crate::{AppState, Player};
+use crate::{AppState, Player, WorldModelCamera};
 
 use super::{egg_game, ramp};
 
@@ -215,32 +217,22 @@ pub(super) fn lid_pose(t: f32, rest: Vec3, settings: &EggWakeSettings) -> Transf
 #[derive(Resource)]
 struct WakeAssets {
     body: Handle<Scene>,
-    wisp: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
-fn make_assets(
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-) {
+fn make_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(WakeAssets {
         body: asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::boss::BOSS_MODEL)),
-        wisp: (
-            meshes.add(Sphere::new(0.09)),
-            materials.add(StandardMaterial {
-                base_color: Color::srgb(0.75, 1.0, 0.8),
-                emissive: LinearRgba::rgb(3.0, 14.0, 5.0),
-                unlit: true,
-                ..default()
-            }),
-        ),
     });
 }
 
-/// How many wisps his spirit comes down as, and how long (s) each takes.
+/// How many wisps his spirit comes down as, and how long (s) each takes...
 const WISPS: usize = 18;
 const WISP_TRAVEL: f32 = 1.3;
+/// ...each this many streaks of smoke (its head first), this far (s)
+/// behind each other, and how wide (m) the head's is.
+const WISP_STREAKS: usize = 4;
+const WISP_LAG: f32 = 0.06;
+const WISP_SIZE: f32 = 0.7;
 /// How high (m) over the body they come from.
 const WISP_HEIGHT: f32 = 8.0;
 
@@ -253,7 +245,8 @@ struct WakeFx;
 enum WakePart {
     /// The body: his model's root, lying in the sarcophagus until he rises.
     Body,
-    Wisp(usize),
+    /// Wisp `.0`'s `.1`th streak of smoke.
+    Wisp(usize, usize),
     SpiritLight,
     Flash,
 }
@@ -273,6 +266,7 @@ fn sync_wake_fx(
     lobbies: Query<&Lobby>,
     assets: Res<WakeAssets>,
     boss: Res<crate::boss::BossSettings>,
+    (fx_assets, smoke): (Option<Res<crate::vfx::ExplosionAssets>>, Option<Res<SoulSmoke>>),
     roots: Query<Entity, With<WakeFx>>,
     mut root_at: Query<&mut Transform, With<WakeFx>>,
     mut commands: Commands,
@@ -297,6 +291,8 @@ fn sync_wake_fx(
         return;
     }
     let a = &*assets;
+    // (Its smoke's made once the explosion's is in — moments after start.)
+    let (Some(fx_assets), Some(smoke)) = (fx_assets, smoke) else { return };
     commands
         .spawn((StateScoped(AppState::InGame), WakeFx, crate::util::placed(at), Visibility::default()))
         .with_children(|fx| {
@@ -312,14 +308,19 @@ fn sync_wake_fx(
             ))
             .observe(body_ready);
             for i in 0..WISPS {
-                fx.spawn((
-                    WakePart::Wisp(i),
-                    Mesh3d(a.wisp.0.clone()),
-                    MeshMaterial3d(a.wisp.1.clone()),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    NotShadowCaster,
-                ));
+                for j in 0..WISP_STREAKS {
+                    // (Fainter down its tail.)
+                    let tier = [0, 1, 1, 2][j.min(3)];
+                    fx.spawn((
+                        WakePart::Wisp(i, j),
+                        Mesh3d(fx_assets.quad.clone()),
+                        MeshMaterial3d(smoke.swirl_material(tier)),
+                        Transform::default(),
+                        Visibility::Hidden,
+                        NotShadowCaster,
+                        bevy::render::view::NoFrustumCulling,
+                    ));
+                }
             }
             for part in [WakePart::SpiritLight, WakePart::Flash] {
                 fx.spawn((
@@ -335,6 +336,18 @@ fn sync_wake_fx(
                 ));
             }
         });
+}
+
+/// Where wisp `i` is (in the sarcophagus' frame) `s` of the way down into
+/// the body at `chest` — spiralling in from high over it — and how big
+/// (0..1).
+fn wisp_at(i: usize, s: f32, chest: Vec3) -> (Vec3, f32) {
+    let left = 1.0 - s;
+    let angle = i as f32 * 2.4 + s * 9.0;
+    let r = 1.6 * left.powf(0.8);
+    let pos = chest + Vec3::new(angle.cos() * r, WISP_HEIGHT * left.powf(1.6), angle.sin() * r);
+    let size = (s * PI).sin().max(0.0).sqrt() * (0.6 + 0.4 * left);
+    (pos, size)
 }
 
 /// When (s into the wake-up) wisp `i` starts down.
@@ -424,8 +437,15 @@ fn animate_wake(
     mut parts: Query<(&WakePart, &mut Transform, Option<&mut Visibility>), Without<PointLight>>,
     // (Apart from `parts` by the light.)
     mut lights: Query<(&WakePart, &mut PointLight, &mut Transform)>,
+    root: Query<&Transform, (With<WakeFx>, Without<WakePart>, Without<PointLight>)>,
+    camera: Option<Single<&GlobalTransform, With<WorldModelCamera>>>,
 ) {
     let Some(t) = wake.t else { return };
+    // (The smoke's turned to the camera in the world, then put back into
+    // the sarcophagus' frame.)
+    let root = root.iter().next().copied().unwrap_or_default();
+    let cam_pos = camera.map_or(Vec3::ZERO, |c| c.translation());
+    let root_scale = root.scale.x.max(1.0e-3);
     let now = time.elapsed_secs();
     let lying_at = Vec3::from_array(settings.lying_at);
     // The middle of his body, lying (it stretches 2 m or so to -z of its root).
@@ -448,8 +468,10 @@ fn animate_wake(
                     .with_rotation(rotation)
                     .with_scale(Vec3::splat(boss.scale.max(0.001)));
             }
-            WakePart::Wisp(i) => {
-                let s = (t - wisp_start(i)) / WISP_TRAVEL;
+            // Each streak where its wisp was a moment before (the head
+            // first), laid along the way it was going, wavering.
+            WakePart::Wisp(i, j) => {
+                let s = (t - wisp_start(i) - j as f32 * WISP_LAG) / WISP_TRAVEL;
                 let shown = (0.0..1.0).contains(&s);
                 if let Some(mut vis) = vis {
                     vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
@@ -457,12 +479,19 @@ fn animate_wake(
                 if !shown {
                     continue;
                 }
-                let left = 1.0 - s;
-                let angle = i as f32 * 2.4 + s * 9.0;
-                let r = 1.6 * left.powf(0.8);
-                let pos = chest + Vec3::new(angle.cos() * r, WISP_HEIGHT * left.powf(1.6), angle.sin() * r);
-                let size = (s * PI).sin().max(0.0).sqrt() * (0.6 + 0.4 * left);
-                *transform = Transform::from_translation(pos).with_scale(Vec3::splat(size.max(0.001)));
+                let (pos, size) = wisp_at(i, s, chest);
+                let ahead = wisp_at(i, (s + 0.02).min(1.0), chest).0;
+                let world = root.transform_point(pos);
+                let going = (root.transform_point(ahead) - world).normalize_or(Vec3::NEG_Y);
+                let seed = (i * WISP_STREAKS + j) as f32;
+                let roll = 0.3 * (now * 4.0 + seed * 1.7).sin();
+                let rotation = along_rotation(world, going, cam_pos, roll);
+                let tail = 1.0 - 0.15 * j as f32;
+                let w = (WISP_SIZE * size * tail * (0.85 + 0.3 * crate::util::rand01(seed as u32 * 7 + 3))).max(1.0e-4);
+                let flip = if crate::util::rand01(seed as u32 * 13 + 5) < 0.5 { -1.0 } else { 1.0 };
+                *transform = Transform::from_translation(pos)
+                    .with_rotation(root.rotation.inverse() * rotation)
+                    .with_scale(Vec3::new(w * flip, w * 0.5, 1.0) / root_scale);
             }
             _ => {}
         }

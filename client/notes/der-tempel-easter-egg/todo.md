@@ -12,10 +12,8 @@ on each).
 
 # Bugs / fix
 
-- Blood on the ground should look real
 - Add hand cutting animation for current and remote players with blood effect
 - Should text on screen have a quote that is read aloud?
-- Soul of boss zombie should look more realistic (the Exhumer's souls are smoke now — maybe match them)
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
 - Add some sort of extra shader effect when in the astral mode getting the wonder weapon.
 - For the astral effect, add in realistic dmt / astral projection humming / buzzing sounds with a binural beat effect also where the left and right sounds are actually different.
