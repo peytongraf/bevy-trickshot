@@ -32,7 +32,6 @@ on each).
 
 ## Gathering
 
-1. **[you]** Model the vial and record its pickup sound.
 2. **[you]** Record the case-unlock sound (it plays as the lid swings
    open), and give the case its real materials. **Me after:** the
    custom glass shader for `case_glass` (fresnel rim + faint moving
@@ -95,9 +94,16 @@ its front along +Z (Blender's −Y, the side Front view shows), use metres,
 and apply scale (Ctrl+A → Scale) before UVs. If it comes out a different
 size, the level editor's Scale field fixes that.
 
-- **Barrett's vial** (about 12 cm): a sealed lab vial of glowing dark-red
-  blood, with a metal cap and a printed society tag reading "Vessel
-  candidate 07". Clinical and modern, unlike the dagger.
+- **The ritual altar** — in game (`models/props/ritual_altar.glb`).
+  Still to do on it: the groove down its front (+Z) for the overflow, the
+  dagger's slot, and candles as their own objects (`candle_1`, … origin at
+  the wick) — **me after:** flames and flickering lights on them, and the
+  overflow laid into the groove. Its meshes were rebuilt outside Blender
+  (vertices welded, the rock's UVs in metres wrapping round its sides, the
+  emblem fitted to the basin floor upright from the front), so re-importing
+  it into Blender: tick **Merge Vertices** on import. Keep its shape, or
+  tell me its new numbers (`ALTAR_APOTHEM`, `STEP_*`, `BASIN_*` in
+  `ritual_fx.rs`, `RITUAL_ALTAR_HALF_EXTENTS`).
 - **Pyramid inner chamber**: a dark room inside the pyramid's top, with
   sloped walls that have light coming through the apex. Big enough for
   the whole squad to stand around the altar. It can be part of the map
@@ -111,6 +117,13 @@ size, the level editor's Scale field fixes that.
   society's hardware (see `story.md`). Built like a view model gun, the
   Ray Gun's size (about 45 cm). Its camo parts wear
   `textures/camos/exhumer.webp`.
+
+## The vial's model
+
+`models/props/blood_vial.glb` is the Sketchfab export with its nodes
+fixed (stood upright, its origin under its base, scaled to 12 cm). A
+re-export from Blender needs that done there (Ctrl+A on it all, origin to
+the bottom middle).
 
 ## Re-exporting the pyramid altar
 

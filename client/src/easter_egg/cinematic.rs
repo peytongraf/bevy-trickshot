@@ -4,9 +4,9 @@
 //!
 //! * every player's held still, no weapon up (`menu::game_active`,
 //!   `menu::weapon_active`, `revive::apply_down_view`);
-//! * the view's turned for them ([`aim_view`]) — onto the altar as the
-//!   dagger, the vial and their blood go in, following the channel as it
-//!   runs to the sarcophagus, then onto the sarcophagus as he speaks, and
+//! * the view's turned for them ([`aim_view`]) — onto the ritual altar as
+//!   the dagger, the vial and their blood go in and it spills over, then
+//!   onto the sarcophagus as he speaks, and
 //!   onto him as he wakes and stands up;
 //! * black bars slide in over the top and bottom of the screen
 //!   ([`CinemaBar`]), and back out once it's over — the rest of the HUD
@@ -27,7 +27,7 @@ use crate::net::GameClient;
 use crate::player::PlayerHead;
 use crate::{AppState, Player};
 
-use super::{egg_game, ramp, EggRitual, EggWake};
+use super::{egg_game, EggRitual, EggWake};
 
 pub(super) struct CinematicPlugin;
 
@@ -120,16 +120,15 @@ fn watching(lobby: &Lobby, ritual: &EggRitual, wake: &EggWake) -> Option<Vec3> {
     let in_it = sarcophagus.pos + Vec3::Y * 0.6 * sarcophagus.scale;
     match lobby.easter_egg.step {
         EggStep::Ritual => {
-            let Some(area) = layout.ritual_area else { return Some(in_it) };
-            let altar = area.at.pos + Vec3::Y * 0.3;
-            // (The same clock as the channel's run — `animate_ritual`.)
-            let t = ritual.t.unwrap_or(0.0);
-            let along = ramp(t, 9.5, 13.0);
-            if along <= 0.0 {
+            // The altar's top — the dagger, the pour, the basin filling and
+            // spilling over — till he speaks from the sarcophagus.
+            let altar = layout
+                .ritual_altar
+                .map(|a| a.pos + Vec3::Y * (shared::easter_egg::RITUAL_ALTAR_TOP * 0.9) * a.scale)
+                .or(layout.ritual_area.map(|a| a.at.pos + Vec3::Y * 0.3));
+            let Some(altar) = altar else { return Some(in_it) };
+            if ritual.t.unwrap_or(0.0) < shared::easter_egg::RITUAL_VOICE_AT_SECS {
                 Some(altar)
-            } else if along < 1.0 {
-                // Following the channel's head out to the sarcophagus.
-                Some(altar.lerp(sarcophagus.pos + Vec3::Y * 0.3, along))
             } else {
                 Some(in_it)
             }

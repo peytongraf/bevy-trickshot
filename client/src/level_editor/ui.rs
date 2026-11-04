@@ -1148,6 +1148,8 @@ fn properties(
                 ui.colored_label(DIM, "Easter egg: where the Hierophant waits, on the upper altar — he wakes out of it. A placeholder until its model's made; solid in game");
             } else if id == ObjectId::SocietyCase {
                 ui.colored_label(DIM, "Easter egg: the society's case the dagger's locked in — it opens once the power's on. A placeholder until its model's made; solid in game");
+            } else if id == ObjectId::RitualAltar {
+                ui.colored_label(DIM, "Easter egg: in the ritual area — the dagger's driven into its top and the blood poured over it, overflowing down its front (+Z, the arrow). A placeholder until its model's made; solid in game");
             } else if id == ObjectId::PyramidAltar {
                 ui.colored_label(DIM, "Easter egg: inside the pyramid, where the wonder weapon lies. A placeholder until its model's made; solid in game");
             } else if let ObjectId::PyramidSpot(_) = id {

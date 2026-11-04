@@ -15,12 +15,12 @@
 //!   out of) the ritual;
 //! * what the squad's gathered, on the HUD;
 //! * the ritual ([`shared::easter_egg::RITUAL_SECS`]): every player locked
-//!   in place ([`EggRitual`], `menu::game_active`) while placeholder
-//!   pieces play it out at the altar — the dagger plunged in, the vial
-//!   poured over it, the pool of blood growing, the channel running to the
-//!   sarcophagus and lighting it up — each phase captioned until its
-//!   animations are made ([`animate_ritual`]). Once it's done, they stay as
-//!   they ended;
+//!   in place ([`EggRitual`], `menu::game_active`) while it plays out at
+//!   the ritual altar — the dagger plunged in, the vial poured into its
+//!   basin, the blood filling it and spilling over onto the floor, glowing,
+//!   and the sarcophagus lighting up — each phase captioned until the first
+//!   person animations are made (`ritual_fx`). Once it's done, it stays as
+//!   it ended;
 //! * the Hierophant's line from the sarcophagus near the ritual's end, and
 //!   once it's gone wrong, his gloating — the radio following him, from the
 //!   server ([`hierophant_speaks`]). What the map does then, and its
@@ -76,6 +76,7 @@ mod death;
 mod fight;
 mod music;
 mod ritual_deaths;
+mod ritual_fx;
 mod wake;
 
 pub(crate) use cinematic::EggCinematic;
@@ -87,7 +88,7 @@ pub(crate) struct EasterEggPlugin;
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin, ascension::AscensionPlugin))
-            .add_plugins((ritual_deaths::RitualDeathsPlugin, cinematic::CinematicPlugin))
+            .add_plugins((ritual_deaths::RitualDeathsPlugin, cinematic::CinematicPlugin, ritual_fx::RitualFxPlugin))
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -109,8 +110,6 @@ impl Plugin for EasterEggPlugin {
                     animate_case,
                     sync_vial,
                     track_ritual,
-                    sync_ritual_fx,
-                    animate_ritual,
                     update_ritual_caption,
                     update_egg_prompt,
                     egg_interact.run_if(menu::game_active.and(killcam::no_killcam)),
@@ -134,17 +133,20 @@ pub(crate) const EGG_RED: Color = Color::srgb(0.78, 0.1, 0.16);
 pub(crate) enum EggPiece {
     Sarcophagus,
     SocietyCase,
+    RitualAltar,
     PyramidAltar,
 }
 
 impl EggPiece {
-    pub(crate) const ALL: [EggPiece; 3] = [EggPiece::Sarcophagus, EggPiece::SocietyCase, EggPiece::PyramidAltar];
+    pub(crate) const ALL: [EggPiece; 4] =
+        [EggPiece::Sarcophagus, EggPiece::SocietyCase, EggPiece::RitualAltar, EggPiece::PyramidAltar];
 
     /// Where `layout` puts it, if anywhere.
     pub(crate) fn placement(self, layout: &ZombiesLayout) -> Option<Placement> {
         match self {
             EggPiece::Sarcophagus => layout.sarcophagus,
             EggPiece::SocietyCase => layout.society_case,
+            EggPiece::RitualAltar => layout.ritual_altar,
             EggPiece::PyramidAltar => layout.pyramid_altar,
         }
     }
@@ -154,6 +156,7 @@ impl EggPiece {
         match self {
             EggPiece::Sarcophagus => SARCOPHAGUS_HALF_EXTENTS,
             EggPiece::SocietyCase => SOCIETY_CASE_HALF_EXTENTS,
+            EggPiece::RitualAltar => shared::easter_egg::RITUAL_ALTAR_HALF_EXTENTS,
             EggPiece::PyramidAltar => PYRAMID_ALTAR_HALF_EXTENTS,
         }
     }
@@ -168,13 +171,6 @@ impl EggPiece {
 #[derive(Resource)]
 pub(crate) struct EggPlaceholders {
     parts: Vec<(EggPiece, PartRole, Handle<Mesh>, Handle<StandardMaterial>, Transform)>,
-    /// Barrett's blood: a glowing red vial.
-    vial: (Handle<Mesh>, Handle<StandardMaterial>),
-    /// The ritual's: the dagger, the pool of blood (a unit disc) and the
-    /// channel (a unit box, stretched) — and their materials.
-    pool: Handle<Mesh>,
-    channel: Handle<Mesh>,
-    glowing_blood: Handle<StandardMaterial>,
 }
 
 /// What a placeholder box is, for the ones that come and go in game.
@@ -215,6 +211,17 @@ const CASE_LID_OPEN_SECS: f32 = 0.9;
 /// Where the dagger lies on the velvet (its middle — the velvet's top at
 /// 1.04 m, the blade ~1 cm thick either side of it).
 const CASE_DAGGER_AT: Vec3 = Vec3::new(0.0, 1.051, 0.0);
+
+/// Barrett's blood: a sealed vial of it, 12 cm tall, its origin under its
+/// base, upright.
+pub(crate) const VIAL_MODEL: &str = "models/props/blood_vial.glb";
+
+/// The ritual's altar: eight-sided dark rock on a step, its top 1 m up, a
+/// round basin sunk in it with the sigil on its floor (`altar_basin`) —
+/// origin on the ground under its middle, its front (+z) to the
+/// sarcophagus. Its shape's `ritual_fx`'s `ALTAR_APOTHEM`, `BASIN_*`, … —
+/// the blood's laid over it.
+pub(crate) const RITUAL_ALTAR_MODEL: &str = "models/props/ritual_altar.glb";
 
 /// The altar in the pyramid's chamber (where the Exhumers lie): a base, its
 /// body and a flat top at 1 m, origin on the ground under its middle, its
@@ -284,6 +291,12 @@ pub(crate) fn spawn_piece_look(
             model.observe(tag_case_lid);
         }
         root.spawn((PartRole::Dagger, Visibility::default(), dagger(asset_server, CASE_DAGGER_AT, DaggerPose::Flat)));
+    }
+    if piece == EggPiece::RitualAltar {
+        root.spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RITUAL_ALTAR_MODEL))),
+            Transform::IDENTITY,
+        ));
     }
     if piece == EggPiece::PyramidAltar {
         root.spawn((
@@ -361,35 +374,12 @@ impl EggPlaceholders {
     }
 }
 
-fn make_placeholders(
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-) {
-    let vial_glass = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.5, 0.02, 0.04),
-        emissive: LinearRgba::rgb(4.0, 0.1, 0.15),
-        perceptual_roughness: 0.2,
-        ..default()
-    });
-    let vial = (meshes.add(Capsule3d::new(0.025, 0.09)), vial_glass);
+fn make_placeholders(mut commands: Commands) {
     // (Every piece has its model now — `SARCOPHAGUS_MODEL`,
-    // `SOCIETY_CASE_MODEL`, `PYRAMID_ALTAR_MODEL` — so no boxes, until the
-    // next piece that needs a stand-in.)
+    // `SOCIETY_CASE_MODEL`, `RITUAL_ALTAR_MODEL`, `PYRAMID_ALTAR_MODEL` — so
+    // no boxes, until the next piece that needs a stand-in.)
     let parts = Vec::new();
-    let glowing_blood = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.45, 0.01, 0.02),
-        emissive: LinearRgba::rgb(6.0, 0.05, 0.08),
-        perceptual_roughness: 0.15,
-        ..default()
-    });
-    commands.insert_resource(EggPlaceholders {
-        parts,
-        vial,
-        pool: meshes.add(Cylinder::new(1.0, 0.02)),
-        channel: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
-        glowing_blood,
-    });
+    commands.insert_resource(EggPlaceholders { parts });
 }
 
 // --- in game -------------------------------------------------------------------------
@@ -499,7 +489,7 @@ fn sync_vial(
     time: Res<Time>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    placeholders: Res<EggPlaceholders>,
+    asset_server: Res<AssetServer>,
     mut vials: Query<(Entity, &mut Transform), With<VialDrop>>,
     mut commands: Commands,
 ) {
@@ -517,11 +507,14 @@ fn sync_vial(
         *transform = place;
         return;
     }
-    let (mesh, material) = placeholders.vial.clone();
     commands
         .spawn((StateScoped(AppState::InGame), VialDrop, place, Visibility::default()))
         .with_children(|v| {
-            v.spawn((Mesh3d(mesh), MeshMaterial3d(material)));
+            // (Turning about its middle.)
+            v.spawn((
+                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(VIAL_MODEL))),
+                Transform::from_xyz(0.0, -0.06, 0.0),
+            ));
             v.spawn((
                 PointLight {
                     color: Color::srgb(1.0, 0.1, 0.1),
@@ -892,8 +885,8 @@ impl EggRitual {
 const RITUAL_PHASES: [(f32, &str); 5] = [
     (0.0, "The dagger is driven into the altar..."),
     (3.0, "...Barrett's blood poured over it..."),
-    (6.0, "...each of you cuts your hand, and your blood runs into the channel..."),
-    (9.5, "...the channel lights up, running to the sarcophagus..."),
+    (6.0, "...each of you cuts your hand, and your blood fills the basin..."),
+    (9.5, "...it spills over, and the blood begins to glow..."),
     (13.0, "\"Sanguis datus. Porta clausa.\"  (Blood given. The door is closed.)"),
 ];
 
@@ -913,157 +906,9 @@ fn track_ritual(
     }
 }
 
-/// The ritual's placeholder pieces, under one root.
-#[derive(Component)]
-struct RitualFx;
-
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-enum RitualPart {
-    Dagger,
-    Vial,
-    Pool,
-    Channel,
-    PoolLight,
-    SarcophagusLight,
-}
-
-/// The ritual's pieces there from when it begins (and as it ended, after —
-/// until the egg's reset), on a map with the altar and sarcophagus placed.
-fn sync_ritual_fx(
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&Lobby>,
-    placeholders: Res<EggPlaceholders>,
-    asset_server: Res<AssetServer>,
-    roots: Query<Entity, With<RitualFx>>,
-    mut commands: Commands,
-) {
-    let wanted = egg_game(&local, &lobbies).is_some_and(|l| {
-        let layout = shared::level::layout(l.map);
-        l.easter_egg.step >= shared::easter_egg::EggStep::Ritual && layout.ritual_area.is_some() && layout.sarcophagus.is_some()
-    });
-    if !wanted {
-        for e in &roots {
-            commands.entity(e).despawn();
-        }
-        return;
-    }
-    if !roots.is_empty() {
-        return;
-    }
-    let p = &*placeholders;
-    let red = Color::srgb(1.0, 0.08, 0.06);
-    commands
-        .spawn((StateScoped(AppState::InGame), RitualFx, Transform::IDENTITY, Visibility::default()))
-        .with_children(|fx| {
-            // (The ritual moves its root; the model's point down under it.)
-            fx.spawn((RitualPart::Dagger, Transform::default(), Visibility::Hidden))
-                .with_child(dagger(&asset_server, Vec3::ZERO, DaggerPose::PointDown));
-            fx.spawn((RitualPart::Vial, Mesh3d(p.vial.0.clone()), MeshMaterial3d(p.vial.1.clone()), Visibility::Hidden));
-            fx.spawn((RitualPart::Pool, Mesh3d(p.pool.clone()), MeshMaterial3d(p.glowing_blood.clone()), Visibility::Hidden));
-            fx.spawn((RitualPart::Channel, Mesh3d(p.channel.clone()), MeshMaterial3d(p.glowing_blood.clone()), Visibility::Hidden));
-            for part in [RitualPart::PoolLight, RitualPart::SarcophagusLight] {
-                fx.spawn((
-                    part,
-                    PointLight {
-                        color: red,
-                        intensity: 0.0,
-                        range: 6.0,
-                        shadows_enabled: false,
-                        ..default()
-                    },
-                    bevy::pbr::NotShadowCaster,
-                ));
-            }
-        });
-}
-
 /// `x` from 0 to 1 as `t` goes from `from` to `to` (held either side).
 fn ramp(t: f32, from: f32, to: f32) -> f32 {
     ((t - from) / (to - from).max(1e-3)).clamp(0.0, 1.0)
-}
-
-/// Play the ritual out on its pieces by its clock — or, once it's over,
-/// hold them as it ended.
-#[allow(clippy::type_complexity)]
-fn animate_ritual(
-    time: Res<Time>,
-    ritual: Res<EggRitual>,
-    local: Query<&LocalId, With<GameClient>>,
-    lobbies: Query<&Lobby>,
-    mut parts: Query<(&RitualPart, &mut Transform, &mut Visibility), Without<PointLight>>,
-    // (Apart from `parts` by the light.)
-    mut lights: Query<(&RitualPart, &mut PointLight, &mut Transform)>,
-) {
-    let Some(lobby) = egg_game(&local, &lobbies) else { return };
-    let layout = shared::level::layout(lobby.map);
-    let (Some(area), Some(sarcophagus)) = (layout.ritual_area, layout.sarcophagus) else {
-        return;
-    };
-    let t = ritual.t.unwrap_or(shared::easter_egg::RITUAL_SECS);
-    let wobble = (time.elapsed_secs() * 9.0).sin() * 0.5 + 0.5;
-    let center = area.at.pos;
-    // The channel: across the floor from the altar's middle to the
-    // sarcophagus' foot.
-    let target = sarcophagus.pos;
-    let run = target - center;
-    let length = run.length().max(0.01);
-    let along = ramp(t, 9.5, 13.0);
-    for (part, mut transform, mut vis) in &mut parts {
-        let (shown, place) = match part {
-            // Down from above, the blade half buried.
-            RitualPart::Dagger => {
-                let fall = ramp(t, 0.3, 1.5).powi(3);
-                let y = 1.4 + (0.1 - 1.4) * fall;
-                (t >= 0.3, Transform::from_translation(center + Vec3::Y * y))
-            }
-            // Over the dagger, tipping over as it's poured.
-            RitualPart::Vial => {
-                let tip = ramp(t, 3.3, 5.0) * 2.2;
-                (
-                    (3.0..6.0).contains(&t),
-                    Transform::from_translation(center + Vec3::new(0.08, 0.75, 0.0)).with_rotation(Quat::from_rotation_z(tip)),
-                )
-            }
-            // Barrett's blood pooling, then theirs.
-            RitualPart::Pool => {
-                let r = 0.35 * ramp(t, 3.5, 6.0) + 0.45 * ramp(t, 6.0, 9.5);
-                (
-                    r > 0.0,
-                    Transform::from_translation(center + Vec3::Y * 0.01).with_scale(Vec3::new(r.max(0.001), 1.0, r.max(0.001))),
-                )
-            }
-            // Running out to the sarcophagus.
-            RitualPart::Channel => {
-                let reach = length * along;
-                let mid = center + run * (reach / length) * 0.5 + Vec3::Y * 0.015;
-                (
-                    along > 0.0,
-                    Transform::from_translation(mid)
-                        .looking_to(run.normalize_or(Vec3::Z), Vec3::Y)
-                        .with_scale(Vec3::new(0.14, 0.02, reach.max(0.001))),
-                )
-            }
-            _ => continue,
-        };
-        vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
-        *transform = place;
-    }
-    for (part, mut light, mut transform) in &mut lights {
-        match part {
-            RitualPart::PoolLight => {
-                let glow = ramp(t, 3.5, 9.5);
-                light.intensity = 60_000.0 * glow * (0.8 + 0.2 * wobble);
-                transform.translation = center + Vec3::Y * 0.4;
-            }
-            RitualPart::SarcophagusLight => {
-                let glow = ramp(t, 12.5, 15.0);
-                light.intensity = 250_000.0 * glow * (0.75 + 0.25 * wobble);
-                light.range = 8.0;
-                transform.translation = target + Vec3::Y * (SARCOPHAGUS_HALF_EXTENTS.y * 2.0 + 0.5) * sarcophagus.scale;
-            }
-            _ => {}
-        }
-    }
 }
 
 #[derive(Component)]

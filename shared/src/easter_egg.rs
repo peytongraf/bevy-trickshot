@@ -614,6 +614,13 @@ pub const SARCOPHAGUS_HALF_EXTENTS: Vec3 = Vec3::new(0.85, 0.55, 1.65);
 /// The society's locked case (the dagger's): a display case on a stand,
 /// 0.8 m wide, 1.3 m tall, 0.5 m deep — its front facing the way it's turned.
 pub const SOCIETY_CASE_HALF_EXTENTS: Vec3 = Vec3::new(0.4, 0.65, 0.25);
+/// The ritual's altar (in the ritual area — the dagger's driven into it and
+/// the blood poured over it): eight-sided, its top [`RITUAL_ALTAR_TOP`] up,
+/// 2.1 m across its sides (on a step 2.6 m across) — half extents of its
+/// solid box, between the two (an eight-sided thing in a square box).
+pub const RITUAL_ALTAR_HALF_EXTENTS: Vec3 = Vec3::new(1.2, 0.5, 1.2);
+/// How high (m, as made) the ritual altar's top is.
+pub const RITUAL_ALTAR_TOP: f32 = 1.0;
 /// The altar inside the pyramid (where the wonder weapon lies): 1.8 m wide,
 /// 1 m tall, 1 m deep.
 pub const PYRAMID_ALTAR_HALF_EXTENTS: Vec3 = Vec3::new(0.9, 0.5, 0.5);
@@ -626,13 +633,14 @@ fn standing_box(at: Placement, half: Vec3) -> (Vec3, Quat, Vec3) {
     (at.pos + Vec3::Y * half.y, at.rotation(), half)
 }
 
-/// The sarcophagus' and case's solid boxes on `map` (and the pyramid altar's),
+/// The sarcophagus', case's and both altars' solid boxes on `map`,
 /// for what it has: `(centre, rotation, half extents)`.
 pub fn solid_boxes(map: MapId) -> Vec<(Vec3, Quat, Vec3)> {
     let layout = crate::level::layout(map);
     [
         layout.sarcophagus.map(|at| standing_box(at, SARCOPHAGUS_HALF_EXTENTS)),
         layout.society_case.map(|at| standing_box(at, SOCIETY_CASE_HALF_EXTENTS)),
+        layout.ritual_altar.map(|at| standing_box(at, RITUAL_ALTAR_HALF_EXTENTS)),
         layout.pyramid_altar.map(|at| standing_box(at, PYRAMID_ALTAR_HALF_EXTENTS)),
     ]
     .into_iter()

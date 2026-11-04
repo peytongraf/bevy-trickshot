@@ -735,6 +735,10 @@ pub struct ZombiesLayout {
     /// ...the area on the altar the whole squad stands in to do the ritual...
     #[serde(default)]
     pub ritual_area: Option<ExfilArea>,
+    /// ...the altar in it the dagger's driven into and the blood's poured
+    /// over...
+    #[serde(default)]
+    pub ritual_altar: Option<Placement>,
     /// ...and, inside the pyramid, the altar the wonder weapon lies on...
     #[serde(default)]
     pub pyramid_altar: Option<Placement>,
@@ -799,6 +803,7 @@ impl ZombiesLayout {
             ("power_station", &mut self.power_station),
             ("sarcophagus", &mut self.sarcophagus),
             ("society_case", &mut self.society_case),
+            ("ritual_altar", &mut self.ritual_altar),
             ("pyramid_altar", &mut self.pyramid_altar),
         ] {
             if let Some(at) = slot.as_mut() {
@@ -911,6 +916,7 @@ impl ZombiesLayout {
             "    ritual_area: {},\n",
             self.ritual_area.map_or("None".to_string(), |a| format!("Some({})", a.to_ron()))
         );
+        out += &format!("    ritual_altar: {},\n", optional(self.ritual_altar));
         out += &format!("    pyramid_altar: {},\n", optional(self.pyramid_altar));
         out += "    pyramid_spots: [\n";
         for at in &self.pyramid_spots {
@@ -1163,6 +1169,7 @@ mod tests {
         layout.sarcophagus = Some(Placement::new(Vec3::new(1.0, -15.0, 2.0), 90.0));
         layout.society_case = Some(Placement::new(Vec3::new(-3.5, 0.0, 4.25), -45.0));
         layout.ritual_area = Some(ExfilArea::sized(Placement::new(Vec3::new(0.0, -15.0, 0.0), 30.0), 4.5, 6.0));
+        layout.ritual_altar = Some(Placement::new(Vec3::new(0.5, -15.0, 0.25), 180.0));
         layout.pyramid_altar = Some(Placement::new(Vec3::new(0.0, 40.0, 0.0), 180.0));
         layout.pyramid_spots = vec![
             Placement::new(Vec3::new(1.0, 38.0, 2.0), 0.0),
@@ -1172,6 +1179,7 @@ mod tests {
         assert_eq!(back.sarcophagus.map(|p| (p.pos, p.yaw_deg)), layout.sarcophagus.map(|p| (p.pos, p.yaw_deg)));
         assert_eq!(back.society_case.map(|p| (p.pos, p.yaw_deg)), layout.society_case.map(|p| (p.pos, p.yaw_deg)));
         assert_eq!(back.ritual_area, layout.ritual_area);
+        assert_eq!(back.ritual_altar.map(|p| (p.pos, p.yaw_deg)), layout.ritual_altar.map(|p| (p.pos, p.yaw_deg)));
         assert_eq!(back.pyramid_altar.map(|p| (p.pos, p.yaw_deg)), layout.pyramid_altar.map(|p| (p.pos, p.yaw_deg)));
         assert_eq!(back.pyramid_spots, layout.pyramid_spots);
     }

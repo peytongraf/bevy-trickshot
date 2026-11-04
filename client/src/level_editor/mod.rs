@@ -191,6 +191,9 @@ pub(crate) enum ObjectId {
     /// ...the area on the altar the squad stands in for the ritual (a
     /// rectangle, like the exfil area)...
     RitualArea,
+    /// ...the altar in it the dagger's driven into and the blood's poured
+    /// over...
+    RitualAltar,
     /// ...the altar inside the pyramid the wonder weapon lies on...
     PyramidAltar,
     /// ...and a spot a soul arrives on in there
@@ -230,8 +233,13 @@ impl ObjectId {
     ];
 
     /// The easter egg's one-offs (only on its map — Der Tempel).
-    pub(crate) const EGG: [ObjectId; 4] =
-        [ObjectId::Sarcophagus, ObjectId::SocietyCase, ObjectId::RitualArea, ObjectId::PyramidAltar];
+    pub(crate) const EGG: [ObjectId; 5] = [
+        ObjectId::Sarcophagus,
+        ObjectId::SocietyCase,
+        ObjectId::RitualArea,
+        ObjectId::RitualAltar,
+        ObjectId::PyramidAltar,
+    ];
 
     /// Names for the pyramid's spots ([`ObjectId::PyramidSpot`]).
     const PYRAMID_SPOT_LABELS: [&'static str; shared::level::MAX_PLAYER_SPAWNS] = [
@@ -251,6 +259,7 @@ impl ObjectId {
         match self {
             ObjectId::Sarcophagus => Some(EggPiece::Sarcophagus),
             ObjectId::SocietyCase => Some(EggPiece::SocietyCase),
+            ObjectId::RitualAltar => Some(EggPiece::RitualAltar),
             ObjectId::PyramidAltar => Some(EggPiece::PyramidAltar),
             _ => None,
         }
@@ -495,6 +504,7 @@ impl ObjectId {
             ObjectId::Sarcophagus => "Sarcophagus",
             ObjectId::SocietyCase => "Society case (dagger)",
             ObjectId::RitualArea => "Ritual area",
+            ObjectId::RitualAltar => "Ritual altar",
             ObjectId::PyramidAltar => "Pyramid altar",
             ObjectId::PyramidSpot(i) => {
                 Self::PYRAMID_SPOT_LABELS[(i as usize).min(Self::PYRAMID_SPOT_LABELS.len() - 1)]
@@ -543,6 +553,7 @@ impl ObjectId {
             ObjectId::PowerStation => Some("power_station".into()),
             ObjectId::Sarcophagus => Some("sarcophagus".into()),
             ObjectId::SocietyCase => Some("society_case".into()),
+            ObjectId::RitualAltar => Some("ritual_altar".into()),
             ObjectId::PyramidAltar => Some("pyramid_altar".into()),
             ObjectId::ExfilArea
             | ObjectId::RitualArea
@@ -594,6 +605,7 @@ impl ObjectId {
             ObjectId::PowerStation => Some(&mut layout.power_station),
             ObjectId::Sarcophagus => Some(&mut layout.sarcophagus),
             ObjectId::SocietyCase => Some(&mut layout.society_case),
+            ObjectId::RitualAltar => Some(&mut layout.ritual_altar),
             ObjectId::PyramidAltar => Some(&mut layout.pyramid_altar),
             _ => None,
         }
@@ -649,6 +661,7 @@ impl ObjectId {
             ObjectId::Sarcophagus => layout.sarcophagus,
             ObjectId::SocietyCase => layout.society_case,
             ObjectId::RitualArea => layout.ritual_area.map(|a| a.at),
+            ObjectId::RitualAltar => layout.ritual_altar,
             ObjectId::PyramidAltar => layout.pyramid_altar,
             ObjectId::PyramidSpot(i) => layout.pyramid_spots.get(i as usize).copied(),
         }
@@ -859,6 +872,7 @@ impl ObjectId {
             ObjectId::Sarcophagus
             | ObjectId::SocietyCase
             | ObjectId::RitualArea
+            | ObjectId::RitualAltar
             | ObjectId::PyramidAltar
             | ObjectId::PyramidSpot(_) => crate::easter_egg::EGG_RED,
         }
@@ -955,6 +969,7 @@ impl ObjectId {
             ObjectId::PowerStation => standing(shared::power_station::HALF_EXTENTS),
             ObjectId::Sarcophagus => standing(shared::easter_egg::SARCOPHAGUS_HALF_EXTENTS),
             ObjectId::SocietyCase => standing(shared::easter_egg::SOCIETY_CASE_HALF_EXTENTS),
+            ObjectId::RitualAltar => standing(shared::easter_egg::RITUAL_ALTAR_HALF_EXTENTS),
             ObjectId::PyramidAltar => standing(shared::easter_egg::PYRAMID_ALTAR_HALF_EXTENTS),
             // The area's middle: a marker to grab it by (its rectangle's
             // drawn round it, `input::draw_gizmos`).
@@ -1711,6 +1726,7 @@ fn model_of(
         | ObjectId::RitualArea
         | ObjectId::Sarcophagus
         | ObjectId::SocietyCase
+        | ObjectId::RitualAltar
         | ObjectId::PyramidAltar
         | ObjectId::PowerLight(_)
         | ObjectId::Flame(_)
