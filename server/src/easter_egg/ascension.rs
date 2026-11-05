@@ -1,6 +1,7 @@
 //! The squad's souls go up into the pyramid ([`EggStep::Ascension`] — each
 //! client plays its own trip, `client::easter_egg::ascension`): as it
-//! starts, every player still in the game (not bled out, not a bot) has
+//! starts, every player still in the game (not bled out, not a bot — a
+//! teammate bot stays below, standing still, `crate::ally`) has
 //! their body left where they stand, recorded on the egg
 //! (`EasterEgg::bodies`, in the order their souls take the pyramid's spots)
 //! so every client can show the bodies slumped there. Anyone down gets back
@@ -32,7 +33,7 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use lightyear::prelude::server::Server;
 use lightyear::prelude::*;
-use shared::bot_players::is_bot_peer;
+use shared::bot_players::{has_no_client, is_ally_peer, is_bot_peer};
 use shared::easter_egg::{EggStep, SoulBody};
 use shared::revive::PlayerRevived;
 use shared::weapon::{SlotWeapon, WeaponId};
@@ -146,11 +147,15 @@ pub(super) fn run_ascension(
             if combat.down.is_some() {
                 combat.revive();
                 let msg = PlayerRevived { peer: id.0, reviver: id.0 };
-                if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(vec![id.0])) {
-                    error!("failed to get {:?} up for the pyramid: {e:?}", id.0);
+                if !has_no_client(id.0) {
+                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(vec![id.0])) {
+                        error!("failed to get {:?} up for the pyramid: {e:?}", id.0);
+                    }
                 }
             }
-            if !combat.alive {
+            // (A teammate bot gets up too, but stays where it is — it has no
+            // soul to send up, and could never take an Exhumer it can't use.)
+            if !combat.alive || is_ally_peer(id.0) {
                 continue;
             }
             bodies.push(SoulBody { peer: id.0, feet: pose.translation - Vec3::Y * EYE_HEIGHT, yaw: pose.yaw });

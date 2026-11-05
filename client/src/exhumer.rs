@@ -7,11 +7,13 @@
 //!   ours from the gun, theirs from their `PlayerPose::beaming`) out to its
 //!   reach or the first wall (`shaders/exhumer_beam.wgsl`), wisps of green
 //!   soul-smoke drifting back along it into the gun, its hum looping. The zombies it has hold of
-//!   ([`shared::exhumer::ExhumerDrain`]) rise into the air as they're
-//!   drained, turning and tipping back, a soul-light growing in each chest
-//!   ([`Drained`]) — until one's soul is torn out
+//!   ([`shared::exhumer::ExhumerDrain`]) are drained where they stand,
+//!   shuddering and tipping back, a soul-light growing in each chest
+//!   ([`Drained`]). One drained is exhumed
+//!   ([`shared::exhumer::ExhumerExhume`], [`Exhumed`]): lifted into the
+//!   air, turning and tipping back, until its soul is torn out at the top
 //!   ([`shared::exhumer::ExhumerSouls`]): a cloud of green smoke streaks from its chest
-//!   back into the gun and the empty body's thrown limp out of the air (a
+//!   back into the gun and the empty body drops limp out of the air (a
 //!   ragdoll, `ragdoll`).
 //! * **Fire — let them out** (`weapons::weapon` asks; sent here as
 //!   [`shared::exhumer::ReleaseSouls`]): a wisp after each zombie the
@@ -37,8 +39,8 @@ use bevy_egui::egui;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, TriggerSender};
 use shared::exhumer::{
-    beam_dir, ExhumerDrain, ExhumerSouls, ExhumerSwarm, ReleaseSouls, BEAM_RANGE, BEAM_TICK_SECS, DRAIN_SECS, LIFT_HEIGHT,
-    SWARM_SPEED,
+    beam_dir, ExhumerDrain, ExhumerExhume, ExhumerSouls, ExhumerSwarm, ReleaseSouls, BEAM_RANGE, BEAM_TICK_SECS,
+    DRAIN_SECS, EXHUME_SECS, LIFT_HEIGHT, SWARM_SPEED,
 };
 use shared::{PlayerId, PlayerPose};
 
@@ -75,7 +77,7 @@ impl Plugin for ExhumerPlugin {
                     send_release,
                     debug_give,
                     soul_smoke,
-                    (receive_drains, receive_souls, receive_swarms),
+                    (receive_drains, receive_exhumes, receive_souls, receive_swarms),
                     lift_avatars.after(crate::net::follow_remote_avatars),
                     run_glows,
                     draw_beams,
@@ -137,8 +139,12 @@ pub(crate) struct ExhumerFxSettings {
     pub(crate) motes_per_sec: f32,
     pub(crate) mote_speed: f32,
     pub(crate) mote_size: f32,
-    /// A drained body: how fast (rad/s) it turns, how far (°) it tips back;
-    /// the glow in its chest (lumens, at its brightest).
+    /// A body being drained, on the ground: how far (°) it tips back, and
+    /// how hard (°) it shudders, once it's all but drained...
+    pub(crate) drain_tilt_deg: f32,
+    pub(crate) drain_shake_deg: f32,
+    /// ...and exhumed, lifted: how fast (rad/s) it turns, how far (°) it
+    /// tips back; the glow in its chest (lumens, at its brightest).
     pub(crate) lift_spin: f32,
     pub(crate) lift_tilt_deg: f32,
     pub(crate) chest_light: f32,
@@ -183,6 +189,8 @@ impl Default for ExhumerFxSettings {
             motes_per_sec: 12.0,
             mote_speed: 10.0,
             mote_size: 1.2,
+            drain_tilt_deg: 10.0,
+            drain_shake_deg: 4.0,
             lift_spin: 0.6,
             lift_tilt_deg: 22.0,
             chest_light: 120_000.0,
@@ -282,18 +290,26 @@ fn send_release(mut weapon: ResMut<Weapon>, mut tx: Query<&mut TriggerSender<Rel
 
 // --- drained ------------------------------------------------------------------------------
 
-/// On a zombie's avatar a beam has hold of: how far it's drained (0..=1,
-/// the server's), how far it's shown risen, and when
-/// (`Time::elapsed_secs`) the server last said — let go, it sinks back.
+/// On a zombie's avatar a beam has hold of, on the ground: how far it's
+/// drained (0..=1, the server's), how far it's shown drained, and when
+/// (`Time::elapsed_secs`) the server last said — let go, it eases back.
 /// The server only says every `BEAM_TICK_SECS`, so in between it's carried
-/// on rising at the rate it drains ([`lift_avatars`]): a steady float up,
-/// not a hop each time it hears.
+/// on at the rate it drains ([`lift_avatars`]): steady, not a jump each
+/// time it hears.
 #[derive(Component)]
 struct Drained {
     target: f32,
     shown: f32,
     seen: f32,
-    /// How far (rad) it's turned so far.
+}
+
+/// On a zombie's avatar that's been drained and is being exhumed: how long
+/// (s) it's been rising (to [`LIFT_HEIGHT`] over [`EXHUME_SECS`]), and how
+/// far (rad) it's turned. Its death drops it (a ragdoll); should that never
+/// come (the game ended meanwhile), it sinks back down.
+#[derive(Component)]
+struct Exhumed {
+    t: f32,
     turn: f32,
 }
 
@@ -304,28 +320,43 @@ struct ChestGlow {
 }
 
 /// The avatar of the bot `peer`, if it's here — and whether a beam's
-/// already got it.
+/// already got it (or it's being exhumed).
 fn avatar_of(
     peer: PeerId,
-    avatars: &Query<(Entity, &RemoteAvatar, Has<Drained>)>,
+    avatars: &Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
     ids: &Query<&PlayerId>,
     interp: &Query<&Interpolated>,
-) -> Option<(Entity, bool)> {
+) -> Option<(Entity, bool, bool)> {
     avatars
         .iter()
-        .find(|(_, a, _)| crate::boss::peer_of(a.src, ids, interp) == Some(peer))
-        .map(|(e, _, drained)| (e, drained))
+        .find(|(_, a, ..)| crate::boss::peer_of(a.src, ids, interp) == Some(peer))
+        .map(|(e, _, drained, exhumed)| (e, drained, exhumed))
+}
+
+/// The soul-light in `avatar`'s chest.
+fn spawn_chest_glow(commands: &mut Commands, settings: &ExhumerFxSettings, avatar: Entity) {
+    let c = settings.color;
+    commands.spawn((
+        StateScoped(AppState::InGame),
+        ChestGlow { avatar },
+        PointLight {
+            color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
+            intensity: 0.0,
+            range: 4.0,
+            shadows_enabled: false,
+            ..default()
+        },
+        Transform::default(),
+    ));
 }
 
 #[allow(clippy::too_many_arguments)]
 fn receive_drains(
     time: Res<Time>,
     settings: Res<ExhumerFxSettings>,
-    sounds: Res<ExhumerSounds>,
     mut receivers: Query<&mut MessageReceiver<ExhumerDrain>>,
-    avatars: Query<(Entity, &RemoteAvatar, Has<Drained>)>,
+    avatars: Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
     mut drained: Query<&mut Drained>,
-    transforms: Query<&Transform, With<RemoteAvatar>>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
     mut commands: Commands,
 ) {
@@ -333,7 +364,10 @@ fn receive_drains(
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             for (zombie, share) in msg.zombies {
-                let Some((avatar, already)) = avatar_of(zombie, &avatars, &ids, &interp) else { continue };
+                let Some((avatar, already, exhumed)) = avatar_of(zombie, &avatars, &ids, &interp) else { continue };
+                if exhumed {
+                    continue;
+                }
                 if already {
                     if let Ok(mut d) = drained.get_mut(avatar) {
                         d.target = d.target.max(share);
@@ -341,21 +375,38 @@ fn receive_drains(
                     }
                     continue;
                 }
-                // Taken hold of: it starts to rise, a glow in its chest.
-                commands.entity(avatar).insert(Drained { target: share, shown: 0.0, seen: now, turn: 0.0 });
-                let c = settings.color;
-                commands.spawn((
-                    StateScoped(AppState::InGame),
-                    ChestGlow { avatar },
-                    PointLight {
-                        color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
-                        intensity: 0.0,
-                        range: 4.0,
-                        shadows_enabled: false,
-                        ..default()
-                    },
-                    Transform::default(),
-                ));
+                // Taken hold of: held where it stands, a glow in its chest.
+                commands.entity(avatar).insert(Drained { target: share, shown: 0.0, seen: now });
+                spawn_chest_glow(&mut commands, &settings, avatar);
+            }
+        }
+    }
+}
+
+/// Zombies drained: each lifted into the air, its soul torn out at the top.
+#[allow(clippy::too_many_arguments)]
+fn receive_exhumes(
+    settings: Res<ExhumerFxSettings>,
+    sounds: Res<ExhumerSounds>,
+    mut receivers: Query<&mut MessageReceiver<ExhumerExhume>>,
+    avatars: Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
+    transforms: Query<&Transform, With<RemoteAvatar>>,
+    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    mut commands: Commands,
+) {
+    for mut rx in &mut receivers {
+        for msg in rx.receive() {
+            for zombie in msg.zombies {
+                let Some((avatar, drained, exhumed)) = avatar_of(zombie, &avatars, &ids, &interp) else { continue };
+                if exhumed {
+                    continue;
+                }
+                // (Its chest's glow carries on from the drain — or, never
+                // seen drained, one's lit now.)
+                if !drained {
+                    spawn_chest_glow(&mut commands, &settings, avatar);
+                }
+                commands.entity(avatar).remove::<Drained>().insert(Exhumed { t: 0.0, turn: 0.0 });
                 if let Ok(tf) = transforms.get(avatar) {
                     sound_at(&mut commands, &sounds.grab, tf.translation + Vec3::Y, settings.volume);
                 }
@@ -364,28 +415,33 @@ fn receive_drains(
     }
 }
 
-/// Every drained body, over where its pose puts it: risen as far as it's
-/// drained, turning and tipping back — sinking back down once let go (a
-/// ragdoll goes its own way).
+/// Every body a beam has hold of, over where its pose puts it, on the
+/// ground: tipping back and shuddering harder the more it's drained —
+/// easing back once let go. And every one exhumed: rising, turning and
+/// tipping back, until its death drops it (a ragdoll goes its own way).
 #[allow(clippy::type_complexity)]
 fn lift_avatars(
     time: Res<Time>,
     settings: Res<ExhumerFxSettings>,
-    mut drained: Query<(Entity, &mut Drained, &mut Transform), (With<RemoteAvatar>, Without<crate::ragdoll::Ragdoll>)>,
+    mut drained: Query<
+        (Entity, &mut Drained, &mut Transform),
+        (With<RemoteAvatar>, Without<crate::ragdoll::Ragdoll>, Without<Exhumed>),
+    >,
+    mut exhumed: Query<(Entity, &mut Exhumed, &mut Transform), (With<RemoteAvatar>, Without<crate::ragdoll::Ragdoll>)>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
     for (e, mut d, mut tf) in &mut drained {
-        // (Let go a moment: back down.)
+        // (Let go a moment: it eases back.)
         if now - d.seen > 0.45 {
             d.target = 0.0;
         }
         // Where it should be by now: what the server last said, carried on
         // at the rate an ordinary one drains (no more than a tick and a half
-        // past it, so a beam let go doesn't carry it up); risen toward that
-        // at no more than a little over that rate — so it floats steadily
-        // rather than catching up in hops — and sinking back more quickly.
+        // past it, so a beam let go doesn't carry it on); eased toward that
+        // at no more than a little over that rate — steady rather than in
+        // jumps — and back more quickly.
         let rate = 1.0 / DRAIN_SECS;
         let ahead = if d.target > 0.0 { ((now - d.seen) * rate).min(BEAM_TICK_SECS * 1.5 * rate) } else { 0.0 };
         let goal = (d.target + ahead).min(1.0);
@@ -395,33 +451,61 @@ fn lift_avatars(
             commands.entity(e).remove::<Drained>();
             continue;
         }
-        let up = ease(d.shown);
+        let k = ease(d.shown);
+        let shake = settings.drain_shake_deg.to_radians() * k;
+        let seed = e.index() as f32;
+        let (yaw, roll) = ((now * 31.0 + seed).sin() * shake, (now * 23.0 + seed * 1.7).sin() * shake * 0.6);
+        let tilt = settings.drain_tilt_deg.to_radians() * k;
+        tf.rotation = Quat::from_rotation_y(yaw) * tf.rotation * Quat::from_rotation_x(-tilt) * Quat::from_rotation_z(roll);
+    }
+    for (e, mut x, mut tf) in &mut exhumed {
+        x.t += dt;
+        // Up over `EXHUME_SECS`, held at the top a moment for its death —
+        // and, should that not come, back down.
+        let hold = 1.0;
+        let p = if x.t <= EXHUME_SECS + hold {
+            x.t / EXHUME_SECS
+        } else {
+            1.0 - (x.t - EXHUME_SECS - hold) / 0.6
+        };
+        if p <= 0.0 {
+            commands.entity(e).remove::<Exhumed>();
+            continue;
+        }
+        let up = ease(p);
         tf.translation.y += LIFT_HEIGHT * up + (now * 5.0).sin() * 0.05 * up;
         // (Turning at most `lift_spin`, as far as it's risen.)
-        d.turn += settings.lift_spin * up * dt;
-        let spin = d.turn;
-        let tilt = settings.lift_tilt_deg.to_radians() * up;
+        x.turn += settings.lift_spin * up * dt;
+        let spin = x.turn;
+        let tilt = (settings.drain_tilt_deg + (settings.lift_tilt_deg - settings.drain_tilt_deg) * up).to_radians();
         tf.rotation = Quat::from_rotation_y(spin) * tf.rotation * Quat::from_rotation_x(-tilt);
     }
 }
 
-/// The glow in each drained chest, as bright as it's drained.
+/// The glow in each drained chest, as bright as it's drained — at its
+/// brightest as it's exhumed.
+#[allow(clippy::type_complexity)]
 fn run_glows(
     time: Res<Time>,
     settings: Res<ExhumerFxSettings>,
-    avatars: Query<(&Transform, Option<&Drained>), (With<RemoteAvatar>, Without<ChestGlow>)>,
+    avatars: Query<(&Transform, Option<&Drained>, Option<&Exhumed>), (With<RemoteAvatar>, Without<ChestGlow>)>,
     mut glows: Query<(Entity, &ChestGlow, &mut Transform, &mut PointLight)>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     for (e, glow, mut tf, mut light) in &mut glows {
-        let Some((body, Some(d))) = avatars.get(glow.avatar).ok() else {
-            commands.entity(e).despawn();
-            continue;
+        let strength = match avatars.get(glow.avatar).ok() {
+            Some((_, _, Some(x))) => 1.0 + 0.3 * (x.t / EXHUME_SECS).min(1.0),
+            Some((_, Some(d), None)) => d.shown.powi(2),
+            _ => {
+                commands.entity(e).despawn();
+                continue;
+            }
         };
+        let Ok((body, ..)) = avatars.get(glow.avatar) else { continue };
         tf.translation = body.translation + Vec3::Y * 1.25;
         let flicker = 0.8 + 0.2 * (now * 27.0 + e.index() as f32).sin();
-        light.intensity = settings.chest_light * d.shown.powi(2) * flicker;
+        light.intensity = settings.chest_light * strength * flicker;
     }
 }
 
@@ -1341,8 +1425,10 @@ pub(crate) fn exhumer_section(ui: &mut egui::Ui, s: &mut ExhumerFxSettings, debu
     ui.add(egui::Slider::new(&mut s.smoke_soft, 0.0f32..=3.0).text("smoke fades before walls (m)"));
     ui.add(egui::Slider::new(&mut s.return_secs, 0.1f32..=3.0).text("soul back to the gun (s)"));
     ui.add(egui::Slider::new(&mut s.arc, 0.0f32..=6.0).text("soul's arc (m)"));
-    ui.add(egui::Slider::new(&mut s.lift_spin, 0.0f32..=6.0).text("drained body turns (rad/s)"));
-    ui.add(egui::Slider::new(&mut s.lift_tilt_deg, 0.0f32..=90.0).text("drained body tips back (°)"));
+    ui.add(egui::Slider::new(&mut s.drain_tilt_deg, 0.0f32..=45.0).text("body being drained tips back (°)"));
+    ui.add(egui::Slider::new(&mut s.drain_shake_deg, 0.0f32..=20.0).text("body being drained shudders (°)"));
+    ui.add(egui::Slider::new(&mut s.lift_spin, 0.0f32..=6.0).text("exhumed body turns (rad/s)"));
+    ui.add(egui::Slider::new(&mut s.lift_tilt_deg, 0.0f32..=90.0).text("exhumed body tips back (°)"));
     ui.add(egui::Slider::new(&mut s.chest_light, 0.0f32..=1_000_000.0).text("glow in its chest (lm)"));
     ui.add(
         egui::Slider::new(&mut s.altar_light, 0.0f32..=1_000_000.0)

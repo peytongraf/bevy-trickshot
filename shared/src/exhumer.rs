@@ -6,15 +6,17 @@
 //!
 //! * **Aim (held) — draw souls in.** A beam out to [`BEAM_RANGE`] (stopped
 //!   by walls) takes hold of the zombies it touches (the nearest
-//!   [`BEAM_MAX_TARGETS`]) and drains them — an ordinary one's dead in
-//!   [`DRAIN_SECS`], whatever its round — rising into the air as it does
-//!   ([`ExhumerDrain`]). When one dies its soul's torn out, back into the
-//!   Exhumer ([`ExhumerSouls`]). Big Steve, a boss or a hellhound can't be
+//!   [`BEAM_MAX_TARGETS`]) and drains them where they stand — an ordinary
+//!   one's drained in [`DRAIN_SECS`], whatever its round ([`ExhumerDrain`]).
+//!   Drained, it's exhumed: lifted into the air over [`EXHUME_SECS`]
+//!   ([`ExhumerExhume`]), its soul torn out at the top, back into the
+//!   Exhumer ([`ExhumerSouls`]), and the empty body dropped limp. Big Steve, a boss or a hellhound can't be
 //!   held up, and drains far slower ([`HEAVY_DPS`]). It never runs out —
 //!   but it takes time.
 //! * **Fire — let them out.** One pull sends every soul it holds out at once
-//!   ([`ReleaseSouls`]): one after each of the nearest zombies (within
-//!   [`RELEASE_RANGE`]), tearing its soul out as it gets there
+//!   ([`ReleaseSouls`]): one after each of the zombies in view (within
+//!   [`RELEASE_RANGE`], nothing in the way) closest to where they're aimed
+//!   ([`release_targets`]), tearing its soul out as it gets there
 //!   ([`ExhumerSwarm`]). With fewer zombies about than souls, only as many
 //!   go as there are zombies, and the rest stay. What can't be lifted is hurt
 //!   instead ([`HEAVY_DAMAGE`]). Souls let out give nothing back.
@@ -47,12 +49,17 @@ pub const DRAIN_SECS: f32 = 1.4;
 pub const HEAVY_DPS: f32 = 150.0;
 /// How often (s) what it's drained is taken (and the clients told).
 pub const BEAM_TICK_SECS: f32 = 0.25;
-/// How high (m) a zombie's lifted by the time it's drained.
+/// A zombie drained: how long (s) it takes to lift it, its soul torn out
+/// at the top...
+pub const EXHUME_SECS: f32 = 1.2;
+/// ...and how high (m) it's lifted.
 pub const LIFT_HEIGHT: f32 = 2.2;
 
-/// Letting the souls out: after zombies this far (m) off at most, at this
+/// Letting the souls out: after zombies this far (m) off at most, this far
+/// (°) from where the player's looking at most (on their screen), at this
 /// speed (m/s)...
 pub const RELEASE_RANGE: f32 = 50.0;
+pub const RELEASE_VIEW_DEG: f32 = 55.0;
 pub const SWARM_SPEED: f32 = 16.0;
 /// ...no sooner than this (s) after the last time.
 pub const RELEASE_COOLDOWN_SECS: f32 = 1.0;
@@ -94,12 +101,58 @@ pub fn beam_targets<T: Copy>(eye: Vec3, dir: Vec3, reach: f32, chests: impl Iter
     held.into_iter().take(BEAM_MAX_TARGETS).map(|(_, t)| t).collect()
 }
 
+/// Which of `chests` (each with what it's tagged by) the souls let out from
+/// `eye`, looking along `dir` (unit), go after — `n` at most: only those in
+/// view (within [`RELEASE_RANGE`] and [`RELEASE_VIEW_DEG`] of the look, and
+/// `sees` them — nothing in the way), the ones closest to where they're
+/// aimed first (the nearer first, about as close). With each, how far off
+/// (m) it is.
+pub fn release_targets<T: Copy>(
+    eye: Vec3,
+    dir: Vec3,
+    n: usize,
+    chests: impl Iterator<Item = (T, Vec3)>,
+    sees: impl Fn(Vec3) -> bool,
+) -> Vec<(T, Vec3, f32)> {
+    let cos_view = RELEASE_VIEW_DEG.to_radians().cos();
+    let mut seen: Vec<(f32, f32, T, Vec3)> = chests
+        .filter_map(|(tag, at)| {
+            let to = at - eye;
+            let d = to.length();
+            if d <= 1e-3 || d > RELEASE_RANGE {
+                return None;
+            }
+            let cos = to.dot(dir) / d;
+            (cos >= cos_view && sees(at)).then(|| {
+                // (Off the aim, in degrees — a degree's worth of it a few
+                // metres' worth of distance, so the nearer of two about as
+                // close to the aim goes first.)
+                let off = cos.clamp(-1.0, 1.0).acos().to_degrees();
+                (off + d * 0.05, d, tag, at)
+            })
+        })
+        .collect();
+    seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+    seen.into_iter().take(n).map(|(_, d, t, at)| (t, at, d)).collect()
+}
+
 /// Server → every member of the lobby: `shooter`'s beam has hold of
-/// `zombies` (bot peer id, and how far drained, 0..=1) — they rise with it.
+/// `zombies` (bot peer id, and how far drained, 0..=1) — held where they
+/// stand while they're drained.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ExhumerDrain {
     pub shooter: PeerId,
     pub zombies: Vec<(PeerId, f32)>,
+}
+
+/// Server → every member of the lobby: `zombies` (bot peer ids), drained by
+/// `shooter`'s beam, are being exhumed — lifted [`LIFT_HEIGHT`] over
+/// [`EXHUME_SECS`], their souls torn out at the top ([`ExhumerSouls`]) and
+/// the bodies dropped.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ExhumerExhume {
+    pub shooter: PeerId,
+    pub zombies: Vec<PeerId>,
 }
 
 /// Server → every member of the lobby: souls just torn out at `from` (the
@@ -186,6 +239,29 @@ mod tests {
         assert_eq!(held, vec![2, 1, 6]);
         // A wall in the way: nothing past it.
         assert_eq!(beam_targets(eye, dir, 3.0, chests.into_iter()), vec![2]);
+    }
+
+    #[test]
+    fn souls_go_after_what_is_in_view_closest_to_the_aim_first() {
+        let eye = Vec3::ZERO;
+        let dir = beam_dir(0.0, 0.0);
+        let chests = [
+            (1, Vec3::new(0.0, 0.0, 3.0)),    // behind — the nearest of all
+            (2, Vec3::new(4.0, 0.0, -4.0)),   // 45° off
+            (3, Vec3::new(0.5, 0.0, -20.0)),  // right on the aim, far
+            (4, Vec3::new(0.0, 0.0, -6.0)),   // on the aim, behind a wall
+            (5, Vec3::new(-1.0, 0.0, -10.0)), // a little off
+            (6, Vec3::new(0.0, 0.0, -80.0)),  // out of range
+        ];
+        let behind_wall = |at: Vec3| (at - Vec3::new(0.0, 0.0, -6.0)).length() > 0.1;
+        let got: Vec<i32> = release_targets(eye, dir, 5, chests.into_iter(), behind_wall).iter().map(|t| t.0).collect();
+        assert_eq!(got, vec![3, 5, 2]);
+        // Fewer souls than that: the closest to the aim only.
+        let got: Vec<i32> = release_targets(eye, dir, 1, chests.into_iter(), behind_wall).iter().map(|t| t.0).collect();
+        assert_eq!(got, vec![3]);
+        // About as close to the aim: the nearer.
+        let pair = [(1, Vec3::new(0.0, 0.0, -30.0)), (2, Vec3::new(0.0, 0.1, -5.0))];
+        assert_eq!(release_targets(eye, dir, 1, pair.into_iter(), |_| true)[0].0, 2);
     }
 
     #[test]

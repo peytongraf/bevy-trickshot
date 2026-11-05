@@ -7,6 +7,9 @@
 //!
 //! What it does, most pressing first ([`drive_allies`]):
 //!
+//! * **The easter egg's ritual and pyramid trip**: it stands still, holding
+//!   fire (facing the altar for the ritual) — it isn't one of the souls
+//!   that go up (`crate::easter_egg::ascension`).
 //! * **Down**, it crawls toward whoever's standing; **dead** (bled out), it
 //!   waits for the next round, then comes back beside someone.
 //! * **A teammate down** (and it's safe enough), it goes and revives them.
@@ -673,6 +676,35 @@ fn drive_allies(
         }
 
         let skill = brain.skill();
+
+        // The easter egg's ritual (the players locked in place round the
+        // altar) and the souls' trip up into the pyramid (which it isn't
+        // part of — nobody's left down here to follow or defend): it stands
+        // where it is, holding fire, turned toward the ritual's altar while
+        // the ritual's on.
+        if matches!(lobby.easter_egg.step, shared::easter_egg::EggStep::Ritual | shared::easter_egg::EggStep::Ascension)
+            && shared::easter_egg::available(lobby)
+        {
+            let altar = shared::level::layout(lobby.map).ritual_altar.map(|a| a.pos);
+            if let Some(to) = altar
+                .filter(|_| lobby.easter_egg.step == shared::easter_egg::EggStep::Ritual)
+                .map(|a| (a - brain.feet).with_y(0.0))
+                .filter(|d| d.length_squared() > 0.01)
+            {
+                let max_turn = skill.turn_deg_per_sec.to_radians() * dt;
+                let want = look_angles(to.normalize()).0;
+                brain.yaw = shortest_angle(0.0, brain.yaw + shortest_angle(brain.yaw, want).clamp(-max_turn, max_turn));
+            }
+            brain.pitch -= brain.pitch.clamp(-skill.turn_deg_per_sec.to_radians() * dt, skill.turn_deg_per_sec.to_radians() * dt);
+            brain.path.clear();
+            brain.climb = None;
+            brain.target = None;
+            // (Still falling, should it have been mid-jump.)
+            move_bot(world, &mut brain.feet, &mut brain.vertical_velocity, Vec3::ZERO, WALK_SPEED, dt);
+            action.0 = still(brain);
+            continue;
+        }
+
         let ally = brain.ally();
         let eye = brain.eye();
         let team = |b: &&Body| b.lobby == lobby_e && b.peer != me && !b.zombie && b.alive;

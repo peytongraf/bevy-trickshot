@@ -2904,6 +2904,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::exhumer::ExhumerDrain>()
             .add_direction(NetworkDirection::ServerToClient);
+        app.add_message::<crate::exhumer::ExhumerExhume>()
+            .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::exhumer::ExhumerSouls>()
             .add_direction(NetworkDirection::ServerToClient);
         app.add_message::<crate::exhumer::ExhumerSwarm>()

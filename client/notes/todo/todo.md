@@ -2,6 +2,9 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Exhumer souls go for zombies in view, closest to aim
+- Exhumer drains on the ground, then lifts
+- Bot teammates hold still for ritual, stay out of pyramid
 - Astral screen effect and binaural drone
 - Other players' souls look ghostly
 - Hierophant's spirit as soul smoke (death and wake)
