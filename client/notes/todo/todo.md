@@ -2,33 +2,21 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
-- First-person ritual hand cut with blood
-- Ritual radio walkthrough, seal and operators' chant
-- Exhumer souls go for zombies in view, closest to aim
-- Exhumer drains on the ground, then lifts
-- Bot teammates hold still for ritual, stay out of pyramid
-- Astral screen effect and binaural drone
-- Other players' souls look ghostly
-- Hierophant's spirit as soul smoke (death and wake)
-- Vial model in game
-- Ritual altar model, realistic blood pour
-- Egg cut scene: view on altar/boss, black bars, HUD fades
-- Exhumer beam shoots out from the gun
-- Glow round the Exhumers on the altar
-- Sarcophagus box fits its model
-- Society case model, lid opens, dagger across the velvet
-- Ritual stalls zombies; souls torn out as it goes wrong
-- Pyramid diamond lowered
-- Vial/dagger pickup sound
-- Pyramid scream plays while floating up
-- Hierophant: bigger rings, phase 3 dogs, trickle
-- Hierophant faster, teleports closer
-- Hierophant's dark energy ball
-- Exhumer beam: wider cone, new look
-- Exhumer lift floats smoothly
-- Exhumer souls as green smoke, no hard beam end, slower spin
-- Exhumer swirl smoke texture, soft smoke edges
-- Fire light through temple walls
+# New latest play ( Der tempel, night, no starting money or full power, played from round 1)
+
+- Top priority and very easy to change - make pap 1 5k, pap2 15k, pap3 30k. Do this first before anything else
+- Quotes said after a certain time still play even when they haven't started yet and the game is paused. For instance the we do not know when we will have power on... adam quote played after the game was paused.
+- The quick revive quote seems like it plays a few seconds after the perk jingle ends.
+- On round 9 the big steve radio quote played normally but it seems like he spawned far away because he wasn't even seen until nearly all of the zombies for that round were killed. This isn't the first time this has happened. He should spawn relatively close to the players without beign right beside them. Close enough to be in the same room.
+- Last zombie does the last zombie scream. During the ritual it wouldn't shut up and was extremely annoying. Zombies should stop making moaning noises during the ritual ( their death sounds should still play though when they die). The last zombie sound should instead play once when its the last zombie and after that it should play whatever moan / scream sound it normally plays.
+- The sarcophagus should face the altar so that when the boss stands up he's facing the altar.
+- A line of blood extends from the altar towards the sarcophagus but doesn't trace to objects at the ground level to get to it. Should it not move out at all on the ritual altar or trace all the way to it going over objects at ground level so that it can be seen? Before when it traced to the sarcophagus it went under the lifted portion where the altar sits on top of so it didn't look correct.
+- Kill enemy sound effect is about 1.5 times too loud.
+- When the exhumer shot is made and several enemies are killed at once, like 15-20 or so, the kill enemy sound plays so much and stacks on it self and seems extremely loud. How would call of duty handle this?
+- The lid of the sarcophagus flies off and looks good but it ends up slightly clipping through the rasied surface that the ritual altar is on
+- When pausing the game first person animations still play
+- When sliding the fps running animation plays. Instead it shouldn't play because the player isn't taking steps here.
+- For the exhumer, it would look more realistic if instead of the beam always going out perfectly straight, as the player moves their aim it behaved like a rope does as you move it around so that the end of it slightly lags behind the front. This effect can be subtle but it would help make it not look so robotic.
 
 # Latest play
 

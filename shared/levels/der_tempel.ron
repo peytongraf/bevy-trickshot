@@ -95,9 +95,10 @@
         (at: (pos: (-46.0, -9.0, -30.0), yaw_deg: -90.0), size: (2.0, 3.0, 0.5), cost: 1000, requires_power: true, slide: Down),
     ],
     windows: [
-        (at: (pos: (0.0, -3.9, 74.95), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
-        (at: (pos: (-17.0, -3.9, 74.95), yaw_deg: 180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
-        (at: (pos: (17.0, -3.9, 74.95), yaw_deg: 180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (17.7, -5.0, 75.0), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (5.9, -5.0, 75.0), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (-5.9, -5.0, 75.0), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
+        (at: (pos: (-17.7, -5.0, 75.0), yaw_deg: -180.0), size: (1.2, 1.4), sill: 0.9, depth: 0.5),
     ],
     player_spawns: [
         (pos: (-1.154, -4.0, 64.736), yaw_deg: -180.0),
