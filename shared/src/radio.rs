@@ -100,6 +100,13 @@ pub enum RadioLine {
     EggDaggerTaken,
     /// ...and the squad has both — a hint at the altar...
     EggBothHeld,
+    /// ...the ritual begins: he talks them through it (the blade, their
+    /// hands, the vial)...
+    EggRitualBegins,
+    /// ...then the seal: "repeat after me" — and the operators do
+    /// (`crate::quotes::Quote::RitualChant`). Both timed to the ritual's
+    /// clock (`crate::easter_egg::RITUAL_SEAL_AT_SECS`), cutting in...
+    EggRitualSeal,
     /// ...the ritual's gone wrong ("I read it backwards") — said once that
     /// step's built...
     EggRitualGoesWrong,
@@ -108,7 +115,7 @@ pub enum RadioLine {
 }
 
 impl RadioLine {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 24] = [
         Self::Intro,
         Self::FirstDogRound,
         Self::FirstBossRound,
@@ -129,6 +136,8 @@ impl RadioLine {
         Self::EggVialFound,
         Self::EggDaggerTaken,
         Self::EggBothHeld,
+        Self::EggRitualBegins,
+        Self::EggRitualSeal,
         Self::EggRitualGoesWrong,
         Self::EggAfterPyramid,
     ];
@@ -156,6 +165,8 @@ impl RadioLine {
             Self::EggVialFound => "audio/radio/maddox/easter_egg_vial_found.mp3",
             Self::EggDaggerTaken => "audio/radio/maddox/easter_egg_dagger_taken.mp3",
             Self::EggBothHeld => "audio/radio/maddox/easter_egg_both_held.mp3",
+            Self::EggRitualBegins => "audio/radio/maddox/easter_egg_ritual_begins.mp3",
+            Self::EggRitualSeal => "audio/radio/maddox/easter_egg_ritual_seal.mp3",
             Self::EggRitualGoesWrong => "audio/radio/maddox/easter_egg_ritual_goes_wrong.mp3",
             Self::EggAfterPyramid => "audio/radio/maddox/easter_egg_after_pyramid.mp3",
         }
@@ -163,7 +174,7 @@ impl RadioLine {
 
     /// How long (s) it runs (`ffprobe` of the clip — update it with the
     /// clip).
-    pub fn secs(self) -> f32 {
+    pub const fn secs(self) -> f32 {
         match self {
             Self::Intro => 10.37,
             Self::FirstDogRound => 11.15,
@@ -184,7 +195,9 @@ impl RadioLine {
             Self::GameOver => 7.16,
             Self::EggVialFound => 6.03,
             Self::EggDaggerTaken => 9.64,
-            Self::EggBothHeld => 9.40,
+            Self::EggBothHeld => 14.08,
+            Self::EggRitualBegins => 7.18,
+            Self::EggRitualSeal => 7.00,
             Self::EggRitualGoesWrong => 5.64,
             Self::EggAfterPyramid => 7.11,
         }
@@ -206,6 +219,8 @@ impl RadioLine {
                 | Self::ExfilTimeWarning
                 | Self::ExfilFewLeft
                 | Self::GameOver
+                | Self::EggRitualBegins
+                | Self::EggRitualSeal
         )
     }
 
@@ -233,7 +248,7 @@ impl RadioLine {
 
     /// How long (s) he's on air saying it: the line, with the static either
     /// side.
-    pub fn airtime(self) -> f32 {
+    pub const fn airtime(self) -> f32 {
         SQUELCH_START_SECS + self.secs() + SQUELCH_END_SECS
     }
 }

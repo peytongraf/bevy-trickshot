@@ -35,12 +35,16 @@ on each).
 ## The ritual
 
 3. **[you]** Animate the ritual in first person (dagger into the altar,
-   pouring the vial, cutting the hand). Record the chant line and the
-   ritual music or sound bed. The ritual runs on placeholders with a
-   caption for each phase. Its timing is `RITUAL_PHASES` in
-   `client/src/easter_egg.rs` (15 s total, `shared::easter_egg::RITUAL_SECS`),
-   so time the animations to it or tell me the new timings. A close-up
-   (the hand cut) can use the 4k dagger in
+   cutting the hand, pouring the vial), and record the ritual's music or
+   sound bed. The radio talks the squad through it and they chant the seal
+   (recorded), each line subtitled (`RITUAL_SUBTITLES` in
+   `client/src/easter_egg.rs`). It runs about 22.4 s
+   (`shared::easter_egg::RITUAL_SECS`, set by the voices' lengths). The
+   altar's placeholder animation (`ritual_fx.rs`) follows his words:
+   dagger 1.7–2.8 s, the squad's blood 3.6–5.3 s, the vial 5.4–9.0 s
+   (pouring 6.15–8.3 s), then the overflow. The seal is at 8.0 s, the chant
+   at 16.0 s and the Hierophant at 20.4 s. Time the animations to that or
+   tell me new timings. A close-up (the hand cut) can use the 4k dagger in
    `client/model_src/easter_egg/hierophant_dagger_4k.glb`.
 4. **[you]** (Optional) Re-record the two sarcophagus lines more aggressive
    (`client/notes/quotes/hierophant-quotes.md`). The current ones are used
@@ -68,8 +72,10 @@ on each).
    `hierophant/spirit_flee.mp3` (his spirit flying into the pyramid).
 7. **[you]** Record the operators' easter egg quotes
    (`client/notes/quotes/operator_quotes/{adam,von}/…-easter-egg-quotes.md`).
-   **Me after:** wire them up, timed so they never talk over his lines or
-   the radio.
+   `ritual_chant` is done. `ritual_accept` (the "cut me" lines) should play
+   at the hand cut, between the radio's two ritual lines, rather than at
+   accepting. **Me after:** wire them up, timed so they never talk over his
+   lines or the radio.
 
 ## The pyramid
 

@@ -87,9 +87,9 @@ impl Default for EggMusicSettings {
     fn default() -> Self {
         Self {
             volume: 0.8,
-            ambient_out_at: 9.5,
+            ambient_out_at: shared::easter_egg::RITUAL_VOICE_AT_SECS - 3.5,
             ambient_out_secs: 2.5,
-            music_in_at: 12.2,
+            music_in_at: shared::easter_egg::RITUAL_VOICE_AT_SECS - 0.8,
             music_in_secs: 3.0,
             music_out_secs: 4.0,
             ambient_in_secs: 4.0,
@@ -225,9 +225,14 @@ pub(crate) fn music_section(ui: &mut egui::Ui, s: &mut EggMusicSettings, levels:
     ));
     ui.label("(times are seconds into the 15 s ritual; his line from the sarcophagus is at 13 s)");
     ui.add(egui::Slider::new(&mut s.volume, 0.0f32..=2.0).text("music volume"));
-    ui.add(egui::Slider::new(&mut s.ambient_out_at, 0.0f32..=15.0).text("ambience fades out from (s)"));
+    ui.add(
+        egui::Slider::new(&mut s.ambient_out_at, 0.0f32..=shared::easter_egg::RITUAL_SECS)
+            .text("ambience fades out from (s)"),
+    );
     ui.add(egui::Slider::new(&mut s.ambient_out_secs, 0.1f32..=10.0).text("over (s)"));
-    ui.add(egui::Slider::new(&mut s.music_in_at, 0.0f32..=15.0).text("music fades in from (s)"));
+    ui.add(
+        egui::Slider::new(&mut s.music_in_at, 0.0f32..=shared::easter_egg::RITUAL_SECS).text("music fades in from (s)"),
+    );
     ui.add(egui::Slider::new(&mut s.music_in_secs, 0.1f32..=10.0).text("over (s) "));
     ui.add(egui::Slider::new(&mut s.music_out_secs, 0.1f32..=15.0).text("after him: music fades out over (s)"));
     ui.add(egui::Slider::new(&mut s.ambient_in_secs, 0.1f32..=15.0).text("then the ambience back in over (s)"));

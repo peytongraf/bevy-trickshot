@@ -18,9 +18,10 @@
 //!   in place ([`EggRitual`], `menu::game_active`) while it plays out at
 //!   the ritual altar — the dagger plunged in, the vial poured into its
 //!   basin, the blood filling it and spilling over onto the floor, glowing,
-//!   and the sarcophagus lighting up — each phase captioned until the first
-//!   person animations are made (`ritual_fx`). Once it's done, it stays as
-//!   it ended;
+//!   and the sarcophagus lighting up (`ritual_fx`), timed to the man on the
+//!   radio talking the squad through it, his seal and the operators
+//!   repeating it (all said from the server) — each line subtitled
+//!   ([`RITUAL_SUBTITLES`]). Once it's done, it stays as it ended;
 //! * the Hierophant's line from the sarcophagus near the ritual's end, and
 //!   once it's gone wrong, his gloating — the radio following him, from the
 //!   server ([`hierophant_speaks`]). What the map does then, and its
@@ -880,15 +881,23 @@ impl EggRitual {
     }
 }
 
-/// When (s into the ritual) each of its phases starts, and its caption —
-/// stand-ins for the animations and chant still to be made.
-const RITUAL_PHASES: [(f32, &str); 5] = [
-    (0.0, "The dagger is driven into the altar..."),
-    (3.0, "...Barrett's blood poured over it..."),
-    (6.0, "...each of you cuts your hand, and your blood fills the basin..."),
-    (9.5, "...it spills over, and the blood begins to glow..."),
-    (13.0, "\"Sanguis datus. Porta clausa.\"  (Blood given. The door is closed.)"),
-];
+/// When (s into the ritual) each line said during it starts, and its
+/// subtitle (none: nothing's being said) — as the clips run
+/// (`easter_egg_ritual_begins.mp3`, `easter_egg_ritual_seal.mp3` after the
+/// radio's squelch, then the operators' `ritual_chant`).
+const RITUAL_SUBTITLES: [(f32, &str); 6] = {
+    use shared::easter_egg::{RITUAL_CHANT_AT_SECS, RITUAL_CHANT_SECS, RITUAL_SEAL_AT_SECS};
+    use shared::radio::SQUELCH_START_SECS;
+    let seal = RITUAL_SEAL_AT_SECS + SQUELCH_START_SECS;
+    [
+        (SQUELCH_START_SECS + 0.1, "ACTUAL: Alright. Blade in the altar."),
+        (SQUELCH_START_SECS + 2.75, "ACTUAL: Cut your hands, bleed into it, then pour that vial in with it."),
+        (seal, "ACTUAL: Okay... repeat after me."),
+        (seal + 3.1, "ACTUAL: Sanguis datus. Porta clausa."),
+        (RITUAL_CHANT_AT_SECS + 0.1, "\"Sanguis datus. Porta clausa.\"  (Blood given. The door is closed.)"),
+        (RITUAL_CHANT_AT_SECS + RITUAL_CHANT_SECS + 0.3, ""),
+    ]
+};
 
 fn track_ritual(
     time: Res<Time>,
@@ -927,8 +936,9 @@ fn update_ritual_caption(
     let line = ritual
         .t
         .filter(|_| !menu.is_open())
-        .and_then(|t| RITUAL_PHASES.iter().rev().find(|(from, _)| t >= *from))
-        .map(|(_, line)| *line);
+        .and_then(|t| RITUAL_SUBTITLES.iter().rev().find(|(from, _)| t >= *from))
+        .map(|(_, line)| *line)
+        .filter(|line| !line.is_empty());
     let Some(line) = line else {
         caption.set_if_neq(Visibility::Hidden);
         return;

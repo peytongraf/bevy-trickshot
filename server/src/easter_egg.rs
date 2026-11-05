@@ -16,8 +16,9 @@
 //!   altar once both are ([`gathered_radio`]);
 //! * the ritual runs [`shared::easter_egg::RITUAL_SECS`] (held while the
 //!   game's paused) — the zombies holding off meanwhile
-//!   (`Lobby::bots_hold_fire`), the clients locking their players in place
-//!   — then it goes wrong ([`run_ritual`]);
+//!   (`Lobby::bots_hold_fire`), the clients locking their players in place,
+//!   the man on the radio talking them through it and giving the seal, and
+//!   every operator repeating it — then it goes wrong ([`run_ritual`]);
 //! * once it's gone wrong (however it got there — the ritual or the debug
 //!   panel), every zombie up drops dead — no points, no drops — the round's
 //!   own spawns are held until he's dead (`shared::easter_egg::holds_spawns`,
@@ -183,14 +184,35 @@ fn on_egg_interact(
     }
 }
 
-/// How long (s) each lobby's ritual has been going.
+/// Each lobby's ritual: how long (s) it's been going, and which of its
+/// voices have been heard.
 #[derive(Resource, Default)]
-struct Rituals(bevy::platform::collections::HashMap<Entity, f32>);
+struct Rituals(bevy::platform::collections::HashMap<Entity, Ritual>);
+
+#[derive(Default)]
+struct Ritual {
+    t: f32,
+    begun: bool,
+    sealed: bool,
+    chanted: bool,
+}
 
 /// The ritual's clock, for each lobby doing it (however it got there — the
-/// altar, or the debug panel), held while the game's paused; once it's run
-/// its length, it goes wrong. A lobby not doing it has none.
-fn run_ritual(time: Res<Time>, mut rituals: ResMut<Rituals>, mut lobbies: Query<(Entity, &mut Lobby)>) {
+/// altar, or the debug panel), held while the game's paused: the man on the
+/// radio talking them through it as it begins, then the seal
+/// ([`shared::easter_egg::RITUAL_SEAL_AT_SECS`]), then every operator in it
+/// repeating that ([`shared::easter_egg::RITUAL_CHANT_AT_SECS`] — the
+/// players, and any teammate bot standing in the ritual area); once it's
+/// run its length, it goes wrong. A lobby not doing it has none.
+fn run_ritual(
+    time: Res<Time>,
+    mut rituals: ResMut<Rituals>,
+    mut lobbies: Query<(Entity, &mut Lobby)>,
+    players: Query<(&PlayerId, &PlayerPose, &PlayerCombat), With<LobbyPlayer>>,
+    mut radio: EventWriter<crate::radio::SayRadio>,
+    mut quotes: EventWriter<crate::quotes::SayQuote>,
+) {
+    use shared::easter_egg::{RITUAL_CHANT_AT_SECS, RITUAL_SEAL_AT_SECS};
     let dt = time.delta_secs();
     rituals.0.retain(|e, _| {
         lobbies
@@ -201,11 +223,31 @@ fn run_ritual(time: Res<Time>, mut rituals: ResMut<Rituals>, mut lobbies: Query<
         if !shared::easter_egg::available(&lobby) || lobby.easter_egg.step != EggStep::Ritual {
             continue;
         }
-        let t = rituals.0.entry(lobby_e).or_insert(0.0);
+        let r = rituals.0.entry(lobby_e).or_default();
         if !lobby.paused {
-            *t += dt;
+            r.t += dt;
         }
-        if *t >= shared::easter_egg::RITUAL_SECS {
+        if !r.begun {
+            r.begun = true;
+            radio.write(crate::radio::SayRadio { lobby: lobby_e, line: RadioLine::EggRitualBegins });
+        }
+        if !r.sealed && r.t >= RITUAL_SEAL_AT_SECS {
+            r.sealed = true;
+            radio.write(crate::radio::SayRadio { lobby: lobby_e, line: RadioLine::EggRitualSeal });
+        }
+        if !r.chanted && r.t >= RITUAL_CHANT_AT_SECS {
+            r.chanted = true;
+            let map = lobby.map;
+            for (id, pose, combat) in &players {
+                let standing = combat.alive && combat.down.is_none();
+                let ally = shared::bot_players::is_ally_peer(id.0);
+                let there = !ally || shared::easter_egg::in_ritual_area(map, feet(pose));
+                if lobby.has(id.0) && !shared::bot_players::is_bot_peer(id.0) && standing && there {
+                    quotes.write(crate::quotes::SayQuote::by(lobby_e, id.0, shared::quotes::Quote::RitualChant));
+                }
+            }
+        }
+        if r.t >= shared::easter_egg::RITUAL_SECS {
             rituals.0.remove(&lobby_e);
             lobby.easter_egg.step = EggStep::Unleashed;
             info!("lobby {lobby_e:?}: the ritual's done — and it's gone wrong");

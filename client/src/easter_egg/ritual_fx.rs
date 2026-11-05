@@ -1,13 +1,14 @@
 //! The ritual played out at its altar (`ZombiesLayout::ritual_altar`), by
 //! the ritual's clock ([`EggRitual`], [`shared::easter_egg::RITUAL_SECS`]):
 //!
+//! (Each step as the man on the radio calls it — `RadioLine::EggRitualBegins`.)
+//!
 //! 1. the dagger's driven point first into the middle of the altar's basin;
-//! 2. Barrett's vial comes down over the basin, tips, and pours — a thin
-//!    stream falling under gravity (its head falling from the vial's mouth,
-//!    and once the pour stops, its tail after it) — and the blood spreads
-//!    out unevenly across the basin's floor from where the stream lands,
-//!    rising as it fills; the vial rights itself and is gone;
-//! 3. the squad's blood fills it to the brim...
+//! 2. the squad's blood spreads out unevenly across the basin's floor...
+//! 3. ...then Barrett's vial comes down over the basin, tips, and pours — a
+//!    thin stream falling under gravity (its head falling from the vial's
+//!    mouth, and once the pour stops, its tail after it) — filling it to the
+//!    brim; the vial rights itself and is gone...
 //! 4. ...and it spills over at the front (+z, toward the sarcophagus), runs
 //!    across the top and down the altar's face, over its step, and spreads
 //!    into a puddle on the floor — while all of it starts to glow;
@@ -27,7 +28,9 @@ use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use lightyear::prelude::LocalId;
-use shared::easter_egg::{EggStep, RITUAL_ALTAR_TOP, RITUAL_SECS, SARCOPHAGUS_HALF_EXTENTS};
+use shared::easter_egg::{
+    EggStep, RITUAL_ALTAR_TOP, RITUAL_CHANT_AT_SECS, RITUAL_SECS, RITUAL_VOICE_AT_SECS, SARCOPHAGUS_HALF_EXTENTS,
+};
 use shared::Lobby;
 
 use crate::net::GameClient;
@@ -71,17 +74,20 @@ const TOP: f32 = RITUAL_ALTAR_TOP;
 /// The vial's height (m) — `VIAL_MODEL`, its origin under its base.
 const VIAL_HEIGHT: f32 = 0.12;
 
-// --- its timings (s into the ritual) ------------------------------------------------
+// --- its timings (s into the ritual — to the radio's words) -----------------------
 
-/// The vial comes down over the basin, tips over...
-const VIAL_IN: (f32, f32) = (3.0, 3.4);
-const VIAL_TIP: (f32, f32) = (3.3, 3.9);
+/// The dagger comes down into the basin ("Blade in the altar")...
+const DAGGER_IN: (f32, f32) = (1.7, 2.8);
+/// ...the vial comes down over the basin, tips over ("then pour that vial
+/// in with it")...
+const VIAL_IN: (f32, f32) = (5.4, 5.8);
+const VIAL_TIP: (f32, f32) = (5.7, 6.3);
 /// ...pours from then till then...
-const POUR_FROM: f32 = 3.75;
-const POUR_TO: f32 = 5.9;
+const POUR_FROM: f32 = 6.15;
+const POUR_TO: f32 = 8.3;
 /// ...rights itself, lifts off and is gone.
-const VIAL_RIGHT: (f32, f32) = (5.95, 6.35);
-const VIAL_GONE: f32 = 6.6;
+const VIAL_RIGHT: (f32, f32) = (8.35, 8.75);
+const VIAL_GONE: f32 = 9.0;
 /// How far (rad) it tips.
 const VIAL_TIP_ANGLE: f32 = 125.0 * PI / 180.0;
 /// Where its mouth is over the basin, tipped (off the middle, clear of the
@@ -89,15 +95,17 @@ const VIAL_TIP_ANGLE: f32 = 125.0 * PI / 180.0;
 const POUR_AT: Vec2 = Vec2::new(-0.12, 0.0);
 /// How high its mouth pours from (m).
 const POUR_HEIGHT: f32 = 1.28;
-/// The basin fills from its floor to just under its brim, Barrett's blood
-/// then the squad's...
-const FILL: [(f32, f32); 3] = [(3.9, 0.0), (6.0, 0.6), (8.0, 1.0)];
+/// The basin fills from its floor to just under its brim, the squad's
+/// blood ("Cut your hands, bleed into it") then Barrett's...
+const FILL: [(f32, f32); 4] = [(3.6, 0.0), (5.3, 0.3), (POUR_FROM + 0.15, 0.3), (8.6, 1.0)];
 /// ...overflows down the front — (s, m along the run) — ...
-const RUN_KNOTS_SECS: [f32; 5] = [8.0, 9.2, 9.65, 10.15, 10.35];
+const RUN_KNOTS_SECS: [f32; 5] = [8.6, 9.8, 10.25, 10.75, 10.95];
 /// ...and spreads on the floor.
-const PUDDLE_SPREAD: (f32, f32) = (10.3, RITUAL_SECS);
-/// All of it glowing.
-const GLOW: (f32, f32) = (9.5, 13.0);
+const PUDDLE_SPREAD: (f32, f32) = (10.9, RITUAL_SECS);
+/// All of it glowing — brightest as the squad repeats the seal...
+const GLOW: (f32, f32) = (9.8, RITUAL_CHANT_AT_SECS);
+/// ...and the sarcophagus lighting up as he answers.
+const SARCOPHAGUS_GLOW: (f32, f32) = (RITUAL_VOICE_AT_SECS - 0.5, RITUAL_SECS);
 
 /// The floor puddle's quad: its middle out in front of the step, and how
 /// far (m) it reaches either side.
@@ -468,10 +476,10 @@ fn animate_ritual(
         let shown = match part {
             // Down from above, the blade half buried in the basin's floor.
             RitualPart::Dagger => {
-                let fall = ramp(t, 0.3, 1.5).powi(3);
+                let fall = ramp(t, DAGGER_IN.0, DAGGER_IN.1).powi(3);
                 let y = 1.65 + (TOP - BASIN_DEPTH + 0.02 - 1.65) * fall;
                 transform.translation = Vec3::Y * y;
-                t >= 0.3
+                t >= DAGGER_IN.0
             }
             RitualPart::Vial => {
                 *transform = vial;
@@ -496,8 +504,8 @@ fn animate_ritual(
             }
             RitualPart::Basin => {
                 transform.translation.y = level;
-                // (From where the stream lands, out across the floor.)
-                let spread = 2.0 * ease_out(ramp(t, POUR_FROM + 0.12, 7.2));
+                // (Out across the floor as it starts to fill.)
+                let spread = 2.0 * ease_out(ramp(t, FILL[0].0 + 0.12, FILL[0].0 + 3.45));
                 params = Some((spread, 0.0));
                 spread > 0.0
             }
@@ -535,7 +543,7 @@ fn animate_ritual(
     if let (Some(sarcophagus), Ok((mut light, mut transform))) =
         (shared::level::layout(lobby.map).sarcophagus, sarcophagus_light.single_mut())
     {
-        light.intensity = 250_000.0 * ramp(t, 12.5, 15.0) * (0.75 + 0.25 * wobble);
+        light.intensity = 250_000.0 * ramp(t, SARCOPHAGUS_GLOW.0, SARCOPHAGUS_GLOW.1) * (0.75 + 0.25 * wobble);
         transform.translation =
             sarcophagus.pos + Vec3::Y * (SARCOPHAGUS_HALF_EXTENTS.y * 2.0 + 0.5) * sarcophagus.scale;
     }

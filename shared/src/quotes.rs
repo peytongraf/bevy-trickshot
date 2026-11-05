@@ -106,6 +106,10 @@ pub enum Quote {
     ReviveTeamMate,
     /// A teammate's bled out (someone else standing says it).
     TeamMateBledOut,
+    /// The easter egg's ritual: every operator in the squad repeats the
+    /// seal after the man on the radio, all at once
+    /// (`crate::easter_egg::RITUAL_CHANT_AT_SECS`).
+    RitualChant,
 }
 
 /// How often a [`Quote`] is said: the chance each time it could be, and
@@ -176,6 +180,7 @@ impl Quote {
             Quote::Revived => "revived",
             Quote::ReviveTeamMate => "revive_team_mate",
             Quote::TeamMateBledOut => "team_mate_bleeds_out",
+            Quote::RitualChant => "easter_egg/ritual_chant",
         }
     }
 
@@ -338,6 +343,7 @@ pub fn all() -> Vec<Quote> {
         Quote::Revived,
         Quote::ReviveTeamMate,
         Quote::TeamMateBledOut,
+        Quote::RitualChant,
     ];
     all.extend(
         [PowerUp::MaxAmmo, PowerUp::InstaKill, PowerUp::DoublePoints, PowerUp::Nuke, PowerUp::BonusPoints]

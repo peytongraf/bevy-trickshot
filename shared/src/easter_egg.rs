@@ -158,8 +158,23 @@ pub enum EggAction {
 
 /// How long (s) the ritual takes ([`EggStep::Ritual`]): the players locked
 /// in place, the zombies holding off — then it goes wrong
-/// ([`EggStep::Unleashed`]).
-pub const RITUAL_SECS: f32 = 15.0;
+/// ([`EggStep::Unleashed`]). It runs to the voices:
+///
+/// * as it begins, the man on the radio talks them through it
+///   (`RadioLine::EggRitualBegins` — the blade, their hands, the vial);
+/// * [`RITUAL_SEAL_AT_SECS`] in, a beat after, the seal ("repeat after
+///   me...", `RadioLine::EggRitualSeal`);
+/// * [`RITUAL_CHANT_AT_SECS`] in, a beat after he's off air, every
+///   operator repeats it at once (`Quote::RitualChant`);
+/// * [`RITUAL_VOICE_AT_SECS`] in, a beat after them, the Hierophant answers
+///   from the sarcophagus — and a little after, it's gone wrong.
+pub const RITUAL_SECS: f32 = RITUAL_VOICE_AT_SECS + 2.0;
+/// When (s into the ritual) the man on the radio gives the seal...
+pub const RITUAL_SEAL_AT_SECS: f32 = crate::radio::RadioLine::EggRitualBegins.airtime() + 0.2;
+/// ...when the operators repeat it...
+pub const RITUAL_CHANT_AT_SECS: f32 = RITUAL_SEAL_AT_SECS + crate::radio::RadioLine::EggRitualSeal.airtime() + 0.3;
+/// ...and how long (s) that takes (the longest of their lines).
+pub const RITUAL_CHANT_SECS: f32 = 4.08;
 
 /// While the ritual runs ([`EggStep::Ritual`]), whatever's still up stalls
 /// in awe of it: slowed to this share of its pace (runners shambling)...
@@ -175,8 +190,9 @@ pub fn ritual_stalls(lobby: &Lobby) -> bool {
 }
 
 /// How far (s) into the ritual the Hierophant starts on his line from the
-/// sarcophagus (`during_ritual.mp3`), and how long it is.
-pub const RITUAL_VOICE_AT_SECS: f32 = 13.0;
+/// sarcophagus (`during_ritual.mp3`) — once the operators are done — and
+/// how long it is.
+pub const RITUAL_VOICE_AT_SECS: f32 = RITUAL_CHANT_AT_SECS + RITUAL_CHANT_SECS + 0.35;
 pub const RITUAL_VOICE_SECS: f32 = 5.64;
 
 /// Once it's gone wrong ([`EggStep::Unleashed`], counted without pauses):
@@ -651,6 +667,25 @@ pub fn solid_boxes(map: MapId) -> Vec<(Vec3, Quat, Vec3)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ritual_runs_to_its_voices_in_turn() {
+        use crate::operator::Operator;
+        use crate::quotes::{lines, Quote};
+        use crate::radio::RadioLine;
+        let longest = Operator::ALL
+            .into_iter()
+            .flat_map(|o| lines(o, Quote::RitualChant))
+            .map(|l| l.secs)
+            .fold(0.0, f32::max);
+        assert!(longest > 0.0 && longest <= RITUAL_CHANT_SECS + 0.01, "the chant runs {longest} s");
+        // (Each voice once the last is done: him, the seal, the operators,
+        // the Hierophant — and only then does it go wrong.)
+        assert!(RITUAL_SEAL_AT_SECS >= RadioLine::EggRitualBegins.airtime());
+        assert!(RITUAL_CHANT_AT_SECS >= RITUAL_SEAL_AT_SECS + RadioLine::EggRitualSeal.airtime());
+        assert!(RITUAL_VOICE_AT_SECS >= RITUAL_CHANT_AT_SECS + longest);
+        assert!(RITUAL_SECS > RITUAL_VOICE_AT_SECS);
+    }
 
     #[test]
     fn steps_are_in_order() {
