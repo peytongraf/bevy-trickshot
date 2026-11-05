@@ -171,6 +171,10 @@ const VIEW_MODEL_RENDER_LAYER: usize = 1;
 /// Render layer for the reticle quad — only the scope camera renders it, so the
 /// crosshair lives inside the scope image and nowhere else.
 pub(crate) const SCOPE_OVERLAY_LAYER: usize = 2;
+/// Render layer for the first-person arms the easter egg's cut scene shows
+/// (`easter_egg::hand_cut`) — the view-model camera draws only this one
+/// through it, the weapon's layer hidden (`revive::apply_down_view`).
+pub(crate) const EGG_HANDS_RENDER_LAYER: usize = 3;
 /// Empty render layer for the HUD camera, which renders after everything else
 /// (including the view-model camera) so the UI is never covered by the gun.
 pub(crate) const UI_LAYER: usize = 4;
@@ -952,7 +956,7 @@ fn setup_world(
         .build(),
         // Light the world and the view model (which casts no shadows —
         // `player::view_model_light`).
-        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER]),
+        RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER, EGG_HANDS_RENDER_LAYER]),
     ));
 }
 
@@ -1247,7 +1251,7 @@ fn setup_player(
                             rig.spawn((
                                 KnifeViewModel,
                                 KnifeAnimation {
-                                    graph: knife_graph,
+                                    graph: knife_graph.clone(),
                                     index: knife_index,
                                 },
                                 SceneRoot(asset_server.load(
@@ -1332,6 +1336,28 @@ fn setup_player(
                                 Visibility::Hidden,
                             ))
                             .observe(start_mantle_arms);
+
+                            // The arms that cut the hand in the easter
+                            // egg's ritual (`easter_egg::hand_cut`) — the
+                            // knife's own again, on the cut scene's layer.
+                            rig.spawn((
+                                easter_egg::HandCutArms,
+                                easter_egg::HandCutAnimation {
+                                    graph: knife_graph.clone(),
+                                    index: knife_index,
+                                },
+                                SceneRoot(asset_server.load(
+                                    GltfAssetLabel::Scene(0).from_asset("models/weapons/knife.glb"),
+                                )),
+                                Transform {
+                                    translation: knife_settings.translation,
+                                    rotation: Quat::from_euler(EulerRot::YXZ, PI, 0.0, 0.0),
+                                    scale: Vec3::splat(knife_settings.scale),
+                                },
+                                RenderLayers::layer(EGG_HANDS_RENDER_LAYER),
+                                Visibility::Hidden,
+                            ))
+                            .observe(easter_egg::start_hand_cut_arms);
 
                             // Muzzle flash sprite. Camera-relative (sits under
                             // `CameraShake`), drawn with the gun on layer 1.

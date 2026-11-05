@@ -399,10 +399,11 @@ fn apply_down_view(
         Res<crate::end_screen_fx::EndScreenFx>,
         Res<crate::end_screen_fx::EndScreenFxSettings>,
     ),
-    (soul, soul_settings, cinematic): (
+    (soul, soul_settings, cinematic, cut_preview): (
         Res<crate::easter_egg::EggSoul>,
         Res<crate::easter_egg::EggSoulSettings>,
         Res<crate::easter_egg::EggCinematic>,
+        Res<crate::easter_egg::HandCutPreview>,
     ),
     mut saturation: Local<Option<f32>>,
     mut grading: Query<&mut ColorGrading, Or<(With<WorldModelCamera>, With<ViewModelCamera>)>>,
@@ -445,9 +446,13 @@ fn apply_down_view(
         }
     }
     // (Nor once we're killed in a `SearchAndDestroy` round, nor through the
-    // easter egg's cut scene.)
-    let want = if local.blocks_weapon() || results || snd.dead || soul.out() || cinematic.locked() {
+    // easter egg's cut scene — which shows only its own arms, cutting the
+    // hand, `easter_egg::hand_cut`.)
+    let want = if local.blocks_weapon() || results || snd.dead || soul.out() {
         RenderLayers::none()
+    } else if cinematic.locked() || cut_preview.playing() {
+        // (Its preview too, from the debug panel.)
+        RenderLayers::layer(crate::EGG_HANDS_RENDER_LAYER)
     } else {
         RenderLayers::layer(VIEW_MODEL_RENDER_LAYER)
     };

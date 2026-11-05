@@ -5,7 +5,8 @@
 //! * every player's held still, no weapon up (`menu::game_active`,
 //!   `menu::weapon_active`, `revive::apply_down_view`);
 //! * the view's turned for them ([`aim_view`]) — onto the ritual altar as
-//!   the dagger, the vial and their blood go in and it spills over, then
+//!   the dagger, the vial and their blood go in and it spills over (looking
+//!   down at their own hands as they cut them, `hand_cut::look_down`), then
 //!   onto the sarcophagus as he speaks, and
 //!   onto him as he wakes and stands up;
 //! * black bars slide in over the top and bottom of the screen
@@ -154,6 +155,7 @@ fn aim_view(
     cinematic: Res<EggCinematic>,
     ritual: Res<EggRitual>,
     wake: Res<EggWake>,
+    cut: Res<super::hand_cut::HandCutSettings>,
     spectate: Res<crate::revive::Spectate>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
@@ -172,7 +174,7 @@ fn aim_view(
         return;
     }
     let yaw = f32::atan2(-d.x, -d.z);
-    let pitch = f32::atan2(d.y, flat).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    let pitch = (f32::atan2(d.y, flat) - super::hand_cut::look_down(&cut, ritual.t)).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     let k = 1.0 - (-TURN_RATE * time.delta_secs()).exp();
     player.rotation = player.rotation.slerp(Quat::from_rotation_y(yaw), k);
     head.rotation = head.rotation.slerp(Quat::from_rotation_x(pitch), k);

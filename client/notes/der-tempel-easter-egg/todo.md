@@ -14,7 +14,7 @@ on each).
 
 # Bugs / fix
 
-- Add hand cutting animation for current and remote players with blood effect
+- Remote players cutting their hands (third person). Our own first-person cut is in (`client/src/easter_egg/hand_cut.rs`), and others already look down at their hands with it.
 - Should text on screen have a quote that is read aloud?
 - particle animation that is shown after top is blown of sarcophagus should look more realistic
 
@@ -35,8 +35,9 @@ on each).
 ## The ritual
 
 3. **[you]** Animate the ritual in first person (dagger into the altar,
-   cutting the hand, pouring the vial), and record the ritual's music or
-   sound bed. The radio talks the squad through it and they chant the seal
+   pouring the vial), and record the ritual's music or sound bed. The hand
+   cut is done in code: the knife arms posed by IK, timed to the radio
+   ("The hand cut" in the debug panel). A baked animation could replace it. The radio talks the squad through it and they chant the seal
    (recorded), each line subtitled (`RITUAL_SUBTITLES` in
    `client/src/easter_egg.rs`). It runs about 22.4 s
    (`shared::easter_egg::RITUAL_SECS`, set by the voices' lengths). The

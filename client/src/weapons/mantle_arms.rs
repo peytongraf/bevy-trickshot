@@ -351,7 +351,7 @@ pub(crate) fn dip_weapon_for_mantle(
 
 /// `e`'s transform in the world as of this frame — every local transform up
 /// the hierarchy, before they've propagated.
-fn world_now(e: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Affine3A {
+pub(crate) fn world_now(e: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Affine3A {
     let mut m = Affine3A::IDENTITY;
     let mut at = e;
     loop {
@@ -444,7 +444,7 @@ fn pose_mantle_arms(
 /// Two-bone IK in the world: turn `bones` (upper arm, forearm, hand) so the
 /// hand's at `to`, turned `to_rot` — or as near as the arm reaches —
 /// keeping the elbow bent the way it is.
-fn reach(
+pub(crate) fn reach(
     bones: [Entity; 3],
     to: Vec3,
     to_rot: Quat,

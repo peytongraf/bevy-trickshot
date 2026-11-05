@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- First-person ritual hand cut with blood
 - Ritual radio walkthrough, seal and operators' chant
 - Exhumer souls go for zombies in view, closest to aim
 - Exhumer drains on the ground, then lifts

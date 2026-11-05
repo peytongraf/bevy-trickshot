@@ -4,8 +4,9 @@
 //! and a Bevy light only lights meshes on a layer it shares — one with no
 //! `RenderLayers` is on layer 0 alone. So every point / spot light (map and
 //! power lights, other players' flashlights, machines, fire…) that doesn't
-//! pick its own layers is put on the world's and the view model's both, the
-//! way the sun is (`setup_world`); without that, only the sun and ambient
+//! pick its own layers is put on the world's and the view model's both (and
+//! the easter egg's cut-scene arms', `easter_egg::hand_cut`), the way the
+//! sun is (`setup_world`); without that, only the sun and ambient
 //! light ever reached the gun, and on night maps it went near-black next to
 //! a lamp-lit floor.
 //!
@@ -17,7 +18,7 @@ use bevy::pbr::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 
-use crate::VIEW_MODEL_RENDER_LAYER;
+use crate::{EGG_HANDS_RENDER_LAYER, VIEW_MODEL_RENDER_LAYER};
 
 pub(crate) struct ViewModelLightPlugin;
 
@@ -37,7 +38,7 @@ fn light_view_model(
     for e in &lights {
         commands
             .entity(e)
-            .insert(RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER]));
+            .insert(RenderLayers::from_layers(&[0, VIEW_MODEL_RENDER_LAYER, EGG_HANDS_RENDER_LAYER]));
     }
 }
 
@@ -46,7 +47,8 @@ fn no_view_model_shadows(
     meshes: Query<(Entity, &RenderLayers), (With<Mesh3d>, Without<NotShadowCaster>, Changed<RenderLayers>)>,
     mut commands: Commands,
 ) {
-    let view_model = RenderLayers::layer(VIEW_MODEL_RENDER_LAYER);
+    // (The easter egg's cut-scene arms too, `easter_egg::hand_cut`.)
+    let view_model = RenderLayers::from_layers(&[VIEW_MODEL_RENDER_LAYER, EGG_HANDS_RENDER_LAYER]);
     for (e, layers) in &meshes {
         if layers.intersects(&view_model) {
             commands.entity(e).insert(NotShadowCaster);

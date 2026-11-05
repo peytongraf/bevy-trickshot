@@ -21,7 +21,9 @@
 //!   and the sarcophagus lighting up (`ritual_fx`), timed to the man on the
 //!   radio talking the squad through it, his seal and the operators
 //!   repeating it (all said from the server) — each line subtitled
-//!   ([`RITUAL_SUBTITLES`]). Once it's done, it stays as it ended;
+//!   ([`RITUAL_SUBTITLES`]) — and in first person, each of us cutting our
+//!   own hand with our knife as he says to (`hand_cut`). Once it's done, it
+//!   stays as it ended;
 //! * the Hierophant's line from the sarcophagus near the ritual's end, and
 //!   once it's gone wrong, his gloating — the radio following him, from the
 //!   server ([`hierophant_speaks`]). What the map does then, and its
@@ -75,6 +77,7 @@ mod ascension;
 mod cinematic;
 mod death;
 mod fight;
+mod hand_cut;
 mod music;
 mod ritual_deaths;
 mod ritual_fx;
@@ -82,6 +85,7 @@ mod wake;
 
 pub(crate) use cinematic::EggCinematic;
 pub(crate) use fight::EggFightSettings;
+pub(crate) use hand_cut::{start_hand_cut_arms, HandCutAnimation, HandCutArms, HandCutPreview};
 pub(crate) use wake::{EggCameraShake, EggWake, EggWakeSettings};
 
 pub(crate) struct EasterEggPlugin;
@@ -89,7 +93,12 @@ pub(crate) struct EasterEggPlugin;
 impl Plugin for EasterEggPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((wake::WakePlugin, fight::FightPlugin, music::MusicPlugin, death::DeathPlugin, ascension::AscensionPlugin))
-            .add_plugins((ritual_deaths::RitualDeathsPlugin, cinematic::CinematicPlugin, ritual_fx::RitualFxPlugin))
+            .add_plugins((
+                ritual_deaths::RitualDeathsPlugin,
+                cinematic::CinematicPlugin,
+                ritual_fx::RitualFxPlugin,
+                hand_cut::HandCutPlugin,
+            ))
             .init_resource::<EggDebugView>()
             .init_resource::<EggWhisperSettings>()
             .init_resource::<EggLocal>()
@@ -1250,6 +1259,10 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     soul_settings: ResMut<'w, ascension::EggSoulSettings>,
     exhumer: ResMut<'w, crate::exhumer::ExhumerFxSettings>,
     ritual_deaths: ResMut<'w, ritual_deaths::RitualDeathSettings>,
+    hand_cut: ResMut<'w, hand_cut::HandCutSettings>,
+    hand_cut_preview: ResMut<'w, hand_cut::HandCutPreview>,
+    state: Res<'w, State<AppState>>,
+    ritual: Res<'w, EggRitual>,
     // (Not `Weapon` or a `GiveWeapon` sender: the debug panel's system
     // already has both, elsewhere — `exhumer::ExhumerDebug` goes between.)
     exhumer_debug: ResMut<'w, crate::exhumer::ExhumerDebug>,
@@ -1291,6 +1304,10 @@ impl EasterEggDebug<'_, '_> {
         });
         ui.collapsing("It goes wrong — the map", |ui| {
             crate::environment::egg_mood_section(ui, &mut self.mood, self.mood_fade.0);
+        });
+        let in_game = *self.state.get() == AppState::InGame;
+        ui.collapsing("The hand cut", |ui| {
+            hand_cut::hand_cut_section(ui, &mut self.hand_cut, &mut self.hand_cut_preview, self.ritual.t, in_game)
         });
         ui.collapsing("He wakes", |ui| wake::wake_section(ui, &mut self.wake_settings, &self.wake));
         let egg_lobby = egg_game(&self.local, &self.lobbies);
