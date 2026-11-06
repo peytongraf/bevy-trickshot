@@ -8,7 +8,7 @@
 //! with the round ([`zombie_skill`]). It rises up out of the ground somewhere
 //! a body can stand (a `nav` graph node, so never inside a map object) within
 //! [`SPAWN_MIN_DIST`]..[`SPAWN_MAX_DIST`] of a random living member, walkably
-//! connected to them. Once a round's zombies are all dead, a short break,
+//! connected to them (a boss: closer, in sight of them — [`pick_boss_spawn`]). Once a round's zombies are all dead, a short break,
 //! then the next round.
 //!
 //! A zombie left far behind — [`RECYCLE_DIST`] from every living player, and
@@ -648,7 +648,8 @@ pub(crate) fn run_rounds(
         // (`crate::boss`), on top of the round's zombies.
         if rounds.bosses_to_spawn > 0 && now >= rounds.boss_due_at {
             let seed = (now.to_bits() as u64) << 24 ^ 0xb055 ^ lobby_e.to_bits();
-            match pick_spot(seed) {
+            let world = colliders.for_lobby(&lobby);
+            match pick_boss_spawn(nav, reach.as_deref(), &around, &living, &world, seed) {
                 Some((feet, near)) => {
                     rounds.pending_bosses.push(crate::boss::PendingBoss::new(feet, near, now));
                     rounds.bosses_to_spawn -= 1;
@@ -770,6 +771,68 @@ fn pick_spawn(
     })
         .filter(|p| living.iter().all(|l| l.distance(*p) >= SPAWN_CLEAR_OF_PLAYERS))
         .map(|feet| (feet, near))
+}
+
+/// How far (m) a boss comes up from the member it's sent at, as tries go
+/// wider: in the same room, in sight of them, and not on top of anyone (its
+/// arrival's blast is `shared::boss::SPAWN_BLAST_RADIUS`)...
+const BOSS_SPAWN_BANDS: [(f32, f32); 2] = [(8.0, 18.0), (5.0, 28.0)];
+const BOSS_CLEAR_OF_PLAYERS: f32 = 5.0;
+/// ...on about their floor (m), not up on a ledge or roof that's just in
+/// sight...
+const BOSS_SPAWN_MAX_RISE: f32 = 2.5;
+/// ...trying this many spots in each band.
+const BOSS_SPAWN_TRIES: u64 = 12;
+
+/// Where a boss comes up: in the same room as a random one of `around`, in
+/// clear sight of them, so they can't miss it arriving. Spots are sampled
+/// first; in a cramped place where that misses, every spot in reach is looked
+/// through (on any floor, if it's only a roof they're on that's in sight of
+/// them). Where nothing fits at all, anywhere an enemy could come up
+/// ([`pick_spawn`]).
+fn pick_boss_spawn(
+    nav: &crate::nav::NavGraph,
+    reach: Option<&[bool]>,
+    around: &[Vec3],
+    living: &[Vec3],
+    world: &dyn CollisionWorld,
+    seed: u64,
+) -> Option<(Vec3, Vec3)> {
+    if around.is_empty() {
+        return None;
+    }
+    let near = around[(rand01(seed ^ 0xb0) * around.len() as f32) as usize % around.len()];
+    let eye = near + Vec3::Y * EYE_HEIGHT;
+    let fits = |feet: Vec3| {
+        let chest = feet + Vec3::Y * crate::nav::CHEST_HEIGHT;
+        let to = chest - eye;
+        living.iter().all(|l| l.distance(feet) >= BOSS_CLEAR_OF_PLAYERS)
+            && world.raycast(eye, to.normalize_or_zero(), to.length()).is_none()
+    };
+    for (band, (min, max)) in BOSS_SPAWN_BANDS.into_iter().enumerate() {
+        for i in 0..BOSS_SPAWN_TRIES {
+            let try_seed = seed ^ (band as u64 + 1).wrapping_mul(0x9e37) ^ i.wrapping_mul(0x5bd1_e995);
+            let Some(feet) = nav.random_spot_near_where(near, min, max, try_seed, |n| {
+                nav.spawn_allowed(reach, n) && (nav.node(n).y - near.y).abs() <= BOSS_SPAWN_MAX_RISE
+            }) else {
+                continue;
+            };
+            if fits(feet) {
+                return Some((feet, near));
+            }
+        }
+    }
+    let (min, max) = BOSS_SPAWN_BANDS[1];
+    let mut spots = nav.spots_near_where(near, min, max, |n| nav.spawn_allowed(reach, n));
+    if !spots.is_empty() {
+        // (From a random place in the list, so not always the same one.)
+        let from = (rand01(seed ^ 0xb1) * spots.len() as f32) as usize % spots.len();
+        spots.rotate_left(from);
+        if let Some(feet) = spots.into_iter().find(|p| fits(*p)) {
+            return Some((feet, near));
+        }
+    }
+    pick_spawn(nav, reach, around, living, seed)
 }
 
 /// Furthest (m) a window's landing can be from the living member a zombie's
@@ -990,7 +1053,12 @@ fn recycle_far_zombies(
         // A hellhound or a boss: struck back in by its lightning, up out
         // of the ground somewhere a new one would be.
         if dog || boss {
-            let Some((to, facing)) = pick_spawn(nav, reach.as_deref(), &around, &living, seed) else {
+            let spot = if boss {
+                pick_boss_spawn(nav, reach.as_deref(), &around, &living, &world, seed)
+            } else {
+                pick_spawn(nav, reach.as_deref(), &around, &living, seed)
+            };
+            let Some((to, facing)) = spot else {
                 // (Nowhere this time: tried again at the next check.)
                 continue;
             };
@@ -2131,6 +2199,50 @@ mod tests {
         let veteran = BotDifficulty::Veteran.skill();
         assert!((top.aim_error_deg - veteran.aim_error_deg).abs() < 1e-4);
         assert!((top.reaction_secs - veteran.reaction_secs).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_boss_comes_up_in_sight_of_who_its_sent_at() {
+        let (colliders, navs) = crate::nav::tests::built();
+        for map in [shared::MapId::DerTempel, shared::MapId::Shipment] {
+            let nav = navs.graph(map);
+            let world = colliders.world(map);
+            let sees = |eye: Vec3, feet: Vec3| {
+                let to = feet + Vec3::Y * crate::nav::CHEST_HEIGHT - eye;
+                world.raycast(eye, to.normalize_or_zero(), to.length()).is_none()
+            };
+            let (min, max) = BOSS_SPAWN_BANDS[1];
+            // Wherever the player's standing: the map's own walkable spots,
+            // spread out.
+            let (mut total, mut in_sight, mut boxed_in, mut furthest_open) = (0, 0, 0, 0.0f32);
+            for i in (0..nav.node_count() as u32).step_by(nav.node_count().max(200) / 200) {
+                let player = nav.node(i);
+                let eye = player + Vec3::Y * EYE_HEIGHT;
+                let Some((feet, _)) = pick_boss_spawn(nav, None, &[player], &[player], world, i as u64 + 1) else {
+                    continue;
+                };
+                total += 1;
+                assert!(player.distance(feet) >= BOSS_CLEAR_OF_PLAYERS - 0.01 , "{map:?}: on top of them at {player:?}");
+                // A spot in sight, if there's any to be had: only somewhere
+                // boxed in with nothing in view may it come up out of sight.
+                if sees(eye, feet) {
+                    in_sight += 1;
+                    let flat = Vec3::new(feet.x - player.x, 0.0, feet.z - player.z).length();
+                    assert!((min - 0.01..=max + 0.01).contains(&flat), "{map:?}: {flat} m from {player:?}");
+                    furthest_open = furthest_open.max(flat);
+                } else {
+                    boxed_in += 1;
+                    let any = nav
+                        .spots_near_where(player, min, max, |_| true)
+                        .into_iter()
+                        .any(|p| player.distance(p) >= BOSS_CLEAR_OF_PLAYERS && sees(eye, p));
+                    assert!(!any, "{map:?}: out of sight from {player:?} with a spot in sight to be had");
+                }
+            }
+            println!("{map:?}: {in_sight}/{total} in sight ({boxed_in} boxed in), furthest {furthest_open:.1} m");
+            assert!(total >= 100, "{map:?}: only {total} places to test from");
+            assert!(in_sight * 100 >= total * 80, "{map:?}: only {in_sight}/{total} came up in sight");
+        }
     }
 
     #[test]

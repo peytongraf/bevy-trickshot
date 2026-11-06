@@ -663,6 +663,21 @@ impl NavGraph {
         None
     }
 
+    /// Every place a body can stand `min..=max` metres (horizontally) from feet
+    /// position `center`, walkably connected to it, of the nodes `ok` lets
+    /// through. Goes through the whole graph: for what's rare, when
+    /// [`Self::random_spot_near_where`]'s sampling has come up empty.
+    pub fn spots_near_where(&self, center: Vec3, min: f32, max: f32, ok: impl Fn(u32) -> bool) -> Vec<Vec3> {
+        let Some(region) = self.nearest_node(center).map(|n| self.region[n as usize]) else {
+            return Vec::new();
+        };
+        (0..self.nodes.len() as u32)
+            .filter(|&n| self.region[n as usize] == region && ok(n))
+            .map(|n| self.nodes[n as usize])
+            .filter(|q| (min..=max).contains(&Vec3::new(q.x - center.x, 0.0, q.z - center.z).length()))
+            .collect()
+    }
+
     /// A route for a body standing at feet position `from` to reach `to`: feet
     /// waypoints, straightened, ending at `to`. `climb` lets it mantle up
     /// ledges on the way. `None` if either end can't be placed on the map or
