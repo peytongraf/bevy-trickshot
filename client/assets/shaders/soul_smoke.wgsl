@@ -18,7 +18,8 @@ struct SmokeParams {
     color: vec4<f32>,
     // How far (m) in front of what's behind it it fades in over.
     soft: f32,
-    _pad0: f32,
+    // How much it dims what's behind it (0: purely additive).
+    body: f32,
     _pad1: f32,
     _pad2: f32,
 }
@@ -35,7 +36,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let here = -position_world_to_view(in.world_position.xyz).z;
     soft = smoothstep(0.0, smoke.soft, scene - here);
 #endif
-    // (The texture's straight alpha: premultiplied here. Alpha 0: purely
-    // additive, `AlphaMode::Add`.)
-    return vec4<f32>(c.rgb * c.a * smoke.color.rgb * smoke.color.a * soft, 0.0);
+    // (The texture's straight alpha: premultiplied here.)
+    return vec4<f32>(c.rgb * c.a * smoke.color.rgb * smoke.color.a * soft, clamp(c.a * soft * smoke.body, 0.0, 1.0));
 }

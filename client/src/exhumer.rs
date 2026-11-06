@@ -5,7 +5,7 @@
 //!   hand — no aim-down-sight for it, `weapons::ads`; sent with our input as
 //!   `PlayerInput::beaming`). Every player's beam is drawn ([`draw_beams`]:
 //!   ours from the gun, theirs from their `PlayerPose::beaming`) out to its
-//!   reach or the first wall (`shaders/exhumer_beam.wgsl`), wisps of green
+//!   reach or the first wall (`shaders/exhumer_beam.wgsl`), a plume of green
 //!   soul-smoke drifting back along it into the gun, its hum looping. The zombies it has hold of
 //!   ([`shared::exhumer::ExhumerDrain`]) are drained where they stand,
 //!   shuddering and tipping back, a soul-light growing in each chest
@@ -31,7 +31,8 @@
 
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::asset::RenderAssetUsages;
+use bevy::render::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
 use bevy::render::view::NoFrustumCulling;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -67,6 +68,7 @@ impl Plugin for ExhumerPlugin {
             ..default()
         })
         .init_resource::<ExhumerFxSettings>()
+            .init_resource::<OwnBeam>()
             .init_resource::<ExhumerDebug>()
             .add_systems(Startup, load_sounds)
             .add_systems(
@@ -80,16 +82,32 @@ impl Plugin for ExhumerPlugin {
                     (receive_drains, receive_exhumes, receive_souls, receive_swarms),
                     lift_avatars.after(crate::net::follow_remote_avatars),
                     run_glows,
-                    draw_beams,
-                    fly_motes,
                     fly_wisps,
                     altar_glows,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
+            // Once the view model's final for the frame (its sway's written in
+            // `Update`, its animation just now), and in time for this frame's
+            // transforms: a beam drawn off last frame's camera and gun
+            // trails them by a frame, and judders as the aim moves.
+            .add_systems(
+                PostUpdate,
+                (locate_own_beam, draw_beams, fly_motes)
+                    .chain()
+                    .after(bevy::app::Animation)
+                    .before(bevy::transform::TransformSystem::TransformPropagate)
+                    .run_if(in_state(AppState::InGame)),
+            )
             // (Not left humming once out of a game.)
-            .add_systems(OnExit(AppState::InGame), |mut weapon: ResMut<Weapon>| weapon.beaming = false);
+            .add_systems(
+                OnExit(AppState::InGame),
+                |mut weapon: ResMut<Weapon>, mut own: ResMut<OwnBeam>| {
+                    weapon.beaming = false;
+                    *own = default();
+                },
+            );
     }
 }
 
@@ -116,24 +134,45 @@ pub(crate) struct ExhumerFxSettings {
     pub(crate) return_secs: f32,
     pub(crate) arc: f32,
     /// The beam: its width (m) at the gun and at its far end, how bright,
-    /// how much it flickers (0..1), how fast (m/s) what's in it streams back
-    /// to the gun, how bright the strands coiling round it are, how much its
-    /// core writhes (share of its width), how smoky it is (0..1), the size
-    /// (m) of the swirl of smoke where it ends, and its light
-    /// (lumens); the motes drawn back along it — how many a second, how fast
-    /// (m/s), how big (m).
+    /// how much it flickers (0..1), how fast (m/s) its smoke drifts back to
+    /// the gun, how smoky it is (0..1), the size (m) of the smoke where it
+    /// ends, and its light (lumens); the puffs of smoke drawn back along it —
+    /// how many a second, how fast (m/s), how big (m).
     pub(crate) beam_width_near: f32,
     /// How long (s) it takes to shoot out from the gun to its full reach.
     pub(crate) beam_extend_secs: f32,
+    /// Our own beam's start, nudged (m, as the view-model camera sees it: x
+    /// right, y up, z back) from the end of the barrel ([`BARREL_TIP`]).
+    pub(crate) beam_start_nudge: Vec3,
+    /// How quickly (1/s) its length follows what it's hitting, so aiming
+    /// across a nearer or further surface draws it in or out, not in one go.
+    pub(crate) beam_reach_smooth: f32,
+    /// How its far end trails behind as it swings, like the end of a rope
+    /// ([`BeamVisual::swing`]) — side to side and up and down, never along
+    /// it: how much (0 = dead straight); how quickly it catches up (Hz); how
+    /// little it overshoots (1 = not at all); the most it's off (°); and how
+    /// much of the bend's out at the end (1 = even along it, higher = less
+    /// near the gun).
+    pub(crate) beam_lag: f32,
+    pub(crate) beam_lag_hz: f32,
+    pub(crate) beam_lag_damping: f32,
+    pub(crate) beam_lag_max_deg: f32,
+    pub(crate) beam_lag_curve: f32,
     pub(crate) beam_width_far: f32,
     pub(crate) beam_glow: f32,
     pub(crate) beam_flicker: f32,
     pub(crate) beam_flow: f32,
-    pub(crate) beam_strands: f32,
-    pub(crate) beam_writhe: f32,
+    /// How much its edges billow and wander, how far (m) from the gun it
+    /// burns pale, and how much its smoke dims what's behind it (0 = none) —
+    /// what keeps it green over a bright scene.
+    pub(crate) beam_turbulence: f32,
+    pub(crate) beam_heat: f32,
+    pub(crate) beam_body: f32,
+    /// The glow where it leaves the barrel (m), and how bright the puffs of
+    /// smoke along it and where it ends are.
+    pub(crate) beam_muzzle_glow: f32,
+    pub(crate) beam_puff_glow: f32,
     pub(crate) beam_smoke: f32,
-    /// How strong the green swirl streaming along the beam is.
-    pub(crate) beam_swirl: f32,
     pub(crate) flare_size: f32,
     pub(crate) beam_light: f32,
     pub(crate) motes_per_sec: f32,
@@ -174,21 +213,30 @@ impl Default for ExhumerFxSettings {
             smoke_soft: 0.6,
             return_secs: 0.75,
             arc: 1.6,
-            beam_width_near: 0.12,
+            beam_width_near: 0.14,
             beam_extend_secs: 0.22,
-            beam_width_far: 1.1,
-            beam_glow: 2.0,
+            beam_start_nudge: Vec3::ZERO,
+            beam_reach_smooth: 14.0,
+            beam_lag: 1.0,
+            beam_lag_hz: 2.5,
+            beam_lag_damping: 0.7,
+            beam_lag_max_deg: 6.0,
+            beam_lag_curve: 2.0,
+            beam_width_far: 1.8,
+            beam_glow: 1.3,
             beam_flicker: 0.35,
-            beam_flow: 7.0,
-            beam_strands: 1.2,
-            beam_writhe: 0.12,
-            beam_smoke: 0.8,
-            beam_swirl: 1.4,
-            flare_size: 1.4,
+            beam_flow: 5.0,
+            beam_turbulence: 0.8,
+            beam_heat: 3.0,
+            beam_body: 0.3,
+            beam_muzzle_glow: 0.55,
+            beam_puff_glow: 0.55,
+            beam_smoke: 0.85,
+            flare_size: 2.4,
             beam_light: 80_000.0,
-            motes_per_sec: 12.0,
-            mote_speed: 10.0,
-            mote_size: 1.2,
+            motes_per_sec: 30.0,
+            mote_speed: 6.0,
+            mote_size: 1.5,
             drain_tilt_deg: 10.0,
             drain_shake_deg: 4.0,
             lift_spin: 0.6,
@@ -530,18 +578,21 @@ mod params {
         pub(crate) near: f32,
         pub(crate) flow: f32,
         pub(crate) flicker: f32,
-        pub(crate) strands: f32,
-        pub(crate) writhe: f32,
+        pub(crate) turbulence: f32,
+        pub(crate) heat: f32,
         pub(crate) smoke: f32,
-        pub(crate) swirl: f32,
+        pub(crate) body: f32,
         pub(crate) _pad0: f32,
+        /// How far (m, world) its far end's off its line; `w`: the bend's
+        /// curve.
+        pub(crate) bend: Vec4,
     }
 
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct SmokeParams {
         pub(crate) color: Vec4,
         pub(crate) soft: f32,
-        pub(crate) _pad0: f32,
+        pub(crate) body: f32,
         pub(crate) _pad1: f32,
         pub(crate) _pad2: f32,
     }
@@ -556,18 +607,13 @@ fn additive_quad(descriptor: &mut RenderPipelineDescriptor) {
     }
 }
 
-/// The beam's look (`shaders/exhumer_beam.wgsl`): a ribbon turned about its
-/// own line to face the camera — smoky haze and the green swirl streaming
-/// back to the gun, a writhing core, strands coiling round it, pulses and
-/// flecks racing in. One for every beam (each beam's seed is its
-/// transform's).
+/// The beam's look (`shaders/exhumer_beam.wgsl`): a billowing plume of
+/// soul-smoke on a ribbon. Each beam has its own, for its bend ([`BeamVisual`];
+/// its seed is its transform's).
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct ExhumerBeamMaterial {
     #[uniform(0)]
     params: BeamParams,
-    #[texture(1)]
-    #[sampler(2)]
-    swirl: Handle<Image>,
 }
 
 impl ExhumerBeamMaterial {
@@ -578,10 +624,11 @@ impl ExhumerBeamMaterial {
             near: (s.beam_width_near / s.beam_width_far.max(1.0e-3)).clamp(0.0, 1.0),
             flow: s.beam_flow,
             flicker: s.beam_flicker,
-            strands: s.beam_strands,
-            writhe: s.beam_writhe,
+            turbulence: s.beam_turbulence,
+            heat: s.beam_heat,
             smoke: s.beam_smoke,
-            swirl: s.beam_swirl,
+            body: s.beam_body,
+            bend: Vec3::ZERO.extend(s.beam_lag_curve.max(1.0)),
             ..default()
         }
     }
@@ -597,7 +644,7 @@ impl Material for ExhumerBeamMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Add
+        AlphaMode::Premultiplied
     }
 
     fn specialize(
@@ -629,7 +676,7 @@ impl Material for SoulSmokeMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Add
+        AlphaMode::Premultiplied
     }
 
     fn specialize(
@@ -657,7 +704,8 @@ pub(crate) fn along_rotation(pos: Vec3, along: Vec3, cam_pos: Vec3, roll: f32) -
 /// A beam being drawn: whose (`None`: ours), where it starts, the way it
 /// goes and how far (m) it's drawn — this frame (shooting out from the gun
 /// to its reach as it comes on, `reach` how far it's got) — motes owed
-/// (fractional), and its seed (1..2, so no two look alike).
+/// (fractional), its seed (1..2, so no two look alike), its material, and
+/// how its far end's trailing ([`Self::swing`]).
 #[derive(Component)]
 struct BeamVisual {
     peer: Option<PeerId>,
@@ -667,35 +715,197 @@ struct BeamVisual {
     reach: f32,
     owed: f32,
     seed: f32,
+    material: Handle<ExhumerBeamMaterial>,
+    /// How far along the aim (m) it's reaching, easing toward what's there.
+    hit: f32,
+    /// Where its far end would be, dead straight, last frame.
+    last_tip: Vec3,
+    /// How far its far end's trailing (m), and how fast that's changing.
+    lag: Vec3,
+    lag_velocity: Vec3,
+    /// What's drawn of `lag` this frame, and how it's spread along the beam.
+    bend: Vec3,
+    curve: f32,
+}
+
+impl BeamVisual {
+    /// Let its far end trail behind wherever it's just gone, and spring back
+    /// toward its line: held where it was in the world, then pulled in. Only
+    /// across the beam, so it never stretches or shrinks.
+    fn swing(&mut self, s: &ExhumerFxSettings, dt: f32) {
+        let tip = self.from + self.dir * self.len;
+        let moved = tip - self.last_tip;
+        self.last_tip = tip;
+        let across = |v: Vec3, dir: Vec3| v - dir * v.dot(dir);
+        self.lag = across(self.lag - moved, self.dir);
+        self.lag_velocity = across(self.lag_velocity, self.dir);
+        let dt = dt.min(1.0 / 30.0);
+        let w = std::f32::consts::TAU * s.beam_lag_hz.max(0.1);
+        self.lag_velocity += (-w * w * self.lag - 2.0 * s.beam_lag_damping * w * self.lag_velocity) * dt;
+        self.lag += self.lag_velocity * dt;
+        // (Easing into its limit, not stopping dead at it.)
+        let most = (self.len * s.beam_lag_max_deg.to_radians().tan()).max(1.0e-3);
+        let wanted = self.lag * s.beam_lag;
+        self.bend = wanted.normalize_or_zero() * most * (wanted.length() / most).tanh();
+        self.curve = s.beam_lag_curve.max(1.0);
+    }
+
+    /// How far out along it (0..1) `along` metres is.
+    fn share(&self, along: f32) -> f32 {
+        (along / self.len.max(0.1)).clamp(1.0e-3, 1.0)
+    }
+
+    /// The point `along` metres out, relative to where it starts, with its
+    /// bend (as `shaders/exhumer_beam.wgsl` draws it).
+    fn point(&self, along: f32) -> Vec3 {
+        self.dir * along + self.bend * self.share(along).powf(self.curve)
+    }
 }
 
 /// A beam's ribbon, and its light.
 #[derive(Component)]
 struct BeamCore;
 
-/// One streak of the swirl of soul-smoke where a beam ends: how fast (and
-/// which way) it turns, and its size.
+/// A puff of soul-smoke on a beam: where it ends, or the glow where it leaves
+/// the barrel (`at_gun`). How fast (and which way) it turns, and its size.
+/// Always square on to the camera, turning at its own pace whichever way the
+/// beam's going.
 #[derive(Component)]
 struct BeamFlare {
     turn: f32,
     size: f32,
+    at_gun: bool,
 }
 
-/// A streak of soul-smoke drawn back along a beam: how far along it (m
-/// from the gun), round it, and whether it's mirrored.
+/// A puff of soul-smoke drawn back along a beam: how far along it (m from the
+/// gun), its turn, how long it's been out (s), and whether it's mirrored.
 #[derive(Component)]
 struct Mote {
     beam: Entity,
     along: f32,
     spin: f32,
     seed: f32,
+    age: f32,
     flip: Vec2,
 }
 
 #[derive(Resource)]
 struct BeamAssets {
     ribbon: Handle<Mesh>,
-    ribbon_material: Handle<ExhumerBeamMaterial>,
+}
+
+/// How many pieces a beam's ribbon is along its length, to bend smoothly.
+const RIBBON_SEGMENTS: u32 = 24;
+
+/// A beam's ribbon: a quad like `Rectangle::new(1.0, 1.0)` (-0.5..0.5 across
+/// X and along Y), cut along its length so the shader can bend it.
+fn ribbon_mesh() -> Mesh {
+    let rows = RIBBON_SEGMENTS + 1;
+    let mut positions = Vec::with_capacity(rows as usize * 2);
+    let mut uvs = Vec::with_capacity(rows as usize * 2);
+    for row in 0..rows {
+        let v = row as f32 / RIBBON_SEGMENTS as f32;
+        for x in [-0.5f32, 0.5] {
+            positions.push([x, v - 0.5, 0.0]);
+            uvs.push([x + 0.5, 1.0 - v]);
+        }
+    }
+    let mut indices = Vec::with_capacity(RIBBON_SEGMENTS as usize * 6);
+    for row in 0..RIBBON_SEGMENTS {
+        let (a, b, c, d) = (row * 2, row * 2 + 1, row * 2 + 2, row * 2 + 3);
+        indices.extend([a, b, d, a, d, c]);
+    }
+    let normals = vec![[0.0, 0.0, 1.0]; positions.len()];
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices))
+}
+
+/// The Exhumer's barrel in the Ray Gun model it's drawn with, and the very end
+/// of it, in that part's own space.
+const BARREL_NODE: &str = "barrel";
+const BARREL_TIP: Vec3 = Vec3::new(-4.0231, -0.0552, -33.815);
+
+/// Where our own beam comes from this frame: the camera ([`locate_own_beam`]),
+/// and the end of the barrel as it shows on screen, if it's found.
+#[derive(Resource, Default)]
+struct OwnBeam {
+    camera: Option<GlobalTransform>,
+    start: Option<Vec3>,
+    /// The view model's barrel, while it's the Exhumer's.
+    barrel: Option<Entity>,
+}
+
+/// Find where the end of the barrel is on screen, through everything that
+/// moves it (sway, bob, its animation). The gun's drawn by the view-model
+/// camera, whose FOV isn't the world camera's the beam's drawn by, so it's
+/// taken to the screen through the one and back out through the other at the
+/// same depth (as `weapons::tracer_start`).
+#[allow(clippy::too_many_arguments)]
+fn locate_own_beam(
+    settings: Res<ExhumerFxSettings>,
+    weapon: Res<Weapon>,
+    helper: bevy::transform::helper::TransformHelper,
+    view_model: Query<(Entity, &crate::weapons::ViewModelAnimation), With<crate::weapons::ViewModel>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    vm_camera: Query<(Entity, &Projection), With<crate::player::ViewModelCamera>>,
+    world_camera: Query<(Entity, &Projection), With<WorldModelCamera>>,
+    mut own: ResMut<OwnBeam>,
+) {
+    let fov = |p: &Projection| match p {
+        Projection::Perspective(p) => Some(p.fov),
+        _ => None,
+    };
+    own.start = None;
+    let Ok((world_cam, world_proj)) = world_camera.single() else {
+        own.camera = None;
+        return;
+    };
+    let Ok(cam) = helper.compute_global_transform(world_cam) else {
+        own.camera = None;
+        return;
+    };
+    own.camera = Some(cam);
+    let holding = view_model.single().ok().filter(|(_, a)| a.weapon == shared::weapon::WeaponId::Exhumer);
+    let Some((root, _)) = holding else {
+        own.barrel = None;
+        return;
+    };
+    if !weapon.beaming {
+        return;
+    }
+    // (Found again whenever the model's been swapped from under us.)
+    let tip = own
+        .barrel
+        .and_then(|barrel| helper.compute_global_transform(barrel).ok())
+        .or_else(|| {
+            let barrel = children
+                .iter_descendants(root)
+                .find(|e| names.get(*e).is_ok_and(|n| n.as_str() == BARREL_NODE))?;
+            own.barrel = Some(barrel);
+            helper.compute_global_transform(barrel).ok()
+        })
+        .map(|barrel| barrel.transform_point(BARREL_TIP));
+    let (Some(tip), Ok((vm_cam, vm_proj))) = (tip, vm_camera.single()) else {
+        own.barrel = None;
+        return;
+    };
+    let (Ok(vm_at), Some(vm_fov), Some(world_fov)) =
+        (helper.compute_global_transform(vm_cam), fov(vm_proj), fov(world_proj))
+    else {
+        return;
+    };
+    let p = vm_at.affine().inverse().transform_point3(tip) + settings.beam_start_nudge;
+    let depth = -p.z;
+    if depth < 0.05 {
+        return;
+    }
+    let screen = p.truncate() / (depth * (vm_fov * 0.5).tan());
+    let view = (screen * depth * (world_fov * 0.5).tan()).extend(-depth);
+    own.start = Some(cam.transform_point(view));
 }
 
 /// Each beam that's on, drawn from its gun out to its reach (or the first
@@ -708,7 +918,7 @@ fn draw_beams(
     sounds: Res<ExhumerSounds>,
     fx: Option<Res<ExplosionAssets>>,
     assets: Option<Res<BeamAssets>>,
-    camera: Option<Single<&GlobalTransform, With<WorldModelCamera>>>,
+    own: Res<OwnBeam>,
     (local, poses): (Query<&LocalId, With<GameClient>>, Query<(&PlayerId, &PlayerPose), With<Interpolated>>),
     rapier: ReadRapierContext,
     mut beams: Query<(Entity, &mut BeamVisual, &mut Transform, &Children), (Without<BeamCore>, Without<BeamFlare>)>,
@@ -721,37 +931,29 @@ fn draw_beams(
     let s = &*settings;
     let (Some(fx), Some(smoke)) = (fx, smoke) else { return };
     let Some(assets) = assets else {
-        commands.insert_resource(BeamAssets {
-            ribbon: meshes.add(Rectangle::new(1.0, 1.0)),
-            ribbon_material: beam_materials
-                .add(ExhumerBeamMaterial { params: ExhumerBeamMaterial::params(s), swirl: smoke.swirl.clone() }),
-        });
+        commands.insert_resource(BeamAssets { ribbon: meshes.add(ribbon_mesh()) });
         return;
     };
-    // (Its look follows the panel — only touched when that's changed.)
-    if settings.is_changed() {
-        let params = ExhumerBeamMaterial::params(s);
-        if beam_materials.get(&assets.ribbon_material).is_some_and(|m| m.params != params) {
-            if let Some(m) = beam_materials.get_mut(&assets.ribbon_material) {
-                m.params = params;
-            }
-        }
-    }
     let me = local.iter().next().map(|l| l.0);
-    let Some(cam) = camera.map(|c| c.into_inner()) else { return };
+    let Some(cam) = own.camera else { return };
     let cam_pos = cam.translation();
-    // Every beam that's on now: ours from the gun, theirs from where theirs
-    // would be.
-    let mut on: Vec<(Option<PeerId>, Vec3, Vec3)> = Vec::new();
+    let cam_up = cam.up().as_vec3();
+    // Every beam that's on now: where it comes from, then where it's aimed
+    // from and which way. Ours from the end of the barrel to where we're
+    // looking, theirs from where their gun would be.
+    let mut on: Vec<(Option<PeerId>, Vec3, Vec3, Vec3)> = Vec::new();
     if weapon.beaming {
-        let from = cam.translation() + cam.right() * 0.14 - cam.up() * 0.13 + cam.forward() * 0.45;
-        on.push((None, from, cam.forward().as_vec3()));
+        let from = own
+            .start
+            .unwrap_or_else(|| cam.translation() + cam.right() * 0.14 - cam.up() * 0.13 + cam.forward() * 0.45);
+        on.push((None, from, cam_pos, cam.forward().as_vec3()));
     }
     for (id, pose) in &poses {
         if pose.beaming && Some(id.0) != me {
             let dir = beam_dir(pose.yaw, pose.pitch);
             let right = Quat::from_rotation_y(pose.yaw) * Vec3::X;
-            on.push((Some(id.0), pose.translation - Vec3::Y * 0.25 + right * 0.2 + dir * 0.5, dir));
+            let from = pose.translation - Vec3::Y * 0.25 + right * 0.2 + dir * 0.5;
+            on.push((Some(id.0), from, from, dir));
         }
     }
     for (e, beam, ..) in &beams {
@@ -762,11 +964,12 @@ fn draw_beams(
     let ctx = rapier.single().ok();
     let t = time.elapsed_secs();
     let flicker = 1.0 - s.beam_flicker * (0.5 + 0.5 * (t * 31.0).sin());
-    for (peer, from, dir) in on {
-        let len = ctx
+    for (peer, from, eye, forward) in on {
+        // (Never nearer than the gun's end, up against a wall.)
+        let hit = ctx
             .as_ref()
-            .and_then(|r| r.cast_ray(from, dir, BEAM_RANGE, true, QueryFilter::only_fixed()))
-            .map_or(BEAM_RANGE, |(_, d)| d.max(0.1));
+            .and_then(|r| r.cast_ray(eye, forward, BEAM_RANGE, true, QueryFilter::only_fixed()))
+            .map_or(BEAM_RANGE, |(_, d)| d.max(0.7));
         let Some((_, mut beam, mut root, children)) = beams.iter_mut().find(|(_, b, ..)| b.peer == peer) else {
             // A new one: its ribbon (and light), the swirl where it ends,
             // its hum — ours not positional, theirs from where it starts.
@@ -779,10 +982,27 @@ fn draw_beams(
             let c = s.color;
             *seq = seq.wrapping_add(1);
             let seed = 1.0 + crate::util::rand01(seq.wrapping_mul(2_654_435_761) ^ (t * 1000.0) as u32);
+            // (Its own, for its bend — freed when it goes.)
+            let material = beam_materials.add(ExhumerBeamMaterial { params: ExhumerBeamMaterial::params(s) });
             commands
                 .spawn((
                     StateScoped(AppState::InGame),
-                    BeamVisual { peer, from, dir, len: 0.1, reach: 0.0, owed: 0.0, seed },
+                    BeamVisual {
+                        peer,
+                        from,
+                        dir: forward,
+                        len: 0.1,
+                        reach: 0.0,
+                        owed: 0.0,
+                        seed,
+                        material: material.clone(),
+                        hit,
+                        last_tip: from + forward * 0.1,
+                        lag: Vec3::ZERO,
+                        lag_velocity: Vec3::ZERO,
+                        bend: Vec3::ZERO,
+                        curve: 2.0,
+                    },
                     Transform::from_translation(from),
                     Visibility::default(),
                 ))
@@ -790,7 +1010,7 @@ fn draw_beams(
                     b.spawn((
                         BeamCore,
                         Mesh3d(assets.ribbon.clone()),
-                        MeshMaterial3d(assets.ribbon_material.clone()),
+                        MeshMaterial3d(material),
                         Transform::from_scale(Vec3::ZERO),
                         NotShadowCaster,
                         NoFrustumCulling,
@@ -806,13 +1026,15 @@ fn draw_beams(
                         },
                         Transform::default(),
                     ));
-                    // (Streaks turning round each other, each its own way
-                    // and pace.)
-                    for (turn, size, tier) in [(0.9, 1.0, 1), (-0.6, 1.3, 2), (1.4, 0.75, 2)] {
+                    // (Puffs turning over each other where it ends, each its
+                    // own way and pace, and the glow at the barrel.)
+                    for (turn, size, at_gun) in
+                        [(0.9, 1.0, false), (-0.6, 1.35, false), (1.4, 0.7, false), (0.5, 1.0, true)]
+                    {
                         b.spawn((
-                            BeamFlare { turn, size },
+                            BeamFlare { turn, size, at_gun },
                             Mesh3d(fx.quad.clone()),
-                            MeshMaterial3d(smoke.swirls[tier].clone()),
+                            MeshMaterial3d(smoke.beam_puff.clone()),
                             Transform::from_scale(Vec3::ZERO),
                             NotShadowCaster,
                             NoFrustumCulling,
@@ -826,36 +1048,56 @@ fn draw_beams(
         // mark and slowing as it reaches — then held to wherever it hits.)
         beam.reach = (beam.reach + time.delta_secs() / s.beam_extend_secs.max(0.01)).min(1.0);
         let out = 1.0 - (1.0 - beam.reach).powi(2);
-        let len = len.min(BEAM_RANGE * out).max(0.1);
+        // (Its length follows what it's hitting smoothly, however suddenly
+        // that changes: the aim crossing the edge of something, say.)
+        let ease = 1.0 - (-s.beam_reach_smooth.max(0.1) * time.delta_secs()).exp();
+        beam.hit += (hit - beam.hit) * ease;
+        let to = eye + forward * beam.hit - from;
+        let dir = to.normalize_or(forward);
+        let len = to.length().min(BEAM_RANGE * out).max(0.1);
         beam.from = from;
         beam.dir = dir;
         beam.len = len;
+        beam.swing(s, time.delta_secs());
         beam.owed += s.motes_per_sec * time.delta_secs();
         root.translation = from;
         let seed = beam.seed;
+        // (Its look follows the panel, its bend this beam's swing — only
+        // touched when either's changed.)
+        let mut params = ExhumerBeamMaterial::params(s);
+        params.bend = beam.bend.extend(beam.curve);
+        if beam_materials.get(&beam.material).is_some_and(|m| m.params != params) {
+            if let Some(m) = beam_materials.get_mut(&beam.material) {
+                m.params = params;
+            }
+        }
         for child in children.iter() {
             if let Ok((flare, mut tf)) = flares.get_mut(child) {
-                // (Swirling where it takes hold, just short of what it hit,
+                // (Billowing where it takes hold, just short of what it hit,
                 // breathing.)
                 let breathe = 0.85 + 0.15 * (t * 3.0 + seed * 9.0 + flare.turn * 5.0).sin();
-                let size = s.flare_size * flare.size * breathe;
+                let (along, size) = if flare.at_gun {
+                    (0.02, s.beam_muzzle_glow * flare.size * breathe)
+                } else {
+                    ((len - 0.6).max(0.1), s.flare_size * flare.size * breathe)
+                };
                 let roll = (t * s.puff_spin + seed * 4.0) * flare.turn;
-                let at = dir * (len - 0.4).max(0.1);
+                let at = beam.point(along);
                 *tf = Transform::from_translation(at)
-                    .with_rotation(along_rotation(from + at, dir, cam_pos, roll))
-                    .with_scale(Vec3::new(size, size * 0.5, 1.0));
+                    .with_rotation(along_rotation(from + at, cam_up, cam_pos, roll))
+                    .with_scale(Vec3::new(size, size, 1.0));
                 continue;
             }
             let Ok((mut tf, light)) = cores.get_mut(child) else { continue };
             match light {
                 Some(mut light) => {
-                    tf.translation = dir * len * 0.5;
+                    tf.translation = beam.point(len * 0.5);
                     light.intensity = s.beam_light * flicker;
                 }
                 None => {
                     // (The ribbon's Y along the beam, its middle half way
                     // out; X its width at the far end; Z's scale its seed —
-                    // the shader turns it to face us.)
+                    // the shader bends it and turns it to face us.)
                     *tf = Transform::from_translation(dir * len * 0.5)
                         .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
                         .with_scale(Vec3::new(s.beam_width_far, len, seed));
@@ -877,9 +1119,9 @@ fn draw_beams(
         let flip = Vec2::new(if r(2) < 0.5 { -1.0 } else { 1.0 }, if r(3) < 0.5 { -1.0 } else { 1.0 });
         commands.spawn((
             StateScoped(AppState::InGame),
-            Mote { beam, along: len * (0.55 + 0.45 * seed), spin: r(4) * std::f32::consts::TAU, seed, flip },
+            Mote { beam, along: len * (0.15 + 0.85 * seed), spin: r(4) * std::f32::consts::TAU, seed, age: 0.0, flip },
             Mesh3d(fx.quad.clone()),
-            MeshMaterial3d(smoke.swirls[2].clone()),
+            MeshMaterial3d(smoke.beam_puff.clone()),
             Transform::from_scale(Vec3::ZERO),
             NotShadowCaster,
             NoFrustumCulling,
@@ -887,19 +1129,20 @@ fn draw_beams(
     }
 }
 
-/// The streaks of soul-smoke on each beam, drawn back along it into the
-/// gun, laid along it and coiling slowly round it, shrinking away as they
-/// get there — gone once there (or with their beam).
+/// The puffs of soul-smoke on each beam, drawn back along it into the gun,
+/// spread across it and slowly turning, growing in as they appear and
+/// shrinking away as they get there — gone once there (or with their beam).
 fn fly_motes(
     time: Res<Time>,
     settings: Res<ExhumerFxSettings>,
-    camera: Option<Single<&GlobalTransform, With<WorldModelCamera>>>,
+    own: Res<OwnBeam>,
     beams: Query<&BeamVisual>,
     mut motes: Query<(Entity, &mut Mote, &mut Transform)>,
     mut commands: Commands,
 ) {
-    let Some(cam) = camera.map(|c| c.into_inner()) else { return };
+    let Some(cam) = own.camera else { return };
     let cam_pos = cam.translation();
+    let (cam_up, cam_right) = (cam.up().as_vec3(), cam.right().as_vec3());
     let s = &*settings;
     let dt = time.delta_secs();
     for (e, mut mote, mut tf) in &mut motes {
@@ -908,22 +1151,24 @@ fn fly_motes(
             continue;
         };
         mote.along -= s.mote_speed * (0.7 + 0.6 * mote.seed) * dt;
-        mote.spin += dt * 2.5;
+        mote.spin += dt * s.puff_spin * (mote.seed - 0.5) * 2.0;
+        mote.age += dt;
         if mote.along <= 0.0 {
             commands.entity(e).despawn();
             continue;
         }
-        let side = beam.dir.any_orthonormal_vector();
-        let up = beam.dir.cross(side);
+        // (Spread across it in the camera's plane, as wide as it is there.)
         let out = (mote.along / beam.len.max(0.1)).min(1.0);
-        let r = 0.12 * out;
-        let at = beam.from + beam.dir * mote.along.min(beam.len) + (side * mote.spin.cos() + up * mote.spin.sin()) * r;
-        // (Longer out along the beam, shrinking away as it reaches the gun.)
-        let size = s.mote_size * (0.7 + 0.6 * mote.seed) * (0.25 + 0.75 * out);
-        let roll = 0.2 * (mote.spin + mote.seed * 6.0).sin();
+        let along = mote.along.min(beam.len);
+        let r = (s.beam_width_near + (s.beam_width_far - s.beam_width_near) * out) * 0.3;
+        let round = mote.seed * std::f32::consts::TAU * 7.0 + mote.age * 0.5;
+        let at = beam.from + beam.point(along) + (cam_right * round.cos() + cam_up * round.sin() * 0.6) * r;
+        // (Bigger further out; growing in, not popping on.)
+        let grow = (mote.age / 0.4).min(1.0);
+        let size = s.mote_size * (0.6 + 0.8 * mote.seed) * (0.12 + 0.88 * out) * grow * grow * (3.0 - 2.0 * grow);
         *tf = Transform::from_translation(at)
-            .with_rotation(along_rotation(at, beam.dir, cam_pos, roll))
-            .with_scale(Vec3::new(size * mote.flip.x, size * 0.5 * mote.flip.y, 1.0));
+            .with_rotation(along_rotation(at, cam_up, cam_pos, mote.spin))
+            .with_scale(Vec3::new(size * mote.flip.x, size * mote.flip.y, 1.0));
     }
 }
 
@@ -935,9 +1180,10 @@ fn fly_motes(
 /// of smoke (`textures/vfx/smoke.png`) for the haze round a soul's head.
 #[derive(Resource)]
 pub(crate) struct SoulSmoke {
-    swirl: Handle<Image>,
     swirls: [Handle<SoulSmokeMaterial>; 3],
     puff: Handle<SoulSmokeMaterial>,
+    /// The soft puff the beam's own smoke is drawn in.
+    beam_puff: Handle<SoulSmokeMaterial>,
 }
 
 /// How strong each of [`SoulSmoke`]'s swirls is, of `smoke_opacity` —
@@ -966,6 +1212,16 @@ impl SoulSmoke {
         let [r, g, b] = s.color;
         SmokeParams { color: Vec4::new(r, g, b, s.wisp_glow * s.smoke_opacity * strength), soft: s.smoke_soft.max(0.01), ..default() }
     }
+
+    fn beam_params(s: &ExhumerFxSettings) -> SmokeParams {
+        let [r, g, b] = s.color;
+        SmokeParams {
+            color: Vec4::new(r * 0.45, g * 0.9, b * 0.5, s.beam_puff_glow),
+            soft: s.smoke_soft.max(0.01),
+            body: s.beam_body * 0.5,
+            ..default()
+        }
+    }
 }
 
 /// Make the soul-smoke (once the explosion's smoke is in), and keep it
@@ -986,15 +1242,20 @@ fn soul_smoke(
             materials.add(SoulSmokeMaterial { params: SoulSmoke::params(s, SMOKE_TIERS[tier]), texture: swirl.clone() })
         });
         let puff = materials.add(SoulSmokeMaterial { params: SoulSmoke::params(s, PUFF_STRENGTH), texture: fx.smoke.clone() });
-        commands.insert_resource(SoulSmoke { swirl, swirls, puff });
+        let beam_puff = materials.add(SoulSmokeMaterial { params: SoulSmoke::beam_params(s), texture: fx.smoke.clone() });
+        commands.insert_resource(SoulSmoke { swirls, puff, beam_puff });
         return;
     };
     if !settings.is_changed() {
         return;
     }
-    let all = smoke.swirls.iter().zip(SMOKE_TIERS).chain(std::iter::once((&smoke.puff, PUFF_STRENGTH)));
-    for (handle, strength) in all {
-        let params = SoulSmoke::params(s, strength);
+    let all = smoke
+        .swirls
+        .iter()
+        .zip(SMOKE_TIERS)
+        .map(|(handle, strength)| (handle, SoulSmoke::params(s, strength)))
+        .chain([(&smoke.puff, SoulSmoke::params(s, PUFF_STRENGTH)), (&smoke.beam_puff, SoulSmoke::beam_params(s))]);
+    for (handle, params) in all {
         if materials.get(handle).is_some_and(|m| m.params != params) {
             if let Some(m) = materials.get_mut(handle) {
                 m.params = params;
@@ -1401,20 +1662,32 @@ pub(crate) fn exhumer_section(ui: &mut egui::Ui, s: &mut ExhumerFxSettings, debu
         ui.label("souls' colour");
     });
     ui.add(egui::Slider::new(&mut s.beam_extend_secs, 0.01f32..=1.5).text("beam shoots out over (s)"));
+    ui.add(egui::Slider::new(&mut s.beam_reach_smooth, 1.0f32..=60.0).text("beam's length follows the aim (1/s)"));
+    ui.label("Our beam's start, from the end of the barrel (m)");
+    ui.add(egui::Slider::new(&mut s.beam_start_nudge.x, -0.1f32..=0.1).text("right"));
+    ui.add(egui::Slider::new(&mut s.beam_start_nudge.y, -0.1f32..=0.1).text("up"));
+    ui.add(egui::Slider::new(&mut s.beam_start_nudge.z, -0.2f32..=0.2).text("back"));
+    ui.add(egui::Slider::new(&mut s.beam_lag, 0.0f32..=3.0).text("beam's end trails behind (0 = straight)"));
+    ui.add(egui::Slider::new(&mut s.beam_lag_hz, 0.2f32..=10.0).text("beam's end catches up (Hz, lower = looser)"));
+    ui.add(egui::Slider::new(&mut s.beam_lag_damping, 0.1f32..=1.5).text("beam's end settles (lower = overshoots)"));
+    ui.add(egui::Slider::new(&mut s.beam_lag_max_deg, 0.0f32..=30.0).text("beam's end trails at most (°)"));
+    ui.add(egui::Slider::new(&mut s.beam_lag_curve, 1.0f32..=4.0).text("beam's bend toward its end (1 = even)"));
     ui.add(egui::Slider::new(&mut s.beam_width_near, 0.01f32..=1.0).text("beam width at the gun (m)"));
-    ui.add(egui::Slider::new(&mut s.beam_width_far, 0.05f32..=4.0).text("beam width at its end (m)"));
+    ui.add(egui::Slider::new(&mut s.beam_width_far, 0.05f32..=6.0).text("beam width at its end (m)"));
     ui.add(egui::Slider::new(&mut s.beam_glow, 0.0f32..=12.0).text("beam brightness"));
     ui.add(egui::Slider::new(&mut s.beam_flicker, 0.0f32..=1.0).text("beam flicker"));
-    ui.add(egui::Slider::new(&mut s.beam_flow, 0.0f32..=30.0).text("beam streams in (m/s)"));
-    ui.add(egui::Slider::new(&mut s.beam_strands, 0.0f32..=5.0).text("beam's coiling strands"));
-    ui.add(egui::Slider::new(&mut s.beam_writhe, 0.0f32..=0.6).text("beam core writhes"));
+    ui.add(egui::Slider::new(&mut s.beam_flow, -30.0f32..=30.0).text("beam's smoke drifts in (m/s, negative = out)"));
+    ui.add(egui::Slider::new(&mut s.beam_turbulence, 0.0f32..=2.0).text("beam's edges billow"));
+    ui.add(egui::Slider::new(&mut s.beam_heat, 0.05f32..=15.0).text("beam burns pale out to (m)"));
+    ui.add(egui::Slider::new(&mut s.beam_body, 0.0f32..=1.0).text("beam's smoke dims what's behind it"));
+    ui.add(egui::Slider::new(&mut s.beam_muzzle_glow, 0.0f32..=3.0).text("glow at the barrel (m)"));
+    ui.add(egui::Slider::new(&mut s.beam_puff_glow, 0.0f32..=4.0).text("beam's puffs of smoke: brightness"));
     ui.add(egui::Slider::new(&mut s.beam_smoke, 0.0f32..=1.0).text("beam smokiness"));
-    ui.add(egui::Slider::new(&mut s.beam_swirl, 0.0f32..=5.0).text("beam's streaming swirl"));
-    ui.add(egui::Slider::new(&mut s.flare_size, 0.0f32..=3.0).text("smoke where the beam ends (m)"));
+    ui.add(egui::Slider::new(&mut s.flare_size, 0.0f32..=8.0).text("smoke where the beam ends (m)"));
     ui.add(egui::Slider::new(&mut s.beam_light, 0.0f32..=1_000_000.0).text("beam light (lm)"));
-    ui.add(egui::Slider::new(&mut s.motes_per_sec, 0.0f32..=200.0).text("streaks along the beam (/s)"));
-    ui.add(egui::Slider::new(&mut s.mote_speed, 1.0f32..=60.0).text("streaks along the beam: speed (m/s)"));
-    ui.add(egui::Slider::new(&mut s.mote_size, 0.02f32..=1.5).text("streaks along the beam: length (m)"));
+    ui.add(egui::Slider::new(&mut s.motes_per_sec, 0.0f32..=200.0).text("puffs along the beam (/s)"));
+    ui.add(egui::Slider::new(&mut s.mote_speed, 1.0f32..=60.0).text("puffs along the beam: speed (m/s)"));
+    ui.add(egui::Slider::new(&mut s.mote_size, 0.02f32..=6.0).text("puffs along the beam: size (m)"));
     ui.add(egui::Slider::new(&mut s.wisp_size, 0.05f32..=2.0).text("soul streak length (m)"));
     ui.add(egui::Slider::new(&mut s.wisp_glow, 0.0f32..=20.0).text("soul smoke brightness"));
     ui.add(egui::Slider::new(&mut s.smoke_opacity, 0.0f32..=1.0).text("soul smoke strength"));

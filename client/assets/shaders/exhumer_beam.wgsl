@@ -1,12 +1,14 @@
-// The Exhumer's beam: a ribbon from the gun out to its reach that turns
-// about its own line to face the camera, widening as it goes (the beam
-// takes hold in a cone). Drawn additively: a soft, smoky haze of souls
-// streaming back toward the gun, a white-hot core that writhes along its
-// length, a few thin strands coiling round it (a helix seen side-on), bright
-// pulses and flecks racing in, all wavering — never the same twice (each
-// beam has its own seed). Sized by its transform: local Y along the beam
-// (its length; its origin half way along), X its width at the far end, Z's
-// scale its seed (1..2). Driven by `ExhumerBeamMaterial` in
+// The Exhumer's beam: a ribbon from the gun out to its reach, widening as it
+// goes, turned once about its line to face the camera. It's drawn as a plume
+// of soul-smoke rather than a shape: billowing, ragged at its edges, burning
+// pale near the gun and deepening to green further out, all of it drifting
+// along its length. Its smoke has some body (it dims what's behind it a
+// little), so it stays green over a bright scene instead of washing out to
+// white. Never the same twice (each beam has its own seed). Sized by its
+// transform: local Y along the beam (its length; its origin half way along),
+// X its width at the far end, Z's scale its seed (1..2). Its far end trails
+// behind as it swings, bending it like a rope (`beam.bend`, so its mesh is cut
+// along its length). Driven by `ExhumerBeamMaterial` in
 // `client/src/exhumer.rs`.
 
 #import bevy_pbr::{
@@ -24,25 +26,24 @@ struct BeamParams {
     color: vec4<f32>,
     // Its width at the gun, as a share of its width at the far end.
     near: f32,
-    // How fast (m/s) what's in it streams back toward the gun.
+    // How fast (m/s) its smoke drifts in toward the gun (negative: out).
     flow: f32,
     // How much it flickers (0..1).
     flicker: f32,
-    // How bright the coiling strands are (0 = none).
-    strands: f32,
-    // How much the core writhes (share of the half-width).
-    writhe: f32,
-    // How smoky / broken up the haze is (0 = smooth).
+    // How much its edges billow and wander.
+    turbulence: f32,
+    // How far (m) from the gun it burns pale.
+    heat: f32,
+    // How smoky / broken up it is (0 = smooth).
     smoke: f32,
-    // How strong the streaming swirl texture is.
-    swirl: f32,
+    // How much its smoke dims what's behind it (0 = purely additive).
+    body: f32,
     _pad0: f32,
+    // How far (m, world) its far end's off its line; w: how that's spread
+    // along it (the offset at v is bend * v^w).
+    bend: vec4<f32>,
 }
 @group(2) @binding(0) var<uniform> beam: BeamParams;
-// The green swirl of soul-smoke (`textures/vfx/soul_swirl.png`): streamed
-// along the beam in two staggered layers so its ends never leave a gap.
-@group(2) @binding(1) var swirl_texture: texture_2d<f32>;
-@group(2) @binding(2) var swirl_sampler: sampler;
 
 fn hash1(x: f32) -> f32 {
     return fract(sin(x * 127.1) * 43758.5453);
@@ -76,7 +77,8 @@ fn fbm(p: vec2<f32>) -> f32 {
     var q = p;
     for (var i = 0; i < 4; i++) {
         sum += noise2(q) * amp;
-        q = q * 2.03 + vec2(1.7, 9.2);
+        // (Turned each octave, so its grid never shows.)
+        q = mat2x2<f32>(1.6, 1.2, -1.2, 1.6) * q + vec2(1.7, 9.2);
         amp *= 0.5;
     }
     return sum;
@@ -98,9 +100,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let seed = length(world_from_local[2].xyz);
     // (The quad's -0.5..0.5 along its Y: 0 at the gun … 1 at the far end.)
     let v = vertex.position.y + 0.5;
-    let on_line = middle + axis * vertex.position.y * len;
-    // Turned about its own line to face the camera, at each point along it.
-    let to_cam = view.world_position - on_line;
+    // Bent (as `BeamVisual::point`).
+    let bend_at = max(v, 1e-3);
+    let on_line = middle + axis * vertex.position.y * len + beam.bend.xyz * pow(bend_at, beam.bend.w);
+    // Turned to face the camera once, as seen from the gun's end, not at each
+    // point: our own beam runs almost straight away from us, so further out
+    // the way that faces us swings wildly with the smallest change of aim.
+    let to_cam = view.world_position - (middle - axis * len * 0.5);
     var across = cross(axis, to_cam);
     if dot(across, across) < 1e-8 {
         across = cross(axis, vec3<f32>(0.0, 1.0, 0.0));
@@ -127,15 +133,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let len = max(in.world_normal.z, 0.1);
     let v = clamp(along / len, 0.0, 1.0);
     let seed = in.uv.x * 37.0;
-    let half = max(in.uv.y, 1e-3);
     let t = globals.time;
-    // Its pattern streams back toward the gun.
+    // Its smoke drifts along it.
     let flow = along + t * beam.flow;
 
     // Faded in at the gun, and out over its last stretch, so it never
     // stops on a hard edge.
-    let tail = min(1.5, len * 0.35);
-    let ends = smoothstep(0.0, 0.35, along) * (1.0 - smoothstep(len - tail, len, along));
+    let tail = min(2.5, len * 0.45);
+    let ends = smoothstep(0.0, 0.1, along) * (1.0 - smoothstep(len - tail, len, along));
 
     // Melted into whatever it meets (a wall, the floor, a zombie) instead of
     // cutting into it on a hard line: fading out the closer the scene behind
@@ -150,70 +155,35 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Its whole brightness wavers, as the souls fight it.
     let waver = 1.0 - beam.flicker * (0.5 * noise1(t * 13.0 + seed) + 0.5 * noise1(t * 31.0 + seed * 2.0));
 
-    // The core writhes about its line (more the further out), so it never
-    // reads as a straight rod.
-    let swing = beam.writhe * (0.25 + 0.75 * v);
-    let centre = (noise1(along * 0.55 - t * 2.3 + seed) - 0.5) * 2.0 * swing
-        + (noise1(along * 2.1 - t * 5.0 + seed * 3.0) - 0.5) * 0.5 * swing;
-    let d = u - centre;
+    // Its middle wanders, more the further out.
+    let wander = fbm(vec2(flow * 0.3, seed + t * 0.25)) - 0.47;
+    let warp = fbm(vec2(flow * 0.5 + seed, u * 1.4 + t * 0.2)) - 0.47;
+    let d = u - (wander * 0.9 + warp * 0.7) * beam.turbulence * (0.2 + 0.8 * v);
 
-    // The haze: soft across, broken into streaming smoke.
-    let smoke = fbm(vec2(flow * 0.9, d * 2.5 + seed));
-    let wisps = fbm(vec2(flow * 2.7 - t * 1.5, d * 6.0 - seed));
-    let haze = exp(-d * d * 3.5) * mix(1.0, 0.15 + 1.7 * smoke * (0.6 + 0.8 * wisps), beam.smoke);
+    // Billows: stretched along it, one drawn through the other so they curl.
+    let large = fbm(vec2(flow * 0.7 + warp * 2.5, d * 1.5 + seed));
+    let fine = fbm(vec2(flow * 1.9 - t * 0.5 + large * 2.0, d * 3.4 - seed));
+    let puffs = large * 0.62 + fine * 0.38;
 
-    // The core: a thin white-hot line (a fixed few cm, whatever the width),
-    // flickering along its length.
-    let core_w = clamp(0.035 / half, 0.02, 0.5);
-    let core_d = d / core_w;
-    let core = exp(-core_d * core_d) * (0.65 + 0.7 * noise1(flow * 3.0 + seed));
+    // How far out it reaches here is the billows' doing, so its edge is never
+    // a straight line. Tight and clean at the gun, ragged further out.
+    let rag = beam.turbulence * (0.3 + 0.7 * v);
+    let reach = clamp(0.55 + (puffs - 0.45) * 1.8 * rag, 0.18, 0.92);
+    let shape = 1.0 - smoothstep(reach * 0.15, reach, abs(d));
+    let clumps = mix(1.0, smoothstep(0.2, 0.68, puffs) * 1.5, beam.smoke * (0.35 + 0.65 * v));
+    let density = shape * clumps;
 
-    // Strands coiling round it: each a helix, so a wave seen side-on, its
-    // twist travelling in toward the gun; each comes and goes on its own.
-    var strands = 0.0;
-    for (var i = 0; i < 3; i++) {
-        let fi = f32(i);
-        let phase = fi * 2.094 + seed;
-        let freq = 1.6 + fi * 0.7;
-        let amp = (0.35 + 0.25 * noise1(along * 0.4 + fi * 7.0 + t * 0.7)) * (0.3 + 0.7 * v);
-        let x = centre + sin(flow * freq + phase) * amp
-            + (noise1(along * 4.0 + t * 6.0 + fi * 13.0) - 0.5) * 0.08;
-        let sw = clamp(0.012 / half, 0.008, 0.2);
-        let sd = (u - x) / sw;
-        let on = smoothstep(0.2, 0.8, noise1(t * (0.6 + fi * 0.27) + fi * 5.3 + seed));
-        // (Brighter on the near side of the coil, where cos > 0.)
-        let near_side = 0.55 + 0.45 * cos(flow * freq + phase);
-        strands += exp(-sd * sd) * on * near_side;
-    }
+    // Hottest down its middle, close to the gun; deepening further out.
+    let near_gun = exp(-along / max(beam.heat, 0.05));
+    let heat = clamp(density * 0.45 + near_gun * exp(-d * d * 7.0) * 1.1, 0.0, 1.0);
+    let glow = beam.color.rgb * beam.color.a;
+    let deep = glow * vec3(0.28, 0.72, 0.34);
+    let pale = mix(glow, vec3(max(max(glow.r, glow.g), glow.b)), 0.45);
+    let tone = mix(mix(deep, glow, smoothstep(0.0, 0.5, heat)), pale, smoothstep(0.55, 1.0, heat));
 
-    // Pulses: bright knots racing back down it, a few metres apart.
-    let p = fract(flow / 3.2 + hash1(floor(flow / 3.2) + seed) * 0.3);
-    let pulse = pow(1.0 - abs(p - 0.5) * 2.0, 10.0) * exp(-d * d * 8.0);
-
-    // Flecks: sparse sparks streaming in, scattered across it.
-    let cell = vec2(floor(flow * 4.0), floor((u + 1.0) * 6.0));
-    let fleck_on = step(0.86, hash2(cell + vec2(seed, 0.0)));
-    let fleck_at = vec2(fract(flow * 4.0), fract((u + 1.0) * 6.0)) - 0.5;
-    let fleck = fleck_on * exp(-dot(fleck_at, fleck_at) * 40.0) * exp(-d * d * 1.5);
-
-    // The swirl streaming in: across the beam (bent with its writhing
-    // core), a few metres a repeat along it, the second layer half a repeat
-    // on, flipped and a little narrower.
-    let period = 2.6;
-    let across = clamp(d * 0.5 + 0.5, 0.0, 1.0);
-    let s1 = textureSample(swirl_texture, swirl_sampler, vec2(fract(flow / period + seed), across));
-    let s2 = textureSample(swirl_texture, swirl_sampler, vec2(fract(flow / (period * 1.3) + 0.5 + seed * 1.7), clamp(1.0 - (d * 0.6 + 0.5), 0.0, 1.0)));
-    let swirl = s1.rgb * s1.a + s2.rgb * s2.a * 0.7;
-
-    let green = beam.color.rgb * beam.color.a;
-    // (The core and strands burn a little paler than the haze — but stay
-    // green, so it doesn't wash out to white.)
-    let pale = mix(green, vec3(max(max(green.r, green.g), green.b)), 0.35);
-    let edge = 1.0 - smoothstep(0.85, 1.0, abs(u));
-
-    let light = green * (haze * 0.3 + pulse * 0.6 + fleck * 1.0)
-        + swirl * beam.color.rgb * beam.color.a * beam.swirl
-        + pale * (core * 0.8 + strands * beam.strands);
-    // Premultiplied, alpha 0: purely additive (`AlphaMode::Add`).
-    return vec4<f32>(light * ends * edge * waver * soft, 0.0);
+    let mask = ends * soft * (1.0 - smoothstep(0.86, 1.0, abs(u)));
+    let amount = density * (0.45 + 0.75 * near_gun) * waver * mask;
+    // Premultiplied: its light on top, and what's behind it dimmed by its
+    // smoke's body.
+    return vec4<f32>(tone * amount, clamp(amount * beam.body, 0.0, 1.0));
 }

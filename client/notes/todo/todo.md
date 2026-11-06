@@ -11,13 +11,13 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Quotes wait during pause
 - Last zombie call once, quiet ritual
 - Kill sound no longer stacks
+- Exhumer beam rope lag
 
 # New latest play ( Der tempel, night, no starting money or full power, played from round 1)
 
 - When pausing the game first person animations still play
 - On round 9 the big steve radio quote played normally but it seems like he spawned far away because he wasn't even seen until nearly all of the zombies for that round were killed. This isn't the first time this has happened. He should spawn relatively close to the players without beign right beside them. Close enough to be in the same room.
 - A line of blood extends from the altar towards the sarcophagus but doesn't trace to objects at the ground level to get to it. Should it not move out at all on the ritual altar or trace all the way to it going over objects at ground level so that it can be seen? Before when it traced to the sarcophagus it went under the lifted portion where the altar sits on top of so it didn't look correct.
-- For the exhumer, it would look more realistic if instead of the beam always going out perfectly straight, as the player moves their aim it behaved like a rope does as you move it around so that the end of it slightly lags behind the front. This effect can be subtle but it would help make it not look so robotic.
 
 # Latest play
 
