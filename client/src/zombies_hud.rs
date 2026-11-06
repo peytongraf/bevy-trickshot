@@ -713,7 +713,7 @@ pub(crate) fn machine_model(perk: Perk) -> (&'static str, Option<ModelFit>) {
 }
 
 /// The light every perk machine has, in the perk's colour.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct MachineLight {
     /// Where it sits (m) from the ground under the machine's middle, in the
     /// machine's own frame (x across its width, z out through its depth), so
@@ -761,7 +761,7 @@ impl MachineLight {
 /// look. Where they stand is the map's layout's (`shared::level`, placed in
 /// the level editor), so the server agrees on it (buy range, collision for
 /// bots and shots).
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Debug)]
 pub(crate) struct PerkMachineSettings {
     /// Model scale for every machine. At the default it matches the
     /// server's `shared::perks::MACHINE_HALF_EXTENTS`.
@@ -778,6 +778,11 @@ pub(crate) struct PerkMachineSettings {
     pub(crate) model_yaw_deg: std::collections::HashMap<Perk, f32>,
     /// Der Wunderfizz's model's turn inside its box (`crate::wunderfizz`).
     pub(crate) wunderfizz_model_yaw_deg: f32,
+    /// How long (s) after a perk's jingle ends its buyer says their line...
+    pub(crate) quote_pause_secs: f32,
+    /// ...or, without waiting for it, as soon as they're this far (m) from
+    /// the machine, where the jingle's hardly heard.
+    pub(crate) quote_far_m: f32,
 }
 
 impl Default for PerkMachineSettings {
@@ -793,6 +798,8 @@ impl Default for PerkMachineSettings {
                 .into_iter()
                 .collect(),
             wunderfizz_model_yaw_deg: 0.0,
+            quote_pause_secs: 0.5,
+            quote_far_m: 25.0,
         }
     }
 }
@@ -850,8 +857,11 @@ impl PerkMachineSettings {
 /// `StateScoped(InGame)` so leaving cuts it (and the quote to come) off.
 #[derive(Component)]
 struct PerkJingle {
-    /// The buyer's operator's line, to play once the jingle ends.
+    /// The buyer's operator's line, to play once the jingle ends (or as we
+    /// walk away from it, if we're the buyer). Gone once it's been said.
     quote: Option<PendingQuote>,
+    /// When the clip ended.
+    ended_at: Option<f32>,
 }
 
 struct PendingQuote {
@@ -905,7 +915,7 @@ fn play_perk_jingles(
                     });
                 commands.spawn((
                     StateScoped(AppState::InGame),
-                    PerkJingle { quote },
+                    PerkJingle { quote, ended_at: None },
                     AudioPlayer::new(jingle),
                     // From about the machine's sign.
                     Transform::from_translation(
@@ -925,17 +935,46 @@ fn play_perk_jingles(
     *seen = Some(now);
 }
 
-/// A perk jingle just ended (its `AudioPlayer` is gone): the buyer's
-/// operator says their line — in our head if it was us, otherwise from the
-/// machine — and the jingle's entity goes.
+/// A short pause after a perk jingle ends (its `AudioPlayer` is gone), the
+/// buyer's operator says their line — in our head if it was us, otherwise
+/// from the machine — and the jingle's entity goes. If we bought it and have
+/// walked out of earshot of the jingle, we say it there and then instead.
+/// A pause holds the line, with the time it has left.
+#[allow(clippy::too_many_arguments)]
 fn play_perk_quotes(
-    finished: Query<(Entity, &PerkJingle, &Transform), Without<AudioPlayer>>,
+    mut jingles: Query<(Entity, &mut PerkJingle, &Transform, Has<AudioPlayer>)>,
+    player: Query<&Transform, With<Player>>,
     radio: Query<(), With<crate::radio::RadioCall>>,
+    settings: Res<PerkMachineSettings>,
+    paused: Res<crate::pause::GamePaused>,
+    time: Res<Time>,
     mut commands: Commands,
 ) {
-    for (entity, jingle, transform) in &finished {
-        commands.entity(entity).despawn();
-        let Some(quote) = &jingle.quote else {
+    let now = time.elapsed_secs();
+    for (entity, mut jingle, transform, playing) in &mut jingles {
+        if paused.0 {
+            if let Some(ended_at) = &mut jingle.ended_at {
+                *ended_at += time.delta_secs();
+            }
+            continue;
+        }
+        let due = if playing {
+            let own = jingle.quote.as_ref().is_some_and(|q| q.own);
+            own && player
+                .single()
+                .is_ok_and(|p| p.translation.distance(transform.translation) >= settings.quote_far_m)
+        } else {
+            let ended_at = *jingle.ended_at.get_or_insert(now);
+            let due = now - ended_at >= settings.quote_pause_secs;
+            if due || jingle.quote.is_none() {
+                commands.entity(entity).despawn();
+            }
+            due
+        };
+        if !due {
+            continue;
+        }
+        let Some(quote) = jingle.quote.take() else {
             continue;
         };
         // (Not over the man on the radio.)
@@ -946,14 +985,14 @@ fn play_perk_quotes(
             commands.spawn((
                 crate::quotes::QuoteAudio,
                 StateScoped(AppState::InGame),
-                AudioPlayer::new(quote.clip.clone()),
+                AudioPlayer::new(quote.clip),
                 PlaybackSettings::DESPAWN,
             ));
         } else {
             commands.spawn((
                 crate::quotes::QuoteAudio,
                 StateScoped(AppState::InGame),
-                AudioPlayer::new(quote.clip.clone()),
+                AudioPlayer::new(quote.clip),
                 *transform,
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
             ));

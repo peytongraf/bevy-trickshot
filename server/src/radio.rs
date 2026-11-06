@@ -162,6 +162,17 @@ fn direct_radio(
             continue;
         }
         let air = director.games.entry(lobby_e).or_insert_with(|| Air::new(lobby, now));
+        // Paused: no new line starts, and those waiting keep the time they
+        // have left.
+        if lobby.paused {
+            if let Some(at) = &mut air.intro_at {
+                *at += time.delta_secs();
+            }
+            for (_, asked) in &mut air.queue {
+                *asked += time.delta_secs();
+            }
+            continue;
+        }
         // Everyone's in: the intro's due a moment later — if the game starts
         // on round 1 (none for a later start).
         if air.intro_at.is_some_and(|at| now >= at) {

@@ -1644,8 +1644,6 @@ pub(crate) fn ads_tuning_ui(
                 ui.add(egui::Slider::new(&mut s.moan_min_gap_secs, 0.0f32..=5.0).text("gap between moans (s)"));
                 ui.add(egui::Slider::new(&mut s.low_moan_below, 0.0f32..=10.0).text("low moans below (m/s)"));
                 ui.add(egui::Slider::new(&mut s.high_moan_above, 0.0f32..=12.0).text("high moans above (m/s)"));
-                ui.add(egui::Slider::new(&mut s.final_min_secs, 0.5f32..=30.0).text("final zombie every, min (s)"));
-                ui.add(egui::Slider::new(&mut s.final_max_secs, 0.5f32..=30.0).text("final zombie every, max (s)"));
                 if ui.button("Reset zombie sounds").clicked() {
                     *s = default();
                 }
@@ -2014,6 +2012,14 @@ pub(crate) fn ads_tuning_ui(
                         egui::Slider::new(&mut m.wunderfizz_model_yaw_deg, -180.0f32..=180.0)
                             .text("Der Wunderfizz model turn inside its box (deg)"),
                     );
+                    ui.label("The buyer's perk quote");
+                    ui.add(
+                        egui::Slider::new(&mut m.quote_pause_secs, 0.0f32..=3.0).text("pause after the jingle (s)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut m.quote_far_m, 5.0f32..=60.0)
+                            .text("say it early from this far from the machine (m)"),
+                    );
                     if ui.button("Copy perk machine looks to console").clicked() {
                         info!(
                             "perk machine scale: {:.3}, Der Wunderfizz model turn: {:.1}",
@@ -2024,6 +2030,9 @@ pub(crate) fn ads_tuning_ui(
                                 info!("{} model turn: {yaw:.1} deg", perk.label());
                             }
                         }
+                    }
+                    if ui.button("Print settings to console").clicked() {
+                        info!("{m:#?}");
                     }
                     if ui.button("Reset perk machines").clicked() {
                         *m = default();

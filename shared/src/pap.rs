@@ -104,8 +104,8 @@ impl PapLevels {
     }
 }
 
-/// Points to pack a weapon up to `level` (1..=[`MAX_LEVEL`]) from the level
-/// below — Cold War's prices.
+/// Points to pack a weapon up to `level` (1..=[`MAX_LEVEL`]) — Cold War's
+/// prices.
 pub fn cost(level: u8) -> u32 {
     match level {
         0 | 1 => 5_000,
@@ -114,10 +114,15 @@ pub fn cost(level: u8) -> u32 {
     }
 }
 
-/// Points to pack a weapon at `current` straight up to `level`, skipping
-/// any in between — every level on the way, paid for at once.
+/// Points to pack a weapon at `current` straight up to `level`: that level's
+/// own price, whatever it's at now and even skipping any in between. Nothing
+/// for a level it's already at.
 pub fn cost_to(current: u8, level: u8) -> u32 {
-    (current + 1..=level.min(MAX_LEVEL)).map(cost).sum()
+    if level <= current {
+        0
+    } else {
+        cost(level.min(MAX_LEVEL))
+    }
 }
 
 /// Damage multiplier at `level`: doubles every level (1, 2, 4, 8).
@@ -190,10 +195,13 @@ mod tests {
     }
 
     #[test]
-    fn skipping_levels_pays_for_every_one_on_the_way() {
-        assert_eq!(cost_to(0, 1), cost(1));
-        assert_eq!(cost_to(0, 3), cost(1) + cost(2) + cost(3));
-        assert_eq!(cost_to(1, 3), cost(2) + cost(3));
+    fn each_level_costs_its_own_price_from_anywhere_below() {
+        assert_eq!(cost_to(0, 1), 5_000);
+        assert_eq!(cost_to(0, 2), 15_000);
+        assert_eq!(cost_to(1, 2), 15_000);
+        assert_eq!(cost_to(0, 3), 30_000);
+        assert_eq!(cost_to(2, 3), 30_000);
+        assert_eq!(cost_to(2, 2), 0);
         assert_eq!(cost_to(3, 3), 0);
     }
 

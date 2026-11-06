@@ -33,6 +33,19 @@ pub(crate) fn score_color(zombies: bool, lines: &[(String, u32)]) -> Color {
     }
 }
 
+/// The shortest gap (s) between two kill sounds. Kills closer together than
+/// this (an Exhumer shot's, say) share one.
+const KILL_SOUND_MIN_GAP_SECS: f32 = 0.1;
+
+/// The kill sound playing (`entity`, and when it started). Only ever one: a
+/// new kill restarts it, so however many land it's never louder than one.
+/// Stale entities and times are harmless, so it needs no resetting.
+#[derive(Default)]
+pub(crate) struct KillSound {
+    playing: Option<Entity>,
+    started_at: Option<f32>,
+}
+
 /// The score-popup stack (one per scored shot; a fresh one replaces the last).
 #[derive(Component)]
 pub(crate) struct ScorePopup {
@@ -52,6 +65,8 @@ pub(crate) fn spawn_score_popup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     sounds: Res<GameSounds>,
+    time: Res<Time>,
+    mut kill_sound: Local<KillSound>,
 ) {
     // Only the most recent shot matters if several land in one frame.
     let Some(ev) = events.read().last() else {
@@ -64,8 +79,19 @@ pub(crate) fn spawn_score_popup(
     // `TrickScoredEvent` only ever fires for a kill *this* client just scored
     // (`net::receive_trick_scores` already filters the server's broadcast
     // down to our own shooter id).
-    let sound = ev.sound.clone().unwrap_or_else(|| sounds.kill_enemy.clone());
-    commands.spawn((AudioPlayer::new(sound), PlaybackSettings::DESPAWN));
+    if let Some(sound) = &ev.sound {
+        commands.spawn((AudioPlayer::new(sound.clone()), PlaybackSettings::DESPAWN));
+    } else {
+        let now = time.elapsed_secs();
+        if kill_sound.started_at.is_none_or(|at| now - at >= KILL_SOUND_MIN_GAP_SECS) {
+            if let Some(playing) = kill_sound.playing {
+                commands.entity(playing).try_despawn();
+            }
+            kill_sound.playing =
+                Some(commands.spawn((AudioPlayer::new(sounds.kill_enemy.clone()), PlaybackSettings::DESPAWN)).id());
+            kill_sound.started_at = Some(now);
+        }
+    }
 
     commands
         .spawn((

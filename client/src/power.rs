@@ -102,6 +102,8 @@ struct GameLight;
 pub(crate) struct PowerLightSlot {
     index: usize,
     shape: (bool, bool),
+    /// How far up it is on its turn at casting shadows (`light_budget`).
+    budget_fade: f32,
 }
 
 /// A power light's glowing bulb (`shared::level::PowerLight::glow`): an
@@ -202,6 +204,7 @@ pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                 PowerLightSlot {
                     index,
                     shape: shape(light),
+                    budget_fade: 1.0,
                 },
                 light_transform(light),
             ));
@@ -245,6 +248,11 @@ pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
             }
         }
     }
+}
+
+/// How bright the map lights are at power level `level` (0..=1): eased.
+fn power_fade(level: f32) -> f32 {
+    level * level * (3.0 - 2.0 * level)
 }
 
 /// Put the map's power lights up while in a game on a night map that has
@@ -292,7 +300,7 @@ fn sync_map_lights(
         level.0 + (target - level.0).clamp(-step, step)
     };
     let changed = level.0 != before || settings.is_changed() || current.is_changed();
-    let fade = level.0 * level.0 * (3.0 - 2.0 * level.0);
+    let fade = power_fade(level.0);
     sync_power_lights(
         wanted,
         fade,
@@ -336,58 +344,85 @@ fn flicker_power_glows(
 /// their shadows back and forth.
 const SHADOW_SWAP_MARGIN: f32 = 3.0;
 
-/// Only the few shadow-casting power lights nearest the camera cast shadows
-/// (how many: the shadow quality setting's,
-/// [`ShadowQuality::power_light_shadows`]); the rest still light the map,
-/// without. Every one would otherwise render six shadow views a frame, the
-/// whole horde in reach drawn into each. Runs after [`sync_map_lights`],
-/// which builds them all with their layout's shadows (and rebuilds them
-/// through the power's fade).
+/// Only a few of the shadow-casting power lights cast shadows at once (how
+/// many: the shadow quality setting's,
+/// [`ShadowQuality::power_light_shadows`]), the ones in view and nearest the
+/// camera first; those out of view without a turn fade out rather than shine
+/// through the walls (`crate::light_budget`). Every one would otherwise render six shadow views
+/// a frame, the whole horde in reach drawn into each. Runs after
+/// [`sync_map_lights`], which builds them all with their layout's shadows
+/// (and rebuilds them through the power's fade).
 ///
 /// [`ShadowQuality::power_light_shadows`]: crate::settings::ShadowQuality::power_light_shadows
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn limit_power_shadows(
     settings: Res<crate::settings::Settings>,
     current: Res<CurrentMap>,
     level: Res<PowerLevel>,
+    time: Res<Time>,
+    rapier: bevy_rapier3d::prelude::ReadRapierContext,
     camera: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    mut points: Query<(&PowerLightSlot, &mut PointLight), With<GameLight>>,
-    mut spots: Query<(&PowerLightSlot, &mut SpotLight), With<GameLight>>,
+    mut points: Query<(&mut PowerLightSlot, &mut PointLight), (With<GameLight>, Without<SpotLight>)>,
+    mut spots: Query<(&mut PowerLightSlot, &mut SpotLight), (With<GameLight>, Without<PointLight>)>,
     mut chosen: Local<Vec<usize>>,
+    mut last_seen: Local<std::collections::HashMap<usize, f32>>,
 ) {
     if points.is_empty() && spots.is_empty() {
         chosen.clear();
+        last_seen.clear();
         return;
     }
+    let layout = &shared::level::layout(current.0).power_lights;
+    let turns = settings.shadow_quality.power_light_shadows();
+    let now = time.elapsed_secs();
     let eye = camera.single().ok().map(GlobalTransform::translation);
-    let mut nearest: Vec<(f32, usize)> = shared::level::layout(current.0)
-        .power_lights
+    let mut nearest: Vec<(f32, usize)> = layout
         .iter()
         .enumerate()
         .filter(|(_, light)| light.shadows)
         .map(|(i, light)| {
-            let distance = eye.map_or(0.0, |e| e.distance(light.pos));
-            let held = if chosen.contains(&i) { SHADOW_SWAP_MARGIN } else { 0.0 };
-            (distance - held, i)
+            let held = chosen.contains(&i);
+            let score = eye.map_or(0.0, |e| {
+                let distance = e.distance(light.pos);
+                crate::light_budget::score(&rapier, &mut last_seen, i, e, light.pos, now, distance, held, SHADOW_SWAP_MARGIN)
+            });
+            (score, i)
         })
         .collect();
     nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
-    *chosen = nearest
-        .into_iter()
-        .take(settings.shadow_quality.power_light_shadows())
-        .map(|(_, i)| i)
-        .collect();
+    *chosen = nearest.into_iter().take(turns).map(|(_, i)| i).collect();
     // (None while they're dark — as `point_light` builds them.)
     let lit = level.0 > 0.0;
-    let wanted = |slot: &PowerLightSlot| lit && chosen.contains(&slot.index);
-    for (slot, mut light) in &mut points {
-        if light.shadows_enabled != wanted(slot) {
-            light.shadows_enabled = wanted(slot);
+    let power = power_fade(level.0);
+    let dt = time.delta_secs();
+    let last_seen = &*last_seen;
+    let update = |slot: &mut PowerLightSlot, intensity: &mut f32, shadows: &mut bool| {
+        let Some(light) = layout.get(slot.index) else { return };
+        // (One that never casts shadows has no turn to lose.)
+        let cast = light.shadows
+            && crate::light_budget::step_fade(
+                &mut slot.budget_fade,
+                chosen.contains(&slot.index),
+                crate::light_budget::seen(last_seen, &slot.index, now),
+                turns,
+                dt,
+            );
+        let wanted = lit && cast;
+        if *shadows != wanted {
+            *shadows = wanted;
         }
+        let bright = light.intensity * power * slot.budget_fade;
+        if *intensity != bright {
+            *intensity = bright;
+        }
+    };
+    for (mut slot, mut light) in &mut points {
+        let light = &mut *light;
+        update(&mut slot, &mut light.intensity, &mut light.shadows_enabled);
     }
-    for (slot, mut light) in &mut spots {
-        if light.shadows_enabled != wanted(slot) {
-            light.shadows_enabled = wanted(slot);
-        }
+    for (mut slot, mut light) in &mut spots {
+        let light = &mut *light;
+        update(&mut slot, &mut light.intensity, &mut light.shadows_enabled);
     }
 }
 

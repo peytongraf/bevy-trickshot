@@ -134,7 +134,7 @@ pub(crate) fn footsteps(
     let speed = planar.length();
     let on_foot = cfg.enabled
         && physics.grounded
-        && !matches!(slide.stance, Stance::Sliding | Stance::Diving)
+        && !slide.stance.gliding()
         && speed > cfg.min_speed;
     if !on_foot {
         state.accum = 0.0;

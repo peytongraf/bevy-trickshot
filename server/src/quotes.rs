@@ -338,6 +338,9 @@ pub(crate) fn direct_quotes(
             .filter(|(_, l)| l.started && l.mode == GameMode::Zombies)
             .map(|(_, l)| l)
     };
+    // Paused: nothing's said, and what's waiting keeps the time it has left.
+    let dt = time.delta_secs();
+    let paused = |e: Entity| lobbies.get(e).is_ok_and(|(_, l)| l.paused);
     let director = &mut *director;
     // Forget lobbies whose game's over (or gone).
     director.voices.retain(|_, v| running(v.lobby).is_some());
@@ -361,14 +364,17 @@ pub(crate) fn direct_quotes(
         };
         if let QuoteDelay::AfterRadio(_) = q.delay {
             director.scheduled.push((now + secs, *q));
-        } else if secs > 0.0 {
+        } else if secs > 0.0 || paused(q.lobby) {
             director.scheduled.push((now + secs, SayQuote { delay: QuoteDelay::None, ..*q }));
         } else {
             asks.push(*q);
         }
     }
     director.scheduled.retain_mut(|(at, q)| {
-        if *at > now {
+        if paused(q.lobby) {
+            *at += dt;
+            true
+        } else if *at > now {
             true
         } else if matches!(q.delay, QuoteDelay::AfterRadio(line) if radio.queued(q.lobby, line)) {
             // (He's yet to get to it: look again in a moment.)
@@ -451,6 +457,12 @@ pub(crate) fn direct_quotes(
     }
     // Lines that waited, and whose speaker's free now.
     for (peer, voice) in director.voices.iter_mut() {
+        if paused(voice.lobby) {
+            if let Some((_, until)) = &mut voice.pending {
+                *until += dt;
+            }
+            continue;
+        }
         if now < voice.busy_until {
             continue;
         }

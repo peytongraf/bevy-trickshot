@@ -37,6 +37,7 @@ mod dogs;
 mod doors;
 mod earthquake;
 mod flames;
+mod light_budget;
 mod end_screen_fx;
 mod environment;
 mod fall_death;

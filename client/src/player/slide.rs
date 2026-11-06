@@ -48,6 +48,14 @@ pub(crate) enum Stance {
     Prone,
 }
 
+impl Stance {
+    /// Moving along the ground without taking steps: no footsteps, and no
+    /// walking or running from the view model.
+    pub(crate) fn gliding(self) -> bool {
+        matches!(self, Stance::Sliding | Stance::Diving)
+    }
+}
+
 /// Live crouch / slide / dive / prone state. `drop` is the current camera Y
 /// offset from standing (metres, ≤ 0); `crouch_slide` eases it toward the target
 /// for the stance and writes it onto the head, so every stance change is a

@@ -11,8 +11,11 @@
 //!   screams its soul out as it burns (`molotov`),
 //! * the swipe landing on someone (the server's [`shared::ZombieSwipeLanded`]
 //!   — only it knows a swing connected), heard from where that player is,
-//! * and once a round is down to its last zombie, its "final zombie" call on
-//!   a loose timer, in place of its moans.
+//! * and once a round is down to its last zombie, its "final zombie" call,
+//!   once, and then its moans as before.
+//!
+//! All their voices fall silent through the easter egg's ritual
+//! ([`shared::easter_egg::ritual_stalls`]) — all but a death cry.
 //!
 //! Everything but the swipe is worked out by each client from what it sees
 //! (Call of Duty's zombie vocals aren't synced either): every client sees the
@@ -60,9 +63,6 @@ pub(crate) struct ZombieSoundSettings {
     /// `high_moan_above`: high; in between: medium.
     pub(crate) low_moan_below: f32,
     pub(crate) high_moan_above: f32,
-    /// The last zombie of a round calls every `final_min_secs..final_max_secs`.
-    pub(crate) final_min_secs: f32,
-    pub(crate) final_max_secs: f32,
 }
 
 impl Default for ZombieSoundSettings {
@@ -74,8 +74,6 @@ impl Default for ZombieSoundSettings {
             moan_min_gap_secs: 0.8,
             low_moan_below: 2.0,
             high_moan_above: 4.0,
-            final_min_secs: 5.0,
-            final_max_secs: 9.0,
         }
     }
 }
@@ -114,10 +112,13 @@ struct VoiceOf(Entity);
 #[derive(Component)]
 struct ZombieMoan;
 
-/// The round's last zombie's next call (`None` while there's more than one).
+/// The round's last zombie's one call.
 #[derive(Resource, Default)]
 struct FinalZombie {
+    /// When it's due (`None` while there's more than one zombie).
     next_at: Option<f32>,
+    /// It's been made, this time there's just the one left.
+    called: bool,
     /// When the last moan anywhere started.
     last_moan_at: f32,
 }
@@ -195,6 +196,7 @@ fn zombie_rise_and_fall(
     sounds: Option<Res<ZombieSounds>>,
     settings: Res<ZombieSoundSettings>,
     (game_sounds, current_map): (Option<Res<crate::GameSounds>>, Res<crate::CurrentMap>),
+    (local, lobbies): (Query<&LocalId, With<GameClient>>, Query<&Lobby>),
     poses: Query<&PlayerPose>,
     ids: Query<&PlayerId>,
     mut doomed: ResMut<NukeDoomed>,
@@ -206,6 +208,8 @@ fn zombie_rise_and_fall(
 ) {
     let Some(sounds) = sounds else { return };
     let now = time.elapsed_secs();
+    // (Rising in silence, through the ritual.)
+    let ritual = crate::zombies_hud::zombies_game(&local, &lobbies).is_some_and(shared::easter_egg::ritual_stalls);
     // (Doomed but gone without dying in sight — the game moved on.)
     if !doomed.0.is_empty() && voices.is_empty() {
         doomed.0.clear();
@@ -228,7 +232,7 @@ fn zombie_rise_and_fall(
             let at = Vec3::new(floor.x, surface, floor.z);
             let id = spawn_sound(&mut commands, game_sounds.water_slide.clone(), at);
             commands.entity(id).insert(VoiceOf(entity));
-        } else if pose.alive {
+        } else if pose.alive && !ritual {
             if let Some(clip) = pick(&sounds.spawns, roll()) {
                 let id = spawn_sound(&mut commands, clip, feet + Vec3::Y * 0.5);
                 commands.entity(id).insert(VoiceOf(entity));
@@ -265,7 +269,8 @@ fn zombie_rise_and_fall(
 
 /// Each living zombie moans on its own random timer, by how fast it's been
 /// going — but only a few at a time, spaced out — and a round's last zombie
-/// makes its final-zombie call instead.
+/// makes its final-zombie call first, once. None of it through the ritual,
+/// which cuts off whatever they were saying.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn zombie_moans(
     time: Res<Time>,
@@ -276,6 +281,7 @@ fn zombie_moans(
     poses: Query<&PlayerPose>,
     mut voices: Query<(Entity, &RemoteAvatar, &ZombieMotion, &mut ZombieVoice)>,
     moans: Query<(), With<ZombieMoan>>,
+    speaking: Query<Entity, With<VoiceOf>>,
     mut last: ResMut<FinalZombie>,
     avatar_settings: Res<crate::ZombieAvatarSettings>,
     mut seq: Local<u32>,
@@ -304,20 +310,29 @@ fn zombie_moans(
     let final_one = (lobby.enemies_left == 1 && living.len() == 1).then(|| living[0]);
     if final_one.is_none() {
         last.next_at = None;
+        last.called = false;
+    }
+    let ritual = shared::easter_egg::ritual_stalls(lobby);
+    if ritual {
+        for sound in &speaking {
+            commands.entity(sound).try_despawn();
+        }
     }
 
     let mut playing = moans.iter().count() as u32;
     for (entity, avatar, motion, mut voice) in &mut voices {
         voice.pace = motion.speed().max(voice.pace - 0.6 * dt);
-        if lobby.paused || !poses.get(avatar.src).is_ok_and(|p| p.alive) {
+        if lobby.paused || ritual || !poses.get(avatar.src).is_ok_and(|p| p.alive) {
             continue;
         }
-        if Some(entity) == final_one {
+        if Some(entity) == final_one && !last.called {
             let due = *last.next_at.get_or_insert_with(|| after(now, 1.0, 2.5, roll()));
             if now >= due {
                 let id = spawn_sound(&mut commands, sounds.final_zombie.clone(), mouth);
                 commands.entity(id).insert((VoiceOf(entity), ChildOf(entity)));
-                last.next_at = Some(after(now, settings.final_min_secs, settings.final_max_secs, roll()));
+                last.called = true;
+                // (Its moans pick up again once that's had the stage.)
+                voice.next_moan_at = after(now, settings.moan_min_secs, settings.moan_max_secs, roll());
             }
             continue;
         }

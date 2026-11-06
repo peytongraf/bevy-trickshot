@@ -1,8 +1,8 @@
 //! Buying Pack-a-Punch (`shared::pap`): the prompt shown while standing at
 //! the machine, and the Cold War style menu the interact key opens there —
 //! the weapon in our hands, its three levels as tiles (owned / affordable /
-//! too expensive — any level above ours can be bought straight away, paying
-//! for every one on the way), the selected level's cost, and our points. Mouse to pick, click to buy, `Esc` (or EXIT) to back out.
+//! too expensive — any level above ours can be bought straight away, for
+//! its own price), the selected level's cost, and our points. Mouse to pick, click to buy, `Esc` (or EXIT) to back out.
 //!
 //! The menu is [`menu::Screen::PackAPunch`], so while it's up the cursor is
 //! free and gameplay input is frozen like any other menu. A purchase plays

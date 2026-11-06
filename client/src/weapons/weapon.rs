@@ -1594,13 +1594,14 @@ pub(crate) fn weapon_system(
         Res<ThrowArmsSettings>,
         Res<crate::zombies_hud::NitroBrew>,
     ),
-    (physics, ak_cfg, classic, menu, ray_cfg, m17_cfg): (
+    (physics, ak_cfg, classic, menu, ray_cfg, m17_cfg, slide): (
         Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
         Res<AkSettings>,
         Res<crate::zombies_hud::ClassicPerks>,
         Res<crate::menu::Menu>,
         Res<RayGunSettings>,
         Res<M17Settings>,
+        Res<crate::player::Slide>,
     ),
     mut commands: Commands,
 ) {
@@ -2409,7 +2410,12 @@ pub(crate) fn weapon_system(
                 |p| M17Motion {
                     grounded: p.grounded,
                     rising: p.vertical_velocity > 0.0,
-                    speed: Vec3::new(p.horizontal_velocity.x, 0.0, p.horizontal_velocity.z).length(),
+                    // (A slide takes no steps: its idle, not its walk.)
+                    speed: if slide.stance.gliding() {
+                        0.0
+                    } else {
+                        Vec3::new(p.horizontal_velocity.x, 0.0, p.horizontal_velocity.z).length()
+                    },
                     aiming: ads.t > 0.05,
                 },
             );

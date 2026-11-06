@@ -5,8 +5,9 @@
 //!
 //! A fire marked to (`Flame::shadows` — the big ones, whose light would
 //! otherwise shine through walls and floors into the rooms around them)
-//! casts shadows while we're in its reach: the nearest few, as many as the
-//! shadow quality allows ([`limit_flame_shadows`]).
+//! casts shadows on its turn: the ones in view and nearest first, as many as
+//! the shadow quality allows, those out of view fading out rather than shining
+//! through the walls ([`limit_flame_shadows`], `crate::light_budget`).
 //!
 //! In a game each also crackles — `GameSounds::fire_crackle`, looped from the
 //! fire, fading with distance by the "Fire" profile in the audio mixer (and
@@ -66,6 +67,8 @@ struct FlameLight {
     /// May cast shadows, out to its range (m).
     shadows: bool,
     range: f32,
+    /// How far up it is on its turn at casting shadows (`light_budget`).
+    budget_fade: f32,
 }
 
 /// On the game's fires (not the editor's).
@@ -157,6 +160,7 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         seed: seed * 10.0,
                         shadows: flame.shadows,
                         range: flame.range,
+                        budget_fade: 1.0,
                     },
                     PointLight {
                         color: molotov.light_color(),
@@ -184,38 +188,64 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
 /// one casting it — so two about as far off don't keep swapping.
 const SHADOW_SWAP_MARGIN: f32 = 3.0;
 
-/// Let the few shadow-casting fires whose reach we're nearest cast shadows
-/// (as many as `ShadowQuality::fire_shadows`); the rest don't.
+/// Let the few shadow-casting fires in view and whose reach we're nearest
+/// cast shadows (as many as `ShadowQuality::fire_shadows`); in a game those
+/// out of view fade out rather than shine through the walls
+/// (`crate::light_budget`).
+/// In the level editor they just stay on, so a fire can always be seen where
+/// it's being placed.
+#[allow(clippy::too_many_arguments)]
 fn limit_flame_shadows(
     settings: Res<crate::settings::Settings>,
+    state: Res<State<AppState>>,
+    time: Res<Time>,
+    rapier: bevy_rapier3d::prelude::ReadRapierContext,
     camera: Query<&GlobalTransform, With<crate::WorldModelCamera>>,
-    mut lights: Query<(Entity, &FlameLight, &GlobalTransform, &mut PointLight)>,
+    mut lights: Query<(Entity, &mut FlameLight, &GlobalTransform, &mut PointLight)>,
     mut chosen: Local<Vec<Entity>>,
+    mut last_seen: Local<std::collections::HashMap<Entity, f32>>,
 ) {
+    if lights.is_empty() {
+        chosen.clear();
+        last_seen.clear();
+        return;
+    }
+    let turns = settings.shadow_quality.fire_shadows();
+    let now = time.elapsed_secs();
     let eye = camera.single().ok().map(GlobalTransform::translation);
     let mut nearest: Vec<(f32, Entity)> = lights
         .iter()
-        .filter_map(|(e, light, at, _)| {
-            // How far we are from the edge of its reach (negative inside
-            // it). Not "only while we're inside its reach": standing just
-            // outside it, the walls nearer the fire still are — and an
-            // unshadowed light shines straight through them.
-            let distance = eye.map_or(0.0, |eye| eye.distance(at.translation())) - light.range;
-            light
-                .shadows
-                .then(|| (distance - if chosen.contains(&e) { SHADOW_SWAP_MARGIN } else { 0.0 }, e))
+        .filter(|(_, light, ..)| light.shadows)
+        .map(|(e, light, at, _)| {
+            let at = at.translation();
+            let held = chosen.contains(&e);
+            let score = eye.map_or(0.0, |eye| {
+                // How far we are from the edge of its reach (negative inside
+                // it): standing just outside it, the walls nearer the fire
+                // are still in it.
+                let distance = eye.distance(at) - light.range;
+                crate::light_budget::score(&rapier, &mut last_seen, e, eye, at, now, distance, held, SHADOW_SWAP_MARGIN)
+            });
+            (score, e)
         })
         .collect();
     nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
-    *chosen = nearest
-        .into_iter()
-        .take(settings.shadow_quality.fire_shadows())
-        .map(|(_, e)| e)
-        .collect();
-    for (e, _, _, mut light) in &mut lights {
-        let wanted = chosen.contains(&e);
-        if light.shadows_enabled != wanted {
-            light.shadows_enabled = wanted;
+    *chosen = nearest.into_iter().take(turns).map(|(_, e)| e).collect();
+    let in_game = *state.get() == AppState::InGame;
+    let dt = time.delta_secs();
+    for (e, mut light, _, mut point) in &mut lights {
+        let has_turn = chosen.contains(&e);
+        let wanted = if !light.shadows {
+            false
+        } else if in_game {
+            let in_view = crate::light_budget::seen(&last_seen, &e, now);
+            crate::light_budget::step_fade(&mut light.budget_fade, has_turn, in_view, turns, dt)
+        } else {
+            light.budget_fade = 1.0;
+            has_turn
+        };
+        if point.shadows_enabled != wanted {
+            point.shadows_enabled = wanted;
         }
     }
 }
@@ -257,7 +287,7 @@ fn flicker_flames(
     let t = time.elapsed_secs();
     let color = crate::util::color_from_parts(crate::environment::blend3(molotov.light_color, look.fire_light, fade.0));
     for (light, mut point) in &mut lights {
-        point.intensity = light.lumens * flicker(t, light.seed, light.flicker);
+        point.intensity = light.lumens * flicker(t, light.seed, light.flicker) * light.budget_fade;
         point.color = color;
     }
 }

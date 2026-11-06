@@ -239,19 +239,22 @@ impl WalkBob {
     }
 }
 
-/// Advance [`WalkBob`]: in while we're moving on the ground, out otherwise.
+/// Advance [`WalkBob`]: in while we're walking or running along the ground,
+/// out otherwise (a slide or dive takes no steps).
 pub(crate) fn update_walk_bob(
     time: Res<Time>,
     cfg: Res<WeaponSwaySettings>,
     sprinting: Res<crate::player::Sprinting>,
+    slide: Res<crate::player::Slide>,
     (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
     physics: Query<&PlayerPhysics, With<Player>>,
     mut bob: ResMut<WalkBob>,
 ) {
     let dt = time.delta_secs();
-    let walking = physics
-        .single()
-        .is_ok_and(|p| p.grounded && p.horizontal_velocity.length() > cfg.bob_move_threshold);
+    let walking = !slide.stance.gliding()
+        && physics
+            .single()
+            .is_ok_and(|p| p.grounded && p.horizontal_velocity.length() > cfg.bob_move_threshold);
     let target = if walking { 1.0 } else { 0.0 };
     let k = 1.0 - (-dt * 8.0).exp();
     bob.weight += (target - bob.weight) * k;

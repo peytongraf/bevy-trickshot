@@ -17,6 +17,14 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Kill sounds no longer stack into a loud blast on multi-kills.",
+        "Zombies: the last zombie calls out once, then goes back to moaning.",
+        "Operators and the radio now wait while the game is paused.",
+        "Sliding no longer plays the running animation.",
+        "Der Tempel: lights no longer pop on or shine through walls as you move around.",
+        "Zombies: operators say their perk line right after the jingle, or sooner if you walk away.",
+        "Kill sound turned down.",
+        "Zombies: Pack-a-Punch now costs a flat $5,000, $15,000 or $30,000 by level.",
         "Der Tempel: fire light no longer shines through the walls into the tomb.",
         "Der Tempel: the temple is hiding a secret...",
         "Level editor: hide map pieces (V) or cut away above a height (C) to see inside.",

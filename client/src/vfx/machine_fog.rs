@@ -33,7 +33,7 @@ const MAX_PUFFS: usize = 700;
 const MAX_BACKLOG: f32 = 3.0;
 
 /// The fog's look — every perk machine's (and, its own, the Pack-a-Punch's).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct MachineFog {
     pub(crate) enabled: bool,
     /// Puffs a second from each vent.
