@@ -90,7 +90,6 @@ mod knife_pickup;
 mod molotov;
 mod monkey_bomb;
 mod motion_blur;
-mod map_uvs;
 mod frag;
 mod flash_bang;
 mod mystery_box;
@@ -332,7 +331,6 @@ fn main() {
             weapons::sync_reticle_camera.before(bevy::render::camera::CameraUpdateSystem),
         )
         .add_plugins(motion_blur::MotionBlurPlugin)
-        .add_plugins(map_uvs::MapUvPlugin)
         .add_plugins(scope_fx::ScopeFxPlugin)
         .add_plugins(sharpening::SharpeningPlugin)
         .add_plugins(search_destroy::SearchDestroyPlugin)

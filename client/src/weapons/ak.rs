@@ -58,10 +58,15 @@ const SEG_NOT_DRAW: AnimationSegment =
 const SEG_START_JUMP: AnimationSegment = AnimationSegment::clip("AK Start Jump", CLIP_START_JUMP, 0.417);
 const SEG_LOOP_JUMP: AnimationSegment = AnimationSegment::clip("AK Loop Jump", CLIP_LOOP_JUMP, 0.017);
 const SEG_STOP_JUMP: AnimationSegment = AnimationSegment::clip("AK Stop Jump", CLIP_STOP_JUMP, 0.417);
-const SEG_RELOAD_FAST: AnimationSegment =
-    AnimationSegment::clip("AK Reload Fast", CLIP_RELOAD_FAST, 1.767).with_act(SegAct::Reload);
-const SEG_RELOAD_COMPLETE: AnimationSegment =
-    AnimationSegment::clip("AK Reload Complete", CLIP_RELOAD_COMPLETE, 2.833).with_act(SegAct::ReloadEmpty);
+/// When the fresh mag snaps in (s into either reload clip: `Magazine_51`'s
+/// keyframes stop there) — the reload's done, whatever's left of the clip.
+const MAG_SEATED_SECS: f32 = 1.25;
+const SEG_RELOAD_FAST: AnimationSegment = AnimationSegment::clip("AK Reload Fast", CLIP_RELOAD_FAST, 1.767)
+    .with_act(SegAct::Reload)
+    .with_loaded_at(MAG_SEATED_SECS);
+const SEG_RELOAD_COMPLETE: AnimationSegment = AnimationSegment::clip("AK Reload Complete", CLIP_RELOAD_COMPLETE, 2.833)
+    .with_act(SegAct::ReloadEmpty)
+    .with_loaded_at(MAG_SEATED_SECS);
 
 /// The AK's segment for `act` (it has no bolt to work: a `Rechamber` is its
 /// shot, and never asked for).

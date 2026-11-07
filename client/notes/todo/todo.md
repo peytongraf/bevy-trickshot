@@ -13,25 +13,22 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Kill sound no longer stacks
 - Exhumer beam rope lag
 - Boss spawns near players
+- Power-up grab volume
+- Sharpening default 35
+- Bosses immune to insta-kill, nukes
+- Removed wall material correction
+- AK-74 reload completes at mag snap
 
-# New latest play ( Der tempel, night, no starting money or full power, played from round 1)
+# Latest play ( Der tempel, night, no starting money or full power, played from round 1)
 
-- When pausing the game first person animations still play
+- Need to add a ledge in the lower temple upper level near where the sarcophagus is.
 - A line of blood extends from the altar towards the sarcophagus but doesn't trace to objects at the ground level to get to it. Should it not move out at all on the ritual altar or trace all the way to it going over objects at ground level so that it can be seen? Before when it traced to the sarcophagus it went under the lifted portion where the altar sits on top of so it didn't look correct.
-
-# Latest play
-
+- When pausing the game first person animations still play
+- When pausing, sometimes fps weapon animations keep playing.
 - Some operator quotes are overlapping instead of being in a queue and waiting on the first to finish with a timer the keeps the operator from saying an old line serveral seconds later after the event that triggered it has occurred.
 - Ensure a priority queue is used for operator quotes with the priority set correctly
 - Maybe some more important quotes can interupt and cut off quotes that are already playing
-- Power up accept sound is too loud. It should be about 80 percent the volume
-- Ak74 ammo seems like its reloaded around a half or more second after the reload animation visually completes. If the sound and animation seem like they're finished then you switch weapons thinking its done, when you switch back the reload animation has to play again because it wasn't actually done. Can show a video of this with a screen recording.
-- Need to remove whatever was done to "correct" the materials of the walls using the same material. In the future this should instead just be done in blender.
-- Need to add a ledge in the lower temple upper level near where the sarcophagus is.
-- Find what level of sharpness looks good, then set that as the default.
 - Possibly test out different final pass effects / coloring as long as it doesn't decrease fps. Need to check fps before and after making the change.
-- When pausing, sometimes fps weapon animations keep playing.
-- ensure no boss zombies are affected by instakill or nukes
 
 # Level editor
 

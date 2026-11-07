@@ -627,7 +627,7 @@ pub(crate) fn write_input(
     action.reloading = weapon
         .busy
         .as_ref()
-        .is_some_and(|b| b.on_finish == crate::WeaponFinish::Reload);
+        .is_some_and(|b| matches!(b.on_finish, crate::WeaponFinish::Reload | crate::WeaponFinish::Reloaded));
     action.jumping = jumping.0;
 
     // Emit the shot from the world camera's viewpoint, along the direction

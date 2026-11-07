@@ -114,9 +114,15 @@ fn starting_reserve(mode: shared::GameMode, primary: WeaponId) -> u32 {
 /// permanently uncycled. Once `Shoot` is stripped, a queue fronted by
 /// `Rechamber` or `Reload` (which may itself chain into a trailing
 /// `Rechamber`) is preserved; anything else (nothing left, or a mid-play
-/// Hide/Show) is simply abandoned, same as before.
+/// Hide/Show) is simply abandoned, same as before. A reload whose mag is
+/// already in ([`WeaponFinish::Reloaded`]) is done, so it's not replayed.
 pub(crate) fn stash_interrupted(weapon: &mut Weapon, mut busy: WeaponBusy) {
     while busy.remaining.first().is_some_and(|seg| seg.act == SegAct::Shoot) {
+        busy.remaining.remove(0);
+    }
+    if busy.on_finish == WeaponFinish::Reloaded
+        && busy.remaining.first().is_some_and(|seg| matches!(seg.act, SegAct::Reload | SegAct::ReloadEmpty))
+    {
         busy.remaining.remove(0);
     }
     if let Some(seg) = busy.remaining.first().copied() {
@@ -375,6 +381,9 @@ pub(crate) struct WeaponBusy {
 pub(crate) enum WeaponFinish {
     Nothing,
     Reload,
+    /// A reload whose ammo's in already ([`AnimationSegment::loaded_at`]):
+    /// the rest of it is only for show.
+    Reloaded,
     /// Hide finished — the sniper is now stowed; drop its model.
     Holster,
     /// Hide finished, swapping to the other slot's gun: take it in hand
@@ -827,6 +836,14 @@ impl Weapon {
         {
             self.interrupted = None;
         }
+    }
+
+    /// Fill the mag from the reserve — a reload's mag going in. Harmless to
+    /// repeat: a full mag (or an empty reserve) moves nothing.
+    fn load_mag(&mut self) {
+        let moved = self.mag_size().saturating_sub(self.mag).min(self.reserve);
+        self.mag += moved;
+        self.reserve -= moved;
     }
 
     pub(crate) fn refill_ammo(&mut self) {
@@ -1516,7 +1533,8 @@ fn begin_segment(
 /// first round of the fresh mag — either right away (auto-reload) or once a
 /// manual reload is pressed. Reloading with a round already chambered (mag
 /// still has rounds) skips that trailing Rechamber; refilling the mag/reserve
-/// counters happens once the whole queue finishes. Swapping to the secondary
+/// counters happens once the whole queue finishes, or as a segment's fresh
+/// mag goes in if it says when ([`AnimationSegment::loaded_at`]). Swapping to the secondary
 /// plays Hide in full then drops the sniper model;
 /// swapping back plays Show in full and restarts any reload / rechamber the swap
 /// cut short. Nothing new is accepted while an animation is mid-play (except the
@@ -1650,6 +1668,21 @@ pub(crate) fn weapon_system(
         ray: &ray_cfg,
         m17: &m17_cfg,
     };
+    // The fresh mag's in: the reload's done, though its clip plays on. (Up
+    // here so that nothing below can return before it's noticed.)
+    let mag_seated = weapon.busy.as_ref().is_some_and(|busy| {
+        busy.on_finish == WeaponFinish::Reload
+            && busy
+                .remaining
+                .first()
+                .is_some_and(|&seg| seg.loaded_at().is_some_and(|at| rig.reached(seg, at)))
+    });
+    if mag_seated {
+        weapon.load_mag();
+        if let Some(busy) = weapon.busy.as_mut() {
+            busy.on_finish = WeaponFinish::Reloaded;
+        }
+    }
     let knife_node = knife_anim.index;
     let Some(mut knife_player) = knife_players.iter_mut().next() else {
         return;
@@ -2259,12 +2292,8 @@ pub(crate) fn weapon_system(
                 rig.park();
                 weapon.busy = None;
                 match on_finish {
-                    WeaponFinish::Nothing => {}
-                    WeaponFinish::Reload => {
-                        let moved = weapon.mag_size().saturating_sub(weapon.mag).min(weapon.reserve);
-                        weapon.mag += moved;
-                        weapon.reserve -= moved;
-                    }
+                    WeaponFinish::Nothing | WeaponFinish::Reloaded => {}
+                    WeaponFinish::Reload => weapon.load_mag(),
                     WeaponFinish::Holster => {
                         // Sniper fully hidden — the knife takes over: show it,
                         // then straight to idle-out waiting for a slice input.

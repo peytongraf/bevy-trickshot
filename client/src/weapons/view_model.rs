@@ -79,6 +79,11 @@ pub(crate) struct AnimationSegment {
     /// were authored at different Blender scene rates, so each segment
     /// carries its own instead of assuming one constant for every clip.
     fps: f32,
+    /// A reload: the clip time (seconds) its fresh mag is in, if that's
+    /// before it ends — the ammo goes in then, and the rest just plays out.
+    /// Clip time, so it holds at any playback speed (Speed Cola's, say).
+    /// `None`: the ammo goes in once the whole queue's played.
+    loaded_at: Option<f32>,
 }
 
 impl AnimationSegment {
@@ -95,6 +100,7 @@ impl AnimationSegment {
             start_frame,
             end_frame,
             fps,
+            loaded_at: None,
         }
     }
 
@@ -107,12 +113,22 @@ impl AnimationSegment {
             start_frame: 0.0,
             end_frame: secs,
             fps: 1.0,
+            loaded_at: None,
         }
     }
 
     pub(crate) const fn with_act(mut self, act: SegAct) -> Self {
         self.act = act;
         self
+    }
+
+    pub(crate) const fn with_loaded_at(mut self, secs: f32) -> Self {
+        self.loaded_at = Some(secs);
+        self
+    }
+
+    pub(crate) fn loaded_at(&self) -> Option<f32> {
+        self.loaded_at
     }
 
     pub(crate) fn start_secs(&self) -> f32 {

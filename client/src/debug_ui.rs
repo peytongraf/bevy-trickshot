@@ -144,7 +144,7 @@ pub(crate) fn ads_tuning_ui(
                     crate::ragdoll::RagdollDebug,
                     crate::motion_blur::MotionBlurDebug,
                 ),
-                (crate::scope_fx::ScopeFxDebug, crate::map_uvs::MapUvDebug, crate::easter_egg::EasterEggDebug, crate::audio_engine::VoiceFxDebug),
+                (crate::scope_fx::ScopeFxDebug, crate::easter_egg::EasterEggDebug, crate::audio_engine::VoiceFxDebug),
             ),
         ),
     ),
@@ -160,7 +160,7 @@ pub(crate) fn ads_tuning_ui(
         mut soldier_anim,
         mut water,
         mut ledge_jump,
-        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg, mut box_dbg, mut kill_chain_dbg, mut occlusion_dbg, mut ragdoll_dbg, mut motion_blur_dbg), (mut scope_fx_dbg, mut map_uv_dbg, mut easter_egg_dbg, mut voice_fx_dbg))),
+        (mut rain, mut knife_view, mut arms_view, mut knife_model, mut bullet_holes, mut mantle_cfg, settings, mut lens_cfg, (mut sniper_glint, mut remote_muzzle, mut aim_recoil), mut shroom, (mut name_tags, mut health_bars, mut enemy_blood), (mut bot_look, (mut dog_settings, mut dog_preview, dog_readout, mut dog_round_look, dog_round_fade), (mut raygun_dbg, mut aether_dbg, mut boss_dbg, mut end_screen_dbg, mut quotes_dbg, mut box_fx_dbg, mut rampage_dbg, mut earthquake_dbg, mut reverb_dbg, mut board_smoke_dbg, mut update_screen_dbg, mut box_dbg, mut kill_chain_dbg, mut occlusion_dbg, mut ragdoll_dbg, mut motion_blur_dbg), (mut scope_fx_dbg, mut easter_egg_dbg, mut voice_fx_dbg))),
     ) = misc;
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("ADS tuning")
@@ -1952,8 +1952,6 @@ pub(crate) fn ads_tuning_ui(
 
             ui.separator();
             ui.collapsing("Scope look", |ui| scope_fx_dbg.ui(ui));
-            ui.separator();
-            ui.collapsing("Map textures", |ui| map_uv_dbg.ui(ui));
 
             ui.separator();
             ui.collapsing("Easter egg (Der Tempel)", |ui| easter_egg_dbg.ui(ui));

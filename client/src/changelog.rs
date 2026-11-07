@@ -17,6 +17,9 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "AK-74: reload counts the moment the new mag snaps in.",
+        "Der Tempel: wall textures back to how the map was made.",
+        "Zombies: quieter power-up grab sound.",
         "Zombies: bosses now arrive in the same room as you instead of far away.",
         "Crawling after a dive no longer bobs your gun at sprint speed.",
         "Kill sounds no longer stack into a loud blast on multi-kills.",
