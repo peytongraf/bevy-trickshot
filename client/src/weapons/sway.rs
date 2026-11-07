@@ -248,9 +248,10 @@ pub(crate) fn update_walk_bob(
     slide: Res<crate::player::Slide>,
     (nitro, classic): (Res<crate::zombies_hud::NitroBrew>, Res<crate::zombies_hud::ClassicPerks>),
     physics: Query<&PlayerPhysics, With<Player>>,
+    paused: Res<crate::pause::GamePaused>,
     mut bob: ResMut<WalkBob>,
 ) {
-    let dt = time.delta_secs();
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
     let walking = !slide.stance.gliding()
         && physics
             .single()
@@ -451,10 +452,11 @@ pub(crate) fn idle_weapon_sway(
     tuning: Res<IdleSwaySettings>,
     ads: Res<Ads>,
     player: Single<&PlayerPhysics, With<Player>>,
+    paused: Res<crate::pause::GamePaused>,
     mut state: ResMut<IdleSwayState>,
     mut view_model: Single<&mut Transform, With<ViewModel>>,
 ) {
-    let dt = time.delta_secs();
+    let dt = if paused.0 { 0.0 } else { time.delta_secs() };
     let idle = player.grounded && player.horizontal_velocity.length() < 0.1;
     let target = if idle { 1.0 } else { 0.0 };
     let k = 1.0 - (-tuning.blend_speed * dt).exp();
@@ -538,10 +540,13 @@ pub(crate) fn aim_idle_sway(
     time: Res<Time>,
     tuning: Res<AimSwaySettings>,
     ads: Res<Ads>,
+    paused: Res<crate::pause::GamePaused>,
     mut state: ResMut<AimSwayState>,
     mut world_cam: Single<&mut Transform, With<WorldModelCamera>>,
 ) {
-    state.clock += time.delta_secs();
+    if !paused.0 {
+        state.clock += time.delta_secs();
+    }
 
     let e = ads.t.clamp(0.0, 1.0);
     let amp = Vec2::new(
