@@ -1,11 +1,10 @@
 //! `Zombies` operator quotes: what a player's operator says when something
-//! happens — killing a boss, buying ammo, the power coming on, a power-up...
-//! (Perk quotes are their own thing, `client::zombies_hud`.)
+//! happens — killing a boss, buying ammo, the power coming on, a perk...
 //!
 //! The server decides who says what, and when (`server::quotes`): it picks
 //! the line, so every client plays the same one ([`crate::QuoteSaid`]), and
-//! — knowing how long each runs, from the list of lines here — keeps a
-//! speaker from talking over themselves. The lines live under
+//! — knowing how long each runs, from the list of lines here — lets one
+//! voice talk at a time, the most important first ([`Priority`]). The lines live under
 //! `client/assets/audio/quotes/<operator>/<`[`Quote::dir`]`>/`, listed with
 //! their lengths in `lines.txt` there (embedded here at build time).
 
@@ -15,6 +14,7 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 
 use crate::operator::Operator;
+use crate::perks::Perk;
 use crate::power_ups::PowerUp;
 
 /// Something an operator has lines for.
@@ -110,6 +110,43 @@ pub enum Quote {
     /// seal after the man on the radio, all at once
     /// (`crate::easter_egg::RITUAL_CHANT_AT_SECS`).
     RitualChant,
+    /// They bought this perk (their client asks once its jingle's done).
+    Perk(Perk),
+}
+
+/// How much a line matters: one voice talks at a time, so this decides who
+/// goes next ([`Self::wait_secs`]) and who gets cut off ([`Self::cuts_off`]).
+/// The man on the radio (`server::radio`) comes above all of these bar
+/// [`Self::Scripted`]: nothing starts while he's on air or next up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Priority {
+    /// Said now and then, about nothing much: never worth waiting for.
+    Chatter,
+    /// Something a player just did.
+    Reaction,
+    /// What the squad should hear about, soon out of date.
+    Callout,
+    /// Only comes up rarely, so it's worth a wait.
+    Story,
+    /// Tied to the moment on screen: said on cue, whatever else is going.
+    Scripted,
+}
+
+impl Priority {
+    /// How long (s) a line can wait for its turn before it's dropped.
+    pub const fn wait_secs(self) -> f32 {
+        match self {
+            Priority::Chatter | Priority::Scripted => 0.0,
+            Priority::Reaction => 3.0,
+            Priority::Callout => 5.0,
+            Priority::Story => 30.0,
+        }
+    }
+
+    /// Whether this can cut off a line of `playing`'s priority.
+    pub fn cuts_off(self, playing: Priority) -> bool {
+        self == Priority::Scripted || (self >= Priority::Callout && playing == Priority::Chatter)
+    }
 }
 
 /// How often a [`Quote`] is said: the chance each time it could be, and
@@ -181,6 +218,73 @@ impl Quote {
             Quote::ReviveTeamMate => "revive_team_mate",
             Quote::TeamMateBledOut => "team_mate_bleeds_out",
             Quote::RitualChant => "easter_egg/ritual_chant",
+            Quote::Perk(Perk::Juggernog) => "perk_quotes/jug",
+            Quote::Perk(Perk::QuickRevive) => "perk_quotes/quick_revive",
+            Quote::Perk(Perk::SpeedCola) => "perk_quotes/speed_cola",
+            Quote::Perk(Perk::StaminUp) => "perk_quotes/stamin_up",
+            Quote::Perk(Perk::DoubleTap) => "perk_quotes/double_tap",
+            Quote::Perk(Perk::DeadshotDaiquiri) => "perk_quotes/deadshot",
+            Quote::Perk(Perk::PhdFlopper) => "perk_quotes/phd",
+            Quote::Perk(Perk::DeathPerception) => "perk_quotes/death_perception",
+            // (No lines of their own: only the ones for any perk.)
+            Quote::Perk(_) => PERK_ANY_DIR,
+        }
+    }
+
+    /// How much it matters. (Every quote's listed, so a new one has to be
+    /// given a place here.)
+    pub fn priority(self) -> Priority {
+        match self {
+            Quote::RitualChant => Priority::Scripted,
+            Quote::Perk(_) | Quote::PowerOn | Quote::Pap | Quote::FirstBoss | Quote::WunderfizzAppears => {
+                Priority::Story
+            }
+            Quote::TeamMateDown
+            | Quote::TeamMateBledOut
+            | Quote::StartingRevive
+            | Quote::Revived
+            | Quote::ReviveTeamMate
+            | Quote::DogRound
+            | Quote::Exfil
+            | Quote::BossRepeat
+            | Quote::BossKill
+            | Quote::PowerStillOff
+            | Quote::MysteryTeddy
+            | Quote::OutOfAmmo
+            | Quote::ArmorDestroyed => Priority::Callout,
+            Quote::BuyAk74
+            | Quote::BuyM17
+            | Quote::BuyAmmo
+            | Quote::BuyArmor
+            | Quote::BuyDoor
+            | Quote::MysteryAk74
+            | Quote::MysteryFlashBang
+            | Quote::MysteryFrag
+            | Quote::MysteryM17
+            | Quote::MysteryMolotov
+            | Quote::MysteryMonkeyBomb
+            | Quote::MysteryRayGun
+            | Quote::MysteryThrowingKnife
+            | Quote::PowerUp(_)
+            | Quote::CraftingTable
+            | Quote::RampageOn
+            | Quote::RampageOff
+            | Quote::MonkeyBombActivate
+            | Quote::MonkeyBombExplode
+            | Quote::FieldUpgradeReady
+            | Quote::PickupEquipment => Priority::Reaction,
+            Quote::EnemyKill
+            | Quote::MeleeKill
+            | Quote::DogKill
+            | Quote::FragKill
+            | Quote::MolotovKill
+            | Quote::PhdKill
+            | Quote::ThrowingKnifeKill
+            | Quote::TakeDamage
+            | Quote::TakeMolotovDamage
+            | Quote::StunEnemy
+            | Quote::LowAmmo
+            | Quote::CantAfford => Priority::Chatter,
         }
     }
 
@@ -220,15 +324,12 @@ impl Quote {
     /// (in a random order) before saying any again, each game — instead of
     /// each line just waiting out [`LINE_COOLDOWN_SECS`].
     pub fn cycles(self) -> bool {
-        matches!(self, Quote::MysteryTeddy)
+        // (A perk's bought once: it always gets a line.)
+        matches!(self, Quote::MysteryTeddy | Quote::Perk(_))
     }
 }
 
-/// How long (s) a line someone was about to say while still saying another
-/// can wait for them to finish — said then if they finish in time, never
-/// otherwise.
-pub const GRACE_SECS: f32 = 1.5;
-/// Quiet (s) between two of one speaker's lines.
+/// Quiet (s) between two lines.
 pub const GAP_SECS: f32 = 0.3;
 /// The least time (s) before the very same line (the same file) is heard
 /// again in a game — a fresh one is picked, and with none left the moment
@@ -260,6 +361,8 @@ pub struct Line {
 }
 
 const LINES_TXT: &str = include_str!("../../client/assets/audio/quotes/lines.txt");
+/// The lines for buying any perk, which every perk's are on top of.
+const PERK_ANY_DIR: &str = "perk_quotes/any";
 
 /// Every line, by operator and folder, in file-name order.
 static LINES: LazyLock<HashMap<(Operator, &'static str), Vec<Line>>> = LazyLock::new(|| {
@@ -279,6 +382,15 @@ static LINES: LazyLock<HashMap<(Operator, &'static str), Vec<Line>>> = LazyLock:
         };
         let secs = secs.parse().unwrap_or(4.0);
         map.entry((op, dir)).or_default().push(Line { path, secs });
+    }
+    for op in Operator::ALL {
+        let any = map.get(&(op, PERK_ANY_DIR)).cloned().unwrap_or_default();
+        for perk in Perk::ALL {
+            let dir = Quote::Perk(perk).dir();
+            if dir != PERK_ANY_DIR {
+                map.entry((op, dir)).or_default().extend(&any);
+            }
+        }
     }
     for lines in map.values_mut() {
         lines.sort_by(|a, b| a.path.cmp(b.path));
@@ -349,6 +461,7 @@ pub fn all() -> Vec<Quote> {
         [PowerUp::MaxAmmo, PowerUp::InstaKill, PowerUp::DoublePoints, PowerUp::Nuke, PowerUp::BonusPoints]
             .map(Quote::PowerUp),
     );
+    all.extend(Perk::ALL.map(Quote::Perk));
     all
 }
 
@@ -371,6 +484,34 @@ mod tests {
         }
         // (Taking damage doesn't pick up the molotov lines in its subfolder.)
         assert!(lines(Operator::Adam, Quote::TakeDamage).iter().all(|l| !l.path.contains("molotov")));
+    }
+
+    #[test]
+    fn a_perks_lines_are_its_own_and_the_ones_for_any_perk() {
+        let dir = |q: Quote| lines(Operator::Adam, q).iter().map(|l| l.path).collect::<Vec<_>>();
+        let jug = dir(Quote::Perk(Perk::Juggernog));
+        assert!(jug.iter().any(|p| p.contains("/perk_quotes/jug/")));
+        assert!(jug.iter().any(|p| p.contains("/perk_quotes/any/")));
+        assert!(dir(Quote::Perk(Perk::NitroBrew)).iter().all(|p| p.contains("/perk_quotes/any/")));
+    }
+
+    #[test]
+    fn a_knife_kill_matters_least_and_a_perk_most() {
+        assert!(Quote::Perk(Perk::Juggernog).priority() > Quote::TeamMateDown.priority());
+        assert!(Quote::TeamMateDown.priority() > Quote::BuyAmmo.priority());
+        assert!(Quote::BuyAmmo.priority() > Quote::MeleeKill.priority());
+        assert_eq!(Quote::RitualChant.priority(), Priority::Scripted);
+    }
+
+    #[test]
+    fn only_the_top_lines_cut_anyone_off_and_only_chatter() {
+        use Priority::*;
+        assert!(Story.cuts_off(Chatter) && Callout.cuts_off(Chatter));
+        assert!(!Reaction.cuts_off(Chatter) && !Chatter.cuts_off(Chatter));
+        assert!(!Story.cuts_off(Reaction) && !Callout.cuts_off(Story));
+        assert!(Scripted.cuts_off(Story));
+        assert!(Story.wait_secs() > Callout.wait_secs() && Callout.wait_secs() > Reaction.wait_secs());
+        assert_eq!(Chatter.wait_secs(), 0.0);
     }
 
     #[test]

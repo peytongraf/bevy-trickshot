@@ -2088,6 +2088,8 @@ pub struct QuoteSaid {
     pub speaker: PeerId,
     pub quote: crate::quotes::Quote,
     pub line: u16,
+    /// It cuts off the line playing.
+    pub cut_off: bool,
 }
 
 /// Server → every member of a `Zombies` lobby: the man on the radio says
@@ -2098,12 +2100,14 @@ pub struct RadioSaid {
 }
 
 /// Client → server: something only the client knows of happened to us —
-/// down to our last magazine, or out of ammo ([`crate::quotes::Quote::LowAmmo`]
-/// / [`crate::quotes::Quote::OutOfAmmo`], all it may ask for) — for our
-/// operator to say so, if the server lets them.
+/// down to our last magazine, out of ammo, too dear to buy, or a perk we
+/// bought's jingle is done — for our operator to say so, if the server lets
+/// them. `ally`: a teammate bot of the leader's lobby says it instead (a perk
+/// it bought — only the leader may ask).
 #[derive(Event, Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RequestQuote {
     pub quote: crate::quotes::Quote,
+    pub ally: Option<PeerId>,
 }
 
 /// Client → server (the debug panel's "Quotes"): how long (s) after a dog

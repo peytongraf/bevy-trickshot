@@ -10,8 +10,8 @@
 //! A line that cuts in ([`RadioLine::cuts_in`]), or cuts off the one he's
 //! saying ([`RadioLine::cuts_off`]), is said at once; any other
 //! waits its turn in the lobby's queue ([`RadioLine::lead_in`], him off
-//! air, the operators quiet — or about to speak — for up to
-//! [`QUIET_WAIT_SECS`]) — dropped if what it's
+//! air, whoever's talking done, for up to [`QUIET_WAIT_SECS`] — nobody else
+//! starts meanwhile, [`RadioDirector::next_up`]) — dropped if what it's
 //! about is no longer so by then ([`still_so`]). A once-a-game line
 //! ([`RadioLine::once_per_game`]) asked for again is dropped.
 //!
@@ -75,6 +75,15 @@ impl RadioDirector {
     /// Whether `line` is waiting its turn in `lobby`'s queue.
     pub fn queued(&self, lobby: Entity, line: RadioLine) -> bool {
         self.games.get(&lobby).is_some_and(|a| a.queue.iter().any(|(l, _)| *l == line))
+    }
+
+    /// Whether a line of his is due the moment he can say it: nobody else
+    /// starts then (`crate::quotes`).
+    pub fn next_up(&self, lobby: Entity, now: f32) -> bool {
+        self.games
+            .get(&lobby)
+            .and_then(|a| a.queue.front())
+            .is_some_and(|(line, asked)| now >= asked + line.lead_in())
     }
 
     /// When he's done talking to `lobby` (in the past if he isn't).
@@ -191,7 +200,7 @@ fn direct_radio(
             continue;
         };
         let from = asked + line.lead_in();
-        if now >= from && (quotes.quiet(lobby_e, now) || now >= from + QUIET_WAIT_SECS) {
+        if now >= from && (quotes.floor_free(lobby_e, now) || now >= from + QUIET_WAIT_SECS) {
             air.queue.pop_front();
             said.push((lobby_e, line));
         }

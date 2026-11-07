@@ -853,21 +853,22 @@ impl PerkMachineSettings {
 /// A perk machine's jingle, playing from the machine (see
 /// [`play_perk_jingles`]), faded by distance by its profile in the mix. Played with `PlaybackMode::Remove`, so
 /// once the clip ends the entity stays (minus its `AudioPlayer`) for
-/// [`play_perk_quotes`] to notice, play `quote` and despawn it. It's
+/// [`play_perk_quotes`] to notice, ask for `quote` and despawn it. It's
 /// `StateScoped(InGame)` so leaving cuts it (and the quote to come) off.
 #[derive(Component)]
 struct PerkJingle {
-    /// The buyer's operator's line, to play once the jingle ends (or as we
-    /// walk away from it, if we're the buyer). Gone once it's been said.
+    /// The buyer's line to ask for once the jingle ends (or as we walk away
+    /// from it, if we're the buyer), if it's for us to ask. Gone once asked.
     quote: Option<PendingQuote>,
     /// When the clip ended.
     ended_at: Option<f32>,
 }
 
 struct PendingQuote {
-    clip: Handle<AudioSource>,
-    /// We're the buyer — our own voice, so it plays in our head rather than
-    /// from the machine.
+    perk: Perk,
+    /// A teammate bot bought it (we lead the lobby, so we ask for them).
+    ally: Option<lightyear::prelude::PeerId>,
+    /// We're the buyer.
     own: bool,
 }
 
@@ -898,21 +899,10 @@ fn play_perk_jingles(
                 let Some(jingle) = sounds.jingle(perk) else {
                     continue;
                 };
-                // Picked from what every client sees, so the whole lobby
-                // hears the same line.
-                let seed = {
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    (peer, perk, lobby.round, perks.len()).hash(&mut h);
-                    h.finish()
-                };
-                let operator = lobby.members.iter().find(|m| m.peer == *peer).map(|m| m.operator);
-                let quote = operator
-                    .and_then(|op| sounds.perk_quote(op, perk, seed))
-                    .map(|clip| PendingQuote {
-                        clip: clip.handle.clone(),
-                        own: Some(*peer) == me,
-                    });
+                // Asked for by the buyer's client, or the leader's for a bot's.
+                let own = Some(*peer) == me;
+                let ally = (shared::bot_players::is_ally_peer(*peer) && Some(lobby.leader) == me).then_some(*peer);
+                let quote = (own || ally.is_some()).then_some(PendingQuote { perk, ally, own });
                 commands.spawn((
                     StateScoped(AppState::InGame),
                     PerkJingle { quote, ended_at: None },
@@ -936,15 +926,16 @@ fn play_perk_jingles(
 }
 
 /// A short pause after a perk jingle ends (its `AudioPlayer` is gone), the
-/// buyer's operator says their line — in our head if it was us, otherwise
-/// from the machine — and the jingle's entity goes. If we bought it and have
-/// walked out of earshot of the jingle, we say it there and then instead.
-/// A pause holds the line, with the time it has left.
+/// server's asked for the buyer's operator to say their line
+/// (`shared::quotes::Quote::Perk`, taking its turn with every other voice)
+/// and the jingle's entity goes. If we bought it and have walked out of
+/// earshot of the jingle, we ask there and then instead. A pause holds it,
+/// with the time it has left.
 #[allow(clippy::too_many_arguments)]
 fn play_perk_quotes(
     mut jingles: Query<(Entity, &mut PerkJingle, &Transform, Has<AudioPlayer>)>,
     player: Query<&Transform, With<Player>>,
-    radio: Query<(), With<crate::radio::RadioCall>>,
+    mut sender: Query<&mut lightyear::prelude::TriggerSender<shared::RequestQuote>, With<GameClient>>,
     settings: Res<PerkMachineSettings>,
     paused: Res<crate::pause::GamePaused>,
     time: Res<Time>,
@@ -977,25 +968,11 @@ fn play_perk_quotes(
         let Some(quote) = jingle.quote.take() else {
             continue;
         };
-        // (Not over the man on the radio.)
-        if crate::radio::on_air(&radio) {
-            continue;
-        }
-        if quote.own {
-            commands.spawn((
-                crate::quotes::QuoteAudio,
-                StateScoped(AppState::InGame),
-                AudioPlayer::new(quote.clip),
-                PlaybackSettings::DESPAWN,
-            ));
-        } else {
-            commands.spawn((
-                crate::quotes::QuoteAudio,
-                StateScoped(AppState::InGame),
-                AudioPlayer::new(quote.clip),
-                *transform,
-                crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
-            ));
+        if let Ok(mut s) = sender.single_mut() {
+            s.trigger::<shared::LobbyChannel>(shared::RequestQuote {
+                quote: shared::quotes::Quote::Perk(quote.perk),
+                ally: quote.ally,
+            });
         }
     }
 }

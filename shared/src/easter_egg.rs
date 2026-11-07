@@ -367,6 +367,16 @@ impl HierophantLine {
     pub fn interrupts(self) -> bool {
         matches!(self, HierophantLine::Phase2 | HierophantLine::Phase3 | HierophantLine::Death)
     }
+
+    /// How much it matters to who talks when (`server::quotes`): a phase or
+    /// his death is timed to what he's doing, so it's said on cue.
+    pub fn priority(self) -> crate::quotes::Priority {
+        if self.interrupts() {
+            crate::quotes::Priority::Scripted
+        } else {
+            crate::quotes::Priority::Reaction
+        }
+    }
 }
 
 /// A big hit, for a hurt line: this much of his health (of the most he
@@ -616,6 +626,17 @@ pub fn available(lobby: &Lobby) -> bool {
 pub fn holds_spawns(lobby: &Lobby) -> bool {
     let step = lobby.easter_egg.step;
     available(lobby) && (step.map_gone_wrong() || step == EggStep::Ascension)
+}
+
+/// Whether the easter egg's own voices have `lobby`'s floor: from the ritual
+/// until the fight, and from his death until the squad's back, nobody but
+/// them and the man on the radio speaks. (The fight has room for the rest.)
+pub fn holds_voices(lobby: &Lobby) -> bool {
+    available(lobby)
+        && matches!(
+            lobby.easter_egg.step,
+            EggStep::Ritual | EggStep::Unleashed | EggStep::Awakening | EggStep::HisDeath | EggStep::Ascension
+        )
 }
 
 // --- its pieces (placeholders for now — sizes as the models will be made) ---------

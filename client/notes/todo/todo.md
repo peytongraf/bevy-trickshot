@@ -19,13 +19,11 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Removed wall material correction
 - AK-74 reload completes at mag snap
 - Pause freezes first person animations
+- Voice priority queue, interrupts
 
 # Latest play ( Der tempel, night, no starting money or full power, played from round 1)
 
 - A line of blood extends from the altar towards the sarcophagus but doesn't trace to objects at the ground level to get to it. Should it not move out at all on the ritual altar or trace all the way to it going over objects at ground level so that it can be seen? Before when it traced to the sarcophagus it went under the lifted portion where the altar sits on top of so it didn't look correct.
-- Some operator quotes are overlapping instead of being in a queue and waiting on the first to finish with a timer the keeps the operator from saying an old line serveral seconds later after the event that triggered it has occurred.
-- Ensure a priority queue is used for operator quotes with the priority set correctly
-- Maybe some more important quotes can interupt and cut off quotes that are already playing
 - Possibly test out different final pass effects / coloring as long as it doesn't decrease fps. Need to check fps before and after making the change.
 
 # Level editor

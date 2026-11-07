@@ -8,8 +8,7 @@
 //! (`maddox/`), and a click of static as he lets go ([`RadioCall`]).
 //!
 //! Nobody talks over him: the server lets no operator quote through while
-//! he's on air, one already going is cut off as he starts, and our own perk
-//! quotes (`zombies_hud::play_perk_quotes`) keep quiet too ([`on_air`]).
+//! he's on air, and one already going is cut off as he starts.
 //!
 //! While he's talking, his portrait and name sit on the right of the screen,
 //! halfway between its middle and the ammo HUD in the bottom-right corner

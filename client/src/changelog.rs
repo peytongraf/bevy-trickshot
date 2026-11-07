@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Zombies: operators, the radio and bosses now take turns talking, most important first.",
         "Pausing now freezes your weapon and its reload sound.",
         "AK-74: reload counts the moment the new mag snaps in.",
         "Der Tempel: wall textures back to how the map was made.",

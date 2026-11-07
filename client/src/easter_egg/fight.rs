@@ -240,7 +240,7 @@ fn his_lines(
     lobbies: Query<&Lobby>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
     scales: Query<&Transform, With<BossVisual>>,
-    playing: Query<Entity, With<HisLine>>,
+    playing: Query<Entity, Or<(With<HisLine>, With<crate::quotes::QuoteAudio>)>>,
     (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
     mut commands: Commands,
 ) {
@@ -276,6 +276,8 @@ fn his_lines(
             let scale = scales.get(avatar).map_or(1.0, |t| t.scale.y.max(0.001));
             commands.entity(avatar).with_child((
                 HisLine,
+                // (Cut off like any voice, by the man on the radio.)
+                crate::quotes::QuoteAudio,
                 AudioPlayer::new(clip),
                 Transform::from_xyz(0.0, settings.voice_height / scale, 0.0),
                 crate::positional_playback(Volume::Linear(settings.voice_volume)),

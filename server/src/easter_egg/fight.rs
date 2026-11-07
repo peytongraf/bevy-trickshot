@@ -216,13 +216,27 @@ fn raise_dead(
     true
 }
 
-/// He says `line` — to every client, unless he's still speaking (a phase or
-/// death line cuts in). Whether he did.
-fn say(fight: &mut Fight, line: HierophantLine, sender: &mut ServerMultiMessageSender, server: &Server, lobby: &Lobby) -> bool {
-    if !line.interrupts() && fight.t < fight.speaking_until {
+/// He says `line` — to every client, unless he's still speaking or it isn't
+/// his turn (`crate::quotes`; a phase or death line cuts in). Whether he did.
+#[allow(clippy::too_many_arguments)]
+fn say(
+    fight: &mut Fight,
+    line: HierophantLine,
+    voices: &mut crate::quotes::Director,
+    radio: &crate::radio::RadioDirector,
+    lobby_e: Entity,
+    now: f32,
+    sender: &mut ServerMultiMessageSender,
+    server: &Server,
+    lobby: &Lobby,
+) -> bool {
+    if !line.interrupts()
+        && (fight.t < fight.speaking_until || !voices.hierophant_may_speak(lobby_e, line.priority(), radio, now))
+    {
         return false;
     }
     fight.speaking_until = fight.t + line.secs();
+    voices.hierophant_says(lobby_e, line.priority(), line.secs(), now);
     send_to_lobby(sender, server, lobby, &shared::HierophantSays { line });
     true
 }
@@ -264,6 +278,7 @@ pub(super) fn run_fight(
     endings: Res<crate::killcam::EndingLobbies>,
     navs: Res<NavGraphs>,
     (mut next_id, mut fights, mut pokes): (ResMut<NextBotId>, ResMut<Fights>, ResMut<DebugPokes>),
+    (mut voices, radio): (ResMut<crate::quotes::Director>, Res<crate::radio::RadioDirector>),
     mut hits: EventReader<PlayerHit>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut him: Query<
@@ -345,7 +360,7 @@ pub(super) fn run_fight(
         let salt = lobby_e.to_bits();
 
         if !combat.alive {
-            say(fight, HierophantLine::Death, &mut sender, server, &lobby);
+            say(fight, HierophantLine::Death, &mut voices, &radio, lobby_e, now, &mut sender, server, &lobby);
             fights.0.remove(&lobby_e);
             drop_raised(lobby_e, &mut raised);
             let fell_at = brain.feet();
@@ -404,7 +419,7 @@ pub(super) fn run_fight(
                 fight.alone_for = 0.0;
                 brain.hold_for(now, shared::easter_egg::PHASE_ROAR_SECS);
                 let line = if phase >= 3 { HierophantLine::Phase3 } else { HierophantLine::Phase2 };
-                say(fight, line, &mut sender, server, &lobby);
+                say(fight, line, &mut voices, &radio, lobby_e, now, &mut sender, server, &lobby);
                 info!("lobby {lobby_e:?}: the Hierophant's in phase {phase}");
             } else {
                 // (Healed back by the debug panel.)
@@ -588,7 +603,7 @@ pub(super) fn run_fight(
         });
         if downed && t >= fight.down_ready_at {
             let i = fight.pick(shared::easter_egg::PLAYER_DOWN_LINES, fight.last_down, salt ^ 8);
-            if say(fight, HierophantLine::PlayerDown(i), &mut sender, server, &lobby) {
+            if say(fight, HierophantLine::PlayerDown(i), &mut voices, &radio, lobby_e, now, &mut sender, server, &lobby) {
                 fight.last_down = Some(i);
                 fight.down_ready_at = t + shared::easter_egg::PLAYER_DOWN_COOLDOWN_SECS;
             }
@@ -600,7 +615,7 @@ pub(super) fn run_fight(
         let lost = fight.health_log.first().map_or(0.0, |(_, h)| h - combat.health);
         if lost >= max * shared::easter_egg::HURT_SHARE && t >= fight.hurt_ready_at {
             let i = fight.pick(shared::easter_egg::HURT_LINES, fight.last_hurt, salt ^ 9);
-            if say(fight, HierophantLine::Hurt(i), &mut sender, server, &lobby) {
+            if say(fight, HierophantLine::Hurt(i), &mut voices, &radio, lobby_e, now, &mut sender, server, &lobby) {
                 fight.last_hurt = Some(i);
                 fight.hurt_ready_at = t + shared::easter_egg::HURT_COOLDOWN_SECS;
                 fight.health_log.clear();
@@ -609,12 +624,16 @@ pub(super) fn run_fight(
 
         // Now and then, a taunt — standing still to say it.
         if t >= fight.next_taunt && !busy {
-            if t < fight.speaking_until || !brain.taunt(now, shared::easter_egg::TAUNT_HOLD_SECS) {
+            let line_priority = HierophantLine::Taunt(0).priority();
+            if t < fight.speaking_until
+                || !voices.hierophant_may_speak(lobby_e, line_priority, &radio, now)
+                || !brain.taunt(now, shared::easter_egg::TAUNT_HOLD_SECS)
+            {
                 // (Mid-line, mid-smash or stunned: in a moment.)
                 fight.next_taunt = t + 0.5;
             } else {
                 let i = fight.pick(shared::easter_egg::TAUNTS, fight.last_taunt, salt ^ 10);
-                say(fight, HierophantLine::Taunt(i), &mut sender, server, &lobby);
+                say(fight, HierophantLine::Taunt(i), &mut voices, &radio, lobby_e, now, &mut sender, server, &lobby);
                 fight.last_taunt = Some(i);
                 fight.next_taunt = t + fight.gap(shared::easter_egg::TAUNT_GAP_SECS, salt ^ 11);
             }

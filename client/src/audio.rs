@@ -107,10 +107,6 @@ pub(crate) struct GameSounds {
     /// that perk (`zombies_hud::play_perk_jingles`). Pick one with
     /// [`Self::jingle`].
     jingles: std::collections::HashMap<shared::perks::Perk, Handle<AudioSource>>,
-    /// `audio/quotes/<operator>/perk_quotes/` — each operator's lines after
-    /// buying a perk (`zombies_hud::play_perk_quotes`). Pick one with
-    /// [`Self::perk_quote`].
-    perk_quotes: std::collections::HashMap<shared::operator::Operator, PerkQuotes>,
     /// `audio/zombies/machines/power_on.mp3` — someone threw the `Zombies` power
     /// lever: from the lever, for the whole lobby (`power::sync_power_lever`).
     pub(crate) power_on: Handle<AudioSource>,
@@ -286,52 +282,6 @@ impl GameSounds {
     pub(crate) fn jingle(&self, perk: shared::perks::Perk) -> Option<Handle<AudioSource>> {
         self.jingles.get(&perk).cloned()
     }
-
-    /// What `operator` says after buying `perk`: for a classic perk, one of
-    /// its own lines or one of the operator's `any/` lines; for a custom
-    /// perk (no lines of its own), one of `any/`. `seed` picks which, so
-    /// every client can pick the same one.
-    pub(crate) fn perk_quote(
-        &self,
-        operator: shared::operator::Operator,
-        perk: shared::perks::Perk,
-        seed: u64,
-    ) -> Option<&SoundClip> {
-        let quotes = self.perk_quotes.get(&operator)?;
-        let own = quotes.by_perk.get(&perk).map_or(&[][..], |set| &set.clips[..]);
-        let pool: Vec<&SoundClip> = own.iter().chain(&quotes.any.clips).collect();
-        (!pool.is_empty()).then(|| pool[(seed % pool.len() as u64) as usize])
-    }
-}
-
-/// One operator's perk quotes (`audio/quotes/<operator>/perk_quotes/`):
-/// `any/`, and a folder per classic perk.
-pub(crate) struct PerkQuotes {
-    any: SoundSet,
-    by_perk: std::collections::HashMap<shared::perks::Perk, SoundSet>,
-}
-
-impl PerkQuotes {
-    fn load(asset_server: &AssetServer, operator: shared::operator::Operator) -> Self {
-        use shared::perks::Perk;
-        let dir = format!("audio/quotes/{}/perk_quotes", operator.dir());
-        Self {
-            any: SoundSet::load(asset_server, &format!("{dir}/any")),
-            by_perk: [
-                (Perk::Juggernog, "jug"),
-                (Perk::QuickRevive, "quick_revive"),
-                (Perk::SpeedCola, "speed_cola"),
-                (Perk::StaminUp, "stamin_up"),
-                (Perk::DoubleTap, "double_tap"),
-                (Perk::DeadshotDaiquiri, "deadshot"),
-                (Perk::PhdFlopper, "phd"),
-                (Perk::DeathPerception, "death_perception"),
-            ]
-            .into_iter()
-            .map(|(perk, sub)| (perk, SoundSet::load(asset_server, &format!("{dir}/{sub}"))))
-            .collect(),
-        }
-    }
 }
 
 /// One clip from a [`SoundSet`].
@@ -502,10 +452,6 @@ pub(crate) fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>
             .map(|(perk, file)| (perk, asset_server.load(format!("audio/zombies/perks/jingles/{file}"))))
             .collect()
         },
-        perk_quotes: shared::operator::Operator::ALL
-            .into_iter()
-            .map(|op| (op, PerkQuotes::load(&asset_server, op)))
-            .collect(),
         power_on: asset_server.load("audio/zombies/machines/power_on.mp3"),
         door_open: asset_server.load("audio/zombies/doors/open.mp3"),
         main_door_ambience: asset_server.load("audio/zombies/doors/main_door_ambience.mp3"),

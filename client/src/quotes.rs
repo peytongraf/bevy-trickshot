@@ -2,12 +2,14 @@
 //! ([`shared::QuoteSaid`], `server::quotes`), and every client plays that
 //! very line — from where its speaker is, following them about and fading
 //! with distance (the "Voices" profile in the audio mixer), or, our own, in
-//! our head.
+//! our head. One voice talks at a time; a line that says so cuts off the one
+//! playing (`QuoteSaid::cut_off`).
 //!
-//! Three things only this client knows of it asks the server to say for us
+//! What only this client knows of it asks the server to say for us
 //! ([`shared::RequestQuote`]): being down to our last magazine, and out of
-//! ammo altogether ([`ammo_quotes`]); and trying to buy something we haven't
-//! the points for ([`CantAfford`], from wherever we tried).
+//! ammo altogether ([`ammo_quotes`]); trying to buy something we haven't the
+//! points for ([`CantAfford`], from wherever we tried); and a perk we bought
+//! once its jingle's done (`zombies_hud::play_perk_quotes`).
 //!
 //! The lines are `audio/quotes/<operator>/…`, every one listed (with how
 //! long it runs) in `lines.txt` there — [`shared::quotes::lines`] — all
@@ -85,9 +87,8 @@ fn load_lines(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(QuoteLines(loaded));
 }
 
-/// Any operator quote playing — this module's or a perk quote
-/// (`zombies_hud::play_perk_quotes`) — so the radio can cut it off
-/// (`radio::play_radio`).
+/// Any operator quote (or Hierophant's line) playing, so a more important
+/// line can cut it off ([`play_quotes`], `radio::play_radio`).
 #[derive(Component)]
 pub(crate) struct QuoteAudio;
 
@@ -106,11 +107,17 @@ fn play_quotes(
     lobbies: Query<&Lobby>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     loaded: Option<Res<QuoteLines>>,
+    playing: Query<Entity, With<QuoteAudio>>,
     mut commands: Commands,
 ) {
     let me = local.iter().next().map(|l| l.0);
     for mut rx in &mut receivers {
         for said in rx.receive() {
+            if said.cut_off {
+                for e in &playing {
+                    commands.entity(e).try_despawn();
+                }
+            }
             let Some(lobby) = me.and_then(|me| lobbies.iter().find(|l| l.has(me))) else {
                 continue;
             };
@@ -216,7 +223,7 @@ fn ammo_quotes(
         AmmoState::Plenty => return,
     };
     if let Ok(mut s) = sender.single_mut() {
-        s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote });
+        s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote, ally: None });
     }
 }
 
@@ -245,7 +252,7 @@ fn cant_afford_quotes(
         return;
     }
     if let Ok(mut s) = sender.single_mut() {
-        s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote: Quote::CantAfford });
+        s.trigger::<shared::LobbyChannel>(shared::RequestQuote { quote: Quote::CantAfford, ally: None });
         *last = Some(now);
     }
 }

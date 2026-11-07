@@ -6,8 +6,7 @@
 //!
 //! * A quote said "by anyone" (a power-up, the first boss, a dog round, the
 //!   exfil) goes to one player picked at random (a living one, if any's
-//!   up); one moment never has two people talking at once — only the first
-//!   request for a speaker in a tick counts.
+//!   up).
 //! * Each quote's [`Rule`](shared::quotes::Rule): the chance it's said at
 //!   all, and how long before the same speaker says it again.
 //! * No line (the same file) is heard twice in a game within
@@ -16,13 +15,18 @@
 //!   is picked among the players with a fresh line). A quote that
 //!   [cycles](shared::quotes::Quote::cycles) instead has each operator say
 //!   every one of their lines for it before any again (each game).
-//! * Nobody talks over themselves: a speaker's busy until their line's
-//!   done (the lengths are in `shared::quotes`). A line asked for while
-//!   they're still talking waits — said the moment they finish if that's
-//!   within [`GRACE_SECS`], never if not.
-//! * Nobody talks over the man on the radio (`crate::radio`): anything
-//!   asked for (or waiting) while he's on air is dropped — except a delayed
-//!   line ([`QuoteDelay`]) coming due then, which waits for him to finish.
+//! * One voice talks at a time in a lobby ([`Floor`]), whoever's it is: the
+//!   next line waits for the one playing to finish, the most important
+//!   first ([`Priority`]), for as long as it's worth waiting
+//!   ([`Priority::wait_secs`]) — then it's dropped. The more important can
+//!   cut off the least ([`Priority::cuts_off`]; `QuoteSaid::cut_off`), and
+//!   that line's gone. A scripted line's said on cue, over anything.
+//! * The man on the radio (`crate::radio`) comes first: nothing starts while
+//!   he's on air or next up, and the clients cut off whatever's playing as
+//!   he starts. A line worth a long wait keeps its time till he's done.
+//! * The easter egg's own voices hold the floor the same way
+//!   ([`shared::easter_egg::holds_voices`]); the Hierophant in his fight
+//!   takes his turn with everyone else ([`Director::hierophant_says`]).
 //! * A dog round's and the exfil's lines come a few seconds after
 //!   ([`SetQuoteDelays`] — the leader can change how long); a power-up's
 //!   once its announcer's done ([`shared::power_ups::PowerUp::announcer_secs`]);
@@ -44,10 +48,10 @@ use bevy::prelude::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-use shared::bot_players::is_bot_peer;
+use shared::bot_players::{is_ally_peer, is_bot_peer};
 use shared::operator::Operator;
 use shared::quotes::{
-    lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, GRACE_SECS, LINE_COOLDOWN_SECS,
+    lines, Priority, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS, GAP_SECS, LINE_COOLDOWN_SECS,
     ROUND_START_DELAY_SECS,
 };
 use shared::radio::RadioLine;
@@ -129,17 +133,90 @@ pub enum QuoteDelay {
 /// One player's voice in a game.
 struct Voice {
     lobby: Entity,
-    /// Talking until then (`Time::elapsed_secs`, gap included).
-    busy_until: f32,
-    /// A line waiting for them to finish, and until when it may.
-    pending: Option<(Quote, f32)>,
     /// When they last said each quote.
     said: HashMap<Quote, f32>,
+}
+
+/// A line waiting its turn: who says what, and until when it may.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Waiting {
+    speaker: PeerId,
+    quote: Quote,
+    until: f32,
+}
+
+/// Who's talking in one lobby's game, and who's next.
+#[derive(Default)]
+struct Floor {
+    /// How much the line playing matters.
+    playing: Option<Priority>,
+    /// Talking until then (`Time::elapsed_secs`, gap included).
+    until: f32,
+    /// Oldest first.
+    waiting: Vec<Waiting>,
+}
+
+impl Floor {
+    fn talking(&self, now: f32) -> bool {
+        now < self.until
+    }
+
+    fn ask(&mut self, speaker: PeerId, quote: Quote, now: f32) {
+        if !self.waiting.iter().any(|w| w.speaker == speaker && w.quote == quote) {
+            self.waiting.push(Waiting { speaker, quote, until: now + quote.priority().wait_secs() });
+        }
+    }
+
+    /// Time passing that doesn't count against `which` waiting.
+    fn hold(&mut self, dt: f32, which: impl Fn(Priority) -> bool) {
+        for w in &mut self.waiting {
+            if which(w.quote.priority()) {
+                w.until += dt;
+            }
+        }
+    }
+
+    fn forget_expired(&mut self, now: f32) {
+        self.waiting.retain(|w| now <= w.until);
+    }
+
+    /// The line to say now, if any (taken off the list), and whether it
+    /// cuts one off: the most important waiting, oldest first, if there's
+    /// nobody talking or it can cut them off.
+    fn next(&mut self, now: f32) -> Option<(Waiting, bool)> {
+        let best = self
+            .waiting
+            .iter()
+            .enumerate()
+            .rev()
+            .max_by_key(|(_, w)| w.quote.priority())
+            .map(|(i, w)| (i, w.quote.priority()))?;
+        let cut = self.talking(now);
+        if cut && !self.playing.is_some_and(|p| best.1.cuts_off(p)) {
+            return None;
+        }
+        Some((self.waiting.remove(best.0), cut))
+    }
+
+    /// A line starts now and runs `secs`. (Alongside one, unless it `cut`
+    /// that off: the squad chanting together.)
+    fn start(&mut self, priority: Priority, secs: f32, cut: bool, now: f32) {
+        let end = now + secs + GAP_SECS;
+        self.until = if cut { end } else { self.until.max(end) };
+        self.playing = Some(priority);
+    }
+
+    /// The radio's cut off whatever was playing.
+    fn hush(&mut self) {
+        self.until = 0.0;
+        self.playing = None;
+    }
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct Director {
     voices: HashMap<PeerId, Voice>,
+    floors: HashMap<Entity, Floor>,
     /// Each lobby's (dog round, exfil) delays, if the leader set them.
     delays: HashMap<Entity, (f32, f32)>,
     /// Quotes waiting on their delay: when, and what (its `delay` cleared,
@@ -213,20 +290,37 @@ fn fresh_lines(
 }
 
 impl Director {
-    /// Whether no operator in `lobby` is talking right now — or about to:
-    /// with a line waiting for its speaker to finish, or one scheduled (a
-    /// power-up's, waiting out its announcer; a dog round's or the exfil's,
-    /// its delay). `crate::radio` waits for that.
-    pub(crate) fn quiet(&self, lobby: Entity, now: f32) -> bool {
-        !self
-            .voices
-            .values()
-            .any(|v| v.lobby == lobby && (now < v.busy_until || v.pending.is_some()))
-            // (Not one waiting for him — they'd wait on each other.)
-            && !self
-                .scheduled
-                .iter()
-                .any(|(_, q)| q.lobby == lobby && !matches!(q.delay, QuoteDelay::AfterRadio(_)))
+    /// Whether nobody in `lobby` is talking right now. `crate::radio` waits
+    /// for that.
+    pub(crate) fn floor_free(&self, lobby: Entity, now: f32) -> bool {
+        !self.floors.get(&lobby).is_some_and(|f| f.talking(now))
+    }
+
+    /// Whether the Hierophant could say a line of `priority` right now: a
+    /// scripted one always, otherwise when nobody's talking, or about to.
+    pub(crate) fn hierophant_may_speak(
+        &self,
+        lobby: Entity,
+        priority: Priority,
+        radio: &crate::radio::RadioDirector,
+        now: f32,
+    ) -> bool {
+        priority == Priority::Scripted
+            || (!radio.on_air(lobby, now)
+                && !radio.next_up(lobby, now)
+                && self
+                    .floors
+                    .get(&lobby)
+                    .is_none_or(|f| !f.talking(now) && !f.waiting.iter().any(|w| w.quote.priority() >= priority)))
+    }
+
+    /// The Hierophant says a line running `secs`: it takes the floor,
+    /// whether the line playing was cut off ([`HierophantLine::interrupts`]
+    /// tells the clients so) or there was none.
+    ///
+    /// [`HierophantLine::interrupts`]: shared::easter_egg::HierophantLine::interrupts
+    pub(crate) fn hierophant_says(&mut self, lobby: Entity, priority: Priority, secs: f32, now: f32) {
+        self.floors.entry(lobby).or_default().start(priority, secs, true, now);
     }
 }
 
@@ -285,19 +379,32 @@ fn kill_quotes(mut kills: EventReader<ZombieKilled>, lobbies: Query<&Lobby>, mut
     }
 }
 
-/// Our client says we're low on / out of ammo, or can't afford what we
-/// just tried to buy (all it may ask for).
+/// Our client says we're low on / out of ammo, can't afford what we just
+/// tried to buy, or a perk we (or, from the leader, a teammate bot) bought
+/// has finished its jingle — all it may ask for.
 fn on_request_quote(
     trigger: Trigger<RemoteTrigger<RequestQuote>>,
     lobbies: Query<(Entity, &Lobby)>,
     mut quotes: EventWriter<SayQuote>,
 ) {
-    let peer = trigger.from;
-    let quote = trigger.trigger.quote;
-    if !matches!(quote, Quote::LowAmmo | Quote::OutOfAmmo | Quote::CantAfford) {
+    let from = trigger.from;
+    let RequestQuote { quote, ally } = trigger.trigger;
+    let Some((lobby_e, lobby)) =
+        lobbies.iter().find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(from))
+    else {
         return;
-    }
-    if let Some((lobby_e, _)) = lobbies.iter().find(|(_, l)| l.started && l.mode == GameMode::Zombies && l.has(peer)) {
+    };
+    let peer = match ally {
+        Some(ally) if lobby.leader == from && is_ally_peer(ally) && lobby.has(ally) => ally,
+        Some(_) => return,
+        None => from,
+    };
+    let may_ask = match quote {
+        Quote::LowAmmo | Quote::OutOfAmmo | Quote::CantAfford => ally.is_none(),
+        Quote::Perk(perk) => lobby.members.iter().any(|m| m.peer == peer && m.perks.contains(&perk)),
+        _ => false,
+    };
+    if may_ask {
         quotes.write(SayQuote::by(lobby_e, peer, quote));
     }
 }
@@ -344,6 +451,7 @@ pub(crate) fn direct_quotes(
     let director = &mut *director;
     // Forget lobbies whose game's over (or gone).
     director.voices.retain(|_, v| running(v.lobby).is_some());
+    director.floors.retain(|e, _| running(*e).is_some());
     director.delays.retain(|e, _| lobbies.contains(*e));
     director.scheduled.retain(|(_, q)| running(q.lobby).is_some());
     director.heard.retain(|e| running(e).is_some());
@@ -391,15 +499,14 @@ pub(crate) fn direct_quotes(
     });
 
     let alive = |peer: PeerId| combats.iter().find(|(id, _)| id.0 == peer).is_none_or(|(_, c)| c.alive);
-    let mut said: Vec<(Entity, PeerId, Quote)> = Vec::new();
-    let mut heard: HashSet<PeerId> = HashSet::new();
+    // (Who says what, and whether it cuts off the line playing.)
+    let mut said: Vec<(Entity, PeerId, Quote, bool)> = Vec::new();
+    let mut chatted: HashSet<PeerId> = HashSet::new();
+    let mut chanting: HashSet<Entity> = HashSet::new();
     for (i, ask) in asks.into_iter().enumerate() {
         let Some(lobby) = running(ask.lobby) else {
             continue;
         };
-        if radio.on_air(ask.lobby, now) {
-            continue;
-        }
         let speaker = match ask.who {
             Speaker::Player(peer) if lobby.has(peer) && !is_bot_peer(peer) => peer,
             Speaker::Player(_) => continue,
@@ -427,8 +534,10 @@ pub(crate) fn direct_quotes(
                 pool[((r * pool.len() as f32) as usize).min(pool.len() - 1)]
             }
         };
-        // One ask per speaker a tick (a frag's three kills are one line).
-        if !heard.insert(speaker) {
+        let priority = ask.quote.priority();
+        // Chatter's one ask per speaker a tick (a frag's three kills are one
+        // line).
+        if priority == Priority::Chatter && !chatted.insert(speaker) {
             continue;
         }
         let rule = ask.quote.rule();
@@ -437,8 +546,6 @@ pub(crate) fn direct_quotes(
         }
         let voice = director.voices.entry(speaker).or_insert(Voice {
             lobby: ask.lobby,
-            busy_until: 0.0,
-            pending: None,
             said: HashMap::new(),
         });
         voice.lobby = ask.lobby;
@@ -448,32 +555,47 @@ pub(crate) fn direct_quotes(
         if fresh_lines(&director.heard, ask.lobby, lobby, speaker, ask.quote, now).is_empty() {
             continue;
         }
-        if now >= voice.busy_until {
-            said.push((ask.lobby, speaker, ask.quote));
-        } else if voice.pending.is_none() && voice.busy_until - now <= GRACE_SECS {
-            // Still talking: it can wait for them, a moment.
-            voice.pending = Some((ask.quote, now + GRACE_SECS));
-        }
-    }
-    // Lines that waited, and whose speaker's free now.
-    for (peer, voice) in director.voices.iter_mut() {
-        if paused(voice.lobby) {
-            if let Some((_, until)) = &mut voice.pending {
-                *until += dt;
-            }
-            continue;
-        }
-        if now < voice.busy_until {
-            continue;
-        }
-        if let Some((quote, until)) = voice.pending.take() {
-            if now <= until && !radio.on_air(voice.lobby, now) && !said.iter().any(|(_, p, _)| p == peer) {
-                said.push((voice.lobby, *peer, quote));
-            }
+        let floor = director.floors.entry(ask.lobby).or_default();
+        if priority == Priority::Scripted {
+            // On cue, over anything. (The first of a squad's chant cuts off
+            // what's playing; the rest go with it.)
+            let cut = chanting.insert(ask.lobby) && floor.talking(now);
+            said.push((ask.lobby, speaker, ask.quote, cut));
+        } else {
+            floor.ask(speaker, ask.quote, now);
         }
     }
 
-    for (lobby_e, speaker, quote) in said {
+    // Whose turn it is, in each lobby.
+    for (&lobby_e, floor) in director.floors.iter_mut() {
+        let Some(lobby) = running(lobby_e) else {
+            continue;
+        };
+        if lobby.paused {
+            floor.hold(dt, |_| true);
+            continue;
+        }
+        let on_air = radio.on_air(lobby_e, now);
+        if on_air {
+            // (The clients cut off whatever was playing as he started.)
+            floor.hush();
+        }
+        if on_air || radio.next_up(lobby_e, now) || shared::easter_egg::holds_voices(lobby) {
+            floor.hold(dt, |p| p == Priority::Story);
+            floor.forget_expired(now);
+            continue;
+        }
+        floor.forget_expired(now);
+        // (Nothing new alongside a scripted line that's just gone out.)
+        if said.iter().any(|(e, ..)| *e == lobby_e) {
+            continue;
+        }
+        if let Some((line, cut)) = floor.next(now) {
+            said.push((lobby_e, line.speaker, line.quote, cut));
+        }
+    }
+
+    for (lobby_e, speaker, quote, cut_off) in said {
         let Some(lobby) = running(lobby_e) else {
             continue;
         };
@@ -491,14 +613,14 @@ pub(crate) fn direct_quotes(
         let line = fresh[((r * fresh.len() as f32) as usize).min(fresh.len() - 1)];
         director.heard.said(lobby_e, member.operator, quote, options[line].path, now);
         if let Some(voice) = director.voices.get_mut(&speaker) {
-            voice.busy_until = now + options[line].secs + GAP_SECS;
             voice.said.insert(quote, now);
-            voice.pending = None;
         }
+        director.floors.entry(lobby_e).or_default().start(quote.priority(), options[line].secs, cut_off, now);
         let msg = QuoteSaid {
             speaker,
             quote,
             line: line as u16,
+            cut_off,
         };
         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
             error!("failed to send quote: {e:?}");
@@ -510,6 +632,76 @@ pub(crate) fn direct_quotes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ADAM: PeerId = PeerId::Netcode(1);
+    const VON: PeerId = PeerId::Netcode(2);
+
+    /// A floor with `playing` running until 10 s, at 5 s.
+    fn busy(playing: Priority) -> Floor {
+        let mut floor = Floor::default();
+        floor.start(playing, 5.0 - GAP_SECS, false, 5.0);
+        floor
+    }
+
+    #[test]
+    fn one_voice_at_a_time_then_the_most_important_oldest_first() {
+        let mut floor = busy(Priority::Reaction);
+        floor.ask(VON, Quote::BuyAmmo, 5.0);
+        floor.ask(ADAM, Quote::Pap, 5.0);
+        floor.ask(VON, Quote::Perk(shared::perks::Perk::Juggernog), 5.0);
+        assert_eq!(floor.next(5.0), None, "someone's talking");
+        let (first, cut) = floor.next(10.0).unwrap();
+        assert_eq!((first.speaker, first.quote, cut), (ADAM, Quote::Pap, false));
+        assert_eq!(floor.next(10.0).unwrap().0.quote, Quote::Perk(shared::perks::Perk::Juggernog));
+        assert_eq!(floor.next(10.0).unwrap().0.quote, Quote::BuyAmmo);
+    }
+
+    #[test]
+    fn a_line_that_cant_get_a_turn_in_time_is_dropped_and_chatter_never_waits() {
+        let mut floor = busy(Priority::Story);
+        floor.ask(ADAM, Quote::MeleeKill, 5.0);
+        floor.ask(ADAM, Quote::BuyAmmo, 5.0);
+        floor.ask(VON, Quote::Pap, 5.0);
+        floor.forget_expired(5.1);
+        assert_eq!(floor.waiting.iter().map(|w| w.quote).collect::<Vec<_>>(), [Quote::BuyAmmo, Quote::Pap]);
+        floor.forget_expired(10.0);
+        assert_eq!(floor.next(10.0).unwrap().0.quote, Quote::Pap);
+    }
+
+    #[test]
+    fn the_important_cut_off_chatter_only() {
+        let mut floor = busy(Priority::Chatter);
+        floor.ask(VON, Quote::BuyAmmo, 5.0);
+        assert_eq!(floor.next(5.0), None, "a reaction waits");
+        floor.ask(VON, Quote::TeamMateDown, 5.0);
+        let (line, cut) = floor.next(5.0).unwrap();
+        assert_eq!((line.quote, cut), (Quote::TeamMateDown, true));
+
+        let mut floor = busy(Priority::Reaction);
+        floor.ask(VON, Quote::TeamMateDown, 5.0);
+        assert_eq!(floor.next(5.0), None, "only chatter gets cut off");
+    }
+
+    #[test]
+    fn a_cut_takes_over_the_floor_and_a_chant_goes_alongside() {
+        let mut floor = busy(Priority::Chatter);
+        floor.start(Priority::Callout, 1.0, true, 5.0);
+        assert!(floor.until < 7.0, "the long line it cut isn't still counted");
+        floor.start(Priority::Scripted, 8.0, false, 5.0);
+        floor.start(Priority::Scripted, 2.0, false, 5.0);
+        assert!(floor.talking(12.0), "until the longest of them's done");
+    }
+
+    #[test]
+    fn asking_twice_is_one_line_and_a_held_line_keeps_its_time() {
+        let mut floor = busy(Priority::Story);
+        floor.ask(VON, Quote::Pap, 5.0);
+        floor.ask(VON, Quote::Pap, 6.0);
+        assert_eq!(floor.waiting.len(), 1);
+        floor.hold(100.0, |p| p == Priority::Story);
+        floor.forget_expired(100.0);
+        assert_eq!(floor.waiting.len(), 1);
+    }
 
     fn kill(cause: HitCause, anim: shared::ZombieAnim) -> ZombieKilled {
         ZombieKilled {
