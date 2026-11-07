@@ -38,8 +38,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 - Re-enable zombie arms-up walk (`ZombieAvatarSettings::arms_up_walk`, off while testing the shambles)
 - Default frame cap to the display's refresh rate (judder when uncapped)
 - Make teleport keybind only work when in debug mode so that it won't be accidentally pressed when playing normally
-- Test and improve server performance for cpu and memory
-- Could download bottle model and replace the plastic model in the drinking arms with it and redo the animation, then just swap out the material that is used if they would all look correct.
+- Test and improve server performance for cpu and memory Could download bottle model and replace the plastic model in the drinking arms with it and redo the animation, then just swap out the material that is used if they would all look correct.
 - Dial in zombie and other enemy / remote player footsteps and ensure they also make the water noise when in water
 - Add full power power up
 - Add fire sale power up
