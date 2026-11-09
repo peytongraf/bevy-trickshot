@@ -1,8 +1,8 @@
 ## Bonus Points
 
 - 1 Sounds like that tax return just came in! yeah yeah yeah baby!
-- 2 Our stimulus checks have arrived!
-- 3 Gettin' some tip jar action huh? Tip me baby one MORE TIME!
+- 2 [ sailor accent, yelling ] ALAS! [ sailor voice, screaming, very gravely, max volume ] Our stimulus checks hath arrived!!!
+- 3 [ joking ]Gettin' some tip jar action huh? [ high pitched, singing, fast] Tip me baby, ONE MORE TIME!
 - 4 Look at that. Free points. Everyone loves my free points. Nobody gives out free points like this. Very classy drop.
 
 ## Double Points
@@ -13,9 +13,9 @@
 
 ## Max Ammo
 
-- 1 My ammo has been... MAXIMIZED!!!
+- 1 [ serious ] My ammo has been... [ screaming, death metal voice ]MAXIMIZED!!!
 - 2 Some thought we'd never have ammo again. And would you look at that. Frankly we may have too much.
-- 3 Perfect timing. I'm about to really upset the undead community. Frankly I don't give a SHIT!
+- 3 [ monotone ]Perfect timing. [ dark, menacing ]I'm about to really upset the undead community. Frankly [ short pause ] [ screaming, death metal voice ] I don't give a SHIT!
 
 ## Nuke
 

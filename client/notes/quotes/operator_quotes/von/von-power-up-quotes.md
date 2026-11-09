@@ -27,7 +27,7 @@
 
 ## InstaKill
 
-- 1 Aww shit! Deez boys one shot!
+- 1 [ ghetto, hood, street ] shit bro, deez boys one shot! [ yelling ] AYE STEVEN GO HEAD N STAND UP WE FINNA [ very aggresive ] BUST [ street, hood, ghetto, fast ] in yo head!!!!
 - 2 How sad. Just sneeze on these zombies and they fall over. Very weak. Frankly they should be embarrassed.
 - 3 It's a sad day to be brought back from the dead just to die in a single shot.
 

@@ -47,9 +47,10 @@ A random one is said when the player takes damage.
 
 - 1 That hit felt like you said "Well at least I tried".
 - 2 You got that timeshare presentation strength.
-- 3 You swing like someone who bitches about beans in chili.
-- 4 Hittin' on me already? We just met.
+- 3 [ mocking ]You swing like someone who bitches about beans in chili. [ short pause ] [ intense ] Yeah I SAID IT!!! [ insane, screaming ] THELMA WE LOADIN' UP [ ESPECIALLY LOUD ]ALLLLLL [ screaming] THE FUCKIN' BEANS IN OUR CHILLI THIS YEAR SWEET HEART!!!!
+- 4 [ very girly gay voice ] Hittin' on me already? [ screaming, crazy ] We just MET!!!!
 - 5 That swing was about as hard as an open book test in home school.
+- 6 [ screaming, death metal voice ] OHHHH BOB SAGET!!!!!
 
 ## Low on ammo
 
@@ -63,8 +64,8 @@ A random one is said when the player is low on ammo. One mag left counts as low 
 ## Out of ammo
 
 - 1 And there goes my ammo. It was fun while it lasted.
-- 2 Out of ammo. Shit. Shit. Where the hell did they put the ammo cache?
-- 3 Shit I'm clean out of ammo. This is .. not.. ideal.
+- 2 [ pissed ]Out of ammo. Shit. [ screaming] Shit! [pause] [screaming, insane] WHERE DID THE ASSHOLES THAT BUILT THIS PLACE PUT THE AMMO CACHE!?
+- 3 [ accepting fate ] I'm fresh out of ammo... [pause ] [screaming very loud, very pissed] SHITTTT!!!!!
 
 ## Pack a punch
 
@@ -77,7 +78,7 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 - 5 Damn this is the biggest power up since that guy from that japanese cartoon screamed and his hair turned yellow.
 - 6 When you wake up for you brush your teeth you grab a strap... n... Oh wait...
 - 7 Now this is what I call stayin strapped.
-- 8 Yeah, this thing'll knock you on your ass. Watch out Big Steve.
+- 8 [ dark laughter ] [ giddy, evil ]Yeah, this thing'll knock you on your ass. [ short pause ] [ screaming, very aggressive ]WATCH YOUR ASS BIG STEVE!!!
 - 9 Hell yeah! This thing has Big Steve written all over it.
 - 10 Remeber, with great power comes great resp... ah fuck it. Lets mag dump on these shits.
 - 11 Not gonna lie. This stick has a special aura about it.
@@ -95,7 +96,7 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 
 ## pick up new dropped equipment (different than current lethal or tactical)
 
-- 1 I'm gettin' sick and tired of all the looters... AND POLLUTERS!
+- 1 [angry, pissed, low volume] I'm gettin' sick and tired of all the looters... [ short pause ] [ screaming full volume, max gravely ]AND POLLUTERS!!!!
 - 2 I'm lootin' like its 2020, I'm temporarily unemployed, and Warzone just dropped.
 - 3 I knew a guy who use to store dropped equipment he picked up in an Easter basket. From LA. Real odd one he was.
 - 4 Big Steve! You won't belive what I just found!
@@ -103,14 +104,14 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## get frag kill
 
 - 1 This shit blew up like that news clip from that hail storm. It said KAPOOYA KAPOOYA!
-- 2 Art.. is an EXPLOSION!!!
+- 2 [menacing] art...[pause][screaming, gravely]IS AN EXPLOSION!
 - 3 Now that's what I call layin' the BOOM!
-- 4 Fire style... majestic DESTROYER FLAME!!!
+- 4 [menacing, serious, gravely, fast] Fire style [pause] [intense, fast, screaming, gravely] MAJESTIC DESTROYER FLAME!
 
 ## get throwing knife kill
 
 - 1 Wow! Can't even dodge a Kunai?
-- 2 HAHA! Right on the money.
+- 2 [ evil loud laugh ][ screaming, mocking ]Right on the money!!!
 - 3 Died to a throwing knife? Come on, that's weak sauce.
 - 4 I'm not one to judge, but dying to a throwing knife is quite dishonerable.
 
@@ -146,9 +147,9 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## PHD Slider Kill
 
 - 1 I see PHD works well on swamp bred skin suits
-- 2 P.H.D. is so O.P. !!!
-- 3 ka... BOOOOM!!!
-- 4 hehehahahehehahaheeeeeeeeeeeeeeeeHAAAAAAA... SHIT! Snap out of it! Which perk is THIS a side effect of?!
+- 2 [ screaming, totally insane, super fast ]PHD IS SO OP!!
+- 3 [ screaming extremely loud, very gravely ] KAAABOOOOMMMMM!!!!!!
+- 4 [ insane laughter ] [ yodeling ] weeeeeeee! [ burp ] [ pause ] [ pissed ]SHIT! [ alert, fast, loud ] Snap out of it! [ screaming, very scared, horrified ] Which perk is this a side effect of?! [ pause ] [ screaming very loud, super angry ] PHD!!!!!! 
 
 ## Ammo buy
 
@@ -181,12 +182,12 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## Take Molotov Damage
 
 - 1 Oww shit! That burns!!! Well I guess I did walk right into that one...
-- 2 Holy son of a smoldering shit stain that's a HOT fire!!!
-- 3 Ow fuck! My dumbass walkin through the molotovs now!? Chat I am so cooked.
+- 2 [ in pain, screaming, very fast ] Holy son of a smoldering SHIT stain that's a HOT fire!!!
+- 3 [ in pain, screaming, fast ]Ow fuck!!! [screaming, very fast ] My dumbass walkin through the molotovs now!? [ short pause ] [ upset, monotone, fast, loud ] Chat we are so cooked.
 
 ## Get Molotov Kill
 
 - 1 Oh look at em dropping like they're on fire! Calm it down there Ricky Bobby.
 - 2 Ahhhh smell that? That burnin' zombie flesh brings back memories of Saturdays in the fall. Smokin' meat, 8 beers deep, Roll damn Tide.
 - 3 Why you boys droppin' like you're on fire or somethin' ? Come on get up. Don't be a bitch you're fine.
-- 4 Fire style!! Crack head cremation!
+- 4 [menacing, serious, gravely, fast] Fire style [pause] [intense, fast, screaming, gravely] CRACK HEAD CREMATION!

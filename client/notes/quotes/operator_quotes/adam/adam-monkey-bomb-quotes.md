@@ -8,6 +8,6 @@
 
 ## Monkey Bomb Explode
 
-- 1 HA! Those fuckers never learn!
-- 2 Monkey see, Monkey BOOM!
-- 3 Wow he's good. Someone should give that monkey an AK with a banana mag!
+- 1 [ loud dark laugh ] [yelling, mocking, fast] Those fuckers never learn!
+- 2 [fast, joking ]monkey see... [ screaming, death metal voice ] MONKEY BOOM!
+- 3 [ dark loud aggressive laugh] [ screaming, intense ] BYE BYE MOTHER FUCKERSSSS!!!!
