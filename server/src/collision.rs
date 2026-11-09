@@ -27,7 +27,11 @@ use shared::{GameMode, Lobby, MapId};
 const BASIC_MAP_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/basic_map.glb");
 const SHIPMENT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/shipment.glb");
 const BREAK_POINT_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/break_point_map.glb");
-const DER_TEMPEL_GLB: &[u8] = include_bytes!("../../client/assets/models/maps/der_tempel_map.glb");
+// Der Tempel is exported as "glTF Separate" (textures as their own files, to
+// stay under GitHub's 100 MB per-file cap) — only the JSON and the geometry
+// buffer matter for collision, so the textures never get embedded here.
+const DER_TEMPEL_GLTF: &[u8] = include_bytes!("../../client/assets/models/maps/der_tempel/der_tempel_map.gltf");
+const DER_TEMPEL_BIN: &[u8] = include_bytes!("../../client/assets/models/maps/der_tempel/der_tempel_map.bin");
 
 /// One map's collision mesh, in world space.
 pub struct MapMesh {
@@ -54,8 +58,8 @@ impl MapColliders {
                 .expect("shipment.glb collision model"),
             break_point: MapMesh::from_glb(BREAK_POINT_GLB, map::placement(MapId::BreakPoint))
                 .expect("break_point_map.glb collision model"),
-            der_tempel: MapMesh::from_glb(DER_TEMPEL_GLB, map::placement(MapId::DerTempel))
-                .expect("der_tempel_map.glb collision model"),
+            der_tempel: MapMesh::from_gltf(DER_TEMPEL_GLTF, DER_TEMPEL_BIN, map::placement(MapId::DerTempel))
+                .expect("der_tempel_map.gltf collision model"),
         }
     }
 
@@ -109,11 +113,25 @@ impl MapColliders {
 impl MapMesh {
     fn from_glb(bytes: &[u8], placement: MapPlacement) -> Result<Self, String> {
         let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| e.to_string())?;
-        let blob = gltf.blob.as_deref();
+        Self::from_document(&gltf.document, gltf.blob.as_deref(), placement)
+    }
+
+    /// A `.gltf` (JSON) whose one geometry buffer is the external `bin` file
+    /// it names — what Blender's "glTF Separate" export writes.
+    fn from_gltf(json: &[u8], bin: &[u8], placement: MapPlacement) -> Result<Self, String> {
+        let gltf = gltf::Gltf::from_slice(json).map_err(|e| e.to_string())?;
+        if gltf.document.buffers().len() != 1 {
+            return Err(format!("expected 1 buffer, found {}", gltf.document.buffers().len()));
+        }
+        Self::from_document(&gltf.document, Some(bin), placement)
+    }
+
+    /// `blob` stands in for the model's single buffer, embedded or external.
+    fn from_document(document: &gltf::Document, blob: Option<&[u8]>, placement: MapPlacement) -> Result<Self, String> {
+        let gltf = document;
         let scene = gltf
-            .document
             .default_scene()
-            .or_else(|| gltf.document.scenes().next())
+            .or_else(|| gltf.scenes().next())
             .ok_or("no scene")?;
 
         let root = Mat4::from_scale_rotation_translation(
@@ -179,8 +197,9 @@ fn collect(
                 continue;
             }
             let reader = prim.reader(|buffer| match buffer.source() {
-                gltf::buffer::Source::Bin => blob,
-                gltf::buffer::Source::Uri(_) => None,
+                // A `.gltf`'s external buffer is handed in as `blob` too
+                // (`MapMesh::from_gltf` checks there's only the one).
+                gltf::buffer::Source::Bin | gltf::buffer::Source::Uri(_) => blob,
             });
             let positions: Vec<[f32; 3]> = reader
                 .read_positions()

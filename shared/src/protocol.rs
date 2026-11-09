@@ -128,14 +128,14 @@ pub enum MapId {
     /// bounds and everything `Zombies` (perk machines, Pack-a-Punch, power
     /// switch) are identical (see [`MapId::is_break_point`]).
     BreakPointNight,
-    /// `models/maps/der_tempel_map.glb` — raised platforms and blocks
+    /// `models/maps/der_tempel/der_tempel_map.gltf` — raised platforms and blocks
     /// over deep chasms, at night. Like [`MapId::BreakPoint`] the collision
     /// mesh is what's rendered.
     DerTempel,
     /// The same `models/maps/basic_map.glb` as [`MapId::BasicMap`] at night —
     /// only the client's fog/sky/lighting (and the flashlights) differ.
     BasicMapNight,
-    /// The same `models/maps/der_tempel_map.glb` as [`MapId::DerTempel`] by
+    /// The same `models/maps/der_tempel/der_tempel_map.gltf` as [`MapId::DerTempel`] by
     /// day — only the client's fog/sky/lighting differ.
     DerTempelDay,
 }
@@ -228,7 +228,7 @@ impl MapId {
         matches!(self, MapId::BreakPoint | MapId::BreakPointNight)
     }
 
-    /// `true` for either variant built on `der_tempel_map.glb` (day or
+    /// `true` for either variant built on `der_tempel/der_tempel_map.gltf` (day or
     /// night) — the same idea as [`Self::is_shipment`].
     pub fn is_der_tempel(self) -> bool {
         matches!(self, MapId::DerTempel | MapId::DerTempelDay)

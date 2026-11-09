@@ -44,7 +44,7 @@ pub const BREAK_POINT_PLACEMENT: MapPlacement = MapPlacement {
     scale: 0.6,
 };
 
-/// `der_tempel_map.glb`'s placement: as modelled — it's built in
+/// `der_tempel/der_tempel_map.gltf`'s placement: as modelled — it's built in
 /// metres (its `player_ref` marker is a 1.8 m person). The main platform's
 /// top is the ground at `y = 0` (x ±25, z -40..0); a ramp (z 0..20) climbs
 /// to a 5 m deck (z 20..40), and there are 10 m platforms either side and a
@@ -63,7 +63,7 @@ pub fn collision_model_path(map: MapId) -> &'static str {
         MapId::BasicMap | MapId::BasicMapNight => "models/maps/basic_map.glb",
         MapId::Shipment | MapId::ShipmentDay => "models/maps/shipment.glb",
         MapId::BreakPoint | MapId::BreakPointNight => "models/maps/break_point_map.glb",
-        MapId::DerTempel | MapId::DerTempelDay => "models/maps/der_tempel_map.glb",
+        MapId::DerTempel | MapId::DerTempelDay => "models/maps/der_tempel/der_tempel_map.gltf",
     }
 }
 
@@ -164,7 +164,7 @@ pub fn walls(map: MapId) -> &'static [WallBox] {
     }
 }
 
-/// `der_tempel_map.glb`'s walls and blocks standing on its main
+/// `der_tempel/der_tempel_map.gltf`'s walls and blocks standing on its main
 /// ground-level platform (from the model's node transforms) — the only part
 /// of the map at `y = 0`, which is all [`bounds`] lets bots be placed on.
 const DER_TEMPEL_WALLS: &[WallBox] = &[

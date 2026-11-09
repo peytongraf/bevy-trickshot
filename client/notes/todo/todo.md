@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+- Maps over 100 MB (split glTF)
 - PaP prices 5k / 15k / 30k
 - Kill sound volume
 - Perk quote timing

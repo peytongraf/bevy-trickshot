@@ -10,7 +10,6 @@
 - On shipment some bullet impacts don't show. This is probably because the asset like the container is slightly larger than it should be so the impact is shown behind the surface.
 - Add effect to scope so it looks like actually being aimed through a scope.
 - On windows terminal pops up to play prod client
-- Use Large file storage, r2, etc to store assets so that a map can be used that is over 100mb. Use whatever makes the most sense and is cheap. Only a few friends will be playing occasionally in production.
 - Add tdm
 - Clear all client runtime errors
 - Add semtex
