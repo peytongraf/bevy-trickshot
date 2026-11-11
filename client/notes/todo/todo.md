@@ -1,26 +1,8 @@
 Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
-# Done
+- Got to von - mystery box, so up next is out_of_ammo on quote updates. Still need to implement them all.
 
-- Maps over 100 MB (split glTF)
-- PaP prices 5k / 15k / 30k
-- Kill sound volume
-- Perk quote timing
-- Sarcophagus faces altar
-- Sarcophagus lid clipping
-- No run animation while sliding
-- Quotes wait during pause
-- Last zombie call once, quiet ritual
-- Kill sound no longer stacks
-- Exhumer beam rope lag
-- Boss spawns near players
-- Power-up grab volume
-- Sharpening default 35
-- Bosses immune to insta-kill, nukes
-- Removed wall material correction
-- AK-74 reload completes at mag snap
-- Pause freezes first person animations
-- Voice priority queue, interrupts
+# Done
 
 # Latest play ( Der tempel, night, no starting money or full power, played from round 1)
 

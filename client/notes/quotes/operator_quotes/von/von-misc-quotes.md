@@ -2,18 +2,17 @@
 
 A random one is said 5 seconds after a dog round starts.
 
-- 1 Oh no... not this again.
+- 1 [ irritated, defeated] bruh... [pause] [very angry, ghetto] WE REALLY BACK TO THIS SHIT AGAIN!?
 - 2 What is this the kenel club from hell?
 - 3 Why must we continue to do this?!
-
 - 4 Ah yes, the flaming flea convention has arrived.
 
 ## Dog kill
 
 - A random one is said when a dog is killed.
 
-- 1 I distinctly remember requesting no pets!
-- 2 Here poochy poochy!
+- 1 [ very angry, screaming, scolding ] I WOULND'T HAVE TO DO THIS IF YOU WOULD JUST SIT AND STAY!!! BAD DOG!!!
+- 2 [ very angry, screaming, scolding ] THAT'S IT!!! NO MORE TREATS FOR YOU!!!
 - 3 Is anyone missing a demonic labrador?
 - 4 Bad dog! BAD DOG!
 
@@ -23,12 +22,12 @@ A random one is said when an enemy is killed.
 
 - 1 That's quite enough of that
 - 2 Off you go now
-- 3 Sit down and think about what you’ve done!
+- 3 [ pissed, screaming, scolding ]Sit down and think about what you’ve done!!!
 - 4 Another mold enthusiast bites the dust!
 - 5 And another craigslist cadaver goes down.
-- 6 This is what you dead beats get for not paying taxes!
+- 6 [ angry, old man voice, pissed, yelling ]This is what you dead beats get for not paying taxes!
 - 7 Fuck you in particular.
-- 8 I will become the bro kage! Believe it!
+- 8 [ evil mocking laugh ] [ ghetto, hood ] Muh fucka sit yo ass down, and the rest of ya'll go head and back out. Trash ass zombies.
 
 ## Melee kill
 
@@ -84,8 +83,8 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 
 ## AK74 purchase
 
-- 1 C’mere you angry little commie thunder pipe.
-- 2 A Soviet rifle. Because apparently I hate myself.
+- 1 [ intense, excited, crazy, screaming ] C’mere you angry little commie thunder pipe!!!
+- 2 [ energetic ]A Soviet rifle. [ thick russian accent, excited, very gravely] This sound of this weapon makes me crave some Vodka.
 - 3 Nothing like the sound of a Kalashnikov mowing down these undead bastards.
 
 ## pick up new dropped equipment (different than current lethal or tactical)
@@ -117,13 +116,13 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 
 - 1 Oh. Oh that's not good. That is spectacularly not good.
 - 2 Sounds like Big Steves here. Steves an asshole.
-- 3 Great. Just what I needed. A giant fugly DLC looking ass Jumbo Stink.
+- 3 [ yelling, mocking ] I've heard about you STEVEN!!! [pause] INTEL SAYS YOU'RE A BITCH! [pause] Everyone is saying it.
 
 ## boss repeat
 
 - 1 I see we're doing this again. Fantastic. Truly.
-- 2 At some point this stops being survival and starts being a personal insult.
-- 3 Why? Why? Why? I didn’t order seconds!
+- 2 [scoffs loudly ][street, ghetto, hood, irritated, super fast] ain't no fuckin' way ya'll spawnin' this bitch in again already... [short pause] [huffs aggressively] [street, ghetto, hood, irritated, fast] Ya'll got me fucked up.
+- 3 [street, ghetto, irritated, very fast speaking] Bruh I know DAMN well, ya'll didn't bring this orange sunburnt Wilt Chamberlin danglin' motha fucka back. On me, Steve fuckin' TRASH!
 - 4 This is becoming a pattern I deeply resent.
 - 5 Big Steve returns. Fuck you again Steve.
 
@@ -146,9 +145,10 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## Ammo buy
 
 - 1 Hell yeah chat we got a fresh set of mags! We are So back!
-- 2 Hear that you Porch light Lurkers? I just bought ammo! Who I paid, I have no fucking clue!
+- 2 [ monotone, voice rising in volume slowly ] My money is gone, to where I don't know... [pause] [intense battle screaming, very gravely] BUT MY MAGS MAXED OUT SO EAT SHIT BITCH STEVE!
 - 3 The ammo situation? Fixed. Solved it immediately. Frankly, very impressive work by me.
-- 4 Look at these bullets, folks. Tremendous bullets. The best bullets. Everyone’s saying it.
+- 4 People come up to me, big tough guys, tears in their eyes, and they say... "Sir, that's an awful lot of ammo".
+- 5 Look at these bullets, folks. Tremendous bullets. The best bullets. Everyone’s saying it.
 
 ## Power on
 
@@ -160,12 +160,12 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## Buy armor
 
 - 1 Steve! Check out dis drip! This chest plate go WAY too hard!
-- 2 Yes!!! I bought your armor chest plates! And it MADE me FEEL, like a PIECE OF sh.... Oh wait this actually goes hard!
+- 2 [ very upset, loud ] YES! I BOUGHT YOUR ARMOR CHEST PLATES. [pause] AND IT MADE ME FEEELLLL [short pause ] like a PIECE of SHITTT!!!!!
 - 3 Armor! Yes that's the blonde one from attack on titan no?
 
 ## Exfil
 
-- 1 We're about to be out of the butt, and into the FUCK! If we don't take out all these undead muppets!
+- 1 [ very gravely, screaming, death metal voice ] We're about to be out of the butt [pause] and into the FUCK! [pause]If we don't take out all these undead muppets!!!!!!
 
 ## M17 Pistol purchase
 
@@ -180,6 +180,7 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 
 ## Get Molotov Kill
 
-- 1 Oh hell nah, ya'll gonna have to burn somewhere else. That shit rank as hell! Smellin' like a bag of burnt assholes.
-- 2 Oh shit yeah they burnin! I ain't even finna bother callin' the fire department cause ya'll some hoes.- 3 This is what you dumbasses get for not applying your sunscreen!
-- 4 BURN BURN BUUUURRRRNNNN YOU SCALLYWAGS!!!
+- 1 [ street, ghetto, yelling, angry ]Oh hell nah, ya'll gonna have to burn somewhere else. Shit smellin' like a bag of burnt assholes.
+- 2 Oh shit yeah they burnin! I ain't even finna bother callin' the fire department cause ya'll some hoes.
+- 3 This is what you dumbasses get for not applying your sunscreen!
+- 4 [ demented, crazy, screaming] BURN BURN BUUUURRRRNNNN YOU HIGIBIGIBOODYDOODYYUPPYCUPPYNIBBYDIBBY DICK SHITS!!!

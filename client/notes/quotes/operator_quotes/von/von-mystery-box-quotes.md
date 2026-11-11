@@ -28,7 +28,7 @@
 
 - 1 Nobody wanted this. NOBODY!
 - 2 Aww hell to the nah. Get this shit up outta here.
-- 3 I'm done with the rigged bullshit mystery box. Give me something that isn't ass!
+- 3 [ ghetto, yelling ]I'm done with the rigged bullshit mystery box! GIVE ME SOME REAL SHIT NOT THIS WEAK ASS BULL FUCKIN' BITCH OF A PULL!!!!
 
 ## Monkey Bomb
 
@@ -39,7 +39,7 @@
 ## Molotov
 
 - 1 They have deadshot daiquiris here and now molotov cocktails? Oh we gettin' straight TRASHED tonight big steve!
-- 2 MAH LOW TOV ... COCK ... tail. an i said bwooOOOOFf NOW DASS A FIYAH!
+- 2 [ghetto, happy]Go head n pour da gasoline, WHOOOOSH! [ Screaming, excited,ghetto] NOW DAS A FIRE!!!
 - 3
 
 ## Raygun
