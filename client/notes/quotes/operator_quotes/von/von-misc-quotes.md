@@ -70,14 +70,14 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 - 2 I feel morally compromised and mechanically superior.
 - 3 That is disgustingly excessive. Perfect.
 - 4 Completely overkill. Excellent.
-- 5 Oh my dear weapon, what did they do to you in there?
-- 6 I asked for refinement, not bioluminescence.
+- 5 [ horrified, concerned, yelling, anxious, very fast speaking ]Oh my dear weapon! What did they do to you in there!?
+- 6 [ angered, yelling loudly ] I asked for refinement, NOT BIO-LUMINESCENCE!!!
 - 7 I do hope this isn’t carcinogenic.
 - 8 I feel like I’m wielding weaponised neon.
 - 9 Well, that’s certainly not discreet.
 - 10 Now this is a portable war crime.
 - 11 I think I just violated several zombie rights!
-- 12 This weapon is radiating with blood lust!
+- 12 [ intense screaming ]This weapon is radiating with [short pause] BLOOD LUST!!!
 
 # Added
 
@@ -138,8 +138,8 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 ## PHD Slider Kill
 
 - 1 I'll have you know, I got my PHD in Advanced Blast Wave Propagation while studying abroad in kaboomistan!
-- 2 Wow those zombies said... WABOOOOM!!!!
-- 3 STOP!!! .. Hammer time. Go with the flow. It is said. That if you can't groove to this then you probably are dead!
+- 2 [ ghetto, loud ] shiddd fam I had dem zombies all like[ short pause ] [ extremely loud, death metal voice ]WABOOOOM!!!!
+- 3 [ rapping, said with rhythm, hood, street ] STOP!!! .. Hammer time. Go with the flow. It is said. That if you can't groove to this then you probably are dead!
 - 4 I can slide faster, slide right past ya, get out my way or I slide my ass and blast ya!
 
 ## Ammo buy
@@ -174,9 +174,9 @@ A random one is said 5 seconds after the player packs a punches their weapon.
 
 ## Take Molotov Damage
 
-- 1 Ouch! You dumbass player! Stop running me through molotov flames! That burns like hell!
+- 1 [ street, hood, ghetto, deep voice, gravely ] Ouch! You dumbass player! Stop running me through molotov flames! That burns like hell!
 - 2 OUCH!!! Son of a sentient semi-aquatic saxophone that BURNS!
-- 3 AWWW SHIT! This fires hotter than a two dollar pistol in south Alabama!!!
+- 3 [ screaming, very redneck ] AWWW SHIT! This fires hotter than a two dollar pistol in south Alabama!!!
 
 ## Get Molotov Kill
 

@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Von: re-recorded voice lines.",
         "Adam: re-recorded voice lines and a new Juggernog quote.",
         "Zombies: operators, the radio and bosses now take turns talking, most important first.",
         "Pausing now freezes your weapon and its reload sound.",

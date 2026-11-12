@@ -1,7 +1,5 @@
 Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
-- Got to von - mystery box, so up next is out_of_ammo on quote updates. Still need to implement them all.
-
 # Done
 
 # Latest play ( Der tempel, night, no starting money or full power, played from round 1)
