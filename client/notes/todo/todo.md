@@ -2,6 +2,11 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Done
 
+# New latest play
+
+- Hit marker sound probably should play when sucking with exhumer
+- Adam quote - just call my name and I'll hear you scream, master, master, should be redone better
+
 # Latest play ( Der tempel, night, no starting money or full power, played from round 1)
 
 - A line of blood extends from the altar towards the sarcophagus but doesn't trace to objects at the ground level to get to it. Should it not move out at all on the ritual altar or trace all the way to it going over objects at ground level so that it can be seen? Before when it traced to the sarcophagus it went under the lifted portion where the altar sits on top of so it didn't look correct.
