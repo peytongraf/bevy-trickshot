@@ -17,6 +17,7 @@
 pub const ENTRIES: &[(&str, &[&str])] = &[(
     "0.4.10",
     &[
+        "Der Tempel: stone blocks look the same size everywhere; concrete walls are sharper and less repetitive.",
         "Von: re-recorded voice lines.",
         "Adam: re-recorded voice lines and a new Juggernog quote.",
         "Zombies: operators, the radio and bosses now take turns talking, most important first.",
