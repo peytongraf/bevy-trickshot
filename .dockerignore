@@ -15,7 +15,12 @@ client/assets/models/maps/*
 !client/assets/models/maps/basic_map.glb
 !client/assets/models/maps/shipment.glb
 !client/assets/models/maps/break_point_map.glb
-!client/assets/models/maps/der_tempel_map.glb
+# Der Tempel is a "glTF Separate" export: only its JSON + geometry buffer,
+# never its textures.
+!client/assets/models/maps/der_tempel
+client/assets/models/maps/der_tempel/*
+!client/assets/models/maps/der_tempel/der_tempel_map.gltf
+!client/assets/models/maps/der_tempel/der_tempel_map.bin
 # ...and the list of operator quote lines with their lengths, which
 # `shared::quotes` embeds (`include_str!`) — not the audio itself.
 !client/assets/audio
