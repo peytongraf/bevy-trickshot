@@ -104,7 +104,7 @@ fn receive_match_ending(
 }
 
 /// The results screen is opening: the freeze has done its job.
-fn clear_on_results(mut ended: EventReader<MatchEndedEvent>, mut freeze: ResMut<MatchEndFreeze>) {
+fn clear_on_results(mut ended: MessageReader<MatchEndedEvent>, mut freeze: ResMut<MatchEndFreeze>) {
     if ended.read().next().is_some() {
         *freeze = MatchEndFreeze::default();
     }
@@ -136,7 +136,7 @@ fn drive_overlay(
         commands
             .spawn((
                 MatchEndOverlay,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 // Above the menus (50) — nothing should be reachable under it.
                 GlobalZIndex(60),
                 Pickable::IGNORE,
@@ -155,12 +155,12 @@ fn drive_overlay(
                     MatchEndText,
                     Text::new(if freeze.victory { "VICTORY" } else { "DEFEAT" }),
                     TextFont {
-                        font: asset_server.load(crate::HUD_FONT),
-                        font_size: TEXT_SIZE * TEXT_START_SCALE,
+                        font: asset_server.load(crate::HUD_FONT).into(),
+                        font_size: FontSize::Px(TEXT_SIZE * TEXT_START_SCALE),
                         ..default()
                     },
                     TextColor(headline_color(freeze.victory, 0.0)),
-                    TextLayout::new_with_justify(JustifyText::Center),
+                    TextLayout::justify(Justify::Center),
                     Pickable::IGNORE,
                 ));
             });
@@ -171,7 +171,7 @@ fn drive_overlay(
         bg.0 = wash_color(freeze.elapsed);
     }
     for (mut font, mut color) in &mut text {
-        font.font_size = TEXT_SIZE * headline_scale(freeze.elapsed);
+        font.font_size = FontSize::Px(TEXT_SIZE * headline_scale(freeze.elapsed));
         color.0 = headline_color(freeze.victory, freeze.elapsed);
     }
 }

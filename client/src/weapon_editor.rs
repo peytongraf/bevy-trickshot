@@ -17,7 +17,7 @@
 //! button and the mouse back button leave — asking first if anything's
 //! unsaved. Everything's rebuilt on the way in and dropped on the way out;
 //! the player rig the camera borrows, the view model camera and the light
-//! and fog are put back as they were ([`exit`]); the scene is `StateScoped`.
+//! and fog are put back as they were ([`exit`]); the scene is `DespawnOnExit`.
 
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::Duration;
@@ -29,8 +29,9 @@ use bevy::gltf::GltfMaterialName;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
-use bevy::render::mesh::MeshAabb;
-use bevy::render::view::RenderLayers;
+use bevy::window::CursorOptions;
+use bevy::camera::primitives::MeshAabb;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
@@ -309,9 +310,9 @@ fn enter(
         Or<(With<Player>, With<PlayerHead>, With<CameraShake>, With<CameraRecoil>, With<WorldModelCamera>)>,
     >,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
-    window: Single<&mut Window, With<PrimaryWindow>>,
+    window: Single<&mut CursorOptions, With<PrimaryWindow>>,
     avatar: Res<RemoteAvatarSettings>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -345,7 +346,7 @@ fn enter(
 
     // The stand, its lights, and the soldier on it.
     commands.spawn((
-        StateScoped(AppState::WeaponEditor),
+        DespawnOnExit(AppState::WeaponEditor),
         Mesh3d(meshes.add(Circle::new(1.4))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.16, 0.17, 0.19),
@@ -356,7 +357,7 @@ fn enter(
     ));
     for (offset, intensity) in [(Vec3::new(-1.6, 2.4, 2.2), 900_000.0), (Vec3::new(2.0, 1.6, -1.5), 350_000.0)] {
         commands.spawn((
-            StateScoped(AppState::WeaponEditor),
+            DespawnOnExit(AppState::WeaponEditor),
             PointLight {
                 intensity,
                 range: 12.0,
@@ -367,13 +368,13 @@ fn enter(
     }
     commands
         .spawn((
-            StateScoped(AppState::WeaponEditor),
+            DespawnOnExit(AppState::WeaponEditor),
             StandSoldier,
             SoldierVisual,
             HeldWeapon::new(Some(editor.weapon.weapon())),
             Transform::from_translation(STUDIO).with_scale(Vec3::splat(avatar.scale)),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
         ))
         .observe(crate::start_soldier_animation);
 }
@@ -385,7 +386,7 @@ fn exit(
     mut backup: ResMut<StudioBackup>,
     mut transforms: Query<&mut Transform>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
 ) {
     // Left without saving: the game goes on with what was saved.
@@ -641,11 +642,11 @@ fn draw_markers(
             if part.object.as_ref().is_none_or(|o| o.name != *hover) {
                 continue;
             }
-            let (Some(aabb), Ok(at)) = (meshes.get(&mesh.0).and_then(|m| m.compute_aabb()), transforms.get(e)) else {
+            let (Some(aabb), Ok(at)) = (meshes.get(&mesh.0).and_then(|m| m.get_aabb()), transforms.get(e)) else {
                 continue;
             };
             let local = Transform::from_translation(aabb.center.into()).with_scale((aabb.half_extents * 2.0).into());
-            gizmos.cuboid(at.mul_transform(local), Color::srgb(1.0, 0.9, 0.1));
+            gizmos.cube(at.mul_transform(local), Color::srgb(1.0, 0.9, 0.1));
         }
     }
     if !editor.show_markers {
@@ -725,7 +726,14 @@ fn editor_ui(
         }
     }
 
-    egui::TopBottomPanel::top("weapon_editor_menu").show(ctx, |ui| {
+    // (egui 0.36 lays panels out inside a root `Ui` rather than straight on
+    // the context; everything left over between them is the viewport.)
+    let mut root = egui::Ui::new(
+        ctx.clone(),
+        egui::Id::new("weapon_editor_root"),
+        egui::UiBuilder::new().layer_id(egui::LayerId::background()).max_rect(ctx.viewport_rect()),
+    );
+    egui::Panel::top("weapon_editor_menu").show(&mut root, |ui| {
         ui.horizontal(|ui| {
             ui.strong("WEAPON EDITOR");
             ui.separator();
@@ -755,7 +763,7 @@ fn editor_ui(
         });
     });
 
-    egui::TopBottomPanel::bottom("weapon_editor_status").show(ctx, |ui| {
+    egui::Panel::bottom("weapon_editor_status").show(&mut root, |ui| {
         ui.horizontal(|ui| {
             if let Some((text, until)) = &ed.toast {
                 if now < *until {
@@ -772,10 +780,10 @@ fn editor_ui(
         });
     });
 
-    egui::SidePanel::right("weapon_editor_panel")
-        .default_width(360.0)
+    egui::Panel::right("weapon_editor_panel")
+        .default_size(360.0)
         .resizable(true)
-        .show(ctx, |ui| {
+        .show(&mut root, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let WeaponGrips {
                     sniper,

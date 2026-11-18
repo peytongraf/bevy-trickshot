@@ -101,15 +101,15 @@ fn chest(pose: &PlayerPose) -> Vec3 {
     pose.translation - Vec3::Y * (EYE_HEIGHT - PLAYER_HEIGHT * 0.6)
 }
 
-fn send_to<M: lightyear::prelude::Message>(sender: &mut ServerMultiMessageSender, server: &Server, lobby: &Lobby, msg: &M) {
-    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+fn send_to<M: lightyear::prelude::Message>(sender: &mut ServerMultiMessageSender, server: &Endpoint, lobby: &Lobby, msg: &M) {
+    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::from(lobby.real_peers())) {
         error!("failed to send an Exhumer message: {e:?}");
     }
 }
 
 /// A zombie's soul torn out by `shooter`: it dies by them, thrown limp out of
 /// the air (`from` over it).
-fn tear(hits: &mut EventWriter<PlayerHit>, shooter: PeerId, zombie: PeerId, health: f32, at: Vec3) {
+fn tear(hits: &mut MessageWriter<PlayerHit>, shooter: PeerId, zombie: PeerId, health: f32, at: Vec3) {
     hits.write(PlayerHit {
         cause: HitCause::Exhumer,
         victim: zombie,
@@ -136,14 +136,14 @@ pub(crate) type ZombieQuery<'w, 's> = Query<
 #[allow(clippy::too_many_arguments)]
 fn run_beams(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     colliders: Res<MapColliders>,
     mut ex: ResMut<Exhumers>,
     lobbies: Query<(Entity, &Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer), Without<crate::zombies::Zombie>>,
     mut zombies: ZombieQuery,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -286,12 +286,12 @@ fn run_beams(
 #[allow(clippy::too_many_arguments)]
 fn run_exhuming(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut ex: ResMut<Exhumers>,
     lobbies: Query<&Lobby>,
     mut zombies: ZombieQuery,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -348,7 +348,7 @@ fn run_tearing(
     mut ex: ResMut<Exhumers>,
     lobbies: Query<&Lobby>,
     zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer)>,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
 ) {
     let dt = time.delta_secs();
     let mut i = 0;
@@ -392,9 +392,9 @@ fn run_tearing(
 /// the rest kept.
 #[allow(clippy::too_many_arguments)]
 fn on_release_souls(
-    trigger: Trigger<RemoteTrigger<ReleaseSouls>>,
+    trigger: On<RemoteEvent<ReleaseSouls>>,
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut ex: ResMut<Exhumers>,
     lobbies: Query<(Entity, &Lobby)>,

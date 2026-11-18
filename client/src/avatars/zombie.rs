@@ -10,7 +10,7 @@ use std::time::Duration;
 use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use shared::{PlayerId, PlayerPose, ZombieAnim};
 
 use crate::net::RemoteAvatar;
@@ -19,7 +19,7 @@ use crate::AppState;
 
 pub(crate) const ZOMBIE_MODEL: &str = "models/characters/zombie.glb";
 
-/// Tags a zombie avatar's `SceneRoot` (see [`start_zombie_animation`]).
+/// Tags a zombie avatar's `WorldAssetRoot` (see [`start_zombie_animation`]).
 #[derive(Component)]
 pub(crate) struct ZombieVisual;
 
@@ -407,13 +407,13 @@ pub(crate) fn spawn_zombie_avatar(
 ) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             ZombieMotion::default(),
             ZombieVisual,
             Transform::from_scale(Vec3::splat(settings.scale)),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(ZOMBIE_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(ZOMBIE_MODEL))),
         ))
         .observe(start_zombie_animation);
 }
@@ -421,14 +421,14 @@ pub(crate) fn spawn_zombie_avatar(
 /// Once a zombie's scene is in: loop `Idle` (it's climbing out of the
 /// ground), and remember its `AnimationPlayer`.
 pub(crate) fn start_zombie_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
     anims: Res<ZombieAnimations>,
     mut bounds: super::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     for entity in children.iter_descendants(root) {
         bounds.fit(&mut commands, root, entity);
         if let Ok(mut player) = players.get_mut(entity) {

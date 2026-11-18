@@ -6,16 +6,14 @@
 // first), its edge eaten into by the same noise, coloured like the flames
 // (deep red where it's cooling, through orange, to a pale yellow core) and
 // drawn additively in HDR so the bloom catches it. The flames stand on it
-// (`fire.wgsl`); it's what joins them up into one fire.
+// (`fire.wesl`); it's what joins them up into one fire.
 //
 // Driven by `FireGroundMaterial` in `client/src/molotov.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::globals,
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::globals};
 struct GroundParams {
     // Linear rgb of the hottest part, the body, and the cooling edges.
     core: vec4<f32>,
@@ -31,7 +29,7 @@ struct GroundParams {
     // How much the noise eats into the edge (0 = smooth).
     ragged: f32,
 }
-@group(2) @binding(0) var<uniform> p: GroundParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> p: GroundParams;
 
 struct GroundVertex {
     @builtin(instance_index) instance_index: u32,
@@ -46,7 +44,7 @@ struct GroundOut {
     @location(1) uv: vec2<f32>,
 }
 
-// (The same noise as `fire.wgsl`'s.)
+// (The same noise as `fire.wesl`'s.)
 fn pcg(v: u32) -> u32 {
     let state = v * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;

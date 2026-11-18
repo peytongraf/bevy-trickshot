@@ -9,13 +9,11 @@
 // covers it. Driven by `PowerUpGlowMaterial` in
 // `client/src/power_ups.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::{view, globals},
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::{view, globals}};
 struct GlowParams {
     // Linear rgb; a = brightness.
     color: vec4<f32>,
@@ -36,7 +34,7 @@ struct GlowParams {
     // just behind the whole model.
     depth_pull: f32,
 }
-@group(2) @binding(0) var<uniform> g: GlowParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> g: GlowParams;
 
 fn hash3(p: vec3<f32>) -> f32 {
     let q = fract(p * 0.3183099 + vec3<f32>(0.71, 0.113, 0.419));
@@ -93,9 +91,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let depth_at = center + to_cam / dist * min(g.depth_pull - model_radius, dist * 0.5);
     let depth_clip = position_world_to_clip(depth_at);
     out.position.z = depth_clip.z / depth_clip.w * out.position.w;
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
     return out;
 }
 

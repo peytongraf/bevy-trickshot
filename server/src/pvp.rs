@@ -172,7 +172,7 @@ impl Default for PlayerCombat {
 /// A `FreeForAll` player took damage — written by
 /// [`crate::sim::resolve_shots`]. A fatal hit additionally fires
 /// [`PlayerKilled`] for [`crate::killcam::queue_killcams`] to pick up.
-#[derive(Event)]
+#[derive(Message)]
 pub struct PlayerHit {
     /// What it was made with (for `crate::quotes`' kill lines).
     pub cause: HitCause,
@@ -223,7 +223,7 @@ pub enum HitCause {
 /// [`apply_bomb_blasts`]. `phd` marks PhD Flopper's instead (a slide into an
 /// enemy, [`on_phd_slam`], or a big drop, [`on_fall_landed`]) — the same
 /// damage, drawn purple.
-#[derive(Event)]
+#[derive(Message)]
 pub struct BombBlast {
     /// What set it off — a frag, PhD Flopper, a Bomb Shot or a monkey bomb
     /// (what its kills were made with, for `crate::quotes`).
@@ -240,7 +240,7 @@ pub struct BombBlast {
 /// A player killed a `Zombies` zombie standing at `feet` in `lobby` —
 /// written by [`apply_player_hits`], consumed by `crate::power_ups` to roll
 /// for a drop. (A Nuke's kills don't go through here, so they never drop.)
-#[derive(Event)]
+#[derive(Message)]
 pub struct ZombieKilled {
     pub lobby: Entity,
     pub feet: Vec3,
@@ -282,7 +282,7 @@ impl ZombieKilled {
 /// A `FreeForAll` kill — the PvP counterpart of [`crate::bots::BotHit`].
 /// Written by [`apply_player_hits`], consumed by
 /// [`crate::killcam::queue_killcams`] to queue the victim-only replay.
-#[derive(Event)]
+#[derive(Message)]
 pub struct PlayerKilled {
     pub victim: PeerId,
     pub killer: PeerId,
@@ -292,11 +292,11 @@ pub struct PvpPlugin;
 
 impl Plugin for PvpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<PlayerHit>()
-            .add_event::<BombBlast>()
-            .add_event::<PlayerKilled>()
-            .add_event::<ZombieKilled>()
-            .add_event::<ZombieCrippled>()
+        app.add_message::<PlayerHit>()
+            .add_message::<BombBlast>()
+            .add_message::<PlayerKilled>()
+            .add_message::<ZombieKilled>()
+            .add_message::<ZombieCrippled>()
             .add_observer(on_fell_to_death)
             .add_observer(on_fall_landed)
             .add_observer(on_respawn_ready)
@@ -319,7 +319,7 @@ impl Plugin for PvpPlugin {
 /// A player's explosion left a zombie barely alive
 /// (`shared::zombies::CRAWLER_HEALTH_FRAC`) — maybe a crawler now
 /// (`crate::zombies::cripple_zombies`).
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct ZombieCrippled {
     pub(crate) victim: PeerId,
 }
@@ -341,19 +341,19 @@ const ZOMBIE_DAMAGE_CENTER_Y: f32 = 1.1;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_player_hits(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut hits: EventReader<PlayerHit>,
-    mut killed: EventWriter<PlayerKilled>,
-    mut zombie_kills: EventWriter<ZombieKilled>,
-    mut blasts: EventWriter<BombBlast>,
+    mut hits: MessageReader<PlayerHit>,
+    mut killed: MessageWriter<PlayerKilled>,
+    mut zombie_kills: MessageWriter<ZombieKilled>,
+    mut blasts: MessageWriter<BombBlast>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     endings: Res<crate::killcam::EndingLobbies>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     brains: Query<(&PlayerId, &crate::ai::BotBrain), With<crate::zombies::Zombie>>,
-    mut crippled: EventWriter<ZombieCrippled>,
+    mut crippled: MessageWriter<ZombieCrippled>,
 ) {
     let server = server.into_inner();
     for ev in hits.read() {
@@ -521,7 +521,7 @@ pub(crate) fn apply_player_hits(
                         target,
                     },
                     server,
-                    &NetworkTarget::Only(peers),
+                    &NetworkTarget::from(peers),
                 ) {
                     error!("failed to send zombie blood: {e:?}");
                 }
@@ -580,7 +580,7 @@ pub(crate) fn apply_player_hits(
                     zombie: ev.victim,
                     from: from.to_array(),
                 };
-                if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+                if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers())) {
                     error!("failed to send zombie blast: {e:?}");
                 }
             }
@@ -748,10 +748,10 @@ pub(crate) fn apply_player_hits(
 /// score, count and give hit / kill markers like any other (next tick).
 fn apply_bomb_blasts(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut blasts: EventReader<BombBlast>,
-    mut hits: EventWriter<PlayerHit>,
+    mut blasts: MessageReader<BombBlast>,
+    mut hits: MessageWriter<PlayerHit>,
     lobbies: Query<&Lobby>,
     mut zombies: Query<(
         &PlayerId,
@@ -777,7 +777,7 @@ fn apply_bomb_blasts(
             frag: blast.frag,
         };
         if let Err(e) =
-            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))
+            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers()))
         {
             error!("failed to send bomb explosion: {e:?}");
         }
@@ -863,9 +863,9 @@ fn apply_bomb_blasts(
 /// same trust model as `PlayerInput`, see `sim::apply_client_pose`). There's no
 /// height to grade, so it's a straight kill — see [`fall_kill`].
 fn on_fell_to_death(
-    trigger: Trigger<RemoteTrigger<FellToDeath>>,
+    trigger: On<RemoteEvent<FellToDeath>>,
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
@@ -892,17 +892,17 @@ fn on_fell_to_death(
 /// Works in both game modes — every player has a [`PlayerCombat`].
 #[allow(clippy::too_many_arguments)]
 fn on_fall_landed(
-    trigger: Trigger<RemoteTrigger<FallLanded>>,
+    trigger: On<RemoteEvent<FallLanded>>,
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     (endings, mut blasts, mut quotes): (
         Res<crate::killcam::EndingLobbies>,
-        EventWriter<BombBlast>,
-        EventWriter<crate::quotes::SayQuote>,
+        MessageWriter<BombBlast>,
+        MessageWriter<crate::quotes::SayQuote>,
     ),
 ) {
     let peer = trigger.from;
@@ -984,13 +984,13 @@ fn on_fall_landed(
 /// up, and a live zombie is close to where the server has them, it explodes
 /// at their feet.
 fn on_phd_slam(
-    trigger: Trigger<RemoteTrigger<shared::PhdSlam>>,
+    trigger: On<RemoteEvent<shared::PhdSlam>>,
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
     lobbies: Query<(Entity, &Lobby)>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat)>,
     poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
-    mut blasts: EventWriter<BombBlast>,
+    mut blasts: MessageWriter<BombBlast>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, _)) = lobbies.iter().find(|(e, l)| {
@@ -1050,7 +1050,7 @@ fn fall_kill(
     peer: PeerId,
     speed: Option<f32>,
     time: &Time,
-    server: &Server,
+    server: &Endpoint,
     sender: &mut ServerMultiMessageSender,
     combats: &mut Query<(&PlayerId, &mut PlayerCombat)>,
     poses: &Query<(&PlayerId, &PlayerPose)>,
@@ -1181,7 +1181,7 @@ fn arm_from_loadout(lobby: &mut Mut<Lobby>, peer: PeerId) {
 /// grace — starts now, actually back in the world (the server timer can
 /// beat a long kill cam), with their picked loadout.
 fn on_respawn_ready(
-    trigger: Trigger<RemoteTrigger<RespawnReady>>,
+    trigger: On<RemoteEvent<RespawnReady>>,
     time: Res<Time>,
     mut combats: Query<(&PlayerId, &mut PlayerCombat, Option<&crate::lobby::LobbyPlayer>)>,
     mut lobbies: Query<&mut Lobby>,

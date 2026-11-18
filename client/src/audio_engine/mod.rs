@@ -43,7 +43,7 @@ use std::sync::Arc;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::prelude::*;
-use bevy::transform::TransformSystem;
+use bevy::transform::TransformSystems;
 use kira::effect::filter::{FilterBuilder, FilterHandle};
 use kira::effect::reverb::{ReverbBuilder, ReverbHandle};
 use kira::listener::ListenerHandle;
@@ -98,7 +98,7 @@ impl Plugin for AudioEnginePlugin {
                 PostUpdate,
                 (update_listener, update_emitters, play_queued, occlusion::occlude, apply_mix, apply_profiles, cleanup_finished)
                     .chain()
-                    .after(TransformSystem::TransformPropagate),
+                    .after(TransformSystems::Propagate),
             );
         match AudioEngine::new() {
             Ok(engine) => {
@@ -177,6 +177,7 @@ pub(crate) struct AudioSource {
 /// The file extensions [`AudioLoader`] takes.
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "oga", "flac"];
 
+#[derive(TypePath)]
 struct AudioLoader;
 
 impl AssetLoader for AudioLoader {

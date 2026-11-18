@@ -313,16 +313,16 @@ pub(crate) fn ak_locomotion(rig: &mut PrimaryRig, loco: &mut AkLoco, m: AkMotion
 /// switching primary doesn't hitch (the AK's is big).
 #[derive(Resource)]
 pub(crate) struct PrimaryModels {
-    pub(crate) sniper_scene: Handle<Scene>,
+    pub(crate) sniper_scene: Handle<WorldAsset>,
     pub(crate) sniper_graph: Handle<AnimationGraph>,
     pub(crate) sniper_index: AnimationNodeIndex,
-    pub(crate) ak_scene: Handle<Scene>,
+    pub(crate) ak_scene: Handle<WorldAsset>,
     pub(crate) ak_graph: Handle<AnimationGraph>,
     pub(crate) ak_nodes: Vec<AnimationNodeIndex>,
-    pub(crate) raygun_scene: Handle<Scene>,
+    pub(crate) raygun_scene: Handle<WorldAsset>,
     pub(crate) raygun_graph: Handle<AnimationGraph>,
     pub(crate) raygun_nodes: Vec<AnimationNodeIndex>,
-    pub(crate) m17_scene: Handle<Scene>,
+    pub(crate) m17_scene: Handle<WorldAsset>,
     pub(crate) m17_graph: Handle<AnimationGraph>,
     pub(crate) m17_nodes: Vec<AnimationNodeIndex>,
 }
@@ -332,7 +332,7 @@ impl PrimaryModels {
     pub(crate) fn load(
         asset_server: &AssetServer,
         graphs: &mut Assets<AnimationGraph>,
-        sniper_scene: Handle<Scene>,
+        sniper_scene: Handle<WorldAsset>,
         sniper_graph: Handle<AnimationGraph>,
         sniper_index: AnimationNodeIndex,
     ) -> Self {
@@ -376,8 +376,8 @@ pub(crate) fn sync_primary_model(
     killcam: Res<crate::killcam::ActiveKillCam>,
     models: Option<Res<PrimaryModels>>,
     asset_server: Res<AssetServer>,
-    scene_spawner: Res<SceneSpawner>,
-    view_model: Single<(&mut ViewModelAnimation, &mut SceneRoot, Option<&bevy::scene::SceneInstance>), With<ViewModel>>,
+    scene_spawner: Res<WorldInstanceSpawner>,
+    view_model: Single<(&mut ViewModelAnimation, &mut WorldAssetRoot, Option<&bevy::world_serialization::WorldInstance>), With<ViewModel>>,
     mut weapon: ResMut<Weapon>,
 ) {
     let me = local.iter().next().map(|l| l.0);

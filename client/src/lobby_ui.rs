@@ -109,7 +109,7 @@ struct WheelScroll;
 /// than via the picking hover map, so it works with the text / buttons on top of
 /// it under the cursor.)
 fn wheel_scroll(
-    mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     window: Single<&Window, With<bevy::window::PrimaryWindow>>,
     mut panels: Query<(&mut ScrollPosition, &ComputedNode, &GlobalTransform), With<WheelScroll>>,
 ) {
@@ -130,7 +130,7 @@ fn wheel_scroll(
             }
             // Logical pixels of content past the bottom edge.
             let max = ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.0);
-            pos.offset_y = (pos.offset_y - dy).clamp(0.0, max);
+            pos.y = (pos.y - dy).clamp(0.0, max);
         }
     }
 }
@@ -244,8 +244,8 @@ fn auto_lobby(
     connected: Query<(), (With<GameClient>, With<Connected>)>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<(Entity, &shared::Lobby)>,
-    mut create: Query<&mut TriggerSender<shared::CreateLobby>, With<GameClient>>,
-    mut join: Query<&mut TriggerSender<shared::JoinLobby>, With<GameClient>>,
+    mut create: Query<&mut EventSender<shared::CreateLobby>, With<GameClient>>,
+    mut join: Query<&mut EventSender<shared::JoinLobby>, With<GameClient>>,
 ) {
     if auto.done || connected.is_empty() {
         return;
@@ -487,7 +487,7 @@ fn auto_start(
     mut settle: Local<u32>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut start: Query<&mut TriggerSender<shared::StartGame>, With<GameClient>>,
+    mut start: Query<&mut EventSender<shared::StartGame>, With<GameClient>>,
 ) {
     if *fired || !env_flag("TRICKSHOT_AUTO_START") {
         return;
@@ -639,7 +639,7 @@ struct LastMatch(Option<(String, u32)>);
 
 /// A match just ended: remember the winner and force the room to re-render.
 fn catch_match_end(
-    mut ended: EventReader<crate::MatchEndedEvent>,
+    mut ended: MessageReader<crate::MatchEndedEvent>,
     mut last: ResMut<LastMatch>,
     mut ui: ResMut<LobbyUi>,
 ) {
@@ -735,7 +735,7 @@ fn build_leave_confirm(commands: &mut Commands, asset_server: &AssetServer) {
                     ..default()
                 },
                 BackgroundColor(PANEL_SOLID),
-                BorderColor(EDGE),
+                BorderColor::all(EDGE),
             ))
             .with_children(|card| {
                 card.spawn(label_hud(asset_server, "LEAVE LOBBY?", 40.0, TEXT));
@@ -815,8 +815,7 @@ fn menu_tile(
     };
     parent
         .spawn((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             marker,
             Hoverable {
                 normal,
@@ -833,7 +832,7 @@ fn menu_tile(
                 ..default()
             },
             BackgroundColor(normal),
-            BorderColor(if primary { ACCENT } else { EDGE }),
+            BorderColor::all(if primary { ACCENT } else { EDGE }),
         ))
         .with_children(|b| {
             b.spawn(label_hud(asset_server, title, 34.0, text));
@@ -880,7 +879,7 @@ fn stepper(
             border: UiRect::bottom(Val::Px(2.0)),
             ..default()
         },
-        BorderColor(ACCENT),
+        BorderColor::all(ACCENT),
     ))
     .with_child(label_hud(asset_server, value, 22.0, TEXT));
     spawn_button_hud(row, asset_server, "+", 20.0, up, ROW, ROW_HOVER, TEXT, UiSound::MENU);
@@ -891,8 +890,7 @@ fn stepper(
 fn round_stepper(row: &mut ChildSpawnerCommands, asset_server: &AssetServer, value: String) {
     spawn_button_hud(row, asset_server, "\u{2212}", 20.0, MenuBtn::StartRoundDown, ROW, ROW_HOVER, TEXT, UiSound::MENU);
     row.spawn((
-        Button,
-        Interaction::default(),
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         MenuBtn::EditStartRound,
         StartRoundField,
         Hoverable::new(ROW, ROW_HOVER, TEXT),
@@ -906,7 +904,7 @@ fn round_stepper(row: &mut ChildSpawnerCommands, asset_server: &AssetServer, val
             ..default()
         },
         BackgroundColor(ROW),
-        BorderColor(ACCENT),
+        BorderColor::all(ACCENT),
     ))
     .with_child((StartRoundFieldText, label_hud(asset_server, value, 22.0, TEXT)));
     spawn_button_hud(row, asset_server, "+", 20.0, MenuBtn::StartRoundUp, ROW, ROW_HOVER, TEXT, UiSound::MENU);
@@ -926,7 +924,7 @@ struct StartRoundFieldText;
 #[allow(clippy::too_many_arguments)]
 fn type_start_round(
     mut ui: ResMut<LobbyUi>,
-    mut events: EventReader<KeyboardInput>,
+    mut events: MessageReader<KeyboardInput>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     field: Query<&Interaction, With<StartRoundField>>,
@@ -934,7 +932,7 @@ fn type_start_round(
     mut text: Query<&mut Text, With<StartRoundFieldText>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut set_zombies_start: Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
+    mut set_zombies_start: Query<&mut EventSender<shared::SetZombiesStart>, With<GameClient>>,
 ) {
     let Some(mut draft) = ui.round_draft.clone() else {
         events.clear();
@@ -1022,7 +1020,7 @@ fn setting_row(
             flex_shrink: 0.0,
             ..default()
         })
-        .insert(BorderColor(EDGE))
+        .insert(BorderColor::all(EDGE))
         .with_children(|row| {
             row.spawn((
                 Node {
@@ -1073,12 +1071,11 @@ fn loadout_weapon_card(
                 ..default()
             },
             BackgroundColor(normal),
-            BorderColor(if equipped { ACCENT } else { EDGE }),
+            BorderColor::all(if equipped { ACCENT } else { EDGE }),
         ));
         if can_change {
             card.insert((
-                Button,
-                Interaction::default(),
+                Interaction::default(), bevy::ui::FocusPolicy::Block,
                 MenuBtn::SetLoadout(weapon),
                 Hoverable {
                     normal,
@@ -1146,12 +1143,11 @@ fn operator_card(
             ..default()
         },
         BackgroundColor(normal),
-        BorderColor(if selected { ACCENT } else { EDGE }),
+        BorderColor::all(if selected { ACCENT } else { EDGE }),
     ));
     if can_change {
         card.insert((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             MenuBtn::SetOperator(op),
             Hoverable {
                 normal,
@@ -1324,8 +1320,7 @@ fn build_browser(
                     }
                     for (entity, lobby) in &open {
                         list.spawn((
-                            Button,
-                            Interaction::default(),
+                            Interaction::default(), bevy::ui::FocusPolicy::Block,
                             MenuBtn::Join(*entity),
                             Hoverable::new(ROW, ROW_HOVER, TEXT),
                             ui_sound(UiSound::MENU),
@@ -1510,7 +1505,7 @@ fn snd_teams(col: &mut ChildSpawnerCommands, asset_server: &AssetServer, lobby: 
                     ..default()
                 },
                 BackgroundColor(ROW),
-                BorderColor(if Some(m.peer) == me { ACCENT } else { color }),
+                BorderColor::all(if Some(m.peer) == me { ACCENT } else { color }),
             ))
             .with_children(|row| {
                 row.spawn(label_hud(asset_server, m.name.to_uppercase(), 20.0, TEXT));
@@ -1582,7 +1577,7 @@ fn build_room(
                     ..default()
                 },
                 BackgroundColor(ACCENT_DIM),
-                BorderColor(ACCENT),
+                BorderColor::all(ACCENT),
             ))
             .with_children(|b| {
                 let (title, text) = if is_zombies && lobby.round > 0 {
@@ -2052,7 +2047,7 @@ fn build_room(
                             ..default()
                         },
                         BackgroundColor(if member.is_some() { ROW } else { PANEL }),
-                        BorderColor(match member {
+                        BorderColor::all(match member {
                             Some(m) if Some(m.peer) == me => ACCENT,
                             Some(_) => TEXT_DIM,
                             None => Color::NONE,
@@ -2178,26 +2173,26 @@ fn handle_clicks(
     mut settings: ResMut<Settings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut create: Query<&mut TriggerSender<shared::CreateLobby>, With<GameClient>>,
-    mut join: Query<&mut TriggerSender<shared::JoinLobby>, With<GameClient>>,
-    mut leave: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
-    mut start: Query<&mut TriggerSender<shared::StartGame>, With<GameClient>>,
-    mut set_time: Query<&mut TriggerSender<shared::SetTimeLimit>, With<GameClient>>,
-    mut set_kills: Query<&mut TriggerSender<shared::SetKillLimit>, With<GameClient>>,
-    mut set_mode: Query<&mut TriggerSender<shared::SetGameMode>, With<GameClient>>,
-    mut set_map: Query<&mut TriggerSender<shared::SetMap>, With<GameClient>>,
+    mut create: Query<&mut EventSender<shared::CreateLobby>, With<GameClient>>,
+    mut join: Query<&mut EventSender<shared::JoinLobby>, With<GameClient>>,
+    mut leave: Query<&mut EventSender<shared::LeaveLobby>, With<GameClient>>,
+    mut start: Query<&mut EventSender<shared::StartGame>, With<GameClient>>,
+    mut set_time: Query<&mut EventSender<shared::SetTimeLimit>, With<GameClient>>,
+    mut set_kills: Query<&mut EventSender<shared::SetKillLimit>, With<GameClient>>,
+    mut set_mode: Query<&mut EventSender<shared::SetGameMode>, With<GameClient>>,
+    mut set_map: Query<&mut EventSender<shared::SetMap>, With<GameClient>>,
     mut bot_selection: ResMut<BotSelection>,
     mut ui: ResMut<LobbyUi>,
     (mut add_bots, mut clear_bots, mut set_end_cam, mut set_zombies_start, mut set_perk_set, mut set_perks_need_power, mut set_full_power, mut set_team, mut set_snd_rounds, mut next_state): (
-        Query<&mut TriggerSender<shared::AddBots>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::ClearBots>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetEndCam>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetZombiesStart>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetPerkSet>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetPerksNeedPower>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetFullPower>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetTeam>, With<GameClient>>,
-        Query<&mut TriggerSender<shared::SetSndRounds>, With<GameClient>>,
+        Query<&mut EventSender<shared::AddBots>, With<GameClient>>,
+        Query<&mut EventSender<shared::ClearBots>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetEndCam>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetZombiesStart>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetPerkSet>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetPerksNeedPower>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetFullPower>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetTeam>, With<GameClient>>,
+        Query<&mut EventSender<shared::SetSndRounds>, With<GameClient>>,
         ResMut<NextState<AppState>>,
     ),
 ) {
@@ -2458,9 +2453,10 @@ fn rebuild_scoreboard(
     commands
         .spawn((
             Scoreboard,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 position_type: PositionType::Absolute,
                 // (Under the minimap.)
                 left: Val::Px(crate::minimap::MINIMAP_LEFT),
@@ -2472,7 +2468,6 @@ fn rebuild_scoreboard(
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-            BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|panel| {
             let header = match lobby.mode {
@@ -2507,7 +2502,7 @@ struct MatchTimerLabel;
 fn spawn_match_timer(mut commands: Commands) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -2523,7 +2518,7 @@ fn spawn_match_timer(mut commands: Commands) {
             MatchTimerLabel,
             Text::new(""),
             TextFont {
-                font_size: 30.0,
+                font_size: FontSize::Px(30.0),
                 ..default()
             },
             TextColor(TEXT),

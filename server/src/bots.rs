@@ -36,7 +36,7 @@ const MAX_WALK_SECS: f32 = 25.0;
 const VOID_Y: f32 = -40.0;
 
 /// A hit on a bot, written by [`crate::sim::resolve_shots`].
-#[derive(Event)]
+#[derive(Message)]
 pub struct BotHit {
     pub bot: Entity,
     pub by: PeerId,
@@ -120,7 +120,7 @@ pub struct BotsPlugin;
 
 impl Plugin for BotsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<BotHit>()
+        app.add_message::<BotHit>()
             .add_observer(on_ping_bot)
             .add_systems(
                 FixedUpdate,
@@ -174,8 +174,8 @@ fn ensure_bots(
                     fall: 0.0,
                     pinged: false,
                 },
-                Replicate::to_clients(NetworkTarget::Only(members.clone())),
-                InterpolationTarget::to_clients(NetworkTarget::Only(members.clone())),
+                Replicate::to_clients(NetworkTarget::from(members.clone())),
+                InterpolationTarget::to_clients(NetworkTarget::from(members.clone())),
             ));
         }
     }
@@ -185,9 +185,9 @@ fn ensure_bots(
 /// them their red kill marker.
 pub(crate) fn apply_bot_hits(
     time: Res<Time>,
-    server: Single<&lightyear::prelude::server::Server>,
+    server: Single<&lightyear::prelude::Endpoint, With<lightyear::prelude::server::Server>>,
     mut sender: ServerMultiMessageSender,
-    mut events: EventReader<BotHit>,
+    mut events: MessageReader<BotHit>,
     mut bots: Query<&mut Bot>,
     mut lobbies: Query<&mut Lobby>,
     mut commands: Commands,
@@ -369,7 +369,7 @@ fn wander_bots(
 /// clock if it's already marked). Only a living bot in the sender's own
 /// started `Freestyle` game counts — anything else is ignored.
 fn on_ping_bot(
-    trigger: Trigger<RemoteTrigger<PingBot>>,
+    trigger: On<RemoteEvent<PingBot>>,
     time: Res<Time>,
     lobbies: Query<(Entity, &Lobby)>,
     mut bots: Query<(&mut Bot, &LobbyBot)>,
@@ -607,7 +607,7 @@ mod tests {
     }
 
     fn ping(app: &mut App, bot: Entity, from: PeerId) {
-        app.world_mut().trigger(RemoteTrigger {
+        app.world_mut().trigger(RemoteEvent {
             trigger: PingBot { bot },
             from,
         });

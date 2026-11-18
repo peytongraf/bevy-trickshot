@@ -19,9 +19,9 @@ use bevy::animation::{RepeatAnimation, prelude::AnimationTransitions};
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::client::{ClientPlugins, NetcodeClient, NetcodeConfig};
-use lightyear::prelude::input::client::InputSet;
+use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
@@ -120,8 +120,8 @@ impl Plugin for ClientNetPlugin {
 
         app.init_resource::<PendingMatchEnd>();
         app.init_resource::<PendingRespawn>();
-        app.add_event::<LocalPlayerRespawned>();
-        app.add_event::<RemoteFired>();
+        app.add_message::<LocalPlayerRespawned>();
+        app.add_message::<RemoteFired>();
         // Not gated on `InGame`: the server sends our match-start spot the
         // moment the game starts, which can land a frame before we've
         // switched into it — and lightyear drops any message left unread
@@ -148,7 +148,7 @@ impl Plugin for ClientNetPlugin {
                 crate::shot_predict::note_shot,
             )
                 .chain()
-                .in_set(InputSet::WriteClientInputs)
+                .in_set(InputSystems::WriteClientInputs)
                 // A kill-cam replay hijacks this client's own `Player`/
                 // `PlayerHead` rig to fly the killer's recorded path (see
                 // `killcam::drive_killcam`) — without this, `write_input`
@@ -163,10 +163,10 @@ impl Plugin for ClientNetPlugin {
                 // effect's own look-at, not the player's live input.
                 .run_if(
                     in_state(AppState::InGame)
-                        .and(killcam::no_killcam)
-                        .and(fall_death::no_fall_death)
+                        .and_then(killcam::no_killcam)
+                        .and_then(fall_death::no_fall_death)
                         // (Spectating a teammate borrows the rig likewise.)
-                        .and(crate::revive::not_spectating),
+                        .and_then(crate::revive::not_spectating),
                 ),
         );
         app.add_systems(
@@ -311,6 +311,9 @@ fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
         (Ipv4Addr::UNSPECIFIED, 0).into()
     };
 
+    // Prediction's rollback state, fresh for every connection (it lived on
+    // the client entity before lightyear 0.31 made it a resource).
+    commands.insert_resource(PredictionManager::default());
     let entity = commands
         .spawn((
             Name::from("GameClient"),
@@ -318,12 +321,10 @@ fn spawn_client(commands: &mut Commands, link: &mut ServerLink) {
             client,
             LocalAddr(local),
             UdpIo::default(),
-            ReplicationReceiver::default(),
-            PredictionManager::default(),
-            InterpolationManager::default(),
+            ReplicationReceiver,
         ))
         .id();
-    commands.trigger_targets(Connect, entity);
+    commands.trigger(Connect { entity });
     info!("connecting to server at {addr} (attempt {})", link.attempt);
 }
 
@@ -413,9 +414,9 @@ fn wake_server(
 /// Connected: say which version we are — the server only lets a client on
 /// its own version into a lobby (`shared::ClientHello`).
 fn on_connected(
-    _t: Trigger<OnAdd, Connected>,
+    _t: On<Add<Connected>>,
     q: Query<&LocalId, (With<GameClient>, With<Connected>)>,
-    mut hello: Query<&mut TriggerSender<shared::ClientHello>, With<GameClient>>,
+    mut hello: Query<&mut EventSender<shared::ClientHello>, With<GameClient>>,
     mut link: ResMut<ServerLink>,
 ) {
     if let Ok(local) = q.single() {
@@ -660,7 +661,7 @@ pub(crate) fn write_input(
 /// games: the server only ever takes a number newer than the last.)
 fn back_up_shot(
     mut q: Query<&mut ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
-    mut sender: Query<&mut TriggerSender<shared::ShotBackup>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ShotBackup>, With<GameClient>>,
     mut seq: Local<u16>,
 ) {
     let Ok(mut action) = q.single_mut() else { return };
@@ -682,7 +683,7 @@ fn receive_trick_scores(
     lobbies: Query<&shared::Lobby>,
     mut receivers: Query<&mut MessageReceiver<TrickScore>>,
     mut predicted: ResMut<crate::melee_predict::Predicted>,
-    mut scored: EventWriter<TrickScoredEvent>,
+    mut scored: MessageWriter<TrickScoredEvent>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     for mut rx in &mut receivers {
@@ -755,7 +756,7 @@ fn flush_pending_match_end(
     mut pending: ResMut<PendingMatchEnd>,
     active: Res<killcam::ActiveKillCam>,
     freeze: Res<crate::match_end::MatchEndFreeze>,
-    mut ended: EventWriter<MatchEndedEvent>,
+    mut ended: MessageWriter<MatchEndedEvent>,
 ) {
     if pending.msg.is_none() {
         return;
@@ -856,7 +857,7 @@ fn forget_pending_respawn(mut pending: ResMut<PendingRespawn>) {
 /// life by [`flush_pending_respawn`] — lets other systems (e.g.
 /// `death_effect`) know to clear anything still tied to the death that just
 /// ended, even on the fallback path where no paired kill cam ever arrived.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct LocalPlayerRespawned;
 
 /// Once it's safe — the paired kill cam (if one ever arrives) has both
@@ -869,8 +870,8 @@ pub(crate) fn flush_pending_respawn(
     mut weapon: ResMut<crate::Weapon>,
     player: Single<(&mut Transform, &mut PlayerPhysics), (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
-    mut respawned: EventWriter<LocalPlayerRespawned>,
-    mut ready: Query<&mut TriggerSender<shared::RespawnReady>, With<GameClient>>,
+    mut respawned: MessageWriter<LocalPlayerRespawned>,
+    mut ready: Query<&mut EventSender<shared::RespawnReady>, With<GameClient>>,
 ) {
     let Some((pos, yaw)) = pending.to else {
         return;
@@ -963,12 +964,12 @@ fn receive_shots(
     ),
     mut receivers: Query<&mut MessageReceiver<ShotResolved>>,
     mut fired: Query<&mut MessageReceiver<shared::RayGunFired>>,
-    mut impacts: EventWriter<GroundImpact>,
-    mut holes: EventWriter<crate::BulletImpact>,
-    mut tracers: EventWriter<crate::FireTracer>,
-    (mut bolts, mut landed): (EventWriter<crate::RayGunBolt>, EventWriter<crate::RayGunLanded>),
-    mut enemy_fired: EventWriter<crate::minimap::SomeoneFired>,
-    mut remote_fired: EventWriter<RemoteFired>,
+    mut impacts: MessageWriter<GroundImpact>,
+    mut holes: MessageWriter<crate::BulletImpact>,
+    mut tracers: MessageWriter<crate::FireTracer>,
+    (mut bolts, mut landed): (MessageWriter<crate::RayGunBolt>, MessageWriter<crate::RayGunLanded>),
+    mut enemy_fired: MessageWriter<crate::minimap::SomeoneFired>,
+    mut remote_fired: MessageWriter<RemoteFired>,
 ) {
     let me = local.iter().next().map(|l| l.0);
     let killcam_playing = active.0.is_some();
@@ -1143,7 +1144,7 @@ fn receive_remote_sounds(
             continue;
         };
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             EnemyFootstep,
             AudioPlayer::new(clip),
             Transform::from_translation(pos),
@@ -1202,7 +1203,7 @@ pub(crate) struct RemoteAvatarMotion {
 /// Another player fired (from the server's word: `ShotResolved`, or for the
 /// Ray Gun its `RayGunFired`) — their soldier kicks with it
 /// ([`animate_remote_avatars`]).
-#[derive(Event, Clone, Copy)]
+#[derive(Message, Clone, Copy)]
 pub(crate) struct RemoteFired {
     pub(crate) shooter: PeerId,
     pub(crate) weapon: shared::weapon::WeaponId,
@@ -1279,14 +1280,14 @@ fn spawn_soldier_avatar(
 ) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             RemoteAvatarMotion::default(),
             crate::SoldierVisual,
             crate::HeldWeapon::default(),
             Transform::from_scale(Vec3::splat(scale)),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
         ))
         .observe(crate::start_soldier_animation);
 }
@@ -1420,7 +1421,7 @@ fn spawn_sniper_glints(
             ..default()
         });
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             SniperGlint {
                 src: avatar.src,
                 avatar: avatar_entity,
@@ -1512,7 +1513,7 @@ fn update_sniper_glints(
             ((pose.ads_t - settings.ads_threshold) / span).clamp(0.0, 1.0)
         };
 
-        if let Some(material) = materials.get_mut(&material.0) {
+        if let Some(mut material) = materials.get_mut(&material.0) {
             material.base_color = Color::srgba(1.0, 1.0, 1.0, amount);
         }
         *vis = if amount > 0.0 {
@@ -1602,7 +1603,7 @@ fn animate_remote_avatars(
     killcam: Res<killcam::ActiveKillCam>,
     (ids, mut fired, ak, raygun, m17): (
         Query<&PlayerId>,
-        EventReader<RemoteFired>,
+        MessageReader<RemoteFired>,
         Res<crate::AkSettings>,
         Res<crate::RayGunSettings>,
         Res<crate::M17Settings>,
@@ -2046,7 +2047,7 @@ fn spawn_bot_avatars(
         }
         let pose = commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 // Already dead when first seen: no burst to play.
                 BotPose { bot: src, died: !bot.alive },
                 bot_player_pose(bot),
@@ -2105,7 +2106,7 @@ fn dev_auto_fire(
 fn sync_bot_poses(
     bots: Query<&Bot>,
     mut stand_ins: Query<(Entity, &mut BotPose, &mut PlayerPose)>,
-    mut blood: EventWriter<BloodImpact>,
+    mut blood: MessageWriter<BloodImpact>,
     mut blood_rec: ResMut<killcam::ReplayBloodImpact>,
     mut commands: Commands,
 ) {
@@ -2133,24 +2134,26 @@ fn sync_bot_poses(
 }
 
 fn on_disconnected(
-    t: Trigger<OnAdd, Disconnected>,
+    t: On<Add<Disconnected>>,
     q: Query<&Disconnected>,
     mut link: ResMut<ServerLink>,
 ) {
     // `NetcodeClient` requires `Disconnected`, so this also fires once at spawn
-    // with no reason — that's just "not connected yet", not a real drop.
-    match q.get(t.target()).ok().and_then(|d| d.reason.clone()) {
-        Some(reason) => {
+    // with no reason (`Unknown`) — that's just "not connected yet", not a real
+    // drop.
+    match q.get(t.entity).map(|d| &d.reason) {
+        Ok(DisconnectedReason::Unknown) | Err(_) => debug!("client not connected yet"),
+        Ok(reason) => {
+            let reason = reason.to_string();
             warn!("disconnected from server: {reason}; retrying in {RETRY_SECS}s");
             link.last_error = Some(disconnect_reason(&reason));
             link.retry_in = Some(RETRY_SECS);
         }
-        None => debug!("client not connected yet"),
     }
 }
 
-/// A lightyear disconnect reason (`"Client disconnected: <netcode state>"`,
-/// `"Link failed: …"`) put the way a player would understand it.
+/// A lightyear disconnect reason (`"Transport error: <netcode state>"`,
+/// `"Link failed: …"`, `"Disconnected by peer"`) put the way a player would understand it.
 fn disconnect_reason(reason: &str) -> String {
     if reason.contains("ConnectionRequestTimedOut") || reason.contains("ChallengeResponseTimedOut") {
         "The server didn't answer. It may be down, or not running yet.".into()
@@ -2160,6 +2163,8 @@ fn disconnect_reason(reason: &str) -> String {
         "The server turned the connection down. It may be full.".into()
     } else if reason.contains("ConnectTokenExpired") {
         "The connection attempt expired.".into()
+    } else if reason.contains("Disconnected by peer") {
+        "The server closed the connection.".into()
     } else if reason.contains("Link failed") {
         "Network error: couldn't send to the server.".into()
     } else {

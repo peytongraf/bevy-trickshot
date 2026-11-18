@@ -28,9 +28,9 @@ use std::f32::consts::PI;
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
-use bevy::scene::SceneInstanceReady;
-use bevy::transform::TransformSystem;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::world_serialization::WorldInstanceReady;
+use bevy::transform::TransformSystems;
 
 use crate::avatars::held_weapon::two_bone;
 use crate::death_effect::DeathEffect;
@@ -68,8 +68,8 @@ impl Plugin for MantleArmsPlugin {
                     // gating.)
                     follow_mantle.run_if(
                         crate::menu::game_active
-                            .and(crate::killcam::no_killcam)
-                            .and(crate::fall_death::no_fall_death),
+                            .and_then(crate::killcam::no_killcam)
+                            .and_then(crate::fall_death::no_fall_death),
                     ),
                 )
                     .chain()
@@ -79,8 +79,8 @@ impl Plugin for MantleArmsPlugin {
             .add_systems(
                 PostUpdate,
                 pose_mantle_arms
-                    .after(bevy::app::Animation)
-                    .before(TransformSystem::TransformPropagate),
+                    .after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate),
             );
     }
 }
@@ -236,14 +236,14 @@ struct MantleArmsRig {
 /// Once the arms scene has spawned: put it on the view-model layer, hide
 /// the bottle, find the bones and hold the clip on its first frame.
 pub(crate) fn start_mantle_arms(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     arms: Query<&MantleArmsAnimation>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut players: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = arms.get(root) else { return };
     let mut by_name = std::collections::HashMap::new();
     for entity in children.iter_descendants(root) {

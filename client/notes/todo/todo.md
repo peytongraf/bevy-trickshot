@@ -1,9 +1,12 @@
 Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
+# Done
+
+- Baseline perf test
+- Bevy 0.20 upgrade
+
 # Do today
 
-- Go to notes/security-performance.md and read how to do a baseline performance test
-- Upgrade to the lastest bevy version
 - Do another performance test
 
 # New latest play

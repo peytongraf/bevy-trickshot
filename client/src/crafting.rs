@@ -16,7 +16,7 @@
 //! count itself is ours (`Weapon`), added when the server answers
 //! ([`shared::EquipmentBought`]).
 //!
-//! The table, prompt and menu are `StateScoped(InGame)`, the table's taken
+//! The table, prompt and menu are `DespawnOnExit(InGame)`, the table's taken
 //! away whenever we're not in a `Zombies` game, the menu closes whenever it
 //! stops making sense (walked off, died, out of the game), and its state is
 //! reset on opening and on leaving the game — nothing carries over.
@@ -25,7 +25,7 @@ use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::crafting::{cost, items, Tab, HALF_EXTENTS};
 use shared::lethal::LethalKind;
 use shared::Lobby;
@@ -81,7 +81,7 @@ impl Plugin for CraftingPlugin {
                     sync_crafting_table,
                     receive_crafted,
                     update_crafting_prompt,
-                    open_crafting_menu.run_if(menu::game_active.and(killcam::no_killcam)),
+                    open_crafting_menu.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     crafting_menu_lifecycle,
                     crafting_menu_input,
                     refresh_crafting_menu,
@@ -120,14 +120,14 @@ fn sync_crafting_table(
     let half = HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingTable,
             crate::util::placed(at),
             Visibility::default(),
         ))
         .with_children(|t| {
             t.spawn((
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(CRAFTING_TABLE_MODEL))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(CRAFTING_TABLE_MODEL))),
                 model_transform(),
             ));
             t.spawn((
@@ -183,7 +183,7 @@ fn spawn_crafting_prompt(mut commands: Commands, asset_server: Res<AssetServer>)
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingPrompt,
             GlobalZIndex(5),
             Node {
@@ -208,8 +208,8 @@ fn spawn_crafting_prompt(mut commands: Commands, asset_server: Res<AssetServer>)
             .with_child((
                 Text::new("CRAFTING TABLE"),
                 TextFont {
-                    font: heading,
-                    font_size: 40.0,
+                    font: heading.into(),
+                    font_size: FontSize::Px(40.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -225,8 +225,8 @@ fn spawn_crafting_prompt(mut commands: Commands, asset_server: Res<AssetServer>)
                 CraftingPromptText,
                 Text::new(""),
                 TextFont {
-                    font: body,
-                    font_size: 24.0,
+                    font: body.into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.92, 0.86)),
@@ -422,15 +422,15 @@ const FULL_GREY: Color = Color::srgb(0.38, 0.38, 0.38);
 fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &str, text: &str, heading: &Handle<Font>) {
     let mut button = parent.spawn((
         which,
-        Button,
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         Node {
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             align_items: AlignItems::Center,
             column_gap: Val::Px(12.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if which == CraftButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
@@ -438,6 +438,7 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
     button.with_children(|b| {
         b.spawn((
             Node {
+                border_radius: BorderRadius::all(Val::Px(18.0)),
                 min_width: Val::Px(44.0),
                 height: Val::Px(36.0),
                 padding: UiRect::horizontal(Val::Px(8.0)),
@@ -446,14 +447,13 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(18.0)),
+            BorderColor::all(LIGHT_TEXT),
         ))
         .with_child((
             Text::new(key),
             TextFont {
-                font: heading.clone(),
-                font_size: 22.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(22.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -461,8 +461,8 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
         b.spawn((
             Text::new(text),
             TextFont {
-                font: heading.clone(),
-                font_size: 34.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(34.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -476,7 +476,7 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
     parent
         .spawn((
             CraftTile(kind),
-            Button,
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             Node {
                 width: Val::Px(TILE),
                 height: Val::Px(TILE),
@@ -486,7 +486,7 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             // (The HUD icons, drawn to a 3:2 canvas.)
@@ -509,8 +509,8 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
                 CraftTileCount(kind),
                 Text::new(""),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 28.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(28.0),
                     ..default()
                 },
                 TextColor(DARK_TEXT),
@@ -552,7 +552,7 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -569,13 +569,13 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
     let heading = asset_server.load(HUD_FONT);
     let body = asset_server.load(BODY_FONT);
     let hfont = |size: f32| TextFont {
-        font: heading.clone(),
-        font_size: size,
+        font: heading.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -629,14 +629,14 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
                         for (t, name) in [(Tab::Tactical, "TACTICAL"), (Tab::Lethal, "LETHAL")] {
                             bar.spawn((
                                 CraftTab(t),
-                                Button,
+                                Interaction::default(), bevy::ui::FocusPolicy::Block,
                                 ui_sound(UiSound::BUTTON),
                                 Node {
+                                    border_radius: BorderRadius::all(Val::Px(3.0)),
                                     padding: UiRect::axes(Val::Px(56.0), Val::Px(4.0)),
                                     ..default()
                                 },
                                 BackgroundColor(Color::NONE),
-                                BorderRadius::all(Val::Px(3.0)),
                             ))
                             .with_child((Text::new(name), hfont(34.0), TextColor(LIGHT_TEXT)));
                         }
@@ -678,8 +678,8 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
                                 CraftText::Description,
                                 Text::new(""),
                                 TextFont {
-                                    font: body.clone(),
-                                    font_size: 28.0,
+                                    font: body.clone().into(),
+                                    font_size: FontSize::Px(28.0),
                                     ..default()
                                 },
                                 TextColor(LIGHT_TEXT),
@@ -784,18 +784,18 @@ fn crafting_menu_input(
     (sounds, sfx, mut cant_afford): (
         Option<Res<GameSounds>>,
         Option<Res<UiSfx>>,
-        EventWriter<crate::quotes::CantAfford>,
+        MessageWriter<crate::quotes::CantAfford>,
     ),
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&CraftTile, &Interaction)>,
     pressed_tiles: Query<(&CraftTile, &Interaction), Changed<Interaction>>,
     tabs: Query<(&CraftTab, &Interaction), Changed<Interaction>>,
     buttons: Query<(&CraftButton, &Interaction), Changed<Interaction>>,
     row: Query<Entity, With<CraftTileRow>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyEquipment>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::BuyEquipment>, With<GameClient>>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -873,7 +873,7 @@ fn crafting_menu_input(
         state.in_flight.push((k, time.elapsed_secs()));
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.pick_up_equipment.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -938,7 +938,7 @@ fn refresh_crafting_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status_of(icon.0) {

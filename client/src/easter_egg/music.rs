@@ -15,7 +15,7 @@
 //! goes back to that phase's track the same way.
 //!
 //! A debug jump straight past the ritual brings it (and takes the ambience)
-//! at once, faded in the same way. The music's `StateScoped(InGame)` and
+//! at once, faded in the same way. The music's `DespawnOnExit(InGame)` and
 //! its level starts at nothing each game; the ambience's level
 //! (`zombies_audio::ZombiesAmbientLevel`) is back to full on entering one.
 //! Tuned in the debug panel's "Easter egg (Der Tempel)" → "Music".
@@ -199,7 +199,7 @@ fn run_music(
     if !music.iter().any(|(_, m, _)| m.0 == levels.track) {
         commands.spawn((
             EggMusic(levels.track),
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(tracks.0[levels.track].clone()),
             PlaybackSettings::LOOP.with_volume(Volume::Linear(s.volume * levels.music)),
         ));

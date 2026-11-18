@@ -24,7 +24,7 @@
 
 use std::f32::consts::TAU;
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{QueryFilter, RapierContext, ReadRapierContext};
 
@@ -73,7 +73,7 @@ const FIT_SHIFTS: [f32; 3] = [0.0, 0.25, 0.5];
 
 /// A shot travelling along `dir` hit a surface at `point`, whose (unit)
 /// outward `normal` faces the shooter. Consumed by [`spawn_bullet_holes`].
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct BulletImpact {
     pub(crate) point: Vec3,
     pub(crate) normal: Vec3,
@@ -119,7 +119,7 @@ pub struct BulletHolePlugin;
 
 impl Plugin for BulletHolePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<BulletImpact>()
+        app.add_message::<BulletImpact>()
             .init_resource::<BulletHoleSettings>()
             // `PostStartup`, not `Startup` — see `killcam::KillCamPlugin`'s note.
             .add_systems(PostStartup, setup_bullet_hole_assets)
@@ -166,7 +166,7 @@ fn probe(
     rapier: Option<&RapierContext>,
     boxes: &Query<(), With<NoBulletHoles>>,
 ) -> Option<(f32, Vec3)> {
-    let not_box = |e: Entity| !boxes.contains(e);
+    let not_box = |e: Entity, _: &bevy_rapier3d::rapier::geometry::Collider| !boxes.contains(e);
     rapier.and_then(|r| {
         r.cast_ray_and_get_normal(from, dir, max, true, QueryFilter::default().exclude_sensors().predicate(&not_box))
             .map(|(_, hit)| (hit.time_of_impact, hit.normal))
@@ -220,7 +220,7 @@ fn spawn_bullet_holes(
     time: Res<Time>,
     settings: Res<BulletHoleSettings>,
     assets: Option<Res<BulletHoleAssets>>,
-    mut events: EventReader<BulletImpact>,
+    mut events: MessageReader<BulletImpact>,
     current_map: Res<crate::CurrentMap>,
     holes: Query<(Entity, &BulletHole)>,
     rapier: ReadRapierContext,
@@ -249,7 +249,7 @@ fn spawn_bullet_holes(
         let dir = Some(ev.dir.normalize_or_zero()).filter(|d| *d != Vec3::ZERO).unwrap_or(-normal);
         // Landed on a placed object's box: dust, but no hole.
         let on_box = rapier.is_some_and(|r| {
-            let only_boxes = |e: Entity| boxes.contains(e);
+            let only_boxes = |e: Entity, _: &bevy_rapier3d::rapier::geometry::Collider| boxes.contains(e);
             r.cast_ray(
                 ev.point - dir * NO_HOLES_BACK,
                 dir,
@@ -287,7 +287,7 @@ fn spawn_bullet_holes(
                 spawned_at: time.elapsed_secs(),
                 scale,
             },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Mesh3d(assets.mesh.clone()),
             MeshMaterial3d(assets.material.clone()),
             Transform {

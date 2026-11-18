@@ -14,19 +14,21 @@
 //!    into a puddle on the floor — while all of it starts to glow;
 //! 5. the sarcophagus lights up.
 //!
-//! The blood is [`BloodMaterial`] (`blood.wgsl`): uneven, wet, lit like the
+//! The blood is [`BloodMaterial`] (`blood.wesl`): uneven, wet, lit like the
 //! rest of the map. The altar's shape ([`ALTAR_APOTHEM`], [`BASIN_RADIUS`],
 //! …) is its model's (`super::RITUAL_ALTAR_MODEL`) — change them with it. The
 //! pieces are there from the ritual's start until the egg's reset, and as it
-//! ended after it; `StateScoped(InGame)`, so gone with the game.
+//! ended after it; `DespawnOnExit(InGame)`, so gone with the game.
 
 use std::f32::consts::PI;
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
     EggStep, RITUAL_ALTAR_TOP, RITUAL_CHANT_AT_SECS, RITUAL_SECS, RITUAL_VOICE_AT_SECS, SARCOPHAGUS_HALF_EXTENTS,
@@ -42,11 +44,7 @@ pub(super) struct RitualFxPlugin;
 
 impl Plugin for RitualFxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<BloodMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<BloodMaterial>::default())
         .add_systems(Startup, make_assets)
         .add_systems(
             Update,
@@ -121,7 +119,7 @@ mod params {
     use bevy::prelude::*;
     use bevy::render::render_resource::ShaderType;
 
-    /// Mirrors `BloodParams` in `blood.wgsl`.
+    /// Mirrors `BloodParams` in `blood.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct BloodParams {
         pub(crate) spread: f32,
@@ -146,12 +144,20 @@ pub(crate) struct BloodSurface {
 }
 
 impl MaterialExtension for BloodSurface {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
-        "shaders/blood.wgsl".into()
+        "shaders/blood.wesl".into()
     }
 }
 
-/// Blood lying on a surface — a pool, or a run (see `blood.wgsl`).
+/// Blood lying on a surface — a pool, or a run (see `blood.wesl`).
 pub(crate) type BloodMaterial = ExtendedMaterial<StandardMaterial, BloodSurface>;
 
 fn blood_material(params: BloodParams) -> BloodMaterial {
@@ -332,7 +338,7 @@ fn sync_ritual_fx(
     let run = blood.add(blood_material(BloodParams { seed: 5.3, mode: 1.0, ..default() }));
     let red = Color::srgb(1.0, 0.08, 0.06);
     commands
-        .spawn((StateScoped(AppState::InGame), RitualFx, crate::util::placed(altar), Visibility::default()))
+        .spawn((DespawnOnExit(AppState::InGame), RitualFx, crate::util::placed(altar), Visibility::default()))
         .with_children(|fx| {
             // (The ritual moves these; the dagger's model is point down
             // under its own.)
@@ -340,7 +346,7 @@ fn sync_ritual_fx(
                 .with_child(dagger(&asset_server, Vec3::ZERO, DaggerPose::PointDown));
             fx.spawn((
                 RitualPart::Vial,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(VIAL_MODEL))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(VIAL_MODEL))),
                 Transform::default(),
                 Visibility::Hidden,
             ));
@@ -372,7 +378,7 @@ fn sync_ritual_fx(
                     color: Color::srgb(1.0, 0.62, 0.32),
                     intensity: 0.0,
                     range: 5.0,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_xyz(0.35, TOP + 0.9, 0.6),
@@ -383,21 +389,21 @@ fn sync_ritual_fx(
                     color: red,
                     intensity: 0.0,
                     range: 6.0,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_xyz(0.0, TOP + 0.35, 0.3),
             ));
         });
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         RitualFx,
         SarcophagusLight,
         PointLight {
             color: red,
             intensity: 0.0,
             range: 8.0,
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..default()
         },
         Transform::default(),
@@ -534,7 +540,7 @@ fn animate_ritual(
         };
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
         if let (Some((spread, reach)), Some(material)) = (params, material) {
-            if let Some(m) = blood.get_mut(&material.0) {
+            if let Some(mut m) = blood.get_mut(&material.0) {
                 let p = &mut m.extension.params;
                 (p.spread, p.reach, p.glow) = (spread, reach, glow);
             }

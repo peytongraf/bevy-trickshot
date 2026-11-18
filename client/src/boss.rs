@@ -22,7 +22,7 @@
 //!
 //! * **The Hierophant's ball** — the easter egg's Hierophant (his avatar's
 //!   [`BossVoiced`]) winds up and hurls the same way, but his is a ball of
-//!   dark energy ([`DeathOrbMaterial`], `shaders/death_orb.wgsl`): a sphere
+//!   dark energy ([`DeathOrbMaterial`], `shaders/death_orb.wesl`): a sphere
 //!   of near-black purple, its darkness churning, glowing bright purple round
 //!   its rim, red lightning crackling through it and arcing off it — its
 //!   wisps, sparks, embers and light purple and red, going off in PhD
@@ -35,23 +35,25 @@
 //!
 //! Every sound is positional and heard by the whole lobby. Look and feel
 //! are tuned in the "Boss (Zombies)" debug section ([`BossSettings`]).
-//! Everything here is `StateScoped(InGame)`, and a ball whose boss or
+//! Everything here is `DespawnOnExit(InGame)`, and a ball whose boss or
 //! message never comes is cleared on its own.
 
 use std::time::Duration;
 
 use bevy::animation::RepeatAnimation;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::world_serialization::WorldInstanceReady;
 use bevy_egui::egui;
-use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, PeerId, EventSender};
 use shared::boss::{BLAST_CHARGE_START_SECS, BLAST_LIFETIME_SECS, BLAST_RELEASE_SECS, BOSS_HEIGHT};
 use shared::{PlayerId, PlayerPose, ZombieAnim};
 
@@ -276,7 +278,7 @@ pub(crate) struct BossAssets {
     arc: Handle<Mesh>,
 }
 
-/// Tags a boss avatar's `SceneRoot`.
+/// Tags a boss avatar's `WorldAssetRoot`.
 #[derive(Component)]
 pub(crate) struct BossVisual;
 
@@ -472,7 +474,7 @@ impl Default for DeathOrbSettings {
     }
 }
 
-const DEATH_ORB_SHADER_ASSET_PATH: &str = "shaders/death_orb.wgsl";
+const DEATH_ORB_SHADER_ASSET_PATH: &str = "shaders/death_orb.wesl";
 
 // Own module only so the allow covers the unused per-field layout checks
 // `ShaderType`'s derive generates next to the struct (as in `power_ups`).
@@ -498,7 +500,7 @@ mod params {
 }
 use params::OrbParams;
 
-/// The Hierophant's ball (`shaders/death_orb.wgsl`), on a camera-facing
+/// The Hierophant's ball (`shaders/death_orb.wesl`), on a camera-facing
 /// quad: drawn premultiplied, so its sphere can be dark over what's behind
 /// it while its rim, glow and lightning add light. One per ball (its seed).
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -526,6 +528,14 @@ impl DeathOrbMaterial {
 }
 
 impl Material for DeathOrbMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         DEATH_ORB_SHADER_ASSET_PATH.into()
     }
@@ -535,7 +545,7 @@ impl Material for DeathOrbMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -543,7 +553,7 @@ impl Material for DeathOrbMaterial {
         // (Both faces, depth-tested but never writing depth.)
         descriptor.primitive.cull_mode = None;
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
@@ -564,11 +574,7 @@ pub(crate) struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<DeathOrbMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<DeathOrbMaterial>::default())
         .init_resource::<BossSettings>()
         .init_resource::<DeathOrbSettings>()
             .init_resource::<BossPreview>()
@@ -615,13 +621,13 @@ fn setup_boss_assets(
 pub(crate) fn spawn_boss_avatar(commands: &mut Commands, asset_server: &AssetServer, settings: &BossSettings, src: Entity) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             BossVisual,
             BossMotion::default(),
             Transform::from_scale(Vec3::splat(settings.scale.max(0.001))),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(BOSS_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(BOSS_MODEL))),
         ))
         .observe(start_boss_animation);
 }
@@ -630,7 +636,7 @@ pub(crate) fn spawn_boss_avatar(commands: &mut Commands, asset_server: &AssetSer
 /// give it its own glowing copies of its materials.
 #[allow(clippy::too_many_arguments)]
 fn start_boss_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -640,7 +646,7 @@ fn start_boss_animation(
     assets: Res<BossAssets>,
     mut bounds: crate::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut player_entity = None;
     let mut hands = [None; 2];
     let mut glow = Vec::new();
@@ -682,12 +688,10 @@ fn start_boss_animation(
     commands.entity(root).insert(BossBodyGlow(glow));
 }
 
-/// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
-/// entity's).
-pub(crate) fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+/// The peer a pose entity belongs to (its `PlayerId`).
+pub(crate) fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
@@ -698,7 +702,7 @@ fn boss_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle 
         playback.mode = PlaybackMode::Loop;
     }
     (
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         BossSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
@@ -761,7 +765,7 @@ fn spawn_orb(
     let c = outer;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BossOrb {
                 avatar,
                 peer,
@@ -838,7 +842,7 @@ fn spawn_orb(
                     color: if death { Color::srgb(c[0], c[1], c[2]) } else { Color::srgb(c[0], c[1] * 1.2, c[2] * 2.0) },
                     intensity: 0.0,
                     range: s.light_range,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
             ));
@@ -861,10 +865,10 @@ fn receive_boss_messages(
     sounds: Option<Res<GameSounds>>,
     (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     avatars: Query<(Entity, &RemoteAvatar, Has<BossVoiced>), With<BossVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut orbs: Query<(Entity, &mut BossOrb)>,
     (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -926,7 +930,7 @@ fn receive_boss_messages(
                     *seq = seq.wrapping_add(1);
                     let found = avatars
                         .iter()
-                        .find(|(_, a, _)| peer_of(a.src, &ids, &interp) == Some(msg.boss));
+                        .find(|(_, a, _)| peer_of(a.src, &ids) == Some(msg.boss));
                     let avatar = found.map(|(e, ..)| e);
                     let death = found.is_some_and(|(_, _, voiced)| voiced);
                     spawn_orb(
@@ -985,7 +989,7 @@ fn animate_bosses(
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
     poses: Query<&PlayerPose>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>, Has<BossVoiced>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     orbs: Query<&BossOrb>,
@@ -1063,7 +1067,7 @@ fn animate_bosses(
                         .replay();
                     if state == BossState::Smash {
                         commands.spawn(boss_sound(sounds.boss_attack.clone(), head, false));
-                    } else if let Some(peer) = peer_of(avatar.src, &ids, &interp) {
+                    } else if let Some(peer) = peer_of(avatar.src, &ids) {
                         // A ball starts forming as its arms go up.
                         if !orbs.iter().any(|o| o.flight.is_none() && o.peer == Some(peer)) {
                             *seq = seq.wrapping_add(1);
@@ -1193,7 +1197,7 @@ fn update_orbs(
             budget -= 1;
             let material = p.material.clone();
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 p,
                 Mesh3d(fx.quad.clone()),
                 MeshMaterial3d(material),
@@ -1330,7 +1334,7 @@ fn update_orb_parts(
         // (The ball's brightness follows its charge.)
         let m = &orb.materials;
         let set = |materials: &mut Assets<StandardMaterial>, h: &Handle<StandardMaterial>, c: [f32; 3], b: f32| {
-            if let Some(mat) = materials.get_mut(h) {
+            if let Some(mut mat) = materials.get_mut(h) {
                 mat.base_color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
             }
         };
@@ -1340,7 +1344,7 @@ fn update_orb_parts(
             // (His sphere's look follows the panel.)
             if death_settings.is_changed() {
                 if let Some(h) = &m.death {
-                    if let Some(mat) = death_materials.get_mut(h) {
+                    if let Some(mut mat) = death_materials.get_mut(h) {
                         let seed = mat.params.seed;
                         mat.params = DeathOrbMaterial::params(d, seed);
                     }
@@ -1470,7 +1474,7 @@ fn update_orb_particles(
         tf.scale = Vec3::splat(size.max(1e-4));
         tf.rotation = smoke_billboard_rotation(tf.translation, cam_pos, cam_up, cam_right, p.roll);
         let fade = if p.smoke { (x * 4.0).min(1.0) * (1.0 - x) } else { 1.0 - x * x };
-        if let Some(m) = materials.get_mut(&p.material) {
+        if let Some(mut m) = materials.get_mut(&p.material) {
             m.base_color = if p.smoke {
                 Color::srgba(p.color[0], p.color[1], p.color[2], p.brightness * fade)
             } else {
@@ -1533,7 +1537,7 @@ fn update_boss_auras(
                         color: Color::LinearRgba(color(1.0)),
                         intensity: 0.0,
                         range: s.aura_light_range,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::default(),
@@ -1556,15 +1560,15 @@ fn update_boss_auras(
         let pulse = 1.0 + s.aura_pulse * (t * s.aura_pulse_hz * std::f32::consts::TAU).sin();
         let k = aura.level * pulse;
 
-        if let Some(m) = materials.get_mut(&aura.halo) {
+        if let Some(mut m) = materials.get_mut(&aura.halo) {
             m.base_color = color(s.aura_halo_brightness * k).into();
         }
-        if let Some(m) = materials.get_mut(&aura.outer) {
+        if let Some(mut m) = materials.get_mut(&aura.outer) {
             m.base_color = color(s.aura_outer_brightness * k).into();
         }
         if let Some(body) = body {
             for (handle, base) in &body.0 {
-                if let Some(m) = materials.get_mut(handle) {
+                if let Some(mut m) = materials.get_mut(handle) {
                     m.emissive = *base + color(s.body_glow * k);
                 }
             }
@@ -1679,7 +1683,7 @@ pub(crate) struct BossDebug<'w, 's> {
     preview: ResMut<'w, BossPreview>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
-    spawn: Query<'w, 's, &'static mut TriggerSender<shared::SpawnBoss>, With<GameClient>>,
+    spawn: Query<'w, 's, &'static mut EventSender<shared::SpawnBoss>, With<GameClient>>,
 }
 
 impl BossDebug<'_, '_> {

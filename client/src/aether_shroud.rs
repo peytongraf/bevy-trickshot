@@ -20,7 +20,7 @@
 //!   stored, the key under it. Only shown in a `Zombies` game.
 //!
 //! Everything resets with the game: out of a running `Zombies` game our
-//! state goes back to nothing (silently), the loop is `StateScoped(InGame)`
+//! state goes back to nothing (silently), the loop is `DespawnOnExit(InGame)`
 //! and despawned with it, and a remote avatar's purple look goes with the
 //! avatar.
 
@@ -31,7 +31,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::field_upgrade::{FieldUpgrade, CHARGE_SECS, DURATION_SECS, SPEED_MULT};
@@ -43,7 +44,7 @@ use crate::zombies_hud::zombies_game;
 use crate::{menu, AetherScreen, AetherScreenSettings, AppState, GameSounds, Weapon};
 
 const ICON_PATH: &str = "textures/icons/field_upgrades/aether_shroud.png";
-const ICON_SHADER: &str = "shaders/aether_shroud_icon.wgsl";
+const ICON_SHADER: &str = "shaders/aether_shroud_icon.wesl";
 /// On-screen size of the icon (at the ammo HUD's reference height).
 const ICON_SIZE: f32 = 52.0;
 /// Opacity of the HUD group with no charge stored.
@@ -61,9 +62,9 @@ impl Plugin for AetherShroudPlugin {
                 (
                     use_aether_shroud.run_if(
                         in_state(AppState::InGame)
-                            .and(menu::game_active)
-                            .and(crate::killcam::no_killcam)
-                            .and(crate::revive::up),
+                            .and_then(menu::game_active)
+                            .and_then(crate::killcam::no_killcam)
+                            .and_then(crate::revive::up),
                     ),
                     sync_aether_shroud,
                     (update_shroud_hud, shroud_remote_avatars).run_if(in_state(AppState::InGame)),
@@ -122,7 +123,7 @@ fn use_aether_shroud(
     shroud: Res<LocalShroud>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::UseFieldUpgrade>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::UseFieldUpgrade>, With<GameClient>>,
 ) {
     if !binds.field_upgrade.just_pressed(&keys, &mouse)
         || zombies_game(&local, &lobbies).is_none()
@@ -188,12 +189,12 @@ fn sync_aether_shroud(
         weapon.reload_instantly();
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.aether_activate.clone()),
                 PlaybackSettings::DESPAWN,
             ));
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 ShroudLoop,
                 AudioPlayer::new(sounds.aether_active.clone()),
                 PlaybackSettings::DESPAWN,
@@ -207,7 +208,7 @@ fn sync_aether_shroud(
         }
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.aether_deactivate.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -310,8 +311,8 @@ pub(crate) fn spawn_shroud_hud(
                     ShroudCountText,
                     Text::new("0"),
                     TextFont {
-                        font: font.clone(),
-                        font_size: 18.0,
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(18.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
@@ -338,21 +339,21 @@ pub(crate) fn spawn_shroud_hud(
                     col.spawn((
                         ShroudKeyCap,
                         Node {
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         box_shadow(),
                     ))
                     .with_child((
                         ShroudKeyText,
                         Text::new(binds.field_upgrade.label().to_uppercase()),
                         TextFont {
-                            font,
-                            font_size: 14.0,
+                            font: font.into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::BLACK),
@@ -399,7 +400,7 @@ fn update_shroud_hud(
     );
     for handle in &icons {
         if materials.get(&handle.0).is_some_and(|m| m.params != params) {
-            if let Some(m) = materials.get_mut(&handle.0) {
+            if let Some(mut m) = materials.get_mut(&handle.0) {
                 m.params = params;
             }
         }
@@ -495,7 +496,7 @@ fn shroud_remote_avatars(
     if look.is_changed() {
         for (original, copy) in copies.iter() {
             if let Some(m) = materials.get(*original).map(|o| look.apply(o)) {
-                if let Some(c) = materials.get_mut(copy) {
+                if let Some(mut c) = materials.get_mut(copy) {
                     *c = m;
                 }
             }
@@ -549,7 +550,7 @@ pub(crate) struct AetherDebug<'w, 's> {
     shroud: Res<'w, LocalShroud>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
-    fill: Query<'w, 's, &'static mut TriggerSender<shared::FillFieldUpgrade>, With<GameClient>>,
+    fill: Query<'w, 's, &'static mut EventSender<shared::FillFieldUpgrade>, With<GameClient>>,
 }
 
 impl AetherDebug<'_, '_> {

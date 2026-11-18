@@ -45,7 +45,7 @@ pub(crate) fn spawn_drop<'a>(
         Name::from("WeaponDrop"),
         drop,
         DropSim { lobby: lobby_e },
-        Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+        Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
     ))
 }
 
@@ -134,15 +134,15 @@ pub(crate) fn swap_into_slot(
 /// carrying it already, with the points. Anything else is ignored.
 #[allow(clippy::too_many_arguments)]
 fn on_buy_wall_weapon(
-    trigger: Trigger<RemoteTrigger<BuyWallWeapon>>,
+    trigger: On<RemoteEvent<BuyWallWeapon>>,
     endings: Res<EndingLobbies>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let BuyWallWeapon { weapon, slot, mag, reserve } = trigger.trigger;
@@ -191,10 +191,10 @@ fn on_buy_wall_weapon(
 /// Ray Gun).
 #[allow(clippy::too_many_arguments)]
 fn on_give_weapon(
-    trigger: Trigger<RemoteTrigger<GiveWeapon>>,
+    trigger: On<RemoteEvent<GiveWeapon>>,
     endings: Res<EndingLobbies>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
@@ -225,10 +225,10 @@ fn on_give_weapon(
 /// their hands — one they don't carry already.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_weapon(
-    trigger: Trigger<RemoteTrigger<PickUpWeapon>>,
+    trigger: On<RemoteEvent<PickUpWeapon>>,
     endings: Res<EndingLobbies>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,

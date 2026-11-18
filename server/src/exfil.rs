@@ -173,13 +173,13 @@ impl Plugin for ExfilPlugin {
 /// alive and at the radio (a little slack — their pose is a moment old).
 /// Anything else is ignored.
 fn on_call_exfil(
-    trigger: Trigger<RemoteTrigger<CallExfil>>,
+    trigger: On<RemoteEvent<CallExfil>>,
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
-    mut radio_says: EventWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
+    mut radio_says: MessageWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby, mut rounds)) = lobbies

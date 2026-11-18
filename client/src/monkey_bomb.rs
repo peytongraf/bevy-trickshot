@@ -22,7 +22,7 @@
 //! Its look in the hand and in the world is tuned in the debug panel's
 //! "Monkey bomb (Zombies)" section ([`monkey_section`]).
 //!
-//! Every entity here is `StateScoped(InGame)` or a child of one (the held
+//! Every entity here is `DespawnOnExit(InGame)` or a child of one (the held
 //! monkey rides the arms rig), each avatar and its sounds go as soon as its
 //! server entity does, and the monkey count lives on `Weapon` — nothing
 //! carries into the next game.
@@ -30,7 +30,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::monkey_bomb::{
@@ -159,7 +159,7 @@ impl MonkeyBombSettings {
 struct MonkeyAssets {
     /// Loaded up front (and kept) so the first one picked up or thrown
     /// doesn't hitch.
-    model: Handle<Scene>,
+    model: Handle<WorldAsset>,
     graph: Handle<AnimationGraph>,
     clip: AnimationNodeIndex,
 }
@@ -193,7 +193,7 @@ fn spawn_held_monkey(
             .spawn((HeldMonkey, settings.held_transform(), vm.clone(), Visibility::Hidden, ChildOf(arms)))
             .with_children(|pivot| {
                 pivot
-                    .spawn((SceneRoot(assets.model.clone()), Transform::default(), vm))
+                    .spawn((WorldAssetRoot(assets.model.clone()), Transform::default(), vm))
                     .observe(start_throw_knife_model);
             });
     }
@@ -218,7 +218,7 @@ fn update_held_monkey(
 /// Send the monkey bomb throw `weapon_system` filed when it left the hand.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowMonkey>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowMonkey>, With<GameClient>>,
 ) {
     if !knife.has_monkey_request() {
         return;
@@ -310,7 +310,7 @@ fn sync_monkey_avatars(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 MonkeyAvatar {
                     src,
                     landed: None,
@@ -322,7 +322,7 @@ fn sync_monkey_avatars(
                 Visibility::default(),
             ))
             .with_children(|a| {
-                a.spawn((MonkeyModel, SceneRoot(assets.model.clone()), standing_transform(settings.world_height)));
+                a.spawn((MonkeyModel, WorldAssetRoot(assets.model.clone()), standing_transform(settings.world_height)));
                 // (One that's already down — joined late — makes no throw.)
                 if !m.landed {
                     a.spawn(monkey_sound(MonkeySound::Throw, sounds.monkey_bomb_throw.clone()));
@@ -436,12 +436,12 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             Transform::from_translation(d.pos).with_rotation(Quat::from_rotation_y(d.yaw)),
             Visibility::default(),
-            children![(DroppedModel, SceneRoot(assets.model.clone()), standing_transform(settings.drop_height))],
+            children![(DroppedModel, WorldAssetRoot(assets.model.clone()), standing_transform(settings.drop_height))],
         ));
     }
 }
@@ -475,7 +475,7 @@ pub(crate) fn monkey_section(
     s: &mut MonkeyBombSettings,
     weapon: &mut Weapon,
     hold_key: &mut bool,
-    fuse_tx: &mut Query<&mut TriggerSender<shared::SetMonkeyFuse>, With<GameClient>>,
+    fuse_tx: &mut Query<&mut EventSender<shared::SetMonkeyFuse>, With<GameClient>>,
 ) {
     ui.horizontal(|ui| {
         if ui.button("Give me a monkey bomb").clicked() {

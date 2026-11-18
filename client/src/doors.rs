@@ -21,18 +21,18 @@
 //! dust is shaken off the top of the doorway as it starts. (The same rock
 //! and dust sprites as `crate::earthquake`'s debris, far fewer and smaller.)
 //!
-//! The doors, their sounds, the debris and the card are `StateScoped(InGame)`, and the doors are taken
+//! The doors, their sounds, the debris and the card are `DespawnOnExit(InGame)`, and the doors are taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
 //! next one. In the other modes every doorway's open.
 
 use bevy::math::Affine2;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_rapier3d::prelude::Collider;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::doors::{Door, Locked, Slide, MODEL_SIZE, OPEN_SECS};
 use shared::Lobby;
 
@@ -62,7 +62,7 @@ impl Plugin for DoorsPlugin {
                     slide_doors,
                     door_debris,
                     update_door_card,
-                    buy_door.run_if(menu::game_active.and(killcam::no_killcam)),
+                    buy_door.run_if(menu::game_active.and_then(killcam::no_killcam)),
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -144,7 +144,7 @@ fn spawn_door(commands: &mut Commands, asset_server: &AssetServer, index: usize,
     let half = door.size * 0.5;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DoorRoot {
                 index,
                 opened_at: None,
@@ -159,7 +159,7 @@ fn spawn_door(commands: &mut Commands, asset_server: &AssetServer, index: usize,
             root.spawn((DoorPanel, Transform::default(), Visibility::default()))
                 .with_children(|panel| {
                     panel.spawn((
-                        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DOOR_MODEL))),
+                        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DOOR_MODEL))),
                         model_transform(door.size),
                     ));
                     panel.spawn((
@@ -208,7 +208,7 @@ fn slide_doors(
                     .chain(door.main.then(|| sounds.main_door_ambience.clone()));
                 for clip in clips {
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(clip),
                         Transform::from_translation(center),
                         crate::positional_playback(Volume::Linear(1.0)),
@@ -220,7 +220,7 @@ fn slide_doors(
                 if asked == root.index && now - at <= BUY_CONFIRM_SECS {
                     buy.0 = None;
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(sounds.money_ching.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
@@ -378,7 +378,7 @@ fn spawn_chip(
     // Flies, lies on the floor a moment, then fades.
     let lifetime = 1.6 + 0.8 * rand01(s ^ 0x14);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity,
             gravity: GRAVITY,
@@ -423,7 +423,7 @@ fn spawn_door_dust(
     *budget -= 1;
     let size = 0.75 + 0.5 * rand01(s ^ 0x21);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity: drift + Vec3::Y * fall,
             gravity: 0.3,
@@ -468,8 +468,8 @@ fn buy_door(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyDoor>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyDoor>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -510,14 +510,14 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let body = asset_server.load(crate::BODY_FONT);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let faint = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -532,6 +532,7 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
             row.spawn((
                 DoorCard,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(PERK_CARD_WIDTH),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(10.0),
@@ -540,8 +541,7 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(DOOR_TAN),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(DOOR_TAN),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -556,8 +556,8 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                         DoorCardText::Blurb,
                         Text::new(""),
                         TextFont {
-                            font: body.clone(),
-                            font_size: 14.0,
+                            font: body.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::srgba(1.0, 1.0, 1.0, 0.85)),
@@ -600,12 +600,12 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 card.spawn((
                     DoorCardAction,
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((DoorCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
             });
@@ -677,8 +677,8 @@ fn update_door_card(
     } else {
         "Open it to reach more of the map."
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        border.set_all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;

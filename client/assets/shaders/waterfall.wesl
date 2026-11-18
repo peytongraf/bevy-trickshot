@@ -5,25 +5,20 @@
 // leaving the lip, so streaks travel with the water and stretch out as it
 // speeds up. At the lip it's a smooth glassy sheet; lower down it tears into
 // separate white, aerated strands, its edges fraying, and it thins out into
-// the splash at the bottom (`water_spray.wgsl`, and the pool's own foam).
+// the splash at the bottom (`water_spray.wesl`, and the pool's own foam).
 // Driven by `WaterfallMaterial` in `client/src/water.rs`.
 
-#import bevy_pbr::{
-    pbr_fragment::pbr_input_from_standard_material,
-    mesh_view_bindings::globals,
-}
-
-#ifdef PREPASS_PIPELINE
-#import bevy_pbr::{
-    prepass_io::{VertexOutput, FragmentOutput},
-    pbr_deferred_functions::deferred_output,
-}
-#else
-#import bevy_pbr::{
-    forward_io::{VertexOutput, FragmentOutput},
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
-}
-#endif
+import bevy_pbr::{
+    render::pbr_fragment::pbr_input_from_standard_material,
+    render::mesh_view_bindings::globals};
+@if(PREPASS_PIPELINE)
+import bevy_pbr::{
+    prepass::io::{VertexOutput, FragmentOutput},
+    deferred::functions::deferred_output};
+@else
+import bevy_pbr::{
+    render::forward_io::{VertexOutput, FragmentOutput},
+    render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing}};
 
 struct WaterfallParams {
     // Across the sheet (world), to tilt its normal by the streaks.
@@ -37,7 +32,7 @@ struct WaterfallParams {
     // Keeps neighbouring waterfalls from looking the same.
     seed: f32,
 }
-@group(2) @binding(100) var<uniform> fall: WaterfallParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> fall: WaterfallParams;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -106,12 +101,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let side = normalize(fall.side.xyz);
     pbr_input.N = normalize(pbr_input.N + side * clamp(slope * 0.02, -0.6, 0.6));
 
-#ifdef PREPASS_PIPELINE
-    let out = deferred_output(in, pbr_input);
-#else
     var out: FragmentOutput;
+@if(PREPASS_PIPELINE) {
+    out = deferred_output(in, pbr_input);
+} @else {
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-#endif
+}
     return out;
 }

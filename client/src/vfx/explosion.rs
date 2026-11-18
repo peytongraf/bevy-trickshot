@@ -12,12 +12,12 @@
 
 use bevy::asset::RenderAssetUsages;
 use bevy::math::Affine2;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use lightyear::prelude::MessageReceiver;
 
@@ -32,7 +32,7 @@ const EXPLOSION_MAX: usize = 900;
 /// Something should blow up with its base (the ground under it) at this
 /// world point — from the server ([`receive_bomb_explosions`]) or the debug
 /// panel's preview button. Consumed by `spawn_explosions`.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct Explosion {
     pub(crate) feet: Vec3,
     /// Which explosion sound (`% clips`) — the server's pick, so everyone
@@ -246,7 +246,7 @@ pub(crate) struct ExplosionPlugin;
 impl Plugin for ExplosionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ExplosionSettings>()
-            .add_event::<Explosion>()
+            .add_message::<Explosion>()
             .add_systems(Startup, setup_explosion_assets)
             .add_systems(
                 Update,
@@ -391,7 +391,7 @@ fn sprite_material(texture: Handle<Image>, additive: bool) -> StandardMaterial {
 /// Server → us: a Bomb Shot went off — show it.
 fn receive_bomb_explosions(
     mut receivers: Query<&mut MessageReceiver<shared::BombExplosion>>,
-    mut boom: EventWriter<Explosion>,
+    mut boom: MessageWriter<Explosion>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -413,7 +413,7 @@ fn receive_bomb_explosions(
 fn fire_preview(
     mut settings: ResMut<ExplosionSettings>,
     player: Single<&Transform, With<Player>>,
-    mut boom: EventWriter<Explosion>,
+    mut boom: MessageWriter<Explosion>,
     mut count: Local<u8>,
 ) {
     if !settings.preview_requested {
@@ -437,7 +437,7 @@ fn fire_preview(
 }
 
 fn spawn_explosions(
-    mut events: EventReader<Explosion>,
+    mut events: MessageReader<Explosion>,
     settings: Res<ExplosionSettings>,
     assets: Res<ExplosionAssets>,
     player: Single<&Transform, With<Player>>,
@@ -493,7 +493,7 @@ fn spawn_explosions(
         };
         if let Some(clip) = clip {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(clip),
                 Transform::from_translation(center),
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -501,7 +501,7 @@ fn spawn_explosions(
         }
 
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ExplosionLight {
                 age: 0.0,
                 lifetime: s.light_time.max(0.05),
@@ -516,7 +516,7 @@ fn spawn_explosions(
                 intensity: s.light_intensity,
                 range: s.light_range * k,
                 radius: 0.5 * k,
-                shadows_enabled: false,
+                shadow_maps_enabled: false,
                 ..default()
             },
             Transform::from_translation(center + Vec3::Y * 0.5 * k),
@@ -533,7 +533,7 @@ fn spawn_explosions(
             }
             budget -= 1;
             let mut e = commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Mesh3d(assets.quad.clone()),
                 MeshMaterial3d(materials.add(material)),
                 Transform::from_translation(at).with_scale(Vec3::splat(p.scale0.max(1.0e-4))),
@@ -859,7 +859,7 @@ fn update_explosion_particles(
         } else {
             color
         };
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color = Color::LinearRgba(color);
         }
     }

@@ -80,7 +80,7 @@ pub(crate) struct RayGunBolts(Vec<Bolt>);
 pub(crate) fn fire(
     bolts: &mut RayGunBolts,
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby_e: Entity,
     lobby: &Lobby,
     shooter: PeerId,
@@ -113,7 +113,7 @@ pub(crate) fn fire(
         origin: origin.to_array(),
         end: (origin + aim * left).to_array(),
     };
-    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(others)) {
+    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(others)) {
         error!("failed to send ray gun bolt: {e:?}");
     }
 }
@@ -124,16 +124,17 @@ pub(crate) fn fire(
 pub(crate) fn fly_bolts(
     time: Res<Time>,
     timeline: Single<&LocalTimeline, With<Server>>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut bolts: ResMut<RayGunBolts>,
     mut early: ResMut<EarlyRayGunClaims>,
     lobbies: Query<&Lobby>,
     mut zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer, Option<&mut BotBrain>)>,
-    mut player_hits: EventWriter<PlayerHit>,
+    mut player_hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
-    let tick = timeline.tick().0;
+    // (Wrapped to the protocol's u16 — lightyear's tick is a u32 since 0.31.)
+    let tick = timeline.tick().0 as u16;
     let now = time.elapsed_secs();
     let step = RAYGUN_BOLT_SPEED * time.delta_secs();
     // Claims that beat their bolt here: taken up now it's fired.
@@ -303,7 +304,7 @@ pub(crate) fn fly_bolts(
 /// bolt into a zombie a few metres off strikes it at once there. So one with
 /// no bolt yet waits in [`EarlyRayGunClaims`] for it to be fired.
 pub(crate) fn on_raygun_claim(
-    trigger: Trigger<RemoteTrigger<ProjectileClaim>>,
+    trigger: On<RemoteEvent<ProjectileClaim>>,
     mut bolts: ResMut<RayGunBolts>,
     mut early: ResMut<EarlyRayGunClaims>,
     zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer)>,

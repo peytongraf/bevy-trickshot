@@ -10,6 +10,7 @@ mod astral;
 mod bullet_holes;
 mod drunk;
 mod explosion;
+mod fullscreen_pass;
 mod impacts;
 mod machine_fog;
 mod muzzle_flash;

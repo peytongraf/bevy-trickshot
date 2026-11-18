@@ -5,7 +5,7 @@
 //!   hand — no aim-down-sight for it, `weapons::ads`; sent with our input as
 //!   `PlayerInput::beaming`). Every player's beam is drawn ([`draw_beams`]:
 //!   ours from the gun, theirs from their `PlayerPose::beaming`) out to its
-//!   reach or the first wall (`shaders/exhumer_beam.wgsl`), a plume of green
+//!   reach or the first wall (`shaders/exhumer_beam.wesl`), a plume of green
 //!   soul-smoke drifting back along it into the gun, its hum looping. The zombies it has hold of
 //!   ([`shared::exhumer::ExhumerDrain`]) are drained where they stand,
 //!   shuddering and tipping back, a soul-light growing in each chest
@@ -24,21 +24,24 @@
 //! camo (`pap`).
 //!
 //! Its sounds are placeholders at their final paths
-//! (`audio/zombies/exhumer/`). Everything here is `StateScoped(InGame)` and
+//! (`audio/zombies/exhumer/`). Everything here is `DespawnOnExit(InGame)` and
 //! gone once played out (the souls and the beam are `Weapon`'s, reset with
 //! it every game). Tuned in the debug panel's "Easter egg (Der Tempel)" →
 //! "The Exhumer".
 
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 use bevy::asset::RenderAssetUsages;
-use bevy::render::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
-use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
-use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, TriggerSender};
+use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, EventSender};
 use shared::exhumer::{
     beam_dir, ExhumerDrain, ExhumerExhume, ExhumerSouls, ExhumerSwarm, ReleaseSouls, BEAM_RANGE, BEAM_TICK_SECS,
     DRAIN_SECS, EXHUME_SECS, LIFT_HEIGHT, SWARM_SPEED,
@@ -56,17 +59,9 @@ pub(crate) struct ExhumerPlugin;
 
 impl Plugin for ExhumerPlugin {
     fn build(&self, app: &mut App) {
-        let can_beam = || menu::weapon_active.and(killcam::no_killcam);
-        app.add_plugins(MaterialPlugin::<ExhumerBeamMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<SoulSmokeMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        let can_beam = || menu::weapon_active.and_then(killcam::no_killcam);
+        app.add_plugins(MaterialPlugin::<ExhumerBeamMaterial>::default())
+        .add_plugins(MaterialPlugin::<SoulSmokeMaterial>::default())
         .init_resource::<ExhumerFxSettings>()
             .init_resource::<OwnBeam>()
             .init_resource::<ExhumerDebug>()
@@ -96,8 +91,8 @@ impl Plugin for ExhumerPlugin {
                 PostUpdate,
                 (locate_own_beam, draw_beams, fly_motes)
                     .chain()
-                    .after(bevy::app::Animation)
-                    .before(bevy::transform::TransformSystem::TransformPropagate)
+                    .after(bevy::app::AnimationSystems)
+                    .before(bevy::transform::TransformSystems::Propagate)
                     .run_if(in_state(AppState::InGame)),
             )
             // (Not left humming once out of a game.)
@@ -276,7 +271,7 @@ fn ease(x: f32) -> f32 {
 
 fn sound_at(commands: &mut Commands, clip: &Handle<AudioSource>, at: Vec3, volume: f32) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(clip.clone()),
         Transform::from_translation(at),
         crate::positional_playback(Volume::Linear(volume)),
@@ -292,14 +287,14 @@ fn beam_input(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     hands: crate::weapons::Hands,
     mut weapon: ResMut<Weapon>,
 ) {
     let on = weapon.exhumer_in_hand()
         && weapon.busy.is_none()
         && hands.free()
-        && window.cursor_options.grab_mode != CursorGrabMode::None
+        && window.grab_mode != CursorGrabMode::None
         && binds.aim.pressed(&keys, &mouse);
     if weapon.beaming != on {
         weapon.beaming = on;
@@ -327,7 +322,7 @@ fn sync_soul_mag(mut weapon: ResMut<Weapon>) {
 }
 
 /// Our ask to let the souls out (`weapons::weapon`): to the server.
-fn send_release(mut weapon: ResMut<Weapon>, mut tx: Query<&mut TriggerSender<ReleaseSouls>, With<GameClient>>) {
+fn send_release(mut weapon: ResMut<Weapon>, mut tx: Query<&mut EventSender<ReleaseSouls>, With<GameClient>>) {
     if !std::mem::take(&mut weapon.release_request) {
         return;
     }
@@ -373,11 +368,10 @@ fn avatar_of(
     peer: PeerId,
     avatars: &Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
     ids: &Query<&PlayerId>,
-    interp: &Query<&Interpolated>,
 ) -> Option<(Entity, bool, bool)> {
     avatars
         .iter()
-        .find(|(_, a, ..)| crate::boss::peer_of(a.src, ids, interp) == Some(peer))
+        .find(|(_, a, ..)| crate::boss::peer_of(a.src, ids) == Some(peer))
         .map(|(e, _, drained, exhumed)| (e, drained, exhumed))
 }
 
@@ -385,13 +379,13 @@ fn avatar_of(
 fn spawn_chest_glow(commands: &mut Commands, settings: &ExhumerFxSettings, avatar: Entity) {
     let c = settings.color;
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ChestGlow { avatar },
         PointLight {
             color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
             intensity: 0.0,
             range: 4.0,
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..default()
         },
         Transform::default(),
@@ -405,14 +399,14 @@ fn receive_drains(
     mut receivers: Query<&mut MessageReceiver<ExhumerDrain>>,
     avatars: Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
     mut drained: Query<&mut Drained>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             for (zombie, share) in msg.zombies {
-                let Some((avatar, already, exhumed)) = avatar_of(zombie, &avatars, &ids, &interp) else { continue };
+                let Some((avatar, already, exhumed)) = avatar_of(zombie, &avatars, &ids) else { continue };
                 if exhumed {
                     continue;
                 }
@@ -439,13 +433,13 @@ fn receive_exhumes(
     mut receivers: Query<&mut MessageReceiver<ExhumerExhume>>,
     avatars: Query<(Entity, &RemoteAvatar, Has<Drained>, Has<Exhumed>)>,
     transforms: Query<&Transform, With<RemoteAvatar>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut commands: Commands,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             for zombie in msg.zombies {
-                let Some((avatar, drained, exhumed)) = avatar_of(zombie, &avatars, &ids, &interp) else { continue };
+                let Some((avatar, drained, exhumed)) = avatar_of(zombie, &avatars, &ids) else { continue };
                 if exhumed {
                     continue;
                 }
@@ -501,7 +495,7 @@ fn lift_avatars(
         }
         let k = ease(d.shown);
         let shake = settings.drain_shake_deg.to_radians() * k;
-        let seed = e.index() as f32;
+        let seed = e.index_u32() as f32;
         let (yaw, roll) = ((now * 31.0 + seed).sin() * shake, (now * 23.0 + seed * 1.7).sin() * shake * 0.6);
         let tilt = settings.drain_tilt_deg.to_radians() * k;
         tf.rotation = Quat::from_rotation_y(yaw) * tf.rotation * Quat::from_rotation_x(-tilt) * Quat::from_rotation_z(roll);
@@ -552,15 +546,15 @@ fn run_glows(
         };
         let Ok((body, ..)) = avatars.get(glow.avatar) else { continue };
         tf.translation = body.translation + Vec3::Y * 1.25;
-        let flicker = 0.8 + 0.2 * (now * 27.0 + e.index() as f32).sin();
+        let flicker = 0.8 + 0.2 * (now * 27.0 + e.index_u32() as f32).sin();
         light.intensity = settings.chest_light * strength * flicker;
     }
 }
 
 // --- the beams ----------------------------------------------------------------------------
 
-const BEAM_SHADER_ASSET_PATH: &str = "shaders/exhumer_beam.wgsl";
-const SMOKE_SHADER_ASSET_PATH: &str = "shaders/soul_smoke.wgsl";
+const BEAM_SHADER_ASSET_PATH: &str = "shaders/exhumer_beam.wesl";
+const SMOKE_SHADER_ASSET_PATH: &str = "shaders/soul_smoke.wesl";
 /// The green swirl of soul-smoke: a long, wispy streak (2:1, lying along
 /// its width), see-through round it.
 const SWIRL_TEXTURE: &str = "textures/vfx/soul_swirl.png";
@@ -603,11 +597,11 @@ use params::{BeamParams, SmokeParams};
 fn additive_quad(descriptor: &mut RenderPipelineDescriptor) {
     descriptor.primitive.cull_mode = None;
     if let Some(depth) = descriptor.depth_stencil.as_mut() {
-        depth.depth_write_enabled = false;
+        depth.depth_write_enabled = Some(false);
     }
 }
 
-/// The beam's look (`shaders/exhumer_beam.wgsl`): a billowing plume of
+/// The beam's look (`shaders/exhumer_beam.wesl`): a billowing plume of
 /// soul-smoke on a ribbon. Each beam has its own, for its bend ([`BeamVisual`];
 /// its seed is its transform's).
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -635,6 +629,14 @@ impl ExhumerBeamMaterial {
 }
 
 impl Material for ExhumerBeamMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         BEAM_SHADER_ASSET_PATH.into()
     }
@@ -648,7 +650,7 @@ impl Material for ExhumerBeamMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -658,7 +660,7 @@ impl Material for ExhumerBeamMaterial {
     }
 }
 
-/// A sprite of soul-smoke (`shaders/soul_smoke.wgsl`): its texture tinted
+/// A sprite of soul-smoke (`shaders/soul_smoke.wesl`): its texture tinted
 /// and drawn additively, fading out where it meets anything behind it —
 /// so it never cuts into the floor or a wall on a hard line.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -671,6 +673,14 @@ pub(crate) struct SoulSmokeMaterial {
 }
 
 impl Material for SoulSmokeMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         SMOKE_SHADER_ASSET_PATH.into()
     }
@@ -680,7 +690,7 @@ impl Material for SoulSmokeMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -756,7 +766,7 @@ impl BeamVisual {
     }
 
     /// The point `along` metres out, relative to where it starts, with its
-    /// bend (as `shaders/exhumer_beam.wgsl` draws it).
+    /// bend (as `shaders/exhumer_beam.wesl` draws it).
     fn point(&self, along: f32) -> Vec3 {
         self.dir * along + self.bend * self.share(along).powf(self.curve)
     }
@@ -986,7 +996,7 @@ fn draw_beams(
             let material = beam_materials.add(ExhumerBeamMaterial { params: ExhumerBeamMaterial::params(s) });
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     BeamVisual {
                         peer,
                         from,
@@ -1021,7 +1031,7 @@ fn draw_beams(
                             color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
                             intensity: s.beam_light,
                             range: 6.0,
-                            shadows_enabled: false,
+                            shadow_maps_enabled: false,
                             ..default()
                         },
                         Transform::default(),
@@ -1067,7 +1077,7 @@ fn draw_beams(
         let mut params = ExhumerBeamMaterial::params(s);
         params.bend = beam.bend.extend(beam.curve);
         if beam_materials.get(&beam.material).is_some_and(|m| m.params != params) {
-            if let Some(m) = beam_materials.get_mut(&beam.material) {
+            if let Some(mut m) = beam_materials.get_mut(&beam.material) {
                 m.params = params;
             }
         }
@@ -1118,7 +1128,7 @@ fn draw_beams(
         let seed = r(1);
         let flip = Vec2::new(if r(2) < 0.5 { -1.0 } else { 1.0 }, if r(3) < 0.5 { -1.0 } else { 1.0 });
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Mote { beam, along: len * (0.15 + 0.85 * seed), spin: r(4) * std::f32::consts::TAU, seed, age: 0.0, flip },
             Mesh3d(fx.quad.clone()),
             MeshMaterial3d(smoke.beam_puff.clone()),
@@ -1257,7 +1267,7 @@ fn soul_smoke(
         .chain([(&smoke.puff, SoulSmoke::params(s, PUFF_STRENGTH)), (&smoke.beam_puff, SoulSmoke::beam_params(s))]);
     for (handle, params) in all {
         if materials.get(handle).is_some_and(|m| m.params != params) {
-            if let Some(m) = materials.get_mut(handle) {
+            if let Some(mut m) = materials.get_mut(handle) {
                 m.params = params;
             }
         }
@@ -1316,7 +1326,7 @@ fn spawn_wisp(
     let n = s.trail.max(1);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Wisp { from, to, last, side, age: 0.0, secs: secs.max(0.05) },
             Transform::from_translation(from),
             Visibility::default(),
@@ -1545,10 +1555,10 @@ fn altar_glows(
             continue;
         }
         let c = s.color;
-        let seed = crate::util::rand01(src.index() ^ 0x5eed);
+        let seed = crate::util::rand01(src.index_u32() ^ 0x5eed);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AltarGlow { src, seed },
                 Transform::from_translation(drop.pos + Vec3::Y * 0.12),
                 Visibility::default(),
@@ -1560,7 +1570,7 @@ fn altar_glows(
                         color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
                         intensity: 0.0,
                         range: 3.5,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(Vec3::Y * 0.2),
@@ -1623,7 +1633,7 @@ pub(crate) struct ExhumerDebug {
 fn debug_give(
     mut debug: ResMut<ExhumerDebug>,
     weapon: Res<Weapon>,
-    mut tx: Query<&mut TriggerSender<shared::GiveWeapon>, With<GameClient>>,
+    mut tx: Query<&mut EventSender<shared::GiveWeapon>, With<GameClient>>,
 ) {
     let carried = weapon.carries(shared::weapon::SlotWeapon::Gun(shared::weapon::WeaponId::Exhumer));
     if (debug.souls, debug.beaming, debug.carried) != (weapon.souls, weapon.beaming, carried) {

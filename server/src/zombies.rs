@@ -272,14 +272,14 @@ pub(crate) fn run_rounds(
     clock: Res<crate::killcam::ReplayClock>,
     mut endings: ResMut<crate::killcam::EndingLobbies>,
     mut next_id: ResMut<NextBotId>,
-    mut kills: EventReader<crate::pvp::ZombieKilled>,
+    mut kills: MessageReader<crate::pvp::ZombieKilled>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat)>,
     zombies: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Has<crate::boss::Boss>), With<Zombie>>,
     brains: Query<(&LobbyPlayer, &BotBrain), With<Zombie>>,
     colliders: Res<crate::collision::MapColliders>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
@@ -953,8 +953,8 @@ pub(crate) fn spawn_zombie(
         // Tougher every round (`shared::zombies::zombie_health`).
         PlayerCombat::zombie(shared::zombies::zombie_health(round)),
         shared::PlayerHealth(shared::zombies::zombie_health(round)),
-        Replicate::to_clients(NetworkTarget::Only(real.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+        Replicate::to_clients(NetworkTarget::from(real.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(real)),
         OutOfTouch::default(),
     ))
     .id()
@@ -1112,7 +1112,7 @@ fn round_radio(
     lobby_e: Entity,
     lobby: &Lobby,
     rounds: &mut ZombieRounds,
-    radio: &mut EventWriter<crate::radio::SayRadio>,
+    radio: &mut MessageWriter<crate::radio::SayRadio>,
 ) {
     use shared::radio::{RadioLine, POWER_STILL_OFF_ROUND, ROUND_2_LORE_ROUND, ROUND_4_LORE_ROUND};
     let round = rounds.round;
@@ -1161,9 +1161,9 @@ fn queue_round_bosses(rounds: &mut ZombieRounds, members: usize, now: f32) {
 /// Tell every member of the lobby where a zombie's swipe just landed, for
 /// the hit sound.
 fn announce_zombie_swipes(
-    server: Single<&lightyear::prelude::server::Server>,
+    server: Single<&lightyear::prelude::Endpoint, With<lightyear::prelude::server::Server>>,
     mut sender: lightyear::prelude::ServerMultiMessageSender,
-    mut swipes: EventReader<crate::ai::ZombieSwipeLanded>,
+    mut swipes: MessageReader<crate::ai::ZombieSwipeLanded>,
     lobbies: Query<&Lobby>,
 ) {
     let server = server.into_inner();
@@ -1177,7 +1177,7 @@ fn announce_zombie_swipes(
         if let Err(e) = sender.send::<_, shared::GameChannel>(
             &msg,
             server,
-            &NetworkTarget::Only(lobby.real_peers()),
+            &NetworkTarget::from(lobby.real_peers()),
         ) {
             error!("failed to send zombie swipe: {e:?}");
         }
@@ -1188,7 +1188,7 @@ fn announce_zombie_swipes(
 /// ([`crate::ai::BotBrain::cripple`]).
 fn cripple_zombies(
     time: Res<Time>,
-    mut crippled: EventReader<crate::pvp::ZombieCrippled>,
+    mut crippled: MessageReader<crate::pvp::ZombieCrippled>,
     mut zombies: Query<(&PlayerId, &mut BotBrain), With<Zombie>>,
 ) {
     let now = time.elapsed_secs();
@@ -1220,7 +1220,7 @@ fn publish_zombie_anims(time: Res<Time>, mut zombies: Query<(&BotBrain, &mut Pla
 /// (their pose is a moment old), not already own it, and have the points.
 /// Anything else is ignored.
 fn on_buy_perk(
-    trigger: Trigger<RemoteTrigger<BuyPerk>>,
+    trigger: On<RemoteEvent<BuyPerk>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
@@ -1272,9 +1272,9 @@ fn on_buy_perk(
 /// and only they hear about it ([`ProneBonus`]). They must be in a running,
 /// unpaused `Zombies` game, alive and at the machine (a little slack).
 fn on_prone_at_perk(
-    trigger: Trigger<RemoteTrigger<ProneAtPerk>>,
+    trigger: On<RemoteEvent<ProneAtPerk>>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&lightyear::prelude::server::Server>,
+    server: Single<&lightyear::prelude::Endpoint, With<lightyear::prelude::server::Server>>,
     mut sender: lightyear::prelude::ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
@@ -1323,11 +1323,11 @@ fn on_prone_at_perk(
 /// `shared::pap::MAX_LEVEL` — skipping levels is fine, they pay for each),
 /// and have the points. Anything else is ignored.
 fn on_buy_pap(
-    trigger: Trigger<RemoteTrigger<BuyPap>>,
+    trigger: On<RemoteEvent<BuyPap>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let BuyPap { weapon, level } = trigger.trigger;
@@ -1369,12 +1369,12 @@ fn on_buy_pap(
 /// game on a map with a switch, alive, standing at it (a little slack), with
 /// the points, and it mustn't be on already. Anything else is ignored.
 fn on_turn_on_power(
-    trigger: Trigger<RemoteTrigger<TurnOnPower>>,
+    trigger: On<RemoteEvent<TurnOnPower>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby, Option<&mut ZombieRounds>)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby, rounds)) = lobbies
@@ -1423,11 +1423,11 @@ fn on_turn_on_power(
 /// must be in a running `Zombies` game, alive, at the door, with the points —
 /// and it has to be shut (and the power on, for one that needs it).
 fn on_buy_door(
-    trigger: Trigger<RemoteTrigger<BuyDoor>>,
+    trigger: On<RemoteEvent<BuyDoor>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let index = trigger.trigger.0 as usize;
@@ -1471,10 +1471,10 @@ fn on_buy_door(
 /// round's cap.
 #[allow(clippy::too_many_arguments)]
 fn on_repair_barrier(
-    trigger: Trigger<RemoteTrigger<RepairBarrier>>,
+    trigger: On<RemoteEvent<RepairBarrier>>,
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&lightyear::prelude::server::Server>,
+    server: Single<&lightyear::prelude::Endpoint, With<lightyear::prelude::server::Server>>,
     mut sender: lightyear::prelude::ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
@@ -1529,7 +1529,7 @@ fn on_repair_barrier(
 
 /// Take a board off each window a zombie tore at this tick
 /// (`crate::ai::BoardTorn`) — never past none.
-fn apply_board_tears(mut tears: EventReader<crate::ai::BoardTorn>, mut lobbies: Query<&mut Lobby>) {
+fn apply_board_tears(mut tears: MessageReader<crate::ai::BoardTorn>, mut lobbies: Query<&mut Lobby>) {
     for tear in tears.read() {
         let Ok(mut lobby) = lobbies.get_mut(tear.lobby) else {
             continue;
@@ -1553,13 +1553,13 @@ fn apply_board_tears(mut tears: EventReader<crate::ai::BoardTorn>, mut lobbies: 
 /// and whether they're already full are the client's to check — see
 /// `shared::ammo`.) Takes the points and tells them to fill up.
 fn on_buy_ammo(
-    trigger: Trigger<RemoteTrigger<BuyAmmo>>,
+    trigger: On<RemoteEvent<BuyAmmo>>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby)) = lobbies
@@ -1647,10 +1647,12 @@ mod tests {
         app.insert_resource(crate::collision::MapColliders::load());
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<crate::killcam::ReplayClock>();
-        app.add_event::<crate::pvp::ZombieKilled>();
-        app.add_event::<crate::quotes::SayQuote>();
-        app.add_event::<crate::radio::SayRadio>();
+        app.add_message::<crate::pvp::ZombieKilled>();
+        app.add_message::<crate::quotes::SayQuote>();
+        app.add_message::<crate::radio::SayRadio>();
         app.init_resource::<NextBotId>();
+        // (Despawning a replicated zombie looks this up — see `Cargo.toml`.)
+        app.init_resource::<bevy_replicon::server::visibility::registry::FilterRegistry>();
         app.add_systems(Update, (run_rounds, clear_dead_zombies, cull_zombies).chain());
         let me = PeerId::Netcode(1);
         let lobby = app
@@ -1844,8 +1846,8 @@ mod tests {
         let (mut app, lobby) = game();
         let round = |app: &App| app.world().get::<Lobby>(lobby).unwrap().round;
         let said = |app: &mut App| {
-            let events = app.world_mut().resource_mut::<Events<crate::radio::SayRadio>>();
-            events.iter_current_update_events().map(|e| e.line).collect::<Vec<_>>()
+            let events = app.world_mut().resource_mut::<Messages<crate::radio::SayRadio>>();
+            events.iter_current_update_messages().map(|e| e.line).collect::<Vec<_>>()
         };
         // Start again on round 4, with no zombies coming: it's over at once.
         app.world_mut().entity_mut(lobby).remove::<ZombieRounds>();
@@ -2008,7 +2010,7 @@ mod tests {
         // (Break Point has a power switch: machines only sell with it on.)
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().power_on = true;
         let buy = |app: &mut App| {
-            app.world_mut().trigger(RemoteTrigger {
+            app.world_mut().trigger(RemoteEvent {
                 trigger: BuyPerk { perk, wunderfizz: false },
                 from: me,
             });
@@ -2046,7 +2048,7 @@ mod tests {
         app.world_mut().get_mut::<PlayerPose>(player).unwrap().translation =
             perk.machine_pos(map) + Vec3::Y * EYE_HEIGHT;
         let buy = |app: &mut App| {
-            app.world_mut().trigger(RemoteTrigger {
+            app.world_mut().trigger(RemoteEvent {
                 trigger: BuyPerk { perk, wunderfizz: false },
                 from: me,
             });
@@ -2078,7 +2080,7 @@ mod tests {
         let perk = shared::perks::Perk::Juggernog;
         // Standing at the map centre, far from Break Point's machine.
         app.world_mut().get_mut::<Lobby>(lobby).unwrap().members[0].score = 10_000;
-        app.world_mut().trigger(RemoteTrigger {
+        app.world_mut().trigger(RemoteEvent {
             trigger: BuyPerk { perk, wunderfizz: false },
             from: PeerId::Netcode(1),
         });
@@ -2092,7 +2094,7 @@ mod tests {
         app.add_observer(on_turn_on_power);
         let me = PeerId::Netcode(1);
         let flip = |app: &mut App| {
-            app.world_mut().trigger(RemoteTrigger { trigger: TurnOnPower, from: me });
+            app.world_mut().trigger(RemoteEvent { trigger: TurnOnPower, from: me });
             app.world_mut().flush();
         };
         let player = app
@@ -2155,12 +2157,12 @@ mod tests {
         for z in zombies_of(&mut app) {
             app.world_mut().despawn(z);
         }
-        app.world_mut().resource_mut::<Events<crate::quotes::SayQuote>>().clear();
+        app.world_mut().resource_mut::<Messages<crate::quotes::SayQuote>>().clear();
 
-        app.world_mut().trigger(RemoteTrigger { trigger: TurnOnPower, from: me });
+        app.world_mut().trigger(RemoteEvent { trigger: TurnOnPower, from: me });
         app.world_mut().flush();
         assert!(app.world().get::<Lobby>(lobby).unwrap().power_on);
-        let said = app.world_mut().resource_mut::<Events<crate::quotes::SayQuote>>().drain().count();
+        let said = app.world_mut().resource_mut::<Messages<crate::quotes::SayQuote>>().drain().count();
         assert_eq!(said, 0, "no power-on line on Der Tempel");
 
         run(&mut app, 0.5);

@@ -9,15 +9,13 @@
 // * seed — the y scale divided by the x scale, minus one (0..1).
 // Driven by `SprayMaterial` in `client/src/water.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput, FragmentOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::{view, globals},
-    pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput, FragmentOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::{view, globals},
+    render::pbr_fragment::pbr_input_from_standard_material,
+    render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing}};
 struct SprayParams {
     // 0 = mist, 1 = droplets.
     kind: f32,
@@ -26,7 +24,7 @@ struct SprayParams {
     _pad0: f32,
     _pad1: f32,
 }
-@group(2) @binding(100) var<uniform> spray: SprayParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> spray: SprayParams;
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
@@ -53,19 +51,15 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.world_position = vec4(world, 1.0);
     out.position = position_world_to_clip(world);
     out.world_normal = normalize(view.world_position.xyz - center);
-#ifdef VERTEX_UVS_A
+@if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     out.color = vec4(life, seed, 0.0, 1.0);
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = vertex.instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
+@if(VISIBILITY_RANGE_DITHER)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         vertex.instance_index, model[3]);
-#endif
     return out;
 }
 
@@ -87,13 +81,14 @@ fn vnoise(p: vec2<f32>) -> f32 {
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     let life = in.color.x;
-    let seed = in.color.y;
-#else
+@else
     let life = 0.5;
+@if(VERTEX_COLORS)
+    let seed = in.color.y;
+@else
     let seed = 0.0;
-#endif
     let uv = in.uv - 0.5;
     let r = length(uv) * 2.0;
 

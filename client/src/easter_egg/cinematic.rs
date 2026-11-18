@@ -16,7 +16,7 @@
 //!
 //! Watching a teammate (bled out, `revive::Spectate`) the view's theirs, so
 //! it's left alone then. The bars' slide ([`EggCinematic`]) is reset on
-//! leaving the game, and the bars themselves are `StateScoped(InGame)` —
+//! leaving the game, and the bars themselves are `DespawnOnExit(InGame)` —
 //! nothing carries into the next.
 
 use bevy::prelude::*;
@@ -78,7 +78,7 @@ struct CinemaBar;
 fn spawn_bars(mut commands: Commands) {
     for top in [true, false] {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CinemaBar,
             crate::hud::KeepThroughHudFade,
             // (Over the HUD, under the menus and the egg's caption — which

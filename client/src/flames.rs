@@ -18,15 +18,15 @@
 //! `environment::egg_mood`) — back to themselves once it's over.
 //!
 //! In a game they're the current map's ([`sync_game_flames`], all
-//! `StateScoped(InGame)`); in the level editor its own copy follows the
+//! `DespawnOnExit(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`sync_flames`]). Each set is
 //! rebuilt whenever its list changes, so nothing carries over between games.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use shared::level::Flame;
 
 use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, MolotovSettings};
@@ -102,7 +102,7 @@ fn sync_game_flames(
         sounds.as_ref().map(|s| &s.fire_crackle),
         &mut materials,
         &mut commands,
-        || (StateScoped(AppState::InGame), GameFlame),
+        || (DespawnOnExit(AppState::InGame), GameFlame),
     );
 }
 
@@ -166,7 +166,7 @@ pub(crate) fn sync_flames<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         color: molotov.light_color(),
                         intensity: flame.light,
                         range: flame.range,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     // (Up in the flames, not at their base.)
@@ -244,8 +244,8 @@ fn limit_flame_shadows(
             light.budget_fade = 1.0;
             has_turn
         };
-        if point.shadows_enabled != wanted {
-            point.shadows_enabled = wanted;
+        if point.shadow_maps_enabled != wanted {
+            point.shadow_maps_enabled = wanted;
         }
     }
 }
@@ -269,7 +269,7 @@ fn tint_flames(
     let gutter = 0.35 + 0.65 * stutter.0;
     let toward = [look.fire_core, look.fire_mid, look.fire_tip];
     for flame in &flames {
-        if let Some(m) = materials.get_mut(&flame.0) {
+        if let Some(mut m) = materials.get_mut(&flame.0) {
             *m = FireMaterial::flame_tinted(&molotov, flame.1 * gutter, toward, fade.0);
         }
     }

@@ -595,7 +595,7 @@ fn flush_save(
     keybinds: Res<KeyBindings>,
     mut debounce: ResMut<SaveDebounce>,
 ) {
-    if debounce.0.paused() {
+    if debounce.0.is_paused() {
         return;
     }
     if debounce.0.tick(time.delta()).just_finished() {
@@ -605,12 +605,12 @@ fn flush_save(
 }
 
 fn save_on_exit(
-    mut exits: EventReader<AppExit>,
+    mut exits: MessageReader<AppExit>,
     settings: Res<Settings>,
     keybinds: Res<KeyBindings>,
     debounce: Res<SaveDebounce>,
 ) {
-    if exits.read().next().is_some() && !debounce.0.paused() {
+    if exits.read().next().is_some() && !debounce.0.is_paused() {
         // A change is pending and the debounce hasn't fired — flush it now.
         save_file(&settings, &keybinds);
     }

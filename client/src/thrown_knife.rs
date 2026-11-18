@@ -86,7 +86,7 @@ fn send_throw_requests(
     time: Res<Time<Virtual>>,
     mut knife: ResMut<ThrowingKnife>,
     mut own: ResMut<crate::hit_detection::OwnProjectiles>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowKnife>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowKnife>, With<GameClient>>,
 ) {
     if !knife.has_throw_request() {
         return;
@@ -118,14 +118,14 @@ fn spawn_knife_avatars(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 KnifeAvatar { src },
                 KnifeTrailHead::default(),
                 Transform::default(),
                 Visibility::default(),
             ))
             .with_child((
-                SceneRoot(
+                WorldAssetRoot(
                     asset_server
                         .load(GltfAssetLabel::Scene(0).from_asset("models/weapons/throwing_knife.glb")),
                 ),

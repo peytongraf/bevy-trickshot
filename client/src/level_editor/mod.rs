@@ -44,7 +44,7 @@
 //! Every bit of it lives in [`Editor`], rebuilt on the way in and dropped on
 //! the way out; the player rig the camera borrows, the view model camera and
 //! the lighting are put back as they were ([`exit`]); the scene is
-//! `StateScoped`. Nothing carries into a game.
+//! `DespawnOnExit`. Nothing carries into a game.
 //!
 //! **Anything new a `Zombies` game puts on a map needs adding here** (an
 //! [`ObjectId`], its model and box) as well as to `shared::level`.
@@ -55,7 +55,8 @@ mod ui;
 
 use bevy::pbr::FogFalloff;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::window::CursorOptions;
+use bevy::camera::visibility::RenderLayers;
 use bevy_egui::EguiPrimaryContextPass;
 use shared::level::{ExfilArea, ObjectSizes, Placement, ZombiesLayout};
 use shared::perks::{Perk, PerkSet};
@@ -1419,7 +1420,7 @@ fn enter(
     >,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
     lever: Res<PowerLeverSettings>,
-    window: Single<&mut Window, With<bevy::window::PrimaryWindow>>,
+    window: Single<&mut CursorOptions, With<bevy::window::PrimaryWindow>>,
 ) {
     *editor = Editor::fresh();
     let all = editor.objects();
@@ -1449,7 +1450,7 @@ fn exit(
     mut lighting: ResMut<LightingBackup>,
     mut transforms: Query<&mut Transform>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {
@@ -1487,7 +1488,7 @@ fn apply_editor_lighting(
     editor: Res<Editor>,
     current: Res<CurrentMap>,
     mut backup: ResMut<LightingBackup>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {
@@ -1545,7 +1546,7 @@ fn sync_editor_lights(
         &mut commands,
         &mut meshes,
         &mut materials,
-        || (StateScoped(AppState::LevelEditor), EditorPowerLight),
+        || (DespawnOnExit(AppState::LevelEditor), EditorPowerLight),
     );
 }
 
@@ -1575,7 +1576,7 @@ fn sync_editor_flames(
         None,
         &mut materials,
         &mut commands,
-        || (StateScoped(AppState::LevelEditor), EditorFlame),
+        || (DespawnOnExit(AppState::LevelEditor), EditorFlame),
     );
 }
 
@@ -1600,7 +1601,7 @@ fn sync_editor_water(
     };
     // (Silent in the editor.)
     builder.sync(waters, falls, &mut shown, &existing, None, &mut commands, || {
-        (StateScoped(AppState::LevelEditor), EditorWater)
+        (DespawnOnExit(AppState::LevelEditor), EditorWater)
     });
 }
 
@@ -1661,7 +1662,7 @@ fn sync_editor_windows(
         let size = window.board_size();
         commands
             .spawn((
-                StateScoped(AppState::LevelEditor),
+                DespawnOnExit(AppState::LevelEditor),
                 EditorWindow,
                 Transform::from_translation(window.at.pos).with_rotation(window.rotation()),
                 Visibility::default(),
@@ -1673,7 +1674,7 @@ fn sync_editor_windows(
                     MeshMaterial3d(material.clone()),
                     Transform::from_translation(window.local(opening)).with_scale(half * 2.0),
                     glass_vis,
-                    bevy::pbr::NotShadowCaster,
+                    bevy::light::NotShadowCaster,
                 ));
                 for slot in 0..shared::windows::BOARDS {
                     let (center, tilt) = window.board_local(slot);
@@ -1811,7 +1812,7 @@ fn sync_objects(
         }
         let Some(at) = id.get(doc) else { continue };
         let mut object = commands.spawn((
-            StateScoped(AppState::LevelEditor),
+            DespawnOnExit(AppState::LevelEditor),
             EditorObject(id),
             root_transform_of(id, doc, at),
             Visibility::default(),
@@ -1824,7 +1825,7 @@ fn sync_objects(
         let Some((model, offset)) = model_of(id, &machines, &pap, &ammo, &lever, &avatars) else {
             continue;
         };
-        let scene = SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
+        let scene = WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(model)));
         // The stand-ins stand idling, as in game.
         match id {
             ObjectId::Reference(RefKind::Player) | ObjectId::PlayerSpawn(_) | ObjectId::PyramidSpot(_) => {
@@ -1847,7 +1848,7 @@ fn sync_objects(
             ObjectId::MysteryBox(_) => {
                 object.with_child((scene, offset));
                 object.with_child((
-                    SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::mystery_box::MYSTERY_BOX_MODEL))),
+                    WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(crate::mystery_box::MYSTERY_BOX_MODEL))),
                     Transform::from_translation(Vec3::Y * shared::mystery_box::BLOCKS_HEIGHT),
                 ));
             }

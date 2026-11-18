@@ -3,15 +3,15 @@
 //!
 //! * every [`PowerUpDrop`] the server replicates gets an avatar: its model
 //!   in shiny gold, floating over the spot, spinning and bobbing, wrapped in
-//!   a green glow ([`PowerUpGlowMaterial`], `assets/shaders/power_up_glow.wgsl`)
+//!   a green glow ([`PowerUpGlowMaterial`], `assets/shaders/power_up_glow.wesl`)
 //!   — the gold polished with a made-up studio reflection and a bright rim
-//!   ([`GoldShine`], `assets/shaders/power_up_gold.wgsl`), the game having
+//!   ([`GoldShine`], `assets/shaders/power_up_gold.wesl`), the game having
 //!   no reflections of its own for it to shine with — and, Cold War style,
 //!   bursts of green fire drawn in to it from all round and wisps of smoke
-//!   drifting away ([`DropPuff`], `assets/shaders/power_up_puff.wgsl`), all
+//!   drifting away ([`DropPuff`], `assets/shaders/power_up_puff.wesl`), all
 //!   of it standing in a column of streaked green light with thin strands of
 //!   energy hanging from it ([`DropColumn`],
-//!   `assets/shaders/power_up_column.wgsl`)
+//!   `assets/shaders/power_up_column.wesl`)
 //!   with a green light under it, and its loop sound playing from it
 //!   (positional, faded by distance) after the spawn sound; it blinks once
 //!   the server says it's about to go, slowly then quicker, ticking each
@@ -31,18 +31,18 @@
 //!
 //! Everything's tunable from the debug panel ([`PowerUpSettings`]). Avatars
 //! go when their drop does, and they, the HUD row and any sound still
-//! playing are `StateScoped(InGame)` — nothing carries into the next game.
+//! playing are `DespawnOnExit(InGame)` — nothing carries into the next game.
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::render::view::NoFrustumCulling;
-use bevy::scene::SceneInstanceReady;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::world_serialization::WorldInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver};
 use shared::power_ups::{PowerUp, BLINK_SECS, NUKE_ANNOUNCER_DELAY_SECS};
 use shared::{GameMode, Lobby, PowerUpDrop, PowerUpGrabbed};
@@ -54,10 +54,10 @@ use crate::{
     Weapon, HUD_FONT,
 };
 
-const SHADER_ASSET_PATH: &str = "shaders/power_up_glow.wgsl";
-const GOLD_SHADER_ASSET_PATH: &str = "shaders/power_up_gold.wgsl";
-const PUFF_SHADER_ASSET_PATH: &str = "shaders/power_up_puff.wgsl";
-const COLUMN_SHADER_ASSET_PATH: &str = "shaders/power_up_column.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/power_up_glow.wesl";
+const GOLD_SHADER_ASSET_PATH: &str = "shaders/power_up_gold.wesl";
+const PUFF_SHADER_ASSET_PATH: &str = "shaders/power_up_puff.wesl";
+const COLUMN_SHADER_ASSET_PATH: &str = "shaders/power_up_column.wesl";
 
 use params::{ColumnParams, GlowParams, GoldShineParams, PuffParams};
 
@@ -83,7 +83,7 @@ mod params {
         pub(crate) depth_pull: f32,
     }
 
-    /// Mirrors `GoldShine` in `power_up_gold.wgsl`.
+    /// Mirrors `GoldShine` in `power_up_gold.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct GoldShineParams {
         pub(crate) strength: f32,
@@ -98,7 +98,7 @@ mod params {
         pub(crate) detail: f32,
     }
 
-    /// Mirrors `PuffParams` in `power_up_puff.wgsl`.
+    /// Mirrors `PuffParams` in `power_up_puff.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct PuffParams {
         pub(crate) color: Vec4,
@@ -109,7 +109,7 @@ mod params {
         pub(crate) model: Vec4,
     }
 
-    /// Mirrors `ColumnParams` in `power_up_column.wgsl`.
+    /// Mirrors `ColumnParams` in `power_up_column.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct ColumnParams {
         pub(crate) color: Vec4,
@@ -125,7 +125,7 @@ mod params {
 fn additive_quad(descriptor: &mut RenderPipelineDescriptor) {
     descriptor.primitive.cull_mode = None;
     if let Some(depth) = descriptor.depth_stencil.as_mut() {
-        depth.depth_write_enabled = false;
+        depth.depth_write_enabled = Some(false);
     }
 }
 
@@ -137,6 +137,14 @@ pub(crate) struct PowerUpPuffMaterial {
 }
 
 impl Material for PowerUpPuffMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         PUFF_SHADER_ASSET_PATH.into()
     }
@@ -150,7 +158,7 @@ impl Material for PowerUpPuffMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -168,6 +176,14 @@ pub(crate) struct PowerUpColumnMaterial {
 }
 
 impl Material for PowerUpColumnMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         COLUMN_SHADER_ASSET_PATH.into()
     }
@@ -181,7 +197,7 @@ impl Material for PowerUpColumnMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -218,6 +234,14 @@ pub(crate) struct PowerUpGlowMaterial {
 }
 
 impl Material for PowerUpGlowMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -234,14 +258,14 @@ impl Material for PowerUpGlowMaterial {
     /// a surface) — anything in front of the drop still hides it (the
     /// shader depth-tests it at the drop, not where `pull` puts it).
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
@@ -655,21 +679,9 @@ pub(crate) struct PowerUpsPlugin;
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<GoldMaterial>::default())
-        .add_plugins(MaterialPlugin::<PowerUpPuffMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<PowerUpColumnMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<PowerUpGlowMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        .add_plugins(MaterialPlugin::<PowerUpPuffMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpColumnMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpGlowMaterial>::default())
         .init_resource::<PowerUpSettings>()
         .init_resource::<NukeAnnouncers>()
         .add_systems(OnEnter(AppState::InGame), spawn_timed_row)
@@ -750,7 +762,7 @@ fn sync_drop_avatars(
             // Gone at the end of its blinking: it timed out.
             if avatar.blink_age >= BLINK_SECS - 0.4 {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(sounds.power_up_timer_end.clone()),
                     Transform::from_translation(tf.translation + Vec3::Y * settings.height),
                     crate::positional_playback(Volume::Linear(1.0)),
@@ -763,7 +775,7 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.power_up_spawn.clone()),
             Transform::from_translation(drop.pos + Vec3::Y * settings.height),
             crate::positional_playback(Volume::Linear(1.0)),
@@ -781,10 +793,10 @@ fn sync_drop_avatars(
         let scale = settings.scale(drop.kind);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 DropAvatar {
                     src,
-                    phase: (src.index() as f32 * 1.618).fract() * std::f32::consts::TAU,
+                    phase: (src.index_u32() as f32 * 1.618).fract() * std::f32::consts::TAU,
                     blink_age: 0.0,
                     blink_phase: 0.0,
                     lit: true,
@@ -803,7 +815,7 @@ fn sync_drop_avatars(
                         spinner
                             .spawn((
                                 DropModel(drop.kind),
-                                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+                                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
                                 Transform::from_translation(-centre * scale)
                                     .with_scale(Vec3::splat(scale)),
                             ))
@@ -822,7 +834,7 @@ fn sync_drop_avatars(
                                 color: settings.light_color(),
                                 intensity: settings.light_lumens,
                                 range: settings.light_range,
-                                shadows_enabled: false,
+                                shadow_maps_enabled: false,
                                 ..default()
                             },
                             Transform::default(),
@@ -860,7 +872,7 @@ fn measure_drop_models(
     spinners: Query<(&GlobalTransform, &Children, &ChildOf), With<DropSpinner>>,
     models: Query<(), With<DropModel>>,
     children: Query<&Children>,
-    meshes: Query<(&bevy::render::primitives::Aabb, &GlobalTransform)>,
+    meshes: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
     mut glows: Query<&mut Transform, (With<DropGlow>, Without<DropColumn>)>,
     mut columns: Query<&mut Transform, (With<DropColumn>, Without<DropGlow>)>,
     mut avatars: Query<(&mut DropAvatar, &Children)>,
@@ -909,14 +921,14 @@ fn measure_drop_models(
 /// Swap every material in a freshly spawned model (the models carry none of
 /// their own — glTF's plain default) for the shared gold.
 fn gild_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     assets: Option<Res<PowerUpAssets>>,
     children: Query<&Children>,
     mats: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
     mut commands: Commands,
 ) {
     let Some(assets) = assets else { return };
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if mats.contains(e) {
             commands
                 .entity(e)
@@ -951,7 +963,7 @@ fn animate_drop_avatars(
         let on = !blinking || avatar.blink_phase.fract() < 0.5;
         if blinking && on && !avatar.lit {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.power_up_timer_tick.clone()),
                 Transform::from_translation(tf.translation + Vec3::Y * settings.height),
                 crate::positional_playback(Volume::Linear(1.0)),
@@ -993,18 +1005,18 @@ fn apply_power_up_settings(
         return;
     }
     if let Some(a) = assets {
-        if let Some(m) = gold_materials.get_mut(&a.gold) {
-            settings.gold(m);
+        if let Some(mut m) = gold_materials.get_mut(&a.gold) {
+            settings.gold(&mut m);
         }
         let want = settings.glow();
         if glow_materials.get(&a.glow).is_some_and(|m| m.params != want) {
-            if let Some(m) = glow_materials.get_mut(&a.glow) {
+            if let Some(mut m) = glow_materials.get_mut(&a.glow) {
                 m.params = want;
             }
         }
         let want = settings.column();
         if column_materials.get(&a.column).is_some_and(|m| m.params != want) {
-            if let Some(m) = column_materials.get_mut(&a.column) {
+            if let Some(mut m) = column_materials.get_mut(&a.column) {
                 m.params = want;
             }
         }
@@ -1125,7 +1137,7 @@ fn emit_drop_puffs(
                     },
                 });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     DropPuff {
                         avatar: avatar_e,
                         vel,
@@ -1171,7 +1183,7 @@ fn update_drop_puffs(
         tf.translation += puff.vel * dt;
         let grow = if puff.smoke { 0.6 + 0.9 * puff.age } else { 0.7 + 0.5 * puff.age };
         tf.scale = Vec3::splat(puff.size * grow);
-        if let Some(m) = puff_materials.get_mut(&puff.material) {
+        if let Some(mut m) = puff_materials.get_mut(&puff.material) {
             m.params.age = puff.age;
             // (Its model bobs and its size can change; one whose drop's
             // gone keeps the last.)
@@ -1194,7 +1206,7 @@ fn receive_grabs(
     time: Res<Time>,
     mut weapon: ResMut<Weapon>,
     mut nukes: ResMut<NukeAnnouncers>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut hammering: Query<&mut CarpenterHammering>,
     mut commands: Commands,
 ) {
@@ -1215,14 +1227,14 @@ fn receive_grabs(
             };
             if msg.kind != PowerUp::Nuke {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(announcer.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
             }
             if Some(msg.by) == me {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(sounds.power_up_grab.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
@@ -1230,7 +1242,7 @@ fn receive_grabs(
             match msg.kind {
                 PowerUp::MaxAmmo => {
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(sounds.max_ammo_refill.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
@@ -1242,7 +1254,7 @@ fn receive_grabs(
                         h.started = now;
                     } else {
                         commands.spawn((
-                            StateScoped(AppState::InGame),
+                            DespawnOnExit(AppState::InGame),
                             CarpenterHammering { started: now },
                             AudioPlayer::new(sounds.carpenter_loop.clone()),
                             PlaybackSettings::LOOP,
@@ -1292,7 +1304,7 @@ fn nuke_announcers(
             return true;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.power_up_nuke.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -1307,11 +1319,11 @@ fn nuke_announcers(
 fn nuke_flash(
     commands: &mut Commands,
     sounds: &GameSounds,
-    boom: &mut EventWriter<crate::vfx::Explosion>,
+    boom: &mut MessageWriter<crate::vfx::Explosion>,
     at: Vec3,
 ) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(sounds.nuke_flash.clone()),
         PlaybackSettings::DESPAWN,
     ));
@@ -1325,7 +1337,7 @@ fn nuke_flash(
         nuke: true,
     });
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         NukeWhiteout { age: 0.0 },
         Node {
             position_type: PositionType::Absolute,
@@ -1384,7 +1396,7 @@ fn carpenter_hammering(
     }
     commands.entity(e).despawn();
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(sounds.carpenter_end.clone()),
         PlaybackSettings::DESPAWN,
     ));
@@ -1415,7 +1427,7 @@ fn timed_countdowns(
     let before = std::mem::replace(&mut *last, running.clone());
     let play = |clip: &Handle<AudioSource>, commands: &mut Commands| {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(clip.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -1446,7 +1458,7 @@ fn spawn_timed_row(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -1485,8 +1497,8 @@ fn spawn_timed_row(mut commands: Commands, asset_server: Res<AssetServer>) {
                         TimedSlotText(index),
                         Text::new(""),
                         TextFont {
-                            font: font.clone(),
-                            font_size: 26.0,
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(26.0),
                             ..default()
                         },
                         TextColor::WHITE,

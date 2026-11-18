@@ -24,7 +24,7 @@
 //! each client throws its own, so they needn't land the same everywhere.
 //!
 //! Nothing carries between games: the world, the mirrors and the parts are
-//! all `StateScoped(InGame)`, and the parts go with their zombie's avatar
+//! all `DespawnOnExit(InGame)`, and the parts go with their zombie's avatar
 //! (gone when the server clears the corpse).
 
 use bevy::ecs::system::SystemParam;
@@ -32,7 +32,7 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::*;
-use lightyear::prelude::{Interpolated, MessageReceiver, PeerId};
+use lightyear::prelude::{MessageReceiver, PeerId};
 use shared::PlayerId;
 
 use crate::net::RemoteAvatar;
@@ -322,17 +322,16 @@ impl Plugin for RagdollPlugin {
                 PostUpdate,
                 drive_ragdolls
                     .after(PhysicsSet::Writeback)
-                    .after(bevy::app::Animation)
-                    .before(TransformSystem::TransformPropagate)
+                    .after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate)
                     .run_if(in_state(AppState::InGame)),
             );
     }
 }
 
-fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
@@ -352,7 +351,7 @@ fn start_ragdolls(
         Query<(&RemoteAvatar, &Ragdoll)>,
         Query<&mut Velocity, With<RagdollPart>>,
     ),
-    (ids, interp, poses): (Query<&PlayerId>, Query<&Interpolated>, Query<&shared::PlayerPose>),
+    (ids, poses): (Query<&PlayerId>, Query<&shared::PlayerPose>),
     (children, names, globals): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
     mut players: Query<&mut AnimationPlayer>,
     contexts: Query<Entity, With<RagdollContext>>,
@@ -367,11 +366,11 @@ fn start_ragdolls(
     for blast in &blasts {
         let from = Vec3::from_array(blast.from);
         if let Some((avatar, ..)) =
-            avatars.iter().find(|(_, remote, ..)| peer_of(remote.src, &ids, &interp) == Some(blast.zombie))
+            avatars.iter().find(|(_, remote, ..)| peer_of(remote.src, &ids) == Some(blast.zombie))
         {
             jobs.push((avatar, Some(from), blast.zombie));
         } else if let Some((_, ragdoll)) =
-            limp.iter().find(|(remote, _)| peer_of(remote.src, &ids, &interp) == Some(blast.zombie))
+            limp.iter().find(|(remote, _)| peer_of(remote.src, &ids) == Some(blast.zombie))
         {
             // Already gone limp (its death got here first): the blast kicks it.
             for bone in &ragdoll.bones {
@@ -380,7 +379,7 @@ fn start_ragdolls(
                     let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or(Vec3::X);
                     let strength =
                         (1.0 - at.distance(from) / settings.reach.max(0.1)).clamp(settings.min_strength, 1.0);
-                    v.linvel += (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
+                    v.linear += (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
                 }
             }
         }
@@ -391,7 +390,7 @@ fn start_ragdolls(
             // be taken back, and a ragdoll can't get up again.)
             let dead = poses.get(remote.src).is_ok_and(|p| !p.alive);
             if dead && motion.crawler_dead() && !jobs.iter().any(|(a, ..)| *a == avatar) {
-                let Some(peer) = peer_of(remote.src, &ids, &interp) else { continue };
+                let Some(peer) = peer_of(remote.src, &ids) else { continue };
                 jobs.push((avatar, None, peer));
             }
         }
@@ -431,7 +430,7 @@ fn start_ragdolls(
                     RagdollContext,
                     RapierContextSimulation::default(),
                     RapierConfiguration::new(1.0),
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                 ))
                 .id()
         });
@@ -482,7 +481,7 @@ fn start_ragdolls(
             let linvel = base_vel + out * settings.limb_scatter * (strength + near) * 0.5;
             let mut part = commands.spawn((
                 RagdollPart { avatar },
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 RapierContextEntityLink(ctx),
                 RigidBody::Dynamic,
                 Collider::capsule(Vec3::ZERO, rot.inverse() * (tip - pos), radius),
@@ -495,7 +494,7 @@ fn start_ragdolls(
                     angular_damping: settings.angular_damping,
                 },
                 GravityScale(settings.gravity_scale),
-                Velocity { linvel, angvel: base_spin },
+                Velocity { linear: linvel, angular: base_spin },
                 Ccd::enabled(),
                 (Transform::from_translation(pos).with_rotation(rot), GlobalTransform::from(Transform::from_translation(pos).with_rotation(rot))),
             ));
@@ -610,7 +609,7 @@ fn mirror_colliders(
         let mirror = commands
             .spawn((
                 ColliderMirror { src },
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 RapierContextEntityLink(ctx),
                 collider.clone(),
                 global.compute_transform(),

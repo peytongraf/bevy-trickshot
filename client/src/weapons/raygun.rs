@@ -20,7 +20,7 @@ use bevy::animation::prelude::AnimationTransitions;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::weapon::{SlotWeapon, WeaponId};
 
 use super::view_model::{AnimationSegment, SegAct, SniperAnimationPlayer, ViewModel, ViewModelAnimation, ViewModelOffset};
@@ -209,7 +209,7 @@ pub(crate) struct RayGunDebug<'w, 's> {
     look: ResMut<'w, crate::RayGunLook>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
-    give: Query<'w, 's, &'static mut TriggerSender<shared::GiveWeapon>, With<GameClient>>,
+    give: Query<'w, 's, &'static mut EventSender<shared::GiveWeapon>, With<GameClient>>,
 }
 
 impl RayGunDebug<'_, '_> {

@@ -9,15 +9,15 @@
 //! Two layers: a bed of glowing purple puffs (camera-facing sprites of the
 //! explosion's fire puffs, `ExplosionAssets`), and over it real licking
 //! flames — the molotov's fire (`molotov::FireMaterial`) in purple — that
-//! flare up and die down. Each is `StateScoped(InGame)`, and where each
+//! flare up and die down. Each is `DespawnOnExit(InGame)`, and where each
 //! slider last dropped one is forgotten as soon as they stop sliding, so
 //! nothing carries over between slides or games.
 
 use std::collections::HashMap;
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::{LocalId, PeerId};
 use shared::perks::Perk;
 
@@ -172,7 +172,7 @@ fn lay_phd_trails(
                 let size = Vec2::new(FIRE_WIDTH * k, FIRE_HEIGHT * k * (0.8 + 0.4 * rand01(r ^ 0x4d)));
                 let seed = rand01(r ^ 0x5d);
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     TrailFire {
                         age: 0.0,
                         lifetime: FIRE_LIFETIME * (0.8 + 0.4 * rand01(r ^ 0x1234)),
@@ -211,7 +211,7 @@ fn lay_phd_trails(
                     ..default()
                 });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     PhdFlame {
                         age: 0.0,
                         lifetime: LIFETIME * (0.75 + 0.5 * rand01(r ^ 0x1234)),
@@ -274,7 +274,7 @@ fn update_phd_flames(
             lerp3([0.75, 0.2, 1.0], [0.3, 0.04, 0.55], (t - 0.2) / 0.8)
         };
         let b = BRIGHTNESS * (1.0 - f).powf(1.4) * (flame.age / 0.04).min(1.0);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color = Color::LinearRgba(LinearRgba::new(c[0] * b, c[1] * b, c[2] * b, 1.0));
         }
     }
@@ -301,7 +301,7 @@ fn update_trail_fires(
         let f = fire.age / fire.lifetime;
         let fade = grow * (1.0 - ((f - 0.35) / 0.65).clamp(0.0, 1.0)).powf(1.2);
         tf.scale = crate::molotov::seeded_scale(fire.size * (0.3 + 0.7 * fade).max(0.01), fire.seed);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.set_fade(fade);
         }
     }

@@ -90,7 +90,7 @@ pub(crate) fn editor_ui(
             let alpha = (1.0 - (now - since) / CLEAN_HINT_SECS).clamp(0.0, 1.0);
             let painter =
                 ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("level_editor_clean_hint")));
-            let pos = ctx.screen_rect().center_top() + egui::vec2(0.0, 24.0);
+            let pos = ctx.viewport_rect().center_top() + egui::vec2(0.0, 24.0);
             let text = "Clean view — H or Esc to bring the editor back";
             let font = egui::FontId::proportional(16.0);
             let a = (alpha * 255.0) as u8;
@@ -101,11 +101,20 @@ pub(crate) fn editor_ui(
         return Ok(());
     }
 
-    menu_bar(ctx, ed, &lever, &rapier, now, &mut next);
-    status_bar(ctx, ed, &map_state, now);
-    outliner(ctx, ed, &lever, &rapier);
-    properties(ctx, ed, &lever, &rapier, now);
-    viewport_overlay(ctx, ed, &lever, &camera, &window);
+    // (egui 0.36 lays panels out inside a root `Ui` rather than straight on
+    // the context; everything left over between them is the viewport.)
+    let mut root = egui::Ui::new(
+        ctx.clone(),
+        egui::Id::new("level_editor_root"),
+        egui::UiBuilder::new().layer_id(egui::LayerId::background()).max_rect(ctx.viewport_rect()),
+    );
+    menu_bar(&mut root, ed, &lever, &rapier, now, &mut next);
+    status_bar(&mut root, ed, &map_state, now);
+    outliner(&mut root, ed, &lever, &rapier);
+    properties(&mut root, ed, &lever, &rapier, now);
+    // (Only over the viewport, between the panels.)
+    let viewport = root.available_rect_before_wrap();
+    viewport_overlay(ctx, viewport, ed, &lever, &camera, &window);
     exit_prompt(ctx, ed, now, &mut next);
     help(ctx, ed);
 
@@ -114,14 +123,14 @@ pub(crate) fn editor_ui(
 }
 
 fn menu_bar(
-    ctx: &egui::Context,
+    root: &mut egui::Ui,
     ed: &mut Editor,
     lever: &PowerLeverSettings,
     rapier: &ReadRapierContext,
     now: f32,
     next: &mut NextState<AppState>,
 ) {
-    egui::TopBottomPanel::top("level_editor_menu").show(ctx, |ui| {
+    egui::Panel::top("level_editor_menu").show(root, |ui| {
         ui.horizontal(|ui| {
             ui.strong("ZOMBIES LEVEL EDITOR");
             ui.separator();
@@ -401,11 +410,11 @@ fn map_label(ed: &Editor, place: MapId) -> String {
     }
 }
 
-fn status_bar(ctx: &egui::Context, ed: &mut Editor, map_state: &MapLoadState, now: f32) {
+fn status_bar(root: &mut egui::Ui, ed: &mut Editor, map_state: &MapLoadState, now: f32) {
     if ed.toast.as_ref().is_some_and(|(_, until)| now > *until) {
         ed.toast = None;
     }
-    egui::TopBottomPanel::bottom("level_editor_status").show(ctx, |ui| {
+    egui::Panel::bottom("level_editor_status").show(root, |ui| {
         ui.horizontal(|ui| {
             match &ed.op {
                 Some(op) => {
@@ -466,11 +475,11 @@ fn status_bar(ctx: &egui::Context, ed: &mut Editor, map_state: &MapLoadState, no
     });
 }
 
-fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, rapier: &ReadRapierContext) {
-    egui::SidePanel::left("level_editor_outliner")
-        .default_width(220.0)
+fn outliner(root: &mut egui::Ui, ed: &mut Editor, lever: &PowerLeverSettings, rapier: &ReadRapierContext) {
+    egui::Panel::left("level_editor_outliner")
+        .default_size(220.0)
         .resizable(true)
-        .show(ctx, |ui| {
+        .show(root, |ui| {
             ui.heading("Outliner");
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -675,16 +684,16 @@ fn outliner(ctx: &egui::Context, ed: &mut Editor, lever: &PowerLeverSettings, ra
 }
 
 fn properties(
-    ctx: &egui::Context,
+    root: &mut egui::Ui,
     ed: &mut Editor,
     lever: &PowerLeverSettings,
     rapier: &ReadRapierContext,
     now: f32,
 ) {
-    egui::SidePanel::right("level_editor_properties")
-        .default_width(240.0)
+    egui::Panel::right("level_editor_properties")
+        .default_size(240.0)
         .resizable(true)
-        .show(ctx, |ui| {
+        .show(root, |ui| {
             ui.heading("Properties");
             ui.separator();
             let Some(id) = ed.active() else {
@@ -1215,14 +1224,13 @@ fn properties(
 /// Names over things, and the box being dragged out.
 fn viewport_overlay(
     ctx: &egui::Context,
+    viewport: egui::Rect,
     ed: &Editor,
     lever: &PowerLeverSettings,
     camera: &Camera,
     window: &Window,
 ) {
     let cam = ed.cam.global();
-    // (Only over the viewport, between the panels.)
-    let viewport = ctx.available_rect();
     if ed.view.labels {
         let painter = ctx
             .layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("level_editor_labels")))

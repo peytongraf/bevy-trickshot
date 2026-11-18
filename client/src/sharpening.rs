@@ -6,7 +6,7 @@
 //! Nothing here carries between games: the cameras are set afresh whenever
 //! they're spawned or the setting changes.
 
-use bevy::core_pipeline::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
+use bevy::anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
 use bevy::prelude::*;
 
 use crate::player::WorldModelCamera;

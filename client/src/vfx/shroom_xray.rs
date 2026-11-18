@@ -6,7 +6,7 @@
 //!
 //! How: each enemy avatar's meshes get a twin — same mesh, same
 //! `SkinnedMesh` (so it follows the very same bones and animates in lockstep)
-//! — drawn with [`ShroomXrayMaterial`] (`assets/shaders/shroom_xray.wgsl`).
+//! — drawn with [`ShroomXrayMaterial`] (`assets/shaders/shroom_xray.wesl`).
 //! Its pipeline flips the depth test to pass only where something is in
 //! *front* of it and writes no depth, blending additively: so it appears
 //! exactly where the enemy is hidden. "In front" means in front of the enemy's
@@ -32,20 +32,19 @@
 //! ([`ShroomLevel`]); the twins are hidden entirely while it's off. They're
 //! children of the avatar, so they go with it — nothing to reset per game.
 
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::SkinnedMesh;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, CompareFunction, RenderPipelineDescriptor, ShaderRef,
-    SpecializedMeshPipelineError,
-};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext, RapierContext};
 
 use super::shroom::{ShroomLevel, ShroomSettings};
 
-const SHADER_ASSET_PATH: &str = "shaders/shroom_xray.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/shroom_xray.wesl";
 
 use params::XrayParams;
 
@@ -87,6 +86,16 @@ pub(crate) struct ShroomXrayMaterial {
 }
 
 impl Material for ShroomXrayMaterial {
+    // No depth prepass / shadows: the ghost must never write depth or
+    // cast anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -102,14 +111,14 @@ impl Material for ShroomXrayMaterial {
     /// Only draw where the ghost is *behind* something already drawn — reverse-Z,
     /// so "farther than what's there" is `Less` — and leave the depth buffer alone.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_compare = CompareFunction::Less;
-            depth.depth_write_enabled = false;
+            depth.depth_compare = Some(CompareFunction::Less);
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
@@ -133,13 +142,7 @@ pub(crate) struct ShroomXrayPlugin;
 
 impl Plugin for ShroomXrayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<ShroomXrayMaterial> {
-            // No depth prepass / shadows: the ghost must never write depth or
-            // cast anything.
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<ShroomXrayMaterial>::default())
         .add_systems(Update, (twin_enemy_meshes, update_xray).chain());
     }
 }
@@ -288,7 +291,7 @@ fn update_xray(
         };
         // (`get` first so an unchanged material isn't re-uploaded.)
         if materials.get(&twinned.material).is_some_and(|m| m.params != want) {
-            if let Some(m) = materials.get_mut(&twinned.material) {
+            if let Some(mut m) = materials.get_mut(&twinned.material) {
                 m.params = want;
             }
         }

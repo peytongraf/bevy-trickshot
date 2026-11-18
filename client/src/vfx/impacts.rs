@@ -5,9 +5,9 @@
 use std::f32::consts::PI;
 
 use bevy::math::Affine2;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::MessageReceiver;
 
 use crate::player::{Player, PlayerHead};
@@ -25,7 +25,7 @@ pub(crate) const ROCK_ROWS: u32 = 4;
 
 /// Server → everyone: a shot hit the ground at this world point. Consumed by
 /// `spawn_ground_impact`, which kicks up a short rock + dust burst there.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct GroundImpact(pub(crate) Vec3);
 
 /// One rock or dust sprite from a ground impact. World-space, billboarded at the
@@ -149,7 +149,7 @@ impl Default for DustSettings {
 /// shot from that point. Written by `net::sync_bot_poses` when a
 /// server-owned bot drops, and by [`receive_zombie_blood`] for a `Zombies`
 /// enemy hit.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct BloodImpact {
     pub(crate) point: Vec3,
     pub(crate) dir: Vec3,
@@ -293,7 +293,7 @@ pub(crate) fn impact_material(texture: Handle<Image>) -> StandardMaterial {
 /// Kick up a short rock + dust burst at every ground impact the server reported
 /// this frame. World-space, so it's seen from every angle and by every client.
 pub(crate) fn spawn_ground_impact(
-    mut events: EventReader<GroundImpact>,
+    mut events: MessageReader<GroundImpact>,
     current_map: Res<crate::CurrentMap>,
     assets: Res<ImpactAssets>,
     rocks: Res<RockSettings>,
@@ -372,7 +372,7 @@ pub(crate) fn spawn_debris(
             Vec2::new(col as f32 / ROCK_COLS as f32, row as f32 / ROCK_ROWS as f32),
         );
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ImpactParticle {
                 velocity: dir * speed,
                 gravity: rocks.gravity,
@@ -410,7 +410,7 @@ pub(crate) fn spawn_debris(
         let dir = cone_dir(Vec3::Y, dust.spread_deg.to_radians(), s);
         let speed = dust.speed * power * (0.5 + 0.5 * rand01(s ^ 0x55));
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ImpactParticle {
                 velocity: dir * speed + Vec3::Y * dust.rise,
                 gravity: 0.0,
@@ -441,7 +441,7 @@ pub(crate) fn spawn_debris(
 /// the shot's travel direction from the hit point. World-space, so every client
 /// and camera angle sees it. Mirrors `spawn_ground_impact`.
 pub(crate) fn spawn_blood_impact(
-    mut events: EventReader<BloodImpact>,
+    mut events: MessageReader<BloodImpact>,
     assets: Res<ImpactAssets>,
     bot_blood: Res<BloodSettings>,
     existing: Query<(), With<ImpactParticle>>,
@@ -480,7 +480,7 @@ pub(crate) fn spawn_blood_impact(
             material.uv_transform = Affine2::from_scale_angle_translation(win, 0.0, uv_off);
             let scale0 = (blood.scale * (0.6 + 0.8 * rand01(s ^ 0x2c))).max(1.0e-4);
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 ImpactParticle {
                     velocity: dir * speed,
                     gravity: blood.gravity,
@@ -514,7 +514,7 @@ pub(crate) fn receive_zombie_blood(
     mut receivers: Query<&mut MessageReceiver<shared::ZombieBlood>>,
     settings: Res<EnemyBloodSettings>,
     mut predicted: ResMut<crate::melee_predict::Predicted>,
-    mut blood: EventWriter<BloodImpact>,
+    mut blood: MessageWriter<BloodImpact>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -602,7 +602,7 @@ pub(crate) fn update_impact_particles(
             let fade_out = (p.lifetime - from).max(1.0e-4);
             1.0 - (p.age - from).max(0.0) / fade_out
         };
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             let [tr, tg, tb] = p.tint;
             m.base_color = Color::srgba(tr, tg, tb, p.peak_alpha * envelope.clamp(0.0, 1.0));
         }

@@ -15,22 +15,17 @@
 // `glow` lights it from inside (the ritual taking hold), a slow churn of
 // red. Driven by `BloodMaterial` in `client/src/easter_egg/ritual_fx.rs`.
 
-#import bevy_pbr::{
-    pbr_fragment::pbr_input_from_standard_material,
-    mesh_view_bindings::globals,
-}
-
-#ifdef PREPASS_PIPELINE
-#import bevy_pbr::{
-    prepass_io::{VertexOutput, FragmentOutput},
-    pbr_deferred_functions::deferred_output,
-}
-#else
-#import bevy_pbr::{
-    forward_io::{VertexOutput, FragmentOutput},
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
-}
-#endif
+import bevy_pbr::{
+    render::pbr_fragment::pbr_input_from_standard_material,
+    render::mesh_view_bindings::globals};
+@if(PREPASS_PIPELINE)
+import bevy_pbr::{
+    prepass::io::{VertexOutput, FragmentOutput},
+    deferred::functions::deferred_output};
+@else
+import bevy_pbr::{
+    render::forward_io::{VertexOutput, FragmentOutput},
+    render::pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing}};
 
 struct BloodParams {
     // How far it's spread (a pool: in its quad's -1..1 units).
@@ -54,7 +49,7 @@ struct BloodParams {
     _pad1: f32,
     _pad2: f32,
 }
-@group(2) @binding(100) var<uniform> blood: BloodParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> blood: BloodParams;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -184,12 +179,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.emissive = vec4(vec3(1.0, 0.04, 0.03) * g * 6.0, 1.0);
     }
 
-#ifdef PREPASS_PIPELINE
-    let out = deferred_output(in, pbr_input);
-#else
     var out: FragmentOutput;
+@if(PREPASS_PIPELINE) {
+    out = deferred_output(in, pbr_input);
+} @else {
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-#endif
+}
     return out;
 }

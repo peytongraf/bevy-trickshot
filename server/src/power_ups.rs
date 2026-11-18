@@ -126,7 +126,7 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
             blinking: false,
         },
         DropSim { lobby, age: 0.0 },
-        Replicate::to_clients(NetworkTarget::Only(peers)),
+        Replicate::to_clients(NetworkTarget::from(peers)),
     ));
 }
 
@@ -137,7 +137,7 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
 /// outside its window waits in [`PendingDrops`] for the next kill inside.
 fn roll_drops(
     time: Res<Time>,
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
     rounds: Query<&ZombieRounds>,
     colliders: Res<crate::collision::MapColliders>,
@@ -206,7 +206,7 @@ fn roll_drops(
                 lobby: ev.lobby,
                 age: 0.0,
             },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
         info!("lobby {:?}: a zombie dropped {}", ev.lobby, kind.label());
     }
@@ -220,7 +220,7 @@ const DEBUG_DROP_AHEAD: f32 = 4.0;
 /// so it goes off for real), or [`DEBUG_DROP_AHEAD`] in front of them on the
 /// ground there — only in a running, unpaused `Zombies` game.
 fn on_drop_power_up(
-    trigger: Trigger<RemoteTrigger<DropPowerUp>>,
+    trigger: On<RemoteEvent<DropPowerUp>>,
     endings: Res<crate::killcam::EndingLobbies>,
     colliders: Res<crate::collision::MapColliders>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -264,7 +264,7 @@ fn on_drop_power_up(
             blinking: false,
         },
         DropSim { lobby: lobby_e, age: 0.0 },
-        Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+        Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
     ));
     info!("lobby {lobby_e:?}: {peer:?} dropped a {} (debug)", kind.label());
 }
@@ -274,7 +274,7 @@ fn on_drop_power_up(
 fn run_power_ups(
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut clocks: ResMut<PowerUpClocks>,
     mut carpenters: ResMut<Carpenters>,
@@ -283,7 +283,7 @@ fn run_power_ups(
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();
@@ -398,7 +398,7 @@ fn run_power_ups(
             }
         }
         let msg = PowerUpGrabbed { kind, by, pos: drop.pos };
-        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(real)) {
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(real)) {
             error!("failed to send power-up grab: {e:?}");
         }
         quotes.write(crate::quotes::SayQuote {
@@ -412,7 +412,7 @@ fn run_power_ups(
 /// Score `points` for `peer` in `lobby`, and show them the `label` line.
 fn award(
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby: &mut Lobby,
     peer: PeerId,
     label: &str,
@@ -444,7 +444,7 @@ fn award(
 fn run_carpenters(
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut carpenters: ResMut<Carpenters>,
     mut lobbies: Query<&mut Lobby>,
@@ -500,7 +500,7 @@ fn run_carpenters(
 fn fire_nukes(
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut nukes: ResMut<PendingNukes>,
     lobbies: Query<&Lobby>,
@@ -553,7 +553,7 @@ fn fire_nukes(
         info!("lobby {lobby_e:?}: nuke dooms {} zombies", doomed.len());
         if !doomed.is_empty() {
             let msg = ZombiesDoomed { peers: doomed };
-            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers())) {
                 error!("failed to send zombies doomed: {e:?}");
             }
         }
@@ -568,7 +568,7 @@ fn fire_nukes(
 fn run_nuke_deaths(
     time: Res<Time>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<&Lobby>,
     mut zombies: Query<(Entity, &mut NukeDeath, &LobbyPlayer, &PlayerId, &mut PlayerCombat), With<Zombie>>,
@@ -597,7 +597,7 @@ fn run_nuke_deaths(
         combat.health = 0.0;
         combat.respawn_at = f32::INFINITY;
         let msg = ZombieNuked { peer: id.0 };
-        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers())) {
             error!("failed to send zombie nuked: {e:?}");
         }
     }

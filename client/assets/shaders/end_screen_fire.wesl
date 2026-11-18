@@ -1,12 +1,12 @@
 // The end-of-game results' fire (`client/src/end_screen_fx.rs`): flames
 // licking up from the bottom of the screen, behind the results. Two layers
-// of rotated-octave gradient noise (as `fire.wgsl`) scroll upward, the
+// of rotated-octave gradient noise (as `fire.wesl`) scroll upward, the
 // second warped by the first, eroding a heat field that's hottest along the
 // bottom edge into ragged tongues; heat is coloured from deep red at the
 // cooling tips through orange to a pale yellow core. Driven by
 // `EndScreenFireMaterial`.
 
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 // a: x time (s), y opacity (faded in), z how fast it licks up, w how big
 //    the tongues are (higher = smaller, busier).

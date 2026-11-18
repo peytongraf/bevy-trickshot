@@ -1,6 +1,7 @@
 //! Crouch / slide / dive / prone state machine (Call-of-Duty style).
 
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 
 use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -164,14 +165,14 @@ pub(crate) fn crouch_slide(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     cfg: Res<SlideSettings>,
     (classic, revive, mut was_down, current_map, mut prone_blocked): (
         Res<crate::zombies_hud::ClassicPerks>,
         Res<crate::revive::LocalRevive>,
         Local<bool>,
         Res<crate::CurrentMap>,
-        EventWriter<ProneBlocked>,
+        MessageWriter<ProneBlocked>,
     ),
     sounds: Res<GameSounds>,
     weapon: Res<Weapon>,
@@ -195,7 +196,7 @@ pub(crate) fn crouch_slide(
     // Down in `Zombies`: held flat, the stance keys do nothing — and stood
     // straight back up once revived.
     let down = crate::revive::hold_downed_stance(&revive, &mut slide, &mut was_down);
-    let locked = window.cursor_options.grab_mode != CursorGrabMode::None && !down;
+    let locked = window.grab_mode != CursorGrabMode::None && !down;
     let crouch_pressed = locked && binds.crouch.just_pressed(&keys, &mouse);
     let prone_pressed = locked && binds.prone.just_pressed(&keys, &mouse);
     let jump_pressed = locked && binds.jump.just_pressed(&keys, &mouse);
@@ -368,7 +369,7 @@ pub(crate) fn crouch_slide(
 
 /// The prone key pressed where there's no going prone (wading in water) —
 /// [`prone_blocked_notice`] says so.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct ProneBlocked;
 
 /// The "can't go prone here" message.
@@ -386,7 +387,7 @@ const PRONE_NOTICE_TTL: f32 = 1.8;
 pub(crate) fn prone_blocked_notice(
     time: Res<Time>,
     asset_server: Res<AssetServer>,
-    mut blocked: EventReader<ProneBlocked>,
+    mut blocked: MessageReader<ProneBlocked>,
     mut notices: Query<(Entity, &mut ProneBlockedNotice, &Children)>,
     mut texts: Query<&mut TextColor>,
     mut commands: Commands,
@@ -398,7 +399,7 @@ pub(crate) fn prone_blocked_notice(
             commands
                 .spawn((
                     ProneBlockedNotice { age: 0.0 },
-                    StateScoped(crate::AppState::InGame),
+                    DespawnOnExit(crate::AppState::InGame),
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Percent(0.0),
@@ -411,8 +412,8 @@ pub(crate) fn prone_blocked_notice(
                 .with_child((
                     Text::new(PRONE_NOTICE_TEXT),
                     TextFont {
-                        font: asset_server.load(crate::HUD_FONT),
-                        font_size: 26.0,
+                        font: asset_server.load(crate::HUD_FONT).into(),
+                        font_size: FontSize::Px(26.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),

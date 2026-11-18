@@ -106,7 +106,7 @@ impl Plugin for FallDeathPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FallDeathState>();
         app.init_resource::<FallTracking>();
-        app.add_event::<BeginFallDeath>();
+        app.add_message::<BeginFallDeath>();
         app.add_systems(
             Update,
             (
@@ -115,9 +115,9 @@ impl Plugin for FallDeathPlugin {
                 // window can't fire a second, competing effect on top.
                 check_fall_death.after(crate::apply_gravity).run_if(
                     crate::menu::game_active
-                        .and(crate::killcam::no_killcam)
-                        .and(no_fall_death)
-                        .and(not(crate::death_effect::death_effect_active)),
+                        .and_then(crate::killcam::no_killcam)
+                        .and_then(no_fall_death)
+                        .and_then(not(crate::death_effect::death_effect_active)),
                 ),
                 // The server's verdict can arrive any time (also mid-kill-cam),
                 // so these two aren't gated like the detection above.
@@ -151,7 +151,7 @@ pub(crate) fn effect_active(state: Res<FallDeathState>) -> bool {
 /// by [`check_fall_death`] for a fall out of the world (the client knows its
 /// own position, so no round trip) and by [`receive_fall_death`] when the
 /// *server* rules a landing fatal (health is server-side).
-#[derive(Event)]
+#[derive(Message)]
 struct BeginFallDeath {
     /// Speed (m/s) the player was falling at.
     fall_speed: f32,
@@ -164,9 +164,9 @@ struct BeginFallDeath {
 /// server is told (`FellToDeath`) and the effect starts here at once.
 fn check_fall_death(
     mut tracking: ResMut<FallTracking>,
-    mut fell_q: Query<&mut TriggerSender<FellToDeath>, With<GameClient>>,
-    mut landed_q: Query<&mut TriggerSender<FallLanded>, With<GameClient>>,
-    mut begin: EventWriter<BeginFallDeath>,
+    mut fell_q: Query<&mut EventSender<FellToDeath>, With<GameClient>>,
+    mut landed_q: Query<&mut EventSender<FallLanded>, With<GameClient>>,
+    mut begin: MessageWriter<BeginFallDeath>,
     player: Single<(&Transform, &PlayerPhysics), With<Player>>,
 ) {
     let (transform, physics) = player.into_inner();
@@ -206,7 +206,7 @@ fn check_fall_death(
 /// The server ruled the landing fatal.
 fn receive_fall_death(
     mut receivers: Query<&mut MessageReceiver<FallDeath>>,
-    mut begin: EventWriter<BeginFallDeath>,
+    mut begin: MessageWriter<BeginFallDeath>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -220,7 +220,7 @@ fn receive_fall_death(
 #[allow(clippy::too_many_arguments)]
 fn begin_fall_death(
     time: Res<Time>,
-    mut events: EventReader<BeginFallDeath>,
+    mut events: MessageReader<BeginFallDeath>,
     mut state: ResMut<FallDeathState>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -261,7 +261,7 @@ fn begin_fall_death(
 
     let body = commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             FallDeathBody,
             SoldierVisual,
             Transform {
@@ -270,7 +270,7 @@ fn begin_fall_death(
                 scale: Vec3::splat(remote_avatar_settings.scale),
             },
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
         ))
         .observe(crate::start_soldier_animation)
         .id();
@@ -361,7 +361,7 @@ fn shortest_delta(from: f32, to: f32) -> f32 {
 }
 
 fn clear_on_respawn(
-    mut respawned: EventReader<LocalPlayerRespawned>,
+    mut respawned: MessageReader<LocalPlayerRespawned>,
     mut state: ResMut<FallDeathState>,
     mut tracking: ResMut<FallTracking>,
     mut commands: Commands,

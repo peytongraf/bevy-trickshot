@@ -32,10 +32,10 @@
 use bevy::ecs::system::SystemParam;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::render::mesh::{Indices, VertexAttributeValues};
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::mesh::{Indices, VertexAttributeValues};
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::ballistics::shot_path;
 use shared::hitbox::zone_of_bone;
 use shared::weapon::{WeaponId, RAYGUN_BOLT_SPEED};
@@ -346,9 +346,9 @@ fn track_own_projectiles(
     lobbies: Query<&Lobby>,
     models: Models,
     mut flights: Query<&mut MessageReceiver<shared::KnifeFlight>>,
-    mut sender: Query<&mut TriggerSender<shared::ProjectileClaim>, With<GameClient>>,
-    mut landed: EventWriter<crate::RayGunLanded>,
-    mut struck: EventWriter<crate::shot_predict::ProjectileStruck>,
+    mut sender: Query<&mut EventSender<shared::ProjectileClaim>, With<GameClient>>,
+    mut landed: MessageWriter<crate::RayGunLanded>,
+    mut struck: MessageWriter<crate::shot_predict::ProjectileStruck>,
     mut own: ResMut<OwnProjectiles>,
 ) {
     // A knife's path, from the server.
@@ -529,7 +529,7 @@ impl<'a> SkinnedVerts<'a> {
             .joints
             .iter()
             .zip(inverse.iter())
-            .map(|(&bone, inv)| bones.get(bone).map_or(Mat4::IDENTITY, |g| g.compute_matrix() * *inv))
+            .map(|(&bone, inv)| bones.get(bone).map_or(Mat4::IDENTITY, |g| g.to_matrix() * *inv))
             .collect();
         let positions = pos
             .iter()
@@ -653,7 +653,7 @@ mod tests {
     fn a_path_just_past_a_vertex_counts_as_near_and_one_further_off_doesnt() {
         let joints = [[0u16; 4]];
         let weights = [[1.0f32, 0.0, 0.0, 0.0]];
-        let bones = [Entity::from_raw(7)];
+        let bones = [Entity::from_raw_u32(7).unwrap()];
         let verts = SkinnedVerts {
             positions: vec![Vec3::new(0.3, 0.0, -5.0)],
             joints: &joints,
@@ -666,7 +666,7 @@ mod tests {
         // Where the path first comes 0.4 m from it, on the path.
         assert!((along - (5.0 - (0.4f32 * 0.4 - 0.3 * 0.3).sqrt())).abs() < 1e-4, "{along}");
         assert!(point.x.abs() < 1e-6 && point.y.abs() < 1e-6);
-        assert_eq!(bone, Entity::from_raw(7));
+        assert_eq!(bone, Entity::from_raw_u32(7).unwrap());
         assert!(verts.first_near(&legs, Vec3::new(0.0, 0.0, -5.0), 2.0, 0.25).is_none());
     }
 

@@ -20,14 +20,14 @@
 //! and its hum looping from it.
 //!
 //! The lights, the lever, the station and the lever's sound are
-//! `StateScoped(InGame)` (the lever
+//! `DespawnOnExit(InGame)` (the lever
 //! remembers whether it's thrown on itself), and the fade level drops back
 //! to 0 whenever there are no lights — nothing carries into the next game.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::level::{PowerLight, SpotCone};
 use shared::{GameMode, Lobby};
 
@@ -54,7 +54,7 @@ impl Plugin for PowerPlugin {
                     (sync_power_station, spark_coils).chain(),
                     (sync_machine_hums, swell_machine_hums).chain(),
                     update_power_card,
-                    turn_on_power.run_if(menu::game_active.and(killcam::no_killcam)),
+                    turn_on_power.run_if(menu::game_active.and_then(killcam::no_killcam)),
                 )
                     .run_if(in_state(AppState::InGame)),
             )
@@ -139,7 +139,7 @@ fn point_light(light: &PowerLight, fade: f32) -> PointLight {
         intensity: light.intensity * fade,
         range: light.range,
         radius: light.radius,
-        shadows_enabled: light.shadows && fade > 0.0,
+        shadow_maps_enabled: light.shadows && fade > 0.0,
         ..default()
     }
 }
@@ -152,7 +152,7 @@ fn spot_light(light: &PowerLight, cone: SpotCone, fade: f32) -> SpotLight {
         intensity: light.intensity * fade,
         range: light.range,
         radius: light.radius,
-        shadows_enabled: light.shadows && fade > 0.0,
+        shadow_maps_enabled: light.shadows && fade > 0.0,
         outer_angle: outer,
         inner_angle: cone.inner_angle_deg.to_radians().min(outer),
         ..default()
@@ -165,7 +165,7 @@ fn glow_light(light: &PowerLight, fade: f32) -> PointLight {
         color: light_color(light),
         intensity: light.glow * fade,
         range: GLOW_RANGE,
-        shadows_enabled: false,
+        shadow_maps_enabled: false,
         ..default()
     }
 }
@@ -221,7 +221,7 @@ pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         emissive: glow_emissive(light, fade),
                         ..default()
                     })),
-                    bevy::pbr::NotShadowCaster,
+                    bevy::light::NotShadowCaster,
                     glow_light(light, fade),
                 ));
             }
@@ -242,7 +242,7 @@ pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                 continue;
             }
             commands.entity(glow).insert(glow_light(light, fade));
-            if let Some(m) = materials.get_mut(material) {
+            if let Some(mut m) = materials.get_mut(material) {
                 m.base_color = light_color(light);
                 m.emissive = glow_emissive(light, fade);
             }
@@ -310,7 +310,7 @@ fn sync_map_lights(
         &mut commands,
         &mut meshes,
         &mut materials,
-        || (StateScoped(AppState::InGame), GameLight),
+        || (DespawnOnExit(AppState::InGame), GameLight),
     );
 }
 
@@ -333,7 +333,7 @@ fn flicker_power_glows(
     for (parent, material) in &glows {
         let Ok(slot) = slots.get(parent.parent()) else { continue };
         let Some(light) = wanted.get(slot.index) else { continue };
-        if let Some(m) = materials.get_mut(material) {
+        if let Some(mut m) = materials.get_mut(material) {
             m.emissive = glow_emissive(light, fade * flicker.0);
         }
     }
@@ -418,11 +418,11 @@ fn limit_power_shadows(
     };
     for (mut slot, mut light) in &mut points {
         let light = &mut *light;
-        update(&mut slot, &mut light.intensity, &mut light.shadows_enabled);
+        update(&mut slot, &mut light.intensity, &mut light.shadow_maps_enabled);
     }
     for (mut slot, mut light) in &mut spots {
         let light = &mut *light;
-        update(&mut slot, &mut light.intensity, &mut light.shadows_enabled);
+        update(&mut slot, &mut light.intensity, &mut light.shadow_maps_enabled);
     }
 }
 
@@ -597,10 +597,10 @@ fn spark_coils(
     let surge = 1.0 + 1.5 * (std::f32::consts::PI * station.fade).sin().powi(2) * f32::from(on);
     if fade != before || fade > 0.0 {
         let flicker = 0.75 + 0.5 * crate::util::rand01((now * 60.0) as u32 ^ 0x51ED);
-        if let Some(m) = materials.get_mut(&assets.arc) {
+        if let Some(mut m) = materials.get_mut(&assets.arc) {
             m.base_color = Color::LinearRgba(spark(SPARK_BRIGHTNESS * fade * surge));
         }
-        if let Some(m) = materials.get_mut(&assets.glow) {
+        if let Some(mut m) = materials.get_mut(&assets.glow) {
             m.base_color = Color::LinearRgba(spark(SPARK_BRIGHTNESS * 0.25 * fade * flicker));
         }
     }
@@ -739,14 +739,14 @@ const STATION_GLASS: &str = "glass";
 /// through, with its highlights kept at full strength (premultiplied
 /// alpha) — no metal, no transmission. (Shared by the editor's station.)
 pub(crate) fn glaze_power_station(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     models: Query<(), With<PowerStationModel>>,
     children: Query<&Children>,
     glass: Query<(&bevy::gltf::GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     if !models.contains(root) {
         return;
     }
@@ -803,7 +803,7 @@ fn sync_power_station(
     let half = shared::power_station::HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PowerStation::default(),
             crate::util::placed(at),
             Visibility::default(),
@@ -829,8 +829,8 @@ fn sync_power_station(
                                     Mesh3d(assets.segment.clone()),
                                     MeshMaterial3d(assets.arc.clone()),
                                     Transform::from_scale(Vec3::ZERO),
-                                    bevy::pbr::NotShadowCaster,
-                                    bevy::render::view::NoFrustumCulling,
+                                    bevy::light::NotShadowCaster,
+                                    bevy::camera::visibility::NoFrustumCulling,
                                 ));
                             }
                         });
@@ -840,7 +840,7 @@ fn sync_power_station(
                         Mesh3d(assets.ball.clone()),
                         MeshMaterial3d(assets.glow.clone()),
                         Transform::from_translation(tip).with_scale(Vec3::ZERO),
-                        bevy::pbr::NotShadowCaster,
+                        bevy::light::NotShadowCaster,
                     ));
                     s.spawn((
                         CoilLight {
@@ -852,7 +852,7 @@ fn sync_power_station(
                             color: Color::LinearRgba(spark(1.0)),
                             intensity: 0.0,
                             range: COIL_LIGHT_RANGE,
-                            shadows_enabled: false,
+                            shadow_maps_enabled: false,
                             ..default()
                         },
                         Transform::from_translation(tip + Vec3::Y * 0.15),
@@ -866,7 +866,7 @@ fn sync_power_station(
                     intensity: 0.0,
                     range: POWER_LIGHT_RANGE,
                     radius: POWER_LIGHT_RADIUS,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_translation(POWER_LIGHT_AT),
@@ -880,7 +880,7 @@ fn sync_power_station(
             ));
             s.spawn((
                 PowerStationModel,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(POWER_STATION_MODEL))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(POWER_STATION_MODEL))),
             ));
             // Solid — the server's `shared::power_station::solid_box`. (No
             // bullet holes: the box is looser than the model up top.)
@@ -985,7 +985,7 @@ fn sync_power_lever(
         let (graph, clip) =
             AnimationGraph::from_clip(asset_server.load(GltfAssetLabel::Animation(0).from_asset(LEVER_MODEL)));
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PowerLever {
                 graph: graphs.add(graph),
                 clip,
@@ -993,7 +993,7 @@ fn sync_power_lever(
                 // (Already on — joined late: it's just down, no throw.)
                 thrown: lobby.power_on,
             },
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(LEVER_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(LEVER_MODEL))),
             settings.transform(switch),
         ));
         return;
@@ -1034,7 +1034,7 @@ fn sync_power_lever(
                 .set_speed(settings.anim_speed.max(0.01));
             if let Some(sounds) = sounds.as_ref() {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     PowerOnSound,
                     AudioPlayer::new(sounds.power_on.clone()),
                     // From the lever itself.
@@ -1161,8 +1161,8 @@ fn turn_on_power(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::TurnOnPower>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::TurnOnPower>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -1208,8 +1208,8 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let body = asset_server.load(crate::BODY_FONT);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let faint = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55));
@@ -1222,7 +1222,7 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     );
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -1237,6 +1237,7 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
             row.spawn((
                 PowerCard,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(PERK_CARD_WIDTH),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(10.0),
@@ -1245,8 +1246,7 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(POWER_AMBER),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(POWER_AMBER),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -1260,8 +1260,8 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     col.spawn((
                         Text::new("The power is off. Turn it on to light up the map."),
                         TextFont {
-                            font: body.clone(),
-                            font_size: 14.0,
+                            font: body.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::srgba(1.0, 1.0, 1.0, 0.85)),
@@ -1298,12 +1298,12 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 card.spawn((
                     PowerCardAction,
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((PowerCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
             });
@@ -1356,8 +1356,8 @@ fn update_power_card(
             CARD_RED,
         )
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        border.set_all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;

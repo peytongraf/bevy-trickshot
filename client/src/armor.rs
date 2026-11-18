@@ -16,7 +16,7 @@
 //! over each health bar (`zombies_hud`) — and the last of ours breaking
 //! plays the armor-destroyed sound.
 //!
-//! The station, prompt and menu are `StateScoped(InGame)`, the station's
+//! The station, prompt and menu are `DespawnOnExit(InGame)`, the station's
 //! taken away whenever we're not in a `Zombies` game, and the menu closes
 //! whenever it stops making sense (walked off, died, out of the game) —
 //! nothing carries over.
@@ -24,7 +24,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::armor::{cost_to, numeral, Armor, HALF_EXTENTS, MAX_LEVEL, PLATE_POINTS, REFILL_COST};
 use shared::Lobby;
 
@@ -78,7 +78,7 @@ impl Plugin for ArmorPlugin {
                     sync_armor_station,
                     play_armor_broken,
                     update_armor_prompt,
-                    open_armor_menu.run_if(menu::game_active.and(killcam::no_killcam)),
+                    open_armor_menu.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     armor_menu_lifecycle,
                     armor_menu_input,
                     refresh_armor_menu,
@@ -116,14 +116,14 @@ fn sync_armor_station(
     let half = HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorStation,
             crate::util::placed(at),
             Visibility::default(),
         ))
         .with_children(|s| {
             s.spawn((
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(ARMOR_STATION_MODEL))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(ARMOR_STATION_MODEL))),
                 model_transform(),
             ));
             // Solid — the server's `shared::armor::solid_box`.
@@ -156,7 +156,7 @@ fn play_armor_broken(
     // isn't it breaking.)
     if *had_armor && !has && armor.level > 0 {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.armor_destroy.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -197,7 +197,7 @@ fn spawn_armor_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorPrompt,
             GlobalZIndex(5),
             Node {
@@ -222,8 +222,8 @@ fn spawn_armor_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_child((
                 Text::new("ARMOR"),
                 TextFont {
-                    font: heading,
-                    font_size: 40.0,
+                    font: heading.into(),
+                    font_size: FontSize::Px(40.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -239,8 +239,8 @@ fn spawn_armor_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ArmorPromptText,
                 Text::new(""),
                 TextFont {
-                    font: body,
-                    font_size: 24.0,
+                    font: body.into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.9, 0.93, 0.97)),
@@ -440,15 +440,15 @@ fn spawn_control(
 ) {
     let mut button = parent.spawn((
         which,
-        Button,
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         Node {
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             align_items: AlignItems::Center,
             column_gap: Val::Px(12.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if which == ArmorButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
@@ -456,6 +456,7 @@ fn spawn_control(
     button.with_children(|b| {
         b.spawn((
             Node {
+                border_radius: BorderRadius::all(Val::Px(18.0)),
                 min_width: Val::Px(44.0),
                 height: Val::Px(36.0),
                 padding: UiRect::horizontal(Val::Px(8.0)),
@@ -464,14 +465,13 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(18.0)),
+            BorderColor::all(LIGHT_TEXT),
         ))
         .with_child((
             Text::new(key),
             TextFont {
-                font: heading.clone(),
-                font_size: 22.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(22.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -479,8 +479,8 @@ fn spawn_control(
         b.spawn((
             Text::new(label),
             TextFont {
-                font: heading.clone(),
-                font_size: 34.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(34.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -512,6 +512,7 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
             link.spawn((
                 ArmorLinkLock(into),
                 Node {
+                    border_radius: BorderRadius::all(Val::Percent(50.0)),
                     width: Val::Px(34.0),
                     height: Val::Px(34.0),
                     flex_direction: FlexDirection::Column,
@@ -520,11 +521,11 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
-                BorderRadius::all(Val::Percent(50.0)),
             ))
             .with_children(|lock| {
                 lock.spawn((
                     Node {
+                        border_radius: BorderRadius::top(Val::Px(6.0)),
                         width: Val::Px(11.0),
                         height: Val::Px(7.0),
                         border: UiRect {
@@ -535,17 +536,16 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                         },
                         ..default()
                     },
-                    BorderColor(DARK_TEXT),
-                    BorderRadius::top(Val::Px(6.0)),
+                    BorderColor::all(DARK_TEXT),
                 ));
                 lock.spawn((
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         width: Val::Px(16.0),
                         height: Val::Px(11.0),
                         ..default()
                     },
                     BackgroundColor(DARK_TEXT),
-                    BorderRadius::all(Val::Px(2.0)),
                 ));
             });
         });
@@ -563,7 +563,7 @@ fn spawn_tile(
     parent
         .spawn((
             ArmorTile(choice),
-            Button,
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             Node {
                 width: Val::Px(TILE),
                 height: Val::Px(TILE),
@@ -573,7 +573,7 @@ fn spawn_tile(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             tile.spawn((
@@ -602,8 +602,8 @@ fn spawn_tile(
             .with_child((
                 Text::new(corner),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: if choice == Choice::Refill { 22.0 } else { 30.0 },
+                    font: heading.clone().into(),
+                    font_size: if choice == Choice::Refill { FontSize::Px(22.0) } else { FontSize::Px(30.0) },
                     ..default()
                 },
                 TextColor(DARK_TEXT.with_alpha(0.7)),
@@ -620,8 +620,8 @@ fn spawn_tile(
                 ArmorTileStatus(choice),
                 Text::new(""),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 22.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(22.0),
                     ..default()
                 },
                 TextColor(DARK_TEXT),
@@ -659,7 +659,7 @@ fn spawn_tile(
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -671,13 +671,13 @@ fn spawn_armor_menu(commands: &mut Commands, asset_server: &AssetServer) {
     let body = asset_server.load(BODY_FONT);
     let icon = asset_server.load(ARMOR_ICON);
     let hfont = |size: f32| TextFont {
-        font: heading.clone(),
-        font_size: size,
+        font: heading.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -713,11 +713,11 @@ fn spawn_armor_menu(commands: &mut Commands, asset_server: &AssetServer) {
                     .with_children(|bar| {
                         bar.spawn((
                             Node {
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 padding: UiRect::axes(Val::Px(56.0), Val::Px(4.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.85, 0.85, 0.85)),
-                            BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child((Text::new("ARMOR"), hfont(38.0), TextColor(DARK_TEXT)));
                     });
@@ -758,8 +758,8 @@ fn spawn_armor_menu(commands: &mut Commands, asset_server: &AssetServer) {
                                 ArmorText::Description,
                                 Text::new(""),
                                 TextFont {
-                                    font: body.clone(),
-                                    font_size: 28.0,
+                                    font: body.clone().into(),
+                                    font_size: FontSize::Px(28.0),
                                     ..default()
                                 },
                                 TextColor(LIGHT_TEXT),
@@ -866,13 +866,13 @@ fn armor_menu_input(
     sfx: Option<Res<UiSfx>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&ArmorTile, &Interaction)>,
     pressed_tiles: Query<(&ArmorTile, &Interaction), Changed<Interaction>>,
     buttons: Query<(&ArmorButton, &Interaction), Changed<Interaction>>,
-    mut buy_sender: Query<&mut TriggerSender<shared::BuyArmor>, With<GameClient>>,
-    mut refill_sender: Query<&mut TriggerSender<shared::RefillArmor>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut buy_sender: Query<&mut EventSender<shared::BuyArmor>, With<GameClient>>,
+    mut refill_sender: Query<&mut EventSender<shared::RefillArmor>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -935,7 +935,7 @@ fn armor_menu_input(
         info!("asked the server for armor: {choice:?}");
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.buy_ammo.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -982,7 +982,7 @@ fn refresh_armor_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status_of(icon.0) {

@@ -20,14 +20,14 @@
 //!
 //! The boards are `models/props/wood_plank.glb`, fitted to each window
 //! ([`BOARD_MODEL_SIZE`]) — plain wooden boxes if it's ever missing.
-//! Everything here is `StateScoped(InGame)` and taken away whenever we're
+//! Everything here is `DespawnOnExit(InGame)` and taken away whenever we're
 //! not in a `Zombies` game, so nothing carries into the next one.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::windows::{boards_left, repairable_at, Window, BOARDS, REPAIR_SECS};
 use shared::Lobby;
 
@@ -37,7 +37,7 @@ use crate::util::{ease, rand01, rand_roll};
 use crate::vfx::{impact_material, ImpactAssets, ImpactParticle, SmokeAssets, IMPACT_MAX};
 use bevy::ecs::system::SystemParam;
 use bevy_egui::egui;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use crate::zombies_hud::{zombies_game, PERK_CARD_WIDTH};
 use crate::{killcam, menu, revive, AppState, GameSounds, Player, EYE_HEIGHT, HUD_FONT};
 
@@ -144,8 +144,8 @@ impl Plugin for WindowsPlugin {
                     float_boards,
                     settle_boards,
                     fling_boards,
-                    repair_barrier.run_if(menu::game_active.and(killcam::no_killcam).and(revive::up)),
-                    stop_repairing.run_if(not(menu::game_active.and(killcam::no_killcam).and(revive::up))),
+                    repair_barrier.run_if(menu::game_active.and_then(killcam::no_killcam).and_then(revive::up)),
+                    stop_repairing.run_if(not(menu::game_active.and_then(killcam::no_killcam).and_then(revive::up))),
                     hammer,
                     receive_barrier_repaired,
                     update_barrier_card,
@@ -175,7 +175,7 @@ struct Repairing {
 /// editor draws its windows' boards with it too.)
 #[derive(Resource)]
 pub(crate) struct BoardLook {
-    model: Option<Handle<Scene>>,
+    model: Option<Handle<WorldAsset>>,
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
 }
@@ -205,7 +205,7 @@ fn load_board_look(
 pub(crate) fn board_visual(parent: &mut ChildSpawnerCommands, look: &BoardLook, size: Vec3) {
     match &look.model {
         Some(model) => {
-            parent.spawn((SceneRoot(model.clone()), Transform::from_scale(size / BOARD_MODEL_SIZE)));
+            parent.spawn((WorldAssetRoot(model.clone()), Transform::from_scale(size / BOARD_MODEL_SIZE)));
         }
         None => {
             parent.spawn((
@@ -295,7 +295,7 @@ fn sync_windows(
         let size = window.board_size();
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 WindowRoot { index, seen: None },
                 Transform::from_translation(window.at.pos).with_rotation(window.rotation()),
                 Visibility::default(),
@@ -353,7 +353,7 @@ fn sync_boards(
         let sound = |clip: Option<Handle<AudioSource>>, commands: &mut Commands| {
             if let Some(clip) = clip {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(clip),
                     Transform::from_translation(opening),
                     crate::positional_playback(Volume::Linear(1.0)),
@@ -373,7 +373,7 @@ fn sync_boards(
                 let side = window.rotation() * Vec3::X * (rand01(s ^ 0x1) - 0.5) * 2.0;
                 commands
                     .spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         FlungBoard {
                             velocity: out * (2.5 + 1.5 * rand01(s ^ 0x2)) + side + Vec3::Y * (1.5 + rand01(s ^ 0x3)),
                             spin: Vec3::new(rand01(s ^ 0x4) - 0.5, rand01(s ^ 0x5) - 0.5, rand01(s ^ 0x6) - 0.5) * 14.0,
@@ -408,7 +408,7 @@ fn sync_boards(
                     .with_rotation(place.rotation * Quat::from_rotation_z(tilt * 0.6) * Quat::from_rotation_y(r(0x10) * 0.15));
                 commands
                     .spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         FloatingBoard {
                             window: root.index,
                             slot: slot.0,
@@ -520,7 +520,7 @@ fn float_boards(
             }
             if smoke.is_some() && smoke_cfg.linger_secs > 0.0 {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     SettlingBoard {
                         at: board.to,
                         size,
@@ -538,7 +538,7 @@ fn float_boards(
                 .then(|| snd.board_slams[(rand01(s) * snd.board_slams.len() as f32) as usize % snd.board_slams.len()].clone())
         }) {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(clip),
                 Transform::from_translation(opening),
                 crate::positional_playback(Volume::Linear(1.0)),
@@ -613,7 +613,7 @@ fn spawn_board_smoke(
     let jitter = Vec3::new(r(0x51), r(0x52), r(0x53)) * cfg.spread;
     let size = 0.75 + 0.5 * rand01(s ^ 0x54);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity: drift + jitter + Vec3::Y * cfg.rise,
             // (Negative: it settles into rising at `rise` against the drag.)
@@ -717,7 +717,7 @@ fn spawn_board_dust(
     *budget -= 1;
     let size = (0.25 + 0.2 * rand01(s ^ 0x21)) * strength.max(0.3);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity: drift,
             gravity: 0.1,
@@ -771,7 +771,7 @@ fn repair_barrier(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut repairing: ResMut<Repairing>,
-    mut sender: Query<&mut TriggerSender<shared::RepairBarrier>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::RepairBarrier>, With<GameClient>>,
 ) {
     let now = time.elapsed_secs();
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
@@ -822,7 +822,7 @@ fn hammer(
     match (repairing.window.is_some(), playing.is_empty(), sounds) {
         (true, true, Some(sounds)) => {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Hammering,
                 AudioPlayer::new(sounds.hammering.clone()),
                 PlaybackSettings::LOOP,
@@ -843,7 +843,7 @@ fn receive_barrier_repaired(
     time: Res<Time>,
     mut receivers: Query<&mut lightyear::prelude::MessageReceiver<shared::BarrierRepaired>>,
     sounds: Res<GameSounds>,
-    mut scored: EventWriter<crate::TrickScoredEvent>,
+    mut scored: MessageWriter<crate::TrickScoredEvent>,
     // (Shown as the board slams home, not the moment it's paid.)
     mut due: Local<Vec<(f32, u32)>>,
 ) {
@@ -883,13 +883,13 @@ enum BarrierCardText {
 fn spawn_barrier_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -904,6 +904,7 @@ fn spawn_barrier_card(mut commands: Commands, asset_server: Res<AssetServer>) {
             row.spawn((
                 BarrierCard,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(PERK_CARD_WIDTH * 0.7),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
@@ -913,8 +914,7 @@ fn spawn_barrier_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(BOARD_TAN),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(BOARD_TAN),
                 Visibility::Hidden,
             ))
             .with_children(|card| {

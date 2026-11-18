@@ -22,8 +22,8 @@ use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::world_serialization::WorldInstanceReady;
 
 use crate::death_effect::DeathEffect;
 use crate::fall_death::FallDeathState;
@@ -177,7 +177,7 @@ impl DrinkArmsSettings {
 /// bottle its own material to tint, and arm the animation player parked on
 /// the trimmed clip's first frame.
 pub(crate) fn start_drink_arms_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     arms: Query<&DrinkArmsAnimation>,
@@ -186,7 +186,7 @@ pub(crate) fn start_drink_arms_animation(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = arms.get(root) else {
         return;
     };
@@ -339,8 +339,8 @@ fn tint_drink_bottle(
     }
     let perk = drink.perk.unwrap_or(Perk::ShroomTea);
     for bottle in &bottles {
-        if let Some(mat) = materials.get_mut(&bottle.0) {
-            tint_bottle_glass(mat, perk, &settings);
+        if let Some(mut mat) = materials.get_mut(&bottle.0) {
+            tint_bottle_glass(&mut mat, perk, &settings);
         }
     }
 }

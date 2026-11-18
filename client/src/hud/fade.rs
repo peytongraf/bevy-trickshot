@@ -32,7 +32,7 @@ impl Plugin for HudFadePlugin {
             .add_systems(OnExit(AppState::InGame), |mut fade: ResMut<HudFade>| *fade = default())
             .add_systems(
                 PostUpdate,
-                hide_shader_icons.before(bevy::render::view::VisibilitySystems::VisibilityPropagate),
+                hide_shader_icons.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
             )
             .add_systems(Last, fade_out)
             .add_systems(First, put_back);
@@ -127,8 +127,9 @@ fn fade_out(
                 c.0 = scaled(c.0, by);
             }
             if let Some(mut c) = border {
-                saved.border = Some(c.0);
-                c.0 = scaled(c.0, by);
+                saved.border = Some(c.top);
+                let dimmed = scaled(c.top, by);
+                c.set_all(dimmed);
             }
             if let Some(mut c) = text {
                 saved.text = Some(c.0);
@@ -204,7 +205,7 @@ fn put_back(
             c.0 = was;
         }
         if let (Some(mut c), Some(was)) = (border, s.border) {
-            c.0 = was;
+            c.set_all(was);
         }
         if let (Some(mut c), Some(was)) = (text, s.text) {
             c.0 = was;

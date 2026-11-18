@@ -11,15 +11,13 @@
 // along its length). Driven by `ExhumerBeamMaterial` in
 // `client/src/exhumer.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::{position_world_to_clip, position_world_to_view, depth_ndc_to_view_z},
-    mesh_view_bindings::{view, globals},
-}
-#ifdef DEPTH_PREPASS
-#import bevy_pbr::prepass_utils
-#endif
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::{position_world_to_clip, position_world_to_view, depth_ndc_to_view_z},
+    render::mesh_view_bindings::{view, globals}};
+@if(DEPTH_PREPASS)
+import bevy_pbr::prepass::utils;
 
 struct BeamParams {
     // Linear rgb; a = brightness.
@@ -43,7 +41,7 @@ struct BeamParams {
     // along it (the offset at v is bend * v^w).
     bend: vec4<f32>,
 }
-@group(2) @binding(0) var<uniform> beam: BeamParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> beam: BeamParams;
 
 fn hash1(x: f32) -> f32 {
     return fract(sin(x * 127.1) * 43758.5453);
@@ -120,9 +118,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.world_normal = vec3<f32>(vertex.position.x * 2.0, v * len, len);
     out.uv = vec2<f32>(seed, half);
     out.position = position_world_to_clip(world);
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
     return out;
 }
 
@@ -146,11 +144,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // cutting into it on a hard line: fading out the closer the scene behind
     // it is (soft particles, off the depth prepass).
     var soft = 1.0;
-#ifdef DEPTH_PREPASS
-    let scene = -depth_ndc_to_view_z(prepass_utils::prepass_depth(in.position, 0u));
-    let here = -position_world_to_view(in.world_position.xyz).z;
-    soft = smoothstep(0.0, 0.6, scene - here);
-#endif
+    @if(DEPTH_PREPASS) {
+        let scene = -depth_ndc_to_view_z(utils::prepass_depth(in.position, 0u));
+        let here = -position_world_to_view(in.world_position.xyz).z;
+        soft = smoothstep(0.0, 0.6, scene - here);
+    }
 
     // Its whole brightness wavers, as the souls fight it.
     let waver = 1.0 - beam.flicker * (0.5 * noise1(t * 13.0 + seed) + 0.5 * noise1(t * 31.0 + seed * 2.0));

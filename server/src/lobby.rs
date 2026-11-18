@@ -130,7 +130,7 @@ fn remove_peer(
     }
 }
 
-fn reject(sender: &mut ServerMultiMessageSender, server: &Server, peer: PeerId, reason: &str) {
+fn reject(sender: &mut ServerMultiMessageSender, server: &Endpoint, peer: PeerId, reason: &str) {
     let msg = LobbyError {
         reason: reason.to_string(),
     };
@@ -153,7 +153,7 @@ fn verified(verified: &Option<Res<crate::net::VerifiedPeers>>, peer: PeerId) -> 
 }
 
 fn on_create(
-    trigger: Trigger<RemoteTrigger<CreateLobby>>,
+    trigger: On<RemoteEvent<CreateLobby>>,
     peers: Option<Res<crate::net::VerifiedPeers>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
@@ -248,11 +248,11 @@ fn on_create(
 
 #[allow(clippy::too_many_arguments)]
 fn on_join(
-    trigger: Trigger<RemoteTrigger<JoinLobby>>,
+    trigger: On<RemoteEvent<JoinLobby>>,
     peers: Option<Res<crate::net::VerifiedPeers>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut commands: Commands,
 ) {
@@ -327,7 +327,7 @@ fn on_join(
 }
 
 fn on_leave(
-    trigger: Trigger<RemoteTrigger<LeaveLobby>>,
+    trigger: On<RemoteEvent<LeaveLobby>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
     mut commands: Commands,
@@ -342,13 +342,13 @@ const FULL_POWER_POINTS: u32 = 100_000;
 
 #[allow(clippy::too_many_arguments)]
 fn on_start(
-    trigger: Trigger<RemoteTrigger<StartGame>>,
+    trigger: On<RemoteEvent<StartGame>>,
     time: Res<Time>,
     navs: Res<crate::nav::NavGraphs>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     clients: Query<(Entity, &RemoteId), With<ClientOf>>,
     old_players: Query<(Entity, &LobbyPlayer)>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut commands: Commands,
 ) {
@@ -532,8 +532,8 @@ fn on_start(
             PlayerName(member.name.clone()),
             pose,
             ActionState::<PlayerInput>::default(),
-            Replicate::to_clients(NetworkTarget::Only(real.clone())),
-            InterpolationTarget::to_clients(NetworkTarget::Only(others)),
+            Replicate::to_clients(NetworkTarget::from(real.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::from(others)),
         ));
         match (owner, member.bot) {
             // A real player: predicted by their own client, driven by its input.
@@ -575,7 +575,7 @@ fn on_start(
 /// [`shared::AssetsReady`]. Marks that member's `assets` in whichever
 /// started lobby they're in; a stray report from a lobby that hasn't started
 /// (or isn't theirs) is simply ignored.
-fn on_assets_ready(trigger: Trigger<RemoteTrigger<AssetsReady>>, mut lobbies: Query<&mut Lobby>) {
+fn on_assets_ready(trigger: On<RemoteEvent<AssetsReady>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     for mut lobby in &mut lobbies {
         if lobby.started && lobby.has(peer) {
@@ -590,7 +590,7 @@ fn on_assets_ready(trigger: Trigger<RemoteTrigger<AssetsReady>>, mut lobbies: Qu
 /// A client's played the intro through (or had none) — see
 /// [`shared::IntroFinished`]: that member's ready to play (`loaded`), so
 /// long as its assets are in.
-fn on_intro_finished(trigger: Trigger<RemoteTrigger<shared::IntroFinished>>, mut lobbies: Query<&mut Lobby>) {
+fn on_intro_finished(trigger: On<RemoteEvent<shared::IntroFinished>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     for mut lobby in &mut lobbies {
         if lobby.started && lobby.has(peer) {
@@ -608,8 +608,8 @@ fn on_intro_finished(trigger: Trigger<RemoteTrigger<shared::IntroFinished>>, mut
 /// non-leaders, and outside a game.
 #[allow(clippy::too_many_arguments)]
 fn on_end_game(
-    trigger: Trigger<RemoteTrigger<EndGame>>,
-    server: Single<&Server>,
+    trigger: On<RemoteEvent<EndGame>>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
@@ -630,7 +630,7 @@ fn on_end_game(
     if let Err(e) = sender.send::<_, GameChannel>(
         &shared::ReturnToLobby,
         server.into_inner(),
-        &NetworkTarget::Only(lobby.real_peers()),
+        &NetworkTarget::from(lobby.real_peers()),
     ) {
         error!("failed to send the party back to the lobby: {e:?}");
     }
@@ -649,7 +649,7 @@ fn on_end_game(
 /// The leader pauses / resumes their running game for the whole party. Not
 /// once the match is ending (nothing to pause — it's already frozen).
 fn on_set_paused(
-    trigger: Trigger<RemoteTrigger<SetPaused>>,
+    trigger: On<RemoteEvent<SetPaused>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
 ) {
@@ -666,7 +666,7 @@ fn on_set_paused(
 }
 
 /// Debug: the leader stops (or lets) their lobby's bots fire, any time.
-fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_bots_passive(trigger: On<RemoteEvent<SetBotsPassive>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let passive = trigger.trigger.passive;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
@@ -683,7 +683,7 @@ fn on_set_bots_passive(trigger: Trigger<RemoteTrigger<SetBotsPassive>>, mut lobb
 /// haven't fired yet ([`crate::pvp::PlayerCombat::can_swap_loadout`]),
 /// otherwise it's what they'll spawn with next.
 fn on_set_loadout(
-    trigger: Trigger<RemoteTrigger<shared::SetLoadout>>,
+    trigger: On<RemoteEvent<shared::SetLoadout>>,
     time: Res<Time>,
     mut lobbies: Query<&mut Lobby>,
     combats: Query<(&PlayerId, &crate::pvp::PlayerCombat)>,
@@ -719,7 +719,7 @@ fn on_set_loadout(
 }
 
 /// A member picks who they play as — any time but during a `Zombies` game.
-fn on_set_operator(trigger: Trigger<RemoteTrigger<shared::SetOperator>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_operator(trigger: On<RemoteEvent<shared::SetOperator>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let operator = trigger.trigger.operator;
     let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer)) else {
@@ -737,7 +737,7 @@ fn on_set_operator(trigger: Trigger<RemoteTrigger<shared::SetOperator>>, mut lob
 }
 
 /// Debug: the leader freezes (or frees) their lobby's bots in place, any time.
-fn on_set_bots_frozen(trigger: Trigger<RemoteTrigger<SetBotsFrozen>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_bots_frozen(trigger: On<RemoteEvent<SetBotsFrozen>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let frozen = trigger.trigger.frozen;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
@@ -750,7 +750,7 @@ fn on_set_bots_frozen(trigger: Trigger<RemoteTrigger<SetBotsFrozen>>, mut lobbie
 
 /// Debug: the leader makes every zombie kill drop a power-up (or not), any
 /// time.
-fn on_set_power_up_test(trigger: Trigger<RemoteTrigger<SetPowerUpTest>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_power_up_test(trigger: On<RemoteEvent<SetPowerUpTest>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
@@ -763,7 +763,7 @@ fn on_set_power_up_test(trigger: Trigger<RemoteTrigger<SetPowerUpTest>>, mut lob
 
 /// Debug: the leader makes every zombie kill in their lobby explode (Bomb
 /// Shot without the perk or the trickshot), any time.
-fn on_set_bomb_test(trigger: Trigger<RemoteTrigger<SetBombTest>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_bomb_test(trigger: On<RemoteEvent<SetBombTest>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer) {
@@ -776,7 +776,7 @@ fn on_set_bomb_test(trigger: Trigger<RemoteTrigger<SetBombTest>>, mut lobbies: Q
 
 /// The leader picks the match length while the lobby is still waiting.
 fn on_set_time_limit(
-    trigger: Trigger<RemoteTrigger<SetTimeLimit>>,
+    trigger: On<RemoteEvent<SetTimeLimit>>,
     mut lobbies: Query<&mut Lobby>,
 ) {
     let peer = trigger.from;
@@ -795,7 +795,7 @@ fn on_set_time_limit(
 }
 
 /// The leader picks the lobby's game mode while it's still waiting.
-fn on_set_game_mode(trigger: Trigger<RemoteTrigger<SetGameMode>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_game_mode(trigger: On<RemoteEvent<SetGameMode>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let mode = trigger.trigger.mode;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -885,7 +885,7 @@ fn add_bots(
 /// opponents — or a `Zombies` one — teammates: `count` of them at one
 /// difficulty (call it again for another difficulty) — see [`add_bots`].
 fn on_add_bots(
-    trigger: Trigger<RemoteTrigger<AddBots>>,
+    trigger: On<RemoteEvent<AddBots>>,
     time: Res<Time>,
     mut next: ResMut<NextBotId>,
     mut lobbies: Query<&mut Lobby>,
@@ -924,7 +924,7 @@ fn pick_bot_operators(lobby: &mut Lobby, seed: u64) {
 }
 
 /// The leader removes every bot from a waiting lobby.
-fn on_clear_bots(trigger: Trigger<RemoteTrigger<ClearBots>>, mut lobbies: Query<&mut Lobby>) {
+fn on_clear_bots(trigger: On<RemoteEvent<ClearBots>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.members.retain(|m| m.bot.is_none());
@@ -933,7 +933,7 @@ fn on_clear_bots(trigger: Trigger<RemoteTrigger<ClearBots>>, mut lobbies: Query<
 }
 
 /// The leader picks the lobby's map while it's still waiting.
-fn on_set_map(trigger: Trigger<RemoteTrigger<SetMap>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_map(trigger: On<RemoteEvent<SetMap>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let map = trigger.trigger.map;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -943,7 +943,7 @@ fn on_set_map(trigger: Trigger<RemoteTrigger<SetMap>>, mut lobbies: Query<&mut L
 }
 
 /// The leader picks `FreeForAll`'s kill limit while the lobby is still waiting.
-fn on_set_kill_limit(trigger: Trigger<RemoteTrigger<SetKillLimit>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_kill_limit(trigger: On<RemoteEvent<SetKillLimit>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let kills = trigger.trigger.kills.clamp(MIN_KILL_LIMIT, MAX_KILL_LIMIT);
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -954,7 +954,7 @@ fn on_set_kill_limit(trigger: Trigger<RemoteTrigger<SetKillLimit>>, mut lobbies:
 
 /// The leader picks a `Zombies` game's starting round and starting points
 /// while the lobby is still waiting.
-fn on_set_zombies_start(trigger: Trigger<RemoteTrigger<SetZombiesStart>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_zombies_start(trigger: On<RemoteEvent<SetZombiesStart>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let round = trigger.trigger.round.clamp(1, shared::zombies::MAX_START_ROUND);
     let points = trigger.trigger.points.min(shared::zombies::MAX_START_POINTS);
@@ -969,7 +969,7 @@ fn on_set_zombies_start(trigger: Trigger<RemoteTrigger<SetZombiesStart>>, mut lo
 
 /// The leader picks which perks a `Zombies` game's machines sell while the
 /// lobby is still waiting.
-fn on_set_perk_set(trigger: Trigger<RemoteTrigger<shared::SetPerkSet>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_perk_set(trigger: On<RemoteEvent<shared::SetPerkSet>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let set = trigger.trigger.set;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -982,7 +982,7 @@ fn on_set_perk_set(trigger: Trigger<RemoteTrigger<shared::SetPerkSet>>, mut lobb
 
 /// The leader picks whether a `Zombies` game's perk machines wait for the
 /// power while the lobby is still waiting.
-fn on_set_perks_need_power(trigger: Trigger<RemoteTrigger<shared::SetPerksNeedPower>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_perks_need_power(trigger: On<RemoteEvent<shared::SetPerksNeedPower>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -995,7 +995,7 @@ fn on_set_perks_need_power(trigger: Trigger<RemoteTrigger<shared::SetPerksNeedPo
 
 /// The leader picks whether a `Zombies` game starts fully powered up while
 /// the lobby is still waiting.
-fn on_set_full_power(trigger: Trigger<RemoteTrigger<shared::SetFullPower>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_full_power(trigger: On<RemoteEvent<shared::SetFullPower>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let on = trigger.trigger.on;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -1008,7 +1008,7 @@ fn on_set_full_power(trigger: Trigger<RemoteTrigger<shared::SetFullPower>>, mut 
 
 /// The leader picks what a `FreeForAll` match replays at the end while the
 /// lobby is still waiting.
-fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_end_cam(trigger: On<RemoteEvent<SetEndCam>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
         lobby.end_cam = trigger.trigger.cam;
@@ -1023,7 +1023,7 @@ fn on_set_end_cam(trigger: Trigger<RemoteTrigger<SetEndCam>>, mut lobbies: Query
 pub(crate) fn end_match(
     lobby_e: Entity,
     lobby: &mut Lobby,
-    server: &Server,
+    server: &Endpoint,
     sender: &mut ServerMultiMessageSender,
     best_plays: &mut crate::killcam::BestPlays,
     ffa_plays: &mut crate::killcam::FfaPlays,
@@ -1071,7 +1071,7 @@ pub(crate) fn end_match(
     if let Some(best) = &mut best_play {
         best.best_play = true;
         if let Err(e) =
-            sender.send::<_, GameChannel>(best, server, &NetworkTarget::Only(targets.clone()))
+            sender.send::<_, GameChannel>(best, server, &NetworkTarget::from(targets.clone()))
         {
             error!("failed to broadcast best play: {e:?}");
         }
@@ -1082,7 +1082,7 @@ pub(crate) fn end_match(
         winner_score,
         best_play_sent: best_play.is_some(),
     };
-    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
+    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(targets)) {
         error!("failed to broadcast match result: {e:?}");
     }
     back_to_room(lobby);
@@ -1146,13 +1146,13 @@ fn tick_match_clock(
 }
 
 fn on_disconnect(
-    trigger: Trigger<OnAdd, Disconnected>,
+    trigger: On<Add<Disconnected>>,
     clients: Query<&RemoteId, With<ClientOf>>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer)>,
     mut commands: Commands,
 ) {
-    let Ok(peer) = clients.get(trigger.target()) else {
+    let Ok(peer) = clients.get(trigger.entity) else {
         return;
     };
     remove_peer(peer.0, None, &mut lobbies, &players, &mut commands);

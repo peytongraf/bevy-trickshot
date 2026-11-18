@@ -2,11 +2,9 @@
 //! live-tunable from the debug panel, pushed onto the actual light/fog/bloom
 //! components whenever the tuning or the selected map changes.
 
-use bevy::core_pipeline::bloom::Bloom;
-use bevy::pbr::{
-    CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap, DistanceFog,
-    FogFalloff,
-};
+use bevy::post_process::bloom::Bloom;
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap};
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -292,7 +290,7 @@ pub(crate) fn apply_scene_tuning(
     dog_fade: Res<super::DogRoundFade>,
     dog_look: Res<super::DogRoundLook>,
     (egg_fade, egg_look): (Res<super::EggMoodFade>, Res<super::EggMoodNow>),
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut sun: Single<&mut DirectionalLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut bloom: Single<&mut Bloom, With<WorldModelCamera>>,
@@ -362,7 +360,7 @@ pub(crate) fn apply_shadow_quality(
         ShadowQuality::Extra => (true, 4096, 4, 160.0),
     };
 
-    light.shadows_enabled = enabled;
+    light.shadow_maps_enabled = enabled;
     shadow_map.size = size;
     **cascades = CascadeShadowConfigBuilder {
         num_cascades,

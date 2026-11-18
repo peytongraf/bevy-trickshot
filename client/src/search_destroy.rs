@@ -13,13 +13,13 @@
 //! teammate (`revive::spectate`) — with no input ([`SndLocal::dead`],
 //! `menu::game_active`).
 //!
-//! Everything here is `StateScoped(InGame)`, and [`SndLocal`] is reset on
+//! Everything here is `DespawnOnExit(InGame)`, and [`SndLocal`] is reset on
 //! the way in and out, so nothing carries into the next game.
 
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
 use bevy::window::PrimaryWindow;
-use lightyear::prelude::input::client::InputSet;
+use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::{LocalId, MessageReceiver, PeerId};
 use shared::search_destroy::{
@@ -60,11 +60,11 @@ impl Plugin for SearchDestroyPlugin {
             .add_systems(OnEnter(AppState::InGame), (reset_local, spawn_hud))
             .add_systems(OnExit(AppState::InGame), reset_local)
             // Before anything's run conditions read it this frame.
-            .add_systems(PreUpdate, track_local.after(bevy::input::InputSystem))
+            .add_systems(PreUpdate, track_local.after(bevy::input::InputSystems))
             .add_systems(
                 FixedPreUpdate,
                 write_snd_input
-                    .in_set(InputSet::WriteClientInputs)
+                    .in_set(InputSystems::WriteClientInputs)
                     .after(crate::net::write_input),
             )
             .add_systems(
@@ -232,8 +232,8 @@ struct MarkerText;
 fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let text = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let shadow = TextShadow {
@@ -254,7 +254,7 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             ScoreRoot,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             centred(Val::Px(crate::hud::COMPASS_HEIGHT + 6.0)),
             Visibility::Hidden,
@@ -264,9 +264,10 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 align_items: AlignItems::Center,
                 column_gap: Val::Px(18.0),
                 padding: UiRect::axes(Val::Px(16.0), Val::Px(4.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             })
-            .insert((BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)), BorderRadius::all(Val::Px(6.0))))
+            .insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)))
             .with_children(|row| {
                 row.spawn((ScoreWins(Team::Red), Text::new("0"), text(34.0), TextColor(team_color(Team::Red)), shadow));
                 row.spawn((ScoreClock, Text::new(""), text(30.0), TextColor::WHITE, shadow));
@@ -276,14 +277,14 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 
     commands
-        .spawn((BannerRoot, StateScoped(AppState::InGame), GlobalZIndex(6), centred(Val::Percent(24.0)), Visibility::Hidden))
+        .spawn((BannerRoot, DespawnOnExit(AppState::InGame), GlobalZIndex(6), centred(Val::Percent(24.0)), Visibility::Hidden))
         .with_children(|col| {
             col.spawn((BannerTitle, Text::new(""), text(64.0), TextColor::WHITE, shadow));
             col.spawn((BannerSub, Text::new(""), text(24.0), TextColor::WHITE, shadow));
         });
 
     commands
-        .spawn((PromptRoot, StateScoped(AppState::InGame), GlobalZIndex(5), centred(Val::Percent(60.0)), Visibility::Hidden))
+        .spawn((PromptRoot, DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred(Val::Percent(60.0)), Visibility::Hidden))
         .with_children(|col| {
             col.spawn((PromptText, Text::new(""), text(22.0), TextColor::WHITE, shadow));
             col.spawn((
@@ -316,9 +317,10 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
         commands
             .spawn((
                 marker,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 GlobalZIndex(4),
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     position_type: PositionType::Absolute,
                     min_width: Val::Px(MARKER_W),
                     padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)),
@@ -327,8 +329,7 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-                BorderColor(Color::WHITE),
-                BorderRadius::all(Val::Px(4.0)),
+                BorderColor::all(Color::WHITE),
                 Visibility::Hidden,
             ))
             .with_child((MarkerText, Text::new(label), text(22.0), TextColor::WHITE, shadow));
@@ -523,7 +524,7 @@ fn update_markers(
             let at = match cam.world_to_viewport(&gt, anchor) {
                 Ok(p) if ahead => p,
                 _ => {
-                    let local = gt.compute_matrix().inverse().transform_point3(anchor);
+                    let local = gt.to_matrix().inverse().transform_point3(anchor);
                     let dir = Vec2::new(local.x, -local.y).normalize_or(Vec2::Y);
                     size / 2.0 + dir * size.length()
                 }
@@ -545,8 +546,8 @@ fn update_markers(
         if node.top != top {
             node.top = top;
         }
-        if border.0 != color {
-            border.0 = color;
+        if border.top != color {
+            border.set_all(color);
         }
         show(&mut vis, true);
     }
@@ -591,7 +592,7 @@ fn sync_world(
         for at in sites.sites {
             commands.spawn((
                 SiteRing,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Mesh3d(ring.clone()),
                 MeshMaterial3d(mat.clone()),
                 Transform::from_translation(at + Vec3::Y * 0.04).with_rotation(Quat::from_rotation_x(-core::f32::consts::FRAC_PI_2)),
@@ -611,7 +612,7 @@ fn sync_world(
         commands
             .spawn((
                 BombModel,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Mesh3d(meshes.add(Cuboid::from_size(BOMB_SIZE))),
                 MeshMaterial3d(body),
                 Transform::default(),
@@ -657,7 +658,7 @@ fn beep_and_blow_up(
     lobbies: Query<&Lobby>,
     mut state: ResMut<SndLocal>,
     mut exploded: Query<&mut MessageReceiver<shared::SndBombExploded>>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut commands: Commands,
 ) {
     for mut rx in &mut exploded {
@@ -689,7 +690,7 @@ fn beep_and_blow_up(
     state.next_beep = now + BEEP_FAST_SECS + (BEEP_SLOW_SECS - BEEP_FAST_SECS) * left;
     if let Some(sounds) = sounds {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.beep.clone()),
             Transform::from_translation(at),
             crate::positional_playback(Volume::Linear(1.0)),

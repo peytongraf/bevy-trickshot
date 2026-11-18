@@ -88,7 +88,7 @@ pub(crate) fn apply_water_settings(
         return;
     };
     transform.translation.y = -settings.level_drop;
-    let Some(material) = materials.get_mut(&water.0) else {
+    let Some(mut material) = materials.get_mut(&water.0) else {
         return;
     };
     let [r, g, b] = if current.0 == shared::MapId::ShipmentDay {
@@ -115,7 +115,7 @@ pub(crate) fn scroll_water_normal(
     let Ok(water) = water.single() else {
         return;
     };
-    let Some(material) = materials.get_mut(&water.0) else {
+    let Some(mut material) = materials.get_mut(&water.0) else {
         return;
     };
     let scroll = settings.scroll_speed * time.elapsed_secs();

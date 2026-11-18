@@ -5,6 +5,7 @@
 use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 
 use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -152,7 +153,7 @@ pub(crate) struct PendingMelee(pub Option<(Vec3, Vec3)>);
 /// The local player fired: the ray to draw the shooter's own tracer / ground
 /// dust along this frame (see [`resolve_local_shot`]). The server still decides
 /// what the shot actually hit.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct LocalShot {
     pub(crate) origin: Vec3,
     pub(crate) dir: Vec3,
@@ -216,13 +217,13 @@ pub(crate) fn resolve_local_shot(
         Query<&Projection, With<crate::player::ViewModelCamera>>,
         Query<(Entity, &Projection), With<crate::WorldModelCamera>>,
     ),
-    mut shots: EventReader<LocalShot>,
+    mut shots: MessageReader<LocalShot>,
     mut ground_hit: ResMut<killcam::ReplayGroundImpact>,
     mut tracer_rec: ResMut<killcam::ReplayTracer>,
-    mut impacts: EventWriter<GroundImpact>,
-    mut holes: EventWriter<BulletImpact>,
-    mut tracers: EventWriter<FireTracer>,
-    mut bolts: EventWriter<crate::RayGunBolt>,
+    mut impacts: MessageWriter<GroundImpact>,
+    mut holes: MessageWriter<BulletImpact>,
+    mut tracers: MessageWriter<FireTracer>,
+    mut bolts: MessageWriter<crate::RayGunBolt>,
 ) {
     for shot in shots.read() {
         let max_range = shot.weapon.spec().max_range;
@@ -1544,7 +1545,7 @@ pub(crate) fn weapon_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     (view_model, mut view_model_vis, knife_anim, mut knife_vis, arms_anim): (
         Single<&ViewModelAnimation>,
         Single<&mut Visibility, (With<ViewModel>, Without<KnifeViewModel>)>,
@@ -1599,7 +1600,7 @@ pub(crate) fn weapon_system(
             Res<crate::flash_bang::FlashBangSettings>,
         ),
     ),
-    mut shots: EventWriter<LocalShot>,
+    mut shots: MessageWriter<LocalShot>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
     (shake_cfg, sounds, anim, ads, spread_cfg, settings, time, arms_settings, nitro): (
         Res<ShakeSettings>,
@@ -1687,7 +1688,7 @@ pub(crate) fn weapon_system(
     let Some(mut knife_player) = knife_players.iter_mut().next() else {
         return;
     };
-    let locked = window.cursor_options.grab_mode != CursorGrabMode::None;
+    let locked = window.grab_mode != CursorGrabMode::None;
     // `None` if the arms scene hasn't finished loading — the throwing arms
     // then just never show anything, instead of taking the whole weapon
     // system down with them.
@@ -1898,7 +1899,7 @@ pub(crate) fn weapon_system(
         if knife.kind == Lethal::Frag && !knife.dry {
             knife.fuse_left = shared::frag::FUSE_SECS;
             commands.spawn((
-                StateScoped(crate::AppState::InGame),
+                DespawnOnExit(crate::AppState::InGame),
                 AudioPlayer::new(sounds.frag_pin_pull.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -2002,7 +2003,7 @@ pub(crate) fn weapon_system(
                 knife.phase = ThrowPhase::Priming;
                 knife.prime_left = monkey_cfg.prime_secs;
                 commands.spawn((
-                    StateScoped(crate::AppState::InGame),
+                    DespawnOnExit(crate::AppState::InGame),
                     AudioPlayer::new(sounds.monkey_bomb_prime.clone()),
                     PlaybackSettings::DESPAWN,
                 ));

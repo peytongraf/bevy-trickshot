@@ -118,7 +118,7 @@ impl Plugin for MenuBackdropPlugin {
             .add_systems(Startup, make_backdrop_images)
             .add_systems(
             PostUpdate,
-            (animate_menu_backdrop, pan_intro_art).before(bevy::ui::UiSystem::Layout),
+            (animate_menu_backdrop, pan_intro_art).before(bevy::ui::UiSystems::Layout),
         );
     }
 }
@@ -276,11 +276,11 @@ pub(crate) fn results_backdrop(parent: &mut ChildSpawnerCommands) {
                     Backdrop::Ember(i),
                     Theme::Results,
                     Node {
+                        border_radius: BorderRadius::MAX,
                         position_type: PositionType::Absolute,
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::MAX,
                     BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
                 ));
             }
@@ -357,11 +357,11 @@ fn spawn_backdrop(
                     Backdrop::Ember(i),
                     theme,
                     Node {
+                        border_radius: BorderRadius::MAX,
                         position_type: PositionType::Absolute,
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::MAX,
                     BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
                 ));
             }

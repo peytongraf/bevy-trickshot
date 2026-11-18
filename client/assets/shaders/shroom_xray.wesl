@@ -8,14 +8,12 @@
 // see them. Driven by
 // `ShroomXrayMaterial` in `client/src/vfx/shroom_xray.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    skinning,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::{view, globals},
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::skinning,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::{view, globals}};
 struct XrayParams {
     // rgb = the haze colour, a = brightness multiplier (glow, for bloom).
     color: vec4<f32>,
@@ -34,7 +32,7 @@ struct XrayParams {
     // 0 = the shroom's hazy ghost; 1 = an outline only (Death Perception).
     outline: f32,
 }
-@group(2) @binding(0) var<uniform> x: XrayParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> x: XrayParams;
 
 // --- cheap 3D value noise ---------------------------------------------
 
@@ -79,25 +77,21 @@ fn hue_rotate(c: vec3<f32>, angle: f32) -> vec3<f32> {
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
-#ifdef SKINNED
+@if(SKINNED)
     let world_from_local = skinning::skin_model(
         vertex.joint_indices,
         vertex.joint_weights,
         vertex.instance_index,
     );
-#else
+@else
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-#endif
 
-#ifdef VERTEX_NORMALS
-#ifdef SKINNED
+@if(VERTEX_NORMALS && SKINNED)
     let n = normalize(skinning::skin_normals(world_from_local, vertex.normal));
-#else
+@elif(VERTEX_NORMALS)
     let n = normalize(mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index));
-#endif
-#else
+@else
     let n = vec3<f32>(0.0, 1.0, 0.0);
-#endif
 
     var world = mesh_functions::mesh_position_local_to_world(
         world_from_local,
@@ -123,9 +117,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let pulled_d = max(min(body_front, d - x.min_gap), min(d, 0.15));
     let pulled = view.world_position + to * (pulled_d / d);
     out.position = position_world_to_clip(pulled);
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = vertex.instance_index;
-#endif
     return out;
 }
 

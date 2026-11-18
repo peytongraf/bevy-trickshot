@@ -46,12 +46,12 @@
 //!   reset, and the ritual area and the pyramid's spots drawn.
 //!
 //! Everything reads the replicated `Lobby::easter_egg`. The pieces, vial,
-//! prompt and HUD are `StateScoped(InGame)` and taken away / hidden
+//! prompt and HUD are `DespawnOnExit(InGame)` and taken away / hidden
 //! whenever they stop applying; the debug drawing's switch
 //! ([`EggDebugView`]), the whispers' timing ([`EggLocal`]) and the
 //! ritual's clock ([`EggRitual`]) are reset on
 //! leaving the game (his lines' timing is in [`EggLocal`] too), and a
-//! whisper or line playing is `StateScoped(InGame)` too — a line also stops
+//! whisper or line playing is `DespawnOnExit(InGame)` too — a line also stops
 //! if the egg's reset under it. Nothing carries into the
 //! next one.
 
@@ -59,7 +59,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::Collider;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::easter_egg::{
     EasterEgg, EggStep, PYRAMID_ALTAR_HALF_EXTENTS, SARCOPHAGUS_HALF_EXTENTS, SOCIETY_CASE_HALF_EXTENTS,
 };
@@ -122,7 +122,7 @@ impl Plugin for EasterEggPlugin {
                     track_ritual,
                     update_ritual_caption,
                     update_egg_prompt,
-                    egg_interact.run_if(menu::game_active.and(killcam::no_killcam)),
+                    egg_interact.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     pickup_sounds,
                     update_egg_hud,
                     whisper,
@@ -269,7 +269,7 @@ fn dagger(asset_server: &AssetServer, at: Vec3, pose: DaggerPose) -> impl Bundle
         DaggerPose::PointDown => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
     };
     (
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DAGGER_MODEL))),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DAGGER_MODEL))),
         Transform::from_translation(at)
             .with_rotation(rotation)
             .with_scale(Vec3::splat(DAGGER_LENGTH / DAGGER_MADE_LENGTH)),
@@ -294,7 +294,7 @@ pub(crate) fn spawn_piece_look(
     // it's taken — `animate_case`).
     if piece == EggPiece::SocietyCase {
         let mut model = root.spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SOCIETY_CASE_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SOCIETY_CASE_MODEL))),
             Transform::IDENTITY,
         ));
         if in_game {
@@ -304,19 +304,19 @@ pub(crate) fn spawn_piece_look(
     }
     if piece == EggPiece::RitualAltar {
         root.spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RITUAL_ALTAR_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RITUAL_ALTAR_MODEL))),
             Transform::IDENTITY,
         ));
     }
     if piece == EggPiece::PyramidAltar {
         root.spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PYRAMID_ALTAR_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PYRAMID_ALTAR_MODEL))),
             Transform::IDENTITY,
         ));
     }
     if piece == EggPiece::Sarcophagus {
         let mut model = root.spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SARCOPHAGUS_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(SARCOPHAGUS_MODEL))),
             Transform::IDENTITY,
         ));
         if in_game {
@@ -329,14 +329,14 @@ pub(crate) fn spawn_piece_look(
 /// model's root, so in the sarcophagus' own frame) is the lid, resting where
 /// it was made.
 fn tag_lid(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
     mut commands: Commands,
 ) {
     let lid = children
-        .iter_descendants(trigger.target())
+        .iter_descendants(trigger.entity)
         .find(|&e| names.get(e).is_ok_and(|n| n.as_str() == LID_NODE));
     let Some(lid) = lid else {
         warn!("{SARCOPHAGUS_MODEL} has no {LID_NODE:?} — its lid won't blast off");
@@ -353,14 +353,14 @@ pub(crate) struct CaseLid(Transform);
 
 /// The case's model's in: its lid's objects are the lid, shut as made.
 fn tag_case_lid(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::world_serialization::WorldInstanceReady>,
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
     mut commands: Commands,
 ) {
     let mut found = 0;
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if names.get(e).is_ok_and(|n| CASE_LID_NODES.contains(&n.as_str())) {
             commands.entity(e).insert(CaseLid(transforms.get(e).copied().unwrap_or_default()));
             found += 1;
@@ -423,7 +423,7 @@ fn sync_pieces(
         let Some(at) = piece.placement(layout) else { continue };
         let half = piece.half_extents();
         commands
-            .spawn((StateScoped(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
+            .spawn((DespawnOnExit(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
             .with_children(|root| {
                 spawn_piece_look(root, piece, &placeholders, &asset_server, true);
                 root.spawn((
@@ -518,11 +518,11 @@ fn sync_vial(
         return;
     }
     commands
-        .spawn((StateScoped(AppState::InGame), VialDrop, place, Visibility::default()))
+        .spawn((DespawnOnExit(AppState::InGame), VialDrop, place, Visibility::default()))
         .with_children(|v| {
             // (Turning about its middle.)
             v.spawn((
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(VIAL_MODEL))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(VIAL_MODEL))),
                 Transform::from_xyz(0.0, -0.06, 0.0),
             ));
             v.spawn((
@@ -530,10 +530,10 @@ fn sync_vial(
                     color: Color::srgb(1.0, 0.1, 0.1),
                     intensity: 30_000.0,
                     range: 3.0,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
-                bevy::pbr::NotShadowCaster,
+                bevy::light::NotShadowCaster,
             ));
         });
 }
@@ -637,7 +637,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             EggPrompt,
             GlobalZIndex(5),
             Node {
@@ -663,8 +663,8 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 EggPromptTitle,
                 Text::new(""),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 40.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(40.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -680,8 +680,8 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 EggPromptText,
                 Text::new(""),
                 TextFont {
-                    font: body.clone(),
-                    font_size: 24.0,
+                    font: body.clone().into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.9, 0.9)),
@@ -689,7 +689,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             EggHud,
             Node {
                 position_type: PositionType::Absolute,
@@ -705,15 +705,15 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             EggHudText,
             Text::new(""),
             TextFont {
-                font: body,
-                font_size: 18.0,
+                font: body.into(),
+                font_size: FontSize::Px(18.0),
                 ..default()
             },
             TextColor(Color::srgb(0.95, 0.75, 0.72)),
         ));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RitualCaption,
             crate::hud::KeepThroughHudFade,
             GlobalZIndex(5),
@@ -731,8 +731,8 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             RitualCaptionText,
             Text::new(""),
             TextFont {
-                font: asset_server.load(BODY_FONT),
-                font_size: 26.0,
+                font: asset_server.load(BODY_FONT).into(),
+                font_size: FontSize::Px(26.0),
                 ..default()
             },
             TextColor(Color::srgb(1.0, 0.82, 0.8)),
@@ -782,7 +782,7 @@ fn egg_interact(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Option<Single<&Transform, With<Player>>>,
-    mut tx: Query<&mut TriggerSender<shared::EggInteract>, With<GameClient>>,
+    mut tx: Query<&mut EventSender<shared::EggInteract>, With<GameClient>>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || death.is_active() {
         return;
@@ -1111,7 +1111,7 @@ fn whisper(
     egg_local.next_whisper = Some(now + gap);
     let Some(clip) = sounds.whispers.get(pick) else { return };
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         Whisper,
         AudioPlayer::new(clip.clone()),
         Transform::from_translation(at.pos + Vec3::Y * s.height * at.scale),
@@ -1159,7 +1159,7 @@ fn hierophant_speaks(
     let Some(at) = shared::level::layout(lobby.map).sarcophagus else { return };
     let say = |commands: &mut Commands, clip: &Handle<AudioSource>| {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             HierophantLine,
             AudioPlayer::new(clip.clone()),
             Transform::from_translation(at.pos + Vec3::Y * settings.height * at.scale),
@@ -1224,7 +1224,7 @@ fn draw_spots(
     for piece in EggPiece::ALL {
         if let Some(at) = piece.placement(layout) {
             let half = piece.half_extents() * at.scale;
-            gizmos.cuboid(
+            gizmos.cube(
                 Transform::from_translation(at.pos + Vec3::Y * half.y)
                     .with_rotation(at.rotation())
                     .with_scale(half * 2.0),
@@ -1272,8 +1272,8 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     ambient_level: Res<'w, crate::zombies_audio::ZombiesAmbientLevel>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
-    tx: Query<'w, 's, &'static mut TriggerSender<shared::SetEasterEgg>, With<GameClient>>,
-    hierophant_tx: Query<'w, 's, &'static mut TriggerSender<shared::HierophantDebug>, With<GameClient>>,
+    tx: Query<'w, 's, &'static mut EventSender<shared::SetEasterEgg>, With<GameClient>>,
+    hierophant_tx: Query<'w, 's, &'static mut EventSender<shared::HierophantDebug>, With<GameClient>>,
 }
 
 impl EasterEggDebug<'_, '_> {

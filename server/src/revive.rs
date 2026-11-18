@@ -88,7 +88,7 @@ fn run_last_stands(
     navs: Res<NavGraphs>,
     clock: Res<crate::killcam::ReplayClock>,
     mut endings: ResMut<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut players: Query<(
@@ -98,8 +98,8 @@ fn run_last_stands(
         &mut PlayerCombat,
         Option<&ActionState<PlayerInput>>,
     )>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     use crate::quotes::SayQuote;
     use shared::quotes::Quote;
@@ -232,7 +232,7 @@ fn run_last_stands(
                     if reviver != id.0 {
                         to.push(reviver);
                     }
-                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(to)) {
+                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(to)) {
                         error!("failed to send a revive to {:?}: {e:?}", id.0);
                     }
                     combat.revive();
@@ -344,11 +344,11 @@ fn downed_state(combat: &PlayerCombat) -> Option<Downed> {
 /// for the clocks just running down) — and tell the lobby whoever's just
 /// gone down ([`PlayerWentDown`]).
 fn sync_downed(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<&Lobby>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Option<&Downed>)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -368,7 +368,7 @@ fn sync_downed(
                 if current.is_none() && !want.bled_out {
                     if let Ok(lobby) = lobbies.get(lp.lobby) {
                         let msg = PlayerWentDown { peer: id.0 };
-                        let to = NetworkTarget::Only(lobby.real_peers());
+                        let to = NetworkTarget::from(lobby.real_peers());
                         if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &to) {
                             error!("failed to send {:?} going down: {e:?}", id.0);
                         }

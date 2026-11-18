@@ -11,8 +11,8 @@ use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::RepeatAnimation;
 use bevy::math::Affine2;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::world_serialization::WorldInstanceReady;
 
 use crate::VIEW_MODEL_RENDER_LAYER;
 use shared::weapon::WeaponId;
@@ -441,7 +441,7 @@ impl Default for ViewModelPoses {
 /// parked (paused) on its first frame, the AK-74's looping its idle, with
 /// [`AnimationTransitions`] to cross-fade every clip after.
 pub(crate) fn start_view_model_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     view_models: Query<&ViewModelAnimation>,
@@ -452,7 +452,7 @@ pub(crate) fn start_view_model_animation(
     scope_rt: Res<ScopeRenderTarget>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = view_models.get(root) else {
         return;
     };

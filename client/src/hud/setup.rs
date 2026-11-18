@@ -2,9 +2,9 @@
 //! at all right now" gate every other HUD element defers to.
 
 use bevy::prelude::*;
-use bevy::render::camera::CameraOutputMode;
+use bevy::camera::CameraOutputMode;
 use bevy::render::render_resource::BlendState;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ui::IsDefaultUiCamera;
 use bevy_egui::PrimaryEguiContext;
 
@@ -44,7 +44,12 @@ pub(crate) fn setup_ui_camera(mut commands: Commands) {
         Camera2d,
         Camera {
             order: 2,
-            clear_color: ClearColorConfig::None,
+            // Cleared to *transparent* every frame. Since Bevy 0.20 this
+            // camera renders into its own intermediate texture (not the 3D
+            // cameras'), so `None` would never clear it: the last menu /
+            // loading-screen frame stays baked in, moving HUD bits smear,
+            // and the whole thing is blended opaquely over the world.
+            clear_color: ClearColorConfig::Custom(Color::NONE),
             // Always blend over the 3D view — left unset, Bevy may pick this
             // camera as the opaque one and black out the world (see the world
             // camera's `output_mode` in `main.rs`).

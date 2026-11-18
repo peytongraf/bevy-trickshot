@@ -100,7 +100,7 @@ const REPATH_TARGET_MOVED: f32 = 4.0;
 /// A zombie's swipe landed on someone standing at `at` (their feet) in
 /// `lobby` — written by [`drive_bots`], sent on to the lobby's clients for
 /// the hit sound by `zombies::announce_zombie_swipes`.
-#[derive(Event)]
+#[derive(Message)]
 pub struct ZombieSwipeLanded {
     pub lobby: Entity,
     pub at: Vec3,
@@ -109,7 +109,7 @@ pub struct ZombieSwipeLanded {
 /// A zombie at window `window` (`shared::windows`) of `lobby`'s map tore a
 /// board off it — written by [`drive_bots`], applied to
 /// `Lobby::windows_torn` by `zombies::apply_board_tears`.
-#[derive(Event)]
+#[derive(Message)]
 pub struct BoardTorn {
     pub lobby: Entity,
     pub window: usize,
@@ -118,7 +118,7 @@ pub struct BoardTorn {
 /// A boss's smash landed on `victim`, throwing them along `dir` (unit,
 /// horizontal: away from the boss) — written by [`drive_bots`], sent on to
 /// the victim by `boss::send_knockbacks`.
-#[derive(Event)]
+#[derive(Message)]
 pub struct BossSmashed {
     pub victim: PeerId,
     pub dir: Vec3,
@@ -128,7 +128,7 @@ pub struct BossSmashed {
 /// — written by [`drive_bots`], flown by `boss::run_blasts`. `hierophant`:
 /// the easter egg's Hierophant's ball of dark energy, with his own numbers
 /// (`shared::easter_egg::HIEROPHANT_BLAST_*`).
-#[derive(Event)]
+#[derive(Message)]
 pub struct BossBlastFired {
     pub lobby: Entity,
     pub boss: PeerId,
@@ -788,10 +788,10 @@ impl Plugin for BotAiPlugin {
 
         app.insert_resource(navs)
             .init_resource::<NextBotId>()
-            .add_event::<ZombieSwipeLanded>()
-            .add_event::<BossBlastFired>()
-            .add_event::<BossSmashed>()
-            .add_event::<BoardTorn>()
+            .add_message::<ZombieSwipeLanded>()
+            .add_message::<BossBlastFired>()
+            .add_message::<BossSmashed>()
+            .add_message::<BoardTorn>()
             .add_systems(
                 FixedUpdate,
                 drive_bots.before(crate::sim::apply_client_pose),
@@ -941,12 +941,12 @@ pub(crate) fn drive_bots(
         &mut ActionState<PlayerInput>,
         Has<crate::power_ups::NukeDeath>,
     )>,
-    mut hits: EventWriter<crate::pvp::PlayerHit>,
-    mut swipes: EventWriter<ZombieSwipeLanded>,
+    mut hits: MessageWriter<crate::pvp::PlayerHit>,
+    mut swipes: MessageWriter<ZombieSwipeLanded>,
     lures: Res<crate::monkey_bombs::MonkeyLures>,
-    mut blasts: EventWriter<BossBlastFired>,
-    mut smashes: EventWriter<BossSmashed>,
-    mut tears: EventWriter<BoardTorn>,
+    mut blasts: MessageWriter<BossBlastFired>,
+    mut smashes: MessageWriter<BossSmashed>,
+    mut tears: MessageWriter<BoardTorn>,
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
@@ -2096,11 +2096,11 @@ mod tests {
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<crate::monkey_bombs::MonkeyLures>();
-        app.add_event::<crate::pvp::PlayerHit>();
-        app.add_event::<ZombieSwipeLanded>();
-        app.add_event::<BossBlastFired>();
-        app.add_event::<BossSmashed>();
-        app.add_event::<BoardTorn>();
+        app.add_message::<crate::pvp::PlayerHit>();
+        app.add_message::<ZombieSwipeLanded>();
+        app.add_message::<BossBlastFired>();
+        app.add_message::<BossSmashed>();
+        app.add_message::<BoardTorn>();
         app.add_systems(Update, drive_bots);
         let lobby = app.world_mut().spawn(lobby(true)).id();
         let bot = app
@@ -2176,7 +2176,7 @@ mod tests {
             assert!(!input(app, bot).fire, "a zombie fired");
             let hits: Vec<_> = app
                 .world_mut()
-                .resource_mut::<Events<crate::pvp::PlayerHit>>()
+                .resource_mut::<Messages<crate::pvp::PlayerHit>>()
                 .drain()
                 .collect();
             for hit in hits {
@@ -2374,7 +2374,7 @@ mod tests {
         for _ in 0..(5 * 64) {
             app.update();
             // (Swipes aren't the point here.)
-            app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().clear();
+            app.world_mut().resource_mut::<Messages<crate::pvp::PlayerHit>>().clear();
         }
         let feet: Vec<Vec3> = zombies
             .iter()
@@ -2431,10 +2431,10 @@ mod tests {
             each_tick(&mut app, tick);
             app.update();
             assert!(!input(&app, bot).fire, "a boss fired a gun");
-            for hit in app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().drain() {
+            for hit in app.world_mut().resource_mut::<Messages<crate::pvp::PlayerHit>>().drain() {
                 hits.push((tick as f32 / 64.0, hit.damage));
             }
-            blasts.extend(app.world_mut().resource_mut::<Events<BossBlastFired>>().drain());
+            blasts.extend(app.world_mut().resource_mut::<Messages<BossBlastFired>>().drain());
         }
         (hits, blasts)
     }
@@ -2459,10 +2459,10 @@ mod tests {
         let mut blasts = 0;
         for tick in 0..(secs * 64.0) as usize {
             app.update();
-            for hit in app.world_mut().resource_mut::<Events<crate::pvp::PlayerHit>>().drain() {
+            for hit in app.world_mut().resource_mut::<Messages<crate::pvp::PlayerHit>>().drain() {
                 hits.push((tick as f32 / 64.0, hit.damage));
             }
-            blasts += app.world_mut().resource_mut::<Events<BossBlastFired>>().drain().count();
+            blasts += app.world_mut().resource_mut::<Messages<BossBlastFired>>().drain().count();
         }
         (hits, blasts)
     }
@@ -2491,7 +2491,7 @@ mod tests {
     fn a_boss_next_to_its_target_smashes_only_once_its_arms_come_forward() {
         let mut smashes = Vec::new();
         let (hits, blasts) = boss_run(Vec3::new(-28.5, 0.0, -40.0), 2.0, |app, _| {
-            smashes.extend(app.world_mut().resource_mut::<Events<BossSmashed>>().drain());
+            smashes.extend(app.world_mut().resource_mut::<Messages<BossSmashed>>().drain());
         });
         assert!(blasts.is_empty(), "it threw a blast point blank");
         assert_eq!(hits.len(), 1, "hits: {hits:?}");

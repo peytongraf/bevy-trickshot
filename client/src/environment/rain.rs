@@ -1,9 +1,9 @@
 //! Live-tunable rain for `shipment.glb` — a fixed pool of world-space streak
 //! entities recycled around the player, rather than a camera-locked overlay.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 
 use crate::util::{rand01, rand_roll, srgb_parts};
 use crate::Player;
@@ -148,10 +148,10 @@ pub(crate) fn apply_rain_assets(
     if !rain.is_changed() {
         return;
     }
-    if let Some(mesh) = meshes.get_mut(&assets.mesh) {
+    if let Some(mut mesh) = meshes.get_mut(&assets.mesh) {
         *mesh = Cylinder::new(rain.streak_radius, rain.streak_length).into();
     }
-    if let Some(material) = materials.get_mut(&assets.material) {
+    if let Some(mut material) = materials.get_mut(&assets.material) {
         let [r, g, b] = rain.color;
         material.base_color = Color::srgba(r, g, b, rain.opacity);
     }

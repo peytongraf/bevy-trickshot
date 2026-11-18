@@ -130,7 +130,7 @@ impl Plugin for KnivesPlugin {
 /// A client asked to throw a knife: validate, then spawn it.
 #[allow(clippy::too_many_arguments)]
 fn on_throw_knife(
-    trigger: Trigger<RemoteTrigger<ThrowKnife>>,
+    trigger: On<RemoteEvent<ThrowKnife>>,
     time: Res<Time>,
     mut last: ResMut<LastThrow>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -139,7 +139,7 @@ fn on_throw_knife(
     knives: Query<&KnifeSim>,
     fixed: Res<Time<Fixed>>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut commands: Commands,
 ) {
@@ -216,8 +216,8 @@ fn on_throw_knife(
             claim: None,
             struck: false,
         },
-        Replicate::to_clients(NetworkTarget::Only(members.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(members)),
+        Replicate::to_clients(NetworkTarget::from(members.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(members)),
     ));
     info!("{peer:?} threw a knife");
 }
@@ -227,16 +227,16 @@ fn on_throw_knife(
 /// they were carrying instead.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_knife(
-    trigger: Trigger<RemoteTrigger<PickUpKnife>>,
+    trigger: On<RemoteEvent<PickUpKnife>>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     knives: Query<(Entity, &KnifeSim)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = lobbies.iter().find(|(_, l)| l.started && !l.paused && l.has(peer)) else {
@@ -317,8 +317,8 @@ pub(crate) fn drop_knives_around(
                 claim: None,
                 struck: false,
             },
-            Replicate::to_clients(NetworkTarget::Only(members.clone())),
-            InterpolationTarget::to_clients(NetworkTarget::Only(members.clone())),
+            Replicate::to_clients(NetworkTarget::from(members.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::from(members.clone())),
         ));
     }
     info!("{owner:?} dropped {count} throwing knife(s)");
@@ -330,15 +330,15 @@ pub(crate) fn drop_knives_around(
 fn step_knives(
     time: Res<Time>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
     poses: Query<(&PlayerId, &PlayerPose, &crate::lobby::LobbyPlayer)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     bots: Query<(Entity, &Bot, &LobbyBot)>,
     mut knives: Query<(Entity, &mut KnifeSim, &mut ThrownKnife)>,
-    mut bot_hits: EventWriter<BotHit>,
-    mut player_hits: EventWriter<PlayerHit>,
+    mut bot_hits: MessageWriter<BotHit>,
+    mut player_hits: MessageWriter<PlayerHit>,
     mut commands: Commands,
 ) {
     let dt = time.delta_secs();
@@ -497,7 +497,7 @@ fn step_knives(
                     point: hit.point.to_array(),
                 };
                 if let Err(e) =
-                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members))
+                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(members))
                 {
                     error!("failed to send throwing knife hit: {e:?}");
                 }
@@ -529,7 +529,7 @@ fn step_knives(
                     variant: variant as u8,
                 };
                 if let Err(e) =
-                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members))
+                    sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(members))
                 {
                     error!("failed to send throwing knife impact: {e:?}");
                 }
@@ -572,7 +572,7 @@ fn cull_orphan_knives(
 /// A thrower's client says their knife thrown from `origin` struck someone:
 /// hand it to that knife (if it's theirs and hasn't struck anyone yet) for
 /// [`step_knives`] to check over.
-fn on_knife_claim(trigger: Trigger<RemoteTrigger<ProjectileClaim>>, mut knives: Query<&mut KnifeSim>) {
+fn on_knife_claim(trigger: On<RemoteEvent<ProjectileClaim>>, mut knives: Query<&mut KnifeSim>) {
     let req = &trigger.trigger;
     if req.projectile != Projectile::Knife {
         return;

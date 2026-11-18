@@ -44,7 +44,7 @@ struct LifeState<'w> {
     inertia: ResMut<'w, crate::MoveInertia>,
 }
 
-fn reset_on_respawn(mut respawned: EventReader<LocalPlayerRespawned>, mut life: LifeState) {
+fn reset_on_respawn(mut respawned: MessageReader<LocalPlayerRespawned>, mut life: LifeState) {
     if respawned.read().count() == 0 {
         return;
     }

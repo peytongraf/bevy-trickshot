@@ -4,9 +4,9 @@
 
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::render::render_asset::RenderAssetUsages;
+use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 use bevy_rapier3d::prelude::*;
 
 use super::water::WaterPlane;
@@ -54,7 +54,7 @@ pub(crate) struct ProceduralGround;
 /// other lobby member's own report) before letting a match actually start,
 /// so nobody drops into a still-loading map. Reset by [`sync_map_model`]
 /// whenever the map changes; set by [`mark_model_ready`] /
-/// [`mark_visual_ready`] once the matching scene's `SceneInstanceReady`
+/// [`mark_visual_ready`] once the matching scene's `WorldInstanceReady`
 /// fires.
 #[derive(Resource, Default)]
 pub(crate) struct MapLoadState {
@@ -91,7 +91,7 @@ pub(crate) fn apply_map_transform(current: Res<CurrentMap>, mut models: Query<&m
 }
 
 /// The map the current lobby is playing
-/// on — drives which `SceneRoot` [`sync_map_model`] keeps spawned under
+/// on — drives which `WorldAssetRoot` [`sync_map_model`] keeps spawned under
 /// [`MapModel`] (and its auto-generated `Collider`s, which is all the ground/
 /// wall collision in [`apply_gravity`] / [`resolve_wall_collisions`] needs).
 /// Set once on [`AppState::InGame`] entry by `lobby_ui::sync_current_map`;
@@ -166,7 +166,7 @@ pub(crate) fn sync_map_model(
         .spawn((
             MapModel,
             MapGeometry,
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
             AsyncSceneCollider {
                 shape: Some(map_collider_shape()),
                 named_shapes: default(),
@@ -178,41 +178,41 @@ pub(crate) fn sync_map_model(
             .spawn((
                 MapVisualModel,
                 MapGeometry,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(visual_path))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(visual_path))),
             ))
             .observe(reveal_map_visual)
             .observe(mark_visual_ready);
     }
 }
 
-/// Fires once [`MapModel`]'s `SceneRoot` finishes spawning — sets
+/// Fires once [`MapModel`]'s `WorldAssetRoot` finishes spawning — sets
 /// [`MapLoadState::model_ready`].
 fn mark_model_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     models: Query<(), With<MapModel>>,
     mut state: ResMut<MapLoadState>,
 ) {
-    if models.contains(trigger.target()) {
+    if models.contains(trigger.entity) {
         state.model_ready = true;
     }
 }
 
-/// Fires once [`MapVisualModel`]'s `SceneRoot` finishes spawning — sets
+/// Fires once [`MapVisualModel`]'s `WorldAssetRoot` finishes spawning — sets
 /// [`MapLoadState::visual_ready`]. Separate from [`reveal_map_visual`] (which
 /// also fires on this same event) since that one only cares about maps that
 /// *have* a visual override; this one is read via [`map_ready`], which
 /// already accounts for maps that don't.
 fn mark_visual_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     visuals: Query<(), With<MapVisualModel>>,
     mut state: ResMut<MapLoadState>,
 ) {
-    if visuals.contains(trigger.target()) {
+    if visuals.contains(trigger.entity) {
         state.visual_ready = true;
     }
 }
 
-/// Fires once a [`MapVisualModel`]'s `SceneRoot` finishes spawning — only
+/// Fires once a [`MapVisualModel`]'s `WorldAssetRoot` finishes spawning — only
 /// *then* hides the matching [`MapModel`] blockout, rather than hiding it
 /// eagerly the moment a visual override is merely requested. `shipment_visual
 /// .glb` is a much heavier asset than the blockout it replaces (a full
@@ -221,11 +221,11 @@ fn mark_visual_ready(
 /// reason — never resolves, this keeps the player looking at the (correctly
 /// colliding, if plain) blockout instead of bare sky.
 pub(crate) fn reveal_map_visual(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     visuals: Query<(), With<MapVisualModel>>,
     mut blockout: Query<&mut Visibility, With<MapModel>>,
 ) {
-    if !visuals.contains(trigger.target()) {
+    if !visuals.contains(trigger.entity) {
         return;
     }
     if let Ok(mut vis) = blockout.single_mut() {

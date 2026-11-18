@@ -16,7 +16,7 @@
 //! (`GameSounds::kill_chain_medal`, flat and dry).
 //!
 //! Everything's reset on entering and leaving a game, and the medals are
-//! `StateScoped(InGame)`.
+//! `DespawnOnExit(InGame)`.
 
 use std::collections::VecDeque;
 
@@ -163,7 +163,7 @@ struct Medal {
 
 fn spawn_root(mut commands: Commands) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         KillChainRoot,
         menu::HudElement,
         GlobalZIndex(6),
@@ -272,8 +272,8 @@ fn show_next_medal(
         .spawn((
             Text::new(TIERS[tier].0),
             TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: settings.name_size,
+                font: asset_server.load(HUD_FONT).into(),
+                font_size: FontSize::Px(settings.name_size),
                 ..default()
             },
             TextColor(Color::NONE),

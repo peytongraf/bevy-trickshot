@@ -218,8 +218,8 @@ pub(crate) fn setup_ammo_ui(
     let text = |size: f32| {
         (
             TextFont {
-                font: font.clone(),
-                font_size: size,
+                font: font.clone().into(),
+                font_size: FontSize::Px(size),
                 ..default()
             },
             TextColor(Color::WHITE),
@@ -268,8 +268,8 @@ pub(crate) fn setup_ammo_ui(
                     WeaponNameText,
                     Text::new(""),
                     TextFont {
-                        font: font.clone(),
-                        font_size: 13.0,
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(13.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
@@ -346,13 +346,13 @@ pub(crate) fn setup_ammo_ui(
                     .spawn((
                         TacticalKeyCap,
                         Node {
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         BoxShadow::new(
                             SHADOW_COLOR,
                             Val::Px(SHADOW_OFFSET),
@@ -365,8 +365,8 @@ pub(crate) fn setup_ammo_ui(
                         TacticalKeyText,
                         Text::new(binds.tactical.label().to_uppercase()),
                         TextFont {
-                            font: font.clone(),
-                            font_size: 14.0,
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::BLACK),
@@ -396,13 +396,13 @@ pub(crate) fn setup_ammo_ui(
                     .spawn((
                         KnifeKeyCap,
                         Node {
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         BoxShadow::new(
                             SHADOW_COLOR,
                             Val::Px(SHADOW_OFFSET),
@@ -415,8 +415,8 @@ pub(crate) fn setup_ammo_ui(
                         KnifeKeyText,
                         Text::new(binds.lethal.label().to_uppercase()),
                         TextFont {
-                            font: font.clone(),
-                            font_size: 14.0,
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::BLACK),
@@ -672,8 +672,10 @@ pub(crate) fn scale_ammo_hud(
     mut nodes: Query<(&mut Node, Option<&HudBase>)>,
     mut fonts: Query<(&mut TextFont, Option<&HudBase>, Option<&mut TextShadow>)>,
     mut box_shadows: Query<&mut BoxShadow, With<HudBase>>,
-    mut radii: Query<
-        &mut BorderRadius,
+    // (Their corner radius lives on `Node` itself, so it's scaled in the
+    // `nodes` pass below.)
+    key_caps: Query<
+        (),
         Or<(With<KnifeKeyCap>, With<TacticalKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>,
     >,
     mut applied: Local<f32>,
@@ -688,7 +690,11 @@ pub(crate) fn scale_ammo_hud(
         if let Ok((node, None)) = nodes.get(e) {
             commands.entity(e).insert(HudBase {
                 node: node.clone(),
-                font_size: fonts.get(e).ok().map(|(f, _, _)| f.font_size),
+                // (Authored in pixels; anything else is left unscaled.)
+                font_size: fonts.get(e).ok().and_then(|(f, _, _)| match f.font_size {
+                    FontSize::Px(px) => Some(px),
+                    _ => None,
+                }),
             });
             captured = true;
         }
@@ -717,10 +723,13 @@ pub(crate) fn scale_ammo_hud(
             node.row_gap = scale_val(b.row_gap, s);
             node.padding = scale_rect(b.padding, s);
             node.margin = scale_rect(b.margin, s);
+            if key_caps.contains(e) {
+                node.border_radius = BorderRadius::all(Val::Px(3.0 * s));
+            }
         }
         if let Ok((mut font, Some(base), shadow)) = fonts.get_mut(e) {
             if let Some(size) = base.font_size {
-                font.font_size = size * s;
+                font.font_size = FontSize::Px(size * s);
             }
             if let Some(mut shadow) = shadow {
                 shadow.offset = Vec2::splat(SHADOW_OFFSET * s);
@@ -732,9 +741,6 @@ pub(crate) fn scale_ammo_hud(
                 style.y_offset = Val::Px(SHADOW_OFFSET * s);
                 style.blur_radius = Val::Px(s);
             }
-        }
-        if let Ok(mut radius) = radii.get_mut(e) {
-            *radius = BorderRadius::all(Val::Px(3.0 * s));
         }
     }
 }

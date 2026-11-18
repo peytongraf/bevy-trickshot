@@ -87,8 +87,8 @@ fn spawn_loading_screen(mut commands: Commands, asset_server: Res<AssetServer>) 
             LoadingText,
             Text::new("LOADING"),
             TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: 34.0,
+                font: asset_server.load(HUD_FONT).into(),
+                font_size: FontSize::Px(34.0),
                 ..default()
             },
             TextColor(Color::srgba(1.0, 1.0, 1.0, 0.0)),

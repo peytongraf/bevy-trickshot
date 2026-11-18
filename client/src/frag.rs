@@ -20,7 +20,7 @@
 //! (Zombies)" section ([`frag_section`]), which can also show one in the
 //! hand and hold the arms up as if the key were held, without pulling a pin.
 //!
-//! Every entity here is `StateScoped(InGame)` or a child of one (the held
+//! Every entity here is `DespawnOnExit(InGame)` or a child of one (the held
 //! frag rides the arms rig), each avatar goes as soon as its server entity
 //! does, and the frag count lives on `Weapon` — nothing carries into the
 //! next game.
@@ -28,7 +28,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::{FragDrop, ThrownFrag};
@@ -148,8 +148,8 @@ impl FragSettings {
 struct FragAssets {
     /// Loaded up front (and kept) so the first one picked up or thrown
     /// doesn't hitch.
-    held: Handle<Scene>,
-    world: Handle<Scene>,
+    held: Handle<WorldAsset>,
+    world: Handle<WorldAsset>,
 }
 
 fn setup_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -178,7 +178,7 @@ fn spawn_held_frag(
             .spawn((HeldFrag, settings.held_transform(), vm.clone(), Visibility::Hidden, ChildOf(arms)))
             .with_children(|pivot| {
                 pivot
-                    .spawn((SceneRoot(assets.held.clone()), Transform::from_translation(-MODEL_MIDDLE), vm))
+                    .spawn((WorldAssetRoot(assets.held.clone()), Transform::from_translation(-MODEL_MIDDLE), vm))
                     .observe(start_throw_knife_model);
             });
     }
@@ -203,7 +203,7 @@ fn update_held_frag(
 /// Send the frag throw (or cook-off) `weapon_system` filed.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowFrag>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowFrag>, With<GameClient>>,
 ) {
     if !knife.has_frag_request() {
         return;
@@ -267,11 +267,11 @@ fn sync_frag_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             FragAvatar { src },
             Transform::from_translation(f.pos).with_rotation(f.rot),
             Visibility::default(),
-            children![(FragModel, SceneRoot(assets.world.clone()), centered_transform(settings.world_height))],
+            children![(FragModel, WorldAssetRoot(assets.world.clone()), centered_transform(settings.world_height))],
         ));
     }
 }
@@ -316,12 +316,12 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             Transform::from_translation(d.pos).with_rotation(Quat::from_rotation_y(d.yaw)),
             Visibility::default(),
-            children![(DroppedModel, SceneRoot(assets.world.clone()), standing_transform(settings.drop_height))],
+            children![(DroppedModel, WorldAssetRoot(assets.world.clone()), standing_transform(settings.drop_height))],
         ));
     }
 }

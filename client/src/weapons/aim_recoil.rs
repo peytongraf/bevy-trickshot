@@ -110,7 +110,7 @@ pub(crate) fn aim_recoil(
     time: Res<Time>,
     settings: Res<AimRecoilSettings>,
     ads: Res<Ads>,
-    mut shots: EventReader<LocalShot>,
+    mut shots: MessageReader<LocalShot>,
     mut state: ResMut<AimRecoil>,
     mut player: Single<&mut Transform, (With<Player>, Without<PlayerHead>)>,
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,

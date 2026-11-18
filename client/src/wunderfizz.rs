@@ -14,13 +14,13 @@
 //! it.
 //!
 //! Everything shown is read off the replicated lobby; the machine, prompt and
-//! menu are `StateScoped(InGame)` and the menu closes whenever it stops
+//! menu are `DespawnOnExit(InGame)` and the menu closes whenever it stops
 //! making sense (walked off, died, out of the game), so nothing carries over.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::perks::{Perk, PerkSet};
 use shared::Lobby;
 
@@ -43,7 +43,7 @@ impl Plugin for WunderfizzPlugin {
                 (
                     sync_wunderfizz_machine,
                     update_wunderfizz_prompt,
-                    open_wunderfizz.run_if(menu::game_active.and(killcam::no_killcam)),
+                    open_wunderfizz.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     wunderfizz_lifecycle,
                     wunderfizz_input,
                     refresh_wunderfizz,
@@ -148,12 +148,12 @@ fn sync_wunderfizz_machine(
     let half = settings.half_extents();
     if machines.is_empty() {
         commands
-            .spawn((StateScoped(AppState::InGame), WunderfizzMachine, place, Visibility::default()))
+            .spawn((DespawnOnExit(AppState::InGame), WunderfizzMachine, place, Visibility::default()))
             .with_children(|m| {
                 m.spawn((
                     WunderfizzModel,
                     crate::zombies_hud::NoMachineShadow,
-                    SceneRoot(
+                    WorldAssetRoot(
                         asset_server
                             .load(GltfAssetLabel::Scene(0).from_asset(crate::zombies_hud::WUNDERFIZZ_MODEL)),
                     ),
@@ -170,7 +170,7 @@ fn sync_wunderfizz_machine(
                     WunderfizzLight,
                     PointLight {
                         intensity: 0.0,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..settings.light.point_light(PURPLE)
                     },
                     Transform::from_translation(settings.light.offset),
@@ -192,7 +192,7 @@ fn sync_wunderfizz_machine(
     for (mut light, mut t) in &mut lights {
         let mut lit = settings.light.point_light(PURPLE);
         lit.intensity *= fade;
-        lit.shadows_enabled &= fade > 0.0;
+        lit.shadow_maps_enabled &= fade > 0.0;
         if light.intensity != lit.intensity || settings.is_changed() {
             *light = lit;
         }
@@ -216,7 +216,7 @@ fn spawn_wunderfizz_prompt(mut commands: Commands, asset_server: Res<AssetServer
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             WunderfizzPrompt,
             GlobalZIndex(5),
             Node {
@@ -241,8 +241,8 @@ fn spawn_wunderfizz_prompt(mut commands: Commands, asset_server: Res<AssetServer
             .with_child((
                 Text::new("DER WUNDERFIZZ"),
                 TextFont {
-                    font: heading,
-                    font_size: 40.0,
+                    font: heading.into(),
+                    font_size: FontSize::Px(40.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -258,8 +258,8 @@ fn spawn_wunderfizz_prompt(mut commands: Commands, asset_server: Res<AssetServer
                 WunderfizzPromptText,
                 Text::new(""),
                 TextFont {
-                    font: body,
-                    font_size: 24.0,
+                    font: body.into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.92, 1.0)),
@@ -380,15 +380,15 @@ fn spawn_control(
 ) {
     let mut button = parent.spawn((
         which,
-        Button,
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         Node {
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             align_items: AlignItems::Center,
             column_gap: Val::Px(10.0),
             padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if which == WfButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
@@ -396,6 +396,7 @@ fn spawn_control(
     button.with_children(|b| {
         b.spawn((
             Node {
+                border_radius: BorderRadius::all(Val::Px(16.0)),
                 min_width: Val::Px(40.0),
                 height: Val::Px(32.0),
                 padding: UiRect::horizontal(Val::Px(8.0)),
@@ -404,14 +405,13 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(16.0)),
+            BorderColor::all(LIGHT_TEXT),
         ))
         .with_child((
             Text::new(key),
             TextFont {
-                font: heading.clone(),
-                font_size: 20.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(20.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -419,8 +419,8 @@ fn spawn_control(
         b.spawn((
             Text::new(label),
             TextFont {
-                font: heading.clone(),
-                font_size: 30.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(30.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -437,8 +437,9 @@ fn spawn_cell(
     parent
         .spawn((
             WfCell(perk),
-            Button,
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             Node {
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 width: Val::Px(CELL),
                 height: Val::Px(CELL),
                 flex_direction: FlexDirection::Column,
@@ -449,8 +450,7 @@ fn spawn_cell(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
-            BorderRadius::all(Val::Px(6.0)),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|cell| {
             cell.spawn((
@@ -466,8 +466,8 @@ fn spawn_cell(
                 WfCellStatus(perk),
                 Text::new(""),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 20.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(20.0),
                     ..default()
                 },
                 TextColor(LIGHT_TEXT),
@@ -479,13 +479,13 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
     let heading = asset_server.load(HUD_FONT);
     let body = asset_server.load(BODY_FONT);
     let hfont = |size: f32| TextFont {
-        font: heading.clone(),
-        font_size: size,
+        font: heading.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             WunderfizzMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -503,24 +503,24 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
         .with_children(|root| {
             root.spawn((
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(PANEL_W),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Stretch,
                     ..default()
                 },
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|panel| {
                 // Title.
                 panel
                     .spawn((
                         Node {
+                            border_radius: BorderRadius::top(Val::Px(6.0)),
                             justify_content: JustifyContent::Center,
                             padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
                             ..default()
                         },
                         BackgroundColor(TITLE_BG),
-                        BorderRadius::top(Val::Px(6.0)),
                     ))
                     .with_child((Text::new("DER WUNDERFIZZ"), hfont(46.0), TextColor(Color::WHITE)));
                 // The hovered perk: its name, what it does and its cost.
@@ -549,8 +549,8 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                             WfText::Description,
                             Text::new(""),
                             TextFont {
-                                font: body.clone(),
-                                font_size: 19.0,
+                                font: body.clone().into(),
+                                font_size: FontSize::Px(19.0),
                                 ..default()
                             },
                             TextColor(FAINT_TEXT),
@@ -561,13 +561,13 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                 panel
                     .spawn((
                         Node {
+                            border_radius: BorderRadius::bottom(Val::Px(6.0)),
                             flex_direction: FlexDirection::Column,
                             padding: UiRect::new(Val::Px(22.0), Val::Px(22.0), Val::Px(18.0), Val::Px(14.0)),
                             row_gap: Val::Px(18.0),
                             ..default()
                         },
                         BackgroundColor(BODY_BG),
-                        BorderRadius::bottom(Val::Px(6.0)),
                     ))
                     .with_children(|b| {
                         b.spawn(Node {
@@ -662,8 +662,8 @@ fn wunderfizz_input(
     cells: Query<(&WfCell, &Interaction)>,
     pressed_cells: Query<(&WfCell, &Interaction), Changed<Interaction>>,
     buttons: Query<(&WfButton, &Interaction), Changed<Interaction>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyPerk>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     if menu.screen != Screen::Wunderfizz || state.close_pending {
@@ -757,7 +757,7 @@ fn refresh_wunderfizz(
             (fill, edge)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status(icon.0) {

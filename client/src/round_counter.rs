@@ -12,7 +12,7 @@
 //! swells ([`follow_round_counter`]).
 //!
 //! Everything goes off the replicated `Lobby::round`. The counter is
-//! `StateScoped(InGame)` and keeps its own state, so each game starts fresh.
+//! `DespawnOnExit(InGame)` and keeps its own state, so each game starts fresh.
 
 use bevy::prelude::*;
 
@@ -114,7 +114,7 @@ fn spawn_round_counter(
 ) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RoundStrip,
             GlobalZIndex(6),
             Node {
@@ -145,8 +145,8 @@ fn spawn_round_counter(
                 },
                 Text::new(""),
                 TextFont {
-                    font: asset_server.load(ROUND_FONT),
-                    font_size: settings.size,
+                    font: asset_server.load(ROUND_FONT).into(),
+                    font_size: FontSize::Px(settings.size),
                     ..default()
                 },
                 TextColor(ROUND_RED),
@@ -234,14 +234,14 @@ fn update_round_counter(
             } else {
                 sounds.round_start.clone()
             };
-            commands.spawn((StateScoped(AppState::InGame), AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+            commands.spawn((DespawnOnExit(AppState::InGame), AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
         }
     }
     if let (Some(at), Some(sounds)) = (*start_after_dogs, &sounds) {
         if time.elapsed_secs() >= at {
             *start_after_dogs = None;
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.round_start.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -288,10 +288,10 @@ fn update_round_counter(
         text.0 = wanted;
     }
     let size = s.size * scale;
-    if font.font_size != size {
-        font.font_size = size;
+    if font.font_size != FontSize::Px(size) {
+        font.font_size = FontSize::Px(size);
     }
-    // Layout sizes are physical pixels; `Node` offsets are logical.
+    // Layout sizes are physical pixels); `Node` offsets are logical.
     let screen_w = strip.size().x * strip.inverse_scale_factor();
     let own = computed.size() * computed.inverse_scale_factor();
     let middle_left = (screen_w - own.x) * 0.5;

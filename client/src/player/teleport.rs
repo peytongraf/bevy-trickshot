@@ -92,7 +92,7 @@ pub(crate) fn save_teleport_point(
     commands
         .spawn((
             TeleportToast { age: 0.0 },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(9),
             Node {
                 position_type: PositionType::Absolute,
@@ -106,8 +106,8 @@ pub(crate) fn save_teleport_point(
         .with_child((
             Text::new("Teleport point saved"),
             TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: 30.0,
+                font: asset_server.load(HUD_FONT).into(),
+                font_size: FontSize::Px(30.0),
                 ..default()
             },
             TextColor(Color::WHITE),

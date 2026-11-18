@@ -146,8 +146,8 @@ fn spawn_compass(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 MarkLabel { deg, color },
                                 Text::new(text),
                                 TextFont {
-                                    font: font.clone(),
-                                    font_size: size,
+                                    font: font.clone().into(),
+                                    font_size: FontSize::Px(size),
                                     ..default()
                                 },
                                 TextColor(color),
@@ -180,8 +180,8 @@ fn spawn_compass(mut commands: Commands, asset_server: Res<AssetServer>) {
                             CompassHeading,
                             Text::new("0"),
                             TextFont {
-                                font,
-                                font_size: 32.0,
+                                font: font.into(),
+                                font_size: FontSize::Px(32.0),
                                 ..default()
                             },
                             TextColor(Color::WHITE),

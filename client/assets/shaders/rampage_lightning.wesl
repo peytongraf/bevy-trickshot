@@ -4,7 +4,7 @@
 // while it lasts, a bright core in a soft glow — fading out toward the
 // panel's edges, and in and out as a whole with the inducer.
 
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 // x: time (s); y: fade (0..1); z: brightness; w: how many bolts (up to 6).
 @group(1) @binding(0) var<uniform> params: vec4<f32>;
@@ -58,13 +58,13 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
         // From one side of the number, across behind it to roughly the other.
         let a1 = hash(seed) * 2.0 * PI;
         let a2 = a1 + PI + (hash(seed + 1.0) - 0.5) * 1.8;
-        let from = centre + vec2<f32>(cos(a1), sin(a1)) * reach * (0.55 + 0.45 * hash(seed + 2.0));
+        let start = centre + vec2<f32>(cos(a1), sin(a1)) * reach * (0.55 + 0.45 * hash(seed + 2.0));
         let to = centre + vec2<f32>(cos(a2), sin(a2)) * reach * (0.55 + 0.45 * hash(seed + 3.0));
-        let ab = to - from;
+        let ab = to - start;
         let len = max(length(ab), 1.0);
         let dir = ab / len;
         let side = vec2<f32>(-dir.y, dir.x);
-        let rel = px - from;
+        let rel = px - start;
         let t = dot(rel, dir) / len;
         if (t < 0.0 || t > 1.0) {
             continue;

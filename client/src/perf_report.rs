@@ -660,8 +660,8 @@ fn hud_text(asset_server: &AssetServer, text: impl Into<String>, size: f32, colo
     (
         Text::new(text),
         TextFont {
-            font: asset_server.load(HUD_FONT),
-            font_size: size,
+            font: asset_server.load(HUD_FONT).into(),
+            font_size: FontSize::Px(size),
             ..default()
         },
         TextColor(color),
@@ -672,8 +672,8 @@ fn body_text(asset_server: &AssetServer, text: impl Into<String>, size: f32, col
     (
         Text::new(text),
         TextFont {
-            font: asset_server.load(BODY_FONT),
-            font_size: size,
+            font: asset_server.load(BODY_FONT).into(),
+            font_size: FontSize::Px(size),
             ..default()
         },
         TextColor(color),
@@ -746,7 +746,7 @@ fn metric_row(
                 border: UiRect::bottom(Val::Px(1.0)),
                 ..default()
             },
-            BorderColor(LINE),
+            BorderColor::all(LINE),
         ))
         .with_children(|row| {
             row.spawn(Node {
@@ -781,13 +781,13 @@ fn section(
     parent
         .spawn((
             Node {
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::new(Val::Px(14.0), Val::Px(14.0), Val::Px(10.0), Val::Px(8.0)),
                 ..default()
             },
             BackgroundColor(SECTION),
-            BorderRadius::all(Val::Px(4.0)),
         ))
         .with_children(|s| {
             s.spawn(Node {
@@ -864,7 +864,7 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
     commands
         .spawn((
             PerfPanelRoot,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             // Over the results screen (50).
             GlobalZIndex(60),
             Node {
@@ -882,6 +882,7 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
         .with_children(|root| {
             root.spawn((
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(960.0),
                     max_width: Val::Percent(96.0),
                     max_height: Val::Percent(96.0),
@@ -890,7 +891,6 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                     ..default()
                 },
                 BackgroundColor(PANEL),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|panel| {
                 // The header bar.
@@ -941,7 +941,7 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                             column_gap: Val::Px(16.0),
                             ..default()
                         },
-                        BorderColor(LINE),
+                        BorderColor::all(LINE),
                     ))
                     .with_children(|foot| {
                         let saved = match finished.map(|f| f.saved.as_deref()) {
@@ -952,14 +952,14 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                         foot.spawn(body_text(asset_server, saved, 12.0, DIM));
                         foot.spawn((
                             PerfClose,
-                            Button,
+                            Interaction::default(), bevy::ui::FocusPolicy::Block,
                             Node {
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 padding: UiRect::axes(Val::Px(26.0), Val::Px(8.0)),
                                 flex_shrink: 0.0,
                                 ..default()
                             },
                             BackgroundColor(CLOSE_BG),
-                            BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child(hud_text(asset_server, "CLOSE", 22.0, TEXT));
                     });
@@ -1120,13 +1120,13 @@ fn round_chart(s: &mut ChildSpawnerCommands, asset_server: &AssetServer, rounds:
                     }
                     col.spawn((
                         Node {
+                            border_radius: BorderRadius::top(Val::Px(2.0)),
                             width: Val::Percent(100.0),
                             max_width: Val::Px(34.0),
                             height: Val::Px((CHART_H * low / top).max(2.0)),
                             ..default()
                         },
                         BackgroundColor(fps_color(low)),
-                        BorderRadius::top(Val::Px(2.0)),
                     ));
                     let label = if i % every == 0 || i + 1 == rounds.len() { r.round.to_string() } else { String::new() };
                     col.spawn((

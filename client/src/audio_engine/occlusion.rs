@@ -82,7 +82,7 @@ pub(super) fn occlude(
             continue;
         }
         // (A fresh sound now; otherwise in turn, a few frames apart.)
-        if sink.probed && (entity.index().wrapping_add(*frame)) % every != 0 {
+        if sink.probed && (entity.index_u32().wrapping_add(*frame)) % every != 0 {
             sink.occlusion += (sink.occlusion_target - sink.occlusion).clamp(-step, step);
             continue;
         }
@@ -90,13 +90,13 @@ pub(super) fn occlude(
         // Colliders the sound's inside of — boxes only (a machine round its
         // own hum); the map's meshes never "contain" a point.
         let mut inside = Vec::new();
-        rapier.intersections_with_point(at, QueryFilter::default().exclude_sensors(), |hit| {
+        rapier.intersect_point(at, QueryFilter::default().exclude_sensors(), |hit, _| {
             if colliders.get(hit).is_ok_and(|c| c.as_cuboid().is_some()) {
                 inside.push(hit);
             }
             true
         });
-        let skip = |e: Entity| !inside.contains(&e);
+        let skip = |e: Entity, _: &bevy_rapier3d::rapier::geometry::Collider| !inside.contains(&e);
         let filter = QueryFilter::default().exclude_sensors().predicate(&skip);
 
         let dir = (at - ears) / distance;

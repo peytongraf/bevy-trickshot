@@ -31,16 +31,14 @@
 // prepass — the scope — guesses from `depth` instead.)
 // Driven by `WaterMaterial` in `client/src/water.rs`.
 
-#import bevy_pbr::{
-    pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
-    forward_io::{VertexOutput, FragmentOutput},
-    mesh_view_bindings::{globals, view, view_transmission_texture, view_transmission_sampler},
-    view_transformations::{frag_coord_to_uv, uv_to_ndc, ndc_to_uv, position_ndc_to_world, position_world_to_ndc, depth_ndc_to_view_z},
-}
-#ifdef DEPTH_PREPASS
-#import bevy_pbr::prepass_utils
-#endif
+import bevy_pbr::{
+    render::pbr_fragment::pbr_input_from_standard_material,
+    render::pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
+    render::forward_io::{VertexOutput, FragmentOutput},
+    render::mesh_view_bindings::{globals, view, view_transmission_texture, view_transmission_sampler},
+    render::view_transformations::{frag_coord_to_uv, uv_to_ndc, ndc_to_uv, position_ndc_to_world, position_world_to_ndc, depth_ndc_to_view_z}};
+@if(DEPTH_PREPASS)
+import bevy_pbr::prepass::utils;
 
 const MAX_IMPACTS: u32 = 8u;
 const MAX_RIPPLES: u32 = 64u;
@@ -81,7 +79,7 @@ struct WaterParams {
     // strong it is (0 = none).
     ripples: array<vec4<f32>, 64>,
 }
-@group(2) @binding(100) var<uniform> water: WaterParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> water: WaterParams;
 
 fn hash2(p: vec2<f32>) -> vec2<f32> {
     let q = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
@@ -201,9 +199,9 @@ fn ripples(p: vec2<f32>, t: f32) -> vec3<f32> {
     return vec3(slope, churn);
 }
 
-#ifdef DEPTH_PREPASS
 // Where on screen `p` (world) is, and its depth there (`z`, Bevy's reverse
 // z) — `w` < 0 when it's behind the camera.
+@if(DEPTH_PREPASS)
 fn on_screen(p: vec3<f32>) -> vec4<f32> {
     let clip = view.clip_from_world * vec4(p, 1.0);
     let ndc = clip.xyz / clip.w;
@@ -211,22 +209,26 @@ fn on_screen(p: vec3<f32>) -> vec4<f32> {
 }
 
 // The prepass's depth at `uv`.
+@if(DEPTH_PREPASS)
 fn depth_at(uv: vec2<f32>) -> f32 {
-    return prepass_utils::prepass_depth(vec4(uv * view.viewport.zw + view.viewport.xy, 0.0, 0.0), 0u);
+    return utils::prepass_depth(vec4(uv * view.viewport.zw + view.viewport.xy, 0.0, 0.0), 0u);
 }
 
 // How far (m, from the camera along its view) `p`'s in behind what the
 // prepass has there (< 0: in front of it).
+@if(DEPTH_PREPASS)
 fn depth_behind(s: vec4<f32>) -> f32 {
     return depth_ndc_to_view_z(max(depth_at(s.xy), 1e-7)) - depth_ndc_to_view_z(max(s.z, 1e-7));
 }
 
+@if(DEPTH_PREPASS)
 fn inside(uv: vec2<f32>) -> bool {
     return all(uv >= vec2(0.0)) && all(uv <= vec2(1.0));
 }
 
 // How much to trust something seen at `uv`: fading out at the screen's
 // edges, past which the bounced ray can't be followed.
+@if(DEPTH_PREPASS)
 fn edge_fade(uv: vec2<f32>) -> f32 {
     let e = min(uv, vec2(1.0) - uv);
     return smoothstep(0.0, 0.08, min(e.x, e.y));
@@ -238,6 +240,7 @@ fn edge_fade(uv: vec2<f32>) -> f32 {
 // isn't there to reflect), then halved down onto where. A ray that gets all
 // the way out still shows what's at its end if that's further off still —
 // the sky, a far wall.
+@if(DEPTH_PREPASS)
 fn reflected(start: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
     var near = 0.0;
     for (var i = 0u; i < REFLECT_STEPS; i++) {
@@ -280,12 +283,11 @@ fn reflected(start: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
     }
     return vec4(0.0);
 }
-#endif
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+    pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
 
     let t = globals.time;
     let surface = in.world_position.xyz;
@@ -308,30 +310,31 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     // How deep the water is here: down to whatever's behind it at this
     // pixel — the floor, or a leg standing in it.
-#ifdef DEPTH_PREPASS
-    let behind_depth = prepass_utils::prepass_depth(in.position, 0u);
+@if(DEPTH_PREPASS)
+    let behind_depth = utils::prepass_depth(in.position, 0u);
+@if(DEPTH_PREPASS)
     let behind = position_ndc_to_world(vec3(uv_to_ndc(uv), max(behind_depth, 1e-7)));
     // (Nothing behind it at all: as deep as it's said to be.)
+@if(DEPTH_PREPASS)
     let column = select(clamp(surface.y - behind.y, 0.0, 6.0), water.depth, behind_depth <= 0.0);
-#else
+@else
     let column = water.depth;
-#endif
 
     // The bent view ray, down to that depth: where the floor seen here is,
     // and how far the light went through the water to get there.
     let path = column / bend;
     let bed = surface + into * path;
     var seen = ndc_to_uv(position_world_to_ndc(bed).xy);
-#ifdef DEPTH_PREPASS
     // (Something in front of the water there — a leg, the rim — or above
     // it: look straight through instead.)
+    @if(DEPTH_PREPASS) {
     let seen_px = vec4(seen * view.viewport.zw + view.viewport.xy, 0.0, 0.0);
-    let seen_depth = prepass_utils::prepass_depth(seen_px, 0u);
+    let seen_depth = utils::prepass_depth(seen_px, 0u);
     let seen_at = position_ndc_to_world(vec3(uv_to_ndc(seen), max(seen_depth, 1e-7)));
     if seen_depth > in.position.z || seen_depth <= 0.0 || seen_at.y > surface.y + 0.01 || any(seen < vec2(0.0)) || any(seen > vec2(1.0)) {
         seen = uv;
     }
-#endif
+    }
     let background = textureSampleLevel(view_transmission_texture, view_transmission_sampler, seen, 0.0).rgb;
 
     // Absorbed on the way down and back (Bevy's own attenuation, along this
@@ -349,11 +352,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // broken line right at the waterline on anything standing in it.
     let churn = rip.z * (0.55 + 0.45 * gnoise(p * 9.0 + vec2(t * 1.3, -t * 0.9)));
     let line_width = WATERLINE * (0.55 + 0.45 * gnoise(p * 14.0 + vec2(-t * 0.6, t * 0.8)));
-#ifdef DEPTH_PREPASS
+@if(DEPTH_PREPASS)
     let waterline = (1.0 - smoothstep(line_width * 0.3, line_width, column)) * 0.75;
-#else
+@else
     let waterline = 0.0;
-#endif
     let f = clamp(max(max(foam(p, t), smoothstep(0.12, 0.8, churn)), waterline), 0.0, 1.0);
 
     // Lit as just its surface (reflections and highlights, plus the foam
@@ -373,7 +375,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // The map mirrored in it: off the surface's slope (the ripples' share
     // scaled by `reflection_wobble`), never back down into the water.
     var mirrored = vec4(0.0);
-#ifdef DEPTH_PREPASS
+@if(DEPTH_PREPASS)
     if water.reflection > 0.0 {
         let wobble = water.reflection_wobble;
         let rn = normalize(vec3(n.x * wobble, 1.0, n.z * wobble));
@@ -381,7 +383,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         dir = normalize(vec3(dir.x, max(dir.y, 0.01), dir.z));
         mirrored = reflected(surface + vec3(0.0, 0.005, 0.0), dir);
     }
-#endif
     let f0 = mix(0.02, 1.0, clamp(water.mirror, 0.0, 1.0));
     let shine = (f0 + (1.0 - f0) * glancing) * clamp(water.reflection, 0.0, 1.0) * mirrored.a * (1.0 - f * 0.9);
 

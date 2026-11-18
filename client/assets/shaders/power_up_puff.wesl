@@ -8,13 +8,11 @@
 // shows over it.
 // Driven by `PowerUpPuffMaterial` in `client/src/power_ups.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::view,
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::view};
 struct PuffParams {
     // Linear rgb of its green; a = brightness.
     color: vec4<f32>,
@@ -29,7 +27,7 @@ struct PuffParams {
     // Its drop's model: middle (xyz) and bounding radius (w).
     model: vec4<f32>,
 }
-@group(2) @binding(0) var<uniform> puff: PuffParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> puff: PuffParams;
 
 fn hash3(p: vec3<f32>) -> f32 {
     let q = fract(p * 0.3183099 + vec3<f32>(0.71, 0.113, 0.419));
@@ -88,9 +86,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let dist = max(length(to_cam), 1e-3);
     let back = position_world_to_clip(puff.model.xyz + to_cam / dist * min(-puff.model.w, dist * 0.5));
     out.position.z = min(out.position.z / out.position.w, back.z / back.w) * out.position.w;
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
     return out;
 }
 

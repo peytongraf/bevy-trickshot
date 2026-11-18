@@ -120,7 +120,7 @@ fn zombies_lobby<'a>(lobbies: &'a Query<(Entity, &Lobby)>, peer: PeerId) -> Opti
 
 /// Debug: a member sets how long their lobby's monkey bombs take to blow up.
 fn on_set_monkey_fuse(
-    trigger: Trigger<RemoteTrigger<SetMonkeyFuse>>,
+    trigger: On<RemoteEvent<SetMonkeyFuse>>,
     lobbies: Query<(Entity, &Lobby)>,
     mut fuses: ResMut<MonkeyFuses>,
 ) {
@@ -139,7 +139,7 @@ fn on_set_monkey_fuse(
 /// A client threw a monkey bomb: validate, then launch it. (How many they
 /// have left is client-side, like the rest of their ammo.)
 fn on_throw_monkey(
-    trigger: Trigger<RemoteTrigger<ThrowMonkey>>,
+    trigger: On<RemoteEvent<ThrowMonkey>>,
     time: Res<Time>,
     mut last: ResMut<LastThrow>,
     fuses: Res<MonkeyFuses>,
@@ -192,8 +192,8 @@ fn on_throw_monkey(
             landed: None,
             fuse,
         },
-        Replicate::to_clients(NetworkTarget::Only(members.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(members)),
+        Replicate::to_clients(NetworkTarget::from(members.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(members)),
     ));
     info!("{peer:?} threw a monkey bomb");
 }
@@ -208,9 +208,9 @@ fn step_monkeys(
     lobbies: Query<&Lobby>,
     mut lures: ResMut<MonkeyLures>,
     mut monkeys: Query<(Entity, &mut MonkeySim, &mut ThrownMonkey)>,
-    mut blasts: EventWriter<BombBlast>,
+    mut blasts: MessageWriter<BombBlast>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let dt = time.delta_secs();
     lures.0.clear();
@@ -295,14 +295,14 @@ pub(crate) fn drop_around(
                 yaw: seed * std::f32::consts::TAU,
             },
             DropSim { lobby: lobby_e, age: 0.0 },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
     }
 }
 
 /// A zombie a player killed sometimes drops a monkey bomb beside its body.
 fn roll_drops(
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     colliders: Res<MapColliders>,
     lobbies: Query<&Lobby>,
     mut commands: Commands,
@@ -327,7 +327,7 @@ fn roll_drops(
             Name::from("MonkeyDrop"),
             MonkeyDrop { pos, yaw },
             DropSim { lobby: ev.lobby, age: 0.0 },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
         info!("lobby {:?}: a zombie dropped a monkey bomb", ev.lobby);
     }
@@ -337,16 +337,16 @@ fn roll_drops(
 /// dropping what they carried of another kind.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_monkey(
-    trigger: Trigger<RemoteTrigger<PickUpMonkey>>,
+    trigger: On<RemoteEvent<PickUpMonkey>>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &MonkeyDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {

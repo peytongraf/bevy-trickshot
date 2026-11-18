@@ -10,13 +10,11 @@
 // far side, whichever's further, so the whole model always shows over it. Driven by
 // `PowerUpColumnMaterial` in `client/src/power_ups.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::{view, globals},
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::{view, globals}};
 struct ColumnParams {
     // Linear rgb; a = brightness.
     color: vec4<f32>,
@@ -29,7 +27,7 @@ struct ColumnParams {
     // Where the model's middle sits up the column (0 = ground, 1 = top).
     model_at: f32,
 }
-@group(2) @binding(0) var<uniform> col: ColumnParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> col: ColumnParams;
 
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -74,9 +72,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let dist = max(length(model_to_cam), 1e-3);
     let back = position_world_to_clip(model + model_to_cam / dist * min(-radius, dist * 0.5));
     out.position.z = min(out.position.z / out.position.w, back.z / back.w) * out.position.w;
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
     return out;
 }
 

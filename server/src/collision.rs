@@ -17,7 +17,7 @@
 use bevy::math::{Mat4, Quat, Vec3};
 use bevy::prelude::Resource;
 use gltf::mesh::Mode;
-use parry3d::math::{Isometry, Point, Vector};
+use parry3d::math::{Pose, Vector};
 use parry3d::query::{cast_shapes, contact, Ray, RayCast, ShapeCastOptions};
 use parry3d::shape::{Ball, Cuboid, TriMesh, TriMeshFlags};
 use shared::map::{self, CollisionWorld, MapPlacement, RayHit, WorldHit};
@@ -139,7 +139,7 @@ impl MapMesh {
             Quat::from_rotation_y(placement.yaw_deg.to_radians()),
             placement.position,
         );
-        let mut vertices: Vec<Point<f32>> = Vec::new();
+        let mut vertices: Vec<Vector> = Vec::new();
         let mut indices: Vec<[u32; 3]> = Vec::new();
         for node in scene.nodes() {
             collect(&node, root, blob, &mut vertices, &mut indices)?;
@@ -158,7 +158,7 @@ impl MapMesh {
             let base = vertices.len() as u32;
             for i in 0..8 {
                 let pick = |bit: u32, a: f32, b: f32| if i & bit == 0 { a } else { b };
-                vertices.push(Point::new(pick(1, lo.x, hi.x), pick(2, lo.y, hi.y), pick(4, lo.z, hi.z)));
+                vertices.push(Vector::new(pick(1, lo.x, hi.x), pick(2, lo.y, hi.y), pick(4, lo.z, hi.z)));
             }
             // Two triangles a face: -x, +x, -y, +y, -z, +z.
             for [a, b, c, d] in [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]] {
@@ -187,7 +187,7 @@ fn collect(
     node: &gltf::Node,
     parent: Mat4,
     blob: Option<&[u8]>,
-    vertices: &mut Vec<Point<f32>>,
+    vertices: &mut Vec<Vector>,
     indices: &mut Vec<[u32; 3]>,
 ) -> Result<(), String> {
     let world = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
@@ -208,7 +208,7 @@ fn collect(
             let base = vertices.len() as u32;
             for p in &positions {
                 let w = world.transform_point3(Vec3::from_array(*p));
-                vertices.push(Point::new(w.x, w.y, w.z));
+                vertices.push(Vector::new(w.x, w.y, w.z));
             }
             let idx: Vec<u32> = match reader.read_indices() {
                 Some(i) => i.into_u32().collect(),
@@ -225,8 +225,8 @@ fn collect(
     Ok(())
 }
 
-fn point(v: Vec3) -> Point<f32> {
-    Point::new(v.x, v.y, v.z)
+fn point(v: Vec3) -> Vector {
+    Vector::new(v.x, v.y, v.z)
 }
 
 /// The push out of `shape` (at `iso`) for a ball of `radius` at `center`, if
@@ -234,11 +234,11 @@ fn point(v: Vec3) -> Point<f32> {
 fn ball_overlap_push(
     center: Vec3,
     radius: f32,
-    iso: &Isometry<f32>,
+    iso: &Pose,
     shape: &dyn parry3d::shape::Shape,
 ) -> Option<Vec3> {
     let c = contact(
-        &Isometry::translation(center.x, center.y, center.z),
+        &Pose::translation(center.x, center.y, center.z),
         &Ball::new(radius),
         iso,
         shape,
@@ -283,11 +283,11 @@ impl CollisionWorld for MapMesh {
             return None;
         }
         let hit = cast_shapes(
-            &Isometry::translation(from.x, from.y, from.z),
-            &Vector::new(d.x, d.y, d.z),
+            &Pose::translation(from.x, from.y, from.z),
+            Vector::new(d.x, d.y, d.z),
             &Ball::new(radius),
-            &Isometry::identity(),
-            &Vector::zeros(),
+            &Pose::IDENTITY,
+            Vector::ZERO,
             &self.mesh,
             ShapeCastOptions {
                 max_time_of_impact: 1.0,
@@ -313,13 +313,13 @@ impl CollisionWorld for MapMesh {
     }
 
     fn sphere_overlap_push(&self, center: Vec3, radius: f32) -> Option<Vec3> {
-        ball_overlap_push(center, radius, &Isometry::identity(), &self.mesh)
+        ball_overlap_push(center, radius, &Pose::IDENTITY, &self.mesh)
     }
 }
 
 /// One perk machine's solid box, placed.
 pub struct MachineBox {
-    iso: Isometry<f32>,
+    iso: Pose,
     shape: Cuboid,
 }
 
@@ -347,10 +347,7 @@ fn machine_boxes(map: MapId, set: PerkSet) -> Vec<MachineBox> {
 /// A solid box from its `(centre, rotation, half extents)`.
 fn solid((center, rot, half): (Vec3, Quat, Vec3)) -> MachineBox {
     MachineBox {
-        iso: Isometry::from_parts(
-            parry3d::math::Translation::new(center.x, center.y, center.z),
-            parry3d::na::UnitQuaternion::from_quaternion(parry3d::na::Quaternion::new(rot.w, rot.x, rot.y, rot.z)),
-        ),
+        iso: Pose::from_parts(center, rot),
         shape: Cuboid::new(Vector::new(half.x, half.y, half.z)),
     }
 }
@@ -406,11 +403,11 @@ impl CollisionWorld for LobbyWorld<'_> {
         for m in self.machines() {
             let limit = best.as_ref().map_or(1.0, |h| h.fraction);
             let Ok(Some(hit)) = cast_shapes(
-                &Isometry::translation(from.x, from.y, from.z),
-                &Vector::new(d.x, d.y, d.z),
+                &Pose::translation(from.x, from.y, from.z),
+                Vector::new(d.x, d.y, d.z),
                 &Ball::new(radius),
                 &m.iso,
-                &Vector::zeros(),
+                Vector::ZERO,
                 &m.shape,
                 ShapeCastOptions {
                     max_time_of_impact: limit,

@@ -3,24 +3,25 @@
 //! toward black and white (`revive::apply_down_view` does the grading), an
 //! amber glow creeps in from the edges with embers floating up through it —
 //! the menu backdrop's own (`menu_backdrop::results_backdrop`) — and fire
-//! licks up along the bottom of the screen (`shaders/end_screen_fire.wgsl`),
+//! licks up along the bottom of the screen (`shaders/end_screen_fire.wesl`),
 //! all fading in together over [`EndScreenFxSettings::fade_secs`].
 //!
 //! Tuned in the debug panel's "End screen" section ([`EndScreenDebug`]),
 //! which can also preview it over the game. Its layer is
-//! `StateScoped(InGame)` and taken down as soon as the results are, and the
+//! `DespawnOnExit(InGame)` and taken down as soon as the results are, and the
 //! fade starts over every time — nothing carries between games.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_egui::egui;
 
 use crate::menu::{self, Screen};
 use crate::menu_backdrop::{results_backdrop, ResultsGlow};
 use crate::AppState;
 
-const FIRE_SHADER: &str = "shaders/end_screen_fire.wgsl";
+const FIRE_SHADER: &str = "shaders/end_screen_fire.wesl";
 
 pub(crate) struct EndScreenFxPlugin;
 
@@ -102,7 +103,7 @@ impl EndScreenFx {
     }
 }
 
-/// The fire's material: see `shaders/end_screen_fire.wgsl` for its two
+/// The fire's material: see `shaders/end_screen_fire.wesl` for its two
 /// parameter vectors.
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone, Default)]
 pub(crate) struct EndScreenFireMaterial {
@@ -160,7 +161,7 @@ fn show_layer(
                 .spawn((
                     Name::new("EndScreenFx"),
                     EndScreenLayer,
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     // (Just under the results screen, 50.)
                     GlobalZIndex(49),
                     Node {
@@ -210,7 +211,7 @@ fn animate_layer(
         if node.height != height {
             node.height = height;
         }
-        if let Some(m) = materials.get_mut(&handle.0) {
+        if let Some(mut m) = materials.get_mut(&handle.0) {
             m.a = Vec4::new(
                 time.elapsed_secs_wrapped(),
                 settings.fire_opacity * fade,

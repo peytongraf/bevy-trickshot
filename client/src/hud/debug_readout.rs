@@ -24,7 +24,7 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
         .spawn((
             DebugReadoutRoot,
             super::KeepThroughHudFade,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Visibility::Hidden,
             Node {
@@ -39,22 +39,22 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
         .with_children(|row| {
             row.spawn((
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_child((
                 DebugReadoutText,
                 Text::new(""),
                 TextFont {
-                    font: asset_server.load(HUD_FONT),
-                    font_size: 18.0,
+                    font: asset_server.load(HUD_FONT).into(),
+                    font_size: FontSize::Px(18.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
-                TextLayout::new_with_justify(JustifyText::Center),
+                TextLayout::justify(Justify::Center),
             ));
         });
 }

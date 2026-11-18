@@ -24,7 +24,7 @@
 //!
 //! Every other player's soul, from the moment it's out of their body until
 //! they're back down — rising, gliding over and in the chamber — is their
-//! avatar made a ghost ([`GhostMaterial`], `ghost.wgsl`: see-through,
+//! avatar made a ghost ([`GhostMaterial`], `ghost.wesl`: see-through,
 //! glowing the souls' green, brightest at its edges, light rippling up it;
 //! [`ghost_souls`]). Their bodies left below stay as they are.
 //!
@@ -36,7 +36,7 @@
 //!
 //! Everything's per game: the clock ([`EggSoul`]), the view's offset and
 //! the overlay are reset on leaving it; the bodies, sounds and the altar's
-//! glow are `StateScoped(InGame)` and gone once the egg's moved on. The
+//! glow are `DespawnOnExit(InGame)` and gone once the egg's moved on. The
 //! sounds are placeholders at their final paths
 //! (`audio/zombies/easter_egg/pyramid/`). Tuned in the debug panel's "Easter
 //! egg (Der Tempel)" → "Into the pyramid".
@@ -45,11 +45,10 @@ use std::collections::HashMap;
 
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::scene::SceneInstanceReady;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::world_serialization::WorldInstanceReady;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
@@ -69,11 +68,7 @@ pub(super) struct AscensionPlugin;
 
 impl Plugin for AscensionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<GhostMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<GhostMaterial>::default())
         .init_resource::<EggSoul>()
             .init_resource::<EggSoulView>()
             .init_resource::<EggSoulSettings>()
@@ -408,7 +403,7 @@ mod params {
     use bevy::prelude::*;
     use bevy::render::render_resource::ShaderType;
 
-    /// Mirrors `GhostParams` in `ghost.wgsl`.
+    /// Mirrors `GhostParams` in `ghost.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(super) struct GhostParams {
         pub(super) color: Vec4,
@@ -427,7 +422,7 @@ impl GhostParams {
     }
 }
 
-/// A soul out of its body (`ghost.wgsl`): see-through and glowing, drawn
+/// A soul out of its body (`ghost.wesl`): see-through and glowing, drawn
 /// additively — one per material of the avatar it's made from (its
 /// texture's detail shows faintly through).
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -440,8 +435,16 @@ pub(crate) struct GhostMaterial {
 }
 
 impl Material for GhostMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
-        "shaders/ghost.wgsl".into()
+        "shaders/ghost.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {
@@ -449,7 +452,7 @@ impl Material for GhostMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -457,7 +460,7 @@ impl Material for GhostMaterial {
         // (Both its sides, never writing depth — a ghost hides nothing.)
         descriptor.primitive.cull_mode = None;
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
@@ -498,7 +501,7 @@ fn ghost_souls(
     if settings.is_changed() {
         let params = GhostParams::new(&settings);
         for handle in copies.values() {
-            if let Some(m) = ghosts.get_mut(handle) {
+            if let Some(mut m) = ghosts.get_mut(handle) {
                 m.params = params;
             }
         }
@@ -574,14 +577,14 @@ fn sync_bodies(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 SoulBodyVisual { peer: b.peer, rig: None, fallen: false },
                 // (`soldier.glb` faces +Z — the rig's yaw is for -Z.)
                 Transform::from_translation(b.feet)
                     .with_rotation(Quat::from_rotation_y(b.yaw + std::f32::consts::PI))
                     .with_scale(Vec3::splat(avatar.scale)),
                 Visibility::Hidden,
-                SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
+                WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb"))),
             ))
             .observe(body_ready);
     }
@@ -598,7 +601,7 @@ fn sync_bodies(
 
 /// A body's scene is in: animate it with the soldier's clips.
 fn body_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     anims: Res<crate::SoldierAnimations>,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
@@ -606,7 +609,7 @@ fn body_ready(
     mut bounds: crate::CharacterBounds,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     for e in children.iter_descendants(root) {
         bounds.fit(&mut commands, root, e);
         if players.contains(e) {
@@ -677,7 +680,7 @@ fn astral(
     if drones.is_empty() {
         if out > 0.0 {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AstralDrone,
                 AudioPlayer::new(sounds.drone.clone()),
                 PlaybackSettings::LOOP.with_volume(Volume::Linear(volume)),
@@ -724,14 +727,14 @@ fn soul_sounds(
     if t >= ASCEND_SLUMP_SECS && !soul.floated {
         soul.floated = true;
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.float_up.clone()),
             PlaybackSettings::DESPAWN.with_volume(Volume::Linear(s.float_volume)),
         ));
     }
     if soul.arrived && ambience.is_empty() {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ChamberAmbience,
             AudioPlayer::new(sounds.ambience.clone()),
             PlaybackSettings::LOOP.with_volume(Volume::Linear(s.ambience_volume)),
@@ -747,13 +750,13 @@ fn soul_sounds(
             let c = s.fade_color;
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     FadingSpirit { start: t },
                     PointLight {
                         color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
                         intensity: s.fade_light,
                         range: 14.0,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(at),
@@ -784,7 +787,7 @@ struct SoulOverlay;
 
 fn spawn_overlay(mut commands: Commands) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         SoulOverlay,
         GlobalZIndex(3),
         Node {

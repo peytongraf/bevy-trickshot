@@ -10,14 +10,14 @@
 //! client's word that it's at one; each one's solid box (zombies' and ours)
 //! is `shared::ammo::crate_boxes`'.
 //!
-//! The crates and card are `StateScoped(InGame)`; the crates are also taken
+//! The crates and card are `DespawnOnExit(InGame)`; the crates are also taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
 //! next one.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::{GameMode, Lobby};
 
 use crate::keybinds::KeyBindings;
@@ -49,7 +49,7 @@ impl Plugin for AmmoCratePlugin {
                 (
                     sync_ammo_crate,
                     update_ammo_card,
-                    buy_ammo.run_if(menu::game_active.and(killcam::no_killcam)),
+                    buy_ammo.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     receive_ammo,
                 )
                     .run_if(in_state(AppState::InGame)),
@@ -123,9 +123,9 @@ fn sync_ammo_crate(
         for (i, &at) in wanted.iter().enumerate() {
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AmmoCrate(i),
-                    SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
+                    WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(AMMO_CRATE_MODEL))),
                     settings.transform(at),
                 ))
                 .with_child((
@@ -185,14 +185,14 @@ enum AmmoCardText {
 fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let faint = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -207,6 +207,7 @@ fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
             row.spawn((
                 AmmoCard,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     width: Val::Px(PERK_CARD_WIDTH * 0.75),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(10.0),
@@ -215,8 +216,7 @@ fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(AMMO_GREEN),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(AMMO_GREEN),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -258,12 +258,12 @@ fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 card.spawn((
                     AmmoCardAction,
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((AmmoCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
             });
@@ -316,8 +316,8 @@ fn update_ammo_card(
             CARD_RED,
         )
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        border.set_all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;
@@ -350,8 +350,8 @@ fn buy_ammo(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyAmmo>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyAmmo>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;

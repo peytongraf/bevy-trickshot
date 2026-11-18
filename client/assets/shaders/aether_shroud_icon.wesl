@@ -4,7 +4,7 @@
 // whole ring is yellow; while it's up, a purple arc runs down with the time
 // left. Driven by `ShroudIconMaterial`.
 
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 // x: build progress (0..=1), y: opacity, z: 1 while it's up, w: what's left
 // of it (0..=1).

@@ -13,7 +13,7 @@
 //! burning brighter the more souls it holds (`Weapon::souls`),
 //! anyone else's (and the altar's) at its resting glow.
 //!
-//! The machine is `StateScoped(InGame)` and taken away whenever we're not in
+//! The machine is `DespawnOnExit(InGame)` and taken away whenever we're not in
 //! such a game; our levels are read off the replicated lobby every frame
 //! (nothing packed outside a `Zombies` game), so nothing carries into the
 //! next one.
@@ -21,8 +21,8 @@
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine2;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::SkinnedMesh;
-use bevy::scene::SceneInstanceReady;
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::world_serialization::WorldInstanceReady;
 use lightyear::prelude::LocalId;
 use shared::pap::{PapLevels, PapWeapon};
 use shared::weapon::SlotWeapon;
@@ -203,7 +203,7 @@ fn sync_pap_machine(
     if machines.is_empty() {
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 PapMachine,
                 crate::power::PoweredHum { offset: Vec3::Y * 1.0, perk: false },
                 crate::vfx::MachineFogEmitter::pap(),
@@ -213,7 +213,7 @@ fn sync_pap_machine(
             .with_children(|m| {
                 m.spawn((
                     PapModel,
-                    SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PAP_MODEL))),
+                    WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PAP_MODEL))),
                     settings.model_transform(),
                 ));
                 let half = settings.half_extents();
@@ -228,7 +228,7 @@ fn sync_pap_machine(
                     // (Dark until the power fades it in, below.)
                     PointLight {
                         intensity: 0.0,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..settings.light.point_light(PAP_BLUE)
                     },
                     Transform::from_translation(settings.light.offset),
@@ -267,11 +267,11 @@ fn sync_pap_machine(
         t.set_if_neq(Transform::from_translation(settings.light.offset));
         let mut lit = settings.light.point_light(PAP_BLUE);
         lit.intensity *= fade;
-        lit.shadows_enabled &= fade > 0.0;
+        lit.shadow_maps_enabled &= fade > 0.0;
         if l.intensity != lit.intensity
             || l.range != lit.range
             || l.radius != lit.radius
-            || l.shadows_enabled != lit.shadows_enabled
+            || l.shadow_maps_enabled != lit.shadow_maps_enabled
         {
             *l = lit;
         }
@@ -337,13 +337,13 @@ impl FromWorld for PapCamo {
         let asset_server = world.resource::<AssetServer>();
         // Repeat, not clamp: it tiles and scrolls.
         let load = |path: String| -> Handle<Image> {
-            asset_server.load_with_settings(path, |s: &mut ImageLoaderSettings| {
+            asset_server.load_builder().with_settings(|s: &mut ImageLoaderSettings| {
                 s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
                     address_mode_v: ImageAddressMode::Repeat,
                     ..ImageSamplerDescriptor::linear()
                 });
-            })
+            }).load(path)
         };
         let textures = [1, 2, 3].map(|level| load(format!("textures/camos/pap_{level}.webp")));
         let wonder = load("textures/camos/exhumer.webp".to_string());
@@ -377,7 +377,7 @@ pub(crate) fn camo_parts(weapon: SlotWeapon) -> &'static [&'static str] {
 }
 
 /// Whether the entity named `name` is one of `parts` (a glTF node or mesh
-/// name, or a mesh primitive under one — `"name.0"`).
+/// name, or a mesh primitive under one — `"name.<material>"`).
 pub(crate) fn is_camo_part(parts: &[&str], name: &str) -> bool {
     parts
         .iter()
@@ -447,7 +447,7 @@ pub(crate) fn object_name(
 /// to the arms); on a soldier, its rifle.
 #[allow(clippy::too_many_arguments)]
 fn tag_camo_parts(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     primary: Query<&crate::weapons::ViewModelAnimation, With<ViewModel>>,
     knife: Query<(), With<KnifeViewModel>>,
     avatars: Query<(), (With<crate::net::RemoteAvatar>, With<crate::SoldierVisual>)>,
@@ -459,7 +459,7 @@ fn tag_camo_parts(
     meshes: Query<(), With<Mesh3d>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let (owner, parts, key): (_, &[&str], _) = if let Ok(anim) = primary.get(root) {
         let weapon = SlotWeapon::Gun(anim.weapon);
         (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(weapon), Some(GripKey::of(weapon)))
@@ -591,7 +591,7 @@ fn apply_pap_camo(
     let uv = Affine2::from_scale_angle_translation(Vec2::splat(settings.camo_tiling.max(0.01)), 0.0, offset);
     let glow = settings.camo_glow.max(0.0);
     for handle in &camo.levels {
-        if let Some(m) = materials.get_mut(handle) {
+        if let Some(mut m) = materials.get_mut(handle) {
             m.uv_transform = uv;
             m.emissive = LinearRgba::rgb(glow, glow, glow);
         }
@@ -600,7 +600,7 @@ fn apply_pap_camo(
     let charged = (weapon.souls as f32 / shared::exhumer::MAX_SOULS as f32).clamp(0.0, 1.0);
     let ours = settings.wonder_glow + (settings.wonder_charged_glow - settings.wonder_glow) * charged;
     for (handle, glow) in [(&camo.wonder_mine, ours), (&camo.wonder_other, settings.wonder_glow)] {
-        if let Some(m) = materials.get_mut(handle) {
+        if let Some(mut m) = materials.get_mut(handle) {
             m.uv_transform = uv;
             let glow = glow.max(0.0);
             m.emissive = LinearRgba::rgb(glow, glow, glow);

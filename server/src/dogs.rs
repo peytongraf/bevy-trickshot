@@ -46,11 +46,11 @@ impl Plugin for DogsPlugin {
 
 fn send_to_lobby<M: lightyear::prelude::Message>(
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby: &Lobby,
     msg: &M,
 ) {
-    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::from(lobby.real_peers())) {
         error!("failed to send a dog message: {e:?}");
     }
 }
@@ -58,7 +58,7 @@ fn send_to_lobby<M: lightyear::prelude::Message>(
 /// Strike each queued hellhound's lightning, and bring it in once it's due.
 fn bring_in_dogs(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut next_id: ResMut<NextBotId>,
     mut lobbies: Query<(Entity, &Lobby, &mut ZombieRounds)>,
@@ -152,8 +152,8 @@ pub(crate) fn spawn_hellhound(
                 .dog(speed),
             combat,
             shared::PlayerHealth(health),
-            Replicate::to_clients(NetworkTarget::Only(real.clone())),
-            InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+            Replicate::to_clients(NetworkTarget::from(real.clone())),
+            InterpolationTarget::to_clients(NetworkTarget::from(real)),
             crate::zombies::OutOfTouch::default(),
         ))
         .id()
@@ -162,7 +162,7 @@ pub(crate) fn spawn_hellhound(
 /// A hellhound that's died (blown up on a player, or killed) explodes where
 /// it is — every client's told — and is gone at once.
 fn explode_dead_dogs(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     dogs: Query<(Entity, &PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer), With<Dog>>,
     lobbies: Query<&Lobby>,

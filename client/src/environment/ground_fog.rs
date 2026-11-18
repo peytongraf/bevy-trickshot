@@ -6,31 +6,26 @@
 //! "Ground fog"); a density of 0 — or the player turning it off in Graphics
 //! (`Settings::ground_fog`) — skips the pass entirely.
 //!
-//! One fullscreen post-process pass (`assets/shaders/ground_fog.wgsl`) on
+//! One fullscreen post-process pass (`assets/shaders/ground_fog.wesl`) on
 //! the world and scope cameras, after the main pass and before bloom: it
 //! reads the depth buffer to know how far each pixel's ray runs through the
 //! fog. So those cameras' depth textures are made readable
 //! ([`sync_ground_fog`]). The view model's camera draws afterwards, so the
 //! gun's never fogged.
 
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
+use bevy::core_pipeline::schedule::{Core3d, Core3dSystems};
+use bevy::core_pipeline::FullscreenShader;
 use bevy::ecs::query::QueryItem;
+use bevy::post_process::bloom::bloom;
 use bevy::prelude::*;
-use bevy::render::extract_component::{
-    ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
-    UniformComponentPlugin,
-};
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-};
-use bevy::render::render_resource::binding_types::{
-    texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer,
-};
+use bevy::render::camera::ExtractedCamera;
+use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin};
+use bevy::render::render_resource::binding_types::{texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
 use bevy::render::render_resource::*;
-use bevy::render::renderer::{RenderContext, RenderDevice};
-use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
-use bevy::render::RenderApp;
+use bevy::render::renderer::{RenderContext, ViewQuery};
+use bevy::render::sync_component::SyncComponent;
+use bevy::render::view::{ExtractedView, ViewDepthStencilTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
+use bevy::render::{GpuResourceAppExt, Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::color::Mix;
 use bevy_egui::egui;
 
@@ -40,7 +35,7 @@ use crate::util::color_from_parts;
 
 use super::map::CurrentMap;
 
-const SHADER_ASSET_PATH: &str = "shaders/ground_fog.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/ground_fog.wesl";
 
 /// One map's ground fog.
 #[derive(Clone, Debug)]
@@ -149,12 +144,18 @@ mod uniform {
     }
 }
 
-impl ExtractComponent for GroundFogUniform {
+impl SyncComponent<RenderApp> for GroundFogUniform {
+    // (Its uniform index and pipeline go with it once it stops being
+    // extracted.)
+    type Target = (Self, DynamicUniformIndex<Self>, ViewGroundFogPipeline);
+}
+
+impl ExtractComponent<RenderApp> for GroundFogUniform {
     type QueryData = &'static GroundFogUniform;
     type QueryFilter = ();
     type Out = GroundFogUniform;
 
-    fn extract_component(item: QueryItem<'_, Self::QueryData>) -> Option<Self::Out> {
+    fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
         (item.density > 0.0 && item.max_opacity > 0.0).then_some(*item)
     }
 }
@@ -174,15 +175,12 @@ impl Plugin for GroundFogPlugin {
             return;
         };
         render_app
-            .add_render_graph_node::<ViewNodeRunner<GroundFogNode>>(Core3d, GroundFogLabel)
-            .add_render_graph_edges(Core3d, (Node3d::EndMainPass, GroundFogLabel, Node3d::Bloom));
-    }
-
-    fn finish(&self, app: &mut App) {
-        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
-            return;
-        };
-        render_app.init_resource::<GroundFogPipeline>();
+            .init_gpu_resource::<SpecializedRenderPipelines<GroundFogPipeline>>()
+            .add_systems(RenderStartup, init_ground_fog_pipeline)
+            .add_systems(Render, prepare_ground_fog_pipelines.in_set(RenderSystems::Prepare))
+            // After the main pass, before bloom (so the fog glows with the
+            // rest of the frame) and long before tonemapping.
+            .add_systems(Core3d, ground_fog_pass.before(bloom).in_set(Core3dSystems::PostProcess));
     }
 }
 
@@ -246,142 +244,164 @@ fn sync_ground_fog(
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct GroundFogLabel;
+/// Draw the fog for one world / scope camera view.
+fn ground_fog_pass(
+    // (The uniform itself, not just its index — see `vfx::fullscreen_pass`.)
+    view: ViewQuery<(
+        &ViewTarget,
+        &ViewDepthStencilTexture,
+        &ViewUniformOffset,
+        &DynamicUniformIndex<GroundFogUniform>,
+        &ViewGroundFogPipeline,
+        &GroundFogUniform,
+    )>,
+    fog_pipeline: Res<GroundFogPipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    view_uniforms: Res<ViewUniforms>,
+    uniforms: Res<ComponentUniforms<GroundFogUniform>>,
+    mut ctx: RenderContext,
+) {
+    let (view_target, depth, view_offset, uniform_index, view_pipeline, _) = view.into_inner();
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(view_pipeline.id) else {
+        return;
+    };
+    let Some(view_binding) = view_uniforms.uniforms.binding() else {
+        return;
+    };
+    let Some(uniform_binding) = uniforms.uniforms().binding() else {
+        return;
+    };
+    let Some(depth_view) = depth.attachment.depth_stencil_views().depth_only_view() else {
+        return;
+    };
+    let layout = if view_pipeline.msaa {
+        &fog_pipeline.layout_msaa
+    } else {
+        &fog_pipeline.layout
+    };
 
-#[derive(Default)]
-struct GroundFogNode;
-
-impl ViewNode for GroundFogNode {
-    // (The uniform itself, not just its index — see `vfx::shroom`'s node.)
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static ViewDepthTexture,
-        &'static ViewUniformOffset,
-        &'static Msaa,
-        &'static DynamicUniformIndex<GroundFogUniform>,
-        &'static GroundFogUniform,
+    let post_process = view_target.post_process_write();
+    let bind_group = ctx.render_device().create_bind_group(
+        "ground_fog_bind_group",
+        &pipeline_cache.get_bind_group_layout(layout),
+        &BindGroupEntries::sequential((post_process.source, depth_view, view_binding, uniform_binding)),
     );
+    let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+        label: Some("ground_fog_pass"),
+        color_attachments: &[Some(RenderPassColorAttachment {
+            view: post_process.destination,
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations::default(),
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &bind_group, &[view_offset.offset, uniform_index.index()]);
+    pass.draw(0..3, 0..1);
+}
 
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        (view_target, depth, view_offset, msaa, uniform_index, _): QueryItem<Self::ViewQuery>,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        if !view_target.is_hdr() {
-            return Ok(());
-        }
-        let fog_pipeline = world.resource::<GroundFogPipeline>();
-        let (layout, pipeline_id) = if msaa.samples() > 1 {
-            (&fog_pipeline.layout_msaa, fog_pipeline.pipeline_msaa)
+/// The layouts for each kind of depth buffer: plain, and multisampled (MSAA
+/// on).
+#[derive(Resource)]
+struct GroundFogPipeline {
+    layout: BindGroupLayoutDescriptor,
+    layout_msaa: BindGroupLayoutDescriptor,
+    fullscreen_shader: FullscreenShader,
+    shader: Handle<Shader>,
+}
+
+fn init_ground_fog_pipeline(
+    mut commands: Commands,
+    fullscreen_shader: Res<FullscreenShader>,
+    asset_server: Res<AssetServer>,
+) {
+    let make_layout = |label: &'static str, depth: BindGroupLayoutEntryBuilder| {
+        BindGroupLayoutDescriptor::new(
+            label,
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::FRAGMENT,
+                (
+                    texture_2d(TextureSampleType::Float { filterable: false }),
+                    depth,
+                    uniform_buffer::<ViewUniform>(true),
+                    uniform_buffer::<GroundFogUniform>(true),
+                ),
+            ),
+        )
+    };
+    commands.insert_resource(GroundFogPipeline {
+        layout: make_layout("ground_fog_bind_group_layout", texture_depth_2d()),
+        layout_msaa: make_layout("ground_fog_msaa_bind_group_layout", texture_depth_2d_multisampled()),
+        fullscreen_shader: fullscreen_shader.clone(),
+        shader: asset_server.load(SHADER_ASSET_PATH),
+    });
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct GroundFogKey {
+    format: TextureFormat,
+    msaa: bool,
+}
+
+impl SpecializedRenderPipeline for GroundFogPipeline {
+    type Key = GroundFogKey;
+
+    fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        let (label, layout, shader_defs) = if key.msaa {
+            ("ground_fog_msaa_pipeline", &self.layout_msaa, vec!["MULTISAMPLED".into()])
         } else {
-            (&fog_pipeline.layout, fog_pipeline.pipeline)
+            ("ground_fog_pipeline", &self.layout, vec![])
         };
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline_id) else {
-            return Ok(());
-        };
-        let Some(view_binding) = world.resource::<ViewUniforms>().uniforms.binding() else {
-            return Ok(());
-        };
-        let uniforms = world.resource::<ComponentUniforms<GroundFogUniform>>();
-        let Some(uniform_binding) = uniforms.uniforms().binding() else {
-            return Ok(());
-        };
-
-        let post_process = view_target.post_process_write();
-        let bind_group = render_context.render_device().create_bind_group(
-            "ground_fog_bind_group",
-            layout,
-            &BindGroupEntries::sequential((
-                post_process.source,
-                depth.view(),
-                view_binding,
-                uniform_binding,
-            )),
-        );
-        let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("ground_fog_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post_process.destination,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        pass.set_render_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[view_offset.offset, uniform_index.index()]);
-        pass.draw(0..3, 0..1);
-        Ok(())
+        RenderPipelineDescriptor {
+            label: Some(label.into()),
+            layout: vec![layout.clone()],
+            vertex: self.fullscreen_shader.to_vertex_state(),
+            fragment: Some(FragmentState {
+                shader: self.shader.clone(),
+                shader_defs,
+                entry_point: Some("fragment".into()),
+                // Before tonemapping, in the cameras' HDR format.
+                targets: vec![Some(ColorTargetState {
+                    format: key.format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        }
     }
 }
 
-/// One pipeline for each kind of depth buffer: plain, and multisampled
-/// (MSAA on).
-#[derive(Resource)]
-struct GroundFogPipeline {
-    layout: BindGroupLayout,
-    layout_msaa: BindGroupLayout,
-    pipeline: CachedRenderPipelineId,
-    pipeline_msaa: CachedRenderPipelineId,
+/// This view's specialized fog pipeline.
+#[derive(Component)]
+pub(crate) struct ViewGroundFogPipeline {
+    id: CachedRenderPipelineId,
+    msaa: bool,
 }
 
-impl FromWorld for GroundFogPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let render_device = world.resource::<RenderDevice>();
-        let make_layout = |label: &'static str, depth: BindGroupLayoutEntryBuilder| {
-            render_device.create_bind_group_layout(
-                label,
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::FRAGMENT,
-                    (
-                        texture_2d(TextureSampleType::Float { filterable: false }),
-                        depth,
-                        uniform_buffer::<ViewUniform>(true),
-                        uniform_buffer::<GroundFogUniform>(true),
-                    ),
-                ),
-            )
-        };
-        let layout = make_layout("ground_fog_bind_group_layout", texture_depth_2d());
-        let layout_msaa = make_layout("ground_fog_msaa_bind_group_layout", texture_depth_2d_multisampled());
-        let shader: Handle<Shader> = world.load_asset(SHADER_ASSET_PATH);
-        let cache = world.resource_mut::<PipelineCache>();
-        let queue = |label: &'static str, layout: &BindGroupLayout, shader_defs: Vec<ShaderDefVal>| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some(label.into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen_shader_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader: shader.clone(),
-                    shader_defs,
-                    entry_point: "fragment".into(),
-                    // Before tonemapping, in the cameras' HDR format (every
-                    // in-game camera is `hdr: true`).
-                    targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            })
-        };
-        let pipeline = queue("ground_fog_pipeline", &layout, vec![]);
-        let pipeline_msaa = queue("ground_fog_msaa_pipeline", &layout_msaa, vec!["MULTISAMPLED".into()]);
-        Self {
-            layout,
-            layout_msaa,
-            pipeline,
-            pipeline_msaa,
+fn prepare_ground_fog_pipelines(
+    mut commands: Commands,
+    pipeline_cache: Res<PipelineCache>,
+    mut pipelines: ResMut<SpecializedRenderPipelines<GroundFogPipeline>>,
+    pipeline: Res<GroundFogPipeline>,
+    views: Query<(Entity, &ExtractedView, &ExtractedCamera, &Msaa), With<GroundFogUniform>>,
+) {
+    for (entity, view, camera, msaa) in &views {
+        // (Only drawn into HDR targets, as every in-game camera is.)
+        if !camera.hdr {
+            commands.entity(entity).remove::<ViewGroundFogPipeline>();
+            continue;
         }
+        let key = GroundFogKey {
+            format: view.target_format,
+            msaa: msaa.samples() > 1,
+        };
+        let id = pipelines.specialize(&pipeline_cache, &pipeline, key);
+        commands.entity(entity).insert(ViewGroundFogPipeline { id, msaa: key.msaa });
     }
 }

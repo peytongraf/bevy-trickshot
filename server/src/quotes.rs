@@ -61,7 +61,7 @@ use crate::pvp::{HitCause, PlayerCombat, ZombieKilled};
 
 /// Something an operator could say about: `quote`, in `lobby`, by `who`,
 /// `delay` after now.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SayQuote {
     pub lobby: Entity,
     pub who: Speaker,
@@ -329,7 +329,7 @@ pub struct QuotesPlugin;
 impl Plugin for QuotesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Director>()
-            .add_event::<SayQuote>()
+            .add_message::<SayQuote>()
             .add_observer(on_request_quote)
             .add_observer(on_set_quote_delays)
             .add_systems(
@@ -370,7 +370,7 @@ fn kill_quote(kill: &ZombieKilled) -> Quote {
 /// egg's Hierophant (his death is his own moment: his scream, his spirit
 /// fleeing — `easter_egg::fight`), whose operator lines come from its own
 /// script.
-fn kill_quotes(mut kills: EventReader<ZombieKilled>, lobbies: Query<&Lobby>, mut quotes: EventWriter<SayQuote>) {
+fn kill_quotes(mut kills: MessageReader<ZombieKilled>, lobbies: Query<&Lobby>, mut quotes: MessageWriter<SayQuote>) {
     for kill in kills.read() {
         if lobbies.get(kill.lobby).is_ok_and(|l| l.easter_egg.is_hierophant(kill.victim)) {
             continue;
@@ -383,9 +383,9 @@ fn kill_quotes(mut kills: EventReader<ZombieKilled>, lobbies: Query<&Lobby>, mut
 /// tried to buy, or a perk we (or, from the leader, a teammate bot) bought
 /// has finished its jingle — all it may ask for.
 fn on_request_quote(
-    trigger: Trigger<RemoteTrigger<RequestQuote>>,
+    trigger: On<RemoteEvent<RequestQuote>>,
     lobbies: Query<(Entity, &Lobby)>,
-    mut quotes: EventWriter<SayQuote>,
+    mut quotes: MessageWriter<SayQuote>,
 ) {
     let from = trigger.from;
     let RequestQuote { quote, ally } = trigger.trigger;
@@ -411,7 +411,7 @@ fn on_request_quote(
 
 /// The leader sets their lobby's dog-round / exfil quote delays.
 fn on_set_quote_delays(
-    trigger: Trigger<RemoteTrigger<SetQuoteDelays>>,
+    trigger: On<RemoteEvent<SetQuoteDelays>>,
     lobbies: Query<(Entity, &Lobby)>,
     mut director: ResMut<Director>,
 ) {
@@ -429,9 +429,9 @@ fn on_set_quote_delays(
 pub(crate) fn direct_quotes(
     time: Res<Time>,
     radio: Res<crate::radio::RadioDirector>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut requests: EventReader<SayQuote>,
+    mut requests: MessageReader<SayQuote>,
     lobbies: Query<(Entity, &Lobby)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     mut director: ResMut<Director>,
@@ -622,7 +622,7 @@ pub(crate) fn direct_quotes(
             line: line as u16,
             cut_off,
         };
-        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers())) {
             error!("failed to send quote: {e:?}");
         }
         debug!("{speaker:?} says {quote:?} ({})", options[line].path);

@@ -1,10 +1,10 @@
 //! The water a map's layout keeps (`shared::level::Water`, `Waterfall`):
 //! pools whose surface ripples, glitters with the torches' light, mirrors
-//! the map around it and bends the floor seen through it ([`WaterMaterial`], `water.wgsl` — Bevy's
+//! the map around it and bends the floor seen through it ([`WaterMaterial`], `water.wesl` — Bevy's
 //! screen-space refraction underneath), and waterfalls pouring into them — a
 //! falling sheet that tears into strands as it drops
-//! ([`WaterfallMaterial`], `waterfall.wgsl`), and where it lands, mist and
-//! droplets thrown up ([`SprayMaterial`], `water_spray.wgsl`, moved by
+//! ([`WaterfallMaterial`], `waterfall.wesl`), and where it lands, mist and
+//! droplets thrown up ([`SprayMaterial`], `water_spray.wesl`, moved by
 //! [`animate_spray`]) and rings and foam spreading over the pool under it
 //! (the pool's own shader, told where each one lands).
 //!
@@ -24,28 +24,30 @@
 //! ([`tint_water`], `environment::egg_mood`) — clear again once it's over.
 //!
 //! In a game they're the current map's ([`sync_game_water`], all
-//! `StateScoped(InGame)`); in the level editor its own copy follows the
+//! `DespawnOnExit(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`WaterBuilder::sync`]).
 //! Each set is rebuilt whenever its lists change, so nothing carries over
 //! between games.
 
 use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use shared::level::{Water, Waterfall};
 
 use crate::audio_engine::prelude::*;
 use crate::util::rand01;
 use crate::{AppState, CurrentMap};
 
-const WATER_SHADER_ASSET_PATH: &str = "shaders/water.wgsl";
-const WATERFALL_SHADER_ASSET_PATH: &str = "shaders/waterfall.wgsl";
-const SPRAY_SHADER_ASSET_PATH: &str = "shaders/water_spray.wgsl";
+const WATER_SHADER_ASSET_PATH: &str = "shaders/water.wesl";
+const WATERFALL_SHADER_ASSET_PATH: &str = "shaders/waterfall.wesl";
+const SPRAY_SHADER_ASSET_PATH: &str = "shaders/water_spray.wesl";
 
 use params::{SprayParams, WaterParams, WaterfallParams, MAX_IMPACTS, MAX_RIPPLES};
 
@@ -61,7 +63,7 @@ mod params {
     /// Most ripples on the water at once (`WaterRipples`).
     pub(crate) const MAX_RIPPLES: usize = 64;
 
-    /// Mirrors `WaterParams` in `water.wgsl`.
+    /// Mirrors `WaterParams` in `water.wesl`.
     #[derive(Clone, Copy, PartialEq, ShaderType)]
     pub(crate) struct WaterParams {
         pub(crate) impacts: [Vec4; MAX_IMPACTS],
@@ -96,7 +98,7 @@ mod params {
         }
     }
 
-    /// Mirrors `WaterfallParams` in `waterfall.wgsl`.
+    /// Mirrors `WaterfallParams` in `waterfall.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct WaterfallParams {
         pub(crate) side: Vec4,
@@ -106,7 +108,7 @@ mod params {
         pub(crate) seed: f32,
     }
 
-    /// Mirrors `SprayParams` in `water_spray.wgsl`.
+    /// Mirrors `SprayParams` in `water_spray.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct SprayParams {
         pub(crate) kind: f32,
@@ -116,7 +118,7 @@ mod params {
     }
 }
 
-/// A pool's surface's ripples, foam and caustics — see `water.wgsl`.
+/// A pool's surface's ripples, foam and caustics — see `water.wesl`.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct WaterSurface {
     #[uniform(100)]
@@ -124,6 +126,14 @@ pub(crate) struct WaterSurface {
 }
 
 impl MaterialExtension for WaterSurface {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         WATER_SHADER_ASSET_PATH.into()
     }
@@ -132,7 +142,7 @@ impl MaterialExtension for WaterSurface {
 /// A pool's surface: see-through, refracting PBR, rippled.
 pub(crate) type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterSurface>;
 
-/// A waterfall's falling sheet — see `waterfall.wgsl`.
+/// A waterfall's falling sheet — see `waterfall.wesl`.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct WaterfallSheet {
     #[uniform(100)]
@@ -140,6 +150,14 @@ pub(crate) struct WaterfallSheet {
 }
 
 impl MaterialExtension for WaterfallSheet {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         WATERFALL_SHADER_ASSET_PATH.into()
     }
@@ -151,7 +169,7 @@ impl MaterialExtension for WaterfallSheet {
 
 pub(crate) type WaterfallMaterial = ExtendedMaterial<StandardMaterial, WaterfallSheet>;
 
-/// The mist / droplets where a waterfall lands — see `water_spray.wgsl`.
+/// The mist / droplets where a waterfall lands — see `water_spray.wesl`.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct SprayPuffs {
     #[uniform(100)]
@@ -159,6 +177,14 @@ pub(crate) struct SprayPuffs {
 }
 
 impl MaterialExtension for SprayPuffs {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SPRAY_SHADER_ASSET_PATH.into()
     }
@@ -176,21 +202,9 @@ impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
         // (None of it casts a shadow or needs a prepass.)
         app.add_plugins((
-            MaterialPlugin::<WaterMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
-            MaterialPlugin::<WaterfallMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
-            MaterialPlugin::<SprayMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
+            MaterialPlugin::<WaterMaterial>::default(),
+            MaterialPlugin::<WaterfallMaterial>::default(),
+            MaterialPlugin::<SprayMaterial>::default(),
         ))
         .add_systems(Startup, setup_assets)
         // (Ungated: leaving the game is what takes them away.)
@@ -370,7 +384,7 @@ fn throw(commands: &mut Commands, assets: &WaterAssets, at: Vec3, droplets: bool
             size,
             surface: at.y,
         },
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         Mesh3d(assets.quad.clone()),
         MeshMaterial3d(if droplets { assets.droplets.clone() } else { assets.mist.clone() }),
         Transform::from_translation(at + Vec3::Y * 0.03).with_scale(Vec3::splat(0.0001)),
@@ -486,14 +500,14 @@ fn animate_splashes(time: Res<Time>, mut particles: Query<(Entity, &mut SplashPa
         } else {
             (0.25 + 0.7 * f.sqrt()) * p.size
         };
-        // (Its age and seed ride in its scale — `water_spray.wgsl`.)
+        // (Its age and seed ride in its scale — `water_spray.wesl`.)
         t.scale = Vec3::new(size, size * (1.0 + p.seed), size * (1.0 + f));
     }
 }
 
 /// Rings running out across the water from wherever it was disturbed —
 /// someone wading, falling in, a blast — the newest [`MAX_RIPPLES`] of
-/// them, handed to every pool's shader (`water.wgsl`, `upload_ripples`).
+/// them, handed to every pool's shader (`water.wesl`, `upload_ripples`).
 /// Each is (x, z, when it started — `Time::elapsed_secs_wrapped`, the
 /// shader's `globals.time` — and how strong).
 #[derive(Resource)]
@@ -529,7 +543,7 @@ fn upload_ripples(
         return;
     }
     for pool in &pools {
-        if let Some(material) = pool.water.as_ref().and_then(|h| materials.get_mut(h)) {
+        if let Some(mut material) = pool.water.as_ref().and_then(|h| materials.get_mut(h)) {
             material.extension.params.ripples = ripples.list;
         }
     }
@@ -557,7 +571,7 @@ fn sync_game_water(
     };
     let roar = sounds.as_ref().map(|s| &s.waterfall_loop);
     builder.sync(waters, falls, &mut shown, &existing, roar, &mut commands, || {
-        (StateScoped(AppState::InGame), GameWater)
+        (DespawnOnExit(AppState::InGame), GameWater)
     });
 }
 
@@ -722,14 +736,14 @@ fn tint_water(
     let t = fade.0;
     let srgb = |c: [f32; 3]| Color::srgb(c[0], c[1], c[2]);
     for w in &water {
-        if let Some(m) = w.water.as_ref().and_then(|h| waters.get_mut(h)) {
+        if let Some(mut m) = w.water.as_ref().and_then(|h| waters.get_mut(h)) {
             let (color, clarity) = w.own;
             m.base.base_color = srgb(blend3([1.0; 3], look.water_tint, t));
             m.base.attenuation_color = srgb(blend3(color, look.water_deep, t));
             let clarity = clarity.max(0.01);
             m.base.attenuation_distance = clarity + (look.water_clarity.min(clarity) - clarity) * t;
         }
-        if let Some(m) = w.fall.as_ref().and_then(|h| falls.get_mut(h)) {
+        if let Some(mut m) = w.fall.as_ref().and_then(|h| falls.get_mut(h)) {
             m.base.base_color = srgb(blend3([1.0; 3], look.waterfall_tint, t));
         }
     }
@@ -766,7 +780,7 @@ fn water_material(water: &Water, falls: &[Waterfall]) -> WaterMaterial {
             reflectance: 0.35,
             specular_transmission: 1.0,
             ior: 1.33,
-            // (Overridden per pixel by `water.wgsl`, which tints by depth
+            // (Overridden per pixel by `water.wesl`, which tints by depth
             // itself — see there.)
             thickness: water.depth.max(0.01),
             attenuation_distance: water.clarity.max(0.01),
@@ -834,7 +848,7 @@ fn puff_life(droplets: bool, seed: f32) -> f32 {
 /// Throw each waterfall's spray up where it lands, again and again: mist
 /// billowing up and out, slowing as it spreads; droplets flung out and
 /// falling back. Each puff's size, age and seed ride in its scale (see
-/// `water_spray.wgsl`).
+/// `water_spray.wesl`).
 fn animate_spray(
     time: Res<Time>,
     origins: Query<&SprayOrigin>,
@@ -879,7 +893,7 @@ fn animate_spray(
         } else {
             (0.35 + 1.25 * f.sqrt()) * (0.5 + 0.5 * origin.spray.min(2.0))
         };
-        // (Its age and seed ride in its scale — `water_spray.wgsl`.)
+        // (Its age and seed ride in its scale — `water_spray.wesl`.)
         t.scale = Vec3::new(size, size * (1.0 + puff.seed), size * (1.0 + f));
     }
 }

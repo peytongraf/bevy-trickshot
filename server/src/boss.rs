@@ -104,11 +104,11 @@ impl Plugin for BossPlugin {
 
 fn send_to_lobby<M: lightyear::prelude::Message>(
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby: &Lobby,
     msg: &M,
 ) {
-    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::from(lobby.real_peers())) {
         error!("failed to send a boss message: {e:?}");
     }
 }
@@ -117,13 +117,13 @@ fn send_to_lobby<M: lightyear::prelude::Message>(
 #[allow(clippy::too_many_arguments)]
 fn bring_in_bosses(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut next_id: ResMut<NextBotId>,
     mut lobbies: Query<(Entity, &Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
-    mut hits: EventWriter<PlayerHit>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut hits: MessageWriter<PlayerHit>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -240,8 +240,8 @@ pub(crate) fn spawn_boss<'a>(
         brain,
         combat,
         shared::PlayerHealth(health),
-        Replicate::to_clients(NetworkTarget::Only(real.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(real)),
+        Replicate::to_clients(NetworkTarget::from(real.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(real)),
         crate::zombies::OutOfTouch::default(),
     ))
 }
@@ -257,9 +257,9 @@ fn blast_speed(hierophant: bool) -> f32 {
 
 /// A boss let go of a blast: start it flying, and tell the lobby.
 fn launch_blasts(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut fired: EventReader<BossBlastFired>,
+    mut fired: MessageReader<BossBlastFired>,
     lobbies: Query<&Lobby>,
     mut blasts: ResMut<Blasts>,
 ) {
@@ -297,14 +297,14 @@ fn launch_blasts(
 #[allow(clippy::too_many_arguments)]
 fn run_blasts(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     colliders: Res<MapColliders>,
     endings: Res<crate::killcam::EndingLobbies>,
     lobbies: Query<&Lobby>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
     mut blasts: ResMut<Blasts>,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -397,7 +397,7 @@ fn run_blasts(
 /// Debug: the party leader strikes a boss in, 15 m in front of them (on the
 /// nearest walkable spot) — only in a running, unpaused `Zombies` game.
 fn on_spawn_boss(
-    trigger: Trigger<RemoteTrigger<SpawnBoss>>,
+    trigger: On<RemoteEvent<SpawnBoss>>,
     time: Res<Time>,
     navs: Res<NavGraphs>,
     endings: Res<crate::killcam::EndingLobbies>,
@@ -432,9 +432,9 @@ fn on_spawn_boss(
 /// A smash landed: throw its victim back (their client moves them —
 /// movement's theirs — and keeps them out of the walls).
 fn send_knockbacks(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut smashes: EventReader<crate::ai::BossSmashed>,
+    mut smashes: MessageReader<crate::ai::BossSmashed>,
 ) {
     let server = server.into_inner();
     for smash in smashes.read() {

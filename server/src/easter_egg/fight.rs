@@ -227,7 +227,7 @@ fn say(
     lobby_e: Entity,
     now: f32,
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby: &Lobby,
 ) -> bool {
     if !line.interrupts()
@@ -243,18 +243,18 @@ fn say(
 
 fn send_to_lobby<M: lightyear::prelude::Message>(
     sender: &mut ServerMultiMessageSender,
-    server: &Server,
+    server: &Endpoint,
     lobby: &Lobby,
     msg: &M,
 ) {
-    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+    if let Err(e) = sender.send::<_, GameChannel>(msg, server, &NetworkTarget::from(lobby.real_peers())) {
         error!("failed to send a Hierophant message: {e:?}");
     }
 }
 
 /// Debug: the leader pokes the Hierophant — only in a fight that's on.
 pub(super) fn on_hierophant_debug(
-    trigger: Trigger<RemoteTrigger<HierophantDebug>>,
+    trigger: On<RemoteEvent<HierophantDebug>>,
     lobbies: Query<(Entity, &Lobby)>,
     mut pokes: ResMut<DebugPokes>,
 ) {
@@ -273,13 +273,13 @@ pub(super) fn on_hierophant_debug(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn run_fight(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     endings: Res<crate::killcam::EndingLobbies>,
     navs: Res<NavGraphs>,
     (mut next_id, mut fights, mut pokes): (ResMut<NextBotId>, ResMut<Fights>, ResMut<DebugPokes>),
     (mut voices, radio): (ResMut<crate::quotes::Director>, Res<crate::radio::RadioDirector>),
-    mut hits: EventReader<PlayerHit>,
+    mut hits: MessageReader<PlayerHit>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut him: Query<
         (Entity, &LobbyPlayer, &PlayerId, &mut PlayerCombat, &mut BotBrain),

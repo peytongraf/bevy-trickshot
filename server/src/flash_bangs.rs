@@ -90,7 +90,7 @@ fn zombies_lobby<'a>(lobbies: &'a Query<(Entity, &Lobby)>, peer: PeerId) -> Opti
 /// A client threw a flash bang: validate, then launch it. (How many they
 /// have left is client-side, like the rest of their equipment.)
 fn on_throw_flash_bang(
-    trigger: Trigger<RemoteTrigger<ThrowFlashBang>>,
+    trigger: On<RemoteEvent<ThrowFlashBang>>,
     time: Res<Time>,
     mut last: ResMut<LastThrow>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -138,8 +138,8 @@ fn on_throw_flash_bang(
             lobby: lobby_e,
             fuse: FUSE_SECS,
         },
-        Replicate::to_clients(NetworkTarget::Only(members.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(members)),
+        Replicate::to_clients(NetworkTarget::from(members.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(members)),
     ));
     info!("{peer:?} threw a flash bang");
 }
@@ -151,13 +151,13 @@ fn step_flash_bangs(
     time: Res<Time>,
     colliders: Res<MapColliders>,
     endings: Res<crate::killcam::EndingLobbies>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<&Lobby>,
     mut flashes: Query<(Entity, &mut FlashSim, &mut ThrownFlashBang)>,
     mut zombies: Query<(&LobbyPlayer, &PlayerPose, &PlayerCombat, &mut BotBrain), With<Zombie>>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -188,7 +188,7 @@ fn step_flash_bangs(
                 owner: sim.owner,
                 at: at.to_array(),
             };
-            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers())) {
+            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers())) {
                 error!("failed to send flash bang: {e:?}");
             }
             if n > 0 {
@@ -232,14 +232,14 @@ pub(crate) fn drop_around(
                 yaw: seed * std::f32::consts::TAU,
             },
             DropSim { lobby: lobby_e, age: 0.0 },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
     }
 }
 
 /// A zombie a player killed sometimes drops a flash bang beside its body.
 fn roll_drops(
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     colliders: Res<MapColliders>,
     lobbies: Query<&Lobby>,
     mut commands: Commands,
@@ -264,7 +264,7 @@ fn roll_drops(
             Name::from("FlashBangDrop"),
             FlashBangDrop { pos, yaw },
             DropSim { lobby: ev.lobby, age: 0.0 },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
         info!("lobby {:?}: a zombie dropped a flash bang", ev.lobby);
     }
@@ -274,16 +274,16 @@ fn roll_drops(
 /// dropping the other tactical they carried.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_flash_bang(
-    trigger: Trigger<RemoteTrigger<PickUpFlashBang>>,
+    trigger: On<RemoteEvent<PickUpFlashBang>>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &FlashBangDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {

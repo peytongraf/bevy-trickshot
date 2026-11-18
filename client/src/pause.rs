@@ -8,7 +8,7 @@
 //! Nothing to reset between games: [`GamePaused`] is re-derived from the
 //! replicated lobby every frame (false outside a running game), which also
 //! lets go of whatever was held ([`FirstPersonHeld`]), and the text is
-//! `StateScoped(InGame)`.
+//! `DespawnOnExit(InGame)`.
 
 use bevy::animation::graph::AnimationNodeIndex;
 use bevy::prelude::*;
@@ -32,7 +32,7 @@ impl Plugin for PausePlugin {
             // Not gated on `InGame`: it's what clears the flag once the game
             // is left.
             .add_systems(Update, sync_paused)
-            .add_systems(PostUpdate, freeze_first_person.before(bevy::app::Animation))
+            .add_systems(PostUpdate, freeze_first_person.before(bevy::app::AnimationSystems))
             .add_systems(OnEnter(AppState::InGame), spawn_paused_text)
             .add_systems(
                 Update,
@@ -126,7 +126,7 @@ fn sync_paused(
 fn spawn_paused_text(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             // Over the HUD, under the menu.
             GlobalZIndex(40),
             Node {
@@ -143,8 +143,8 @@ fn spawn_paused_text(mut commands: Commands, asset_server: Res<AssetServer>) {
         .with_child((
             Text::new("PAUSED"),
             TextFont {
-                font: asset_server.load(HUD_FONT),
-                font_size: 140.0,
+                font: asset_server.load(HUD_FONT).into(),
+                font_size: FontSize::Px(140.0),
                 ..default()
             },
             TextColor(Color::WHITE),

@@ -8,7 +8,7 @@
 //! critical kills, revives, downs); `FreeForAll` kills, deaths and K/D;
 //! `Freestyle` style points, kills and deaths.
 //!
-//! The panel is `StateScoped(InGame)` and only shown while the key's held
+//! The panel is `DespawnOnExit(InGame)` and only shown while the key's held
 //! (never over a menu or a kill cam); its rows are rebuilt whenever what they
 //! show changes. Nothing to reset between games.
 
@@ -71,7 +71,7 @@ fn spawn_leaderboard(mut commands: Commands) {
     commands.spawn((
         Name::new("Leaderboard"),
         LeaderboardRoot,
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         // (Over the HUD, under menus.)
         GlobalZIndex(40),
         Node {
@@ -86,7 +86,7 @@ fn spawn_leaderboard(mut commands: Commands) {
             ..default()
         },
         BackgroundColor(PANEL),
-        BorderColor(ACCENT),
+        BorderColor::all(ACCENT),
         Visibility::Hidden,
     ));
 }
@@ -296,7 +296,7 @@ fn build(panel: &mut ChildSpawnerCommands, asset_server: &AssetServer, board: &B
                         ..default()
                     },
                     BackgroundColor(background),
-                    BorderColor(LINE),
+                    BorderColor::all(LINE),
                 ))
                 .with_children(|line| {
                     line.spawn(cell(RANK_W))
@@ -312,7 +312,7 @@ fn build(panel: &mut ChildSpawnerCommands, asset_server: &AssetServer, board: &B
                             overflow: Overflow::clip(),
                             ..default()
                         },
-                        BorderColor(if row.me { ACCENT } else { Color::srgba(1.0, 1.0, 1.0, 0.2) }),
+                        BorderColor::all(if row.me { ACCENT } else { Color::srgba(1.0, 1.0, 1.0, 0.2) }),
                     ))
                     .with_child(label_hud(asset_server, row.name.clone(), 24.0, if row.me { ACCENT } else { TEXT }));
                     for (k, value) in row.values.iter().enumerate() {
@@ -322,7 +322,7 @@ fn build(panel: &mut ChildSpawnerCommands, asset_server: &AssetServer, board: &B
                                 height: Val::Percent(60.0),
                                 ..cell(value_w)
                             },
-                            BorderColor(LINE),
+                            BorderColor::all(LINE),
                         ))
                         // (The ranking column biggest.)
                         .with_child(label_hud(asset_server, value.clone(), if k == 0 { 26.0 } else { 22.0 }, GOLD));

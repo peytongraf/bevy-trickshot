@@ -117,7 +117,7 @@ pub(crate) fn update_muzzle_flash(
         scale: Vec3::new(size.x.max(1.0e-4), size.y.max(1.0e-4), 1.0),
     };
 
-    if let Some(material) = materials.get_mut(&material.0) {
+    if let Some(mut material) = materials.get_mut(&material.0) {
         // (The Ray Gun's flash is its bolt's green.)
         material.base_color = if raygun {
             Color::srgba(0.35, 1.0, 0.35, state.intensity)

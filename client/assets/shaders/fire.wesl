@@ -19,13 +19,11 @@
 //   (the CPU sets it from how fast the flame is moving — it trails behind).
 // Driven by `FireMaterial` in `client/src/molotov.rs`.
 
-#import bevy_pbr::{
-    mesh_functions,
-    forward_io::{Vertex, VertexOutput},
-    view_transformations::position_world_to_clip,
-    mesh_view_bindings::{view, globals},
-}
-
+import bevy_pbr::{
+    render::mesh_functions,
+    render::forward_io::{Vertex, VertexOutput},
+    render::view_transformations::position_world_to_clip,
+    render::mesh_view_bindings::{view, globals}};
 struct FireParams {
     // Linear rgb of the hottest part, the body, and the cooling tips.
     core: vec4<f32>,
@@ -54,10 +52,10 @@ struct FireParams {
     // 0 = flame (additive), 1 = smoke (alpha blended).
     mode: f32,
     // How far up (fraction of height) a flame's base fades in — soft, for
-    // flames rising out of a burning floor (`fire_ground.wgsl`).
+    // flames rising out of a burning floor (`fire_ground.wesl`).
     base_fade: f32,
 }
-@group(2) @binding(0) var<uniform> p: FireParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> p: FireParams;
 
 fn pcg(v: u32) -> u32 {
     let state = v * 747796405u + 2891336453u;
@@ -138,9 +136,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // x: -1..1 across, y: 0..1 up, z: this flame's seed.
     out.world_normal = vec3<f32>(local.x * 2.0, rise, seed);
     out.position = position_world_to_clip(world);
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) {
+        out.instance_index = vertex.instance_index;
+    }
     return out;
 }
 

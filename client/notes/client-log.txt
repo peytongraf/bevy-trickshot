@@ -1,0 +1,794 @@
+warning: use of deprecated macro `weak_handle`: Use uuid_handle! instead
+   --> client/src/menu_backdrop.rs:102:39
+    |
+102 | const VIGNETTE_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310001");
+    |                                       ^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated macro `weak_handle`: Use uuid_handle! instead
+   --> client/src/menu_backdrop.rs:103:35
+    |
+103 | const GLOW_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310002");
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/connecting_screen.rs:140:13
+    |
+140 |             Interaction::default(),
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/connecting_screen.rs:232:16
+    |
+232 |     q: Query<(&Interaction, &CoverBtn), Changed<Interaction>>,
+    |                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/connecting_screen.rs:232:49
+    |
+232 |     q: Query<(&Interaction, &CoverBtn), Changed<Interaction>>,
+    |                                                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/connecting_screen.rs:237:28
+    |
+237 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+  --> client/src/loading_screen.rs:83:13
+   |
+83 |             Interaction::default(),
+   |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:724:13
+    |
+724 |             Interaction::default(),
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:818:13
+    |
+818 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:819:13
+    |
+819 |             Interaction::default(),
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:894:9
+    |
+894 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:895:9
+    |
+895 |         Interaction::default(),
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:932:19
+    |
+932 |     field: Query<&Interaction, With<StartRoundField>>,
+    |                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:933:22
+    |
+933 |     buttons: Query<(&Interaction, &MenuBtn)>,
+    |                      ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:970:47
+    |
+970 |     let on_field = field.iter().any(|i| *i != Interaction::None);
+    |                                               ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/lobby_ui.rs:972:15
+    |
+972 |         *i == Interaction::Pressed
+    |               ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1080:17
+     |
+1080 |                 Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1081:17
+     |
+1081 |                 Interaction::default(),
+     |                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1153:13
+     |
+1153 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1154:13
+     |
+1154 |             Interaction::default(),
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1327:29
+     |
+1327 | ...                   Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:1328:29
+     |
+1328 | ...                   Interaction::default(),
+     |                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:2176:16
+     |
+2176 |     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
+     |                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:2176:48
+     |
+2176 |     q: Query<(&Interaction, &MenuBtn), Changed<Interaction>>,
+     |                                                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/lobby_ui.rs:2235:28
+     |
+2235 |         if *interaction != Interaction::Pressed {
+     |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/menu.rs:598:16
+    |
+598 |     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
+    |                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/menu.rs:598:44
+    |
+598 |     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
+    |                                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/menu.rs:612:28
+    |
+612 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/menu.rs:803:21
+    |
+803 |     tracks: Query<(&Interaction, &SliderTrack, &RelativeCursorPosition)>,
+    |                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/menu.rs:807:28
+    |
+807 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1180:13
+     |
+1180 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1181:13
+     |
+1181 |             Interaction::default(),
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1570:13
+     |
+1570 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1571:13
+     |
+1571 |             Interaction::default(),
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1768:9
+     |
+1768 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1769:9
+     |
+1769 |         Interaction::default(),
+     |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1811:9
+     |
+1811 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:1812:9
+     |
+1812 |         Interaction::default(),
+     |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:2583:13
+     |
+2583 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/menu.rs:2584:13
+     |
+2584 |             Interaction::default(),
+     |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:617:19
+    |
+617 |     close: Query<&Interaction, (With<PerfClose>, Changed<Interaction>)>,
+    |                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:617:58
+    |
+617 |     close: Query<&Interaction, (With<PerfClose>, Changed<Interaction>)>,
+    |                                                          ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:623:46
+    |
+623 |     let clicked = close.iter().any(|i| *i == Interaction::Pressed);
+    |                                              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:629:37
+    |
+629 | fn hover_close(mut buttons: Query<(&Interaction, &mut BackgroundColor), (With<PerfClose>, Changed<Interaction>)>) {
+    |                                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:629:99
+    |
+629 | fn hover_close(mut buttons: Query<(&Interaction, &mut BackgroundColor), (With<PerfClose>, Changed<Interaction>)>) {
+    |                                                                                                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:631:35
+    |
+631 |         bg.0 = if *interaction == Interaction::None { CLOSE_BG } else { CLOSE_HOVER };
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/perf_report.rs:955:29
+    |
+955 | ...                   Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |                       ^^^^^^^^^^^
+
+warning: use of deprecated macro `bevy::bevy_asset::weak_handle`: Use uuid_handle! instead
+  --> client/src/menu_backdrop.rs:35:19
+   |
+35 | use bevy::asset::{weak_handle, RenderAssetUsages};
+   |                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:361:9
+    |
+361 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:479:13
+    |
+479 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:761:30
+    |
+761 |     tiles: Query<(&PapTile, &Interaction)>,
+    |                              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:762:38
+    |
+762 |     pressed_tiles: Query<(&PapTile, &Interaction), Changed<Interaction>>,
+    |                                      ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:762:60
+    |
+762 |     pressed_tiles: Query<(&PapTile, &Interaction), Changed<Interaction>>,
+    |                                                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:763:34
+    |
+763 |     buttons: Query<(&PapButton, &Interaction), Changed<Interaction>>,
+    |                                  ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:763:56
+    |
+763 |     buttons: Query<(&PapButton, &Interaction), Changed<Interaction>>,
+    |                                                        ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:777:35
+    |
+777 |             .find(|(_, i)| **i != Interaction::None)
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:791:28
+    |
+791 |         if *interaction == Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:796:28
+    |
+796 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:849:34
+    |
+849 |     mut tiles: Query<(&PapTile, &Interaction, &mut BackgroundColor, &mut BorderColor), Without<PapButton>>,
+    |                                  ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:855:38
+    |
+855 |     mut buttons: Query<(&PapButton, &Interaction, &mut BackgroundColor), Without<PapTile>>,
+    |                                      ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:874:39
+    |
+874 |         let fill = if *interaction == Interaction::None {
+    |                                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/pap_menu.rs:940:44
+    |
+940 |         let c = if live && *interaction != Interaction::None {
+    |                                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:443:9
+    |
+443 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:566:13
+    |
+566 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:870:32
+    |
+870 |     tiles: Query<(&ArmorTile, &Interaction)>,
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:871:40
+    |
+871 |     pressed_tiles: Query<(&ArmorTile, &Interaction), Changed<Interaction>>,
+    |                                        ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:871:62
+    |
+871 |     pressed_tiles: Query<(&ArmorTile, &Interaction), Changed<Interaction>>,
+    |                                                              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:872:36
+    |
+872 |     buttons: Query<(&ArmorButton, &Interaction), Changed<Interaction>>,
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:872:58
+    |
+872 |     buttons: Query<(&ArmorButton, &Interaction), Changed<Interaction>>,
+    |                                                          ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:885:57
+    |
+885 |         let hovered = tiles.iter().find(|(_, i)| **i != Interaction::None).map(|(t, _)| t.0);
+    |                                                         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:898:28
+    |
+898 |         if *interaction == Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:903:28
+    |
+903 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:956:36
+    |
+956 |     mut tiles: Query<(&ArmorTile, &Interaction, &mut BackgroundColor, &mut BorderColor), Without<ArmorButton>>,
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:962:40
+    |
+962 |     mut buttons: Query<(&ArmorButton, &Interaction, &mut BackgroundColor), Without<ArmorTile>>,
+    |                                        ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/armor.rs:979:39
+    |
+979 |         let fill = if *interaction == Interaction::None {
+    |                                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+    --> client/src/armor.rs:1046:44
+     |
+1046 |         let c = if live && *interaction != Interaction::None {
+     |                                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:425:9
+    |
+425 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:479:13
+    |
+479 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:632:33
+    |
+632 | ...                   Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:793:32
+    |
+793 |     tiles: Query<(&CraftTile, &Interaction)>,
+    |                                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:794:40
+    |
+794 |     pressed_tiles: Query<(&CraftTile, &Interaction), Changed<Interaction>>,
+    |                                        ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:794:62
+    |
+794 |     pressed_tiles: Query<(&CraftTile, &Interaction), Changed<Interaction>>,
+    |                                                              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:795:30
+    |
+795 |     tabs: Query<(&CraftTab, &Interaction), Changed<Interaction>>,
+    |                              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:795:52
+    |
+795 |     tabs: Query<(&CraftTab, &Interaction), Changed<Interaction>>,
+    |                                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:796:36
+    |
+796 |     buttons: Query<(&CraftButton, &Interaction), Changed<Interaction>>,
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:796:58
+    |
+796 |     buttons: Query<(&CraftButton, &Interaction), Changed<Interaction>>,
+    |                                                          ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:815:28
+    |
+815 |         if *interaction == Interaction::Pressed && tab.0 != state.tab {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:831:57
+    |
+831 |         let hovered = tiles.iter().find(|(_, i)| **i != Interaction::None).map(|(t, _)| t.0);
+    |                                                         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:840:28
+    |
+840 |         if *interaction == Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:846:28
+    |
+846 |         if *interaction == Interaction::Pressed && *button == CraftButton::Exit {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:895:34
+    |
+895 |     mut tabs: Query<(&CraftTab, &Interaction, &mut BackgroundColor, &Children), (Without<CraftTile>, Without<CraftB...
+    |                                  ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:896:36
+    |
+896 |     mut tiles: Query<(&CraftTile, &Interaction, &mut BackgroundColor, &mut BorderColor), (Without<CraftButton>, Wit...
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:902:40
+    |
+902 |     mut buttons: Query<(&CraftButton, &Interaction, &mut BackgroundColor), (Without<CraftTile>, Without<CraftTab>)>,
+    |                                        ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:917:35
+    |
+917 |         } else if *interaction != Interaction::None {
+    |                                   ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:935:39
+    |
+935 |         let fill = if *interaction == Interaction::None {
+    |                                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/crafting.rs:984:36
+    |
+984 |         let c = if *interaction != Interaction::None {
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:137:17
+    |
+137 | struct SfxState(Interaction);
+    |                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:142:20
+    |
+142 |     mut q: Query<(&Interaction, &mut SfxState, &UiSound)>,
+    |                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:149:14
+    |
+149 |             (Interaction::Hovered, Interaction::None) => Some((sound.hover)(&sfx)),
+    |              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:149:36
+    |
+149 |             (Interaction::Hovered, Interaction::None) => Some((sound.hover)(&sfx)),
+    |                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:150:14
+    |
+150 |             (Interaction::Pressed, prev) if prev != Interaction::Pressed => {
+    |              ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:150:53
+    |
+150 |             (Interaction::Pressed, prev) if prev != Interaction::Pressed => {
+    |                                                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:199:28
+    |
+199 |     mut q: Query<(Entity, &Interaction, &Hoverable, &mut BackgroundColor), Changed<Interaction>>,
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:199:84
+    |
+199 |     mut q: Query<(Entity, &Interaction, &Hoverable, &mut BackgroundColor), Changed<Interaction>>,
+    |                                                                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:204:45
+    |
+204 |         let hovered = matches!(interaction, Interaction::Hovered | Interaction::Pressed);
+    |                                             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:204:68
+    |
+204 |         let hovered = matches!(interaction, Interaction::Hovered | Interaction::Pressed);
+    |                                                                    ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:371:13
+    |
+371 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/ui.rs:372:13
+    |
+372 |             Interaction::default(),
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:361:13
+    |
+361 |             Interaction::default(),
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:413:33
+    |
+413 | ...                   Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:414:33
+    |
+414 | ...                   Interaction::default(),
+    |                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:494:16
+    |
+494 |     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
+    |                ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:494:44
+    |
+494 |     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
+    |                                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/update_screen.rs:500:28
+    |
+500 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:383:9
+    |
+383 |         Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:440:13
+    |
+440 |             Interaction::default(), bevy::ui::FocusPolicy::Block,
+    |             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:662:29
+    |
+662 |     cells: Query<(&WfCell, &Interaction)>,
+    |                             ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:663:37
+    |
+663 |     pressed_cells: Query<(&WfCell, &Interaction), Changed<Interaction>>,
+    |                                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:663:59
+    |
+663 |     pressed_cells: Query<(&WfCell, &Interaction), Changed<Interaction>>,
+    |                                                           ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:664:33
+    |
+664 |     buttons: Query<(&WfButton, &Interaction), Changed<Interaction>>,
+    |                                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:664:55
+    |
+664 |     buttons: Query<(&WfButton, &Interaction), Changed<Interaction>>,
+    |                                                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:672:53
+    |
+672 |     let hovered = cells.iter().find(|(_, i)| **i != Interaction::None).map(|(c, _)| c.0);
+    |                                                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:684:28
+    |
+684 |         if *interaction == Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:689:28
+    |
+689 |         if *interaction != Interaction::Pressed {
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:730:33
+    |
+730 |     mut cells: Query<(&WfCell, &Interaction, &mut BackgroundColor, &mut BorderColor), Without<WfButton>>,
+    |                                 ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:734:37
+    |
+734 |     mut buttons: Query<(&WfButton, &Interaction, &mut BackgroundColor), Without<WfCell>>,
+    |                                     ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:745:39
+    |
+745 |         let hovered = *interaction != Interaction::None || state.hovered == Some(cell.0);
+    |                                       ^^^^^^^^^^^
+
+warning: use of deprecated type alias `bevy::bevy_ui::Interaction`: Use picking::hover::Hovered and ui::Pressed.
+   --> client/src/wunderfizz.rs:808:44
+    |
+808 |         let c = if live && *interaction != Interaction::None {
+    |                                            ^^^^^^^^^^^
+
+warning: `bevy-trickshot` (bin "bevy-trickshot") generated 128 warnings
+    Finished `dev` profile [optimized + debuginfo] target(s) in 5m 07s
+     Running `/home/peyton/Dev/bevy-trickshot/target/debug/bevy-trickshot`
+2026-11-18T03:37:51.839823Z  INFO bevy_diagnostic::system_information_diagnostics_plugin::internal: SystemInfo { os: "Linux (Arch Linux rolling)", kernel: "7.3.4-arch1-2", cpu: "AMD Ryzen 7 9800X3D 8-Core Processor", core_count: "8", memory: "30.5 GiB" }
+2026-11-18T03:37:51.841831Z  WARN winit::platform_impl::linux::x11::xdisplay: error setting XSETTINGS; Xft options won't reload automatically
+2026-11-18T03:37:51.921478Z  INFO bevy_render::renderer: AdapterInfo { name: "NVIDIA GeForce RTX 4080 SUPER", vendor: 4318, device: 9986, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "620.70.06", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: Some(false), limit_bucket: None }
+2026-11-18T03:37:52.061694Z  INFO gilrs_core::platform::platform::gamepad: Gamepad /dev/input/event3 (ZSA Technology Labs Moonlander Mark I System Control) connected.
+2026-11-18T03:37:52.061763Z  WARN gilrs::gamepad: No mapping found for UUID 03000000-9732-0000-6919-000011010000
+	Default mapping will be used.
+2026-11-18T03:37:52.087943Z  INFO bevy_pbr::cluster: GPU clustering is supported on this device.
+2026-11-18T03:37:52.087966Z  INFO bevy_render::batching::gpu_preprocessing: GPU preprocessing is fully supported on this device.
+2026-11-18T03:37:52.088235Z  INFO bevy_egui::render: Using bindless_mode_array_size 16 (Device maximum 1048576)
+2026-11-18T03:37:52.088958Z  INFO bevy_winit::system: Creating new window bevy-trickshot (67v0)
+2026-11-18T03:37:52.089271Z  INFO winit::platform_impl::linux::x11::window: Guessed window scale factor: 1.6666666666666667
+2026-11-18T03:37:52.091163Z  INFO bevy_trickshot::net: connecting to server at 127.0.0.1:5000 (attempt 1)
+2026-11-18T03:37:52.118473Z  INFO lightyear_netcode::client: client connecting to server 127.0.0.1:5000 [1/1]
+2026-11-18T03:37:52.129863Z  INFO lightyear_udp: UDP socket bound to 0.0.0.0:0
+2026-11-18T03:37:52.137715Z  INFO bevy_input::gamepad: Gamepad 917v0 connected.
+
+thread 'main' (129572) panicked at /home/peyton/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.20.1/src/bundle/info.rs:118:13:
+Bundle (bevy_ecs::hierarchy::ChildOf, (bevy_ui::focus::DeprecatedInteraction, bevy_ui::focus::FocusPolicy, bevy_ui::focus::DeprecatedInteraction, bevy_trickshot::lobby_ui::MenuBtn, bevy_trickshot::ui::Hoverable, (bevy_trickshot::ui::UiSound, bevy_trickshot::ui::SfxState), bevy_ui::ui_node::Node, bevy_ui::ui_node::BackgroundColor, bevy_ui::ui_node::BorderColor)) has duplicate components: ["bevy_ui::focus::DeprecatedInteraction"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-11-18T03:37:52.249326Z  WARN bevy_ecs::world::command_queue: CommandQueue has un-applied commands being dropped. Did you forget to call SystemState::apply?
+[1]    129572 segmentation fault (core dumped)  cargo run

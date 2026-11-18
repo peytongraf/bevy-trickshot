@@ -2,6 +2,7 @@
 //! the pure FOV/pose blend helpers shared with the kill-cam replay.
 
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 
 use crate::audio_engine::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
@@ -128,7 +129,7 @@ pub(crate) fn update_ads(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     tuning: Res<AdsTuning>,
     sounds: Res<GameSounds>,
     mut snd: ResMut<killcam::ReplaySoundBits>,
@@ -149,7 +150,7 @@ pub(crate) fn update_ads(
 
     // No aiming while dead (waiting for the kill cam) or during the end-of-match
     // freeze — the same input lock as `menu::game_active`.
-    let aiming = window.cursor_options.grab_mode != CursorGrabMode::None
+    let aiming = window.grab_mode != CursorGrabMode::None
         && !freeze.active
         && !death.is_active()
         // (Nor while down in `Zombies`, or reviving someone.)

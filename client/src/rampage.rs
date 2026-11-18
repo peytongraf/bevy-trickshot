@@ -11,7 +11,7 @@
 //! (`round_counter`), fading in and out with it.
 //!
 //! Everything reads the replicated `Lobby::rampage` (the server flips it —
-//! `server::rampage`). The machine and UI are `StateScoped(InGame)`, the
+//! `server::rampage`). The machine and UI are `DespawnOnExit(InGame)`, the
 //! machine's taken away whenever it stops applying, and the hold, the
 //! lightning's fade and what's been heard ([`RampageLocal`]) reset on
 //! leaving the game — nothing carries into the next one.
@@ -20,14 +20,15 @@
 //! (Zombies)" section ([`RampageSettings`], [`RampageDebug`]).
 
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::rampage::{GLOBE_CENTRE, HALF_EXTENTS, HOLD_SECS};
 use shared::Lobby;
 
@@ -38,8 +39,8 @@ use crate::{killcam, menu, AppState, Player, BODY_FONT, EYE_HEIGHT, HUD_FONT};
 
 pub(crate) const RAMPAGE_MODEL: &str = "models/props/rampage_inducer.glb";
 pub(crate) const RAMPAGE_ICON: &str = "textures/icons/rampage_inducer_icon.png";
-const ICON_SHADER: &str = "shaders/rampage_icon.wgsl";
-const LIGHTNING_SHADER: &str = "shaders/rampage_lightning.wgsl";
+const ICON_SHADER: &str = "shaders/rampage_icon.wesl";
+const LIGHTNING_SHADER: &str = "shaders/rampage_lightning.wesl";
 const START_SOUND: &str = "audio/zombies/rampage/rampage_start.mp3";
 const STOP_SOUND: &str = "audio/zombies/rampage/rampage_stop.mp3";
 const MUSIC: &str = "audio/zombies/rampage/rampage_music.mp3";
@@ -69,7 +70,7 @@ impl Plugin for RampagePlugin {
             Update,
             (
                 sync_inducer,
-                hold_to_toggle.run_if(menu::game_active.and(killcam::no_killcam)),
+                hold_to_toggle.run_if(menu::game_active.and_then(killcam::no_killcam)),
                 rampage_audio,
                 (update_rampage_ui, update_inducer_light, update_lightning),
             )
@@ -208,13 +209,13 @@ fn sync_inducer(
     }
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RampageInducer,
             crate::util::placed(at),
             Visibility::default(),
         ))
         .with_children(|m| {
-            m.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RAMPAGE_MODEL))));
+            m.spawn(WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RAMPAGE_MODEL))));
             m.spawn((
                 crate::vfx::NoBulletHoles,
                 Collider::cuboid(HALF_EXTENTS.x, HALF_EXTENTS.y, HALF_EXTENTS.z),
@@ -224,7 +225,7 @@ fn sync_inducer(
                 InducerLight,
                 PointLight {
                     intensity: 0.0,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_translation(GLOBE_CENTRE),
@@ -273,7 +274,7 @@ fn hold_to_toggle(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut state: ResMut<RampageLocal>,
-    mut sender: Query<&mut TriggerSender<shared::ToggleRampage>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ToggleRampage>, With<GameClient>>,
 ) {
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     let lobby = zombies_game(&local, &lobbies).filter(|l| at_inducer(l, feet));
@@ -321,7 +322,7 @@ fn rampage_audio(
     if let Some(sounds) = &sounds {
         let one_shot = |clip: &Handle<AudioSource>, volume: f32, commands: &mut Commands| {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(clip.clone()),
                 PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume)),
             ));
@@ -334,7 +335,7 @@ fn rampage_audio(
         if now_on && music.is_empty() {
             commands.spawn((
                 RampageMusic,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.music.clone()),
                 PlaybackSettings::LOOP.with_volume(Volume::Linear(s.music_volume)),
             ));
@@ -442,8 +443,8 @@ fn spawn_rampage_ui(
     let body = asset_server.load(BODY_FONT);
     let icon = asset_server.load(RAMPAGE_ICON);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let shadow = TextShadow {
@@ -461,11 +462,12 @@ fn spawn_rampage_ui(
 
     // The prompt: icon on the left, what to do on the right.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
         .with_children(|row| {
             row.spawn((
                 RampagePrompt,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     align_items: AlignItems::Center,
                     column_gap: Val::Px(16.0),
                     padding: UiRect::all(Val::Px(14.0)),
@@ -474,8 +476,7 @@ fn spawn_rampage_ui(
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(RAMPAGE_ORANGE),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(RAMPAGE_ORANGE),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -504,8 +505,8 @@ fn spawn_rampage_ui(
                         PromptText::Effect,
                         Text::new(""),
                         TextFont {
-                            font: body.clone(),
-                            font_size: 14.0,
+                            font: body.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
@@ -516,7 +517,7 @@ fn spawn_rampage_ui(
 
     // While it's held: the word over the icon, its ring filling.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
         .with_children(|row| {
             row.spawn((
                 RampageHolding,
@@ -597,7 +598,7 @@ fn update_rampage_ui(
     if holding_text.0 != wanted {
         holding_text.0 = wanted.to_string();
     }
-    if let Some(m) = materials.get_mut(&ring.0) {
+    if let Some(mut m) = materials.get_mut(&ring.0) {
         let p = (state.held / HOLD_SECS).clamp(0.0, 1.0);
         if (m.params.x - p).abs() > 1e-4 {
             m.params.x = p;
@@ -615,7 +616,7 @@ fn update_lightning(
 ) {
     let s = &*settings;
     for panel in &panels {
-        let Some(m) = materials.get_mut(&panel.0) else { continue };
+        let Some(mut m) = materials.get_mut(&panel.0) else { continue };
         let [r, g, b] = s.lightning_color;
         m.params = Vec4::new(time.elapsed_secs_wrapped(), state.fade, s.lightning_brightness, s.lightning_bolts);
         m.colour = Vec4::new(r, g, b, s.lightning_glow);

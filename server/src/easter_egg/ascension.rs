@@ -75,13 +75,13 @@ fn altar_exhumer(peer: PeerId, pos: Vec3, yaw: f32) -> WeaponDrop {
 /// up); forget them once it's over.
 #[allow(clippy::type_complexity)]
 pub(super) fn run_ascension(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut ascents: ResMut<Ascents>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &mut PlayerCombat), Without<Zombie>>,
     on_altar: Query<(Entity, &AltarExhumer)>,
-    (time, mut returned, mut radio): (Res<Time>, ResMut<Returned>, EventWriter<crate::radio::SayRadio>),
+    (time, mut returned, mut radio): (Res<Time>, ResMut<Returned>, MessageWriter<crate::radio::SayRadio>),
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -148,7 +148,7 @@ pub(super) fn run_ascension(
                 combat.revive();
                 let msg = PlayerRevived { peer: id.0, reviver: id.0 };
                 if !has_no_client(id.0) {
-                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(vec![id.0])) {
+                    if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(vec![id.0])) {
                         error!("failed to get {:?} up for the pyramid: {e:?}", id.0);
                     }
                 }

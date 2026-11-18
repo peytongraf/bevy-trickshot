@@ -13,12 +13,12 @@
 //! — and the Pack-a-Punch's, which vents the same way, separately
 //! ("Pack-a-Punch machine" → "Fog", [`crate::pap::PapSettings`]).
 //!
-//! Puffs are `StateScoped(InGame)` and cleared the moment we're not in a
+//! Puffs are `DespawnOnExit(InGame)` and cleared the moment we're not in a
 //! `Zombies` game, so nothing carries into the next one.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::LocalId;
 
 use crate::net::GameClient;
@@ -240,7 +240,7 @@ fn emit_machine_fog(
                     ..default()
                 });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     FogPuff {
                         velocity,
                         out: (out + side * jitter).normalize_or_zero(),
@@ -306,7 +306,7 @@ fn update_machine_fog(
 
         let fade_in = (puff.age / fog.fade_in_secs.max(0.01)).min(1.0);
         let alpha = fog.opacity * fade_in * (1.0 - k).powf(1.5);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color = Color::srgba(1.0, 1.0, 1.0, alpha);
             m.emissive = LinearRgba::gray(fog.glow);
         }

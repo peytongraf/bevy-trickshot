@@ -62,12 +62,12 @@ pub(crate) fn setup_crosshair(mut commands: Commands) {
     let bar = |width: f32, height: f32| {
         (
             Node {
+                border_radius: BorderRadius::MAX,
                 width: Val::Px(width),
                 height: Val::Px(height),
                 ..default()
             },
             BackgroundColor(Color::WHITE),
-            BorderRadius::MAX,
         )
     };
 
@@ -87,14 +87,14 @@ pub(crate) fn setup_crosshair(mut commands: Commands) {
             root.spawn((
                 CenterDot,
                 Node {
+                    border_radius: BorderRadius::MAX,
                     width: Val::Px(5.0),
                     height: Val::Px(5.0),
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
-                BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                BorderRadius::MAX,
+                BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.6)),
             ));
 
             root.spawn((
@@ -140,7 +140,7 @@ pub(crate) fn fade_crosshair(
     };
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
-    border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
+    border.set_all(Color::srgba(0.0, 0.0, 0.0, 0.6 * a));
 }
 
 /// Pick the reticle: the centre dot only while the sniper is the active

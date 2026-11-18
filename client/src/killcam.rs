@@ -643,7 +643,7 @@ fn start_killcam(
         let pose = commands
             .spawn((
                 KillCamPose { track },
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 first.as_player_pose(),
             ))
             .id();
@@ -654,10 +654,10 @@ fn start_killcam(
                 KillCamPlayerGhost,
                 crate::SoldierVisual,
                 crate::HeldWeapon::default(),
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Transform::from_scale(Vec3::splat(remote_avatar_settings.scale)),
                 Visibility::default(),
-                SceneRoot(
+                WorldAssetRoot(
                     asset_server
                         .load(GltfAssetLabel::Scene(0).from_asset("models/characters/soldier.glb")),
                 ),
@@ -688,7 +688,7 @@ fn start_killcam(
     let banner = commands
         .spawn((
             KillCamBanner,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(20),
             Node {
                 position_type: PositionType::Absolute,
@@ -713,8 +713,8 @@ fn start_killcam(
                     bar.spawn((
                         Text::new(text),
                         TextFont {
-                            font: assets.banner_font.clone(),
-                            font_size: 46.0,
+                            font: assets.banner_font.clone().into(),
+                            font_size: FontSize::Px(46.0),
                             ..default()
                         },
                         TextColor(color),
@@ -725,8 +725,8 @@ fn start_killcam(
                     bar.spawn((
                         Text::new(run.killer_name.clone()),
                         TextFont {
-                            font: assets.banner_font.clone(),
-                            font_size: 32.0,
+                            font: assets.banner_font.clone().into(),
+                            font_size: FontSize::Px(32.0),
                             ..default()
                         },
                         TextColor(Color::WHITE),
@@ -758,10 +758,10 @@ fn drive_killcam(
     mut commands: Commands,
     // Re-emitted as the playhead reaches each recorded time.
     mut fx_events: (
-        EventWriter<GroundImpact>,
-        EventWriter<BloodImpact>,
-        EventWriter<FireTracer>,
-        EventWriter<crate::hit_marker::LocalHitMarker>,
+        MessageWriter<GroundImpact>,
+        MessageWriter<BloodImpact>,
+        MessageWriter<FireTracer>,
+        MessageWriter<crate::hit_marker::LocalHitMarker>,
     ),
     mut active: ResMut<ActiveKillCam>,
     (mut weapon, mut knife): (ResMut<Weapon>, ResMut<crate::ThrowingKnife>),
@@ -1233,12 +1233,12 @@ fn drive_killcam_throw(
                 .spawn((
                     KillCamKnifeGhost,
                     crate::KnifeTrailHead::default(),
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     Transform::default(),
                     Visibility::Hidden,
                 ))
                 .with_child((
-                    SceneRoot(
+                    WorldAssetRoot(
                         asset_server
                             .load(GltfAssetLabel::Scene(0).from_asset("models/weapons/throwing_knife.glb")),
                     ),

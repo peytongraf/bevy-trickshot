@@ -211,7 +211,7 @@ impl UpdateScreen {
 
 /// Build the font and start the check (if this build checks at all).
 fn setup(mut fonts: ResMut<Assets<Font>>, mut commands: Commands) {
-    let font = fonts.add(Font::try_from_bytes(FONT.to_vec()).expect("the built-in update screen font"));
+    let font = fonts.add(Font::from_bytes(FONT.to_vec()));
     let check = updater::enabled().then(updater::start);
     commands.insert_resource(UpdateScreen {
         font,
@@ -259,7 +259,7 @@ fn receive_mismatch(
             );
             screen.mismatch = Some(msg.server_version);
             link.hold = true;
-            commands.trigger_targets(Disconnect, client);
+            commands.trigger(Disconnect { entity: client });
         }
     }
 }
@@ -335,12 +335,12 @@ fn spawn_cover(commands: &mut Commands, font: &Handle<Font>, view: &View, previe
         (
             Text::new(s),
             TextFont {
-                font: font.clone(),
-                font_size: size,
+                font: font.clone().into(),
+                font_size: FontSize::Px(size),
                 ..default()
             },
             TextColor(color),
-            TextLayout::new_with_justify(JustifyText::Center),
+            TextLayout::justify(Justify::Center),
         )
     };
     commands
@@ -410,8 +410,7 @@ fn spawn_cover(commands: &mut Commands, font: &Handle<Font>, view: &View, previe
                     .with_children(|row| {
                         for btn in buttons {
                             row.spawn((
-                                Button,
-                                Interaction::default(),
+                                Interaction::default(), bevy::ui::FocusPolicy::Block,
                                 btn,
                                 Hoverable::new(ROW, ROW_HOVER, TEXT),
                                 Node {
@@ -494,7 +493,7 @@ fn screen_clicks(
     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
     mut screen: ResMut<UpdateScreen>,
     mut link: ResMut<ServerLink>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     for (interaction, &btn) in &q {
         if *interaction != Interaction::Pressed {

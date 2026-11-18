@@ -13,7 +13,7 @@ use crate::{AppState, GameSounds, HUD_FONT};
 /// top); `lines` are the itemised `(label, points)` that added up to it, top
 /// to bottom below that — with none, just a bare `+N` (Call of Duty
 /// zombies' look for a freebie like the prone bonus).
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct TrickScoredEvent {
     pub(crate) total: u32,
     pub(crate) lines: Vec<(String, u32)>,
@@ -60,7 +60,7 @@ pub(crate) const SCORE_POPUP_TTL: f32 = 2.6;
 
 /// Spawn the `+N  LABEL` stack, centred a little above the crosshair.
 pub(crate) fn spawn_score_popup(
-    mut events: EventReader<TrickScoredEvent>,
+    mut events: MessageReader<TrickScoredEvent>,
     existing: Query<Entity, With<ScorePopup>>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -99,7 +99,7 @@ pub(crate) fn spawn_score_popup(
                 age: 0.0,
                 color: ev.color,
             },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(9),
             Node {
                 position_type: PositionType::Absolute,
@@ -123,8 +123,8 @@ pub(crate) fn spawn_score_popup(
                     format!("+{}  TOTAL", crate::util::grouped(ev.total))
                 }),
                 TextFont {
-                    font: asset_server.load(HUD_FONT),
-                    font_size: 32.0,
+                    font: asset_server.load(HUD_FONT).into(),
+                    font_size: FontSize::Px(32.0),
                     ..default()
                 },
                 TextColor(ev.color),
@@ -133,8 +133,8 @@ pub(crate) fn spawn_score_popup(
                 col.spawn((
                     Text::new(format!("+{}  {label}", crate::util::grouped(*points))),
                     TextFont {
-                        font: asset_server.load(HUD_FONT),
-                        font_size: 25.0,
+                        font: asset_server.load(HUD_FONT).into(),
+                        font_size: FontSize::Px(25.0),
                         ..default()
                     },
                     TextColor(ev.color),

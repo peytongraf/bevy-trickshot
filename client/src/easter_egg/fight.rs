@@ -28,18 +28,18 @@
 //!   Up while he's alive in the fight, hidden behind menus and during a
 //!   kill cam like the rest of the HUD.
 //!
-//! The bar's `StateScoped(InGame)`, hidden (and its trail reset) whenever
+//! The bar's `DespawnOnExit(InGame)`, hidden (and its trail reset) whenever
 //! there's no fight; his lines go with his avatar, and the bursts and their
-//! sounds are `StateScoped(InGame)` and gone once they've played out. His
-//! eyes are `StateScoped(InGame)`, hidden whenever he's not alive in the
+//! sounds are `DespawnOnExit(InGame)` and gone once they've played out. His
+//! eyes are `DespawnOnExit(InGame)`, hidden whenever he's not alive in the
 //! fight; the phase the quake last saw is forgotten out of a game.
 //! Tuned in the debug panel's "Easter egg (Der Tempel)" → "The fight".
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
-use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::boss::BOSS_HEIGHT;
 use shared::easter_egg::{
     EggStep, Hierophant, HierophantDebugAction, TELEPORT_RISE_SECS, TELEPORT_SINK_SECS, TELEPORT_UNDER_SECS,
@@ -80,7 +80,7 @@ impl Plugin for FightPlugin {
             .add_systems(
                 PostUpdate,
                 place_eyes
-                    .after(bevy::transform::TransformSystem::TransformPropagate)
+                    .after(bevy::transform::TransformSystems::Propagate)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -186,11 +186,10 @@ fn his_avatar(
     him: Hierophant,
     avatars: &Query<(Entity, &RemoteAvatar), With<BossVisual>>,
     ids: &Query<&PlayerId>,
-    interp: &Query<&Interpolated>,
 ) -> Option<Entity> {
     avatars
         .iter()
-        .find(|(_, a)| crate::boss::peer_of(a.src, ids, interp) == Some(him.peer))
+        .find(|(_, a)| crate::boss::peer_of(a.src, ids) == Some(him.peer))
         .map(|(e, _)| e)
 }
 
@@ -204,13 +203,13 @@ fn mark_him(
     lobbies: Query<&Lobby>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
     mut tints: Query<&mut BossTint>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut commands: Commands,
 ) {
     let Some(him) = egg_game(&local, &lobbies).and_then(|l| l.easter_egg.hierophant) else {
         return;
     };
-    let Some(avatar) = his_avatar(him, &avatars, &ids, &interp) else {
+    let Some(avatar) = his_avatar(him, &avatars, &ids) else {
         return;
     };
     let color = settings.aura_now(rage.0);
@@ -241,7 +240,7 @@ fn his_lines(
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
     scales: Query<&Transform, With<BossVisual>>,
     playing: Query<Entity, Or<(With<HisLine>, With<crate::quotes::QuoteAudio>)>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut commands: Commands,
 ) {
     // (His death comes as he's no longer in the fight: whoever he was.)
@@ -249,7 +248,7 @@ fn his_lines(
     for mut rx in &mut receivers {
         for msg in rx.receive() {
             let Some(him) = him else { continue };
-            let Some(avatar) = his_avatar(him, &avatars, &ids, &interp) else {
+            let Some(avatar) = his_avatar(him, &avatars, &ids) else {
                 continue;
             };
             if msg.line.interrupts() {
@@ -265,7 +264,7 @@ fn his_lines(
                 commands.spawn((
                     HisLine,
                     super::death::DeathCry,
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(clip),
                     Transform::from_translation(at + Vec3::Y * settings.voice_height),
                     crate::positional_playback(Volume::Linear(settings.voice_volume)),
@@ -363,7 +362,7 @@ fn spawn_burst(
     let roll = |k: u32| crate::util::rand01(seed.wrapping_mul(2_654_435_761).wrapping_add(k));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Burst { start, life, size, color: c, sound, glow: glow.clone(), smoke: smoke.clone() },
             Transform::from_translation(at),
             Visibility::default(),
@@ -383,7 +382,7 @@ fn spawn_burst(
                     color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
                     intensity: 0.0,
                     range: size * 5.0,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_xyz(0.0, 0.6, 0.0),
@@ -421,7 +420,7 @@ fn receive_teleports(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -451,7 +450,7 @@ fn receive_teleports(
                 seq.wrapping_add(1),
                 c,
             );
-            if let Some(avatar) = him.and_then(|h| his_avatar(h, &avatars, &ids, &interp)) {
+            if let Some(avatar) = him.and_then(|h| his_avatar(h, &avatars, &ids)) {
                 commands.entity(avatar).insert(Sinking { start: now, from, to });
             }
         }
@@ -534,7 +533,7 @@ fn run_bursts(
         if t >= 0.0 {
             if let Some(sound) = burst.sound.take() {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(sound),
                     Transform::from_translation(root.translation + Vec3::Y),
                     crate::positional_playback(Volume::Linear(s.fx_volume)),
@@ -543,11 +542,11 @@ fn run_bursts(
         }
         // In fast, out slow.
         let level = if t < 0.0 { 0.0 } else { (t / 0.25).min(1.0) * (1.0 - p).powf(1.5) };
-        if let Some(m) = materials.get_mut(&burst.glow) {
+        if let Some(mut m) = materials.get_mut(&burst.glow) {
             let b = s.burst_glow * level;
             m.base_color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
         }
-        if let Some(m) = materials.get_mut(&burst.smoke) {
+        if let Some(mut m) = materials.get_mut(&burst.smoke) {
             m.base_color = Color::srgba(c[0] * 0.2, c[1] * 0.32, c[2] * 0.2, 0.75 * level);
         }
         for child in children.iter() {
@@ -600,7 +599,7 @@ fn place_eyes(
     lobbies: Query<&Lobby>,
     healths: Query<(&PlayerId, &PlayerHealth)>,
     avatars: Query<(Entity, &RemoteAvatar), With<BossVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     (children, names): (Query<&Children>, Query<&Name>),
     bones: Query<&GlobalTransform, Without<HisEye>>,
     camera: Option<Single<&GlobalTransform, (With<WorldModelCamera>, Without<HisEye>)>>,
@@ -623,7 +622,7 @@ fn place_eyes(
         });
         for side in [-1.0, 1.0] {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 HisEye(side),
                 Mesh3d(fx.quad.clone()),
                 MeshMaterial3d(material.clone()),
@@ -639,7 +638,7 @@ fn place_eyes(
     let him = in_fight(egg_game(&local, &lobbies)).filter(|h| {
         healths.iter().any(|(id, hp)| id.0 == h.peer && hp.0 > 0.0)
     });
-    let avatar = him.and_then(|h| his_avatar(h, &avatars, &ids, &interp));
+    let avatar = him.and_then(|h| his_avatar(h, &avatars, &ids));
     if head.is_some_and(|(a, b)| Some(a) != avatar || !bones.contains(b)) {
         *head = None;
     }
@@ -674,7 +673,7 @@ fn place_eyes(
         // (Placed after this frame's transforms went round.)
         *gtf = GlobalTransform::from(*tf);
         vis.set_if_neq(Visibility::Inherited);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             let want: Color = LinearRgba::rgb(c[0] * b, c[1] * b, c[2] * b).into();
             if m.base_color != want {
                 m.base_color = want;
@@ -737,7 +736,7 @@ fn spawn_bar(mut commands: Commands, asset_server: Res<AssetServer>, settings: R
     let font = asset_server.load(HUD_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             HealthBar,
             Trail::default(),
             GlobalZIndex(5),
@@ -758,8 +757,8 @@ fn spawn_bar(mut commands: Commands, asset_server: Res<AssetServer>, settings: R
             col.spawn((
                 Text::new("THE HIEROPHANT"),
                 TextFont {
-                    font,
-                    font_size: 26.0,
+                    font: font.into(),
+                    font_size: FontSize::Px(26.0),
                     ..default()
                 },
                 TextColor(NAME),
@@ -777,7 +776,7 @@ fn spawn_bar(mut commands: Commands, asset_server: Res<AssetServer>, settings: R
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
-                BorderColor(Color::srgba(0.45, 0.9, 0.42, 0.75)),
+                BorderColor::all(Color::srgba(0.45, 0.9, 0.42, 0.75)),
             ))
             .with_children(|frame| {
                 frame.spawn((
@@ -949,6 +948,6 @@ pub(crate) fn fight_section(
 }
 
 /// Send the debug panel's poke at him.
-pub(crate) fn send_poke(tx: &mut TriggerSender<shared::HierophantDebug>, action: HierophantDebugAction) {
+pub(crate) fn send_poke(tx: &mut EventSender<shared::HierophantDebug>, action: HierophantDebugAction) {
     tx.trigger::<shared::LobbyChannel>(shared::HierophantDebug { action });
 }

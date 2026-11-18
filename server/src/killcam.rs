@@ -476,8 +476,8 @@ fn record_actors(
 
 fn queue_killcams(
     clock: Res<ReplayClock>,
-    mut bot_hits: EventReader<BotHit>,
-    mut player_kills: EventReader<PlayerKilled>,
+    mut bot_hits: MessageReader<BotHit>,
+    mut player_kills: MessageReader<PlayerKilled>,
     lobbies: Query<(Entity, &Lobby)>,
     mut pending: ResMut<PendingCams>,
     mut ffa: ResMut<FfaPlays>,
@@ -538,7 +538,7 @@ fn queue_killcams(
 
 fn flush_killcams(
     clock: Res<ReplayClock>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     mut pending: ResMut<PendingCams>,
     mut best_plays: ResMut<BestPlays>,
@@ -602,7 +602,7 @@ fn flush_killcams(
         };
         if deliver {
             if let Err(e) =
-                sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets))
+                sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(targets))
             {
                 error!("failed to send kill cam: {e:?}");
             }
@@ -665,7 +665,7 @@ fn flush_killcams(
 /// or two after the score that triggered the ending.
 fn finish_endings(
     clock: Res<ReplayClock>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     pending: Res<PendingCams>,
     mut endings: ResMut<EndingLobbies>,
@@ -693,7 +693,7 @@ fn finish_endings(
             winners: lobby.winners(),
         };
         if let Err(e) =
-            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(lobby.real_peers()))
+            sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(lobby.real_peers()))
         {
             error!("failed to send match ending: {e:?}");
         }
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn the_end_cam_setting_picks_which_replay_is_taken_and_marks_it() {
-        let lobby = Entity::from_raw(7);
+        let lobby = Entity::from_raw_u32(7).unwrap();
         let mut plays = FfaPlays::default();
         let m = plays.0.entry(lobby).or_default();
         m.best = Some(BestFfaPlay { kills: 3, span: 0, msg: cam("best") });
@@ -809,24 +809,24 @@ mod tests {
     #[test]
     fn a_match_with_no_kills_has_nothing_to_replay() {
         let mut plays = FfaPlays::default();
-        assert!(plays.take(Entity::from_raw(1), EndCam::BestPlay).is_none());
-        plays.0.entry(Entity::from_raw(1)).or_default();
-        assert!(plays.take(Entity::from_raw(1), EndCam::FinalKill).is_none());
+        assert!(plays.take(Entity::from_raw_u32(1).unwrap(), EndCam::BestPlay).is_none());
+        plays.0.entry(Entity::from_raw_u32(1).unwrap()).or_default();
+        assert!(plays.take(Entity::from_raw_u32(1).unwrap(), EndCam::FinalKill).is_none());
     }
 
     #[test]
     fn ending_a_lobby_twice_keeps_the_first_tick() {
         let mut e = EndingLobbies::default();
-        let l = Entity::from_raw(3);
+        let l = Entity::from_raw_u32(3).unwrap();
         e.begin(l, 100, true);
         e.begin(l, 500, false);
         assert!(e.is_ending(l));
         assert_eq!(e.0[&l].began, 100);
         assert!(e.is_frozen(l), "the first begin's freeze setting stands");
-        let free = Entity::from_raw(4);
+        let free = Entity::from_raw_u32(4).unwrap();
         e.begin(free, 1, false);
         assert!(e.is_ending(free) && !e.is_frozen(free));
-        assert!(!e.is_frozen(Entity::from_raw(9)));
+        assert!(!e.is_frozen(Entity::from_raw_u32(9).unwrap()));
     }
 
     #[test]
@@ -858,11 +858,13 @@ mod tests {
         let buf = app.world().get::<ReplayBuffer>(player).unwrap();
         let before = &buf.frames[0].1.thrown_knives;
         let after = &buf.frames[1].1.thrown_knives;
-        assert_eq!(before[0].unwrap().pos[0], 1.0);
-        assert_eq!(before[1].unwrap().pos[0], 2.0);
-        // The second knife stays in slot 1; slot 0 is just empty now.
-        assert!(after[0].is_none(), "{after:?}");
-        assert_eq!(after[1].unwrap().pos[0], 2.0);
+        // Which slot each knife lands in first follows query order; what
+        // matters is that they stay put.
+        let first_slot = before.iter().position(|k| k.is_some_and(|k| k.pos[0] == 1.0)).unwrap();
+        let second_slot = before.iter().position(|k| k.is_some_and(|k| k.pos[0] == 2.0)).unwrap();
+        // The second knife stays in its slot; the first's is just empty now.
+        assert!(after[first_slot].is_none(), "{after:?}");
+        assert_eq!(after[second_slot].unwrap().pos[0], 2.0);
     }
 
     fn entry(key: u64, bot: bool, peer: Option<PeerId>, x: f32, alive: bool) -> ActorEntry {

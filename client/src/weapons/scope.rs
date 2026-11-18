@@ -140,7 +140,7 @@ pub(crate) fn apply_crosshair_texture(
         return;
     }
     *applied = Some(settings.crosshair);
-    if let Some(material) = materials.get_mut(&reticle_material.0) {
+    if let Some(mut material) = materials.get_mut(&reticle_material.0) {
         material.base_color_texture =
             Some(asset_server.load(crosshair_asset_path(settings.crosshair)));
     }
@@ -160,7 +160,7 @@ pub(crate) fn sync_scope_fog(
         return;
     }
     *synced = true;
-    **scope_fog = world_fog.clone();
+    **scope_fog = DistanceFog::clone(&world_fog);
 }
 
 /// Panel-adjustable scope-reticle behaviour: size on the glass, the CoD-style
@@ -315,7 +315,7 @@ pub(crate) fn update_scope(
     let k = 1.0 - e;
     for (material, mut visibility) in &mut lens {
         *visibility = Visibility::Inherited;
-        if let Some(material) = materials.get_mut(&material.0) {
+        if let Some(mut material) = materials.get_mut(&material.0) {
             // Sight picture rides on emissive: black at the hip, full while scoped.
             material.emissive = LinearRgba::rgb(e, e, e);
             // Glass tint fades to a black backing so the sight picture stays clean.

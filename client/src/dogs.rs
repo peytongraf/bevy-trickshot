@@ -16,18 +16,18 @@
 //!
 //! Every sound is positional and heard by the whole lobby. Look and feel are
 //! tuned in the debug panel's "Dogs (Zombies)" section ([`DogSettings`]). Everything
-//! here is `StateScoped(InGame)`; a gone dog's source entity is marked
+//! here is `DespawnOnExit(InGame)`; a gone dog's source entity is marked
 //! [`DogGone`] so no new avatar is made for it before the server's despawn
 //! arrives.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::world_serialization::WorldInstanceReady;
 use bevy_egui::egui;
-use lightyear::prelude::{Interpolated, MessageReceiver, PeerId};
+use lightyear::prelude::{MessageReceiver, PeerId};
 use shared::{PlayerId, PlayerPose};
 
 use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, MolotovSettings};
@@ -173,7 +173,7 @@ pub(crate) struct DogAssets {
     flash_mesh: Handle<Mesh>,
 }
 
-/// Tags a dog avatar's `SceneRoot`.
+/// Tags a dog avatar's `WorldAssetRoot`.
 #[derive(Component)]
 pub(crate) struct DogVisual;
 
@@ -318,13 +318,13 @@ fn bolt_material(color: [f32; 3], brightness: f32) -> StandardMaterial {
 pub(crate) fn spawn_dog_avatar(commands: &mut Commands, asset_server: &AssetServer, settings: &DogSettings, src: Entity) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             DogVisual,
             DogMotion::default(),
             Transform::from_scale(Vec3::splat(settings.scale.max(0.001))),
             Visibility::default(),
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DOG_MODEL))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(DOG_MODEL))),
         ))
         .observe(start_dog_animation);
 }
@@ -332,7 +332,7 @@ pub(crate) fn spawn_dog_avatar(commands: &mut Commands, asset_server: &AssetServ
 /// Once a dog's scene is in: run, from the start of the cycle; remember its
 /// `AnimationPlayer` and back bone.
 fn start_dog_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -340,7 +340,7 @@ fn start_dog_animation(
     assets: Res<DogAssets>,
     mut bounds: crate::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut player_entity = None;
     let mut back = None;
     for entity in children.iter_descendants(root) {
@@ -359,12 +359,10 @@ fn start_dog_animation(
     }
 }
 
-/// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
-/// entity's).
-fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+/// The peer a pose entity belongs to (its `PlayerId`).
+fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
@@ -375,7 +373,7 @@ fn dog_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle {
         playback.mode = PlaybackMode::Loop;
     }
     (
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         DogSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
@@ -398,7 +396,7 @@ pub(crate) fn spawn_lightning(
     let material = if boss { &assets.boss_bolt_material } else { &assets.bolt_material };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Lightning {
                 age: 0.0,
                 secs,
@@ -425,7 +423,7 @@ pub(crate) fn spawn_lightning(
                     color: Color::srgb(c[0], c[1], c[2]),
                     intensity: 0.0,
                     range: settings.lightning_light_range,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 },
                 Transform::from_xyz(0.0, 3.0, 0.0),
@@ -451,7 +449,7 @@ fn spawn_flash(
     });
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             SpawnFlash {
                 age: 0.0,
                 material: material.clone(),
@@ -469,7 +467,7 @@ fn spawn_flash(
                 color: Color::srgb(c[0], c[1], c[2]),
                 intensity: settings.flash_light,
                 range: settings.flash_light_range,
-                shadows_enabled: false,
+                shadow_maps_enabled: false,
                 ..default()
             },
         ));
@@ -485,9 +483,9 @@ fn receive_dog_messages(
     sounds: Option<Res<GameSounds>>,
     settings: Res<DogSettings>,
     avatars: Query<(Entity, &RemoteAvatar, &Transform), With<DogVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -512,7 +510,7 @@ fn receive_dog_messages(
             // Its body goes, and the blast's where we see it.
             let mut feet = Vec3::from_array(msg.at);
             for (avatar, remote, tf) in &avatars {
-                if peer_of(remote.src, &ids, &interp) == Some(msg.dog) {
+                if peer_of(remote.src, &ids) == Some(msg.dog) {
                     feet = tf.translation;
                     commands.entity(avatar).try_despawn();
                     if let Ok(mut src) = commands.get_entity(remote.src) {
@@ -630,7 +628,7 @@ fn light_dog_fires(
             let flames = settings.fire_flames.max(1);
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     DogFire {
                         avatar,
                         material: material.clone(),
@@ -661,7 +659,7 @@ fn light_dog_fires(
                             color: molotov.light_color(),
                             intensity: 0.0,
                             range: settings.fire_light_range,
-                            shadows_enabled: false,
+                            shadow_maps_enabled: false,
                             ..default()
                         },
                         Transform::from_xyz(0.0, 0.3, 0.0),
@@ -711,7 +709,7 @@ fn update_dog_fires(
             .unwrap_or_else(|| avatar_gt.translation() + Vec3::Y * settings.scale);
         tf.translation = back + Vec3::Y * settings.fire_height + along * settings.fire_forward;
         vis.set_if_neq(Visibility::Inherited);
-        if let Some(m) = materials.get_mut(&fire.material) {
+        if let Some(mut m) = materials.get_mut(&fire.material) {
             *m = FireMaterial::flame(
                 &molotov,
                 settings.fire_brightness,
@@ -749,10 +747,10 @@ fn update_lightning(
     let dt = time.delta_secs();
     if let Some(assets) = &assets {
         if settings.is_changed() {
-            if let Some(m) = materials.get_mut(&assets.bolt_material) {
+            if let Some(mut m) = materials.get_mut(&assets.bolt_material) {
                 m.base_color = strike(STRIKE_COLOR, settings.lightning_brightness).into();
             }
-            if let Some(m) = materials.get_mut(&assets.boss_bolt_material) {
+            if let Some(mut m) = materials.get_mut(&assets.boss_bolt_material) {
                 m.base_color = strike(BOSS_STRIKE_COLOR, settings.lightning_brightness).into();
             }
         }
@@ -858,7 +856,7 @@ fn update_flashes(
         }
         let fade = (1.0 - k) * (1.0 - k);
         tf.scale = Vec3::splat(s.flash_size * flash.size * (0.3 + 0.7 * k.sqrt()) * 0.5);
-        if let Some(m) = materials.get_mut(&flash.material) {
+        if let Some(mut m) = materials.get_mut(&flash.material) {
             m.base_color = strike(flash.color, s.flash_brightness * fade).into();
         }
         for child in children.iter() {
@@ -879,7 +877,7 @@ fn run_previews(
     sounds: Option<Res<GameSounds>>,
     player: Single<&Transform, With<Player>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut commands: Commands,
 ) {
     if !(preview.lightning || preview.flash || preview.explosion) {

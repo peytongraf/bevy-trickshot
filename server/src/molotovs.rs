@@ -114,7 +114,7 @@ fn zombies_lobby<'a>(
 /// the player has left is client-side, like the rest of its ammo.)
 #[allow(clippy::too_many_arguments)]
 fn on_throw_molotov(
-    trigger: Trigger<RemoteTrigger<ThrowMolotov>>,
+    trigger: On<RemoteEvent<ThrowMolotov>>,
     time: Res<Time>,
     mut last: ResMut<LastThrow>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -161,8 +161,8 @@ fn on_throw_molotov(
             owner: peer,
             lobby: lobby_e,
         },
-        Replicate::to_clients(NetworkTarget::Only(members.clone())),
-        InterpolationTarget::to_clients(NetworkTarget::Only(members)),
+        Replicate::to_clients(NetworkTarget::from(members.clone())),
+        InterpolationTarget::to_clients(NetworkTarget::from(members)),
     ));
     info!("{peer:?} threw a molotov");
 }
@@ -172,7 +172,7 @@ fn on_throw_molotov(
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn step_molotovs(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     colliders: Res<MapColliders>,
     lobbies: Query<&Lobby>,
@@ -209,7 +209,7 @@ fn step_molotovs(
             if let Err(e) = sender.send::<_, GameChannel>(
                 &burst,
                 server,
-                &NetworkTarget::Only(members.clone()),
+                &NetworkTarget::from(members.clone()),
             ) {
                 error!("failed to send molotov burst: {e:?}");
             }
@@ -229,7 +229,7 @@ fn step_molotovs(
                     // The first tick lands right away.
                     since_tick: FIRE_TICK_SECS,
                 },
-                Replicate::to_clients(NetworkTarget::Only(members)),
+                Replicate::to_clients(NetworkTarget::from(members)),
             ));
             continue;
         }
@@ -257,7 +257,7 @@ fn burn(
     lobbies: Query<&Lobby>,
     bodies: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>)>,
     mut fires: Query<(Entity, &mut FireSim)>,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
     mut commands: Commands,
 ) {
     let dt = time.delta_secs();
@@ -312,7 +312,7 @@ fn burn(
 fn roll_drops(
     time: Res<Time>,
     colliders: Res<MapColliders>,
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
     mut commands: Commands,
 ) {
@@ -347,7 +347,7 @@ fn roll_drops(
                 lobby: ev.lobby,
                 age: 0.0,
             },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
         info!("lobby {:?}: a zombie dropped a molotov", ev.lobby);
     }
@@ -394,7 +394,7 @@ pub(crate) fn drop_around(
                 lobby: lobby_e,
                 age: 0.0,
             },
-            Replicate::to_clients(NetworkTarget::Only(lobby.real_peers())),
+            Replicate::to_clients(NetworkTarget::from(lobby.real_peers())),
         ));
     }
 }
@@ -403,16 +403,16 @@ pub(crate) fn drop_around(
 /// throwing knives they were carrying instead.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_molotov(
-    trigger: Trigger<RemoteTrigger<PickUpMolotov>>,
+    trigger: On<RemoteEvent<PickUpMolotov>>,
     colliders: Res<MapColliders>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     lobbies: Query<(Entity, &Lobby)>,
     poses: Query<(&PlayerId, &PlayerPose)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &MolotovDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {
@@ -457,7 +457,7 @@ fn on_pick_up_molotov(
 
 /// Debug: the leader makes every zombie kill drop a molotov (or not).
 fn on_set_molotov_test(
-    trigger: Trigger<RemoteTrigger<SetMolotovTest>>,
+    trigger: On<RemoteEvent<SetMolotovTest>>,
     mut lobbies: Query<&mut Lobby>,
 ) {
     let peer = trigger.from;

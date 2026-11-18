@@ -11,9 +11,9 @@
 //! it (`shared::weapon::RAYGUN_BOLT_SPEED`, `server::raygun`), and the
 //! server's word when it really lands steers it ([`RayGunLanded`]) — onto
 //! the zombie it hit, which this client can't tell. All of it is
-//! `StateScoped(InGame)`.
+//! `DespawnOnExit(InGame)`.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use lightyear::prelude::PeerId;
 use shared::weapon::RAYGUN_BOLT_SPEED;
@@ -118,7 +118,7 @@ pub(crate) enum BoltOwner {
 
 /// Fire `owner`'s Ray Gun bolt from `start` toward `end`, where it waits on
 /// the server's [`RayGunLanded`].
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct RayGunBolt {
     pub(crate) start: Vec3,
     pub(crate) end: Vec3,
@@ -128,7 +128,7 @@ pub(crate) struct RayGunBolt {
 /// The server says where `owner`'s oldest bolt in flight really landed — or,
 /// `claimed`, our own client saw ours strike a zombie there
 /// (`hit_detection`), which the server's word that follows is then about.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct RayGunLanded {
     pub(crate) end: Vec3,
     pub(crate) owner: BoltOwner,
@@ -144,8 +144,8 @@ pub(crate) struct RayGunVfxPlugin;
 
 impl Plugin for RayGunVfxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<RayGunBolt>()
-            .add_event::<RayGunLanded>()
+        app.add_message::<RayGunBolt>()
+            .add_message::<RayGunLanded>()
             .init_resource::<ClaimedBolts>()
             .init_resource::<RayGunLook>()
             .init_resource::<ShooterVelocities>()
@@ -205,7 +205,7 @@ fn apply_glow(look: Res<RayGunLook>, assets: Option<Res<RayGunAssets>>, mut mate
     if !look.is_changed() {
         return;
     }
-    if let Some(m) = materials.get_mut(&assets.glow) {
+    if let Some(mut m) = materials.get_mut(&assets.glow) {
         m.base_color = look.color();
         m.emissive = emissive(look.color(), look.bolt_glow);
     }
@@ -303,7 +303,7 @@ fn spawn_bolts(
     look: Res<RayGunLook>,
     me: Query<&crate::player::PlayerPhysics, With<crate::player::Player>>,
     others: Res<ShooterVelocities>,
-    mut fired: EventReader<RayGunBolt>,
+    mut fired: MessageReader<RayGunBolt>,
     assets: Option<Res<RayGunAssets>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -332,7 +332,7 @@ fn spawn_bolts(
             let facing = Transform::from_translation(bolt.start).looking_to(dir, Vec3::Y).rotation
                 * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 MuzzleRing {
                     age: -(i as f32) * look.muzzle_ring_gap_secs,
                     dir,
@@ -350,7 +350,7 @@ fn spawn_bolts(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 Bolt {
                     end: bolt.end,
                     owner: bolt.owner,
@@ -387,7 +387,7 @@ fn spawn_bolts(
                     color: look.color(),
                     intensity: look.bolt_light,
                     range: look.bolt_light_range,
-                    shadows_enabled: false,
+                    shadow_maps_enabled: false,
                     ..default()
                 });
             });
@@ -399,7 +399,7 @@ fn spawn_bolts(
 /// burst there now).
 fn steer_own_bolts(
     look: Res<RayGunLook>,
-    mut landed: EventReader<RayGunLanded>,
+    mut landed: MessageReader<RayGunLanded>,
     mut claimed: ResMut<ClaimedBolts>,
     mut bolts: Query<&mut Bolt>,
     assets: Option<Res<RayGunAssets>>,
@@ -482,7 +482,7 @@ fn burst(
     let material = glowing(materials, look.color(), look.burst_glow, look.burst_opacity);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Burst {
                 age: 0.0,
                 material: material.clone(),
@@ -496,7 +496,7 @@ fn burst(
             color: look.color(),
             intensity: look.burst_light,
             range: look.burst_light_range,
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..default()
         });
     let seed = (at.x * 131.0 + at.z * 71.0 + at.y * 17.0) as u32;
@@ -505,7 +505,7 @@ fn burst(
         let speed = look.spark_speed * (1.0 + (r(4) + 1.0) * 0.75);
         let velocity = Vec3::new(r(1), r(2).abs() + 0.3, r(3)).normalize_or(Vec3::Y) * speed;
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Spark { velocity, age: 0.0 },
             Mesh3d(assets.spark.clone()),
             MeshMaterial3d(assets.glow.clone()),
@@ -535,7 +535,7 @@ fn play_bursts(
         let grow = 1.0 - (1.0 - k).powi(3);
         let fade = 1.0 - k;
         t.scale = Vec3::splat((0.15 + grow * look.burst_radius) / CORE_RADIUS);
-        if let Some(m) = materials.get_mut(&b.material) {
+        if let Some(mut m) = materials.get_mut(&b.material) {
             m.base_color = look.color().with_alpha(look.burst_opacity * fade * fade);
             m.emissive = emissive(look.color(), look.burst_glow * fade);
         }
@@ -596,7 +596,7 @@ fn puff_muzzle_rings(
         let (start, end) = (look.muzzle_ring_start_scale, look.muzzle_ring_end_scale);
         t.scale = Vec3::splat((start + grow * (end - start)).max(0.001));
         let fade = ((1.0 - k) * 2.0).min(1.0);
-        if let Some(m) = materials.get_mut(&ring.material) {
+        if let Some(mut m) = materials.get_mut(&ring.material) {
             m.base_color = look.color().with_alpha(look.muzzle_ring_opacity * fade);
             m.emissive = emissive(look.color(), 5.0 * look.muzzle_ring_opacity * fade);
         }

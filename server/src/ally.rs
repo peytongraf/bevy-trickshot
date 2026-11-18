@@ -37,7 +37,7 @@
 //! pressed into pushes it back out ([`spacing`]).
 //!
 //! Every purchase and pickup is the real one: it fires the same handler a
-//! client's message does ([`RemoteTrigger`]) under its own peer, so the
+//! client's message does ([`RemoteEvent`]) under its own peer, so the
 //! rules — standing at it, the points, the power — and the quotes that go
 //! with them are a player's. Everything a player's avatar shows, it shows
 //! too ([`Act`]): the gun it's holding and carrying, putting one away and
@@ -559,7 +559,7 @@ fn drive_allies(
         Query<(Entity, &shared::PowerUpDrop, &crate::power_ups::DropSim)>,
     ),
     mut team_doors: ResMut<TeamDoors>,
-    mut quotes: EventWriter<SayQuote>,
+    mut quotes: MessageWriter<SayQuote>,
     mut commands: Commands,
 ) {
     let dt = time.delta_secs();
@@ -1478,8 +1478,8 @@ fn ask(errand: Errand, brain: &AllyBrain, member: &shared::LobbyMember, me: Peer
 }
 
 /// Fire the handler a client's `trigger` message would reach, as `me`.
-fn from<M: Message>(commands: &mut Commands, me: PeerId, trigger: M) {
-    commands.trigger(RemoteTrigger { trigger, from: me });
+fn from<M: Event>(commands: &mut Commands, me: PeerId, trigger: M) {
+    commands.trigger(RemoteEvent { trigger, from: me });
 }
 
 /// How an errand it asked for went: `Some(true)` done (anything to show
@@ -1724,7 +1724,7 @@ mod tests {
         app.insert_resource(NavGraphs::build(&MapColliders::load()));
         app.init_resource::<crate::killcam::EndingLobbies>();
         app.init_resource::<TeamDoors>();
-        app.add_event::<SayQuote>();
+        app.add_message::<SayQuote>();
         // (Each bot's input published as its pose, as `sim::apply_client_pose`
         // does — what the others see of it.)
         app.add_systems(Update, (drive_allies, publish_poses).chain());

@@ -8,7 +8,7 @@
 //! comes from the kill's own feedback).
 //!
 //! The X is a "+" of four bars in a box turned 45°, so each bar just slides
-//! straight out along its own axis. Spawned per game (`StateScoped`) and
+//! straight out along its own axis. Spawned per game (`DespawnOnExit`) and
 //! cleared on respawn — nothing carries between games or lives.
 
 use std::f32::consts::FRAC_PI_4;
@@ -71,7 +71,7 @@ struct HitMarkerArm {
 
 /// Our knife stab struck someone (`melee_predict`) — flash the marker now,
 /// as the server will say.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct LocalHitMarker {
     pub(crate) kill: bool,
     pub(crate) victim: Option<lightyear::prelude::PeerId>,
@@ -82,7 +82,7 @@ pub struct HitMarkerPlugin;
 impl Plugin for HitMarkerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HitMarkerFlash>()
-            .add_event::<LocalHitMarker>()
+            .add_message::<LocalHitMarker>()
             .add_systems(OnEnter(AppState::InGame), spawn_hit_marker)
             .add_systems(
                 Update,
@@ -97,7 +97,7 @@ fn spawn_hit_marker(mut commands: Commands, mut flash: ResMut<HitMarkerFlash>) {
     *flash = HitMarkerFlash::default();
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(6),
             Node {
                 position_type: PositionType::Absolute,
@@ -135,7 +135,7 @@ fn spawn_hit_marker(mut commands: Commands, mut flash: ResMut<HitMarkerFlash>) {
 
 /// A new life: no marker left flashing from the last one.
 fn reset_on_respawn(
-    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut respawned: MessageReader<crate::net::LocalPlayerRespawned>,
     mut flash: ResMut<HitMarkerFlash>,
 ) {
     if respawned.read().count() > 0 {
@@ -150,12 +150,12 @@ fn reset_on_respawn(
 #[allow(clippy::too_many_arguments)]
 fn receive_hit_markers(
     mut receivers: Query<&mut MessageReceiver<shared::HitMarker>>,
-    mut local: EventReader<LocalHitMarker>,
+    mut local: MessageReader<LocalHitMarker>,
     killcam: Res<ActiveKillCam>,
     sounds: Res<GameSounds>,
     mut predicted: ResMut<crate::melee_predict::Predicted>,
     mut flash: ResMut<HitMarkerFlash>,
-    mut damaged: EventWriter<crate::hud::DamagedByMe>,
+    mut damaged: MessageWriter<crate::hud::DamagedByMe>,
     mut snd: ResMut<crate::killcam::ReplaySoundBits>,
     mut commands: Commands,
 ) {

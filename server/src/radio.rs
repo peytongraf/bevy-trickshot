@@ -30,7 +30,7 @@ use shared::{GameChannel, GameMode, Lobby, RadioSaid};
 use crate::pvp::ZombieKilled;
 
 /// The man on the radio says `line` to `lobby`, now.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SayRadio {
     pub lobby: Entity,
     pub line: RadioLine,
@@ -97,7 +97,7 @@ pub struct RadioPlugin;
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RadioDirector>()
-            .add_event::<SayRadio>()
+            .add_message::<SayRadio>()
             .add_systems(
                 FixedUpdate,
                 direct_radio
@@ -120,10 +120,10 @@ fn still_so(line: RadioLine, lobby: &Lobby) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn direct_radio(
     time: Res<Time>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
-    mut requests: EventReader<SayRadio>,
-    mut kills: EventReader<ZombieKilled>,
+    mut requests: MessageReader<SayRadio>,
+    mut kills: MessageReader<ZombieKilled>,
     quotes: Res<crate::quotes::Director>,
     lobbies: Query<(Entity, &Lobby)>,
     mut director: ResMut<RadioDirector>,
@@ -217,7 +217,7 @@ fn direct_radio(
         if line == RadioLine::GameOver {
             air.queue.clear();
         }
-        if let Err(e) = sender.send::<_, GameChannel>(&RadioSaid { line }, server, &NetworkTarget::Only(lobby.real_peers())) {
+        if let Err(e) = sender.send::<_, GameChannel>(&RadioSaid { line }, server, &NetworkTarget::from(lobby.real_peers())) {
             error!("failed to send radio line: {e:?}");
         }
         debug!("lobby {lobby_e:?}: radio says {line:?}");

@@ -6,11 +6,9 @@
 // edge, re-forking many times a second. Driven by `DeathOrbMaterial` in
 // `client/src/boss.rs`.
 
-#import bevy_pbr::{
-    forward_io::VertexOutput,
-    mesh_view_bindings::globals,
-}
-
+import bevy_pbr::{
+    render::forward_io::VertexOutput,
+    render::mesh_view_bindings::globals};
 struct OrbParams {
     // Linear rgb: the sphere's darkness...
     dark: vec4<f32>,
@@ -32,7 +30,7 @@ struct OrbParams {
     _pad0: f32,
     _pad1: f32,
 }
-@group(2) @binding(0) var<uniform> orb: OrbParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> orb: OrbParams;
 
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

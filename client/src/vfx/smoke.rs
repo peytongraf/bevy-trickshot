@@ -1,9 +1,9 @@
 //! Barrel smoke: a burst of drifting, camera-billboarded sprites released for
 //! a short window after each shot, fading independently as they age.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 
 use crate::player::{Player, PlayerHead};
 use crate::util::{rand01, rand_roll};
@@ -228,7 +228,7 @@ pub(crate) fn update_smoke(
         transform.scale = scale;
 
         let alpha = particle.peak_alpha * smoke_envelope(particle.age, particle.fade_in, particle.lifetime);
-        if let Some(material) = materials.get_mut(&material.0) {
+        if let Some(mut material) = materials.get_mut(&material.0) {
             material.base_color = Color::srgba(1.0, 1.0, 1.0, alpha);
         }
     }

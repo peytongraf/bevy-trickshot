@@ -78,7 +78,7 @@ fn feet(pose: &PlayerPose) -> Vec3 {
 
 /// Debug: the leader sets the egg's progress — only in a running game it's
 /// part of (`Zombies` on Der Tempel).
-fn on_set_easter_egg(trigger: Trigger<RemoteTrigger<SetEasterEgg>>, mut lobbies: Query<(Entity, &mut Lobby)>) {
+fn on_set_easter_egg(trigger: On<RemoteEvent<SetEasterEgg>>, mut lobbies: Query<(Entity, &mut Lobby)>) {
     let peer = trigger.from;
     let Some((lobby_e, mut lobby)) = lobbies
         .iter_mut()
@@ -96,7 +96,7 @@ fn on_set_easter_egg(trigger: Trigger<RemoteTrigger<SetEasterEgg>>, mut lobbies:
 /// The first Big Steve killed while the vial's still to be found drops it
 /// where he fell — unless that's outside a window, out of reach (the next
 /// one drops it then; a Nuke's kills don't count either).
-fn drop_vial(mut kills: EventReader<ZombieKilled>, mut lobbies: Query<&mut Lobby>) {
+fn drop_vial(mut kills: MessageReader<ZombieKilled>, mut lobbies: Query<&mut Lobby>) {
     for kill in kills.read() {
         if !kill.anim.is_boss() || kill.outside {
             continue;
@@ -115,11 +115,11 @@ fn drop_vial(mut kills: EventReader<ZombieKilled>, mut lobbies: Query<&mut Lobby
 /// A player's easter egg interact: they must be in a running, unpaused game
 /// it's part of, alive, and where it is; anything else is ignored.
 fn on_egg_interact(
-    trigger: Trigger<RemoteTrigger<EggInteract>>,
+    trigger: On<RemoteEvent<EggInteract>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
 ) {
     let peer = trigger.from;
     let action = trigger.trigger.action;
@@ -209,8 +209,8 @@ fn run_ritual(
     mut rituals: ResMut<Rituals>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat), With<LobbyPlayer>>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     use shared::easter_egg::{RITUAL_CHANT_AT_SECS, RITUAL_SEAL_AT_SECS};
     let dt = time.delta_secs();
@@ -288,7 +288,7 @@ fn run_unleashed(
     mut unleashings: ResMut<Unleashings>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut zombies: Query<(&LobbyPlayer, &mut PlayerCombat), (With<Zombie>, Without<Hierophant>)>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
 ) {
     let dt = time.delta_secs();
     unleashings
@@ -363,7 +363,7 @@ fn run_unleashed(
 /// The man on the radio on something gathered (`line`) — then, with both
 /// had, his hint at the altar (each once a game, waiting their turn —
 /// `crate::radio`).
-fn gathered_radio(lobby_e: Entity, lobby: &Lobby, line: RadioLine, radio: &mut EventWriter<crate::radio::SayRadio>) {
+fn gathered_radio(lobby_e: Entity, lobby: &Lobby, line: RadioLine, radio: &mut MessageWriter<crate::radio::SayRadio>) {
     radio.write(crate::radio::SayRadio { lobby: lobby_e, line });
     if lobby.easter_egg.gathered() {
         radio.write(crate::radio::SayRadio {

@@ -7,7 +7,7 @@
 // is against where we stand, so the level we're on always reads as the
 // floor, whatever the map's levels.
 
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 // x, y: the world (x, z) the view's centred on; z: our heading (radians,
 // clockwise from north = -Z); w: how far (m) it reaches from the centre to

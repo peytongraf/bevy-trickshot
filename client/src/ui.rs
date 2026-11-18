@@ -279,7 +279,7 @@ pub fn panel_node(node: Node) -> impl Bundle {
             ..node
         },
         BackgroundColor(PANEL),
-        BorderColor(EDGE),
+        BorderColor::all(EDGE),
     )
 }
 
@@ -288,7 +288,7 @@ pub fn label(text: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     (
         Text::new(text),
         TextFont {
-            font_size: size,
+            font_size: FontSize::Px(size),
             ..default()
         },
         TextColor(color),
@@ -306,8 +306,8 @@ pub fn label_hud(
     (
         Text::new(text),
         TextFont {
-            font: asset_server.load(crate::HUD_FONT),
-            font_size: size,
+            font: asset_server.load(crate::HUD_FONT).into(),
+            font_size: FontSize::Px(size),
             ..default()
         },
         TextColor(color),
@@ -326,8 +326,8 @@ pub fn label_body(
     (
         Text::new(text),
         TextFont {
-            font: asset_server.load(crate::BODY_FONT),
-            font_size: size,
+            font: asset_server.load(crate::BODY_FONT).into(),
+            font_size: FontSize::Px(size),
             ..default()
         },
         TextColor(color),
@@ -346,7 +346,7 @@ pub fn field_box(width: f32) -> impl Bundle {
             ..default()
         },
         BackgroundColor(ROW),
-        BorderColor(ACCENT),
+        BorderColor::all(ACCENT),
     )
 }
 
@@ -368,8 +368,7 @@ pub fn spawn_button_hud<M: Component>(
 ) {
     parent
         .spawn((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             marker,
             Hoverable::new(normal, hover, text_color),
             ui_sound(sfx),

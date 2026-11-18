@@ -7,7 +7,7 @@
 // edges race and the view pulse like a tunnel. The middle of the view stays
 // clear. Driven by `AstralUniform` in `client/src/vfx/astral.rs`.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;

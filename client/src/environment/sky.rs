@@ -125,7 +125,7 @@ pub(crate) fn sync_sky_texture(
     let Ok(sky) = sky.single() else {
         return;
     };
-    let Some(material) = materials.get_mut(&sky.0) else {
+    let Some(mut material) = materials.get_mut(&sky.0) else {
         return;
     };
     material.base_color_texture = Some(asset_server.load(sky_texture_path(current.0)));
@@ -175,7 +175,7 @@ pub(crate) fn apply_sky_look(
         // map's zenith points up, then turn it.
         transform.rotation =
             Quat::from_rotation_y(look.yaw_deg.to_radians()) * Quat::from_rotation_x(-FRAC_PI_2);
-        if let Some(material) = materials.get_mut(&sky.0) {
+        if let Some(mut material) = materials.get_mut(&sky.0) {
             let own = LinearRgba::from(color_from_parts(look.tint)) * look.brightness;
             let dark = LinearRgba::from(color_from_parts(dog_look.sky_tint)) * dog_look.sky_brightness;
             let sky = own * (1.0 - t) + dark * t;
@@ -188,7 +188,7 @@ pub(crate) fn apply_sky_look(
     let alpha = look.haze + (dog_look.sky_fog - look.haze) * t;
     let alpha = alpha + (egg_look.sky_haze.max(alpha) - alpha) * e;
     vis.set_if_neq(if alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden });
-    let Some(material) = materials.get_mut(&veil.0) else { return };
+    let Some(mut material) = materials.get_mut(&veil.0) else { return };
     let color = color_from_parts(look.haze_color)
         .mix(&color_from_parts(dog_look.fog_color), t)
         .mix(&color_from_parts(egg_look.fog_color), e);

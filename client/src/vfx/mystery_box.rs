@@ -13,16 +13,16 @@
 //! The open effects follow how open the box is ([`MysteryBox::openness`],
 //! the glow's fade), so they swell in with the lid and die away as it
 //! shuts. Everything's in world space, worked out from the box's own frame
-//! (so it turns and scales with it), `StateScoped(InGame)`, and cleared the
+//! (so it turns and scales with it), `DespawnOnExit(InGame)`, and cleared the
 //! moment there's no box — nothing carries into the next game.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use shared::mystery_box::HALF_EXTENTS;
 
@@ -267,7 +267,7 @@ fn apply_box_fx_look(
         (&assets.beam_halo, fx.beam_halo_color, fx.beam_halo_brightness, bolts),
         (&assets.beam_glow, fx.beam_glow_color, fx.beam_glow_brightness, 1.0),
     ] {
-        if let Some(m) = materials.get_mut(handle) {
+        if let Some(mut m) = materials.get_mut(handle) {
             // (Added over what's behind, so the alpha scales it.)
             m.base_color =
                 LinearRgba::new(color[0] * brightness, color[1] * brightness, color[2] * brightness, opacity).into();
@@ -458,7 +458,7 @@ fn emit_box_fx(
         let spin = state.between((-0.5, 0.5));
         let secs = state.between(fx.smoke_secs);
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxPuff {
                 velocity,
                 age: 0.0,
@@ -492,7 +492,7 @@ fn emit_box_fx(
         let secs = state.between(fx.speck_secs);
         let twinkle = state.between((0.0, std::f32::consts::TAU));
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxSpeck {
                 velocity,
                 age: 0.0,
@@ -547,7 +547,7 @@ fn spawn_arc(
     let width = fx.arc_width * scale;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxArc { age: 0.0, secs },
             Transform::IDENTITY,
             Visibility::default(),
@@ -611,7 +611,7 @@ fn update_puffs(
         puff.roll += puff.spin * dt;
         t.rotation = smoke_billboard_rotation(pos, cam_pos, cam_up, cam_right, puff.roll);
         let alpha = fx.smoke_opacity * (k / 0.15).min(1.0) * (1.0 - k).powf(1.5);
-        if let Some(m) = materials.get_mut(&material.0) {
+        if let Some(mut m) = materials.get_mut(&material.0) {
             m.base_color = Color::srgba(0.86, 0.83, 0.76, alpha);
             m.emissive = LinearRgba::gray(fx.smoke_glow * alpha / fx.smoke_opacity);
         }
@@ -760,7 +760,7 @@ fn update_beam(
         let strands = beam_shape(&mut state, fx, gt, base);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 BoxBeam {
                     strands,
                     next_shape: 0.0,
@@ -797,7 +797,7 @@ fn update_beam(
                         color: Color::srgb(r, g, b2),
                         intensity: 0.0,
                         range: fx.beam_light_range,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::IDENTITY,

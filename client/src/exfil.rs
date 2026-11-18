@@ -10,16 +10,17 @@
 //! round that isn't called yet, a smaller notice there says it's available.
 //!
 //! Everything reads the replicated `Lobby` (the server runs the exfil —
-//! `server::exfil`). The radio, UI and lines are `StateScoped(InGame)`, the
+//! `server::exfil`). The radio, UI and lines are `DespawnOnExit(InGame)`, the
 //! radio and lines are taken away whenever they stop applying, and the hold
 //! and white-out ([`ExfilLocal`]) reset whenever there's no exfil to show —
 //! nothing carries into the next game.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_rapier3d::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::exfil::{Exfil, CALLING_SECS, HOLD_SECS};
 use shared::level::ExfilArea;
 use shared::Lobby;
@@ -31,7 +32,7 @@ use crate::{killcam, menu, AppState, MapModel, Player, BODY_FONT, EYE_HEIGHT, HU
 
 pub(crate) const RADIO_MODEL: &str = "models/props/exfil_radio.glb";
 pub(crate) const EXFIL_ICON: &str = "textures/icons/exfil.png";
-const ICON_SHADER: &str = "shaders/exfil_icon.wgsl";
+const ICON_SHADER: &str = "shaders/exfil_icon.wesl";
 
 /// The exfil's blue (its ring, the prompt) and the area lines' orange.
 pub(crate) const EXFIL_BLUE: Color = Color::srgb(0.18, 0.58, 1.0);
@@ -57,7 +58,7 @@ impl Plugin for ExfilPlugin {
                 Update,
                 (
                     sync_radio,
-                    hold_to_call.run_if(menu::game_active.and(killcam::no_killcam)),
+                    hold_to_call.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     track_exfil,
                     (sync_area_lines, update_exfil_ui).after(track_exfil),
                 )
@@ -105,13 +106,13 @@ fn sync_radio(
     let half = shared::exfil::RADIO_HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ExfilRadio,
             crate::util::placed(at),
             Visibility::default(),
         ))
         .with_children(|r| {
-            r.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RADIO_MODEL))));
+            r.spawn(WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(RADIO_MODEL))));
             r.spawn((
                 crate::vfx::NoBulletHoles,
                 Collider::cuboid(half.x, half.y, half.z),
@@ -139,7 +140,7 @@ fn hold_to_call(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut state: ResMut<ExfilLocal>,
-    mut sender: Query<&mut TriggerSender<shared::CallExfil>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::CallExfil>, With<GameClient>>,
 ) {
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     let holding = binds.interact.pressed(&keys, &mouse)
@@ -212,7 +213,7 @@ fn sync_area_lines(
     let t = time.elapsed_secs() - called_at - CALLING_SECS * 0.5;
     let alpha = (t / LINE_FADE_SECS).clamp(0.0, 1.0);
     if let Some((_, lines)) = lines.iter().next() {
-        if let Some(m) = materials.get_mut(&lines.0) {
+        if let Some(mut m) = materials.get_mut(&lines.0) {
             if (m.base_color.alpha() - alpha).abs() > 1e-3 {
                 m.base_color.set_alpha(alpha);
             }
@@ -223,7 +224,7 @@ fn sync_area_lines(
     // The ground under a point, near the area's height (only the map's own
     // — not a machine's box or a player).
     let ground = |p: Vec3| -> f32 {
-        let on_map = |mut e: Entity| loop {
+        let on_map = |mut e: Entity, _: &bevy_rapier3d::rapier::geometry::Collider| loop {
             if map_models.contains(e) {
                 return true;
             }
@@ -249,7 +250,7 @@ fn sync_area_lines(
     let mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AreaLines(material.clone()),
             Transform::IDENTITY,
             Visibility::default(),
@@ -351,8 +352,8 @@ fn spawn_exfil_ui(
     let body = asset_server.load(BODY_FONT);
     let icon = asset_server.load(EXFIL_ICON);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     let shadow = TextShadow {
@@ -370,11 +371,12 @@ fn spawn_exfil_ui(
 
     // The prompt: icon on the left, what to do on the right.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
         .with_children(|row| {
             row.spawn((
                 ExfilPrompt,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     align_items: AlignItems::Center,
                     column_gap: Val::Px(16.0),
                     padding: UiRect::all(Val::Px(14.0)),
@@ -383,8 +385,7 @@ fn spawn_exfil_ui(
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(EXFIL_BLUE),
-                BorderRadius::all(Val::Px(6.0)),
+                BorderColor::all(EXFIL_BLUE),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -415,8 +416,8 @@ fn spawn_exfil_ui(
                             shared::exfil::TIME_LIMIT_SECS % 60
                         )),
                         TextFont {
-                            font: body.clone(),
-                            font_size: 14.0,
+                            font: body.clone().into(),
+                            font_size: FontSize::Px(14.0),
                             ..default()
                         },
                         TextColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
@@ -427,7 +428,7 @@ fn spawn_exfil_ui(
 
     // While it's held: the word over the icon, its ring filling.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
         .with_children(|row| {
             row.spawn((
                 ExfilExtracting,
@@ -460,7 +461,7 @@ fn spawn_exfil_ui(
     // never both at once).
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ExfilBanner,
             GlobalZIndex(5),
             Node {
@@ -483,7 +484,7 @@ fn spawn_exfil_ui(
 
     // The white-out, over the HUD.
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ExfilFlash,
         GlobalZIndex(40),
         Node {
@@ -536,7 +537,7 @@ fn update_exfil_ui(
     if key_text.0 != wanted {
         key_text.0 = wanted;
     }
-    if let Some(m) = materials.get_mut(&ring.0) {
+    if let Some(mut m) = materials.get_mut(&ring.0) {
         let p = (state.held / HOLD_SECS).clamp(0.0, 1.0);
         if (m.params.x - p).abs() > 1e-4 {
             m.params.x = p;

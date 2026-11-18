@@ -4,17 +4,17 @@
 use std::time::Duration;
 
 use bevy::animation::prelude::AnimationTransitions;
-use bevy::animation::AnimationTarget;
+use bevy::animation::AnimationTargetId;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::world_serialization::WorldInstanceReady;
 
 use super::held_weapon::{
     Grip, HeldWeapon, SoldierRig, LEFT_ARM_BONES, LEFT_KNUCKLE_BONES, RIGHT_KNUCKLE_BONES, LEFT_SHOULDER_BONE, RIGHT_ARM_BONES, RIGHT_THIGH_BONE, ROOT_BONE, SPINE_BONES,
 };
 
-/// Tags a remote player's `SceneRoot` entity (`models/characters/soldier.glb`) so
+/// Tags a remote player's `WorldAssetRoot` entity (`models/characters/soldier.glb`) so
 /// `start_soldier_animation` can tell it apart from any other spawned scene.
 #[derive(Component)]
 pub(crate) struct SoldierVisual;
@@ -315,7 +315,7 @@ pub(crate) fn tint_bot_avatars(
         // (`get` first: `get_mut` alone would re-upload the material every
         // frame the debug panel's picker marks the settings changed.)
         if settings.is_changed() && materials.get(handle).is_some_and(|m| m.base_color != tint) {
-            if let Some(m) = materials.get_mut(handle) {
+            if let Some(mut m) = materials.get_mut(handle) {
                 m.base_color = tint;
             }
         }
@@ -728,7 +728,7 @@ fn soldier_mask_groups(
     root: Entity,
     spine: Entity,
     children: &Query<&Children>,
-    targets: &Query<&AnimationTarget>,
+    targets: &Query<&AnimationTargetId>,
     parents: &Query<&ChildOf>,
 ) {
     if !graph.mask_groups.is_empty() {
@@ -746,7 +746,7 @@ fn soldier_mask_groups(
                 _ => break false,
             }
         };
-        graph.add_target_to_mask_group(target.id, if upper { UPPER_BODY } else { LOWER_BODY });
+        graph.add_target_to_mask_group(*target, if upper { UPPER_BODY } else { LOWER_BODY });
     }
 }
 
@@ -755,7 +755,7 @@ fn soldier_mask_groups(
 /// that holds a real weapon instead (`held_weapon`).
 pub(crate) const SOLDIER_GUN_MESH: &str = "Mesh1/Primitive0";
 
-/// Fires once a remote-player avatar's `SceneRoot` (tagged [`SoldierVisual`])
+/// Fires once a remote-player avatar's `WorldAssetRoot` (tagged [`SoldierVisual`])
 /// finishes spawning: starts the idle animation looping, remembers which
 /// descendant holds the `AnimationPlayer` via [`SoldierAnimationPlayer`],
 /// remembers the right-hand bone the gun mesh is skinned to
@@ -764,7 +764,7 @@ pub(crate) const SOLDIER_GUN_MESH: &str = "Mesh1/Primitive0";
 /// ([`SoldierRig`]) — hiding the rifle on one that holds a [`HeldWeapon`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn start_soldier_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     soldiers: Query<Has<HeldWeapon>, With<SoldierVisual>>,
@@ -772,9 +772,9 @@ pub(crate) fn start_soldier_animation(
     names: Query<&Name>,
     meshes: Query<&Mesh3d>,
     anims: Res<SoldierAnimations>,
-    (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTarget>, Query<&ChildOf>),
+    (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTargetId>, Query<&ChildOf>),
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(holds) = soldiers.get(root) else {
         return;
     };
@@ -837,8 +837,8 @@ pub(crate) fn start_soldier_animation(
             commands.entity(root).insert(SniperGlintBone(entity));
         }
     }
-    if let (Some(spine), Some(graph)) = (spine[0], graphs.get_mut(anims.graph())) {
-        soldier_mask_groups(graph, root, spine, &children, &targets, &parents);
+    if let (Some(spine), Some(mut graph)) = (spine[0], graphs.get_mut(anims.graph())) {
+        soldier_mask_groups(&mut graph, root, spine, &children, &targets, &parents);
     }
     if let (Some(right), Some(left), Some(left_shoulder), Some(spine), Some(right_thigh), Some(skeleton), Some(lk), Some(rk)) = (
         bones(right),

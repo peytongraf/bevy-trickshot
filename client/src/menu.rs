@@ -18,6 +18,7 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonState;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::PrimaryWindow;
 use lightyear::prelude::*;
@@ -304,7 +305,7 @@ fn startup_menu(mut menu: ResMut<Menu>, settings: Res<Settings>) {
 
 /// The match clock ran out: show the results screen. Takes over from
 /// whatever was open (there's nothing sensible to resume mid-results).
-fn show_match_results(mut ended: EventReader<crate::MatchEndedEvent>, mut menu: ResMut<Menu>) {
+fn show_match_results(mut ended: MessageReader<crate::MatchEndedEvent>, mut menu: ResMut<Menu>) {
     if ended.read().next().is_some() {
         menu.screen = Screen::MatchResults;
         menu.dirty = true;
@@ -434,7 +435,7 @@ fn rebind_capture(
 fn username_input(
     mut menu: ResMut<Menu>,
     mut settings: ResMut<Settings>,
-    mut events: EventReader<KeyboardInput>,
+    mut events: MessageReader<KeyboardInput>,
 ) {
     let editing = matches!(menu.screen, Screen::Username)
         || (menu.screen == Screen::Settings && menu.tab == Tab::Profile);
@@ -599,9 +600,9 @@ fn menu_click(
     mut settings: ResMut<Settings>,
     mut binds: ResMut<KeyBindings>,
     mut next: ResMut<NextState<AppState>>,
-    mut leave_lobby: Query<&mut TriggerSender<shared::LeaveLobby>, With<GameClient>>,
-    mut end_game: Query<&mut TriggerSender<shared::EndGame>, With<GameClient>>,
-    mut set_paused: Query<&mut TriggerSender<shared::SetPaused>, With<GameClient>>,
+    mut leave_lobby: Query<&mut EventSender<shared::LeaveLobby>, With<GameClient>>,
+    mut end_game: Query<&mut EventSender<shared::EndGame>, With<GameClient>>,
+    mut set_paused: Query<&mut EventSender<shared::SetPaused>, With<GameClient>>,
     paused: Res<crate::pause::GamePaused>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
@@ -937,7 +938,7 @@ fn watch_loadout(
 /// Scrolls whichever scrollable node the pointer is currently over (e.g. the
 /// keybinds list) in response to the mouse wheel.
 fn scroll_hovered(
-    mut wheel: EventReader<MouseWheel>,
+    mut wheel: MessageReader<MouseWheel>,
     hover_map: Res<HoverMap>,
     mut scrollable: Query<&mut ScrollPosition>,
 ) {
@@ -949,7 +950,7 @@ fn scroll_hovered(
         for pointer_map in hover_map.values() {
             for &entity in pointer_map.keys() {
                 if let Ok(mut pos) = scrollable.get_mut(entity) {
-                    pos.offset_y -= dy;
+                    pos.y -= dy;
                 }
             }
         }
@@ -960,7 +961,7 @@ fn cursor_and_hud(
     menu: Res<Menu>,
     mixer: Res<crate::audio_engine::AudioMixer>,
     app_state: Res<State<crate::AppState>>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
     if !menu.is_changed() && !mixer.is_changed() {
         return;
@@ -1108,7 +1109,7 @@ fn setting_row(
                 flex_shrink: 0.0,
                 ..default()
             },
-            BorderColor(EDGE),
+            BorderColor::all(EDGE),
         ))
         .with_children(|row| {
             row.spawn(Node {
@@ -1176,8 +1177,7 @@ fn toggle_button(
     let (normal, text) = if on { (ACCENT, PANEL_SOLID) } else { (ROW, TEXT) };
     parent
         .spawn((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             btn,
             Hoverable::new(normal, ROW_HOVER, text),
             ui_sound(UiSound::BUTTON),
@@ -1295,7 +1295,7 @@ fn results_screen(
             MenuRoot,
             GlobalZIndex(50),
             // (And never outlives the game it's the results of.)
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -1339,13 +1339,13 @@ fn results_screen(
                 panel
                     .spawn((
                         Node {
+                            border_radius: BorderRadius::top_right(Val::Px(18.0)),
                             width: Val::Percent(100.0),
                             height: Val::Px(40.0),
                             flex_shrink: 0.0,
                             ..default()
                         },
                         BackgroundColor(RESULTS_HEADER),
-                        BorderRadius::top_right(Val::Px(18.0)),
                     ))
                     .with_children(|head| {
                         head.spawn(Node {
@@ -1373,7 +1373,7 @@ fn results_screen(
                                 border: UiRect::bottom(Val::Px(1.0)),
                                 ..default()
                             },
-                            BorderColor(RESULTS_LINE),
+                            BorderColor::all(RESULTS_LINE),
                         ))
                         .with_children(|line| {
                             line.spawn(Node {
@@ -1401,7 +1401,7 @@ fn results_screen(
                                     ..default()
                                 },
                                 BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.06)),
-                                BorderColor(if row.me { ACCENT } else { Color::srgba(1.0, 1.0, 1.0, 0.2) }),
+                                BorderColor::all(if row.me { ACCENT } else { Color::srgba(1.0, 1.0, 1.0, 0.2) }),
                                 children![label_hud(asset_server, row.name.to_uppercase(), 30.0, name_color)],
                             ));
                             for (k, value) in row.values.iter().enumerate() {
@@ -1413,7 +1413,7 @@ fn results_screen(
                                         height: Val::Percent(70.0),
                                         ..column(VALUE_W)
                                     },
-                                    BorderColor(RESULTS_LINE),
+                                    BorderColor::all(RESULTS_LINE),
                                 ))
                                 .with_child(label_hud(asset_server, value.clone(), size, RESULTS_GOLD));
                             }
@@ -1566,8 +1566,7 @@ fn tab_button(
     let text_color = if selected { TEXT } else { TEXT_DIM };
     parent
         .spawn((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             btn,
             Hoverable::new(Color::NONE, ROW_HOVER, text_color),
             ui_sound(UiSound::BUTTON),
@@ -1577,7 +1576,7 @@ fn tab_button(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(if selected { ACCENT } else { Color::NONE }),
+            BorderColor::all(if selected { ACCENT } else { Color::NONE }),
         ))
         .with_child(label_hud(asset_server, text, 26.0, text_color));
 }
@@ -1764,8 +1763,7 @@ fn loadout_tile(
 ) {
     let normal = if selected { ACCENT_DIM } else { ROW };
     row.spawn((
-        Button,
-        Interaction::default(),
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         btn,
         Hoverable {
             normal,
@@ -1783,7 +1781,7 @@ fn loadout_tile(
             ..default()
         },
         BackgroundColor(normal),
-        BorderColor(if selected { ACCENT } else { EDGE }),
+        BorderColor::all(if selected { ACCENT } else { EDGE }),
     ))
     .with_children(|tile| {
         contents(tile);
@@ -1807,8 +1805,7 @@ fn loadout_weapon_row(
 ) {
     let normal = if focused { ACCENT_DIM } else { ROW };
     list.spawn((
-        Button,
-        Interaction::default(),
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         Btn::SelectPrimary(weapon),
         Hoverable {
             normal,
@@ -1827,7 +1824,7 @@ fn loadout_weapon_row(
             ..default()
         },
         BackgroundColor(normal),
-        BorderColor(if focused { ACCENT } else { Color::NONE }),
+        BorderColor::all(if focused { ACCENT } else { Color::NONE }),
     ))
     .with_children(|row| {
         row.spawn((
@@ -2579,8 +2576,7 @@ fn spawn_slider_row(
         plain_button(row, asset_server, "\u{2212}", Btn::Step(field, -step), UiSound::BUTTON);
         // track (a wide, thin bar; the whole node is the drag target)
         row.spawn((
-            Button,
-            Interaction::default(),
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             SliderTrack(field),
             RelativeCursorPosition::default(),
             Node {

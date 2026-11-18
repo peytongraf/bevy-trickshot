@@ -12,7 +12,7 @@
 //!   `models/weapons/molotov_1k.glb`, rag alight ([`MolotovAvatar`]).
 //! * **Burning** — where one broke, a patch of fire over the server's fire
 //!   spots ([`FirePatch`]): a burning floor across the whole of it
-//!   ([`FireGroundMaterial`], `assets/shaders/fire_ground.wgsl`) joining it
+//!   ([`FireGroundMaterial`], `assets/shaders/fire_ground.wesl`) joining it
 //!   into one fire, low flames standing on it (lower towards the edge) with a
 //!   few tall ones, their bases fading up out of the glow, smoke and a
 //!   flickering light, fading in and out.
@@ -26,10 +26,10 @@
 //!   molotov the lethal.
 //!
 //! The flames are camera-facing quads drawn with [`FireMaterial`]
-//! (`assets/shaders/fire.wgsl`). Everything's look and placement is tuned in
+//! (`assets/shaders/fire.wesl`). Everything's look and placement is tuned in
 //! the debug panel's "Molotov (Zombies)" section ([`molotov_section`]).
 //!
-//! Reset between games: every entity here is `StateScoped(InGame)` or a child
+//! Reset between games: every entity here is `DespawnOnExit(InGame)` or a child
 //! of one (the held molotov rides the arms rig), and each avatar goes as soon
 //! as its server entity does; nuked bodies still waiting to fall
 //! ([`PendingCorpseFires`]) are forgotten on leaving the game; the molotov count and lethal live on `Weapon`,
@@ -38,15 +38,15 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy_egui::egui;
 use lightyear::prelude::*;
 
@@ -61,8 +61,8 @@ use crate::{
     ThrowingKnife, Weapon, VIEW_MODEL_RENDER_LAYER,
 };
 
-const SHADER_ASSET_PATH: &str = "shaders/fire.wgsl";
-const GROUND_SHADER_ASSET_PATH: &str = "shaders/fire_ground.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/fire.wesl";
+const GROUND_SHADER_ASSET_PATH: &str = "shaders/fire_ground.wesl";
 
 /// A flame's base fades in over this fraction of its height (a molotov
 /// patch's flames get [`MolotovSettings::flame_base_fade`], softer, to rise
@@ -119,7 +119,7 @@ mod params {
         pub(crate) base_fade: f32,
     }
 
-    /// Mirrors `GroundParams` in `fire_ground.wgsl`.
+    /// Mirrors `GroundParams` in `fire_ground.wesl`.
     #[derive(Clone, Copy, Default, PartialEq, ShaderType)]
     pub(crate) struct GroundParams {
         pub(crate) core: Vec4,
@@ -133,7 +133,7 @@ mod params {
     }
 }
 
-/// Flames (additive) or smoke (alpha blended, `mode` 1) — see `fire.wgsl`.
+/// Flames (additive) or smoke (alpha blended, `mode` 1) — see `fire.wesl`.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct FireMaterial {
     #[uniform(0)]
@@ -141,6 +141,14 @@ pub(crate) struct FireMaterial {
 }
 
 impl Material for FireMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -160,20 +168,20 @@ impl Material for FireMaterial {
     /// A billboard: both faces, and no depth write (it's light / smoke, not
     /// a surface) — walls in front still hide it.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
 }
 
-/// The burning ground under a molotov's fire — see `fire_ground.wgsl`.
+/// The burning ground under a molotov's fire — see `fire_ground.wesl`.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub(crate) struct FireGroundMaterial {
     #[uniform(0)]
@@ -181,6 +189,14 @@ pub(crate) struct FireGroundMaterial {
 }
 
 impl Material for FireGroundMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         GROUND_SHADER_ASSET_PATH.into()
     }
@@ -196,14 +212,14 @@ impl Material for FireGroundMaterial {
     /// Light on the floor, not a surface: no depth write (walls in front
     /// still hide it), seen from above or below.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         Ok(())
     }
@@ -217,7 +233,7 @@ impl Material for FireGroundMaterial {
 /// Cells wholly outside the fire are left out.
 fn ground_mesh(spots: &[Vec3], mid: Vec3, inner: f32, reach: f32, lift: f32, seed: f32) -> Mesh {
     use bevy::asset::RenderAssetUsages;
-    use bevy::render::mesh::{Indices, PrimitiveTopology};
+    use bevy::mesh::{Indices, PrimitiveTopology};
     let reach = reach.max(inner + 0.05);
     let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for s in spots {
@@ -644,8 +660,8 @@ pub(crate) struct MolotovAssets {
     pub(crate) quad: Handle<Mesh>,
     /// Both models, loaded up front (and kept) so the first molotov picked
     /// up or thrown doesn't hitch.
-    held_model: Handle<Scene>,
-    world_model: Handle<Scene>,
+    held_model: Handle<WorldAsset>,
+    world_model: Handle<WorldAsset>,
     held_flame: Handle<FireMaterial>,
 }
 
@@ -799,16 +815,8 @@ pub(crate) struct MolotovPlugin;
 
 impl Plugin for MolotovPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<FireMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<FireGroundMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<FireMaterial>::default())
+        .add_plugins(MaterialPlugin::<FireGroundMaterial>::default())
         .init_resource::<MolotovSettings>()
         .init_resource::<HeldMotion>()
         .init_resource::<PendingCorpseFires>()
@@ -885,7 +893,7 @@ fn spawn_held_molotov(
                 // it's spawned — only the model's subtree, not the light.)
                 pivot
                     .spawn((
-                        SceneRoot(assets.held_model.clone()),
+                        WorldAssetRoot(assets.held_model.clone()),
                         Transform::default(),
                         vm.clone(),
                     ))
@@ -908,7 +916,7 @@ fn spawn_held_molotov(
                         color: settings.light_color(),
                         intensity: settings.rag_light,
                         range: settings.rag_light_range,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(settings.rag_offset),
@@ -947,7 +955,7 @@ fn update_held_molotov(
 /// Send the molotov throw `weapon_system` filed when it left the hand.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowMolotov>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowMolotov>, With<GameClient>>,
 ) {
     if !knife.has_molotov_request() {
         return;
@@ -1010,7 +1018,7 @@ fn sync_molotov_avatars(
         });
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 MolotovAvatar {
                     src,
                     material: material.clone(),
@@ -1028,7 +1036,7 @@ fn sync_molotov_avatars(
                         Visibility::default(),
                     ))
                     .with_children(|bottle| {
-                        bottle.spawn((SceneRoot(assets.world_model.clone()), Transform::default()));
+                        bottle.spawn((WorldAssetRoot(assets.world_model.clone()), Transform::default()));
                         for layer in 0..RAG_LAYERS {
                             bottle.spawn((
                                 RagFlame { layer },
@@ -1042,13 +1050,13 @@ fn sync_molotov_avatars(
                         }
                         bottle.spawn((
                             RagLight {
-                                seed: (src.index() % 97) as f32,
+                                seed: (src.index_u32() % 97) as f32,
                             },
                             PointLight {
                                 color: settings.light_color(),
                                 intensity: settings.rag_light,
                                 range: settings.rag_light_range,
-                                shadows_enabled: false,
+                                shadow_maps_enabled: false,
                                 ..default()
                             },
                             Transform::from_translation(settings.rag_offset),
@@ -1075,11 +1083,11 @@ fn update_rag_flames(
     mut flames: Query<(&RagFlame, &ChildOf, &mut Transform, &mut Visibility), Without<RagLight>>,
     mut lights: Query<(&RagLight, &mut PointLight, &mut Transform), Without<RagFlame>>,
 ) {
-    if let Some(m) = materials.get_mut(&assets.held_flame) {
+    if let Some(mut m) = materials.get_mut(&assets.held_flame) {
         m.params = settings.params(settings.rag_brightness, 0.0, 1.0, settings.lean(motion.vel));
     }
     for avatar in &avatars {
-        if let Some(m) = materials.get_mut(&avatar.material) {
+        if let Some(mut m) = materials.get_mut(&avatar.material) {
             m.params = settings.params(settings.rag_brightness, 0.0, 1.0, settings.lean(avatar.vel));
         }
     }
@@ -1151,9 +1159,9 @@ fn sync_fire_patches(
         let smoke = materials.add(FireMaterial {
             params: settings.smoke_params(0.0),
         });
-        let seed = (src.index() % 997) as f32;
+        let seed = (src.index_u32() % 997) as f32;
         let hash = |i: u32, k: u32| {
-            crate::util::rand01(src.index().wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9))
+            crate::util::rand01(src.index_u32().wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9))
         };
         let tiny = Vec3::new(0.001, 0.001, 0.0015);
         let ground = settings.ground.then(|| {
@@ -1180,7 +1188,7 @@ fn sync_fire_patches(
             .fold(0.5f32, f32::max);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 FirePatch {
                     src,
                     material: material.clone(),
@@ -1252,7 +1260,7 @@ fn sync_fire_patches(
                         color: settings.light_color(),
                         intensity: 0.0,
                         range: settings.fire_light_range,
-                        shadows_enabled: settings.fire_light_shadows,
+                        shadow_maps_enabled: settings.fire_light_shadows,
                         ..default()
                     },
                     Transform::from_xyz(0.0, settings.fire_light_height, 0.0),
@@ -1293,13 +1301,13 @@ fn update_fire_patches(
         // Smoke builds up more slowly than the flames.
         let smoke_fade = (patch.age / 1.2).clamp(0.0, 1.0) * fade_out;
         vis.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
-        if let Some(m) = materials.get_mut(&patch.material) {
+        if let Some(mut m) = materials.get_mut(&patch.material) {
             m.params = settings.patch_params(fade);
         }
-        if let Some(m) = patch.ground.as_ref().and_then(|(_, g)| ground_materials.get_mut(g)) {
+        if let Some(mut m) = patch.ground.as_ref().and_then(|(_, g)| ground_materials.get_mut(g)) {
             m.params = settings.ground_params(fade);
         }
-        if let Some(m) = materials.get_mut(&patch.smoke) {
+        if let Some(mut m) = materials.get_mut(&patch.smoke) {
             m.params = settings.smoke_params(smoke_fade);
         }
         // Flames grow from a flicker to full and sink back down at the end.
@@ -1313,7 +1321,7 @@ fn update_fire_patches(
                 light.intensity = settings.fire_light * fade * flicker(t, pl.seed, settings.flicker);
                 light.range = settings.fire_light_range;
                 light.color = settings.light_color();
-                light.shadows_enabled = settings.fire_light_shadows;
+                light.shadow_maps_enabled = settings.fire_light_shadows;
                 tf.translation.y = settings.fire_light_height;
             }
         }
@@ -1355,13 +1363,13 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             place(d),
             Visibility::default(),
             children![(
-                SceneRoot(assets.world_model.clone()),
+                WorldAssetRoot(assets.world_model.clone()),
                 Transform::default(),
             )],
         ));
@@ -1408,7 +1416,7 @@ fn play_light_sound(
     match (want, playing.iter().next()) {
         (true, None) => {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 LightSound,
                 AudioPlayer::new(sounds.molotov_light.clone()),
                 PlaybackSettings::LOOP,
@@ -1437,7 +1445,7 @@ fn receive_bursts(
                 continue;
             }
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.molotov_burst.clone()),
                 Transform::from_translation(Vec3::from_array(msg.point)),
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -1454,14 +1462,14 @@ pub(crate) struct MolotovDebug<'w, 's> {
     pub(crate) weapon: ResMut<'w, Weapon>,
     /// (The monkey bomb's section shares this bundle — it needs `weapon` too.)
     pub(crate) monkey: ResMut<'w, crate::monkey_bomb::MonkeyBombSettings>,
-    pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMonkeyFuse>, With<GameClient>>,
+    pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut EventSender<shared::SetMonkeyFuse>, With<GameClient>>,
     /// (And the frag's.)
     pub(crate) frag: ResMut<'w, crate::frag::FragSettings>,
     /// (And the flash bang's.)
     pub(crate) flash: ResMut<'w, crate::flash_bang::FlashBangSettings>,
     local_id: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
-    test_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMolotovTest>, With<GameClient>>,
+    test_tx: Query<'w, 's, &'static mut EventSender<shared::SetMolotovTest>, With<GameClient>>,
 }
 
 /// Remember each zombie a Nuke kills, to set its body alight once it falls.
@@ -1526,7 +1534,7 @@ fn spawn_corpse_fires(
         let key = peer.to_bits() as u32 ^ (peer.to_bits() >> 32) as u32;
         if let Some(i) = souls.draw(sounds.zombie_souls.len(), key) {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.zombie_souls[i].clone()),
                 Transform::from_translation(mid + Vec3::Y * 0.5),
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -1537,7 +1545,7 @@ fn spawn_corpse_fires(
         let flames = settings.corpse_flames.max(1);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 CorpseFire {
                     material: material.clone(),
                     age: 0.0,
@@ -1570,7 +1578,7 @@ fn spawn_corpse_fires(
                         color: settings.light_color(),
                         intensity: 0.0,
                         range: settings.corpse_light_range,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_xyz(0.0, 0.6, 0.0),
@@ -1609,7 +1617,7 @@ fn update_corpse_fires(
         let fade_out = (left / settings.corpse_fade_secs.max(0.01)).clamp(0.0, 1.0);
         let fade = fade_in * fade_in * (3.0 - 2.0 * fade_in) * fade_out;
         vis.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
-        if let Some(m) = materials.get_mut(&fire.material) {
+        if let Some(mut m) = materials.get_mut(&fire.material) {
             m.params = settings.params(settings.corpse_brightness, settings.pull, fade, Vec3::ZERO);
         }
         let grow = 0.35 + 0.65 * fade;

@@ -149,17 +149,19 @@ pub enum AppState {
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::{
-    core_pipeline::bloom::Bloom,
-    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
-    math::Affine2,
-    pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
-    prelude::*,
-    render::{
-        camera::CameraOutputMode,
-        render_asset::RenderAssetUsages,
-        render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages},
-        view::{NoFrustumCulling, RenderLayers},
+    asset::RenderAssetUsages,
+    camera::{
+        visibility::{NoFrustumCulling, RenderLayers},
+        CameraOutputMode, Hdr, RenderTarget,
     },
+    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
+    light::{CascadeShadowConfigBuilder, NotShadowCaster},
+    math::Affine2,
+    pbr::{DistanceFog, FogFalloff},
+    post_process::bloom::Bloom,
+    prelude::*,
+    window::CursorOptions,
+    render::render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages},
     window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
@@ -238,7 +240,6 @@ fn main() {
         // own — `ragdoll`.)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<AppState>()
-        .enable_state_scoped_entities::<AppState>()
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
         // protocol; add it before anything that spawns a `Client`.
         .add_plugins(net::ClientNetPlugin)
@@ -278,7 +279,7 @@ fn main() {
             Update,
             (
                 receive_knockback,
-                reset_knockback.run_if(on_event::<net::LocalPlayerRespawned>),
+                reset_knockback.run_if(on_message::<net::LocalPlayerRespawned>),
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
@@ -328,7 +329,7 @@ fn main() {
         .add_plugins(shot_predict::ShotPredictPlugin)
         .add_systems(
             PostUpdate,
-            weapons::sync_reticle_camera.before(bevy::render::camera::CameraUpdateSystem),
+            weapons::sync_reticle_camera.before(bevy::camera::CameraUpdateSystems),
         )
         .add_plugins(motion_blur::MotionBlurPlugin)
         .add_plugins(scope_fx::ScopeFxPlugin)
@@ -347,7 +348,7 @@ fn main() {
         .add_plugins(PhdTrailPlugin)
         .add_plugins(ZombieAvatarPlugin)
         .add_plugins(zombie_sounds::ZombieSoundsPlugin)
-        .insert_resource(AmbientLight {
+        .insert_resource(GlobalAmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,
             ..default()
@@ -379,14 +380,14 @@ fn main() {
         .add_systems(
             PostUpdate,
             update_muzzle_flash
-                .before(bevy::transform::TransformSystem::TransformPropagate)
+                .before(bevy::transform::TransformSystems::Propagate)
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             PostUpdate,
             weapons::pin_ak_shell
-                .after(bevy::app::Animation)
-                .before(bevy::transform::TransformSystem::TransformPropagate),
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::transform::TransformSystems::Propagate),
         )
         .add_systems(
             Update,
@@ -421,7 +422,7 @@ fn main() {
         .init_resource::<QuickMelee>()
         .init_resource::<PendingShot>()
         .init_resource::<PendingMelee>()
-        .add_event::<LocalShot>()
+        .add_message::<LocalShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
         .init_resource::<AnimationSettings>()
@@ -437,11 +438,11 @@ fn main() {
         .init_resource::<vfx::EnemyBloodSettings>()
         .init_resource::<TracerSettings>()
         .init_resource::<TrickState>()
-        .add_event::<GroundImpact>()
-        .add_event::<BloodImpact>()
-        .add_event::<FireTracer>()
-        .add_event::<TrickScoredEvent>()
-        .add_event::<MatchEndedEvent>()
+        .add_message::<GroundImpact>()
+        .add_message::<BloodImpact>()
+        .add_message::<FireTracer>()
+        .add_message::<TrickScoredEvent>()
+        .add_message::<MatchEndedEvent>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<Jumping>()
@@ -452,7 +453,7 @@ fn main() {
         .init_resource::<MantleSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
-        .add_event::<ProneBlocked>()
+        .add_message::<ProneBlocked>()
         .add_systems(Update, prone_blocked_notice.run_if(in_state(AppState::InGame)))
         .init_resource::<MapLooks>()
         .init_resource::<CurrentMap>()
@@ -522,11 +523,11 @@ fn main() {
             // shot itself, under mouse look's conditions.
             aim_recoil.after(look_around).after(weapon_system).run_if(
                 in_state(AppState::InGame)
-                    .and(menu::game_active)
-                    .and(killcam::no_killcam)
-                    .and(fall_death::no_fall_death)
-                    .and(not(death_effect::death_effect_active))
-                    .and(not(fall_death::effect_active)),
+                    .and_then(menu::game_active)
+                    .and_then(killcam::no_killcam)
+                    .and_then(fall_death::no_fall_death)
+                    .and_then(not(death_effect::death_effect_active))
+                    .and_then(not(fall_death::effect_active)),
             ),
         )
         .add_systems(
@@ -535,25 +536,25 @@ fn main() {
             // cam, fall death or death look-at in charge of the view).
             (tag_head_bones, shroom_aim_assist).chain().after(look_around).run_if(
                 in_state(AppState::InGame)
-                    .and(menu::game_active)
-                    .and(killcam::no_killcam)
-                    .and(fall_death::no_fall_death)
-                    .and(not(death_effect::death_effect_active))
-                    .and(not(fall_death::effect_active)),
+                    .and_then(menu::game_active)
+                    .and_then(killcam::no_killcam)
+                    .and_then(fall_death::no_fall_death)
+                    .and_then(not(death_effect::death_effect_active))
+                    .and_then(not(fall_death::effect_active)),
             ),
         )
         .add_systems(
             Update,
             ping_bots.run_if(
                 in_state(AppState::InGame)
-                    .and(menu::game_active)
-                    .and(killcam::no_killcam),
+                    .and_then(menu::game_active)
+                    .and_then(killcam::no_killcam),
             ),
         )
         .add_systems(
             PostUpdate,
             (apply_name_tag_scale, update_name_tags)
-                .before(bevy::ui::UiSystem::Layout)
+                .before(bevy::ui::UiSystems::Layout)
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(Update, (apply_master_volume, sync_menu_music))
@@ -572,14 +573,14 @@ fn main() {
         // Dev tuning panels — only in-game, and only while debug mode is on.
         .add_systems(
             EguiPrimaryContextPass,
-            ads_tuning_ui.run_if(menu::debug_enabled.and(in_state(AppState::InGame))),
+            ads_tuning_ui.run_if(menu::debug_enabled.and_then(in_state(AppState::InGame))),
         )
         .add_systems(
             Update,
             update_ads.run_if(
                 in_state(AppState::InGame)
-                    .and(killcam::no_killcam)
-                    .and(fall_death::no_fall_death),
+                    .and_then(killcam::no_killcam)
+                    .and_then(fall_death::no_fall_death),
             ),
         )
         .add_systems(
@@ -591,15 +592,15 @@ fn main() {
                 // which that chain is gated on right below.
                 try_mantle.before(toggle_sprint).run_if(
                     menu::game_active
-                        .and(killcam::no_killcam)
-                        .and(fall_death::no_fall_death)
-                        .and(not_mantling)
-                        .and(search_destroy::not_frozen),
+                        .and_then(killcam::no_killcam)
+                        .and_then(fall_death::no_fall_death)
+                        .and_then(not_mantling)
+                        .and_then(search_destroy::not_frozen),
                 ),
                 drive_mantle.run_if(
                     menu::game_active
-                        .and(killcam::no_killcam)
-                        .and(fall_death::no_fall_death),
+                        .and_then(killcam::no_killcam)
+                        .and_then(fall_death::no_fall_death),
                 ),
             )
                 .run_if(in_state(AppState::InGame)),
@@ -631,35 +632,35 @@ fn main() {
                     .chain()
                     .run_if(
                         menu::game_active
-                            .and(killcam::no_killcam)
-                            .and(fall_death::no_fall_death)
-                            .and(not_mantling)
+                            .and_then(killcam::no_killcam)
+                            .and_then(fall_death::no_fall_death)
+                            .and_then(not_mantling)
                             // (`SearchAndDestroy`: held at the spawn before
                             // a round — looking round still works.)
-                            .and(search_destroy::not_frozen),
+                            .and_then(search_destroy::not_frozen),
                     ),
                 (
                     // Additionally defers to the death-effect's / fall-death's
                     // own forced look-at, so mouse input can't fight it during
                     // either brief window (see `death_effect` / `fall_death`).
                     look_around.run_if(
-                        not(death_effect::death_effect_active).and(not(fall_death::effect_active)),
+                        not(death_effect::death_effect_active).and_then(not(fall_death::effect_active)),
                     ),
                     save_teleport_point,
                 )
                     .run_if(
                         menu::game_active
-                            .and(killcam::no_killcam)
-                            .and(fall_death::no_fall_death),
+                            .and_then(killcam::no_killcam)
+                            .and_then(fall_death::no_fall_death),
                     ),
                 weapon_system.run_if(
                     menu::weapon_active
-                        .and(killcam::no_killcam)
-                        .and(fall_death::no_fall_death)
-                        .and(not_mantling)
-                        .and(search_destroy::not_frozen)
+                        .and_then(killcam::no_killcam)
+                        .and_then(fall_death::no_fall_death)
+                        .and_then(not_mantling)
+                        .and_then(search_destroy::not_frozen)
                         // (Nor while the weapon's coming back up after one.)
-                        .and(weapons::weapon_ready),
+                        .and_then(weapons::weapon_ready),
                 ),
                 // Visuals / HUD — keep running so shake, smoke and the scope
                 // settle even while paused.
@@ -674,14 +675,14 @@ fn main() {
                 track_trick
                     .after(look_around)
                     .before(consume_look_delta)
-                    .run_if(killcam::no_killcam.and(fall_death::no_fall_death)),
+                    .run_if(killcam::no_killcam.and_then(fall_death::no_fall_death)),
                 (
                     spawn_score_popup,
                     update_score_popups,
                     update_teleport_toast,
                 ),
                 (sky_follow_camera, scroll_water_normal),
-                camera_shake.run_if(killcam::no_killcam.and(fall_death::no_fall_death)),
+                camera_shake.run_if(killcam::no_killcam.and_then(fall_death::no_fall_death)),
                 // After `look_around` so the smoke uses this frame's aim, not
                 // the previous frame's — otherwise a fast turn leaves the
                 // sprites angled toward where the player just was.
@@ -755,7 +756,7 @@ fn main() {
                 .after(apply_ads)
                 .after(apply_knife_transform)
                 .after(apply_throw_arms_transform)
-                .run_if(in_state(AppState::InGame).and(killcam::no_killcam)),
+                .run_if(in_state(AppState::InGame).and_then(killcam::no_killcam)),
         )
         .add_systems(Update, resolve_local_shot.run_if(in_state(AppState::InGame)))
         // `consume_look_delta` clears this frame's turn once `weapon_sway` and
@@ -832,17 +833,14 @@ fn setup_world(
     // `WaterSettings` (its `Default`, at this point) so there's one source
     // of truth instead of duplicating numbers that `apply_water_settings`
     // would immediately overwrite on the first `Update` anyway.
-    let water_normal = asset_server.load_with_settings(
-        "textures/environment/water_normal.png",
-        |settings: &mut ImageLoaderSettings| {
+    let water_normal = asset_server.load_builder().with_settings(|settings: &mut ImageLoaderSettings| {
             settings.is_srgb = false;
             settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 address_mode_u: ImageAddressMode::Repeat,
                 address_mode_v: ImageAddressMode::Repeat,
                 ..default()
             });
-        },
-    );
+        }).load("textures/environment/water_normal.png");
     let [r, g, b] = water.tint;
     let water_material = materials.add(StandardMaterial {
         base_color: Color::srgba(r, g, b, water.alpha),
@@ -943,7 +941,7 @@ fn setup_world(
         DirectionalLight {
             illuminance: SUN_LUX,
             color: SUN_COLOR,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, -0.9, -PI / 4.0)),
@@ -978,7 +976,7 @@ fn setup_player(
         asset_server.load(GltfAssetLabel::Animation(0).from_asset("models/weapons/sniper.glb"));
     let (graph, index) = AnimationGraph::from_clip(clip);
     let graph = graphs.add(graph);
-    let sniper_scene: Handle<Scene> = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/weapons/sniper.glb"));
+    let sniper_scene: Handle<WorldAsset> = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/weapons/sniper.glb"));
     // Both primaries' scenes and graphs, kept loaded so the view model can
     // switch to the AK-74 (a `Zombies` loadout pick) without a hitch.
     commands.insert_resource(weapons::PrimaryModels::load(
@@ -1100,7 +1098,6 @@ fn setup_player(
                                         WorldModelCamera,
                                         Camera3d::default(),
                                         Camera {
-                                            hdr: true,
                                             // Explicit, not left to Bevy: with no blend
                                             // set, Bevy makes whichever window camera it
                                             // happens to iterate first opaque and blends
@@ -1115,6 +1112,7 @@ fn setup_player(
                                             },
                                             ..default()
                                         },
+                                        Hdr,
                                         Projection::from(PerspectiveProjection {
                                             fov: 90.0_f32.to_radians(),
                                             ..default()
@@ -1137,8 +1135,11 @@ fn setup_player(
                                         // What's behind the water at each pixel —
                                         // how deep it is there, the waterline on
                                         // anything standing in it, and what its
-                                        // refraction mustn't pick up (`water.wgsl`).
+                                        // refraction mustn't pick up (`water.wesl`).
                                         bevy::core_pipeline::prepass::DepthPrepass,
+                                        // The water's refraction (`water.wesl`) samples the
+                                        // screen behind it — opt-in since Bevy 0.20.
+                                        bevy::pbr::ScreenSpaceTransmission::default(),
                                         // (Motion vectors, if blur's on, come right
                                         // after — `motion_blur::add_prepasses`.)
                                     ));
@@ -1151,13 +1152,16 @@ fn setup_player(
                                         ScopeCamera,
                                         Camera3d::default(),
                                         Camera {
-                                            target: scope_image.clone().into(),
                                             order: -2,
                                             is_active: false,
-                                            hdr: true,
                                             clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
                                             ..default()
                                         },
+                                        Hdr,
+                                        RenderTarget::from(scope_image.clone()),
+                                        // (Water refraction through the scope too — see the
+                                        // world camera.)
+                                        bevy::pbr::ScreenSpaceTransmission::default(),
                                         Projection::from(PerspectiveProjection {
                                             fov: LENS_CAL_SCOPE_FOV_DEG.to_radians(),
                                             ..default()
@@ -1187,14 +1191,16 @@ fn setup_player(
                                         ScopeReticleCamera,
                                         Camera3d::default(),
                                         Camera {
-                                            target: scope_image.clone().into(),
                                             order: -1,
                                             is_active: false,
-                                            hdr: true,
                                             clear_color: ClearColorConfig::None,
                                             ..default()
                                         },
-                                        bevy::core_pipeline::tonemapping::Tonemapping::None,
+                                        Hdr,
+                                        RenderTarget::from(scope_image.clone()),
+                                        // (`Linear`, not `None`: no tone curve — the picture under it already
+                                        // has one — but still graded, dithered and clamped.)
+                                        bevy::render::view::Tonemapping::Linear,
                                         Projection::from(PerspectiveProjection {
                                             fov: LENS_CAL_SCOPE_FOV_DEG.to_radians(),
                                             ..default()
@@ -1211,7 +1217,6 @@ fn setup_player(
                                         Camera3d::default(),
                                         Camera {
                                             order: 1,
-                                            hdr: true,
                                             // See the world camera's `output_mode`.
                                             output_mode: CameraOutputMode::Write {
                                                 blend_state: Some(BlendState::ALPHA_BLENDING),
@@ -1219,6 +1224,7 @@ fn setup_player(
                                             },
                                             ..default()
                                         },
+                                        Hdr,
                                         Projection::from(PerspectiveProjection {
                                             fov: 70.0_f32.to_radians(),
                                             near: 0.0001,
@@ -1237,7 +1243,7 @@ fn setup_player(
                                     nodes: vec![index],
                                     weapon: shared::weapon::WeaponId::Sniper,
                                 },
-                                SceneRoot(sniper_scene),
+                                WorldAssetRoot(sniper_scene),
                                 poses.hip.transform(),
                                 RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
                             ))
@@ -1253,7 +1259,7 @@ fn setup_player(
                                     graph: knife_graph.clone(),
                                     index: knife_index,
                                 },
-                                SceneRoot(asset_server.load(
+                                WorldAssetRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/weapons/knife.glb"),
                                 )),
                                 Transform {
@@ -1275,7 +1281,7 @@ fn setup_player(
                                     graph: arms_graph,
                                     index: arms_index,
                                 },
-                                SceneRoot(asset_server.load(
+                                WorldAssetRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/characters/arms_throwing.glb"),
                                 )),
                                 // Spawned fully slid out of view.
@@ -1290,7 +1296,7 @@ fn setup_player(
                             .with_children(|arms| {
                                 arms.spawn((
                                     ThrowKnifeModel,
-                                    SceneRoot(asset_server.load(
+                                    WorldAssetRoot(asset_server.load(
                                         GltfAssetLabel::Scene(0)
                                             .from_asset("models/weapons/throwing_knife.glb"),
                                     )),
@@ -1309,7 +1315,7 @@ fn setup_player(
                                     graph: drink_graph,
                                     index: drink_index,
                                 },
-                                SceneRoot(asset_server.load(
+                                WorldAssetRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/characters/arms_drinking.glb"),
                                 )),
                                 drink_settings.transform(),
@@ -1327,7 +1333,7 @@ fn setup_player(
                                     graph: mantle_arms_graph,
                                     index: drink_index,
                                 },
-                                SceneRoot(asset_server.load(
+                                WorldAssetRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/characters/arms_drinking.glb"),
                                 )),
                                 drink_settings.transform(),
@@ -1345,7 +1351,7 @@ fn setup_player(
                                     graph: knife_graph.clone(),
                                     index: knife_index,
                                 },
-                                SceneRoot(asset_server.load(
+                                WorldAssetRoot(asset_server.load(
                                     GltfAssetLabel::Scene(0).from_asset("models/weapons/knife.glb"),
                                 )),
                                 Transform {
@@ -1376,17 +1382,17 @@ fn setup_player(
         });
 }
 
-pub(crate) fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn grab_cursor(window: Single<&mut CursorOptions, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), true);
 }
 
 /// Free the cursor when leaving the game for the menus.
-pub(crate) fn release_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn release_cursor(window: Single<&mut CursorOptions, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), false);
 }
 
 /// Server told us the match clock ran out.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct MatchEndedEvent {
     pub(crate) winner: String,
     pub(crate) score: u32,
@@ -1398,12 +1404,12 @@ pub(crate) struct MatchEndedEvent {
 
 /// Lock/unlock the mouse to the window. Called on startup and by the menu when
 /// it opens/closes.
-pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
+pub(crate) fn set_cursor_grabbed(cursor: &mut CursorOptions, grabbed: bool) {
     if grabbed {
-        window.cursor_options.grab_mode = CursorGrabMode::Locked;
-        window.cursor_options.visible = false;
+        cursor.grab_mode = CursorGrabMode::Locked;
+        cursor.visible = false;
     } else {
-        window.cursor_options.grab_mode = CursorGrabMode::None;
-        window.cursor_options.visible = true;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
     }
 }

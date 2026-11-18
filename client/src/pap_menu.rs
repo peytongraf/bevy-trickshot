@@ -9,13 +9,13 @@
 //! the buy sound, asks the server ([`shared::BuyPap`], which re-checks
 //! everything and takes the points) and closes the menu, locking the cursor
 //! again. Everything shown is read off the replicated lobby; the UI is
-//! `StateScoped(InGame)` and the menu is closed whenever it no longer makes
+//! `DespawnOnExit(InGame)` and the menu is closed whenever it no longer makes
 //! sense (left the machine, died, game over), so nothing carries over.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::pap::{PapWeapon, MAX_LEVEL};
 use shared::Lobby;
 
@@ -39,7 +39,7 @@ impl Plugin for PapMenuPlugin {
                 Update,
                 (
                     update_pap_prompt,
-                    open_pap_menu.run_if(menu::game_active.and(killcam::no_killcam)),
+                    open_pap_menu.run_if(menu::game_active.and_then(killcam::no_killcam)),
                     pap_menu_lifecycle,
                     pap_menu_input,
                     refresh_pap_menu,
@@ -157,7 +157,7 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PapPrompt,
             GlobalZIndex(5),
             Node {
@@ -182,8 +182,8 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_child((
                 Text::new("PACK-A-PUNCH"),
                 TextFont {
-                    font: heading,
-                    font_size: 40.0,
+                    font: heading.into(),
+                    font_size: FontSize::Px(40.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -200,10 +200,10 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_child((
                 PapPromptText,
                 Text::new(""),
-                TextLayout::new_with_justify(JustifyText::Center),
+                TextLayout::justify(Justify::Center),
                 TextFont {
-                    font: body,
-                    font_size: 24.0,
+                    font: body.into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.9, 0.9)),
@@ -358,15 +358,15 @@ fn spawn_control(
     };
     let mut button = parent.spawn((
         which,
-        Button,
+        Interaction::default(), bevy::ui::FocusPolicy::Block,
         Node {
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             align_items: AlignItems::Center,
             column_gap: Val::Px(12.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if let Some(sound) = sound {
         button.insert(sound);
@@ -374,6 +374,7 @@ fn spawn_control(
     button.with_children(|b| {
         b.spawn((
             Node {
+                border_radius: BorderRadius::all(Val::Px(18.0)),
                 min_width: Val::Px(44.0),
                 height: Val::Px(36.0),
                 padding: UiRect::horizontal(Val::Px(8.0)),
@@ -382,14 +383,13 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(18.0)),
+            BorderColor::all(LIGHT_TEXT),
         ))
         .with_child((
             Text::new(key),
             TextFont {
-                font: heading.clone(),
-                font_size: 22.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(22.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -397,8 +397,8 @@ fn spawn_control(
         b.spawn((
             Text::new(label),
             TextFont {
-                font: heading.clone(),
-                font_size: 34.0,
+                font: heading.clone().into(),
+                font_size: FontSize::Px(34.0),
                 ..default()
             },
             TextColor(LIGHT_TEXT),
@@ -431,6 +431,7 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
             link.spawn((
                 PapLinkLock(into),
                 Node {
+                    border_radius: BorderRadius::all(Val::Percent(50.0)),
                     width: Val::Px(38.0),
                     height: Val::Px(38.0),
                     flex_direction: FlexDirection::Column,
@@ -439,12 +440,12 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
-                BorderRadius::all(Val::Percent(50.0)),
             ))
             .with_children(|lock| {
                 // Shackle, then body.
                 lock.spawn((
                     Node {
+                        border_radius: BorderRadius::top(Val::Px(6.0)),
                         width: Val::Px(12.0),
                         height: Val::Px(8.0),
                         border: UiRect {
@@ -455,17 +456,16 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                         },
                         ..default()
                     },
-                    BorderColor(DARK_TEXT),
-                    BorderRadius::top(Val::Px(6.0)),
+                    BorderColor::all(DARK_TEXT),
                 ));
                 lock.spawn((
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         width: Val::Px(18.0),
                         height: Val::Px(12.0),
                         ..default()
                     },
                     BackgroundColor(DARK_TEXT),
-                    BorderRadius::all(Val::Px(2.0)),
                 ));
             });
         });
@@ -476,7 +476,7 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
     parent
         .spawn((
             PapTile(level),
-            Button,
+            Interaction::default(), bevy::ui::FocusPolicy::Block,
             Node {
                 width: Val::Px(TILE),
                 height: Val::Px(TILE),
@@ -486,15 +486,15 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             tile.spawn((
                 PapTileNumeral(level),
                 Text::new(shared::pap::numeral(level)),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 84.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(84.0),
                     ..default()
                 },
                 TextColor(DARK_TEXT),
@@ -511,8 +511,8 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
                 PapTileStatus(level),
                 Text::new(""),
                 TextFont {
-                    font: heading.clone(),
-                    font_size: 22.0,
+                    font: heading.clone().into(),
+                    font_size: FontSize::Px(22.0),
                     ..default()
                 },
                 TextColor(DARK_TEXT),
@@ -551,7 +551,7 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -562,13 +562,13 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &s
     let heading = asset_server.load(HUD_FONT);
     let body = asset_server.load(BODY_FONT);
     let hfont = |size: f32| TextFont {
-        font: heading.clone(),
-        font_size: size,
+        font: heading.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PapMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -604,11 +604,11 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &s
                     .with_children(|bar| {
                         bar.spawn((
                             Node {
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 padding: UiRect::axes(Val::Px(56.0), Val::Px(4.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.85, 0.85, 0.85)),
-                            BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child((
                             Text::new(format!("PACK {}", label.to_uppercase())),
@@ -653,8 +653,8 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &s
                                 PapText::Description,
                                 Text::new(""),
                                 TextFont {
-                                    font: body.clone(),
-                                    font_size: 30.0,
+                                    font: body.clone().into(),
+                                    font_size: FontSize::Px(30.0),
                                     ..default()
                                 },
                                 TextColor(LIGHT_TEXT),
@@ -757,12 +757,12 @@ fn pap_menu_input(
     sfx: Option<Res<UiSfx>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&PapTile, &Interaction)>,
     pressed_tiles: Query<(&PapTile, &Interaction), Changed<Interaction>>,
     buttons: Query<(&PapButton, &Interaction), Changed<Interaction>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyPap>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyPap>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -828,7 +828,7 @@ fn pap_menu_input(
         info!("asked the server to pack our {} to level {level}", state.weapon.label());
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.pap_buy.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -877,7 +877,7 @@ fn refresh_pap_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (n, mut color) in &mut numerals {
         let c = match status(n.0) {

@@ -3,7 +3,7 @@
 //!
 //! The triangles are rasterised from above into a height map (the highest
 //! surface over each texel). The picture keeps, per texel, what the
-//! minimap's shader (`shaders/minimap.wgsl`) needs to shade it against the
+//! minimap's shader (`shaders/minimap.wesl`) needs to shade it against the
 //! height *we're* at — so whatever level we stand on reads as the floor,
 //! cover and buildings lighter, drops darker, on a map of any number of
 //! levels:

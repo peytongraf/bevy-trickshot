@@ -19,8 +19,8 @@ use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
-use bevy::scene::SceneInstanceReady;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::world_serialization::WorldInstanceReady;
 
 use crate::death_effect::DeathEffect;
 use crate::fall_death::FallDeathState;
@@ -129,13 +129,13 @@ impl ThrowArmsSettings {
 /// view-model render layer and arm its animation player, parked (paused) on
 /// the first frame — mirrors `start_knife_animation`.
 pub(crate) fn start_throw_arms_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     arms: Query<&ThrowArmsAnimation>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = arms.get(root) else {
         return;
     };
@@ -299,11 +299,11 @@ impl ThrowKnifeModelSettings {
 /// Once the knife scene has spawned, put every entity it created on the
 /// view-model render layer (it doesn't inherit the root's).
 pub(crate) fn start_throw_knife_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
 ) {
-    for entity in children.iter_descendants(trigger.target()) {
+    for entity in children.iter_descendants(trigger.entity) {
         commands.entity(entity).insert((
             RenderLayers::layer(VIEW_MODEL_RENDER_LAYER),
             NoFrustumCulling,

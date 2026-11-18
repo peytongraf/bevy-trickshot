@@ -5,11 +5,9 @@
 // texture's detail, and light rippling up through it, flickering. Driven
 // by `GhostMaterial` in `client/src/easter_egg/ascension.rs`.
 
-#import bevy_pbr::{
-    forward_io::VertexOutput,
-    mesh_view_bindings::{view, globals},
-}
-
+import bevy_pbr::{
+    render::forward_io::VertexOutput,
+    render::mesh_view_bindings::{view, globals}};
 struct GhostParams {
     // Linear rgb; a = how bright overall.
     color: vec4<f32>,
@@ -20,9 +18,9 @@ struct GhostParams {
     flow: f32,
     _pad0: f32,
 }
-@group(2) @binding(0) var<uniform> ghost: GhostParams;
-@group(2) @binding(1) var ghost_texture: texture_2d<f32>;
-@group(2) @binding(2) var ghost_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> ghost: GhostParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var ghost_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var ghost_sampler: sampler;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -52,10 +50,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @locatio
 
     // Its own detail, faintly (the texture's brightness).
     var detail = 0.6;
-#ifdef VERTEX_UVS_A
-    let c = textureSample(ghost_texture, ghost_sampler, in.uv).rgb;
-    detail = clamp(dot(c, vec3(0.299, 0.587, 0.114)) * 1.6, 0.0, 1.0);
-#endif
+    @if(VERTEX_UVS_A) {
+        let c = textureSample(ghost_texture, ghost_sampler, in.uv).rgb;
+        detail = clamp(dot(c, vec3(0.299, 0.587, 0.114)) * 1.6, 0.0, 1.0);
+    }
 
     // Light rippling up through it, in the world (so it runs up the whole
     // figure as one).

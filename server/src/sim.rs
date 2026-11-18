@@ -145,7 +145,7 @@ pub(crate) fn apply_client_pose(
 /// Never sent back to the player who triggered them; they already hear their
 /// own local, non-spatial version of these sounds.
 fn broadcast_remote_sounds(
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     mut sender: ServerMultiMessageSender,
     players: Query<(&PlayerId, &PlayerPose, &ActionState<PlayerInput>, &crate::lobby::LobbyPlayer)>,
     lobbies: Query<&Lobby>,
@@ -176,7 +176,7 @@ fn broadcast_remote_sounds(
             bits,
             position: pose.translation.to_array(),
         };
-        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(targets)) {
+        if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(targets)) {
             error!("failed to broadcast remote sound: {e:?}");
         }
     }
@@ -208,7 +208,7 @@ fn nearest_bot_target(targets: &[Target], kind: &HashMap<u64, HitKind>, feet: Ve
 #[derive(Resource, Default)]
 pub(crate) struct ShotBackups(Vec<(PeerId, PlayerInput)>);
 
-fn on_shot_backup(trigger: Trigger<RemoteTrigger<shared::ShotBackup>>, mut backups: ResMut<ShotBackups>) {
+fn on_shot_backup(trigger: On<RemoteEvent<shared::ShotBackup>>, mut backups: ResMut<ShotBackups>) {
     let from = trigger.from;
     let input = &trigger.trigger.0;
     if (input.fire || input.melee) && input.shot_seq != 0 {
@@ -260,7 +260,7 @@ fn shots_to_resolve(
 #[allow(clippy::too_many_arguments)]
 fn resolve_shots(
     timeline: Single<&LocalTimeline, With<Server>>,
-    server: Single<&Server>,
+    server: Single<&Endpoint, With<Server>>,
     colliders: Res<MapColliders>,
     mut sender: ServerMultiMessageSender,
     shooters: Query<(&PlayerId, &ActionState<PlayerInput>, &crate::lobby::LobbyPlayer)>,
@@ -268,14 +268,15 @@ fn resolve_shots(
     mut bots: Query<(Entity, &mut Bot, &LobbyBot)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
-    mut bot_hits: EventWriter<BotHit>,
-    mut player_hits: EventWriter<PlayerHit>,
+    mut bot_hits: MessageWriter<BotHit>,
+    mut player_hits: MessageWriter<PlayerHit>,
     mut bolts: ResMut<crate::raygun::RayGunBolts>,
     mut backups: ResMut<ShotBackups>,
     // The last shot number resolved for each player.
     mut handled: Local<HashMap<PeerId, u16>>,
 ) {
-    let tick = timeline.tick().0;
+    // (Wrapped to the protocol's u16 — lightyear's tick is a u32 since 0.31.)
+    let tick = timeline.tick().0 as u16;
     let server = server.into_inner();
 
     // A player who's dead and waiting to respawn (`PlayerCombat::alive ==
@@ -454,7 +455,7 @@ fn resolve_shots(
                 stab: stabbed_at.is_some(),
                 variant: variant as u8,
             };
-            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::Only(members)) {
+            if let Err(e) = sender.send::<_, GameChannel>(&msg, server, &NetworkTarget::from(members)) {
                 error!("failed to send knife attack sound: {e:?}");
             }
             continue;

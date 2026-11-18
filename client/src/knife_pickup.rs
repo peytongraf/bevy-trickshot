@@ -21,24 +21,24 @@
 //!
 //! The outline: each knife avatar's meshes get a child twin — the same mesh
 //! with smoothed normals ([`outline_mesh`]) — drawn with
-//! [`KnifeOutlineMaterial`] (`assets/shaders/knife_outline.wgsl`), an
+//! [`KnifeOutlineMaterial`] (`assets/shaders/knife_outline.wesl`), an
 //! inverted hull. The twins are children of the avatar (`thrown_knife.rs`),
 //! so they go with it and hide with it during a kill cam; the card is
-//! `StateScoped` — nothing to reset per game.
+//! `DespawnOnExit` — nothing to reset per game.
 
 use std::collections::HashMap;
 
 use bevy::asset::RenderAssetUsages;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::{MeshVertexBufferLayoutRef, VertexAttributeValues};
-use bevy::render::render_resource::{
-    AsBindGroup, Face, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::render::mesh::skinning::SkinnedMesh;
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::{MeshVertexBufferLayoutRef, VertexAttributeValues};
+use bevy::render::render_resource::{AsBindGroup, Face, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::*;
 use shared::{MolotovDrop, ThrownKnife, WeaponDrop};
 
@@ -47,7 +47,7 @@ use crate::net::GameClient;
 use crate::thrown_knife::KnifeAvatar;
 use crate::{killcam, menu, AppState, GameSounds, Lethal, Player, Weapon, EYE_HEIGHT, HUD_FONT};
 
-const SHADER_ASSET_PATH: &str = "shaders/knife_outline.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/knife_outline.wesl";
 
 /// The outline's colour (sRGB).
 pub(crate) const OUTLINE_BLUE: Color = Color::srgb(0.2, 0.6, 1.0);
@@ -83,6 +83,14 @@ pub(crate) struct KnifeOutlineMaterial {
 }
 
 impl Material for KnifeOutlineMaterial {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -94,7 +102,7 @@ impl Material for KnifeOutlineMaterial {
     /// Inverted hull: only the back faces of the pushed-out copy draw, so the
     /// real knife sits inside a rim of them.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -173,11 +181,7 @@ pub(crate) struct KnifePickupPlugin;
 
 impl Plugin for KnifePickupPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<KnifeOutlineMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<KnifeOutlineMaterial>::default())
         .init_resource::<OutlineAssets>()
         .init_resource::<PendingPickup>()
         .add_systems(OnEnter(AppState::InGame), (spawn_pickup_card, reset_pending_pickup))
@@ -187,7 +191,7 @@ impl Plugin for KnifePickupPlugin {
             (
                 outline_resting_knives,
                 update_pickup_card,
-                (auto_pick_up, swap_lethal).run_if(menu::game_active.and(killcam::no_killcam)),
+                (auto_pick_up, swap_lethal).run_if(menu::game_active.and_then(killcam::no_killcam)),
                 receive_pickups,
                 receive_weapon_pickups,
             )
@@ -406,11 +410,11 @@ fn auto_kind(weapon: &Weapon, kind: Lethal) -> bool {
 
 /// The pickup requests, one per kind of lethal.
 type PickupSenders<'w, 's> = (
-    Query<'w, 's, &'static mut TriggerSender<shared::PickUpKnife>, With<GameClient>>,
-    Query<'w, 's, &'static mut TriggerSender<shared::PickUpMolotov>, With<GameClient>>,
-    Query<'w, 's, &'static mut TriggerSender<shared::PickUpMonkey>, With<GameClient>>,
-    Query<'w, 's, &'static mut TriggerSender<shared::PickUpFrag>, With<GameClient>>,
-    Query<'w, 's, &'static mut TriggerSender<shared::PickUpFlashBang>, With<GameClient>>,
+    Query<'w, 's, &'static mut EventSender<shared::PickUpKnife>, With<GameClient>>,
+    Query<'w, 's, &'static mut EventSender<shared::PickUpMolotov>, With<GameClient>>,
+    Query<'w, 's, &'static mut EventSender<shared::PickUpMonkey>, With<GameClient>>,
+    Query<'w, 's, &'static mut EventSender<shared::PickUpFrag>, With<GameClient>>,
+    Query<'w, 's, &'static mut EventSender<shared::PickUpFlashBang>, With<GameClient>>,
 );
 
 /// Ask the server for the nearest `kind` in reach, dropping what's
@@ -448,13 +452,13 @@ fn request_pickup(kind: Lethal, dropping: shared::lethal::Carried, senders: &mut
 fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     let heading = |size: f32| TextFont {
-        font: font.clone(),
-        font_size: size,
+        font: font.clone().into(),
+        font_size: FontSize::Px(size),
         ..default()
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -469,6 +473,7 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
             row.spawn((
                 PickupCard,
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     row_gap: Val::Px(8.0),
@@ -477,9 +482,8 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(OUTLINE_BLUE),
+                BorderColor::all(OUTLINE_BLUE),
                 PickupCardColor,
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -491,13 +495,13 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ));
                 card.spawn((
                     Node {
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
                         ..default()
                     },
                     BackgroundColor(OUTLINE_BLUE.with_alpha(0.25)),
                     PickupCardColor,
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((PickupCardAction, Text::new(""), heading(22.0), TextColor::WHITE));
             });
@@ -583,7 +587,7 @@ fn update_pickup_card(
     }
     for (border, background) in &mut colors {
         if let Some(mut border) = border {
-            border.set_if_neq(BorderColor(color));
+            border.set_if_neq(BorderColor::all(color));
         }
         if let Some(mut background) = background {
             background.set_if_neq(BackgroundColor(color.with_alpha(0.25)));
@@ -636,7 +640,7 @@ fn swap_lethal(
     drops: DroppedLethals,
     (weapon_drops, local, lobbies): (Query<&WeaponDrop>, Query<&LocalId, With<GameClient>>, Query<&shared::Lobby>),
     mut senders: PickupSenders,
-    mut weapon_sender: Query<&mut TriggerSender<shared::PickUpWeapon>, With<GameClient>>,
+    mut weapon_sender: Query<&mut EventSender<shared::PickUpWeapon>, With<GameClient>>,
 ) {
     let now = time.elapsed_secs();
     if !binds.interact.just_pressed(&keys, &mouse) || pending.waiting(now) {
