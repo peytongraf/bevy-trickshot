@@ -7,7 +7,7 @@ A multiplayer 3D trickshot game, Call-of-Duty-style, built in Rust end to end
 the workspace layout). Players sniper each other (or bots) and score style
 points for how they get the kill — no-scopes, spins, wallbangs, collaterals,
 headshots — not just for the kill itself (see `shared/src/scoring.rs` and the
-`# Scoring Points` section of `client/notes/todo.md`). There are currently four
+`# Scoring Points` section of `client/notes/todo/todo.md`). There are currently four
 `GameMode`s (`shared/src/protocol.rs`): **Freestyle** (free-for-all against
 bots, highest score wins), **Free For All** (real PvP, first to the kill
 limit or most kills when time runs out), **Zombies** (co-op rounds of bot
@@ -21,7 +21,7 @@ only place a player learns anything changed.
 
 ## Working in this repo
 
-- `client/notes/todo.md` is the backlog. **Read it at the start of every
+- `client/notes/todo/todo.md` is the backlog. **Read it at the start of every
   conversation.** `# Done` sits at the top of the file; `# Added` and its
   subsections below it are ordered easiest → hardest — keep that order when
   adding new items.
@@ -52,7 +52,7 @@ only place a player learns anything changed.
   editing a query, manually re-check disjointness against every other query
   touching the same component in the same system, and say plainly that this
   particular class of bug can't be fully ruled out without the user running it.
-- When working through `client/notes/todo.md`, do **one item at a time**:
+- When working through `client/notes/todo/todo.md`, do **one item at a time**:
   finish it, update the todo list and changelog, then stop and let the user
   test it before starting the next one. Don't chain multiple todo items into
   one uninterrupted pass.
