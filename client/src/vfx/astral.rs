@@ -180,7 +180,7 @@ impl ViewNode for AstralNode {
         let post_process = view_target.post_process_write();
         let bind_group = render_context.render_device().create_bind_group(
             "astral_bind_group",
-            &astral_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&astral_pipeline.layout),
             &BindGroupEntries::sequential((post_process.source, &astral_pipeline.sampler, uniform_binding)),
         );
         let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
@@ -204,7 +204,7 @@ impl ViewNode for AstralNode {
 
 #[derive(Resource)]
 struct AstralPipeline {
-    layout: BindGroupLayout,
+    layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
 }
@@ -213,7 +213,7 @@ impl FromWorld for AstralPipeline {
     fn from_world(world: &mut World) -> Self {
         let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
         let render_device = world.resource::<RenderDevice>();
-        let layout = render_device.create_bind_group_layout(
+        let layout = BindGroupLayoutDescriptor::new(
             "astral_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,

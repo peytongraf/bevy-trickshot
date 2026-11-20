@@ -427,10 +427,10 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
             align_items: AlignItems::Center,
             column_gap: Val::Px(12.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if which == CraftButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
@@ -444,10 +444,10 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 border: UiRect::all(Val::Px(2.0)),
+                border_radius: BorderRadius::all(Val::Px(18.0)),
                 ..default()
             },
             BorderColor::all(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(18.0)),
         ))
         .with_child((
             Text::new(key),
@@ -633,10 +633,10 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
                                 ui_sound(UiSound::BUTTON),
                                 Node {
                                     padding: UiRect::axes(Val::Px(56.0), Val::Px(4.0)),
+                                    border_radius: BorderRadius::all(Val::Px(3.0)),
                                     ..default()
                                 },
                                 BackgroundColor(Color::NONE),
-                                BorderRadius::all(Val::Px(3.0)),
                             ))
                             .with_child((Text::new(name), hfont(34.0), TextColor(LIGHT_TEXT)));
                         }

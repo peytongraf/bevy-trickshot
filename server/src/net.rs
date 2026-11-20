@@ -99,7 +99,7 @@ const MAX_INPUT_BUFFER_TICKS: usize = 256;
 /// (`lightyear_inputs::input_buffer::InputBuffer::set_raw`). The next input
 /// message starts it afresh.
 fn reset_runaway_input_buffers(
-    server: Query<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     mut buffers: Query<(Entity, &mut InputBuffer<ActionState<PlayerInput>, PlayerInput>)>,
 ) {
     for (entity, mut buffer) in &mut buffers {
@@ -110,7 +110,7 @@ fn reset_runaway_input_buffers(
             "resetting runaway input buffer on {entity:?}: {} ticks from {:?} (server tick {:?})",
             buffer.buffer.len(),
             buffer.start_tick,
-            server.iter().next().map(|t| t.tick()),
+            timeline.tick(),
         );
         *buffer = InputBuffer::default();
     }

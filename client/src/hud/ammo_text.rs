@@ -349,10 +349,10 @@ pub(crate) fn setup_ammo_ui(
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         BoxShadow::new(
                             SHADOW_COLOR,
                             Val::Px(SHADOW_OFFSET),
@@ -399,10 +399,10 @@ pub(crate) fn setup_ammo_ui(
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         BoxShadow::new(
                             SHADOW_COLOR,
                             Val::Px(SHADOW_OFFSET),
@@ -672,10 +672,7 @@ pub(crate) fn scale_ammo_hud(
     mut nodes: Query<(&mut Node, Option<&HudBase>)>,
     mut fonts: Query<(&mut TextFont, Option<&HudBase>, Option<&mut TextShadow>)>,
     mut box_shadows: Query<&mut BoxShadow, With<HudBase>>,
-    mut radii: Query<
-        &mut BorderRadius,
-        Or<(With<KnifeKeyCap>, With<TacticalKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>,
-    >,
+    keycaps: Query<(), Or<(With<KnifeKeyCap>, With<TacticalKeyCap>, With<crate::aether_shroud::ShroudKeyCap>)>>,
     mut applied: Local<f32>,
 ) {
     let s = (window.height() / HUD_REF_HEIGHT).max(0.1);
@@ -717,6 +714,10 @@ pub(crate) fn scale_ammo_hud(
             node.row_gap = scale_val(b.row_gap, s);
             node.padding = scale_rect(b.padding, s);
             node.margin = scale_rect(b.margin, s);
+            // (The key caps' rounded corners scale with them.)
+            if keycaps.contains(e) {
+                node.border_radius = BorderRadius::all(Val::Px(3.0 * s));
+            }
         }
         if let Ok((mut font, Some(base), shadow)) = fonts.get_mut(e) {
             if let Some(size) = base.font_size {
@@ -732,9 +733,6 @@ pub(crate) fn scale_ammo_hud(
                 style.y_offset = Val::Px(SHADOW_OFFSET * s);
                 style.blur_radius = Val::Px(s);
             }
-        }
-        if let Ok(mut radius) = radii.get_mut(e) {
-            *radius = BorderRadius::all(Val::Px(3.0 * s));
         }
     }
 }

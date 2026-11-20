@@ -280,7 +280,7 @@ impl ViewNode for DrunkNode {
         let post_process = view_target.post_process_write();
         let bind_group = render_context.render_device().create_bind_group(
             "drunk_bind_group",
-            &drunk_pipeline.layout,
+            &pipeline_cache.get_bind_group_layout(&drunk_pipeline.layout),
             &BindGroupEntries::sequential((
                 post_process.source,
                 &drunk_pipeline.sampler,
@@ -308,7 +308,7 @@ impl ViewNode for DrunkNode {
 
 #[derive(Resource)]
 struct DrunkPipeline {
-    layout: BindGroupLayout,
+    layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
 }
@@ -317,7 +317,7 @@ impl FromWorld for DrunkPipeline {
     fn from_world(world: &mut World) -> Self {
         let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
         let render_device = world.resource::<RenderDevice>();
-        let layout = render_device.create_bind_group_layout(
+        let layout = BindGroupLayoutDescriptor::new(
             "drunk_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,

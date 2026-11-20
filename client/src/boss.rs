@@ -528,6 +528,15 @@ impl DeathOrbMaterial {
 }
 
 impl Material for DeathOrbMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         DEATH_ORB_SHADER_ASSET_PATH.into()
     }
@@ -566,11 +575,7 @@ pub(crate) struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<DeathOrbMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<DeathOrbMaterial>::default())
         .init_resource::<BossSettings>()
         .init_resource::<DeathOrbSettings>()
             .init_resource::<BossPreview>()

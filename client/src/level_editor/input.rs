@@ -1237,7 +1237,7 @@ pub(crate) fn draw_gizmos(
             continue;
         }
         let (center, rot, half) = id.world_box(doc, at, &lever);
-        gizmos.cuboid(
+        gizmos.cube(
             Transform::from_translation(center).with_rotation(rot).with_scale(half * 2.0),
             color,
         );
@@ -1269,7 +1269,7 @@ pub(crate) fn draw_gizmos(
                 let size = window.board_size();
                 for slot in 0..shared::windows::BOARDS {
                     let (c, tilt) = window.board_local(slot);
-                    gizmos.cuboid(
+                    gizmos.cube(
                         Transform::from_translation(at.pos + rot * c).with_rotation(rot * tilt).with_scale(size),
                         board,
                     );

@@ -1224,7 +1224,7 @@ fn draw_spots(
     for piece in EggPiece::ALL {
         if let Some(at) = piece.placement(layout) {
             let half = piece.half_extents() * at.scale;
-            gizmos.cuboid(
+            gizmos.cube(
                 Transform::from_translation(at.pos + Vec3::Y * half.y)
                     .with_rotation(at.rotation())
                     .with_scale(half * 2.0),

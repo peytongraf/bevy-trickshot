@@ -277,10 +277,10 @@ pub(crate) fn results_backdrop(parent: &mut ChildSpawnerCommands) {
                     Theme::Results,
                     Node {
                         position_type: PositionType::Absolute,
+                        border_radius: BorderRadius::MAX,
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::MAX,
                     BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
                 ));
             }
@@ -358,10 +358,10 @@ fn spawn_backdrop(
                     theme,
                     Node {
                         position_type: PositionType::Absolute,
+                        border_radius: BorderRadius::MAX,
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::MAX,
                     BoxShadow::new(Color::NONE, Val::ZERO, Val::ZERO, Val::Px(1.0), Val::Px(6.0)),
                 ));
             }

@@ -310,7 +310,7 @@ fn enter(
         Or<(With<Player>, With<PlayerHead>, With<CameraShake>, With<CameraRecoil>, With<WorldModelCamera>)>,
     >,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     window: Single<&mut CursorOptions, With<PrimaryWindow>>,
     avatar: Res<RemoteAvatarSettings>,
@@ -386,7 +386,7 @@ fn exit(
     mut backup: ResMut<StudioBackup>,
     mut transforms: Query<&mut Transform>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
 ) {
     // Left without saving: the game goes on with what was saved.
@@ -646,7 +646,7 @@ fn draw_markers(
                 continue;
             };
             let local = Transform::from_translation(aabb.center.into()).with_scale((aabb.half_extents * 2.0).into());
-            gizmos.cuboid(at.mul_transform(local), Color::srgb(1.0, 0.9, 0.1));
+            gizmos.cube(at.mul_transform(local), Color::srgb(1.0, 0.9, 0.1));
         }
     }
     if !editor.show_markers {

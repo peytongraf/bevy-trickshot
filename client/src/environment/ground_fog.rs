@@ -26,7 +26,7 @@ use bevy::render::render_resource::binding_types::{
     texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer,
 };
 use bevy::render::render_resource::*;
-use bevy::render::renderer::{RenderContext, RenderDevice};
+use bevy::render::renderer::RenderContext;
 use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::render::RenderApp;
 use bevy::shader::ShaderDefVal;
@@ -293,7 +293,7 @@ impl ViewNode for GroundFogNode {
         let post_process = view_target.post_process_write();
         let bind_group = render_context.render_device().create_bind_group(
             "ground_fog_bind_group",
-            layout,
+            &pipeline_cache.get_bind_group_layout(layout),
             &BindGroupEntries::sequential((
                 post_process.source,
                 depth.view(),
@@ -324,8 +324,8 @@ impl ViewNode for GroundFogNode {
 /// (MSAA on).
 #[derive(Resource)]
 struct GroundFogPipeline {
-    layout: BindGroupLayout,
-    layout_msaa: BindGroupLayout,
+    layout: BindGroupLayoutDescriptor,
+    layout_msaa: BindGroupLayoutDescriptor,
     pipeline: CachedRenderPipelineId,
     pipeline_msaa: CachedRenderPipelineId,
 }
@@ -333,9 +333,8 @@ struct GroundFogPipeline {
 impl FromWorld for GroundFogPipeline {
     fn from_world(world: &mut World) -> Self {
         let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
-        let render_device = world.resource::<RenderDevice>();
         let make_layout = |label: &'static str, depth: BindGroupLayoutEntryBuilder| {
-            render_device.create_bind_group_layout(
+            BindGroupLayoutDescriptor::new(
                 label,
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::FRAGMENT,
@@ -352,7 +351,7 @@ impl FromWorld for GroundFogPipeline {
         let layout_msaa = make_layout("ground_fog_msaa_bind_group_layout", texture_depth_2d_multisampled());
         let shader: Handle<Shader> = world.load_asset(SHADER_ASSET_PATH);
         let cache = world.resource_mut::<PipelineCache>();
-        let queue = |label: &'static str, layout: &BindGroupLayout, shader_defs: Vec<ShaderDefVal>| {
+        let queue = |label: &'static str, layout: &BindGroupLayoutDescriptor, shader_defs: Vec<ShaderDefVal>| {
             cache.queue_render_pipeline(RenderPipelineDescriptor {
                 label: Some(label.into()),
                 layout: vec![layout.clone()],

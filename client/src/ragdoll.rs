@@ -379,7 +379,7 @@ fn start_ragdolls(
                     let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or(Vec3::X);
                     let strength =
                         (1.0 - at.distance(from) / settings.reach.max(0.1)).clamp(settings.min_strength, 1.0);
-                    v.linvel += (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
+                    v.linear += (away * settings.throw_speed + Vec3::Y * settings.lift_speed) * strength;
                 }
             }
         }
@@ -494,7 +494,7 @@ fn start_ragdolls(
                     angular_damping: settings.angular_damping,
                 },
                 GravityScale(settings.gravity_scale),
-                Velocity { linvel, angvel: base_spin },
+                Velocity { linear: linvel, angular: base_spin },
                 Ccd::enabled(),
                 (Transform::from_translation(pos).with_rotation(rot), GlobalTransform::from(Transform::from_translation(pos).with_rotation(rot))),
             ));

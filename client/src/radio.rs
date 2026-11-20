@@ -123,10 +123,10 @@ fn spawn_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
                     align_items: AlignItems::Center,
                     row_gap: Val::Px(6.0),
                     padding: UiRect::all(Val::Px(8.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(PANEL_BG),
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|panel| {
@@ -135,9 +135,9 @@ fn spawn_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
                     Node {
                         width: Val::Px(PORTRAIT_SIZE),
                         height: Val::Px(PORTRAIT_SIZE),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
-                    BorderRadius::all(Val::Px(4.0)),
                 ));
                 panel.spawn((
                     Text::new(OPERATOR_NAME.to_uppercase()),

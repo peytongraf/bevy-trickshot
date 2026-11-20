@@ -45,11 +45,7 @@ pub(super) struct RitualFxPlugin;
 
 impl Plugin for RitualFxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<BloodMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<BloodMaterial>::default())
         .add_systems(Startup, make_assets)
         .add_systems(
             Update,
@@ -149,6 +145,15 @@ pub(crate) struct BloodSurface {
 }
 
 impl MaterialExtension for BloodSurface {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         "shaders/blood.wgsl".into()
     }

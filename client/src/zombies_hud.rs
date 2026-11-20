@@ -361,10 +361,10 @@ fn spawn_counter_panel(
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::Center,
             padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(COUNTER_BG),
-        BorderRadius::all(Val::Px(6.0)),
         Visibility::Hidden,
     ))
     .with_children(|panel| {
@@ -1187,11 +1187,11 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     border: UiRect::all(Val::Px(2.0)),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.25)),
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_child((
@@ -1208,11 +1208,11 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     row_gap: Val::Px(10.0),
                     padding: UiRect::all(Val::Px(16.0)),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor::all(Color::WHITE),
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -1309,10 +1309,10 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     Node {
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((
                     PerkCardText::Action,
@@ -1444,10 +1444,10 @@ fn spawn_party_panel(
                                 Node {
                                     width: Val::Px(width),
                                     height: Val::Percent(100.0),
+                                    border_radius: BorderRadius::all(Val::Px(2.0)),
                                     ..default()
                                 },
                                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-                                BorderRadius::all(Val::Px(2.0)),
                                 Visibility::Hidden,
                             ))
                             .with_child((
@@ -1455,10 +1455,10 @@ fn spawn_party_panel(
                                 Node {
                                     width: Val::Percent(100.0),
                                     height: Val::Percent(100.0),
+                                    border_radius: BorderRadius::all(Val::Px(2.0)),
                                     ..default()
                                 },
                                 BackgroundColor(crate::armor::ARMOR_BLUE),
-                                BorderRadius::all(Val::Px(2.0)),
                             ));
                         }
                     });
@@ -1474,20 +1474,20 @@ fn spawn_party_panel(
                             Node {
                                 width: Val::Px(bar_w),
                                 height: Val::Px((HEALTH_BAR_H * k).max(4.0)),
+                                border_radius: BorderRadius::all(Val::Px(2.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgba(0.45, 0.45, 0.45, 0.8)),
-                            BorderRadius::all(Val::Px(2.0)),
                         ))
                         .with_child((
                             PartyHealthFill(peer),
                             Node {
                                 width: Val::Percent(100.0),
                                 height: Val::Percent(100.0),
+                                border_radius: BorderRadius::all(Val::Px(2.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::WHITE),
-                            BorderRadius::all(Val::Px(2.0)),
                         ));
                         // (Only ours has the number.)
                         if own {
@@ -1505,10 +1505,10 @@ fn spawn_party_panel(
                             Node {
                                 width: Val::Px(9.0 * k),
                                 height: Val::Px(9.0 * k),
+                                border_radius: BorderRadius::all(Val::Px(if own { 5.0 } else { 0.0 })),
                                 ..default()
                             },
                             BackgroundColor(color),
-                            BorderRadius::all(Val::Px(if own { 5.0 } else { 0.0 })),
                         ));
                         row.spawn((Text::new(name.to_string()), text(20.0), TextColor(Color::WHITE), shadow));
                     });

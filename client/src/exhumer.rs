@@ -60,16 +60,8 @@ pub(crate) struct ExhumerPlugin;
 impl Plugin for ExhumerPlugin {
     fn build(&self, app: &mut App) {
         let can_beam = || menu::weapon_active.and(killcam::no_killcam);
-        app.add_plugins(MaterialPlugin::<ExhumerBeamMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<SoulSmokeMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<ExhumerBeamMaterial>::default())
+        .add_plugins(MaterialPlugin::<SoulSmokeMaterial>::default())
         .init_resource::<ExhumerFxSettings>()
             .init_resource::<OwnBeam>()
             .init_resource::<ExhumerDebug>()
@@ -503,7 +495,7 @@ fn lift_avatars(
         }
         let k = ease(d.shown);
         let shake = settings.drain_shake_deg.to_radians() * k;
-        let seed = e.index() as f32;
+        let seed = e.index_u32() as f32;
         let (yaw, roll) = ((now * 31.0 + seed).sin() * shake, (now * 23.0 + seed * 1.7).sin() * shake * 0.6);
         let tilt = settings.drain_tilt_deg.to_radians() * k;
         tf.rotation = Quat::from_rotation_y(yaw) * tf.rotation * Quat::from_rotation_x(-tilt) * Quat::from_rotation_z(roll);
@@ -554,7 +546,7 @@ fn run_glows(
         };
         let Ok((body, ..)) = avatars.get(glow.avatar) else { continue };
         tf.translation = body.translation + Vec3::Y * 1.25;
-        let flicker = 0.8 + 0.2 * (now * 27.0 + e.index() as f32).sin();
+        let flicker = 0.8 + 0.2 * (now * 27.0 + e.index_u32() as f32).sin();
         light.intensity = settings.chest_light * strength * flicker;
     }
 }
@@ -637,6 +629,15 @@ impl ExhumerBeamMaterial {
 }
 
 impl Material for ExhumerBeamMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         BEAM_SHADER_ASSET_PATH.into()
     }
@@ -673,6 +674,15 @@ pub(crate) struct SoulSmokeMaterial {
 }
 
 impl Material for SoulSmokeMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         SMOKE_SHADER_ASSET_PATH.into()
     }
@@ -1547,7 +1557,7 @@ fn altar_glows(
             continue;
         }
         let c = s.color;
-        let seed = crate::util::rand01(src.index() ^ 0x5eed);
+        let seed = crate::util::rand01(src.index_u32() ^ 0x5eed);
         commands
             .spawn((
                 DespawnOnExit(AppState::InGame),

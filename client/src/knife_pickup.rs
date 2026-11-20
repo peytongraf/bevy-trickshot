@@ -83,6 +83,15 @@ pub(crate) struct KnifeOutlineMaterial {
 }
 
 impl Material for KnifeOutlineMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -173,11 +182,7 @@ pub(crate) struct KnifePickupPlugin;
 
 impl Plugin for KnifePickupPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<KnifeOutlineMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<KnifeOutlineMaterial>::default())
         .init_resource::<OutlineAssets>()
         .init_resource::<PendingPickup>()
         .add_systems(OnEnter(AppState::InGame), (spawn_pickup_card, reset_pending_pickup))
@@ -474,12 +479,12 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     row_gap: Val::Px(8.0),
                     padding: UiRect::axes(Val::Px(20.0), Val::Px(12.0)),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor::all(OUTLINE_BLUE),
                 PickupCardColor,
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -493,11 +498,11 @@ fn spawn_pickup_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     Node {
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
                     BackgroundColor(OUTLINE_BLUE.with_alpha(0.25)),
                     PickupCardColor,
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((PickupCardAction, Text::new(""), heading(22.0), TextColor::WHITE));
             });

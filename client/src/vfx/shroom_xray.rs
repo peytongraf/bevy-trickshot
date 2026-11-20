@@ -87,6 +87,15 @@ pub(crate) struct ShroomXrayMaterial {
 }
 
 impl Material for ShroomXrayMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -133,13 +142,7 @@ pub(crate) struct ShroomXrayPlugin;
 
 impl Plugin for ShroomXrayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<ShroomXrayMaterial> {
-            // No depth prepass / shadows: the ghost must never write depth or
-            // cast anything.
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<ShroomXrayMaterial>::default())
         .add_systems(Update, (twin_enemy_meshes, update_xray).chain());
     }
 }

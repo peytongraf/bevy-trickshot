@@ -1343,10 +1343,10 @@ fn results_screen(
                             width: Val::Percent(100.0),
                             height: Val::Px(40.0),
                             flex_shrink: 0.0,
+                            border_radius: BorderRadius::top_right(Val::Px(18.0)),
                             ..default()
                         },
                         BackgroundColor(RESULTS_HEADER),
-                        BorderRadius::top_right(Val::Px(18.0)),
                     ))
                     .with_children(|head| {
                         head.spawn(Node {

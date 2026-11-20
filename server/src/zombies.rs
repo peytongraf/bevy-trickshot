@@ -1639,6 +1639,16 @@ mod tests {
     fn game() -> (App, Entity) {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        // Zombies spawn with `Replicate`, whose hooks (since lightyear 0.26)
+        // need lightyear's replication resources — so the real server plugins
+        // and protocol, with no server spawned or clients connected.
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            lightyear::prelude::server::ServerPlugins {
+                tick_duration: core::time::Duration::from_secs_f64(1.0 / shared::TICK_HZ),
+            },
+            shared::SharedPlugin,
+        ));
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             core::time::Duration::from_secs_f64(1.0 / 64.0),
         ));

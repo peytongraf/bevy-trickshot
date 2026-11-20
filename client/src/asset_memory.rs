@@ -9,10 +9,11 @@
 //! enough to run the machine out of memory and get one killed.
 //!
 //! So each one is marked render-world-only the frame it's loaded, just
-//! before it's extracted: Bevy then moves it to the GPU and frees the main
-//! world's copy (`bevy_render::render_asset::extract_render_asset`). Its
-//! handle keeps working for materials as before; only `Assets<Image>::get`
-//! on it comes back empty, which nothing does for these.
+//! before it's extracted: Bevy then moves its pixels to the GPU and frees
+//! the main world's copy (`bevy_render::render_asset::extract_render_asset`).
+//! Its handle keeps working for materials as before; `Assets<Image>::get`
+//! on it still finds the image, but with no pixels (`data: None`) — nothing
+//! reads these back.
 //!
 //! Images the game builds itself (the minimap bake, name tags, the ground)
 //! are left alone — some of those are read back on the CPU.
@@ -50,7 +51,12 @@ fn gpu_only_textures(
         if !asset_server.get_path(*id).is_some_and(|p| gpu_only(&p)) {
             continue;
         }
-        if let Some(image) = images.get_mut(*id) {
+        // Untracked: a tracked `get_mut` queues `AssetEvent::Modified`, and
+        // since Bevy 0.18 the image stays in `Assets` (pixels moved out)
+        // after it's uploaded — so that event re-extracts it the next frame
+        // with no pixels and can replace the real texture with a blank one.
+        // Changing the usage before its first extraction needs no event.
+        if let Some(image) = images.get_mut_untracked(*id) {
             image.asset_usage = RenderAssetUsages::RENDER_WORLD;
         }
     }
