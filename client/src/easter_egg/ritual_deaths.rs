@@ -7,15 +7,15 @@
 //! nearest few can also scream as it goes (the Nuke's soul screams, pitched
 //! down, staggered — off by default: [`RitualDeathSettings::screamers`]).
 //!
-//! Each column is `StateScoped(InGame)` and gone once it's played out;
+//! Each column is `DespawnOnExit(InGame)` and gone once it's played out;
 //! which zombies we last saw alive is forgotten out of a game. Tuned in the
 //! debug panel's "Easter egg (Der Tempel)" → "Ritual deaths"
 //! ([`RitualDeathSettings`]).
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::EggStep;
@@ -157,7 +157,7 @@ fn tear_souls(
         let flip = |r: f32| if r < 0.5 { -1.0 } else { 1.0 };
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 TornSoul { from, age: 0.0, seed },
                 Transform::from_translation(from),
                 Visibility::default(),
@@ -194,7 +194,7 @@ fn tear_souls(
     for feet in torn.into_iter().take(s.screamers as usize) {
         let pick = ((roll() * sounds.zombie_souls.len() as f32) as usize).min(sounds.zombie_souls.len() - 1);
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ScreamLater { at: now + roll() * s.scream_spread, from: feet + Vec3::Y * 1.6, clip: sounds.zombie_souls[pick].clone() },
         ));
     }
@@ -214,7 +214,7 @@ fn scream_later(
         }
         commands.entity(e).despawn();
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(scream.clip.clone()),
             Transform::from_translation(scream.from),
             crate::positional_playback(Volume::Linear(settings.scream_volume)).with_speed(settings.scream_pitch.max(0.1)),

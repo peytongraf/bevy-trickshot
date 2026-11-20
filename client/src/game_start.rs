@@ -176,7 +176,7 @@ fn local_peer(local: &Query<&LocalId, With<GameClient>>) -> Option<PeerId> {
 /// disconnect mid-load, say — there's no normal way to back out of it), drop
 /// it rather than leaving `Menu` permanently reporting "a menu is open" to
 /// whatever reads that once we're back at the main menu. `LoadingGateUi`
-/// itself is already `StateScoped` and needs no cleanup here.
+/// itself is already `DespawnOnExit` and needs no cleanup here.
 fn exit_loading_gate(mut menu: ResMut<Menu>, mut intro: ResMut<ZombiesIntro>) {
     if menu.screen == Screen::LoadingGame {
         menu.screen = Screen::None;
@@ -221,7 +221,7 @@ fn run_intro(
     mut sent: ResMut<SentReady>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::IntroFinished>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::IntroFinished>, With<GameClient>>,
     mut commands: Commands,
 ) {
     if menu.screen != Screen::LoadingGame || sent.intro_sent {
@@ -238,7 +238,7 @@ fn run_intro(
     if intro.wanted && intro.started.is_none() {
         intro.started = Some(now);
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             IntroMusic,
             AudioPlayer::new(sounds.zombies_intro.clone()),
             PlaybackSettings::DESPAWN,
@@ -292,7 +292,7 @@ fn fade_intro_boxes(
             bg.0 = c.with_alpha(c.alpha() * f);
         }
         if let (Some(c), Some(mut border)) = (fade.border, border) {
-            border.0 = c.with_alpha(c.alpha() * f);
+            *border = BorderColor::all(c.with_alpha(c.alpha() * f));
         }
         if let (Some(c), Some(mut text)) = (fade.text, text) {
             text.0 = c.with_alpha(c.alpha() * f);
@@ -316,7 +316,7 @@ fn send_assets_ready(
     map_models: Query<(), With<MapModel>>,
     parents: Query<&ChildOf>,
     mut sent: ResMut<SentReady>,
-    mut sender: Query<&mut TriggerSender<shared::AssetsReady>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::AssetsReady>, With<GameClient>>,
     (asset_server, mut sounds): (Res<AssetServer>, ResMut<crate::audio_engine::PendingSounds>),
 ) {
     if sent.sent || !map_ready(&map, current.0) || !sounds.all_loaded(&asset_server) {
@@ -498,7 +498,7 @@ fn build_party_card(commands: &mut Commands, asset_server: &AssetServer, lobby: 
         .spawn((
             LoadingGateUi,
             GlobalZIndex(50),
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             overlay_root(true),
         ))
         .with_children(|root| {
@@ -548,7 +548,7 @@ fn build_zombies_loading(commands: &mut Commands, asset_server: &AssetServer, lo
         .spawn((
             LoadingGateUi,
             GlobalZIndex(50),
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             overlay_root(true),
         ))
         .with_children(|root| {
@@ -604,7 +604,7 @@ fn objective_box(boxes: &mut ChildSpawnerCommands, asset_server: &AssetServer, n
             ..default()
         },
         BackgroundColor(faded(bg)),
-        BorderColor(faded(border)),
+        BorderColor::all(faded(border)),
         BorderRadius::all(Val::Px(4.0)),
     ));
     card.insert(IntroFade { bg: Some(bg), border: Some(border), text: None });
@@ -635,7 +635,7 @@ fn build_zombies_cinematic(commands: &mut Commands, asset_server: &AssetServer, 
         .spawn((
             LoadingGateUi,
             GlobalZIndex(50),
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             overlay_root(true),
         ))
         .with_children(|root| {

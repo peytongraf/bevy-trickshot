@@ -38,16 +38,16 @@
 //! and the view tipped down the same way (on top of our own look, and given
 //! back as it ends). Nothing's shown or kept outside either, and both clocks
 //! are reset with the game. The blood's
-//! pieces are `StateScoped(InGame)`; the drops are gone as the hands are.
+//! pieces are `DespawnOnExit(InGame)`; the drops are gone as the hands are.
 
 use std::f32::consts::PI;
 
 use bevy::math::Affine3A;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::scene::SceneInstanceReady;
-use bevy::transform::TransformSystem;
+use bevy::transform::TransformSystems;
 use bevy_egui::egui;
 
 use crate::audio_engine::prelude::*;
@@ -99,8 +99,8 @@ impl Plugin for HandCutPlugin {
                 PostUpdate,
                 (pose_hand_cut, bleed)
                     .chain()
-                    .after(bevy::app::Animation)
-                    .before(TransformSystem::TransformPropagate),
+                    .after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate),
             );
     }
 }
@@ -361,14 +361,14 @@ struct HandCutRig {
 /// Once the arms scene has spawned: put it on the cut scene's layer, find
 /// the bones and hold the clip on its first frame.
 pub(crate) fn start_hand_cut_arms(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     arms: Query<&HandCutAnimation>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut players: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = arms.get(root) else { return };
     let mut by_name = std::collections::HashMap::new();
     for entity in children.iter_descendants(root) {
@@ -533,7 +533,7 @@ fn pose_hand_cut(
         let variant = (crate::util::rand01(t.to_bits()) * 255.0) as u8;
         if let Some(clip) = knife_sounds.as_ref().and_then(|k| k.stab.pick(variant)) {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(clip.handle.clone()),
                 PlaybackSettings::DESPAWN.with_volume(Volume::Linear(s.volume)),
             ));
@@ -677,7 +677,7 @@ fn make_blood_assets(mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Ass
 fn spawn_blood(assets: Res<BloodAssets>, mut commands: Commands) {
     for (piece, mesh) in [(BloodPiece::Cut, assets.rod.clone()), (BloodPiece::Pool, assets.ball.clone())] {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             piece,
             Mesh3d(mesh),
             MeshMaterial3d(assets.material.clone()),
@@ -751,7 +751,7 @@ fn bleed(
                     crate::util::rand01(seed ^ 0xa3) - 0.5,
                 ) * 0.04;
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     BloodDrop { velocity: drift, left: s.drop_life },
                     Mesh3d(assets.ball.clone()),
                     MeshMaterial3d(assets.material.clone()),

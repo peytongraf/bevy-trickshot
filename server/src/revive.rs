@@ -98,8 +98,8 @@ fn run_last_stands(
         &mut PlayerCombat,
         Option<&ActionState<PlayerInput>>,
     )>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     use crate::quotes::SayQuote;
     use shared::quotes::Quote;
@@ -348,7 +348,7 @@ fn sync_downed(
     mut sender: ServerMultiMessageSender,
     lobbies: Query<&Lobby>,
     players: Query<(Entity, &PlayerId, &LobbyPlayer, &PlayerCombat, Option<&Downed>)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();

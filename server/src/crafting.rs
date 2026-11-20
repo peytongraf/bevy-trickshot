@@ -28,14 +28,14 @@ impl Plugin for CraftingPlugin {
 /// ignored.
 #[allow(clippy::too_many_arguments)]
 fn on_buy_equipment(
-    trigger: Trigger<RemoteTrigger<BuyEquipment>>,
+    trigger: On<RemoteEvent<BuyEquipment>>,
     endings: Res<crate::killcam::EndingLobbies>,
     colliders: Res<MapColliders>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let peer = trigger.from;

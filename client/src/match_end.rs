@@ -104,7 +104,7 @@ fn receive_match_ending(
 }
 
 /// The results screen is opening: the freeze has done its job.
-fn clear_on_results(mut ended: EventReader<MatchEndedEvent>, mut freeze: ResMut<MatchEndFreeze>) {
+fn clear_on_results(mut ended: MessageReader<MatchEndedEvent>, mut freeze: ResMut<MatchEndFreeze>) {
     if ended.read().next().is_some() {
         *freeze = MatchEndFreeze::default();
     }
@@ -136,7 +136,7 @@ fn drive_overlay(
         commands
             .spawn((
                 MatchEndOverlay,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 // Above the menus (50) — nothing should be reachable under it.
                 GlobalZIndex(60),
                 Pickable::IGNORE,
@@ -160,7 +160,7 @@ fn drive_overlay(
                         ..default()
                     },
                     TextColor(headline_color(freeze.victory, 0.0)),
-                    TextLayout::new_with_justify(JustifyText::Center),
+                    TextLayout::new_with_justify(Justify::Center),
                     Pickable::IGNORE,
                 ));
             });

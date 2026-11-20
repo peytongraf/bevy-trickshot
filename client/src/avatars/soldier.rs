@@ -7,7 +7,7 @@ use bevy::animation::prelude::AnimationTransitions;
 use bevy::animation::AnimationTarget;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 
 use super::held_weapon::{
@@ -764,7 +764,7 @@ pub(crate) const SOLDIER_GUN_MESH: &str = "Mesh1/Primitive0";
 /// ([`SoldierRig`]) — hiding the rifle on one that holds a [`HeldWeapon`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn start_soldier_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     soldiers: Query<Has<HeldWeapon>, With<SoldierVisual>>,
@@ -774,7 +774,7 @@ pub(crate) fn start_soldier_animation(
     anims: Res<SoldierAnimations>,
     (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTarget>, Query<&ChildOf>),
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(holds) = soldiers.get(root) else {
         return;
     };

@@ -25,13 +25,13 @@
 //!
 //! The clock ([`EggWake`]), the camera's shake ([`EggCameraShake`]) and
 //! which sounds have played are reset on leaving the game; the body,
-//! wisps, lights and sounds are `StateScoped(InGame)`, and gone (or back)
+//! wisps, lights and sounds are `DespawnOnExit(InGame)`, and gone (or back)
 //! as soon as the egg isn't there. Tuned in the debug panel's "Easter egg
 //! (Der Tempel)" → "He wakes".
 
 use std::f32::consts::{PI, TAU};
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
@@ -294,7 +294,7 @@ fn sync_wake_fx(
     // (Its smoke's made once the explosion's is in — moments after start.)
     let (Some(fx_assets), Some(smoke)) = (fx_assets, smoke) else { return };
     commands
-        .spawn((StateScoped(AppState::InGame), WakeFx, crate::util::placed(at), Visibility::default()))
+        .spawn((DespawnOnExit(AppState::InGame), WakeFx, crate::util::placed(at), Visibility::default()))
         .with_children(|fx| {
             // (Its model faces +z as made — the way the sarcophagus does —
             // so no turn; `animate_wake` places it every frame.)
@@ -318,7 +318,7 @@ fn sync_wake_fx(
                         Transform::default(),
                         Visibility::Hidden,
                         NotShadowCaster,
-                        bevy::render::view::NoFrustumCulling,
+                        bevy::camera::visibility::NoFrustumCulling,
                     ));
                 }
             }
@@ -366,7 +366,7 @@ fn rise(t: f32, settings: &EggWakeSettings) -> f32 {
 /// Once his body's scene is in: animate it with the boss's clips, and keep
 /// it from being culled in poses its rest-pose box doesn't cover.
 fn body_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
     boss: Option<Res<crate::boss::BossAssets>>,
@@ -374,7 +374,7 @@ fn body_ready(
     mut commands: Commands,
 ) {
     let Some(boss) = boss else { return };
-    let root = trigger.target();
+    let root = trigger.entity;
     for entity in children.iter_descendants(root) {
         bounds.fit(&mut commands, root, entity);
         if players.contains(entity) {
@@ -625,7 +625,7 @@ fn wake_cues(
         let positional = |commands: &mut Commands, clip: &Handle<AudioSource>, local_at: Vec3, volume: f32| {
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     WakeSound,
                     AudioPlayer::new(clip.clone()),
                     Transform::from_translation(place.transform_point(local_at)),
@@ -645,7 +645,7 @@ fn wake_cues(
             Cue::Snap => {
                 positional(&mut commands, &sounds.scream, FEET + Vec3::Y * 1.65, settings.scream_volume);
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     WakeSound,
                     AudioPlayer::new(sounds.hit.clone()),
                     PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.hit_volume)),

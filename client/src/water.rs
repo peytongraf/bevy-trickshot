@@ -24,19 +24,21 @@
 //! ([`tint_water`], `environment::egg_mood`) — clear again once it's over.
 //!
 //! In a game they're the current map's ([`sync_game_water`], all
-//! `StateScoped(InGame)`); in the level editor its own copy follows the
+//! `DespawnOnExit(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`WaterBuilder::sync`]).
 //! Each set is rebuilt whenever its lists change, so nothing carries over
 //! between games.
 
 use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use shared::level::{Water, Waterfall};
 
 use crate::audio_engine::prelude::*;
@@ -370,7 +372,7 @@ fn throw(commands: &mut Commands, assets: &WaterAssets, at: Vec3, droplets: bool
             size,
             surface: at.y,
         },
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         Mesh3d(assets.quad.clone()),
         MeshMaterial3d(if droplets { assets.droplets.clone() } else { assets.mist.clone() }),
         Transform::from_translation(at + Vec3::Y * 0.03).with_scale(Vec3::splat(0.0001)),
@@ -557,7 +559,7 @@ fn sync_game_water(
     };
     let roar = sounds.as_ref().map(|s| &s.waterfall_loop);
     builder.sync(waters, falls, &mut shown, &existing, roar, &mut commands, || {
-        (StateScoped(AppState::InGame), GameWater)
+        (DespawnOnExit(AppState::InGame), GameWater)
     });
 }
 

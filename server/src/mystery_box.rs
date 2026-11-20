@@ -53,7 +53,7 @@ struct SpinClocks(HashMap<Entity, (f32, u32)>);
 /// box, with it idle and the points. Anything else is ignored.
 #[allow(clippy::too_many_arguments)]
 fn on_spin(
-    trigger: Trigger<RemoteTrigger<SpinMysteryBox>>,
+    trigger: On<RemoteEvent<SpinMysteryBox>>,
     time: Res<Time>,
     endings: Res<EndingLobbies>,
     mut clocks: ResMut<SpinClocks>,
@@ -136,7 +136,7 @@ fn start_spin(
 /// lands on the teddy bear — in a running, unpaused `Zombies` game on a map
 /// with a box, with the box idle.
 fn on_spin_teddy(
-    trigger: Trigger<RemoteTrigger<SpinTeddy>>,
+    trigger: On<RemoteEvent<SpinTeddy>>,
     endings: Res<EndingLobbies>,
     mut clocks: ResMut<SpinClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
@@ -161,7 +161,7 @@ fn on_spin_teddy(
 /// dropped around them).
 #[allow(clippy::too_many_arguments)]
 fn on_take_prize(
-    trigger: Trigger<RemoteTrigger<TakeBoxPrize>>,
+    trigger: On<RemoteEvent<TakeBoxPrize>>,
     endings: Res<EndingLobbies>,
     colliders: Res<MapColliders>,
     mut clocks: ResMut<SpinClocks>,
@@ -170,7 +170,7 @@ fn on_take_prize(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let TakeBoxPrize { slot, mag, reserve, dropping } = trigger.trigger;
@@ -243,7 +243,7 @@ fn run_spins(
     time: Res<Time>,
     mut clocks: ResMut<SpinClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let dt = time.delta_secs();
     clocks.0.retain(|e, _| lobbies.contains(*e));

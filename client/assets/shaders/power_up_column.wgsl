@@ -29,7 +29,7 @@ struct ColumnParams {
     // Where the model's middle sits up the column (0 = ground, 1 = top).
     model_at: f32,
 }
-@group(2) @binding(0) var<uniform> col: ColumnParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> col: ColumnParams;
 
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

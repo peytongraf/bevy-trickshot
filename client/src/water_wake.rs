@@ -9,7 +9,7 @@
 //! it. And a blast going off in or just over a pool throws up a great
 //! column of it ([`spawn_big_splash`]).
 //!
-//! Everything here is particles (`StateScoped(InGame)`) and ripples
+//! Everything here is particles (`DespawnOnExit(InGame)`) and ripples
 //! (`WaterRipples`, cleared leaving a game), plus each avatar's own [`Wake`],
 //! which goes with it, and ours ([`LocalWake`], cleared leaving a game).
 
@@ -337,7 +337,7 @@ fn shot_splashes(
     assets: Option<Res<WaterAssets>>,
     mut ripples: ResMut<WaterRipples>,
     splashes: Query<(), With<SplashParticle>>,
-    mut tracers: EventReader<crate::FireTracer>,
+    mut tracers: MessageReader<crate::FireTracer>,
     mut commands: Commands,
     mut seq: Local<u32>,
 ) {
@@ -371,7 +371,7 @@ fn blast_splashes(
     current_map: Res<CurrentMap>,
     assets: Option<Res<WaterAssets>>,
     mut ripples: ResMut<WaterRipples>,
-    mut blasts: EventReader<Explosion>,
+    mut blasts: MessageReader<Explosion>,
     mut commands: Commands,
     mut seq: Local<u32>,
 ) {

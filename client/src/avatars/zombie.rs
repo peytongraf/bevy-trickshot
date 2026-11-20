@@ -407,7 +407,7 @@ pub(crate) fn spawn_zombie_avatar(
 ) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             ZombieMotion::default(),
             ZombieVisual,
@@ -421,14 +421,14 @@ pub(crate) fn spawn_zombie_avatar(
 /// Once a zombie's scene is in: loop `Idle` (it's climbing out of the
 /// ground), and remember its `AnimationPlayer`.
 pub(crate) fn start_zombie_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
     anims: Res<ZombieAnimations>,
     mut bounds: super::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     for entity in children.iter_descendants(root) {
         bounds.fit(&mut commands, root, entity);
         if let Ok(mut player) = players.get_mut(entity) {

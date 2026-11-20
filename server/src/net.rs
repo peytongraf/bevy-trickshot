@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use lightyear::connection::client::{Connected, Disconnected};
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prelude::input::native::ActionState;
-use lightyear::prelude::server::input::InputSet;
+use lightyear::prelude::server::input::InputSystems;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -35,7 +35,7 @@ pub struct ServerNetPlugin;
 impl Plugin for ServerNetPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (spawn_server, start_listening).chain());
-        app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSet::ReceiveInputs));
+        app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSystems::ReceiveInputs));
         if let Some(limit) = idle_shutdown_limit() {
             info!("shutting down after {}s with nobody connected", limit.as_secs());
             app.insert_resource(IdleShutdown { limit, idle: Duration::ZERO });
@@ -57,7 +57,7 @@ pub(crate) struct VerifiedPeers(pub(crate) HashSet<PeerId>);
 /// A client's version: on this server's, it's let in; on any other, it's
 /// told ([`VersionMismatch`]) and kept out.
 fn on_client_hello(
-    trigger: Trigger<RemoteTrigger<ClientHello>>,
+    trigger: On<RemoteEvent<ClientHello>>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut verified: ResMut<VerifiedPeers>,
@@ -80,11 +80,11 @@ fn on_client_hello(
 
 /// Forget a client's version once it's gone.
 fn on_client_gone(
-    trigger: Trigger<OnAdd, Disconnected>,
+    trigger: On<Add, Disconnected>,
     clients: Query<&RemoteId, With<ClientOf>>,
     mut verified: ResMut<VerifiedPeers>,
 ) {
-    if let Ok(peer) = clients.get(trigger.target()) {
+    if let Ok(peer) = clients.get(trigger.entity) {
         verified.0.remove(&peer.0);
     }
 }
@@ -100,7 +100,7 @@ const MAX_INPUT_BUFFER_TICKS: usize = 256;
 /// message starts it afresh.
 fn reset_runaway_input_buffers(
     server: Query<&LocalTimeline, With<Server>>,
-    mut buffers: Query<(Entity, &mut InputBuffer<ActionState<PlayerInput>>)>,
+    mut buffers: Query<(Entity, &mut InputBuffer<ActionState<PlayerInput>, PlayerInput>)>,
 ) {
     for (entity, mut buffer) in &mut buffers {
         if buffer.buffer.len() <= MAX_INPUT_BUFFER_TICKS {
@@ -140,7 +140,7 @@ fn shut_down_when_idle(
     time: Res<Time<Real>>,
     clients: Query<(), (With<ClientOf>, With<Connected>)>,
     mut idle: ResMut<IdleShutdown>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if !clients.is_empty() {
         idle.idle = Duration::ZERO;
@@ -227,12 +227,12 @@ fn spawn_server(mut commands: Commands) {
 }
 
 fn start_listening(mut commands: Commands, server: Single<Entity, With<Server>>) {
-    commands.trigger_targets(Start, server.into_inner());
+    commands.trigger(Start { entity: server.into_inner() });
 }
 
 /// A fresh link: give it a replication sender so we can stream entities to it.
-fn on_client_link(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+fn on_client_link(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(
             Duration::from_millis(shared::REPLICATION_INTERVAL_MS),
             SendUpdatesMode::SinceLastAck,
@@ -246,10 +246,10 @@ fn on_client_link(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
 /// player entity is created only when its lobby's leader starts the game
 /// (see [`crate::lobby`]).
 fn on_client_connected(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     clients: Query<&RemoteId, With<ClientOf>>,
 ) {
-    if let Ok(peer) = clients.get(trigger.target()) {
+    if let Ok(peer) = clients.get(trigger.entity) {
         info!("client {:?} connected", peer.0);
     }
 }

@@ -16,18 +16,18 @@
 //!
 //! Every sound is positional and heard by the whole lobby. Look and feel are
 //! tuned in the debug panel's "Dogs (Zombies)" section ([`DogSettings`]). Everything
-//! here is `StateScoped(InGame)`; a gone dog's source entity is marked
+//! here is `DespawnOnExit(InGame)`; a gone dog's source entity is marked
 //! [`DogGone`] so no new avatar is made for it before the server's despawn
 //! arrives.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
-use lightyear::prelude::{Interpolated, MessageReceiver, PeerId};
+use lightyear::prelude::{MessageReceiver, PeerId};
 use shared::{PlayerId, PlayerPose};
 
 use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, MolotovSettings};
@@ -318,7 +318,7 @@ fn bolt_material(color: [f32; 3], brightness: f32) -> StandardMaterial {
 pub(crate) fn spawn_dog_avatar(commands: &mut Commands, asset_server: &AssetServer, settings: &DogSettings, src: Entity) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             DogVisual,
             DogMotion::default(),
@@ -332,7 +332,7 @@ pub(crate) fn spawn_dog_avatar(commands: &mut Commands, asset_server: &AssetServ
 /// Once a dog's scene is in: run, from the start of the cycle; remember its
 /// `AnimationPlayer` and back bone.
 fn start_dog_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -340,7 +340,7 @@ fn start_dog_animation(
     assets: Res<DogAssets>,
     mut bounds: crate::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut player_entity = None;
     let mut back = None;
     for entity in children.iter_descendants(root) {
@@ -361,10 +361,9 @@ fn start_dog_animation(
 
 /// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
 /// entity's).
-fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
@@ -375,7 +374,7 @@ fn dog_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle {
         playback.mode = PlaybackMode::Loop;
     }
     (
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         DogSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
@@ -398,7 +397,7 @@ pub(crate) fn spawn_lightning(
     let material = if boss { &assets.boss_bolt_material } else { &assets.bolt_material };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Lightning {
                 age: 0.0,
                 secs,
@@ -451,7 +450,7 @@ fn spawn_flash(
     });
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             SpawnFlash {
                 age: 0.0,
                 material: material.clone(),
@@ -485,9 +484,9 @@ fn receive_dog_messages(
     sounds: Option<Res<GameSounds>>,
     settings: Res<DogSettings>,
     avatars: Query<(Entity, &RemoteAvatar, &Transform), With<DogVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -512,7 +511,7 @@ fn receive_dog_messages(
             // Its body goes, and the blast's where we see it.
             let mut feet = Vec3::from_array(msg.at);
             for (avatar, remote, tf) in &avatars {
-                if peer_of(remote.src, &ids, &interp) == Some(msg.dog) {
+                if peer_of(remote.src, &ids) == Some(msg.dog) {
                     feet = tf.translation;
                     commands.entity(avatar).try_despawn();
                     if let Ok(mut src) = commands.get_entity(remote.src) {
@@ -630,7 +629,7 @@ fn light_dog_fires(
             let flames = settings.fire_flames.max(1);
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     DogFire {
                         avatar,
                         material: material.clone(),
@@ -879,7 +878,7 @@ fn run_previews(
     sounds: Option<Res<GameSounds>>,
     player: Single<&Transform, With<Player>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut commands: Commands,
 ) {
     if !(preview.lightning || preview.flash || preview.explosion) {

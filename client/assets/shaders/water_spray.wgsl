@@ -26,7 +26,7 @@ struct SprayParams {
     _pad0: f32,
     _pad1: f32,
 }
-@group(2) @binding(100) var<uniform> spray: SprayParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> spray: SprayParams;
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {

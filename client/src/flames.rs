@@ -18,15 +18,15 @@
 //! `environment::egg_mood`) — back to themselves once it's over.
 //!
 //! In a game they're the current map's ([`sync_game_flames`], all
-//! `StateScoped(InGame)`); in the level editor its own copy follows the
+//! `DespawnOnExit(InGame)`); in the level editor its own copy follows the
 //! layout being edited (`level_editor`, through [`sync_flames`]). Each set is
 //! rebuilt whenever its list changes, so nothing carries over between games.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use shared::level::Flame;
 
 use crate::molotov::{flicker, seeded_scale, FireMaterial, MolotovAssets, MolotovSettings};
@@ -102,7 +102,7 @@ fn sync_game_flames(
         sounds.as_ref().map(|s| &s.fire_crackle),
         &mut materials,
         &mut commands,
-        || (StateScoped(AppState::InGame), GameFlame),
+        || (DespawnOnExit(AppState::InGame), GameFlame),
     );
 }
 

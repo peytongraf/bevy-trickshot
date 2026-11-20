@@ -2844,298 +2844,294 @@ impl Plugin for ProtocolPlugin {
         app.register_type::<PlayerInput>();
 
         // messages
-        app.add_message::<ShotResolved>()
+        app.register_message::<ShotResolved>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<RayGunFired>()
+        app.register_message::<RayGunFired>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<LobbyError>()
+        app.register_message::<LobbyError>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<TrickScore>()
+        app.register_message::<TrickScore>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<MatchOver>()
+        app.register_message::<MatchOver>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<MatchEnding>()
+        app.register_message::<MatchEnding>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<KillCam>()
+        app.register_message::<KillCam>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<RemoteSound>()
+        app.register_message::<RemoteSound>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<PlayerRespawn>()
+        app.register_message::<PlayerRespawn>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<PlayerKilledBy>()
+        app.register_message::<PlayerKilledBy>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<HitMarker>()
+        app.register_message::<HitMarker>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombieDamaged>()
+        app.register_message::<ZombieDamaged>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombieBlood>()
+        app.register_message::<ZombieBlood>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombieBlasted>()
+        app.register_message::<ZombieBlasted>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<KnifeFlight>()
+        app.register_message::<KnifeFlight>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<DamageTaken>()
+        app.register_message::<DamageTaken>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<KnockedBack>()
+        app.register_message::<KnockedBack>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ReturnToLobby>()
+        app.register_message::<ReturnToLobby>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<QuoteSaid>()
+        app.register_message::<QuoteSaid>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<RadioSaid>()
+        app.register_message::<RadioSaid>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_trigger::<RequestQuote>()
+        app.register_event::<RequestQuote>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetQuoteDelays>()
+        app.register_event::<SetQuoteDelays>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_message::<BombExplosion>()
+        app.register_message::<BombExplosion>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<DogLightning>()
+        app.register_message::<DogLightning>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<DogSpawned>()
+        app.register_message::<DogSpawned>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<DogExploded>()
+        app.register_message::<DogExploded>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BossLightning>()
+        app.register_message::<BossLightning>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BossSpawned>()
+        app.register_message::<BossSpawned>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BossBlastLaunched>()
+        app.register_message::<BossBlastLaunched>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<HierophantSays>()
+        app.register_message::<HierophantSays>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<HierophantTeleport>()
+        app.register_message::<HierophantTeleport>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::exhumer::ExhumerDrain>()
+        app.register_message::<crate::exhumer::ExhumerDrain>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::exhumer::ExhumerExhume>()
+        app.register_message::<crate::exhumer::ExhumerExhume>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::exhumer::ExhumerSouls>()
+        app.register_message::<crate::exhumer::ExhumerSouls>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::exhumer::ExhumerSwarm>()
+        app.register_message::<crate::exhumer::ExhumerSwarm>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<HierophantRaise>()
+        app.register_message::<HierophantRaise>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BossBlastExploded>()
+        app.register_message::<BossBlastExploded>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombieSwipeLanded>()
+        app.register_message::<ZombieSwipeLanded>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<FallDeath>()
+        app.register_message::<FallDeath>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ThrowingKnifeHit>()
+        app.register_message::<ThrowingKnifeHit>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ThrowingKnifeImpact>()
+        app.register_message::<ThrowingKnifeImpact>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<KnifeAttackSound>()
+        app.register_message::<KnifeAttackSound>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<KnifePickedUp>()
+        app.register_message::<KnifePickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<MolotovPickedUp>()
+        app.register_message::<MolotovPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<MonkeyPickedUp>()
+        app.register_message::<MonkeyPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<FragPickedUp>()
+        app.register_message::<FragPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<FlashBangPickedUp>()
+        app.register_message::<FlashBangPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<FlashBangDetonated>()
+        app.register_message::<FlashBangDetonated>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<EquipmentBought>()
+        app.register_message::<EquipmentBought>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<MolotovBurst>()
+        app.register_message::<MolotovBurst>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<AmmoBought>()
+        app.register_message::<AmmoBought>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<WallWeaponBought>()
+        app.register_message::<WallWeaponBought>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BoxPrizeTaken>()
+        app.register_message::<BoxPrizeTaken>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<WeaponPickedUp>()
+        app.register_message::<WeaponPickedUp>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<PowerUpGrabbed>()
+        app.register_message::<PowerUpGrabbed>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombiesDoomed>()
+        app.register_message::<ZombiesDoomed>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ZombieNuked>()
+        app.register_message::<ZombieNuked>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<ProneBonus>()
+        app.register_message::<ProneBonus>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<BarrierRepaired>()
+        app.register_message::<BarrierRepaired>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<VersionMismatch>()
+        app.register_message::<VersionMismatch>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::revive::PlayerWentDown>()
+        app.register_message::<crate::revive::PlayerWentDown>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_message::<crate::revive::PlayerRevived>()
+        app.register_message::<crate::revive::PlayerRevived>()
             .add_direction(NetworkDirection::ServerToClient);
 
         // lobby actions (client -> server, as triggers so the server sees `from`)
-        app.add_trigger::<CreateLobby>()
+        app.register_event::<CreateLobby>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<JoinLobby>()
+        app.register_event::<JoinLobby>()
             .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<LeaveLobby>()
+        app.register_event::<LeaveLobby>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<StartGame>()
+        app.register_event::<StartGame>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<IntroFinished>()
+        app.register_event::<IntroFinished>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<AssetsReady>()
+        app.register_event::<AssetsReady>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<EndGame>()
+        app.register_event::<EndGame>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetPaused>()
+        app.register_event::<SetPaused>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetBotsPassive>()
+        app.register_event::<SetBotsPassive>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetBotsFrozen>()
+        app.register_event::<SetBotsFrozen>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetPowerUpTest>()
+        app.register_event::<SetPowerUpTest>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<DropPowerUp>()
+        app.register_event::<DropPowerUp>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetEasterEgg>()
+        app.register_event::<SetEasterEgg>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<crate::exhumer::ReleaseSouls>()
+        app.register_event::<crate::exhumer::ReleaseSouls>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<HierophantDebug>()
+        app.register_event::<HierophantDebug>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<EggInteract>()
+        app.register_event::<EggInteract>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SpinTeddy>()
+        app.register_event::<SpinTeddy>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SpawnBoss>()
+        app.register_event::<SpawnBoss>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetBombTest>()
+        app.register_event::<SetBombTest>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetTimeLimit>()
+        app.register_event::<SetTimeLimit>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetGameMode>()
+        app.register_event::<SetGameMode>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetMap>()
+        app.register_event::<SetMap>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetKillLimit>()
+        app.register_event::<SetKillLimit>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetZombiesStart>()
+        app.register_event::<SetZombiesStart>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetEndCam>()
+        app.register_event::<SetEndCam>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<AddBots>()
+        app.register_event::<AddBots>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ClearBots>()
+        app.register_event::<ClearBots>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<FellToDeath>()
+        app.register_event::<FellToDeath>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ThrowKnife>()
+        app.register_event::<ThrowKnife>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpKnife>()
+        app.register_event::<PickUpKnife>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ThrowMolotov>()
+        app.register_event::<ThrowMolotov>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpMolotov>()
+        app.register_event::<PickUpMolotov>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ThrowMonkey>()
+        app.register_event::<ThrowMonkey>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpMonkey>()
+        app.register_event::<PickUpMonkey>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetMonkeyFuse>()
+        app.register_event::<SetMonkeyFuse>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ThrowFrag>()
+        app.register_event::<ThrowFrag>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpFrag>()
+        app.register_event::<PickUpFrag>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ThrowFlashBang>()
+        app.register_event::<ThrowFlashBang>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpFlashBang>()
+        app.register_event::<PickUpFlashBang>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyEquipment>()
+        app.register_event::<BuyEquipment>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyWallWeapon>()
+        app.register_event::<BuyWallWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SpinMysteryBox>()
+        app.register_event::<SpinMysteryBox>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyArmor>()
+        app.register_event::<BuyArmor>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<RefillArmor>()
+        app.register_event::<RefillArmor>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<UseFieldUpgrade>()
+        app.register_event::<UseFieldUpgrade>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<FillFieldUpgrade>()
+        app.register_event::<FillFieldUpgrade>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<TakeBoxPrize>()
+        app.register_event::<TakeBoxPrize>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PickUpWeapon>()
+        app.register_event::<PickUpWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<GiveWeapon>()
+        app.register_event::<GiveWeapon>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetMolotovTest>()
+        app.register_event::<SetMolotovTest>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<FallLanded>()
+        app.register_event::<FallLanded>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<RespawnReady>()
+        app.register_event::<RespawnReady>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyPerk>()
+        app.register_event::<BuyPerk>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyPap>()
+        app.register_event::<BuyPap>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<TurnOnPower>()
+        app.register_event::<TurnOnPower>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyDoor>()
+        app.register_event::<BuyDoor>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<RepairBarrier>()
+        app.register_event::<RepairBarrier>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ClientHello>()
+        app.register_event::<ClientHello>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<CallExfil>()
+        app.register_event::<CallExfil>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ToggleRampage>()
+        app.register_event::<ToggleRampage>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<BuyAmmo>()
+        app.register_event::<BuyAmmo>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ProneAtPerk>()
+        app.register_event::<ProneAtPerk>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetPerkSet>()
+        app.register_event::<SetPerkSet>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetPerksNeedPower>()
+        app.register_event::<SetPerksNeedPower>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetFullPower>()
+        app.register_event::<SetFullPower>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetTeam>()
+        app.register_event::<SetTeam>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetSndRounds>()
+        app.register_event::<SetSndRounds>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_message::<SndBombExploded>()
+        app.register_message::<SndBombExploded>()
             .add_direction(NetworkDirection::ServerToClient);
-        app.add_trigger::<PhdSlam>()
+        app.register_event::<PhdSlam>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetLoadout>()
+        app.register_event::<SetLoadout>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<SetOperator>()
+        app.register_event::<SetOperator>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<PingBot>()
+        app.register_event::<PingBot>()
             .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ProjectileClaim>()
+        app.register_event::<ProjectileClaim>()
             .add_direction(NetworkDirection::ClientToServer);
-        app.add_trigger::<ShotBackup>()
+        app.register_event::<ShotBackup>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // inputs (client -> server)
         app.add_plugins(input::native::InputPlugin::<PlayerInput>::default());
 
         // replicated components
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPose>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerName>()
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerName>();
 
         // Replicated as-is (no prediction / interpolation): the client only
         // ever reads it, off the replicated entity.
@@ -3144,31 +3140,25 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<crate::revive::Downed>();
 
         app.register_component::<Bot>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
 
         // Static once dropped (only `blinking` flips), so no interpolation.
         app.register_component::<PowerUpDrop>();
 
         app.register_component::<ThrownKnife>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
 
         app.register_component::<ThrownMolotov>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
 
         app.register_component::<ThrownMonkey>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
         app.register_component::<MonkeyDrop>();
         app.register_component::<ThrownFrag>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
         app.register_component::<FragDrop>();
         app.register_component::<ThrownFlashBang>()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
         app.register_component::<FlashBangDrop>();
 
         // Static once spawned, so no interpolation.

@@ -53,7 +53,7 @@ impl Plugin for MeleePredictPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Stab>()
             .init_resource::<Predicted>()
-            .add_event::<StabLanded>()
+            .add_message::<StabLanded>()
             .add_systems(OnExit(AppState::InGame), forget)
             .add_systems(Update, (show_stab, expire).chain().run_if(in_state(AppState::InGame)));
     }
@@ -74,7 +74,7 @@ pub(crate) struct Stab {
 
 /// The thrust reached out (from the eye at `eye`): what it struck, if
 /// anything, for [`show_stab`] to show.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct StabLanded {
     eye: Vec3,
     struck: Option<ModelHit>,
@@ -226,7 +226,7 @@ pub(crate) fn time_stab(
     models: Models,
     (local, lobbies): (Query<&LocalId, With<GameClient>>, Query<&Lobby>),
     mut stab: ResMut<Stab>,
-    mut landed: EventWriter<StabLanded>,
+    mut landed: MessageWriter<StabLanded>,
 ) {
     stab.send = None;
     let now = time.elapsed_secs();
@@ -281,12 +281,11 @@ fn strike(eye: Vec3, aim: Vec3, models: &Models, rapier: &ReadRapierContext, mod
     })
 }
 
-/// Every player entity's health (a zombie's included) — on its confirmed
-/// entity, not the interpolated one its avatar follows.
+/// Every player entity's health (a zombie's included) — on the same
+/// replicated entity its avatar follows.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct Healths<'w, 's> {
     healths: Query<'w, 's, (&'static PlayerHealth, Option<&'static shared::PlayerId>)>,
-    interp: Query<'w, 's, &'static lightyear::prelude::Interpolated>,
 }
 
 impl Healths<'_, '_> {
@@ -295,7 +294,6 @@ impl Healths<'_, '_> {
         self.healths
             .get(src)
             .ok()
-            .or_else(|| self.interp.get(src).ok().and_then(|i| self.healths.get(i.confirmed_entity).ok()))
             .or_else(|| {
                 let peer = peer?;
                 self.healths.iter().find(|(_, id)| id.is_some_and(|id| id.0 == peer))
@@ -308,7 +306,7 @@ impl Healths<'_, '_> {
 /// hit marker, damage number — and if it kills, its fall and the kill's
 /// points (`shot_predict`).
 fn show_stab(
-    mut landed: EventReader<StabLanded>,
+    mut landed: MessageReader<StabLanded>,
     knife_sounds: Res<KnifeSounds>,
     judge: crate::shot_predict::Judge,
     mut feedback: crate::shot_predict::Feedback,

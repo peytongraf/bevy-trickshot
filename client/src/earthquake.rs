@@ -22,7 +22,7 @@
 //!
 //! Only a flip of `Lobby::power_on` seen while in the game starts it — joining
 //! with the power already on doesn't. Out of a game it's dropped straight
-//! back to nothing, and the debris is `StateScoped(InGame)`, so nothing
+//! back to nothing, and the debris is `DespawnOnExit(InGame)`, so nothing
 //! carries into the next one. Tuned (and test-fired on any map) in the debug
 //! panel's "Earthquake (Der Tempel)" section.
 
@@ -30,11 +30,11 @@ use std::f32::consts::TAU;
 
 use bevy::ecs::system::SystemParam;
 use bevy::math::Affine2;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
 use lightyear::prelude::LocalId;
@@ -259,7 +259,7 @@ fn start_quake(
         if let Some(sounds) = sounds.as_ref().filter(|_| cue != Some(false)) {
             commands.spawn((
                 QuakeSound,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.der_tempel_power_on.clone()),
                 // Starts silent; `quake_sound` fades it with the shake.
                 PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.0)),
@@ -416,7 +416,7 @@ fn spawn_falling_debris(
         // Falls the whole way solid, lies there a moment, then fades.
         let lifetime = fall_secs + 0.8;
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ImpactParticle {
                 velocity: side * settings.rock_scatter,
                 gravity: GRAVITY,
@@ -452,7 +452,7 @@ fn spawn_falling_debris(
         let side = Vec3::new(rand01(s ^ 0x1) * 2.0 - 1.0, 0.0, rand01(s ^ 0x2) * 2.0 - 1.0) * 0.2;
         let size = 0.75 + 0.5 * rand01(s ^ 0x3);
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ImpactParticle {
                 // Pours down, slowing as it spreads.
                 velocity: side - Vec3::Y * settings.dust_fall * (0.6 + 0.8 * rand01(s ^ 0x4)),

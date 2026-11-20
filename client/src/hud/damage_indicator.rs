@@ -7,7 +7,7 @@
 //!
 //! The server says where each hit came from ([`shared::DamageTaken`]); size,
 //! placement and timing are [`HurtEffectSettings`]' (the debug panel's "Hurt
-//! effects"). Everything is `StateScoped(InGame)` — nothing to reset between
+//! effects"). Everything is `DespawnOnExit(InGame)` — nothing to reset between
 //! games.
 
 use bevy::prelude::*;
@@ -52,7 +52,7 @@ fn spawn_layer(mut commands: Commands) {
     commands.spawn((
         Name::new("DamageIndicators"),
         IndicatorLayer,
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         // (Over the blood overlay (9), under the death overlay (10).)
         GlobalZIndex(9),
         Node {

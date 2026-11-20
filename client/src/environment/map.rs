@@ -4,7 +4,7 @@
 
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::render::render_asset::RenderAssetUsages;
+use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::scene::SceneInstanceReady;
 use bevy_rapier3d::prelude::*;
@@ -188,11 +188,11 @@ pub(crate) fn sync_map_model(
 /// Fires once [`MapModel`]'s `SceneRoot` finishes spawning — sets
 /// [`MapLoadState::model_ready`].
 fn mark_model_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     models: Query<(), With<MapModel>>,
     mut state: ResMut<MapLoadState>,
 ) {
-    if models.contains(trigger.target()) {
+    if models.contains(trigger.entity) {
         state.model_ready = true;
     }
 }
@@ -203,11 +203,11 @@ fn mark_model_ready(
 /// *have* a visual override; this one is read via [`map_ready`], which
 /// already accounts for maps that don't.
 fn mark_visual_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     visuals: Query<(), With<MapVisualModel>>,
     mut state: ResMut<MapLoadState>,
 ) {
-    if visuals.contains(trigger.target()) {
+    if visuals.contains(trigger.entity) {
         state.visual_ready = true;
     }
 }
@@ -221,11 +221,11 @@ fn mark_visual_ready(
 /// reason — never resolves, this keeps the player looking at the (correctly
 /// colliding, if plain) blockout instead of bare sky.
 pub(crate) fn reveal_map_visual(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     visuals: Query<(), With<MapVisualModel>>,
     mut blockout: Query<&mut Visibility, With<MapModel>>,
 ) {
-    if !visuals.contains(trigger.target()) {
+    if !visuals.contains(trigger.entity) {
         return;
     }
     if let Ok(mut vis) = blockout.single_mut() {

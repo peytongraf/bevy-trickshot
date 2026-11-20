@@ -21,18 +21,18 @@
 //! dust is shaken off the top of the doorway as it starts. (The same rock
 //! and dust sprites as `crate::earthquake`'s debris, far fewer and smaller.)
 //!
-//! The doors, their sounds, the debris and the card are `StateScoped(InGame)`, and the doors are taken
+//! The doors, their sounds, the debris and the card are `DespawnOnExit(InGame)`, and the doors are taken
 //! away whenever we're not in a `Zombies` game — nothing carries into the
 //! next one. In the other modes every doorway's open.
 
 use bevy::math::Affine2;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_rapier3d::prelude::Collider;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::doors::{Door, Locked, Slide, MODEL_SIZE, OPEN_SECS};
 use shared::Lobby;
 
@@ -144,7 +144,7 @@ fn spawn_door(commands: &mut Commands, asset_server: &AssetServer, index: usize,
     let half = door.size * 0.5;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DoorRoot {
                 index,
                 opened_at: None,
@@ -208,7 +208,7 @@ fn slide_doors(
                     .chain(door.main.then(|| sounds.main_door_ambience.clone()));
                 for clip in clips {
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(clip),
                         Transform::from_translation(center),
                         crate::positional_playback(Volume::Linear(1.0)),
@@ -220,7 +220,7 @@ fn slide_doors(
                 if asked == root.index && now - at <= BUY_CONFIRM_SECS {
                     buy.0 = None;
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(sounds.money_ching.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
@@ -378,7 +378,7 @@ fn spawn_chip(
     // Flies, lies on the floor a moment, then fades.
     let lifetime = 1.6 + 0.8 * rand01(s ^ 0x14);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity,
             gravity: GRAVITY,
@@ -423,7 +423,7 @@ fn spawn_door_dust(
     *budget -= 1;
     let size = 0.75 + 0.5 * rand01(s ^ 0x21);
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ImpactParticle {
             velocity: drift + Vec3::Y * fall,
             gravity: 0.3,
@@ -468,8 +468,8 @@ fn buy_door(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyDoor>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyDoor>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -517,7 +517,7 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let faint = TextColor(Color::srgba(1.0, 1.0, 1.0, 0.55));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -540,7 +540,7 @@ fn spawn_door_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(DOOR_TAN),
+                BorderColor::all(DOOR_TAN),
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
@@ -677,8 +677,8 @@ fn update_door_card(
     } else {
         "Open it to reach more of the map."
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        *border = BorderColor::all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;

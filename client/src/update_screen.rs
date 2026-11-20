@@ -259,7 +259,7 @@ fn receive_mismatch(
             );
             screen.mismatch = Some(msg.server_version);
             link.hold = true;
-            commands.trigger_targets(Disconnect, client);
+            commands.trigger(Disconnect { entity: client });
         }
     }
 }
@@ -340,7 +340,7 @@ fn spawn_cover(commands: &mut Commands, font: &Handle<Font>, view: &View, previe
                 ..default()
             },
             TextColor(color),
-            TextLayout::new_with_justify(JustifyText::Center),
+            TextLayout::new_with_justify(Justify::Center),
         )
     };
     commands
@@ -494,7 +494,7 @@ fn screen_clicks(
     q: Query<(&Interaction, &Btn), Changed<Interaction>>,
     mut screen: ResMut<UpdateScreen>,
     mut link: ResMut<ServerLink>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     for (interaction, &btn) in &q {
         if *interaction != Interaction::Pressed {

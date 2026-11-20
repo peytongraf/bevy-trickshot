@@ -130,7 +130,7 @@ pub(crate) fn fly_bolts(
     mut early: ResMut<EarlyRayGunClaims>,
     lobbies: Query<&Lobby>,
     mut zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer, Option<&mut BotBrain>)>,
-    mut player_hits: EventWriter<PlayerHit>,
+    mut player_hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
     let tick = timeline.tick().0;
@@ -303,7 +303,7 @@ pub(crate) fn fly_bolts(
 /// bolt into a zombie a few metres off strikes it at once there. So one with
 /// no bolt yet waits in [`EarlyRayGunClaims`] for it to be fired.
 pub(crate) fn on_raygun_claim(
-    trigger: Trigger<RemoteTrigger<ProjectileClaim>>,
+    trigger: On<RemoteEvent<ProjectileClaim>>,
     mut bolts: ResMut<RayGunBolts>,
     mut early: ResMut<EarlyRayGunClaims>,
     zombies: Query<(&PlayerId, &PlayerPose, &PlayerCombat, &LobbyPlayer)>,

@@ -46,7 +46,7 @@ struct GoldShine {
     // mottling (0 = a plain studio).
     detail: f32,
 }
-@group(2) @binding(100) var<uniform> shine: GoldShine;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> shine: GoldShine;
 
 const PI: f32 = 3.14159265;
 

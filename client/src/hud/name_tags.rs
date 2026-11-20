@@ -14,7 +14,7 @@
 //!   for `shared::bots::PING_SECS`, through walls, CoD style — for *every*
 //!   lobby member: the server times it and replicates it as `Bot::pinged`.
 //!
-//! Tags are `StateScoped(InGame)`, and each despawns with its avatar. A ping
+//! Tags are `DespawnOnExit(InGame)`, and each despawns with its avatar. A ping
 //! lives on the bot's own entity, so it goes when the bot does.
 
 use bevy::asset::RenderAssetUsages;
@@ -23,7 +23,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::transform::helper::TransformHelper;
 use bevy::window::PrimaryWindow;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
-use lightyear::prelude::{Interpolated, LocalId, TriggerSender};
+use lightyear::prelude::{Interpolated, LocalId, EventSender};
 use shared::bots::{BOT_HEAD_RADIUS, BOT_HEIGHT, BOT_RADIUS, PING_SECS};
 use shared::hitbox::{ray_capsule, Capsule};
 use shared::{Bot, GameMode, Lobby, PlayerId, PlayerPose};
@@ -92,9 +92,9 @@ pub(crate) fn ping_bots(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     camera: Single<&GlobalTransform, With<WorldModelCamera>>,
-    bots: Query<(Entity, &Bot, &Interpolated)>,
+    bots: Query<(Entity, &Bot), With<Interpolated>>,
     rapier: ReadRapierContext,
-    mut sender: Query<&mut TriggerSender<shared::PingBot>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::PingBot>, With<GameClient>>,
     mut commands: Commands,
 ) {
     if !binds.ping.just_pressed(&keys, &mouse) {
@@ -109,17 +109,17 @@ pub(crate) fn ping_bots(
     }
     let origin = camera.translation();
     let dir = camera.forward().as_vec3();
-    let Some((bot, dist, confirmed)) = bots
+    let Some((bot, dist)) = bots
         .iter()
-        .filter(|(_, b, _)| b.alive)
-        .filter_map(|(e, b, interp)| {
+        .filter(|(_, b)| b.alive)
+        .filter_map(|(e, b)| {
             let body = Capsule::standing(b.pos, BOT_HEIGHT, BOT_RADIUS);
             let head = Capsule::head(b.pos, BOT_HEIGHT, BOT_HEAD_RADIUS);
             let t = match (ray_capsule(origin, dir, &body), ray_capsule(origin, dir, &head)) {
                 (Some(a), Some(b)) => a.min(b),
                 (a, b) => a.or(b)?,
             };
-            Some((e, t, interp.confirmed_entity))
+            Some((e, t))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
     else {
@@ -133,7 +133,7 @@ pub(crate) fn ping_bots(
         return;
     }
     if let Ok(mut s) = sender.single_mut() {
-        s.trigger::<shared::LobbyChannel>(shared::PingBot { bot: confirmed });
+        s.trigger::<shared::LobbyChannel>(shared::PingBot { bot });
     }
     commands.entity(bot).try_insert(Pinged {
         until: time.elapsed_secs() + PING_SECS,
@@ -197,7 +197,7 @@ pub(crate) fn spawn_name_tags(
         let diamond = diamond.get_or_insert_with(|| images.add(diamond_image())).clone();
         commands
             .spawn((
-                StateScoped(crate::AppState::InGame),
+                DespawnOnExit(crate::AppState::InGame),
                 NameTag { avatar },
                 Node {
                     position_type: PositionType::Absolute,

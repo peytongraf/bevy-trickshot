@@ -1,9 +1,9 @@
 //! Live-tunable rain for `shipment.glb` — a fixed pool of world-space streak
 //! entities recycled around the player, rather than a camera-locked overlay.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 
 use crate::util::{rand01, rand_roll, srgb_parts};
 use crate::Player;

@@ -10,13 +10,13 @@
 //!
 //! Where each sign stands is the map's layout's, placed in the level editor
 //! (which draws them with [`decal`] too). The signs and the card are
-//! `StateScoped(InGame)`, and the signs are taken away whenever we're not in
+//! `DespawnOnExit(InGame)`, and the signs are taken away whenever we're not in
 //! a `Zombies` game — nothing carries into the next one.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::level::Placement;
 use shared::weapon::{SlotWeapon, WeaponId, WALL_BUY_WEAPONS};
 use shared::Lobby;
@@ -123,7 +123,7 @@ pub(crate) fn decal(gun: WeaponId, assets: &WallBuyAssets) -> impl Bundle {
         Mesh3d(mesh),
         MeshMaterial3d(material),
         Transform::from_translation(DECAL_CENTER),
-        bevy::pbr::NotShadowCaster,
+        bevy::light::NotShadowCaster,
     )
 }
 
@@ -155,7 +155,7 @@ fn sync_wall_buy_signs(
         let Some(at) = shared::level::layout(lobby.map).wall_buy(wall_buy.weapon) else { continue };
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 WallBuySign,
                 crate::util::placed(at),
                 Visibility::default(),
@@ -257,7 +257,7 @@ fn spawn_wall_buy_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     let dim = Color::srgba(1.0, 1.0, 1.0, 0.55);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -276,7 +276,7 @@ fn spawn_wall_buy_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.88)),
-                BorderColor(CHALK_GREEN),
+                BorderColor::all(CHALK_GREEN),
                 BorderRadius::all(Val::Px(4.0)),
                 Visibility::Hidden,
             ))
@@ -357,7 +357,7 @@ fn update_wall_buy_card(
         Status::TooPoor => ("NOT ENOUGH POINTS".to_string(), CARD_RED, CARD_RED),
         Status::Owned => ("OWNED".to_string(), OWNED_GREY, OWNED_GREY),
     };
-    border.set_if_neq(BorderColor(edge));
+    border.set_if_neq(BorderColor::all(edge));
     let image = asset_server.load(icon(gun));
     if icon_node.image != image {
         icon_node.image = image;
@@ -395,8 +395,8 @@ fn buy_wall_weapon(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyWallWeapon>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyWallWeapon>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || !hands.free() {
         return;

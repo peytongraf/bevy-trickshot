@@ -10,9 +10,9 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::render::primitives::Aabb;
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::NoFrustumCulling;
 
 use crate::weapon_drops::{posed_points, root_from};
 

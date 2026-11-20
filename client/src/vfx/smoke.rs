@@ -1,9 +1,9 @@
 //! Barrel smoke: a burst of drifting, camera-billboarded sprites released for
 //! a short window after each shot, fading independently as they age.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 
 use crate::player::{Player, PlayerHead};
 use crate::util::{rand01, rand_roll};

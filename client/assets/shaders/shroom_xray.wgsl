@@ -34,7 +34,7 @@ struct XrayParams {
     // 0 = the shroom's hazy ghost; 1 = an outline only (Death Perception).
     outline: f32,
 }
-@group(2) @binding(0) var<uniform> x: XrayParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> x: XrayParams;
 
 // --- cheap 3D value noise ---------------------------------------------
 

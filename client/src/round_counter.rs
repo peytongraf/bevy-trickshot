@@ -12,7 +12,7 @@
 //! swells ([`follow_round_counter`]).
 //!
 //! Everything goes off the replicated `Lobby::round`. The counter is
-//! `StateScoped(InGame)` and keeps its own state, so each game starts fresh.
+//! `DespawnOnExit(InGame)` and keeps its own state, so each game starts fresh.
 
 use bevy::prelude::*;
 
@@ -114,7 +114,7 @@ fn spawn_round_counter(
 ) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RoundStrip,
             GlobalZIndex(6),
             Node {
@@ -234,14 +234,14 @@ fn update_round_counter(
             } else {
                 sounds.round_start.clone()
             };
-            commands.spawn((StateScoped(AppState::InGame), AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
+            commands.spawn((DespawnOnExit(AppState::InGame), AudioPlayer::new(clip), PlaybackSettings::DESPAWN));
         }
     }
     if let (Some(at), Some(sounds)) = (*start_after_dogs, &sounds) {
         if time.elapsed_secs() >= at {
             *start_after_dogs = None;
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.round_start.clone()),
                 PlaybackSettings::DESPAWN,
             ));

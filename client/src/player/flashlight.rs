@@ -9,7 +9,7 @@
 //! "Flashlight" section can force it on anywhere for tuning) — and in
 //! `Zombies`, off for everyone once someone turns the power on
 //! (`Lobby::power_on`): the map's lit by then. The local light
-//! is a child of the camera and the remote ones are `StateScoped(InGame)`, so
+//! is a child of the camera and the remote ones are `DespawnOnExit(InGame)`, so
 //! nothing survives the game.
 
 use bevy::prelude::*;
@@ -149,7 +149,7 @@ fn sync_local_flashlight(
                 ChildOf(cam),
                 // The world only, not the gun (`view_model_light`): it
                 // shines from right beside it and would blow it out.
-                bevy::render::view::RenderLayers::layer(0),
+                bevy::camera::visibility::RenderLayers::layer(0),
             ));
         }
         return;
@@ -195,7 +195,7 @@ fn spawn_remote_flashlights(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteFlashlight { src: avatar.src },
             settings.light(settings.remote_intensity_mult, settings.remote_shadows),
             Transform::default(),

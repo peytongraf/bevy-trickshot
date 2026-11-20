@@ -32,15 +32,15 @@
 //! ([`ShroomLevel`]); the twins are hidden entirely while it's off. They're
 //! children of the avatar, so they go with it — nothing to reset per game.
 
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::SkinnedMesh;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, CompareFunction, RenderPipelineDescriptor, ShaderRef,
-    SpecializedMeshPipelineError,
-};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext, RapierContext};
 
 use super::shroom::{ShroomLevel, ShroomSettings};
@@ -102,7 +102,7 @@ impl Material for ShroomXrayMaterial {
     /// Only draw where the ghost is *behind* something already drawn — reverse-Z,
     /// so "farther than what's there" is `Less` — and leave the depth buffer alone.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,

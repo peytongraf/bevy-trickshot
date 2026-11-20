@@ -46,12 +46,12 @@
 //!   reset, and the ritual area and the pyramid's spots drawn.
 //!
 //! Everything reads the replicated `Lobby::easter_egg`. The pieces, vial,
-//! prompt and HUD are `StateScoped(InGame)` and taken away / hidden
+//! prompt and HUD are `DespawnOnExit(InGame)` and taken away / hidden
 //! whenever they stop applying; the debug drawing's switch
 //! ([`EggDebugView`]), the whispers' timing ([`EggLocal`]) and the
 //! ritual's clock ([`EggRitual`]) are reset on
 //! leaving the game (his lines' timing is in [`EggLocal`] too), and a
-//! whisper or line playing is `StateScoped(InGame)` too — a line also stops
+//! whisper or line playing is `DespawnOnExit(InGame)` too — a line also stops
 //! if the egg's reset under it. Nothing carries into the
 //! next one.
 
@@ -59,7 +59,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::Collider;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::easter_egg::{
     EasterEgg, EggStep, PYRAMID_ALTAR_HALF_EXTENTS, SARCOPHAGUS_HALF_EXTENTS, SOCIETY_CASE_HALF_EXTENTS,
 };
@@ -329,14 +329,14 @@ pub(crate) fn spawn_piece_look(
 /// model's root, so in the sarcophagus' own frame) is the lid, resting where
 /// it was made.
 fn tag_lid(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::scene::SceneInstanceReady>,
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
     mut commands: Commands,
 ) {
     let lid = children
-        .iter_descendants(trigger.target())
+        .iter_descendants(trigger.entity)
         .find(|&e| names.get(e).is_ok_and(|n| n.as_str() == LID_NODE));
     let Some(lid) = lid else {
         warn!("{SARCOPHAGUS_MODEL} has no {LID_NODE:?} — its lid won't blast off");
@@ -353,14 +353,14 @@ pub(crate) struct CaseLid(Transform);
 
 /// The case's model's in: its lid's objects are the lid, shut as made.
 fn tag_case_lid(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::scene::SceneInstanceReady>,
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
     mut commands: Commands,
 ) {
     let mut found = 0;
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if names.get(e).is_ok_and(|n| CASE_LID_NODES.contains(&n.as_str())) {
             commands.entity(e).insert(CaseLid(transforms.get(e).copied().unwrap_or_default()));
             found += 1;
@@ -423,7 +423,7 @@ fn sync_pieces(
         let Some(at) = piece.placement(layout) else { continue };
         let half = piece.half_extents();
         commands
-            .spawn((StateScoped(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
+            .spawn((DespawnOnExit(AppState::InGame), piece, crate::util::placed(at), Visibility::default()))
             .with_children(|root| {
                 spawn_piece_look(root, piece, &placeholders, &asset_server, true);
                 root.spawn((
@@ -518,7 +518,7 @@ fn sync_vial(
         return;
     }
     commands
-        .spawn((StateScoped(AppState::InGame), VialDrop, place, Visibility::default()))
+        .spawn((DespawnOnExit(AppState::InGame), VialDrop, place, Visibility::default()))
         .with_children(|v| {
             // (Turning about its middle.)
             v.spawn((
@@ -533,7 +533,7 @@ fn sync_vial(
                     shadows_enabled: false,
                     ..default()
                 },
-                bevy::pbr::NotShadowCaster,
+                bevy::light::NotShadowCaster,
             ));
         });
 }
@@ -637,7 +637,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             EggPrompt,
             GlobalZIndex(5),
             Node {
@@ -689,7 +689,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             EggHud,
             Node {
                 position_type: PositionType::Absolute,
@@ -713,7 +713,7 @@ fn spawn_egg_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         ));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RitualCaption,
             crate::hud::KeepThroughHudFade,
             GlobalZIndex(5),
@@ -782,7 +782,7 @@ fn egg_interact(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Option<Single<&Transform, With<Player>>>,
-    mut tx: Query<&mut TriggerSender<shared::EggInteract>, With<GameClient>>,
+    mut tx: Query<&mut EventSender<shared::EggInteract>, With<GameClient>>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || death.is_active() {
         return;
@@ -1111,7 +1111,7 @@ fn whisper(
     egg_local.next_whisper = Some(now + gap);
     let Some(clip) = sounds.whispers.get(pick) else { return };
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         Whisper,
         AudioPlayer::new(clip.clone()),
         Transform::from_translation(at.pos + Vec3::Y * s.height * at.scale),
@@ -1159,7 +1159,7 @@ fn hierophant_speaks(
     let Some(at) = shared::level::layout(lobby.map).sarcophagus else { return };
     let say = |commands: &mut Commands, clip: &Handle<AudioSource>| {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             HierophantLine,
             AudioPlayer::new(clip.clone()),
             Transform::from_translation(at.pos + Vec3::Y * settings.height * at.scale),
@@ -1272,8 +1272,8 @@ pub(crate) struct EasterEggDebug<'w, 's> {
     ambient_level: Res<'w, crate::zombies_audio::ZombiesAmbientLevel>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
-    tx: Query<'w, 's, &'static mut TriggerSender<shared::SetEasterEgg>, With<GameClient>>,
-    hierophant_tx: Query<'w, 's, &'static mut TriggerSender<shared::HierophantDebug>, With<GameClient>>,
+    tx: Query<'w, 's, &'static mut EventSender<shared::SetEasterEgg>, With<GameClient>>,
+    hierophant_tx: Query<'w, 's, &'static mut EventSender<shared::HierophantDebug>, With<GameClient>>,
 }
 
 impl EasterEggDebug<'_, '_> {

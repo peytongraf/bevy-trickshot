@@ -20,14 +20,14 @@
 //! and its hum looping from it.
 //!
 //! The lights, the lever, the station and the lever's sound are
-//! `StateScoped(InGame)` (the lever
+//! `DespawnOnExit(InGame)` (the lever
 //! remembers whether it's thrown on itself), and the fade level drops back
 //! to 0 whenever there are no lights — nothing carries into the next game.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::level::{PowerLight, SpotCone};
 use shared::{GameMode, Lobby};
 
@@ -221,7 +221,7 @@ pub(crate) fn sync_power_lights<F: bevy::ecs::query::QueryFilter, B: Bundle>(
                         emissive: glow_emissive(light, fade),
                         ..default()
                     })),
-                    bevy::pbr::NotShadowCaster,
+                    bevy::light::NotShadowCaster,
                     glow_light(light, fade),
                 ));
             }
@@ -310,7 +310,7 @@ fn sync_map_lights(
         &mut commands,
         &mut meshes,
         &mut materials,
-        || (StateScoped(AppState::InGame), GameLight),
+        || (DespawnOnExit(AppState::InGame), GameLight),
     );
 }
 
@@ -739,14 +739,14 @@ const STATION_GLASS: &str = "glass";
 /// through, with its highlights kept at full strength (premultiplied
 /// alpha) — no metal, no transmission. (Shared by the editor's station.)
 pub(crate) fn glaze_power_station(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::scene::SceneInstanceReady>,
     models: Query<(), With<PowerStationModel>>,
     children: Query<&Children>,
     glass: Query<(&bevy::gltf::GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     if !models.contains(root) {
         return;
     }
@@ -803,7 +803,7 @@ fn sync_power_station(
     let half = shared::power_station::HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PowerStation::default(),
             crate::util::placed(at),
             Visibility::default(),
@@ -829,8 +829,8 @@ fn sync_power_station(
                                     Mesh3d(assets.segment.clone()),
                                     MeshMaterial3d(assets.arc.clone()),
                                     Transform::from_scale(Vec3::ZERO),
-                                    bevy::pbr::NotShadowCaster,
-                                    bevy::render::view::NoFrustumCulling,
+                                    bevy::light::NotShadowCaster,
+                                    bevy::camera::visibility::NoFrustumCulling,
                                 ));
                             }
                         });
@@ -840,7 +840,7 @@ fn sync_power_station(
                         Mesh3d(assets.ball.clone()),
                         MeshMaterial3d(assets.glow.clone()),
                         Transform::from_translation(tip).with_scale(Vec3::ZERO),
-                        bevy::pbr::NotShadowCaster,
+                        bevy::light::NotShadowCaster,
                     ));
                     s.spawn((
                         CoilLight {
@@ -985,7 +985,7 @@ fn sync_power_lever(
         let (graph, clip) =
             AnimationGraph::from_clip(asset_server.load(GltfAssetLabel::Animation(0).from_asset(LEVER_MODEL)));
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PowerLever {
                 graph: graphs.add(graph),
                 clip,
@@ -1034,7 +1034,7 @@ fn sync_power_lever(
                 .set_speed(settings.anim_speed.max(0.01));
             if let Some(sounds) = sounds.as_ref() {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     PowerOnSound,
                     AudioPlayer::new(sounds.power_on.clone()),
                     // From the lever itself.
@@ -1161,8 +1161,8 @@ fn turn_on_power(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut sender: Query<&mut TriggerSender<shared::TurnOnPower>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::TurnOnPower>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -1222,7 +1222,7 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     );
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -1245,7 +1245,7 @@ fn spawn_power_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(POWER_AMBER),
+                BorderColor::all(POWER_AMBER),
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
@@ -1356,8 +1356,8 @@ fn update_power_card(
             CARD_RED,
         )
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        *border = BorderColor::all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;

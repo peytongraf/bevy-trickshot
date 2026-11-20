@@ -54,7 +54,7 @@ struct BloodParams {
     _pad1: f32,
     _pad2: f32,
 }
-@group(2) @binding(100) var<uniform> blood: BloodParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> blood: BloodParams;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

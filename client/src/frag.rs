@@ -20,7 +20,7 @@
 //! (Zombies)" section ([`frag_section`]), which can also show one in the
 //! hand and hold the arms up as if the key were held, without pulling a pin.
 //!
-//! Every entity here is `StateScoped(InGame)` or a child of one (the held
+//! Every entity here is `DespawnOnExit(InGame)` or a child of one (the held
 //! frag rides the arms rig), each avatar goes as soon as its server entity
 //! does, and the frag count lives on `Weapon` — nothing carries into the
 //! next game.
@@ -28,7 +28,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::{FragDrop, ThrownFrag};
@@ -203,7 +203,7 @@ fn update_held_frag(
 /// Send the frag throw (or cook-off) `weapon_system` filed.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowFrag>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowFrag>, With<GameClient>>,
 ) {
     if !knife.has_frag_request() {
         return;
@@ -267,7 +267,7 @@ fn sync_frag_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             FragAvatar { src },
             Transform::from_translation(f.pos).with_rotation(f.rot),
             Visibility::default(),
@@ -316,7 +316,7 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             Transform::from_translation(d.pos).with_rotation(Quat::from_rotation_y(d.yaw)),

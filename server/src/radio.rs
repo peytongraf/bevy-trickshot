@@ -30,7 +30,7 @@ use shared::{GameChannel, GameMode, Lobby, RadioSaid};
 use crate::pvp::ZombieKilled;
 
 /// The man on the radio says `line` to `lobby`, now.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Message, Clone, Copy, Debug)]
 pub struct SayRadio {
     pub lobby: Entity,
     pub line: RadioLine,
@@ -97,7 +97,7 @@ pub struct RadioPlugin;
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RadioDirector>()
-            .add_event::<SayRadio>()
+            .add_message::<SayRadio>()
             .add_systems(
                 FixedUpdate,
                 direct_radio
@@ -122,8 +122,8 @@ fn direct_radio(
     time: Res<Time>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut requests: EventReader<SayRadio>,
-    mut kills: EventReader<ZombieKilled>,
+    mut requests: MessageReader<SayRadio>,
+    mut kills: MessageReader<ZombieKilled>,
     quotes: Res<crate::quotes::Director>,
     lobbies: Query<(Entity, &Lobby)>,
     mut director: ResMut<RadioDirector>,

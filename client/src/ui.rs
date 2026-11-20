@@ -279,7 +279,7 @@ pub fn panel_node(node: Node) -> impl Bundle {
             ..node
         },
         BackgroundColor(PANEL),
-        BorderColor(EDGE),
+        BorderColor::all(EDGE),
     )
 }
 
@@ -346,7 +346,7 @@ pub fn field_box(width: f32) -> impl Bundle {
             ..default()
         },
         BackgroundColor(ROW),
-        BorderColor(ACCENT),
+        BorderColor::all(ACCENT),
     )
 }
 

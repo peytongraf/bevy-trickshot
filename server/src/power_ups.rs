@@ -137,7 +137,7 @@ pub(crate) fn spawn_drop(commands: &mut Commands, lobby: Entity, peers: Vec<Peer
 /// outside its window waits in [`PendingDrops`] for the next kill inside.
 fn roll_drops(
     time: Res<Time>,
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     lobbies: Query<&Lobby>,
     rounds: Query<&ZombieRounds>,
     colliders: Res<crate::collision::MapColliders>,
@@ -220,7 +220,7 @@ const DEBUG_DROP_AHEAD: f32 = 4.0;
 /// so it goes off for real), or [`DEBUG_DROP_AHEAD`] in front of them on the
 /// ground there — only in a running, unpaused `Zombies` game.
 fn on_drop_power_up(
-    trigger: Trigger<RemoteTrigger<DropPowerUp>>,
+    trigger: On<RemoteEvent<DropPowerUp>>,
     endings: Res<crate::killcam::EndingLobbies>,
     colliders: Res<crate::collision::MapColliders>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -283,7 +283,7 @@ fn run_power_ups(
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, Option<&PlayerCombat>), Without<Zombie>>,
     mut drops: Query<(Entity, &mut DropSim, &mut PowerUpDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let now = time.elapsed_secs();
     let dt = time.delta_secs();

@@ -13,7 +13,7 @@
 //! burning brighter the more souls it holds (`Weapon::souls`),
 //! anyone else's (and the altar's) at its resting glow.
 //!
-//! The machine is `StateScoped(InGame)` and taken away whenever we're not in
+//! The machine is `DespawnOnExit(InGame)` and taken away whenever we're not in
 //! such a game; our levels are read off the replicated lobby every frame
 //! (nothing packed outside a `Zombies` game), so nothing carries into the
 //! next one.
@@ -21,7 +21,7 @@
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine2;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::SkinnedMesh;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::LocalId;
 use shared::pap::{PapLevels, PapWeapon};
@@ -203,7 +203,7 @@ fn sync_pap_machine(
     if machines.is_empty() {
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 PapMachine,
                 crate::power::PoweredHum { offset: Vec3::Y * 1.0, perk: false },
                 crate::vfx::MachineFogEmitter::pap(),
@@ -447,7 +447,7 @@ pub(crate) fn object_name(
 /// to the arms); on a soldier, its rifle.
 #[allow(clippy::too_many_arguments)]
 fn tag_camo_parts(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     primary: Query<&crate::weapons::ViewModelAnimation, With<ViewModel>>,
     knife: Query<(), With<KnifeViewModel>>,
     avatars: Query<(), (With<crate::net::RemoteAvatar>, With<crate::SoldierVisual>)>,
@@ -459,7 +459,7 @@ fn tag_camo_parts(
     meshes: Query<(), With<Mesh3d>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let (owner, parts, key): (_, &[&str], _) = if let Ok(anim) = primary.get(root) {
         let weapon = SlotWeapon::Gun(anim.weapon);
         (CamoOwner::Mine(PapWeapon::gun(anim.weapon)), camo_parts(weapon), Some(GripKey::of(weapon)))

@@ -14,16 +14,14 @@
 //! gun's never fogged.
 
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
+use bevy::core_pipeline::FullscreenShader;
 use bevy::ecs::query::QueryItem;
 use bevy::prelude::*;
 use bevy::render::extract_component::{
     ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
     UniformComponentPlugin,
 };
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-};
+use bevy::render::render_graph::{NodeRunError, RenderGraphExt, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner};
 use bevy::render::render_resource::binding_types::{
     texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer,
 };
@@ -31,6 +29,7 @@ use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice};
 use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::render::RenderApp;
+use bevy::shader::ShaderDefVal;
 use bevy::color::Mix;
 use bevy_egui::egui;
 
@@ -154,7 +153,7 @@ impl ExtractComponent for GroundFogUniform {
     type QueryFilter = ();
     type Out = GroundFogUniform;
 
-    fn extract_component(item: QueryItem<'_, Self::QueryData>) -> Option<Self::Out> {
+    fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
         (item.density > 0.0 && item.max_opacity > 0.0).then_some(*item)
     }
 }
@@ -267,7 +266,7 @@ impl ViewNode for GroundFogNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, depth, view_offset, msaa, uniform_index, _): QueryItem<Self::ViewQuery>,
+        (view_target, depth, view_offset, msaa, uniform_index, _): QueryItem<'_, '_, Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         if !view_target.is_hdr() {
@@ -307,6 +306,7 @@ impl ViewNode for GroundFogNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: post_process.destination,
                 resolve_target: None,
+                depth_slice: None,
                 ops: Operations::default(),
             })],
             depth_stencil_attachment: None,
@@ -332,6 +332,7 @@ struct GroundFogPipeline {
 
 impl FromWorld for GroundFogPipeline {
     fn from_world(world: &mut World) -> Self {
+        let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
         let render_device = world.resource::<RenderDevice>();
         let make_layout = |label: &'static str, depth: BindGroupLayoutEntryBuilder| {
             render_device.create_bind_group_layout(
@@ -355,11 +356,11 @@ impl FromWorld for GroundFogPipeline {
             cache.queue_render_pipeline(RenderPipelineDescriptor {
                 label: Some(label.into()),
                 layout: vec![layout.clone()],
-                vertex: fullscreen_shader_vertex_state(),
+                vertex: fullscreen_vertex.clone(),
                 fragment: Some(FragmentState {
                     shader: shader.clone(),
                     shader_defs,
-                    entry_point: "fragment".into(),
+                    entry_point: Some("fragment".into()),
                     // Before tonemapping, in the cameras' HDR format (every
                     // in-game camera is `hdr: true`).
                     targets: vec![Some(ColorTargetState {

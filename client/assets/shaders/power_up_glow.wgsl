@@ -36,7 +36,7 @@ struct GlowParams {
     // just behind the whole model.
     depth_pull: f32,
 }
-@group(2) @binding(0) var<uniform> g: GlowParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> g: GlowParams;
 
 fn hash3(p: vec3<f32>) -> f32 {
     let q = fract(p * 0.3183099 + vec3<f32>(0.71, 0.113, 0.419));

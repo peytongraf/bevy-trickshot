@@ -122,8 +122,8 @@ fn bring_in_bosses(
     mut next_id: ResMut<NextBotId>,
     mut lobbies: Query<(Entity, &Lobby, &mut ZombieRounds)>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
-    mut hits: EventWriter<PlayerHit>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut hits: MessageWriter<PlayerHit>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
     mut commands: Commands,
 ) {
     let server = server.into_inner();
@@ -259,7 +259,7 @@ fn blast_speed(hierophant: bool) -> f32 {
 fn launch_blasts(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut fired: EventReader<BossBlastFired>,
+    mut fired: MessageReader<BossBlastFired>,
     lobbies: Query<&Lobby>,
     mut blasts: ResMut<Blasts>,
 ) {
@@ -304,7 +304,7 @@ fn run_blasts(
     lobbies: Query<&Lobby>,
     players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &PlayerCombat), Without<Zombie>>,
     mut blasts: ResMut<Blasts>,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
 ) {
     let server = server.into_inner();
     let dt = time.delta_secs();
@@ -397,7 +397,7 @@ fn run_blasts(
 /// Debug: the party leader strikes a boss in, 15 m in front of them (on the
 /// nearest walkable spot) — only in a running, unpaused `Zombies` game.
 fn on_spawn_boss(
-    trigger: Trigger<RemoteTrigger<SpawnBoss>>,
+    trigger: On<RemoteEvent<SpawnBoss>>,
     time: Res<Time>,
     navs: Res<NavGraphs>,
     endings: Res<crate::killcam::EndingLobbies>,
@@ -434,7 +434,7 @@ fn on_spawn_boss(
 fn send_knockbacks(
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut smashes: EventReader<crate::ai::BossSmashed>,
+    mut smashes: MessageReader<crate::ai::BossSmashed>,
 ) {
     let server = server.into_inner();
     for smash in smashes.read() {

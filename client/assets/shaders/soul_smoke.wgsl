@@ -23,9 +23,9 @@ struct SmokeParams {
     _pad1: f32,
     _pad2: f32,
 }
-@group(2) @binding(0) var<uniform> smoke: SmokeParams;
-@group(2) @binding(1) var smoke_texture: texture_2d<f32>;
-@group(2) @binding(2) var smoke_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> smoke: SmokeParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var smoke_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var smoke_sampler: sampler;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {

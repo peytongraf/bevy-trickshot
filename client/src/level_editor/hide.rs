@@ -17,7 +17,7 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::primitives::Aabb;
+use bevy::camera::primitives::Aabb;
 use bevy_rapier3d::prelude::{ColliderDisabled, QueryFilter, ReadRapierContext};
 
 use super::Editor;

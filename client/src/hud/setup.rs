@@ -2,9 +2,9 @@
 //! at all right now" gate every other HUD element defers to.
 
 use bevy::prelude::*;
-use bevy::render::camera::CameraOutputMode;
+use bevy::camera::CameraOutputMode;
 use bevy::render::render_resource::BlendState;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ui::IsDefaultUiCamera;
 use bevy_egui::PrimaryEguiContext;
 

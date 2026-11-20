@@ -20,7 +20,7 @@
 //!   stored, the key under it. Only shown in a `Zombies` game.
 //!
 //! Everything resets with the game: out of a running `Zombies` game our
-//! state goes back to nothing (silently), the loop is `StateScoped(InGame)`
+//! state goes back to nothing (silently), the loop is `DespawnOnExit(InGame)`
 //! and despawned with it, and a remote avatar's purple look goes with the
 //! avatar.
 
@@ -31,7 +31,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_egui::egui;
 use lightyear::prelude::*;
 use shared::field_upgrade::{FieldUpgrade, CHARGE_SECS, DURATION_SECS, SPEED_MULT};
@@ -122,7 +123,7 @@ fn use_aether_shroud(
     shroud: Res<LocalShroud>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::UseFieldUpgrade>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::UseFieldUpgrade>, With<GameClient>>,
 ) {
     if !binds.field_upgrade.just_pressed(&keys, &mouse)
         || zombies_game(&local, &lobbies).is_none()
@@ -188,12 +189,12 @@ fn sync_aether_shroud(
         weapon.reload_instantly();
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.aether_activate.clone()),
                 PlaybackSettings::DESPAWN,
             ));
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 ShroudLoop,
                 AudioPlayer::new(sounds.aether_active.clone()),
                 PlaybackSettings::DESPAWN,
@@ -207,7 +208,7 @@ fn sync_aether_shroud(
         }
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.aether_deactivate.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -549,7 +550,7 @@ pub(crate) struct AetherDebug<'w, 's> {
     shroud: Res<'w, LocalShroud>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
-    fill: Query<'w, 's, &'static mut TriggerSender<shared::FillFieldUpgrade>, With<GameClient>>,
+    fill: Query<'w, 's, &'static mut EventSender<shared::FillFieldUpgrade>, With<GameClient>>,
 }
 
 impl AetherDebug<'_, '_> {

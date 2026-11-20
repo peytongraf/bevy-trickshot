@@ -19,11 +19,11 @@
 //! the vignette rides on the scope camera.
 
 use bevy::asset::RenderAssetUsages;
-use bevy::core_pipeline::dof::{DepthOfField, DepthOfFieldMode};
+use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
 
@@ -107,7 +107,7 @@ impl Plugin for ScopeFxPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    size_vignette.before(bevy::render::camera::CameraUpdateSystem),
+                    size_vignette.before(bevy::camera::CameraUpdateSystems),
                     apply_scope_blur.run_if(in_state(AppState::InGame)),
                 ),
             );
@@ -216,7 +216,7 @@ fn attach_vignette(
 fn rebuild_vignette(settings: Res<ScopeFxSettings>, assets: Option<Res<ScopeFxAssets>>, mut images: ResMut<Assets<Image>>) {
     let Some(assets) = assets else { return };
     if settings.is_changed() && !settings.is_added() {
-        images.insert(assets.image.id(), vignette_image(&settings));
+        let _ = images.insert(assets.image.id(), vignette_image(&settings));
     }
 }
 

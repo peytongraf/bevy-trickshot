@@ -10,7 +10,7 @@
 //! is taken from where its feet were when it was first seen rising — right
 //! as it spawned — and corrected upward if it ever turns out higher.
 //! [`RiseFx`] lives on the avatar, so it goes with it; the particles are
-//! `StateScoped(InGame)` — nothing to reset between games.
+//! `DespawnOnExit(InGame)` — nothing to reset between games.
 //!
 //! Coming up out of a pool (`shared::level::Water`), it throws up water
 //! instead, from the surface (`water::spawn_splash`).

@@ -2,11 +2,9 @@
 //! live-tunable from the debug panel, pushed onto the actual light/fog/bloom
 //! components whenever the tuning or the selected map changes.
 
-use bevy::core_pipeline::bloom::Bloom;
-use bevy::pbr::{
-    CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap, DistanceFog,
-    FogFalloff,
-};
+use bevy::post_process::bloom::Bloom;
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap};
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy_egui::egui;

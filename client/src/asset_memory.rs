@@ -17,9 +17,9 @@
 //! Images the game builds itself (the minimap bake, name tags, the ground)
 //! are left alone — some of those are read back on the CPU.
 
-use bevy::asset::AssetEvents;
+use bevy::asset::AssetEventSystems;
 use bevy::prelude::*;
-use bevy::render::render_asset::RenderAssetUsages;
+use bevy::asset::RenderAssetUsages;
 
 pub(crate) struct AssetMemoryPlugin;
 
@@ -27,7 +27,7 @@ impl Plugin for AssetMemoryPlugin {
     fn build(&self, app: &mut App) {
         // (After this frame's asset events are out, before extraction reads
         // them — so it's uploaded once, already render-world-only.)
-        app.add_systems(PostUpdate, gpu_only_textures.after(AssetEvents));
+        app.add_systems(PostUpdate, gpu_only_textures.after(AssetEventSystems));
     }
 }
 
@@ -41,7 +41,7 @@ fn gpu_only(path: &bevy::asset::AssetPath) -> bool {
 }
 
 fn gpu_only_textures(
-    mut events: EventReader<AssetEvent<Image>>,
+    mut events: MessageReader<AssetEvent<Image>>,
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
 ) {

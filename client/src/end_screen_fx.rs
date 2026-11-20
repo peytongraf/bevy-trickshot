@@ -8,12 +8,13 @@
 //!
 //! Tuned in the debug panel's "End screen" section ([`EndScreenDebug`]),
 //! which can also preview it over the game. Its layer is
-//! `StateScoped(InGame)` and taken down as soon as the results are, and the
+//! `DespawnOnExit(InGame)` and taken down as soon as the results are, and the
 //! fade starts over every time — nothing carries between games.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_egui::egui;
 
 use crate::menu::{self, Screen};
@@ -160,7 +161,7 @@ fn show_layer(
                 .spawn((
                     Name::new("EndScreenFx"),
                     EndScreenLayer,
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     // (Just under the results screen, 50.)
                     GlobalZIndex(49),
                     Node {

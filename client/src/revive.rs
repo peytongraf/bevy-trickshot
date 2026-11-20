@@ -24,16 +24,17 @@
 //!   shows our progress.
 //!
 //! Everything's derived from the replicated state each frame (and the UI is
-//! `StateScoped(InGame)`), so nothing carries into the next game; the view
+//! `DespawnOnExit(InGame)`), so nothing carries into the next game; the view
 //! effects are put back by [`apply_down_view`], which runs outside a game too.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::{ColorGrading, RenderLayers};
+use bevy::render::view::ColorGrading;
+use bevy::camera::visibility::RenderLayers;
 use bevy::transform::helper::TransformHelper;
-use bevy::window::{CursorGrabMode, PrimaryWindow};
-use lightyear::prelude::input::client::InputSet;
+use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
+use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId};
 use shared::perks::Perk;
@@ -81,12 +82,12 @@ impl Plugin for RevivePlugin {
                 PreUpdate,
                 (tick_down_clocks, track_local)
                     .chain()
-                    .after(bevy::input::InputSystem),
+                    .after(bevy::input::InputSystems),
             )
             .add_systems(
                 FixedPreUpdate,
                 write_revive_input
-                    .in_set(InputSet::WriteClientInputs)
+                    .in_set(InputSystems::WriteClientInputs)
                     .after(crate::net::write_input),
             )
             .add_systems(
@@ -217,7 +218,7 @@ fn play_revive_sounds(
 ) {
     let mut play = |clip: &Handle<AudioSource>| {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(clip.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -260,7 +261,7 @@ fn downed_breathing(
     match (want, playing.iter().next(), sounds) {
         (true, None, Some(sounds)) => {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 DownedBreathing,
                 AudioPlayer::new(sounds.downed_breathing.clone()),
                 PlaybackSettings::LOOP,
@@ -285,7 +286,7 @@ fn track_local(
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
     menu: Res<menu::Menu>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Query<&CursorOptions, With<PrimaryWindow>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     downs: Query<(&PlayerId, &Downed, Option<&DownClock>, Option<&PlayerPose>)>,
@@ -341,7 +342,7 @@ fn track_local(
                 .or(nearest);
             let locked = window
                 .single()
-                .is_ok_and(|w| w.cursor_options.grab_mode != CursorGrabMode::None);
+                .is_ok_and(|w| w.grab_mode != CursorGrabMode::None);
             let holding = locked && !menu.is_open() && binds.interact.pressed(&keys, &mouse);
             next.prompt = target;
             next.reviving = target.filter(|_| holding);
@@ -542,7 +543,7 @@ fn spectate(
     downs: Query<(&PlayerId, &Downed)>,
     poses: Query<(&PlayerId, &PlayerPose), With<Interpolated>>,
     rapier: bevy_rapier3d::prelude::ReadRapierContext,
-    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut respawned: MessageReader<crate::net::LocalPlayerRespawned>,
     mut state: ResMut<Spectate>,
     mut rig: Query<(&mut Transform, Has<Player>), Or<(With<Player>, With<PlayerHead>)>>,
 ) {
@@ -674,7 +675,7 @@ fn spawn_spectate_label(mut commands: Commands, asset_server: Res<AssetServer>) 
     commands
         .spawn((
             SpectateLabel,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(11),
             Visibility::Hidden,
             Node {
@@ -785,7 +786,7 @@ fn bar(parent: &mut ChildSpawnerCommands, width: f32, color: Color, fill: impl B
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-            BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.35)),
+            BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.35)),
         ))
         .with_child((
             fill,
@@ -807,7 +808,7 @@ fn spawn_revive_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             DownPanel,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(11),
             Visibility::Hidden,
             Node {
@@ -897,7 +898,7 @@ fn spawn_revive_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             RevivePanel,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(11),
             Visibility::Hidden,
             Node {
@@ -1119,7 +1120,7 @@ fn update_revive_markers(
         let Some((_, _, mut node, mut image, mut vis)) = markers.iter_mut().find(|(_, m, ..)| m.0 == peer) else {
             commands.spawn((
                 ReviveMarker(peer),
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 GlobalZIndex(6),
                 ImageNode::new(asset_server.load(REVIVE_ICON)).with_color(color),
                 Node {
@@ -1139,7 +1140,7 @@ fn update_revive_markers(
             match cam.world_to_viewport(&gt, anchor) {
                 Ok(p) if ahead => Some(p),
                 _ => {
-                    let local = gt.compute_matrix().inverse().transform_point3(anchor);
+                    let local = gt.to_matrix().inverse().transform_point3(anchor);
                     let dir = Vec2::new(local.x, -local.y).normalize_or(Vec2::Y);
                     Some(size / 2.0 + dir * size.length())
                 }

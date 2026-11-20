@@ -32,7 +32,7 @@
 //! right before UI layout, so a freshly built backdrop is correct in its
 //! very first frame (the page-rebuild flicker).
 
-use bevy::asset::{weak_handle, RenderAssetUsages};
+use bevy::asset::{uuid_handle, RenderAssetUsages};
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -99,8 +99,8 @@ const ASH_EVERY: usize = 4;
 
 /// Generated once at startup: the vignette's soft dark ring, and the same
 /// ring in white (tinted for the `Zombies` heartbeat).
-const VIGNETTE_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310001");
-const GLOW_IMAGE: Handle<Image> = weak_handle!("6d656e75-5f76-6967-6e65-747465310002");
+const VIGNETTE_IMAGE: Handle<Image> = uuid_handle!("6d656e75-5f76-6967-6e65-747465310001");
+const GLOW_IMAGE: Handle<Image> = uuid_handle!("6d656e75-5f76-6967-6e65-747465310002");
 
 /// The `Zombies` heartbeat: seconds per beat, and how strong its red gets.
 const HEARTBEAT_SECS: f32 = 1.5;
@@ -118,7 +118,7 @@ impl Plugin for MenuBackdropPlugin {
             .add_systems(Startup, make_backdrop_images)
             .add_systems(
             PostUpdate,
-            (animate_menu_backdrop, pan_intro_art).before(bevy::ui::UiSystem::Layout),
+            (animate_menu_backdrop, pan_intro_art).before(bevy::ui::UiSystems::Layout),
         );
     }
 }

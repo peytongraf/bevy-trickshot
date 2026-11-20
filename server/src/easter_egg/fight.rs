@@ -254,7 +254,7 @@ fn send_to_lobby<M: lightyear::prelude::Message>(
 
 /// Debug: the leader pokes the Hierophant — only in a fight that's on.
 pub(super) fn on_hierophant_debug(
-    trigger: Trigger<RemoteTrigger<HierophantDebug>>,
+    trigger: On<RemoteEvent<HierophantDebug>>,
     lobbies: Query<(Entity, &Lobby)>,
     mut pokes: ResMut<DebugPokes>,
 ) {
@@ -279,7 +279,7 @@ pub(super) fn run_fight(
     navs: Res<NavGraphs>,
     (mut next_id, mut fights, mut pokes): (ResMut<NextBotId>, ResMut<Fights>, ResMut<DebugPokes>),
     (mut voices, radio): (ResMut<crate::quotes::Director>, Res<crate::radio::RadioDirector>),
-    mut hits: EventReader<PlayerHit>,
+    mut hits: MessageReader<PlayerHit>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut him: Query<
         (Entity, &LobbyPlayer, &PlayerId, &mut PlayerCombat, &mut BotBrain),

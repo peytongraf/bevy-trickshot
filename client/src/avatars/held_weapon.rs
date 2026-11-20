@@ -50,11 +50,11 @@
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
-use bevy::transform::TransformSystem;
+use bevy::transform::TransformSystems;
 use serde::{Deserialize, Serialize};
-use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use shared::lethal::LethalKind;
 use shared::perks::Perk;
 use shared::weapon::{SlotWeapon, WeaponId};
@@ -75,10 +75,10 @@ impl Plugin for HeldWeaponPlugin {
                 (
                     // (Puts back what the IK changed last frame, for a bone
                     // the clip playing doesn't happen to key.)
-                    unpose_held_weapons.before(bevy::app::Animation),
+                    unpose_held_weapons.before(bevy::app::AnimationSystems),
                     pose_held_weapons
-                        .after(bevy::app::Animation)
-                        .before(TransformSystem::TransformPropagate),
+                        .after(bevy::app::AnimationSystems)
+                        .before(TransformSystems::Propagate),
                 ),
             );
     }
@@ -943,7 +943,7 @@ pub(crate) fn bottle_size(t: f32) -> f32 {
 /// [`BOTTLE_HEIGHT`] tall.
 #[allow(clippy::too_many_arguments)]
 fn fit_bottle_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     models: Query<(), With<BottleModel>>,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -955,7 +955,7 @@ fn fit_bottle_model(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     if !models.contains(root) {
         return;
     }
@@ -1065,13 +1065,13 @@ fn spawn_holder(weapon: SlotWeapon, pap: u8, rig: &SoldierRig, asset_server: &As
 
 /// A held weapon's scene is in: mark its meshes as not the player's.
 fn tag_held_weapon_parts(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     models: Query<(), With<HeldWeaponModel>>,
     children: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     if !models.contains(root) {
         return;
     }

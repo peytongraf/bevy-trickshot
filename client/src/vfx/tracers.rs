@@ -2,7 +2,7 @@
 //! a fading smoke trail — a stylised read of a hitscan shot with no real
 //! flight time to animate.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::util::{color_from_parts, srgb_parts};
@@ -13,7 +13,7 @@ use crate::AppState;
 /// game modes) and for every other player's shot off the server's
 /// authoritative `ShotResolved` broadcast (`net::receive_shots`). Consumed by
 /// `spawn_tracers`.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct FireTracer {
     pub(crate) start: Vec3,
     pub(crate) end: Vec3,
@@ -86,7 +86,7 @@ pub(crate) struct TracerAssets {
 /// `start -> end`, starting in the bright additive "flash" look — `update_tracers`
 /// carries it into the smoke phase.
 pub(crate) fn spawn_tracers(
-    mut events: EventReader<FireTracer>,
+    mut events: MessageReader<FireTracer>,
     assets: Res<TracerAssets>,
     settings: Res<TracerSettings>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -110,7 +110,7 @@ pub(crate) fn spawn_tracers(
         });
         commands.spawn((
             Tracer { age: 0.0 },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Mesh3d(assets.mesh.clone()),
             MeshMaterial3d(material),
             Transform {
@@ -228,7 +228,7 @@ pub(crate) fn lay_knife_trail(
     });
     commands.spawn((
         KnifeTrail { age: 0.0 },
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         Mesh3d(assets.mesh.clone()),
         MeshMaterial3d(material),
         Transform {

@@ -22,12 +22,12 @@
 //!
 //! The clock ([`EggDeath`]) is reset on leaving the game and whenever the
 //! egg's anywhere else, so a debug jump back to "His death" plays it again.
-//! The spirit's parts are `StateScoped(InGame)` and gone as soon as it's
+//! The spirit's parts are `DespawnOnExit(InGame)` and gone as soon as it's
 //! over. Tuned in the debug panel's "Easter egg (Der Tempel)" → "His death".
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
@@ -260,7 +260,7 @@ fn sync_spirit(
     };
     let sprite = |part: SpiritPart, material: Handle<StandardMaterial>| {
         (
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             part,
             Mesh3d(fx.quad.clone()),
             MeshMaterial3d(material),
@@ -283,7 +283,7 @@ fn sync_spirit(
     ));
     let smoky = |part: SpiritPart, material: Handle<crate::exhumer::SoulSmokeMaterial>, seed: u32| {
         (
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             part,
             SmokeBits::new(seed),
             Mesh3d(fx.quad.clone()),
@@ -308,7 +308,7 @@ fn sync_spirit(
         commands.spawn(smoky(SpiritPart::Trail(i), smoke.swirl_material(tier), 300 + i));
     }
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         SpiritPart::Flash,
         PointLight {
             color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),

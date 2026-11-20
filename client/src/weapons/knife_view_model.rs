@@ -6,7 +6,7 @@ use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::scene::SceneInstanceReady;
 
 use crate::VIEW_MODEL_RENDER_LAYER;
@@ -120,13 +120,13 @@ impl Default for KnifeViewModelSettings {
 /// the first frame — mirrors `start_view_model_animation`, minus the
 /// scope-lens handling the knife has no equivalent of.
 pub(crate) fn start_knife_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     knives: Query<&KnifeAnimation>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = knives.get(root) else {
         return;
     };

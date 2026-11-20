@@ -8,14 +8,14 @@
 //! ([`outline_color`], the outline being `knife_pickup`'s). Picking one up
 //! is `knife_pickup`'s card and interact key.
 //!
-//! The visuals follow the replicated drops and are `StateScoped(InGame)` —
+//! The visuals follow the replicated drops and are `DespawnOnExit(InGame)` —
 //! nothing to reset between games.
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::render::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::render::mesh::VertexAttributeValues;
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::mesh::VertexAttributeValues;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use shared::weapon::{SlotWeapon, WeaponId};
 use shared::WeaponDrop;
@@ -113,7 +113,7 @@ fn sync_drop_visuals(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 DropVisual { src },
                 Transform::from_translation(drop.pos).with_rotation(Quat::from_rotation_y(drop.yaw)),
                 Visibility::default(),
@@ -303,7 +303,7 @@ pub(crate) fn posed_points(
 /// directions.
 #[allow(clippy::too_many_arguments)]
 fn fit_dropped_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     models: Query<&DropModel>,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -314,7 +314,7 @@ fn fit_dropped_model(
     bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(model) = models.get(root) else { return };
     let parts = crate::pap::camo_parts(model.weapon);
     let named_part = |e: Entity| names.get(e).is_ok_and(|n| crate::pap::is_camo_part(parts, n.as_str()));

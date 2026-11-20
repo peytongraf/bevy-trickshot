@@ -75,7 +75,7 @@ pub(crate) fn spawn_spot(navs: &NavGraphs, map: MapId, attacking: bool, seed: u6
 }
 
 /// A member picks their team, any time the lobby's waiting.
-fn on_set_team(trigger: Trigger<RemoteTrigger<shared::SetTeam>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_team(trigger: On<RemoteEvent<shared::SetTeam>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let team = trigger.trigger.team;
     let Some(mut lobby) = lobbies.iter_mut().find(|l| l.has(peer) && !l.started) else {
@@ -89,7 +89,7 @@ fn on_set_team(trigger: Trigger<RemoteTrigger<shared::SetTeam>>, mut lobbies: Qu
 
 /// The leader sets how many rounds a team needs to win, while the lobby's
 /// waiting.
-fn on_set_snd_rounds(trigger: Trigger<RemoteTrigger<shared::SetSndRounds>>, mut lobbies: Query<&mut Lobby>) {
+fn on_set_snd_rounds(trigger: On<RemoteEvent<shared::SetSndRounds>>, mut lobbies: Query<&mut Lobby>) {
     let peer = trigger.from;
     let rounds = trigger.trigger.rounds.clamp(MIN_ROUNDS_TO_WIN, MAX_ROUNDS_TO_WIN);
     if let Some(mut lobby) = lobbies.iter_mut().find(|l| l.leader == peer && !l.started) {
@@ -133,7 +133,7 @@ fn run_rounds(
     mut endings: ResMut<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut players: Players,
-    mut hits: EventWriter<PlayerHit>,
+    mut hits: MessageWriter<PlayerHit>,
     mut runs: ResMut<Runs>,
 ) {
     let server = server.into_inner();

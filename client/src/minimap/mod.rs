@@ -23,7 +23,7 @@
 //! It centres on whoever the world camera follows — us, or the teammate
 //! we're spectating — like the compass. It's part of the HUD
 //! ([`menu::HudElement`]: hidden outside a game, behind menus and during
-//! kill cams). The UI is `StateScoped(InGame)` and rebuilt each game; the
+//! kill cams). The UI is `DespawnOnExit(InGame)` and rebuilt each game; the
 //! picture's kept per map (it's only the map's) and redrawn when the map
 //! changes.
 
@@ -33,8 +33,9 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::render::mesh::{PrimitiveTopology, VertexAttributeValues};
-use bevy::render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat};
+use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
+use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat};
+use bevy::shader::ShaderRef;
 use bevy::window::PrimaryWindow;
 use lightyear::prelude::{Interpolated, LocalId, PeerId};
 use shared::{Bot, GameMode, Lobby, PlayerId, PlayerPose, ZombieAnim};
@@ -73,7 +74,7 @@ impl Plugin for MinimapPlugin {
         app.add_plugins(UiMaterialPlugin::<MinimapMaterial>::default())
             .init_resource::<MinimapPicture>()
             .init_resource::<ShotDots>()
-            .add_event::<SomeoneFired>()
+            .add_message::<SomeoneFired>()
             .add_systems(OnExit(AppState::InGame), |mut dots: ResMut<ShotDots>| dots.0.clear())
             .add_systems(Startup, make_teammate_arrow)
             // Unconditional, like the map model itself: the map loads behind
@@ -108,7 +109,7 @@ struct Picture {
 }
 
 /// Someone else's shot (`net::receive_shots`): who, and where from.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct SomeoneFired {
     pub(crate) shooter: PeerId,
     pub(crate) from: Vec3,
@@ -341,7 +342,7 @@ fn minimap_material(materials: &mut Assets<MinimapMaterial>, full: bool) -> Mate
 fn spawn_minimap(mut commands: Commands, mut materials: ResMut<Assets<MinimapMaterial>>, arrow: Res<TeammateArrow>) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             menu::HudElement,
             GlobalZIndex(4),
             Node {
@@ -370,7 +371,7 @@ fn spawn_minimap(mut commands: Commands, mut materials: ResMut<Assets<MinimapMat
     // (Over the rest of the HUD, but under the menus.)
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             menu::HudElement,
             GlobalZIndex(7),
             Node {
@@ -549,7 +550,7 @@ fn sync_icons(
                             ..node
                         },
                         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
-                        BorderColor(color),
+                        BorderColor::all(color),
                         BorderRadius::MAX,
                     ));
                     if matches!(spec.art, IconArt::BadgeImage(..)) {
@@ -646,7 +647,7 @@ fn sync_enemy_dots(
     time: Res<Time>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut fired: EventReader<SomeoneFired>,
+    mut fired: MessageReader<SomeoneFired>,
     mut shots: ResMut<ShotDots>,
     bots: Query<(Entity, &Bot), With<Interpolated>>,
     frames: Query<(Entity, &MinimapFrame)>,
@@ -713,7 +714,7 @@ fn sync_enemy_dots(
                 ..default()
             },
             BackgroundColor(ENEMY_RED),
-            BorderColor(Color::BLACK.with_alpha(0.7)),
+            BorderColor::all(Color::BLACK.with_alpha(0.7)),
             BorderRadius::MAX,
             Visibility::Hidden,
             Pickable::IGNORE,
@@ -881,7 +882,7 @@ fn update_minimap(
         let spot = view_of(parent).and_then(|v| v.place(enemy.at, ENEMY_DOT_SIZE));
         set_spot(&mut node, &mut vis, spot);
         fill.set_if_neq(BackgroundColor(ENEMY_RED.with_alpha(enemy.alpha)));
-        rim.set_if_neq(BorderColor(Color::BLACK.with_alpha(0.7 * enemy.alpha)));
+        rim.set_if_neq(BorderColor::all(Color::BLACK.with_alpha(0.7 * enemy.alpha)));
     }
     for (mate, parent, mut node, mut transform, mut vis) in &mut mates {
         let (Ok(pose), Some(view)) = (poses.get(mate.0), view_of(parent)) else { continue };

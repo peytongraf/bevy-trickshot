@@ -13,7 +13,7 @@
 //! While he's talking, his portrait and name sit on the right of the screen,
 //! halfway between its middle and the ammo HUD in the bottom-right corner
 //! ([`RadioPanel`]). The panel, the call and its sounds are
-//! `StateScoped(InGame)`, so nothing carries between games.
+//! `DespawnOnExit(InGame)`, so nothing carries between games.
 
 use std::collections::HashMap;
 
@@ -101,7 +101,7 @@ fn spawn_panel(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -156,7 +156,7 @@ fn radio_sound(clip: &Handle<AudioSource>) -> impl Bundle {
     (
         Name::new("Radio"),
         RadioSound,
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(clip.clone()),
         PlaybackSettings::DESPAWN,
     )
@@ -184,7 +184,7 @@ fn play_radio(
                     voiced: false,
                     signed_off: false,
                 },
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
             ));
             commands.spawn(radio_sound(&sounds.squelch_start));
         }

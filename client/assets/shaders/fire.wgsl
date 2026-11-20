@@ -57,7 +57,7 @@ struct FireParams {
     // flames rising out of a burning floor (`fire_ground.wgsl`).
     base_fade: f32,
 }
-@group(2) @binding(0) var<uniform> p: FireParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> p: FireParams;
 
 fn pcg(v: u32) -> u32 {
     let state = v * 747796405u + 2891336453u;

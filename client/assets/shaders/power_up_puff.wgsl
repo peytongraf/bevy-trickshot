@@ -29,7 +29,7 @@ struct PuffParams {
     // Its drop's model: middle (xyz) and bounding radius (w).
     model: vec4<f32>,
 }
-@group(2) @binding(0) var<uniform> puff: PuffParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> puff: PuffParams;
 
 fn hash3(p: vec3<f32>) -> f32 {
     let q = fract(p * 0.3183099 + vec3<f32>(0.71, 0.113, 0.419));

@@ -58,7 +58,7 @@ fn run_field_upgrades(
     mut clocks: ResMut<FieldUpgradeClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let dt = time.delta_secs();
     clocks.0.retain(|(e, peer), _| {
@@ -126,7 +126,7 @@ fn run_field_upgrades(
 /// Use a stored charge: up, in a running game, with one stored and none
 /// in use.
 fn on_use_field_upgrade(
-    trigger: Trigger<RemoteTrigger<UseFieldUpgrade>>,
+    trigger: On<RemoteEvent<UseFieldUpgrade>>,
     endings: Res<EndingLobbies>,
     mut clocks: ResMut<FieldUpgradeClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
@@ -153,7 +153,7 @@ fn on_use_field_upgrade(
 
 /// Debug: the leader gets every charge at once.
 fn on_fill_field_upgrade(
-    trigger: Trigger<RemoteTrigger<FillFieldUpgrade>>,
+    trigger: On<RemoteEvent<FillFieldUpgrade>>,
     mut clocks: ResMut<FieldUpgradeClocks>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
 ) {
