@@ -921,8 +921,8 @@ pub enum ShotOutcome {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct ShotResolved {
     pub shooter: PeerId,
-    /// Server tick the shot resolved on (wrapping u16).
-    pub tick: u16,
+    /// Server tick the shot resolved on (lightyear's `Tick`, a wrapping u32).
+    pub tick: u32,
     pub outcome: ShotOutcome,
     /// Muzzle/eye world point the shot was fired from — tracer start.
     pub origin: [f32; 3],
@@ -3125,48 +3125,48 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(input::native::InputPlugin::<PlayerInput>::default());
 
         // replicated components
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<PlayerPose>()
-            .add_prediction()
+        app.component::<PlayerPose>().replicate()
+            .predict()
             .add_linear_interpolation();
 
-        app.register_component::<PlayerName>();
+        app.component::<PlayerName>().replicate();
 
         // Replicated as-is (no prediction / interpolation): the client only
         // ever reads it, off the replicated entity.
-        app.register_component::<PlayerHealth>();
+        app.component::<PlayerHealth>().replicate();
         // Same: only changes on events (`crate::revive`).
-        app.register_component::<crate::revive::Downed>();
+        app.component::<crate::revive::Downed>().replicate();
 
-        app.register_component::<Bot>()
+        app.component::<Bot>().replicate()
             .add_linear_interpolation();
 
         // Static once dropped (only `blinking` flips), so no interpolation.
-        app.register_component::<PowerUpDrop>();
+        app.component::<PowerUpDrop>().replicate();
 
-        app.register_component::<ThrownKnife>()
-            .add_linear_interpolation();
-
-        app.register_component::<ThrownMolotov>()
+        app.component::<ThrownKnife>().replicate()
             .add_linear_interpolation();
 
-        app.register_component::<ThrownMonkey>()
+        app.component::<ThrownMolotov>().replicate()
             .add_linear_interpolation();
-        app.register_component::<MonkeyDrop>();
-        app.register_component::<ThrownFrag>()
+
+        app.component::<ThrownMonkey>().replicate()
             .add_linear_interpolation();
-        app.register_component::<FragDrop>();
-        app.register_component::<ThrownFlashBang>()
+        app.component::<MonkeyDrop>().replicate();
+        app.component::<ThrownFrag>().replicate()
             .add_linear_interpolation();
-        app.register_component::<FlashBangDrop>();
+        app.component::<FragDrop>().replicate();
+        app.component::<ThrownFlashBang>().replicate()
+            .add_linear_interpolation();
+        app.component::<FlashBangDrop>().replicate();
 
         // Static once spawned, so no interpolation.
-        app.register_component::<MolotovFire>();
-        app.register_component::<MolotovDrop>();
-        app.register_component::<WeaponDrop>();
+        app.component::<MolotovFire>().replicate();
+        app.component::<MolotovDrop>().replicate();
+        app.component::<WeaponDrop>().replicate();
 
-        app.register_component::<Lobby>();
+        app.component::<Lobby>().replicate();
 
         // channels
         app.add_channel::<GameChannel>(ChannelSettings {
