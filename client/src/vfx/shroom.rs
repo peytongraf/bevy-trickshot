@@ -10,16 +10,14 @@
 //! While the effect is off (or fully faded out) the pass doesn't run at all.
 
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
+use bevy::core_pipeline::FullscreenShader;
 use bevy::ecs::query::QueryItem;
 use bevy::prelude::*;
 use bevy::render::extract_component::{
     ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
     UniformComponentPlugin,
 };
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-};
+use bevy::render::render_graph::{NodeRunError, RenderGraphExt, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer};
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice};
@@ -202,7 +200,7 @@ impl ExtractComponent for ShroomUniform {
     type QueryFilter = ();
     type Out = ShroomUniform;
 
-    fn extract_component(item: QueryItem<'_, Self::QueryData>) -> Option<Self::Out> {
+    fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
         (item.strength > 0.0).then_some(*item)
     }
 }
@@ -315,7 +313,7 @@ impl ViewNode for ShroomNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, uniform_index, _): QueryItem<Self::ViewQuery>,
+        (view_target, uniform_index, _): QueryItem<'_, '_, Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let shroom_pipeline = world.resource::<ShroomPipeline>();
@@ -344,6 +342,7 @@ impl ViewNode for ShroomNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: post_process.destination,
                 resolve_target: None,
+                depth_slice: None,
                 ops: Operations::default(),
             })],
             depth_stencil_attachment: None,
@@ -366,6 +365,7 @@ struct ShroomPipeline {
 
 impl FromWorld for ShroomPipeline {
     fn from_world(world: &mut World) -> Self {
+        let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
         let render_device = world.resource::<RenderDevice>();
         let layout = render_device.create_bind_group_layout(
             "shroom_bind_group_layout",
@@ -390,11 +390,11 @@ impl FromWorld for ShroomPipeline {
                 .queue_render_pipeline(RenderPipelineDescriptor {
                     label: Some("shroom_pipeline".into()),
                     layout: vec![layout.clone()],
-                    vertex: fullscreen_shader_vertex_state(),
+                    vertex: fullscreen_vertex.clone(),
                     fragment: Some(FragmentState {
                         shader,
                         shader_defs: vec![],
-                        entry_point: "fragment".into(),
+                        entry_point: Some("fragment".into()),
                         // Every in-game camera is `hdr: true`, so the view
                         // target stays in the HDR format even after tonemapping.
                         targets: vec![Some(ColorTargetState {

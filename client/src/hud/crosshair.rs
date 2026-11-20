@@ -93,7 +93,7 @@ pub(crate) fn setup_crosshair(mut commands: Commands) {
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
-                BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+                BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.6)),
                 BorderRadius::MAX,
             ));
 
@@ -140,7 +140,7 @@ pub(crate) fn fade_crosshair(
     };
     let (mut bg, mut border) = dot.into_inner();
     bg.0 = Color::srgba(1.0, 1.0, 1.0, a);
-    border.0 = Color::srgba(0.0, 0.0, 0.0, 0.6 * a);
+    *border = BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.6 * a));
 }
 
 /// Pick the reticle: the centre dot only while the sniper is the active

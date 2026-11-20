@@ -32,7 +32,7 @@ struct OrbParams {
     _pad0: f32,
     _pad1: f32,
 }
-@group(2) @binding(0) var<uniform> orb: OrbParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> orb: OrbParams;
 
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

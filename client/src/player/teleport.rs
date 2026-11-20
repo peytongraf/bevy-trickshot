@@ -92,7 +92,7 @@ pub(crate) fn save_teleport_point(
     commands
         .spawn((
             TeleportToast { age: 0.0 },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(9),
             Node {
                 position_type: PositionType::Absolute,

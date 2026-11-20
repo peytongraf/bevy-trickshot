@@ -14,21 +14,21 @@
 //! The zombie's full health is the most it's been seen with: it's
 //! replicated ([`shared::PlayerHealth`]) from the moment it rises, at full.
 //!
-//! Reset between games: every bar is `StateScoped(InGame)` and goes with its
+//! Reset between games: every bar is `DespawnOnExit(InGame)` and goes with its
 //! zombie's avatar, and the last-hit times live on the bars.
 
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
 use bevy::window::PrimaryWindow;
 use bevy_rapier3d::prelude::{QueryFilter, ReadRapierContext};
-use lightyear::prelude::{Interpolated, PeerId};
+use lightyear::prelude::PeerId;
 use shared::{PlayerHealth, PlayerId, PlayerPose};
 
 use crate::net::RemoteAvatar;
 use crate::{killcam, menu, AppState, WorldModelCamera, ZombieVisual};
 
 /// We hurt the zombie (or player) `0` — from our own hit markers.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct DamagedByMe(pub(crate) PeerId);
 
 /// Panel-tunable bar look ("Zombie health bars" debug-panel section).
@@ -84,7 +84,7 @@ pub(crate) struct HealthBarsPlugin;
 impl Plugin for HealthBarsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HealthBarSettings>()
-            .add_event::<DamagedByMe>()
+            .add_message::<DamagedByMe>()
             .add_systems(
                 Update,
                 (spawn_health_bars, note_hits)
@@ -94,7 +94,7 @@ impl Plugin for HealthBarsPlugin {
             .add_systems(
                 PostUpdate,
                 update_health_bars
-                    .before(bevy::ui::UiSystem::Layout)
+                    .before(bevy::ui::UiSystems::Layout)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -121,7 +121,7 @@ fn spawn_health_bars(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 HealthBar {
                     avatar,
                     max: 0.0,
@@ -152,22 +152,19 @@ fn spawn_health_bars(
     }
 }
 
-/// The peer behind an avatar's (interpolated) source entity — off it, or
-/// off its confirmed entity.
-fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+/// The peer behind an avatar's (interpolated) source entity.
+fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
 /// Start (or restart) the bar of each zombie we just hurt.
 fn note_hits(
     time: Res<Time>,
-    mut hits: EventReader<DamagedByMe>,
+    mut hits: MessageReader<DamagedByMe>,
     avatars: Query<&RemoteAvatar>,
     ids: Query<&PlayerId>,
-    interp: Query<&Interpolated>,
     mut bars: Query<&mut HealthBar>,
 ) {
     for hit in hits.read() {
@@ -175,7 +172,7 @@ fn note_hits(
             let hurt = avatars
                 .get(bar.avatar)
                 .ok()
-                .and_then(|a| peer_of(a.src, &ids, &interp))
+                .and_then(|a| peer_of(a.src, &ids))
                 .is_some_and(|peer| peer == hit.0);
             if hurt {
                 bar.last_hit = Some(time.elapsed_secs());
@@ -194,7 +191,7 @@ fn update_health_bars(
     settings: Res<HealthBarSettings>,
     avatars: Query<(&RemoteAvatar, Has<crate::dogs::DogVisual>)>,
     poses: Query<&PlayerPose>,
-    (ids, interp, healths): (Query<&PlayerId>, Query<&Interpolated>, Query<(&PlayerHealth, Option<&PlayerId>)>),
+    (ids, healths): (Query<&PlayerId>, Query<(&PlayerHealth, Option<&PlayerId>)>),
     camera: Single<(Entity, &Camera), With<WorldModelCamera>>,
     transforms: TransformHelper,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -220,16 +217,14 @@ fn update_health_bars(
         let Ok(pose) = poses.get(avatar.src) else {
             continue;
         };
-        // Health lives on the confirmed entity; the pose on the interpolated
-        // one (the avatar's source).
+        // Health and pose both live on the avatar's (replicated) source.
         let health = healths
             .get(avatar.src)
             .ok()
-            .or_else(|| interp.get(avatar.src).ok().and_then(|i| healths.get(i.confirmed_entity).ok()))
             .map(|(h, _)| h.0)
             .or_else(|| {
                 // Last resort: whichever entity carries its peer's health.
-                let peer = peer_of(avatar.src, &ids, &interp)?;
+                let peer = peer_of(avatar.src, &ids)?;
                 healths.iter().find(|(_, id)| id.is_some_and(|id| id.0 == peer)).map(|(h, _)| h.0)
             });
         if let Some(h) = health {

@@ -31,19 +31,19 @@
 //! [`MysteryBoxDebug`], which can also spin the box onto the bear).
 //!
 //! The box, its blocks, prize display, bears and card are
-//! `StateScoped(InGame)` and taken away whenever we're not in a `Zombies`
+//! `DespawnOnExit(InGame)` and taken away whenever we're not in a `Zombies`
 //! game; the spin and the box's spot are server-owned and reset between
 //! games — nothing carries into the next one.
 
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::skinning::SkinnedMesh;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::scene::SceneInstanceReady;
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::mystery_box::{
     BoxPhase, BoxPrize, BYE_BYE_SECS, COST, HALF_EXTENTS, LEAVE_SECS, LID_SECS, SINK_SECS, SPIN_SECS,
 };
@@ -348,7 +348,7 @@ fn sync_mystery_box(
         let half = shared::mystery_box::stack_half_extents();
         for (i, &at) in spots.iter().enumerate() {
             commands
-                .spawn((StateScoped(AppState::InGame), BoxBlocks(i as u8), crate::util::placed(at), Visibility::default()))
+                .spawn((DespawnOnExit(AppState::InGame), BoxBlocks(i as u8), crate::util::placed(at), Visibility::default()))
                 .with_children(|b| {
                     b.spawn(SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(BLOCKS_MODEL))));
                     b.spawn((
@@ -378,7 +378,7 @@ fn sync_mystery_box(
     let start = shared::mystery_box::current(lobby).map(shared::mystery_box::on_blocks).unwrap_or_default();
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             MysteryBox {
                 graph: graphs.add(graph),
                 clip,
@@ -423,7 +423,7 @@ fn sync_mystery_box(
         });
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PrizeDisplay,
             Transform::from_translation(start.pos),
             Visibility::default(),
@@ -482,7 +482,7 @@ fn sync_mystery_box(
 /// middle at the origin, its longest way along +X (or up, if that's
 /// it — the molotov's bottle).
 fn fit_lethal_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     models: Query<&LethalModel>,
     children: Query<&Children>,
     parents: Query<&ChildOf>,
@@ -491,7 +491,7 @@ fn fit_lethal_model(
     meshes: Res<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(model) = models.get(root) else { return };
     let mut lo = Vec3::splat(f32::INFINITY);
     let mut hi = Vec3::splat(f32::NEG_INFINITY);
@@ -865,7 +865,7 @@ fn animate_teddy(
                     if which == TeddySound::LandFlux {
                         // (On the old spot, where the bear's landed.)
                         commands.spawn((
-                            StateScoped(AppState::InGame),
+                            DespawnOnExit(AppState::InGame),
                             BoxSound::Teddy,
                             AudioPlayer::new(clip),
                             Transform::from_translation(ground),
@@ -964,7 +964,7 @@ fn spawn_box_card(mut commands: Commands, asset_server: Res<AssetServer>) {
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -988,7 +988,7 @@ fn spawn_box_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.88)),
-                BorderColor(AMBER),
+                BorderColor::all(AMBER),
                 BorderRadius::all(Val::Px(4.0)),
                 Visibility::Hidden,
             ))
@@ -1048,7 +1048,7 @@ fn update_box_card(
             AMBER,
         ),
     };
-    border.set_if_neq(BorderColor(edge));
+    border.set_if_neq(BorderColor::all(edge));
     for (which, mut text, mut color) in &mut texts {
         let (wanted, tint) = match which {
             BoxCardText::Title => (title.clone(), Color::WHITE),
@@ -1078,9 +1078,9 @@ fn use_mystery_box(
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
-    mut spin_sender: Query<&mut TriggerSender<shared::SpinMysteryBox>, With<GameClient>>,
-    mut take_sender: Query<&mut TriggerSender<shared::TakeBoxPrize>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut spin_sender: Query<&mut EventSender<shared::SpinMysteryBox>, With<GameClient>>,
+    mut take_sender: Query<&mut EventSender<shared::TakeBoxPrize>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) || !hands.free() {
         return;
@@ -1165,7 +1165,7 @@ pub(crate) struct MysteryBoxDebug<'w, 's> {
     settings: ResMut<'w, TeddySettings>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static Lobby>,
-    spin: Query<'w, 's, &'static mut TriggerSender<shared::SpinTeddy>, With<GameClient>>,
+    spin: Query<'w, 's, &'static mut EventSender<shared::SpinTeddy>, With<GameClient>>,
 }
 
 impl MysteryBoxDebug<'_, '_> {

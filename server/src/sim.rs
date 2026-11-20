@@ -208,7 +208,7 @@ fn nearest_bot_target(targets: &[Target], kind: &HashMap<u64, HitKind>, feet: Ve
 #[derive(Resource, Default)]
 pub(crate) struct ShotBackups(Vec<(PeerId, PlayerInput)>);
 
-fn on_shot_backup(trigger: Trigger<RemoteTrigger<shared::ShotBackup>>, mut backups: ResMut<ShotBackups>) {
+fn on_shot_backup(trigger: On<RemoteEvent<shared::ShotBackup>>, mut backups: ResMut<ShotBackups>) {
     let from = trigger.from;
     let input = &trigger.trigger.0;
     if (input.fire || input.melee) && input.shot_seq != 0 {
@@ -268,8 +268,8 @@ fn resolve_shots(
     mut bots: Query<(Entity, &mut Bot, &LobbyBot)>,
     combats: Query<(&PlayerId, &PlayerCombat)>,
     lobbies: Query<(Entity, &Lobby)>,
-    mut bot_hits: EventWriter<BotHit>,
-    mut player_hits: EventWriter<PlayerHit>,
+    mut bot_hits: MessageWriter<BotHit>,
+    mut player_hits: MessageWriter<PlayerHit>,
     mut bolts: ResMut<crate::raygun::RayGunBolts>,
     mut backups: ResMut<ShotBackups>,
     // The last shot number resolved for each player.

@@ -148,20 +148,27 @@ pub enum AppState {
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use bevy::{
-    core_pipeline::bloom::Bloom,
-    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
-    math::Affine2,
-    pbr::{CascadeShadowConfigBuilder, DistanceFog, FogFalloff, NotShadowCaster},
-    prelude::*,
-    render::{
-        camera::CameraOutputMode,
-        render_asset::RenderAssetUsages,
-        render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages},
-        view::{NoFrustumCulling, RenderLayers},
-    },
-    window::{CursorGrabMode, PrimaryWindow},
-};
+use bevy::post_process::bloom::Bloom;
+
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+
+use bevy::math::Affine2;
+
+use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
+
+use bevy::pbr::{DistanceFog, FogFalloff};
+
+use bevy::prelude::*;
+
+use bevy::camera::CameraOutputMode;
+
+use bevy::asset::RenderAssetUsages;
+
+use bevy::render::render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages};
+
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+
+use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
 
@@ -238,7 +245,6 @@ fn main() {
         // own — `ragdoll`.)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<AppState>()
-        .enable_state_scoped_entities::<AppState>()
         // `ClientNetPlugin` pulls in lightyear's client plugins + the shared
         // protocol; add it before anything that spawns a `Client`.
         .add_plugins(net::ClientNetPlugin)
@@ -278,7 +284,7 @@ fn main() {
             Update,
             (
                 receive_knockback,
-                reset_knockback.run_if(on_event::<net::LocalPlayerRespawned>),
+                reset_knockback.run_if(on_message::<net::LocalPlayerRespawned>),
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
@@ -328,7 +334,7 @@ fn main() {
         .add_plugins(shot_predict::ShotPredictPlugin)
         .add_systems(
             PostUpdate,
-            weapons::sync_reticle_camera.before(bevy::render::camera::CameraUpdateSystem),
+            weapons::sync_reticle_camera.before(bevy::camera::CameraUpdateSystems),
         )
         .add_plugins(motion_blur::MotionBlurPlugin)
         .add_plugins(scope_fx::ScopeFxPlugin)
@@ -379,14 +385,14 @@ fn main() {
         .add_systems(
             PostUpdate,
             update_muzzle_flash
-                .before(bevy::transform::TransformSystem::TransformPropagate)
+                .before(bevy::transform::TransformSystems::Propagate)
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             PostUpdate,
             weapons::pin_ak_shell
-                .after(bevy::app::Animation)
-                .before(bevy::transform::TransformSystem::TransformPropagate),
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::transform::TransformSystems::Propagate),
         )
         .add_systems(
             Update,
@@ -421,7 +427,7 @@ fn main() {
         .init_resource::<QuickMelee>()
         .init_resource::<PendingShot>()
         .init_resource::<PendingMelee>()
-        .add_event::<LocalShot>()
+        .add_message::<LocalShot>()
         .init_resource::<Shake>()
         .init_resource::<ShakeSettings>()
         .init_resource::<AnimationSettings>()
@@ -437,11 +443,11 @@ fn main() {
         .init_resource::<vfx::EnemyBloodSettings>()
         .init_resource::<TracerSettings>()
         .init_resource::<TrickState>()
-        .add_event::<GroundImpact>()
-        .add_event::<BloodImpact>()
-        .add_event::<FireTracer>()
-        .add_event::<TrickScoredEvent>()
-        .add_event::<MatchEndedEvent>()
+        .add_message::<GroundImpact>()
+        .add_message::<BloodImpact>()
+        .add_message::<FireTracer>()
+        .add_message::<TrickScoredEvent>()
+        .add_message::<MatchEndedEvent>()
         .init_resource::<MovementSettings>()
         .init_resource::<Sprinting>()
         .init_resource::<Jumping>()
@@ -452,7 +458,7 @@ fn main() {
         .init_resource::<MantleSettings>()
         .init_resource::<FootstepSettings>()
         .init_resource::<FootstepState>()
-        .add_event::<ProneBlocked>()
+        .add_message::<ProneBlocked>()
         .add_systems(Update, prone_blocked_notice.run_if(in_state(AppState::InGame)))
         .init_resource::<MapLooks>()
         .init_resource::<CurrentMap>()
@@ -553,7 +559,7 @@ fn main() {
         .add_systems(
             PostUpdate,
             (apply_name_tag_scale, update_name_tags)
-                .before(bevy::ui::UiSystem::Layout)
+                .before(bevy::ui::UiSystems::Layout)
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(Update, (apply_master_volume, sync_menu_music))
@@ -1099,8 +1105,8 @@ fn setup_player(
                                     cams.spawn((
                                         WorldModelCamera,
                                         Camera3d::default(),
+                                        bevy::render::view::Hdr,
                                         Camera {
-                                            hdr: true,
                                             // Explicit, not left to Bevy: with no blend
                                             // set, Bevy makes whichever window camera it
                                             // happens to iterate first opaque and blends
@@ -1150,11 +1156,11 @@ fn setup_player(
                                     cams.spawn((
                                         ScopeCamera,
                                         Camera3d::default(),
+                                        bevy::render::view::Hdr,
                                         Camera {
                                             target: scope_image.clone().into(),
                                             order: -2,
                                             is_active: false,
-                                            hdr: true,
                                             clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
                                             ..default()
                                         },
@@ -1186,11 +1192,11 @@ fn setup_player(
                                     .with_child((
                                         ScopeReticleCamera,
                                         Camera3d::default(),
+                                        bevy::render::view::Hdr,
                                         Camera {
                                             target: scope_image.clone().into(),
                                             order: -1,
                                             is_active: false,
-                                            hdr: true,
                                             clear_color: ClearColorConfig::None,
                                             ..default()
                                         },
@@ -1209,9 +1215,9 @@ fn setup_player(
                                     cams.spawn((
                                         ViewModelCamera,
                                         Camera3d::default(),
+                                        bevy::render::view::Hdr,
                                         Camera {
                                             order: 1,
-                                            hdr: true,
                                             // See the world camera's `output_mode`.
                                             output_mode: CameraOutputMode::Write {
                                                 blend_state: Some(BlendState::ALPHA_BLENDING),
@@ -1376,17 +1382,17 @@ fn setup_player(
         });
 }
 
-pub(crate) fn grab_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn grab_cursor(window: Single<&mut CursorOptions, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), true);
 }
 
 /// Free the cursor when leaving the game for the menus.
-pub(crate) fn release_cursor(window: Single<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn release_cursor(window: Single<&mut CursorOptions, With<PrimaryWindow>>) {
     set_cursor_grabbed(&mut window.into_inner(), false);
 }
 
 /// Server told us the match clock ran out.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct MatchEndedEvent {
     pub(crate) winner: String,
     pub(crate) score: u32,
@@ -1398,12 +1404,12 @@ pub(crate) struct MatchEndedEvent {
 
 /// Lock/unlock the mouse to the window. Called on startup and by the menu when
 /// it opens/closes.
-pub(crate) fn set_cursor_grabbed(window: &mut Window, grabbed: bool) {
+pub(crate) fn set_cursor_grabbed(window: &mut CursorOptions, grabbed: bool) {
     if grabbed {
-        window.cursor_options.grab_mode = CursorGrabMode::Locked;
-        window.cursor_options.visible = false;
+        window.grab_mode = CursorGrabMode::Locked;
+        window.visible = false;
     } else {
-        window.cursor_options.grab_mode = CursorGrabMode::None;
-        window.cursor_options.visible = true;
+        window.grab_mode = CursorGrabMode::None;
+        window.visible = true;
     }
 }

@@ -16,7 +16,7 @@
 //! count itself is ours (`Weapon`), added when the server answers
 //! ([`shared::EquipmentBought`]).
 //!
-//! The table, prompt and menu are `StateScoped(InGame)`, the table's taken
+//! The table, prompt and menu are `DespawnOnExit(InGame)`, the table's taken
 //! away whenever we're not in a `Zombies` game, the menu closes whenever it
 //! stops making sense (walked off, died, out of the game), and its state is
 //! reset on opening and on leaving the game — nothing carries over.
@@ -25,7 +25,7 @@ use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, MessageReceiver, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, EventSender};
 use shared::crafting::{cost, items, Tab, HALF_EXTENTS};
 use shared::lethal::LethalKind;
 use shared::Lobby;
@@ -120,7 +120,7 @@ fn sync_crafting_table(
     let half = HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingTable,
             crate::util::placed(at),
             Visibility::default(),
@@ -183,7 +183,7 @@ fn spawn_crafting_prompt(mut commands: Commands, asset_server: Res<AssetServer>)
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingPrompt,
             GlobalZIndex(5),
             Node {
@@ -446,7 +446,7 @@ fn spawn_control(parent: &mut ChildSpawnerCommands, which: CraftButton, key: &st
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
+            BorderColor::all(LIGHT_TEXT),
             BorderRadius::all(Val::Px(18.0)),
         ))
         .with_child((
@@ -486,7 +486,7 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             // (The HUD icons, drawn to a 3:2 canvas.)
@@ -552,7 +552,7 @@ fn spawn_tile(parent: &mut ChildSpawnerCommands, kind: LethalKind, heading: &Han
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -575,7 +575,7 @@ fn spawn_crafting_menu(commands: &mut Commands, asset_server: &AssetServer, tab:
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             CraftingMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -784,18 +784,18 @@ fn crafting_menu_input(
     (sounds, sfx, mut cant_afford): (
         Option<Res<GameSounds>>,
         Option<Res<UiSfx>>,
-        EventWriter<crate::quotes::CantAfford>,
+        MessageWriter<crate::quotes::CantAfford>,
     ),
     asset_server: Res<AssetServer>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&CraftTile, &Interaction)>,
     pressed_tiles: Query<(&CraftTile, &Interaction), Changed<Interaction>>,
     tabs: Query<(&CraftTab, &Interaction), Changed<Interaction>>,
     buttons: Query<(&CraftButton, &Interaction), Changed<Interaction>>,
     row: Query<Entity, With<CraftTileRow>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyEquipment>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::BuyEquipment>, With<GameClient>>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -873,7 +873,7 @@ fn crafting_menu_input(
         state.in_flight.push((k, time.elapsed_secs()));
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.pick_up_equipment.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -938,7 +938,7 @@ fn refresh_crafting_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status_of(icon.0) {

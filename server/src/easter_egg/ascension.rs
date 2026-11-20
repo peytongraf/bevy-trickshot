@@ -81,7 +81,7 @@ pub(super) fn run_ascension(
     mut lobbies: Query<(Entity, &mut Lobby)>,
     mut players: Query<(&PlayerId, &PlayerPose, &LobbyPlayer, &mut PlayerCombat), Without<Zombie>>,
     on_altar: Query<(Entity, &AltarExhumer)>,
-    (time, mut returned, mut radio): (Res<Time>, ResMut<Returned>, EventWriter<crate::radio::SayRadio>),
+    (time, mut returned, mut radio): (Res<Time>, ResMut<Returned>, MessageWriter<crate::radio::SayRadio>),
     mut commands: Commands,
 ) {
     let server = server.into_inner();

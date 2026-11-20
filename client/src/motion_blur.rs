@@ -26,7 +26,7 @@
 //! them).
 //! Nothing to reset between games: the cameras are set afresh every frame.
 
-use bevy::core_pipeline::motion_blur::MotionBlur;
+use bevy::post_process::motion_blur::MotionBlur;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -95,7 +95,7 @@ impl Plugin for MotionBlurPlugin {
             .add_systems(
             PostUpdate,
             apply_motion_blur
-                .after(TransformSystem::TransformPropagate)
+                .after(TransformSystems::Propagate)
                 .run_if(in_state(AppState::InGame)),
         );
     }

@@ -84,7 +84,7 @@ fn zombies_lobby<'a>(lobbies: &'a Query<(Entity, &Lobby)>, peer: PeerId) -> Opti
 /// launch it with the fuse it has left. (How many they have left is
 /// client-side, like the rest of their ammo.)
 fn on_throw_frag(
-    trigger: Trigger<RemoteTrigger<ThrowFrag>>,
+    trigger: On<RemoteEvent<ThrowFrag>>,
     time: Res<Time>,
     mut last: ResMut<LastThrow>,
     lobbies: Query<(Entity, &Lobby)>,
@@ -155,7 +155,7 @@ fn step_frags(
     endings: Res<crate::killcam::EndingLobbies>,
     lobbies: Query<&Lobby>,
     mut frags: Query<(Entity, &mut FragSim, &mut ThrownFrag)>,
-    mut blasts: EventWriter<BombBlast>,
+    mut blasts: MessageWriter<BombBlast>,
     mut commands: Commands,
 ) {
     let dt = time.delta_secs();
@@ -222,7 +222,7 @@ pub(crate) fn drop_around(
 
 /// A zombie a player killed sometimes drops a frag beside its body.
 fn roll_drops(
-    mut kills: EventReader<ZombieKilled>,
+    mut kills: MessageReader<ZombieKilled>,
     colliders: Res<MapColliders>,
     lobbies: Query<&Lobby>,
     mut commands: Commands,
@@ -257,7 +257,7 @@ fn roll_drops(
 /// they carried of another kind.
 #[allow(clippy::too_many_arguments)]
 fn on_pick_up_frag(
-    trigger: Trigger<RemoteTrigger<PickUpFrag>>,
+    trigger: On<RemoteEvent<PickUpFrag>>,
     colliders: Res<MapColliders>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
@@ -266,7 +266,7 @@ fn on_pick_up_frag(
     combats: Query<(&PlayerId, &PlayerCombat)>,
     drops: Query<(Entity, &DropSim, &FragDrop)>,
     mut commands: Commands,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some((lobby_e, lobby)) = zombies_lobby(&lobbies, peer) else {

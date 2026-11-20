@@ -18,15 +18,18 @@
 //! rest of the map. The altar's shape ([`ALTAR_APOTHEM`], [`BASIN_RADIUS`],
 //! …) is its model's (`super::RITUAL_ALTAR_MODEL`) — change them with it. The
 //! pieces are there from the ritual's start until the egg's reset, and as it
-//! ended after it; `StateScoped(InGame)`, so gone with the game.
+//! ended after it; `DespawnOnExit(InGame)`, so gone with the game.
 
 use std::f32::consts::PI;
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use lightyear::prelude::LocalId;
 use shared::easter_egg::{
     EggStep, RITUAL_ALTAR_TOP, RITUAL_CHANT_AT_SECS, RITUAL_SECS, RITUAL_VOICE_AT_SECS, SARCOPHAGUS_HALF_EXTENTS,
@@ -332,7 +335,7 @@ fn sync_ritual_fx(
     let run = blood.add(blood_material(BloodParams { seed: 5.3, mode: 1.0, ..default() }));
     let red = Color::srgb(1.0, 0.08, 0.06);
     commands
-        .spawn((StateScoped(AppState::InGame), RitualFx, crate::util::placed(altar), Visibility::default()))
+        .spawn((DespawnOnExit(AppState::InGame), RitualFx, crate::util::placed(altar), Visibility::default()))
         .with_children(|fx| {
             // (The ritual moves these; the dagger's model is point down
             // under its own.)
@@ -390,7 +393,7 @@ fn sync_ritual_fx(
             ));
         });
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         RitualFx,
         SarcophagusLight,
         PointLight {

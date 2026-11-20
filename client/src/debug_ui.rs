@@ -5,7 +5,7 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, PrimaryWindow};
+use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 use bevy_egui::{egui, EguiContexts};
 
 use crate::health::LocalHealth;
@@ -42,7 +42,7 @@ pub(crate) fn ads_tuning_ui(
         Query<&lightyear::prelude::LocalId, With<crate::net::GameClient>>,
         Query<&shared::Lobby>,
         Query<
-            &mut lightyear::prelude::TriggerSender<shared::SetBotsPassive>,
+            &mut lightyear::prelude::EventSender<shared::SetBotsPassive>,
             With<crate::net::GameClient>,
         >,
         ResMut<crate::ShroomKick>,
@@ -55,7 +55,7 @@ pub(crate) fn ads_tuning_ui(
             ResMut<crate::round_counter::RoundAnimSettings>,
             ResMut<ExplosionSettings>,
             Query<
-                &mut lightyear::prelude::TriggerSender<shared::SetBombTest>,
+                &mut lightyear::prelude::EventSender<shared::SetBombTest>,
                 With<crate::net::GameClient>,
             >,
             ResMut<crate::zombies_hud::Kangabrew>,
@@ -69,19 +69,19 @@ pub(crate) fn ads_tuning_ui(
                 ResMut<crate::ammo_crate::AmmoCrateSettings>,
                 ResMut<crate::power_ups::PowerUpSettings>,
                 Query<
-                    &mut lightyear::prelude::TriggerSender<shared::SetPowerUpTest>,
+                    &mut lightyear::prelude::EventSender<shared::SetPowerUpTest>,
                     With<crate::net::GameClient>,
                 >,
                 crate::molotov::MolotovDebug,
                 Query<
-                    &mut lightyear::prelude::TriggerSender<shared::DropPowerUp>,
+                    &mut lightyear::prelude::EventSender<shared::DropPowerUp>,
                     With<crate::net::GameClient>,
                 >,
                 ResMut<crate::AkSettings>,
                 crate::weapons::MoveInertiaDebug,
             ),
             Query<
-                &mut lightyear::prelude::TriggerSender<shared::SetBotsFrozen>,
+                &mut lightyear::prelude::EventSender<shared::SetBotsFrozen>,
                 With<crate::net::GameClient>,
             >,
         ),
@@ -2557,13 +2557,13 @@ pub(crate) fn debug_cursor_toggle(
     binds: Res<KeyBindings>,
     settings: Res<Settings>,
     menu: Res<menu::Menu>,
-    window: Single<&mut Window, With<PrimaryWindow>>,
+    window: Single<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
     if menu.is_open() {
         return; // the Esc menu owns the cursor
     }
     let mut window = window.into_inner();
-    let loose = window.cursor_options.grab_mode == CursorGrabMode::None;
+    let loose = window.grab_mode == CursorGrabMode::None;
 
     if !settings.debug_mode {
         if loose {

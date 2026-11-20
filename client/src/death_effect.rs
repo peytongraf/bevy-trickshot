@@ -253,7 +253,7 @@ fn pan_to_killer(
 fn clear_on_killcam_or_respawn(
     active: Res<ActiveKillCam>,
     spectate: Res<crate::revive::Spectate>,
-    mut respawned: EventReader<LocalPlayerRespawned>,
+    mut respawned: MessageReader<LocalPlayerRespawned>,
     mut effect: ResMut<DeathEffect>,
     mut commands: Commands,
     overlay: Query<Entity, With<DeathOverlay>>,

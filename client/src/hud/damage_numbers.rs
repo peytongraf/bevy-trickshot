@@ -6,7 +6,7 @@
 //! `melee_predict`), and the server's word on it is passed over.
 //!
 //! Drawn on the HUD, pinned to the hit's spot projected onto the screen each
-//! frame, so it always faces us. `StateScoped(InGame)`, and each lives well
+//! frame, so it always faces us. `DespawnOnExit(InGame)`, and each lives well
 //! under a second — nothing carries into the next game.
 
 use bevy::prelude::*;
@@ -33,7 +33,7 @@ const POP: f32 = 0.4;
 const POP_SECS: f32 = 0.08;
 
 /// Pop a damage number up now — our own knife stab's, foreseen.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct ShowDamageNumber {
     pub(crate) point: Vec3,
     pub(crate) damage: u32,
@@ -44,14 +44,14 @@ pub(crate) struct DamageNumbersPlugin;
 
 impl Plugin for DamageNumbersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<ShowDamageNumber>().add_systems(
+        app.add_message::<ShowDamageNumber>().add_systems(
             Update,
             spawn_damage_numbers.run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             PostUpdate,
             update_damage_numbers
-                .before(bevy::ui::UiSystem::Layout)
+                .before(bevy::ui::UiSystems::Layout)
                 .run_if(in_state(AppState::InGame)),
         );
     }
@@ -70,7 +70,7 @@ struct DamageNumber {
 
 fn spawn_damage_numbers(
     mut receivers: Query<&mut MessageReceiver<shared::ZombieDamaged>>,
-    mut local: EventReader<ShowDamageNumber>,
+    mut local: MessageReader<ShowDamageNumber>,
     mut predicted: ResMut<crate::melee_predict::Predicted>,
     asset_server: Res<AssetServer>,
     mut seed: Local<u32>,
@@ -103,7 +103,7 @@ fn spawn_damage_numbers(
                         age: 0.0,
                         color,
                     },
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     // Under the score popup (9).
                     GlobalZIndex(8),
                     Node {

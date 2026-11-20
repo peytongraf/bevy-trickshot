@@ -14,16 +14,14 @@
 //! the effect is faded in.
 
 use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
+use bevy::core_pipeline::FullscreenShader;
 use bevy::ecs::query::QueryItem;
 use bevy::prelude::*;
 use bevy::render::extract_component::{
     ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
     UniformComponentPlugin,
 };
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
-};
+use bevy::render::render_graph::{NodeRunError, RenderGraphExt, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer};
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice};
@@ -294,7 +292,7 @@ impl ExtractComponent for AetherUniform {
     type QueryFilter = ();
     type Out = AetherUniform;
 
-    fn extract_component(item: QueryItem<'_, Self::QueryData>) -> Option<Self::Out> {
+    fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
         (item.strength > 0.0).then_some(*item)
     }
 }
@@ -462,7 +460,7 @@ impl ViewNode for AetherNode {
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, uniform_index, _): QueryItem<Self::ViewQuery>,
+        (view_target, uniform_index, _): QueryItem<'_, '_, Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         let aether_pipeline = world.resource::<AetherPipeline>();
@@ -490,6 +488,7 @@ impl ViewNode for AetherNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: post_process.destination,
                 resolve_target: None,
+                depth_slice: None,
                 ops: Operations::default(),
             })],
             depth_stencil_attachment: None,
@@ -512,6 +511,7 @@ struct AetherPipeline {
 
 impl FromWorld for AetherPipeline {
     fn from_world(world: &mut World) -> Self {
+        let fullscreen_vertex = world.resource::<FullscreenShader>().to_vertex_state();
         let render_device = world.resource::<RenderDevice>();
         let layout = render_device.create_bind_group_layout(
             "aether_shroud_bind_group_layout",
@@ -536,11 +536,11 @@ impl FromWorld for AetherPipeline {
                 .queue_render_pipeline(RenderPipelineDescriptor {
                     label: Some("aether_shroud_pipeline".into()),
                     layout: vec![layout.clone()],
-                    vertex: fullscreen_shader_vertex_state(),
+                    vertex: fullscreen_vertex.clone(),
                     fragment: Some(FragmentState {
                         shader,
                         shader_defs: vec![],
-                        entry_point: "fragment".into(),
+                        entry_point: Some("fragment".into()),
                         // Same HDR target as the shroom and drunk passes.
                         targets: vec![Some(ColorTargetState {
                             format: ViewTarget::TEXTURE_FORMAT_HDR,

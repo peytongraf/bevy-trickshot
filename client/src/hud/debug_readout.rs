@@ -24,7 +24,7 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
         .spawn((
             DebugReadoutRoot,
             super::KeepThroughHudFade,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Visibility::Hidden,
             Node {
@@ -54,7 +54,7 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
                     ..default()
                 },
                 TextColor(Color::WHITE),
-                TextLayout::new_with_justify(JustifyText::Center),
+                TextLayout::new_with_justify(Justify::Center),
             ));
         });
 }

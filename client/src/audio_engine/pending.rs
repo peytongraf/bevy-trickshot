@@ -32,7 +32,7 @@ impl PendingSounds {
         let paths = self.0.get_or_insert_with(list_clips);
         paths.retain(|path| {
             asset_server
-                .get_handle::<AudioSource>(path.as_str())
+                .get_handle::<AudioSource>(path.clone())
                 .is_some_and(|h| matches!(asset_server.load_state(&h), LoadState::NotLoaded | LoadState::Loading))
         });
         paths.is_empty()

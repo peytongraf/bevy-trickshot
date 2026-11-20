@@ -158,7 +158,7 @@ fn reset_health(mut health: ResMut<LocalHealth>, mut preview: ResMut<HurtPreview
 /// otherwise keep showing whatever the player died with (a full-strength red
 /// tint) until the server's next update lands.
 fn reset_on_respawn(
-    mut respawned: EventReader<crate::net::LocalPlayerRespawned>,
+    mut respawned: MessageReader<crate::net::LocalPlayerRespawned>,
     mut health: ResMut<LocalHealth>,
 ) {
     if respawned.read().count() > 0 {
@@ -231,7 +231,7 @@ fn spawn_damage_overlay(mut commands: Commands, asset_server: Res<AssetServer>) 
     commands
         .spawn((
             DamageOverlay,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             // Under the death overlay (10), which takes over on death.
             GlobalZIndex(9),
             Visibility::Hidden,
@@ -334,7 +334,7 @@ fn update_heartbeat(
         if !muted {
             commands.spawn((
                 Heartbeat,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.heartbeat.clone()),
                 PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0)),
             ));
@@ -359,12 +359,12 @@ mod tests {
     #[test]
     fn respawning_restores_full_health_display_immediately() {
         let mut app = App::new();
-        app.add_event::<crate::net::LocalPlayerRespawned>()
+        app.add_message::<crate::net::LocalPlayerRespawned>()
             .insert_resource(LocalHealth { health: -8.0, ..default() })
             .add_systems(Update, reset_on_respawn);
         app.update();
         assert_eq!(app.world().resource::<LocalHealth>().health, -8.0, "not until a respawn");
-        app.world_mut().send_event(crate::net::LocalPlayerRespawned);
+        app.world_mut().write_message(crate::net::LocalPlayerRespawned);
         app.update();
         let h = app.world().resource::<LocalHealth>();
         assert_eq!(h.health, FULL_HEALTH);

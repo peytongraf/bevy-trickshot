@@ -43,7 +43,7 @@ struct BeamParams {
     // along it (the offset at v is bend * v^w).
     bend: vec4<f32>,
 }
-@group(2) @binding(0) var<uniform> beam: BeamParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> beam: BeamParams;
 
 fn hash1(x: f32) -> f32 {
     return fract(sin(x * 127.1) * 43758.5453);

@@ -9,13 +9,13 @@
 //! the buy sound, asks the server ([`shared::BuyPap`], which re-checks
 //! everything and takes the points) and closes the menu, locking the cursor
 //! again. Everything shown is read off the replicated lobby; the UI is
-//! `StateScoped(InGame)` and the menu is closed whenever it no longer makes
+//! `DespawnOnExit(InGame)` and the menu is closed whenever it no longer makes
 //! sense (left the machine, died, game over), so nothing carries over.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::pap::{PapWeapon, MAX_LEVEL};
 use shared::Lobby;
 
@@ -157,7 +157,7 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PapPrompt,
             GlobalZIndex(5),
             Node {
@@ -200,7 +200,7 @@ fn spawn_pap_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_child((
                 PapPromptText,
                 Text::new(""),
-                TextLayout::new_with_justify(JustifyText::Center),
+                TextLayout::new_with_justify(Justify::Center),
                 TextFont {
                     font: body,
                     font_size: 24.0,
@@ -382,7 +382,7 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
+            BorderColor::all(LIGHT_TEXT),
             BorderRadius::all(Val::Px(18.0)),
         ))
         .with_child((
@@ -455,7 +455,7 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                         },
                         ..default()
                     },
-                    BorderColor(DARK_TEXT),
+                    BorderColor::all(DARK_TEXT),
                     BorderRadius::top(Val::Px(6.0)),
                 ));
                 lock.spawn((
@@ -486,7 +486,7 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             tile.spawn((
@@ -551,7 +551,7 @@ fn spawn_tile(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, level: u8
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -568,7 +568,7 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &s
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PapMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -757,12 +757,12 @@ fn pap_menu_input(
     sfx: Option<Res<UiSfx>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&PapTile, &Interaction)>,
     pressed_tiles: Query<(&PapTile, &Interaction), Changed<Interaction>>,
     buttons: Query<(&PapButton, &Interaction), Changed<Interaction>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyPap>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyPap>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -828,7 +828,7 @@ fn pap_menu_input(
         info!("asked the server to pack our {} to level {level}", state.weapon.label());
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.pap_buy.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -877,7 +877,7 @@ fn refresh_pap_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (n, mut color) in &mut numerals {
         let c = match status(n.0) {

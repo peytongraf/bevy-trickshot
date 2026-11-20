@@ -746,7 +746,7 @@ fn metric_row(
                 border: UiRect::bottom(Val::Px(1.0)),
                 ..default()
             },
-            BorderColor(LINE),
+            BorderColor::all(LINE),
         ))
         .with_children(|row| {
             row.spawn(Node {
@@ -864,7 +864,7 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
     commands
         .spawn((
             PerfPanelRoot,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             // Over the results screen (50).
             GlobalZIndex(60),
             Node {
@@ -941,7 +941,7 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                             column_gap: Val::Px(16.0),
                             ..default()
                         },
-                        BorderColor(LINE),
+                        BorderColor::all(LINE),
                     ))
                     .with_children(|foot| {
                         let saved = match finished.map(|f| f.saved.as_deref()) {

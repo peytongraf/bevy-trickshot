@@ -16,7 +16,7 @@
 //! over each health bar (`zombies_hud`) — and the last of ours breaking
 //! plays the armor-destroyed sound.
 //!
-//! The station, prompt and menu are `StateScoped(InGame)`, the station's
+//! The station, prompt and menu are `DespawnOnExit(InGame)`, the station's
 //! taken away whenever we're not in a `Zombies` game, and the menu closes
 //! whenever it stops making sense (walked off, died, out of the game) —
 //! nothing carries over.
@@ -24,7 +24,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::armor::{cost_to, numeral, Armor, HALF_EXTENTS, MAX_LEVEL, PLATE_POINTS, REFILL_COST};
 use shared::Lobby;
 
@@ -116,7 +116,7 @@ fn sync_armor_station(
     let half = HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorStation,
             crate::util::placed(at),
             Visibility::default(),
@@ -156,7 +156,7 @@ fn play_armor_broken(
     // isn't it breaking.)
     if *had_armor && !has && armor.level > 0 {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.armor_destroy.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -197,7 +197,7 @@ fn spawn_armor_prompt(mut commands: Commands, asset_server: Res<AssetServer>) {
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorPrompt,
             GlobalZIndex(5),
             Node {
@@ -464,7 +464,7 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
+            BorderColor::all(LIGHT_TEXT),
             BorderRadius::all(Val::Px(18.0)),
         ))
         .with_child((
@@ -535,7 +535,7 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                         },
                         ..default()
                     },
-                    BorderColor(DARK_TEXT),
+                    BorderColor::all(DARK_TEXT),
                     BorderRadius::top(Val::Px(6.0)),
                 ));
                 lock.spawn((
@@ -573,7 +573,7 @@ fn spawn_tile(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
         ))
         .with_children(|tile| {
             tile.spawn((
@@ -659,7 +659,7 @@ fn spawn_tile(
                             },
                             ..default()
                         },
-                        BorderColor(LIGHT_TEXT),
+                        BorderColor::all(LIGHT_TEXT),
                     ));
                 }
             });
@@ -677,7 +677,7 @@ fn spawn_armor_menu(commands: &mut Commands, asset_server: &AssetServer) {
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ArmorMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -866,13 +866,13 @@ fn armor_menu_input(
     sfx: Option<Res<UiSfx>>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut moved: EventReader<CursorMoved>,
+    mut moved: MessageReader<CursorMoved>,
     tiles: Query<(&ArmorTile, &Interaction)>,
     pressed_tiles: Query<(&ArmorTile, &Interaction), Changed<Interaction>>,
     buttons: Query<(&ArmorButton, &Interaction), Changed<Interaction>>,
-    mut buy_sender: Query<&mut TriggerSender<shared::BuyArmor>, With<GameClient>>,
-    mut refill_sender: Query<&mut TriggerSender<shared::RefillArmor>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut buy_sender: Query<&mut EventSender<shared::BuyArmor>, With<GameClient>>,
+    mut refill_sender: Query<&mut EventSender<shared::RefillArmor>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     let cursor_moved = moved.read().count() > 0;
@@ -935,7 +935,7 @@ fn armor_menu_input(
         info!("asked the server for armor: {choice:?}");
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.buy_ammo.clone()),
                 PlaybackSettings::DESPAWN,
             ));
@@ -982,7 +982,7 @@ fn refresh_armor_menu(
             fill.mix(&Color::WHITE, 0.12)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status_of(icon.0) {

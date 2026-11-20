@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::window::{CursorGrabMode, PrimaryWindow};
+use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 use bevy_rapier3d::prelude::*;
 
 use crate::keybinds::KeyBindings;
@@ -298,7 +298,7 @@ pub(crate) fn sweep_and_slide(
             pos,
             Quat::IDENTITY,
             remaining,
-            probe,
+            &*probe.raw,
             options,
             QueryFilter::default(),
         ) else {
@@ -477,10 +477,10 @@ pub(crate) fn toggle_sprint(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     mut sprinting: ResMut<Sprinting>,
 ) {
-    if window.cursor_options.grab_mode == CursorGrabMode::None {
+    if window.grab_mode == CursorGrabMode::None {
         return;
     }
     let move_held = binds.forward.pressed(&keys, &mouse)
@@ -613,7 +613,7 @@ pub(crate) fn jump(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     binds: Res<KeyBindings>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     settings: Res<MovementSettings>,
     slide: Res<Slide>,
     kanga: Res<crate::zombies_hud::Kangabrew>,
@@ -627,7 +627,7 @@ pub(crate) fn jump(
     if physics.grounded {
         wall.used = 0;
     }
-    if window.cursor_options.grab_mode == CursorGrabMode::None {
+    if window.grab_mode == CursorGrabMode::None {
         return;
     }
     if slide.stance != Stance::Standing || slide.ate_jump {
@@ -849,10 +849,10 @@ pub(crate) fn apply_gravity(
 /// Deliberately not a `KeyBindings` entry — always `P`, not rebindable.
 pub(crate) fn log_player_position(
     keys: Res<ButtonInput<KeyCode>>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     player: Single<&Transform, With<Player>>,
 ) {
-    if window.cursor_options.grab_mode == CursorGrabMode::None {
+    if window.grab_mode == CursorGrabMode::None {
         return;
     }
     if keys.just_pressed(KeyCode::KeyP) {

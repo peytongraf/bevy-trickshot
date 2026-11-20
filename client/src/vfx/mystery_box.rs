@@ -13,16 +13,16 @@
 //! The open effects follow how open the box is ([`MysteryBox::openness`],
 //! the glow's fade), so they swell in with the lid and die away as it
 //! shuts. Everything's in world space, worked out from the box's own frame
-//! (so it turns and scales with it), `StateScoped(InGame)`, and cleared the
+//! (so it turns and scales with it), `DespawnOnExit(InGame)`, and cleared the
 //! moment there's no box — nothing carries into the next game.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy_egui::egui;
 use shared::mystery_box::HALF_EXTENTS;
 
@@ -458,7 +458,7 @@ fn emit_box_fx(
         let spin = state.between((-0.5, 0.5));
         let secs = state.between(fx.smoke_secs);
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxPuff {
                 velocity,
                 age: 0.0,
@@ -492,7 +492,7 @@ fn emit_box_fx(
         let secs = state.between(fx.speck_secs);
         let twinkle = state.between((0.0, std::f32::consts::TAU));
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxSpeck {
                 velocity,
                 age: 0.0,
@@ -547,7 +547,7 @@ fn spawn_arc(
     let width = fx.arc_width * scale;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BoxArc { age: 0.0, secs },
             Transform::IDENTITY,
             Visibility::default(),
@@ -760,7 +760,7 @@ fn update_beam(
         let strands = beam_shape(&mut state, fx, gt, base);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 BoxBeam {
                     strands,
                     next_shape: 0.0,

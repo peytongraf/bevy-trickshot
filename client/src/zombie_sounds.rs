@@ -174,7 +174,7 @@ fn pick(clips: &[Handle<AudioSource>], roll: f32) -> Option<Handle<AudioSource>>
 fn spawn_sound(commands: &mut Commands, clip: Handle<AudioSource>, at: Vec3) -> Entity {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ZombieSound,
             AudioPlayer::new(clip),
             Transform::from_translation(at),

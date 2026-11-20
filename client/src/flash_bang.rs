@@ -25,16 +25,16 @@
 //! show one in the hand, hold the arms up, preview the flash and the
 //! white-out.
 //!
-//! Every entity here is `StateScoped(InGame)` or a child of one, each avatar
+//! Every entity here is `DespawnOnExit(InGame)` or a child of one, each avatar
 //! goes as soon as its server entity does, the white-out ([`FlashBlind`])
 //! and the debug poses are reset on leaving the game, and the flash bang
 //! count lives on `Weapon` — nothing carries into the next game.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy_egui::egui;
 use bevy_rapier3d::prelude::*;
 use lightyear::prelude::*;
@@ -297,7 +297,7 @@ fn update_held_flash(
 /// Send the flash bang throw `weapon_system` filed when it left the hand.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowFlashBang>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowFlashBang>, With<GameClient>>,
 ) {
     if !knife.has_flash_request() {
         return;
@@ -359,7 +359,7 @@ fn sync_flash_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             FlashAvatar { src },
             Transform::from_translation(f.pos).with_rotation(f.rot),
             Visibility::default(),
@@ -407,7 +407,7 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             Transform::from_translation(d.pos).with_rotation(Quat::from_rotation_y(d.yaw)),
@@ -450,7 +450,7 @@ struct BlindOverlay;
 
 fn spawn_blind_overlay(mut commands: Commands) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         BlindOverlay,
         GlobalZIndex(41),
         Node {
@@ -634,7 +634,7 @@ fn spawn_flash(
 
     // The bang, from there.
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(sounds.flash_bang_detonate.clone()),
         Transform::from_translation(center),
         crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -646,7 +646,7 @@ fn spawn_flash(
 
     // A split second of very bright, cold light.
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         FlashLight {
             age: 0.0,
             lifetime: s.light_time.max(0.02),
@@ -670,7 +670,7 @@ fn spawn_flash(
         }
         budget -= 1;
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Mesh3d(assets.quad.clone()),
             MeshMaterial3d(materials.add(sprite_material(texture, additive))),
             Transform::from_translation(pos).with_scale(Vec3::splat(p.scale0.max(1e-4))),

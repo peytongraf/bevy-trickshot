@@ -90,7 +90,7 @@ pub(crate) fn editor_ui(
             let alpha = (1.0 - (now - since) / CLEAN_HINT_SECS).clamp(0.0, 1.0);
             let painter =
                 ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("level_editor_clean_hint")));
-            let pos = ctx.screen_rect().center_top() + egui::vec2(0.0, 24.0);
+            let pos = ctx.content_rect().center_top() + egui::vec2(0.0, 24.0);
             let text = "Clean view — H or Esc to bring the editor back";
             let font = egui::FontId::proportional(16.0);
             let a = (alpha * 255.0) as u8;
@@ -1255,7 +1255,7 @@ fn viewport_overlay(
         painter.rect_stroke(
             rect,
             0.0,
-            egui::Stroke::new(1.0, color32(SELECTED)),
+            egui::Stroke::new(1.0_f32, color32(SELECTED)),
             egui::StrokeKind::Inside,
         );
     }

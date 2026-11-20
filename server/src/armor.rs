@@ -28,7 +28,7 @@ impl Plugin for ArmorPlugin {
 /// returned. Their last plate breaking, they say so.
 pub(crate) fn soak(
     lobbies: &mut Query<(Entity, &mut Lobby)>,
-    quotes: &mut EventWriter<crate::quotes::SayQuote>,
+    quotes: &mut MessageWriter<crate::quotes::SayQuote>,
     victim: PeerId,
     damage: f32,
 ) -> f32 {
@@ -65,11 +65,11 @@ fn at_station(
 
 /// Buy armor up to `level`, paying for every level on the way, and fill it.
 fn on_buy_armor(
-    trigger: Trigger<RemoteTrigger<BuyArmor>>,
+    trigger: On<RemoteEvent<BuyArmor>>,
     endings: Res<EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let level = trigger.trigger.level;
@@ -95,11 +95,11 @@ fn on_buy_armor(
 
 /// Fill every plate a member owns back up, for the flat refill cost.
 fn on_refill_armor(
-    trigger: Trigger<RemoteTrigger<RefillArmor>>,
+    trigger: On<RemoteEvent<RefillArmor>>,
     endings: Res<EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let Some(lobby_e) = at_station(peer, &endings, &lobbies, &players) else {

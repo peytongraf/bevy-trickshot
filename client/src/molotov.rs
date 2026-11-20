@@ -29,7 +29,7 @@
 //! (`assets/shaders/fire.wgsl`). Everything's look and placement is tuned in
 //! the debug panel's "Molotov (Zombies)" section ([`molotov_section`]).
 //!
-//! Reset between games: every entity here is `StateScoped(InGame)` or a child
+//! Reset between games: every entity here is `DespawnOnExit(InGame)` or a child
 //! of one (the held molotov rides the arms rig), and each avatar goes as soon
 //! as its server entity does; nuked bodies still waiting to fall
 //! ([`PendingCorpseFires`]) are forgotten on leaving the game; the molotov count and lethal live on `Weapon`,
@@ -38,15 +38,15 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy_egui::egui;
 use lightyear::prelude::*;
 
@@ -160,7 +160,7 @@ impl Material for FireMaterial {
     /// A billboard: both faces, and no depth write (it's light / smoke, not
     /// a surface) — walls in front still hide it.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -196,7 +196,7 @@ impl Material for FireGroundMaterial {
     /// Light on the floor, not a surface: no depth write (walls in front
     /// still hide it), seen from above or below.
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -217,7 +217,7 @@ impl Material for FireGroundMaterial {
 /// Cells wholly outside the fire are left out.
 fn ground_mesh(spots: &[Vec3], mid: Vec3, inner: f32, reach: f32, lift: f32, seed: f32) -> Mesh {
     use bevy::asset::RenderAssetUsages;
-    use bevy::render::mesh::{Indices, PrimitiveTopology};
+    use bevy::mesh::{Indices, PrimitiveTopology};
     let reach = reach.max(inner + 0.05);
     let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for s in spots {
@@ -947,7 +947,7 @@ fn update_held_molotov(
 /// Send the molotov throw `weapon_system` filed when it left the hand.
 fn send_throw_requests(
     mut knife: ResMut<ThrowingKnife>,
-    mut sender: Query<&mut TriggerSender<shared::ThrowMolotov>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ThrowMolotov>, With<GameClient>>,
 ) {
     if !knife.has_molotov_request() {
         return;
@@ -1010,7 +1010,7 @@ fn sync_molotov_avatars(
         });
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 MolotovAvatar {
                     src,
                     material: material.clone(),
@@ -1180,7 +1180,7 @@ fn sync_fire_patches(
             .fold(0.5f32, f32::max);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 FirePatch {
                     src,
                     material: material.clone(),
@@ -1355,7 +1355,7 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             DropAvatar { src },
             OutlineWhenLoaded,
             place(d),
@@ -1408,7 +1408,7 @@ fn play_light_sound(
     match (want, playing.iter().next()) {
         (true, None) => {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 LightSound,
                 AudioPlayer::new(sounds.molotov_light.clone()),
                 PlaybackSettings::LOOP,
@@ -1437,7 +1437,7 @@ fn receive_bursts(
                 continue;
             }
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.molotov_burst.clone()),
                 Transform::from_translation(Vec3::from_array(msg.point)),
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -1454,14 +1454,14 @@ pub(crate) struct MolotovDebug<'w, 's> {
     pub(crate) weapon: ResMut<'w, Weapon>,
     /// (The monkey bomb's section shares this bundle — it needs `weapon` too.)
     pub(crate) monkey: ResMut<'w, crate::monkey_bomb::MonkeyBombSettings>,
-    pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMonkeyFuse>, With<GameClient>>,
+    pub(crate) monkey_fuse_tx: Query<'w, 's, &'static mut EventSender<shared::SetMonkeyFuse>, With<GameClient>>,
     /// (And the frag's.)
     pub(crate) frag: ResMut<'w, crate::frag::FragSettings>,
     /// (And the flash bang's.)
     pub(crate) flash: ResMut<'w, crate::flash_bang::FlashBangSettings>,
     local_id: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
-    test_tx: Query<'w, 's, &'static mut TriggerSender<shared::SetMolotovTest>, With<GameClient>>,
+    test_tx: Query<'w, 's, &'static mut EventSender<shared::SetMolotovTest>, With<GameClient>>,
 }
 
 /// Remember each zombie a Nuke kills, to set its body alight once it falls.
@@ -1526,7 +1526,7 @@ fn spawn_corpse_fires(
         let key = peer.to_bits() as u32 ^ (peer.to_bits() >> 32) as u32;
         if let Some(i) = souls.draw(sounds.zombie_souls.len(), key) {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.zombie_souls[i].clone()),
                 Transform::from_translation(mid + Vec3::Y * 0.5),
                 crate::positional_playback(crate::audio_engine::Volume::Linear(1.0)),
@@ -1537,7 +1537,7 @@ fn spawn_corpse_fires(
         let flames = settings.corpse_flames.max(1);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 CorpseFire {
                     material: material.clone(),
                     age: 0.0,

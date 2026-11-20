@@ -11,12 +11,12 @@
 //! Everything reads the replicated `Lobby` — the server owns the round, the
 //! count, points and purchases (`server::zombies`) — so nothing here needs
 //! resetting between games: it's all derived fresh each frame, and the
-//! spawned UI / machines are `StateScoped(InGame)`.
+//! spawned UI / machines are `DespawnOnExit(InGame)`.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::perks::Perk;
 use shared::{GameMode, Lobby};
 
@@ -69,19 +69,19 @@ pub(crate) struct NoMachineShadow;
 /// Once a [`NoMachineShadow`] model's scene is in, mark its meshes
 /// `NotShadowCaster`.
 fn no_machine_shadows(
-    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    trigger: On<bevy::scene::SceneInstanceReady>,
     models: Query<(), With<NoMachineShadow>>,
     children: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     if !models.contains(root) {
         return;
     }
     for entity in children.iter_descendants(root) {
         if meshes.contains(entity) {
-            commands.entity(entity).insert(bevy::pbr::NotShadowCaster);
+            commands.entity(entity).insert(bevy::light::NotShadowCaster);
         }
     }
 }
@@ -399,7 +399,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     // to one width; each panel's background only wraps the pair).
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -420,7 +420,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // The party's panels: bottom left, stacked upward.
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         PartyRoot,
         GlobalZIndex(5),
         Node {
@@ -437,7 +437,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Owned perks' icons: bottom centre, lifted off the edge.
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -470,7 +470,7 @@ fn spawn_zombies_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     // The pre-game countdown: top centre, while it runs.
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PregameCountdown,
             GlobalZIndex(5),
             Node {
@@ -854,7 +854,7 @@ impl PerkMachineSettings {
 /// [`play_perk_jingles`]), faded by distance by its profile in the mix. Played with `PlaybackMode::Remove`, so
 /// once the clip ends the entity stays (minus its `AudioPlayer`) for
 /// [`play_perk_quotes`] to notice, ask for `quote` and despawn it. It's
-/// `StateScoped(InGame)` so leaving cuts it (and the quote to come) off.
+/// `DespawnOnExit(InGame)` so leaving cuts it (and the quote to come) off.
 #[derive(Component)]
 struct PerkJingle {
     /// The buyer's line to ask for once the jingle ends (or as we walk away
@@ -904,7 +904,7 @@ fn play_perk_jingles(
                 let ally = (shared::bot_players::is_ally_peer(*peer) && Some(lobby.leader) == me).then_some(*peer);
                 let quote = (own || ally.is_some()).then_some(PendingQuote { perk, ally, own });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     PerkJingle { quote, ended_at: None },
                     AudioPlayer::new(jingle),
                     // From about the machine's sign.
@@ -935,7 +935,7 @@ fn play_perk_jingles(
 fn play_perk_quotes(
     mut jingles: Query<(Entity, &mut PerkJingle, &Transform, Has<AudioPlayer>)>,
     player: Query<&Transform, With<Player>>,
-    mut sender: Query<&mut lightyear::prelude::TriggerSender<shared::RequestQuote>, With<GameClient>>,
+    mut sender: Query<&mut lightyear::prelude::EventSender<shared::RequestQuote>, With<GameClient>>,
     settings: Res<PerkMachineSettings>,
     paused: Res<crate::pause::GamePaused>,
     time: Res<Time>,
@@ -1072,7 +1072,7 @@ fn spawn_perk_machine(
     let half = settings.half_extents();
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             PerkMachine(perk),
             // (From about its middle — the root's on the ground.)
             crate::power::PoweredHum { offset: Vec3::Y * 1.2, perk: true },
@@ -1167,7 +1167,7 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
     );
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
@@ -1190,14 +1190,14 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(Color::srgba(1.0, 1.0, 1.0, 0.25)),
+                BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.25)),
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_child((
                 Text::new("THE POWER MUST BE ACTIVATED FIRST"),
                 heading(22.0),
-                TextLayout::new_with_justify(JustifyText::Center),
+                TextLayout::new_with_justify(Justify::Center),
                 TextColor(Color::WHITE),
             ));
             row.spawn((
@@ -1211,7 +1211,7 @@ fn spawn_perk_card(commands: &mut Commands, asset_server: &AssetServer, font: Ha
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(Color::WHITE),
+                BorderColor::all(Color::WHITE),
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
@@ -1865,8 +1865,8 @@ fn update_perk_card(
         ),
         PerkStatus::NoPower => unreachable!("filtered out above"),
     };
-    if border.0 != edge {
-        border.0 = edge;
+    if border.top != edge {
+        *border = BorderColor::all(edge);
     }
     if action_bar.0 != bar {
         action_bar.0 = bar;
@@ -1937,8 +1937,8 @@ fn buy_perk(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     machines: Res<PerkMachineSettings>,
-    mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyPerk>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
 ) {
     if !binds.interact.just_pressed(&keys, &mouse) {
         return;
@@ -1977,7 +1977,7 @@ fn phd_slam(
     player: Single<&Transform, With<Player>>,
     poses: Query<&shared::PlayerPose>,
     mut sent: Local<bool>,
-    mut sender: Query<&mut TriggerSender<shared::PhdSlam>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::PhdSlam>, With<GameClient>>,
 ) {
     if slide.stance != crate::player::Stance::Sliding {
         *sent = false;
@@ -2014,7 +2014,7 @@ fn prone_at_perk(
     player: Single<&Transform, With<Player>>,
     machines: Res<PerkMachineSettings>,
     mut was_prone: Local<bool>,
-    mut sender: Query<&mut TriggerSender<shared::ProneAtPerk>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::ProneAtPerk>, With<GameClient>>,
 ) {
     let prone = slide.stance == crate::player::Stance::Prone;
     let went_prone = prone && !*was_prone;
@@ -2043,7 +2043,7 @@ fn prone_at_perk(
 fn receive_prone_bonus(
     mut receivers: Query<&mut lightyear::prelude::MessageReceiver<shared::ProneBonus>>,
     sounds: Res<GameSounds>,
-    mut scored: EventWriter<crate::TrickScoredEvent>,
+    mut scored: MessageWriter<crate::TrickScoredEvent>,
 ) {
     for mut rx in &mut receivers {
         for msg in rx.receive() {
@@ -2096,7 +2096,7 @@ fn sync_owned_perks(
         drink.requested = Some(perk);
         if let Some(sounds) = &sounds {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.perk_buy.clone()),
                 PlaybackSettings::DESPAWN,
             ));

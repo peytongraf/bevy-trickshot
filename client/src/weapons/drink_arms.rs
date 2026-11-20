@@ -22,7 +22,7 @@ use std::f32::consts::PI;
 
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
-use bevy::render::view::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::scene::SceneInstanceReady;
 
 use crate::death_effect::DeathEffect;
@@ -177,7 +177,7 @@ impl DrinkArmsSettings {
 /// bottle its own material to tint, and arm the animation player parked on
 /// the trimmed clip's first frame.
 pub(crate) fn start_drink_arms_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     arms: Query<&DrinkArmsAnimation>,
@@ -186,7 +186,7 @@ pub(crate) fn start_drink_arms_animation(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let Ok(anim) = arms.get(root) else {
         return;
     };

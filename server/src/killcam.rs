@@ -395,7 +395,7 @@ fn record_frames(
             .iter()
             .filter(|(_, k)| k.owner == id.0 && !k.resting)
             .collect();
-        mine.sort_by_key(|(e, _)| *e);
+        mine.sort_by_key(|(e, _)| e.index());
         for slot in buf.knife_slots.iter_mut() {
             if slot.is_some_and(|e| !mine.iter().any(|(m, _)| *m == e)) {
                 *slot = None;
@@ -476,8 +476,8 @@ fn record_actors(
 
 fn queue_killcams(
     clock: Res<ReplayClock>,
-    mut bot_hits: EventReader<BotHit>,
-    mut player_kills: EventReader<PlayerKilled>,
+    mut bot_hits: MessageReader<BotHit>,
+    mut player_kills: MessageReader<PlayerKilled>,
     lobbies: Query<(Entity, &Lobby)>,
     mut pending: ResMut<PendingCams>,
     mut ffa: ResMut<FfaPlays>,
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn the_end_cam_setting_picks_which_replay_is_taken_and_marks_it() {
-        let lobby = Entity::from_raw(7);
+        let lobby = Entity::from_raw_u32(7).unwrap();
         let mut plays = FfaPlays::default();
         let m = plays.0.entry(lobby).or_default();
         m.best = Some(BestFfaPlay { kills: 3, span: 0, msg: cam("best") });
@@ -809,24 +809,24 @@ mod tests {
     #[test]
     fn a_match_with_no_kills_has_nothing_to_replay() {
         let mut plays = FfaPlays::default();
-        assert!(plays.take(Entity::from_raw(1), EndCam::BestPlay).is_none());
-        plays.0.entry(Entity::from_raw(1)).or_default();
-        assert!(plays.take(Entity::from_raw(1), EndCam::FinalKill).is_none());
+        assert!(plays.take(Entity::from_raw_u32(1).unwrap(), EndCam::BestPlay).is_none());
+        plays.0.entry(Entity::from_raw_u32(1).unwrap()).or_default();
+        assert!(plays.take(Entity::from_raw_u32(1).unwrap(), EndCam::FinalKill).is_none());
     }
 
     #[test]
     fn ending_a_lobby_twice_keeps_the_first_tick() {
         let mut e = EndingLobbies::default();
-        let l = Entity::from_raw(3);
+        let l = Entity::from_raw_u32(3).unwrap();
         e.begin(l, 100, true);
         e.begin(l, 500, false);
         assert!(e.is_ending(l));
         assert_eq!(e.0[&l].began, 100);
         assert!(e.is_frozen(l), "the first begin's freeze setting stands");
-        let free = Entity::from_raw(4);
+        let free = Entity::from_raw_u32(4).unwrap();
         e.begin(free, 1, false);
         assert!(e.is_ending(free) && !e.is_frozen(free));
-        assert!(!e.is_frozen(Entity::from_raw(9)));
+        assert!(!e.is_frozen(Entity::from_raw_u32(9).unwrap()));
     }
 
     #[test]

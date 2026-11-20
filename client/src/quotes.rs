@@ -18,7 +18,7 @@
 //! someone speaks up, the debug panel's "Quotes (Zombies)" section
 //! ([`QuotesDebug`]).
 //!
-//! The lines playing are `StateScoped(InGame)`; nothing else carries between
+//! The lines playing are `DespawnOnExit(InGame)`; nothing else carries between
 //! games.
 
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
 use bevy_egui::egui;
-use lightyear::prelude::{LocalId, MessageReceiver, PeerId, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, PeerId, EventSender};
 use shared::quotes::{lines, Quote, DOG_ROUND_DELAY_SECS, EXFIL_DELAY_SECS};
 use shared::weapon::SlotWeapon;
 use shared::{Lobby, PlayerId, PlayerPose};
@@ -41,7 +41,7 @@ pub(crate) struct QuotesPlugin;
 impl Plugin for QuotesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuoteSettings>()
-            .add_event::<CantAfford>()
+            .add_message::<CantAfford>()
             .add_systems(Startup, load_lines)
             .add_systems(
                 Update,
@@ -134,7 +134,7 @@ fn play_quotes(
                 commands.spawn((
                     Name::new("Quote"),
                     QuoteAudio,
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(clip.clone()),
                     // (Its level, and the room's reverb, come from the mix.)
                     PlaybackSettings::DESPAWN,
@@ -147,7 +147,7 @@ fn play_quotes(
                 commands.spawn((
                     Name::new("Quote"),
                     QuoteAudio,
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     SpokenQuote { speaker: said.speaker },
                     AudioPlayer::new(clip.clone()),
                     Transform::from_translation(at),
@@ -195,7 +195,7 @@ fn ammo_quotes(
     weapon: Res<crate::Weapon>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::RequestQuote>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::RequestQuote>, With<GameClient>>,
     mut last: Local<Option<(SlotWeapon, AmmoState)>>,
 ) {
     if crate::zombies_hud::zombies_game(&local, &lobbies).is_none() {
@@ -229,7 +229,7 @@ fn ammo_quotes(
 
 /// We just tried to buy something (a door, a perk, the box, ...) without the
 /// points for it — whatever we tried says so.
-#[derive(Event, Clone, Copy, Debug, Default)]
+#[derive(Message, Clone, Copy, Debug, Default)]
 pub(crate) struct CantAfford;
 
 /// The least time (s) between two of our [`CantAfford`]s reaching the
@@ -240,8 +240,8 @@ const CANT_AFFORD_EVERY_SECS: f32 = 3.0;
 /// say so (it decides whether they do).
 fn cant_afford_quotes(
     time: Res<Time>,
-    mut tries: EventReader<CantAfford>,
-    mut sender: Query<&mut TriggerSender<shared::RequestQuote>, With<GameClient>>,
+    mut tries: MessageReader<CantAfford>,
+    mut sender: Query<&mut EventSender<shared::RequestQuote>, With<GameClient>>,
     mut last: Local<Option<f32>>,
 ) {
     if tries.read().count() == 0 {
@@ -263,7 +263,7 @@ fn send_quote_delays(
     settings: Res<QuoteSettings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::SetQuoteDelays>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::SetQuoteDelays>, With<GameClient>>,
     mut sent: Local<Option<(f32, f32)>>,
 ) {
     let me = local.iter().next().map(|l| l.0);

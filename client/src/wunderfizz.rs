@@ -14,13 +14,13 @@
 //! it.
 //!
 //! Everything shown is read off the replicated lobby; the machine, prompt and
-//! menu are `StateScoped(InGame)` and the menu closes whenever it stops
+//! menu are `DespawnOnExit(InGame)` and the menu closes whenever it stops
 //! making sense (walked off, died, out of the game), so nothing carries over.
 
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::perks::{Perk, PerkSet};
 use shared::Lobby;
 
@@ -148,7 +148,7 @@ fn sync_wunderfizz_machine(
     let half = settings.half_extents();
     if machines.is_empty() {
         commands
-            .spawn((StateScoped(AppState::InGame), WunderfizzMachine, place, Visibility::default()))
+            .spawn((DespawnOnExit(AppState::InGame), WunderfizzMachine, place, Visibility::default()))
             .with_children(|m| {
                 m.spawn((
                     WunderfizzModel,
@@ -216,7 +216,7 @@ fn spawn_wunderfizz_prompt(mut commands: Commands, asset_server: Res<AssetServer
     let body = asset_server.load(BODY_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             WunderfizzPrompt,
             GlobalZIndex(5),
             Node {
@@ -404,7 +404,7 @@ fn spawn_control(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BorderColor(LIGHT_TEXT),
+            BorderColor::all(LIGHT_TEXT),
             BorderRadius::all(Val::Px(16.0)),
         ))
         .with_child((
@@ -449,7 +449,7 @@ fn spawn_cell(
                 ..default()
             },
             BackgroundColor(Color::NONE),
-            BorderColor(Color::NONE),
+            BorderColor::all(Color::NONE),
             BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|cell| {
@@ -485,7 +485,7 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
     };
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             WunderfizzMenuRoot,
             // Over the HUD, like the pause menu.
             GlobalZIndex(50),
@@ -662,8 +662,8 @@ fn wunderfizz_input(
     cells: Query<(&WfCell, &Interaction)>,
     pressed_cells: Query<(&WfCell, &Interaction), Changed<Interaction>>,
     buttons: Query<(&WfButton, &Interaction), Changed<Interaction>>,
-    mut sender: Query<&mut TriggerSender<shared::BuyPerk>, With<GameClient>>,
-    mut cant_afford: EventWriter<crate::quotes::CantAfford>,
+    mut sender: Query<&mut EventSender<shared::BuyPerk>, With<GameClient>>,
+    mut cant_afford: MessageWriter<crate::quotes::CantAfford>,
     mut commands: Commands,
 ) {
     if menu.screen != Screen::Wunderfizz || state.close_pending {
@@ -757,7 +757,7 @@ fn refresh_wunderfizz(
             (fill, edge)
         };
         bg.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor(edge));
+        border.set_if_neq(BorderColor::all(edge));
     }
     for (icon, mut image) in &mut icons {
         let tint = match status(icon.0) {

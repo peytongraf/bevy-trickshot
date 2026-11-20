@@ -9,15 +9,15 @@
 //! Two layers: a bed of glowing purple puffs (camera-facing sprites of the
 //! explosion's fire puffs, `ExplosionAssets`), and over it real licking
 //! flames — the molotov's fire (`molotov::FireMaterial`) in purple — that
-//! flare up and die down. Each is `StateScoped(InGame)`, and where each
+//! flare up and die down. Each is `DespawnOnExit(InGame)`, and where each
 //! slider last dropped one is forgotten as soon as they stop sliding, so
 //! nothing carries over between slides or games.
 
 use std::collections::HashMap;
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use lightyear::prelude::{LocalId, PeerId};
 use shared::perks::Perk;
 
@@ -172,7 +172,7 @@ fn lay_phd_trails(
                 let size = Vec2::new(FIRE_WIDTH * k, FIRE_HEIGHT * k * (0.8 + 0.4 * rand01(r ^ 0x4d)));
                 let seed = rand01(r ^ 0x5d);
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     TrailFire {
                         age: 0.0,
                         lifetime: FIRE_LIFETIME * (0.8 + 0.4 * rand01(r ^ 0x1234)),
@@ -211,7 +211,7 @@ fn lay_phd_trails(
                     ..default()
                 });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     PhdFlame {
                         age: 0.0,
                         lifetime: LIFETIME * (0.75 + 0.5 * rand01(r ^ 0x1234)),

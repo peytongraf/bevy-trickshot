@@ -24,7 +24,7 @@ struct OutlineParams {
     // Least push (m), up close.
     min_width: f32,
 }
-@group(2) @binding(0) var<uniform> o: OutlineParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> o: OutlineParams;
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {

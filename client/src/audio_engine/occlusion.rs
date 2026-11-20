@@ -90,7 +90,7 @@ pub(super) fn occlude(
         // Colliders the sound's inside of — boxes only (a machine round its
         // own hum); the map's meshes never "contain" a point.
         let mut inside = Vec::new();
-        rapier.intersections_with_point(at, QueryFilter::default().exclude_sensors(), |hit| {
+        rapier.intersect_point(at, QueryFilter::default().exclude_sensors(), |hit| {
             if colliders.get(hit).is_ok_and(|c| c.as_cuboid().is_some()) {
                 inside.push(hit);
             }

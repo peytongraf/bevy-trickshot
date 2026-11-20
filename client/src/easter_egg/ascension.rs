@@ -36,7 +36,7 @@
 //!
 //! Everything's per game: the clock ([`EggSoul`]), the view's offset and
 //! the overlay are reset on leaving it; the bodies, sounds and the altar's
-//! glow are `StateScoped(InGame)` and gone once the egg's moved on. The
+//! glow are `DespawnOnExit(InGame)` and gone once the egg's moved on. The
 //! sounds are placeholders at their final paths
 //! (`audio/zombies/easter_egg/pyramid/`). Tuned in the debug panel's "Easter
 //! egg (Der Tempel)" → "Into the pyramid".
@@ -45,10 +45,9 @@ use std::collections::HashMap;
 
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
 use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
 use lightyear::prelude::LocalId;
@@ -449,7 +448,7 @@ impl Material for GhostMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -574,7 +573,7 @@ fn sync_bodies(
         }
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 SoulBodyVisual { peer: b.peer, rig: None, fallen: false },
                 // (`soldier.glb` faces +Z — the rig's yaw is for -Z.)
                 Transform::from_translation(b.feet)
@@ -598,7 +597,7 @@ fn sync_bodies(
 
 /// A body's scene is in: animate it with the soldier's clips.
 fn body_ready(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     anims: Res<crate::SoldierAnimations>,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
@@ -606,7 +605,7 @@ fn body_ready(
     mut bounds: crate::CharacterBounds,
     mut commands: Commands,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     for e in children.iter_descendants(root) {
         bounds.fit(&mut commands, root, e);
         if players.contains(e) {
@@ -677,7 +676,7 @@ fn astral(
     if drones.is_empty() {
         if out > 0.0 {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AstralDrone,
                 AudioPlayer::new(sounds.drone.clone()),
                 PlaybackSettings::LOOP.with_volume(Volume::Linear(volume)),
@@ -724,14 +723,14 @@ fn soul_sounds(
     if t >= ASCEND_SLUMP_SECS && !soul.floated {
         soul.floated = true;
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.float_up.clone()),
             PlaybackSettings::DESPAWN.with_volume(Volume::Linear(s.float_volume)),
         ));
     }
     if soul.arrived && ambience.is_empty() {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ChamberAmbience,
             AudioPlayer::new(sounds.ambience.clone()),
             PlaybackSettings::LOOP.with_volume(Volume::Linear(s.ambience_volume)),
@@ -747,7 +746,7 @@ fn soul_sounds(
             let c = s.fade_color;
             commands
                 .spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     FadingSpirit { start: t },
                     PointLight {
                         color: Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2])),
@@ -784,7 +783,7 @@ struct SoulOverlay;
 
 fn spawn_overlay(mut commands: Commands) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         SoulOverlay,
         GlobalZIndex(3),
         Node {

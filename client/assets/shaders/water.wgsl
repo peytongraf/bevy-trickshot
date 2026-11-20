@@ -81,7 +81,7 @@ struct WaterParams {
     // strong it is (0 = none).
     ripples: array<vec4<f32>, 64>,
 }
-@group(2) @binding(100) var<uniform> water: WaterParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> water: WaterParams;
 
 fn hash2(p: vec2<f32>) -> vec2<f32> {
     let q = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));

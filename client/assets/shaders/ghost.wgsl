@@ -20,9 +20,9 @@ struct GhostParams {
     flow: f32,
     _pad0: f32,
 }
-@group(2) @binding(0) var<uniform> ghost: GhostParams;
-@group(2) @binding(1) var ghost_texture: texture_2d<f32>;
-@group(2) @binding(2) var ghost_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> ghost: GhostParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var ghost_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var ghost_sampler: sampler;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

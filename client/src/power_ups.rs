@@ -31,17 +31,18 @@
 //!
 //! Everything's tunable from the debug panel ([`PowerUpSettings`]). Avatars
 //! go when their drop does, and they, the HUD row and any sound still
-//! playing are `StateScoped(InGame)` — nothing carries into the next game.
+//! playing are `DespawnOnExit(InGame)` — nothing carries into the next game.
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPipeline, MaterialPipelineKey};
+
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
-};
-use bevy::render::view::NoFrustumCulling;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use lightyear::prelude::{LocalId, MessageReceiver};
 use shared::power_ups::{PowerUp, BLINK_SECS, NUKE_ANNOUNCER_DELAY_SECS};
@@ -150,7 +151,7 @@ impl Material for PowerUpPuffMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -181,7 +182,7 @@ impl Material for PowerUpColumnMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -234,7 +235,7 @@ impl Material for PowerUpGlowMaterial {
     /// a surface) — anything in front of the drop still hides it (the
     /// shader depth-tests it at the drop, not where `pull` puts it).
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -750,7 +751,7 @@ fn sync_drop_avatars(
             // Gone at the end of its blinking: it timed out.
             if avatar.blink_age >= BLINK_SECS - 0.4 {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(sounds.power_up_timer_end.clone()),
                     Transform::from_translation(tf.translation + Vec3::Y * settings.height),
                     crate::positional_playback(Volume::Linear(1.0)),
@@ -763,7 +764,7 @@ fn sync_drop_avatars(
             continue;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.power_up_spawn.clone()),
             Transform::from_translation(drop.pos + Vec3::Y * settings.height),
             crate::positional_playback(Volume::Linear(1.0)),
@@ -781,7 +782,7 @@ fn sync_drop_avatars(
         let scale = settings.scale(drop.kind);
         commands
             .spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 DropAvatar {
                     src,
                     phase: (src.index() as f32 * 1.618).fract() * std::f32::consts::TAU,
@@ -860,7 +861,7 @@ fn measure_drop_models(
     spinners: Query<(&GlobalTransform, &Children, &ChildOf), With<DropSpinner>>,
     models: Query<(), With<DropModel>>,
     children: Query<&Children>,
-    meshes: Query<(&bevy::render::primitives::Aabb, &GlobalTransform)>,
+    meshes: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
     mut glows: Query<&mut Transform, (With<DropGlow>, Without<DropColumn>)>,
     mut columns: Query<&mut Transform, (With<DropColumn>, Without<DropGlow>)>,
     mut avatars: Query<(&mut DropAvatar, &Children)>,
@@ -909,14 +910,14 @@ fn measure_drop_models(
 /// Swap every material in a freshly spawned model (the models carry none of
 /// their own — glTF's plain default) for the shared gold.
 fn gild_model(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     assets: Option<Res<PowerUpAssets>>,
     children: Query<&Children>,
     mats: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
     mut commands: Commands,
 ) {
     let Some(assets) = assets else { return };
-    for e in children.iter_descendants(trigger.target()) {
+    for e in children.iter_descendants(trigger.entity) {
         if mats.contains(e) {
             commands
                 .entity(e)
@@ -951,7 +952,7 @@ fn animate_drop_avatars(
         let on = !blinking || avatar.blink_phase.fract() < 0.5;
         if blinking && on && !avatar.lit {
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.power_up_timer_tick.clone()),
                 Transform::from_translation(tf.translation + Vec3::Y * settings.height),
                 crate::positional_playback(Volume::Linear(1.0)),
@@ -1125,7 +1126,7 @@ fn emit_drop_puffs(
                     },
                 });
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     DropPuff {
                         avatar: avatar_e,
                         vel,
@@ -1194,7 +1195,7 @@ fn receive_grabs(
     time: Res<Time>,
     mut weapon: ResMut<Weapon>,
     mut nukes: ResMut<NukeAnnouncers>,
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut hammering: Query<&mut CarpenterHammering>,
     mut commands: Commands,
 ) {
@@ -1215,14 +1216,14 @@ fn receive_grabs(
             };
             if msg.kind != PowerUp::Nuke {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(announcer.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
             }
             if Some(msg.by) == me {
                 commands.spawn((
-                    StateScoped(AppState::InGame),
+                    DespawnOnExit(AppState::InGame),
                     AudioPlayer::new(sounds.power_up_grab.clone()),
                     PlaybackSettings::DESPAWN,
                 ));
@@ -1230,7 +1231,7 @@ fn receive_grabs(
             match msg.kind {
                 PowerUp::MaxAmmo => {
                     commands.spawn((
-                        StateScoped(AppState::InGame),
+                        DespawnOnExit(AppState::InGame),
                         AudioPlayer::new(sounds.max_ammo_refill.clone()),
                         PlaybackSettings::DESPAWN,
                     ));
@@ -1242,7 +1243,7 @@ fn receive_grabs(
                         h.started = now;
                     } else {
                         commands.spawn((
-                            StateScoped(AppState::InGame),
+                            DespawnOnExit(AppState::InGame),
                             CarpenterHammering { started: now },
                             AudioPlayer::new(sounds.carpenter_loop.clone()),
                             PlaybackSettings::LOOP,
@@ -1292,7 +1293,7 @@ fn nuke_announcers(
             return true;
         }
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.power_up_nuke.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -1307,11 +1308,11 @@ fn nuke_announcers(
 fn nuke_flash(
     commands: &mut Commands,
     sounds: &GameSounds,
-    boom: &mut EventWriter<crate::vfx::Explosion>,
+    boom: &mut MessageWriter<crate::vfx::Explosion>,
     at: Vec3,
 ) {
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(sounds.nuke_flash.clone()),
         PlaybackSettings::DESPAWN,
     ));
@@ -1325,7 +1326,7 @@ fn nuke_flash(
         nuke: true,
     });
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         NukeWhiteout { age: 0.0 },
         Node {
             position_type: PositionType::Absolute,
@@ -1384,7 +1385,7 @@ fn carpenter_hammering(
     }
     commands.entity(e).despawn();
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(sounds.carpenter_end.clone()),
         PlaybackSettings::DESPAWN,
     ));
@@ -1415,7 +1416,7 @@ fn timed_countdowns(
     let before = std::mem::replace(&mut *last, running.clone());
     let play = |clip: &Handle<AudioSource>, commands: &mut Commands| {
         commands.spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(clip.clone()),
             PlaybackSettings::DESPAWN,
         ));
@@ -1446,7 +1447,7 @@ fn spawn_timed_row(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = asset_server.load(HUD_FONT);
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,

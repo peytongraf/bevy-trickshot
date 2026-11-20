@@ -571,7 +571,7 @@ fn falloff_plot(ui: &mut egui::Ui, p: &Profile) {
         egui::pos2(rect.left() + rect.width() * d / span, rect.bottom() - rect.height() * g)
     };
     let points: Vec<_> = (0..=60).map(|i| point(span * i as f32 / 60.0)).collect();
-    painter.add(egui::Shape::line(points, egui::Stroke::new(2.0, ui.visuals().selection.bg_fill)));
+    painter.add(egui::Shape::line(points, egui::Stroke::new(2.0_f32, ui.visuals().selection.bg_fill)));
     for (d, label) in [(p.near, "near"), (p.far, "far")] {
         let x = rect.left() + rect.width() * d / span;
         painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())], stroke);

@@ -35,23 +35,25 @@
 //!
 //! Every sound is positional and heard by the whole lobby. Look and feel
 //! are tuned in the "Boss (Zombies)" debug section ([`BossSettings`]).
-//! Everything here is `StateScoped(InGame)`, and a ball whose boss or
+//! Everything here is `DespawnOnExit(InGame)`, and a ball whose boss or
 //! message never comes is cleared on its own.
 
 use std::time::Duration;
 
 use bevy::animation::RepeatAnimation;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey, NotShadowCaster};
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
+use bevy::light::NotShadowCaster;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
-use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
 
 use crate::audio_engine::prelude::*;
-use bevy::render::view::NoFrustumCulling;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::scene::SceneInstanceReady;
 use bevy_egui::egui;
-use lightyear::prelude::{Interpolated, LocalId, MessageReceiver, PeerId, TriggerSender};
+use lightyear::prelude::{LocalId, MessageReceiver, PeerId, EventSender};
 use shared::boss::{BLAST_CHARGE_START_SECS, BLAST_LIFETIME_SECS, BLAST_RELEASE_SECS, BOSS_HEIGHT};
 use shared::{PlayerId, PlayerPose, ZombieAnim};
 
@@ -535,7 +537,7 @@ impl Material for DeathOrbMaterial {
     }
 
     fn specialize(
-        _pipeline: &MaterialPipeline<Self>,
+        _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
@@ -615,7 +617,7 @@ fn setup_boss_assets(
 pub(crate) fn spawn_boss_avatar(commands: &mut Commands, asset_server: &AssetServer, settings: &BossSettings, src: Entity) {
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             RemoteAvatar { src },
             BossVisual,
             BossMotion::default(),
@@ -630,7 +632,7 @@ pub(crate) fn spawn_boss_avatar(commands: &mut Commands, asset_server: &AssetSer
 /// give it its own glowing copies of its materials.
 #[allow(clippy::too_many_arguments)]
 fn start_boss_animation(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -640,7 +642,7 @@ fn start_boss_animation(
     assets: Res<BossAssets>,
     mut bounds: crate::CharacterBounds,
 ) {
-    let root = trigger.target();
+    let root = trigger.entity;
     let mut player_entity = None;
     let mut hands = [None; 2];
     let mut glow = Vec::new();
@@ -684,10 +686,9 @@ fn start_boss_animation(
 
 /// The peer a pose entity belongs to (its own `PlayerId`, or its confirmed
 /// entity's).
-pub(crate) fn peer_of(src: Entity, ids: &Query<&PlayerId>, interp: &Query<&Interpolated>) -> Option<PeerId> {
+pub(crate) fn peer_of(src: Entity, ids: &Query<&PlayerId>) -> Option<PeerId> {
     ids.get(src)
         .ok()
-        .or_else(|| interp.get(src).ok().and_then(|i| ids.get(i.confirmed_entity).ok()))
         .map(|id| id.0)
 }
 
@@ -698,7 +699,7 @@ fn boss_sound(clip: Handle<AudioSource>, at: Vec3, looped: bool) -> impl Bundle 
         playback.mode = PlaybackMode::Loop;
     }
     (
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         BossSound,
         AudioPlayer::new(clip),
         Transform::from_translation(at),
@@ -761,7 +762,7 @@ fn spawn_orb(
     let c = outer;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             BossOrb {
                 avatar,
                 peer,
@@ -861,10 +862,10 @@ fn receive_boss_messages(
     sounds: Option<Res<GameSounds>>,
     (settings, death_settings): (Res<BossSettings>, Res<DeathOrbSettings>),
     avatars: Query<(Entity, &RemoteAvatar, Has<BossVoiced>), With<BossVisual>>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut orbs: Query<(Entity, &mut BossOrb)>,
     (mut materials, mut death_materials): (ResMut<Assets<StandardMaterial>>, ResMut<Assets<DeathOrbMaterial>>),
-    mut boom: EventWriter<crate::vfx::Explosion>,
+    mut boom: MessageWriter<crate::vfx::Explosion>,
     mut seq: Local<u32>,
     mut commands: Commands,
 ) {
@@ -926,7 +927,7 @@ fn receive_boss_messages(
                     *seq = seq.wrapping_add(1);
                     let found = avatars
                         .iter()
-                        .find(|(_, a, _)| peer_of(a.src, &ids, &interp) == Some(msg.boss));
+                        .find(|(_, a, _)| peer_of(a.src, &ids) == Some(msg.boss));
                     let avatar = found.map(|(e, ..)| e);
                     let death = found.is_some_and(|(_, _, voiced)| voiced);
                     spawn_orb(
@@ -985,7 +986,7 @@ fn animate_bosses(
     (assets, fx): (Option<Res<BossAssets>>, Option<Res<ExplosionAssets>>),
     sounds: Option<Res<GameSounds>>,
     poses: Query<&PlayerPose>,
-    (ids, interp): (Query<&PlayerId>, Query<&Interpolated>),
+    ids: Query<&PlayerId>,
     mut avatars: Query<(Entity, &RemoteAvatar, &Transform, &mut BossMotion, Option<&BossRig>, Has<BossVoiced>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     orbs: Query<&BossOrb>,
@@ -1063,7 +1064,7 @@ fn animate_bosses(
                         .replay();
                     if state == BossState::Smash {
                         commands.spawn(boss_sound(sounds.boss_attack.clone(), head, false));
-                    } else if let Some(peer) = peer_of(avatar.src, &ids, &interp) {
+                    } else if let Some(peer) = peer_of(avatar.src, &ids) {
                         // A ball starts forming as its arms go up.
                         if !orbs.iter().any(|o| o.flight.is_none() && o.peer == Some(peer)) {
                             *seq = seq.wrapping_add(1);
@@ -1193,7 +1194,7 @@ fn update_orbs(
             budget -= 1;
             let material = p.material.clone();
             commands.spawn((
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 p,
                 Mesh3d(fx.quad.clone()),
                 MeshMaterial3d(material),
@@ -1679,7 +1680,7 @@ pub(crate) struct BossDebug<'w, 's> {
     preview: ResMut<'w, BossPreview>,
     local: Query<'w, 's, &'static LocalId, With<GameClient>>,
     lobbies: Query<'w, 's, &'static shared::Lobby>,
-    spawn: Query<'w, 's, &'static mut TriggerSender<shared::SpawnBoss>, With<GameClient>>,
+    spawn: Query<'w, 's, &'static mut EventSender<shared::SpawnBoss>, With<GameClient>>,
 }
 
 impl BossDebug<'_, '_> {

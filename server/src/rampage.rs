@@ -25,12 +25,12 @@ impl Plugin for RampagePlugin {
 /// slack — their pose is a moment old), and it mustn't already be that way.
 /// Anything else is ignored.
 fn on_toggle_rampage(
-    trigger: Trigger<RemoteTrigger<ToggleRampage>>,
+    trigger: On<RemoteEvent<ToggleRampage>>,
     endings: Res<crate::killcam::EndingLobbies>,
     mut lobbies: Query<(Entity, &mut Lobby)>,
     players: Query<(&PlayerId, &PlayerPose, &PlayerCombat)>,
-    mut radio: EventWriter<crate::radio::SayRadio>,
-    mut quotes: EventWriter<crate::quotes::SayQuote>,
+    mut radio: MessageWriter<crate::radio::SayRadio>,
+    mut quotes: MessageWriter<crate::quotes::SayQuote>,
 ) {
     let peer = trigger.from;
     let on = trigger.trigger.on;

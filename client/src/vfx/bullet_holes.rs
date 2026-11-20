@@ -24,7 +24,7 @@
 
 use std::f32::consts::TAU;
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{QueryFilter, RapierContext, ReadRapierContext};
 
@@ -73,7 +73,7 @@ const FIT_SHIFTS: [f32; 3] = [0.0, 0.25, 0.5];
 
 /// A shot travelling along `dir` hit a surface at `point`, whose (unit)
 /// outward `normal` faces the shooter. Consumed by [`spawn_bullet_holes`].
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct BulletImpact {
     pub(crate) point: Vec3,
     pub(crate) normal: Vec3,
@@ -119,7 +119,7 @@ pub struct BulletHolePlugin;
 
 impl Plugin for BulletHolePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<BulletImpact>()
+        app.add_message::<BulletImpact>()
             .init_resource::<BulletHoleSettings>()
             // `PostStartup`, not `Startup` — see `killcam::KillCamPlugin`'s note.
             .add_systems(PostStartup, setup_bullet_hole_assets)
@@ -220,7 +220,7 @@ fn spawn_bullet_holes(
     time: Res<Time>,
     settings: Res<BulletHoleSettings>,
     assets: Option<Res<BulletHoleAssets>>,
-    mut events: EventReader<BulletImpact>,
+    mut events: MessageReader<BulletImpact>,
     current_map: Res<crate::CurrentMap>,
     holes: Query<(Entity, &BulletHole)>,
     rapier: ReadRapierContext,
@@ -287,7 +287,7 @@ fn spawn_bullet_holes(
                 spawned_at: time.elapsed_secs(),
                 scale,
             },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             Mesh3d(assets.mesh.clone()),
             MeshMaterial3d(assets.material.clone()),
             Transform {

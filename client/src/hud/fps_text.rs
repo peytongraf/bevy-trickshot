@@ -22,8 +22,8 @@ use bevy::prelude::*;
 use bevy::render::render_phase::{
     BinnedPhaseItem, SortedPhaseItem, ViewBinnedRenderPhases, ViewSortedRenderPhases,
 };
-use bevy::render::{Render, RenderApp, RenderSet};
-use bevy::ui::TransparentUi;
+use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::ui_render::TransparentUi;
 use lightyear::prelude::{Connected, PingManager};
 
 use crate::net::GameClient;
@@ -270,7 +270,7 @@ impl Plugin for DrawCallsPlugin {
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .insert_resource(count)
-                .add_systems(Render, count_draw_calls.in_set(RenderSet::Render));
+                .add_systems(Render, count_draw_calls.in_set(RenderSystems::Render));
         }
     }
 }

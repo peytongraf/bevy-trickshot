@@ -42,15 +42,15 @@ pub(crate) struct ShotPredictPlugin;
 
 impl Plugin for ShotPredictPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<ShotFired>()
-            .add_event::<ProjectileStruck>()
+        app.add_message::<ShotFired>()
+            .add_message::<ProjectileStruck>()
             .add_systems(Update, show_shots.run_if(in_state(AppState::InGame)));
     }
 }
 
 /// A shot that just went up (`net::write_input`): what it sent, and the
 /// models it struck on our screen.
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct ShotFired {
     origin: Vec3,
     dir: Vec3,
@@ -63,7 +63,7 @@ pub(crate) struct ShotFired {
 
 /// One of our Ray Gun bolts or thrown knives struck an enemy
 /// (`hit_detection::track_own_projectiles`, as it claims it).
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct ProjectileStruck {
     pub(crate) projectile: Projectile,
     pub(crate) origin: Vec3,
@@ -75,7 +75,7 @@ pub(crate) struct ProjectileStruck {
 pub(crate) fn note_shot(
     input: Query<&ActionState<PlayerInput>, With<InputMarker<PlayerInput>>>,
     mut models: ResMut<ShotModels>,
-    mut fired: EventWriter<ShotFired>,
+    mut fired: MessageWriter<ShotFired>,
 ) {
     let hits = std::mem::take(&mut models.0);
     let Ok(input) = input.single() else { return };
@@ -131,10 +131,10 @@ pub(crate) struct Feedback<'w, 's> {
     poses: Query<'w, 's, &'static PlayerPose>,
     stand_ins: Query<'w, 's, &'static mut BotPose>,
     blood_rec: ResMut<'w, crate::killcam::ReplayBloodImpact>,
-    blood: EventWriter<'w, crate::vfx::BloodImpact>,
-    markers: EventWriter<'w, crate::hit_marker::LocalHitMarker>,
-    numbers: EventWriter<'w, crate::hud::ShowDamageNumber>,
-    scored: EventWriter<'w, crate::TrickScoredEvent>,
+    blood: MessageWriter<'w, crate::vfx::BloodImpact>,
+    markers: MessageWriter<'w, crate::hit_marker::LocalHitMarker>,
+    numbers: MessageWriter<'w, crate::hud::ShowDamageNumber>,
+    scored: MessageWriter<'w, crate::TrickScoredEvent>,
     commands: Commands<'w, 's>,
 }
 
@@ -346,8 +346,8 @@ fn landed(hit: &ModelHit, from: Vec3, kill: bool, number: Option<(u32, bool)>, c
 
 /// Show each shot and projectile that just landed (see the module docs).
 fn show_shots(
-    mut shots: EventReader<ShotFired>,
-    mut struck: EventReader<ProjectileStruck>,
+    mut shots: MessageReader<ShotFired>,
+    mut struck: MessageReader<ProjectileStruck>,
     judge: Judge,
     rapier: ReadRapierContext,
     mut feedback: Feedback,

@@ -14,7 +14,7 @@
 //! egg's music takes its place while the Hierophant's loose
 //! (`easter_egg::music`).
 //!
-//! All three are `StateScoped(InGame)`, so leaving the game cuts them off;
+//! All three are `DespawnOnExit(InGame)`, so leaving the game cuts them off;
 //! none is positional. [`ZombiesGameOverPlayed`] is cleared whenever a game is
 //! running (and on entering the game), so the next game plays it again.
 
@@ -115,7 +115,7 @@ fn sync_zombies_audio(
     if exfil_on && exfil.is_empty() {
         commands.spawn((
             ZombiesExfilMusic::default(),
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.zombies_exfil.clone()),
             PlaybackSettings::LOOP.with_volume(Volume::Linear(EXFIL_VOLUME)),
         ));
@@ -137,7 +137,7 @@ fn sync_zombies_audio(
         if ambient.is_empty() {
             commands.spawn((
                 ZombiesAmbient,
-                StateScoped(AppState::InGame),
+                DespawnOnExit(AppState::InGame),
                 AudioPlayer::new(sounds.zombies_ambient.clone()),
                 PlaybackSettings::LOOP
                     .with_volume(Volume::Linear(AMBIENT_VOLUME * ambient_level.0)),
@@ -158,7 +158,7 @@ fn sync_zombies_audio(
         played.0 = true;
         commands.spawn((
             ZombiesGameOverMusic,
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AudioPlayer::new(sounds.zombies_game_over.clone()),
             PlaybackSettings::DESPAWN
                 .with_volume(Volume::Linear(GAME_OVER_VOLUME)),

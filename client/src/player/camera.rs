@@ -6,7 +6,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, PrimaryWindow};
+use bevy::window::{CursorOptions, CursorGrabMode, PrimaryWindow};
 
 use crate::settings::Settings;
 use crate::util::ease;
@@ -65,7 +65,7 @@ pub(crate) fn zoom_sens_scale(fov: f32, hip: f32, coefficient: f32) -> f32 {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn look_around(
     mouse_motion: Res<AccumulatedMouseMotion>,
-    window: Single<&Window, With<PrimaryWindow>>,
+    window: Single<&CursorOptions, With<PrimaryWindow>>,
     ads: Res<Ads>,
     settings: Res<Settings>,
     world_projection: Single<&Projection, With<WorldModelCamera>>,
@@ -74,7 +74,7 @@ pub(crate) fn look_around(
     mut head: Single<&mut Transform, (With<PlayerHead>, Without<Player>)>,
 ) {
     // Ignore look input while the cursor is free.
-    if window.cursor_options.grab_mode == CursorGrabMode::None {
+    if window.grab_mode == CursorGrabMode::None {
         return;
     }
 

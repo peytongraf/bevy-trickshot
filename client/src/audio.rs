@@ -364,7 +364,7 @@ impl KnifeSounds {
 /// `shipment_ambient`) before their level in the mix.
 pub(crate) const AMBIENT_VOLUME: f32 = 0.5;
 
-/// The looping ambient-nature bed. `StateScoped(InGame)`, so it starts when the
+/// The looping ambient-nature bed. `DespawnOnExit(InGame)`, so it starts when the
 /// player enters the world and stops on the way out.
 #[derive(Component)]
 pub(crate) struct AmbientAudio;
@@ -562,7 +562,7 @@ pub(crate) fn start_ambient(
     };
     commands.spawn((
         AmbientAudio,
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         AudioPlayer::new(clip),
         PlaybackSettings::LOOP.with_volume(Volume::Linear(AMBIENT_VOLUME)),
     ));

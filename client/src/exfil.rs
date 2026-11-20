@@ -10,16 +10,17 @@
 //! round that isn't called yet, a smaller notice there says it's available.
 //!
 //! Everything reads the replicated `Lobby` (the server runs the exfil —
-//! `server::exfil`). The radio, UI and lines are `StateScoped(InGame)`, the
+//! `server::exfil`). The radio, UI and lines are `DespawnOnExit(InGame)`, the
 //! radio and lines are taken away whenever they stop applying, and the hold
 //! and white-out ([`ExfilLocal`]) reset whenever there's no exfil to show —
 //! nothing carries into the next game.
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use bevy_rapier3d::prelude::*;
-use lightyear::prelude::{LocalId, TriggerSender};
+use lightyear::prelude::{LocalId, EventSender};
 use shared::exfil::{Exfil, CALLING_SECS, HOLD_SECS};
 use shared::level::ExfilArea;
 use shared::Lobby;
@@ -105,7 +106,7 @@ fn sync_radio(
     let half = shared::exfil::RADIO_HALF_EXTENTS;
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ExfilRadio,
             crate::util::placed(at),
             Visibility::default(),
@@ -139,7 +140,7 @@ fn hold_to_call(
     lobbies: Query<&Lobby>,
     player: Single<&Transform, With<Player>>,
     mut state: ResMut<ExfilLocal>,
-    mut sender: Query<&mut TriggerSender<shared::CallExfil>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::CallExfil>, With<GameClient>>,
 ) {
     let feet = player.translation - Vec3::Y * EYE_HEIGHT;
     let holding = binds.interact.pressed(&keys, &mouse)
@@ -249,7 +250,7 @@ fn sync_area_lines(
     let mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             AreaLines(material.clone()),
             Transform::IDENTITY,
             Visibility::default(),
@@ -370,7 +371,7 @@ fn spawn_exfil_ui(
 
     // The prompt: icon on the left, what to do on the right.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(57.0)))
         .with_children(|row| {
             row.spawn((
                 ExfilPrompt,
@@ -383,7 +384,7 @@ fn spawn_exfil_ui(
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
-                BorderColor(EXFIL_BLUE),
+                BorderColor::all(EXFIL_BLUE),
                 BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
@@ -427,7 +428,7 @@ fn spawn_exfil_ui(
 
     // While it's held: the word over the icon, its ring filling.
     commands
-        .spawn((StateScoped(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
+        .spawn((DespawnOnExit(AppState::InGame), GlobalZIndex(5), centred_row(55.0)))
         .with_children(|row| {
             row.spawn((
                 ExfilExtracting,
@@ -460,7 +461,7 @@ fn spawn_exfil_ui(
     // never both at once).
     commands
         .spawn((
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             ExfilBanner,
             GlobalZIndex(5),
             Node {
@@ -483,7 +484,7 @@ fn spawn_exfil_ui(
 
     // The white-out, over the HUD.
     commands.spawn((
-        StateScoped(AppState::InGame),
+        DespawnOnExit(AppState::InGame),
         ExfilFlash,
         GlobalZIndex(40),
         Node {

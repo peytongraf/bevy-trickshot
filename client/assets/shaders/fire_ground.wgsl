@@ -31,7 +31,7 @@ struct GroundParams {
     // How much the noise eats into the edge (0 = smooth).
     ragged: f32,
 }
-@group(2) @binding(0) var<uniform> p: GroundParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> p: GroundParams;
 
 struct GroundVertex {
     @builtin(instance_index) instance_index: u32,

@@ -37,7 +37,7 @@ struct WaterfallParams {
     // Keeps neighbouring waterfalls from looking the same.
     seed: f32,
 }
-@group(2) @binding(100) var<uniform> fall: WaterfallParams;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> fall: WaterfallParams;
 
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);

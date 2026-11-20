@@ -76,7 +76,7 @@ fn push_loadout(
     settings: Res<Settings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::SetLoadout>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::SetLoadout>, With<GameClient>>,
     mut sent: Local<Option<WeaponId>>,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -109,7 +109,7 @@ fn push_operator(
     settings: Res<Settings>,
     local: Query<&LocalId, With<GameClient>>,
     lobbies: Query<&shared::Lobby>,
-    mut sender: Query<&mut TriggerSender<shared::SetOperator>, With<GameClient>>,
+    mut sender: Query<&mut EventSender<shared::SetOperator>, With<GameClient>>,
     mut sent: Local<Option<shared::operator::Operator>>,
 ) {
     let me = local.iter().next().map(|l| l.0);
@@ -176,7 +176,7 @@ fn loadout_notice(
     commands
         .spawn((
             LoadoutNotice { age: 0.0 },
-            StateScoped(AppState::InGame),
+            DespawnOnExit(AppState::InGame),
             // Over the in-game menus (`menu`'s pages sit at 50).
             GlobalZIndex(60),
             Node {

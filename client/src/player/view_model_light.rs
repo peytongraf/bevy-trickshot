@@ -14,9 +14,9 @@
 //! otherwise drop a floating gun-and-arms shadow on the ground (there's no
 //! body to go with it).
 
-use bevy::pbr::NotShadowCaster;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 
 use crate::{EGG_HANDS_RENDER_LAYER, VIEW_MODEL_RENDER_LAYER};
 
