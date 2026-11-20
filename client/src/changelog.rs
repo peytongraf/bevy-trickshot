@@ -15,6 +15,9 @@
 /// this will ship under — keep it in sync with the workspace `Cargo.toml`
 /// `version` (bump both together when starting the next round of changes).
 pub const ENTRIES: &[(&str, &[&str])] = &[(
+    "0.4.11",
+    &["Basic Map and Shipment Day now share the sunny sky from Break Point and Der Tempel Day."],
+), (
     "0.4.10",
     &[
         "Der Tempel: stone blocks look the same size everywhere; concrete walls are sharper and less repetitive.",

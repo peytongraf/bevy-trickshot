@@ -1662,6 +1662,10 @@ mod tests {
         app.add_message::<crate::radio::SayRadio>();
         app.init_resource::<NextBotId>();
         app.add_systems(Update, (run_rounds, clear_dead_zombies, cull_zombies).chain());
+        // What `App::run` does before the first frame: some plugins (lightyear's
+        // replicon channels, since 0.27) only set up their resources here.
+        app.finish();
+        app.cleanup();
         let me = PeerId::Netcode(1);
         let lobby = app
             .world_mut()

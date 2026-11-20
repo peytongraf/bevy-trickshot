@@ -4,7 +4,7 @@
 //! (`RenderAssetUsages::MAIN_WORLD`) alongside the one it uploads — for a
 //! texture nothing on the CPU ever reads again, that's pure waste. The
 //! models' embedded textures (a 4K one is 64 MB decoded; ~4.4 GB over every
-//! `.glb` in `assets/`) and the 8K HDR skies (512 MB each, as float RGBA)
+//! `.glb` in `assets/`) and the HDR skies (128 MB each at 4K, as float RGBA)
 //! are exactly that, and with two clients open side by side they were
 //! enough to run the machine out of memory and get one killed.
 //!
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn only_model_and_sky_textures_go_gpu_only() {
         assert!(gpu_only(&"models/weapons/m17.glb#Texture3".into()));
-        assert!(gpu_only(&"skybox/sunflowers_puresky_8k.hdr".into()));
+        assert!(gpu_only(&"skybox/sunflowers_puresky_4k.hdr".into()));
         assert!(!gpu_only(&"textures/environment/water_normal.png".into()));
         assert!(!gpu_only(&"ui/menu_art.png".into()));
     }

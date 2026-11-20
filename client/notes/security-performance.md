@@ -45,7 +45,8 @@ The benchmark above, one Bevy version at a time. Report files are in `~/.config/
 - 0.16 = `main` before the upgrade (commit c148242). 0.17 = PR #1 (aecdba9). 0.18 = branch `bevy-0.18-upgrade`, client built 20:41 with bevy 0.18.1 / lightyear 0.26.4.
 - The 0.18 run's entity counts are wrong: Bevy 0.18 changed `Entities::len()` to count every entity slot ever allocated, so the readout stuck at 11,976. Both the readout and the report now use `count_spawned()`, so later runs are fine.
 - Not benchmarks (round 1 warm-ups, or left before the results screen): 1795139288, 1795139366, 1795139539 (0.17), and 1795142607, 1795142632 (0.18).
-- The one-shot Bevy 0.20 attempt (shelved branch `bevy-0.20-upgrade`, reports say v0.4.11): 1794974993 (benchmark, avg 49.6) and 1794974878 (aborted at round 1).
+- The one-shot Bevy 0.20 attempt (shelved branch `bevy-0.20-upgrade`, reports say v0.4.11): 1794974993 (benchmark, avg 49.6) and 1794974878 (aborted at round 1). Runs from the lightyear 0.27 step onward also say v0.4.11 (the 4K skies started that version), so tell them apart by date.
+- Starting with the lightyear 0.27 step, the skies are 4K instead of 8K (384 MiB less VRAM, ~0.65 GB lower RAM spike while one loads). Memory numbers before and after that aren't like for like.
 
 ## Tools and tests
 

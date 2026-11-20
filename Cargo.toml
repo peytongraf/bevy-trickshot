@@ -7,16 +7,15 @@ members = ["client", "server", "shared"]
 # player-facing changes — it's what the in-game updater and the main-menu
 # "WHAT'S NEW" panel compare against, and what you tag (`git tag vX.Y.Z`) to
 # actually ship it.
-version = "0.4.10"
+version = "0.4.11"
 edition = "2021"
 
 [workspace.dependencies]
-# The networking library. Pinned to 0.26, which lines up with Bevy 0.18 (what
-# `client/` runs) and is the last release before lightyear moved its
-# replication onto bevy_replicon (0.27, also Bevy 0.18). Both `client` and
-# `server` compile the *same* protocol out of `shared/`, so keep this version
-# in lockstep with the Bevy version below.
-lightyear = { version = "0.26.4", default-features = false, features = [
+# The networking library. Pinned to 0.27, the last release built against Bevy
+# 0.18 (what `client/` runs) — the first with its replication on top of
+# bevy_replicon. Both `client` and `server` compile the *same* protocol out
+# of `shared/`, so keep this version in lockstep with the Bevy version below.
+lightyear = { version = "0.27", default-features = false, features = [
     "std",
     "client",
     "server",

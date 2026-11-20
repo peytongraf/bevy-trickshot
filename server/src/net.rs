@@ -34,6 +34,9 @@ pub struct ServerNetPlugin;
 
 impl Plugin for ServerNetPlugin {
     fn build(&self, app: &mut App) {
+        // How often entity updates go out to every client (one interval
+        // for all of them since lightyear 0.27).
+        app.insert_resource(ReplicationMetadata::new(Duration::from_millis(shared::REPLICATION_INTERVAL_MS)));
         app.add_systems(Startup, (spawn_server, start_listening).chain());
         app.add_systems(PreUpdate, reset_runaway_input_buffers.before(InputSystems::ReceiveInputs));
         if let Some(limit) = idle_shutdown_limit() {
@@ -233,11 +236,7 @@ fn start_listening(mut commands: Commands, server: Single<Entity, With<Server>>)
 /// A fresh link: give it a replication sender so we can stream entities to it.
 fn on_client_link(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(
-            Duration::from_millis(shared::REPLICATION_INTERVAL_MS),
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender,
         Name::from("Client"),
     ));
 }

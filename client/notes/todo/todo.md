@@ -2,6 +2,7 @@ Run the client against the prod server: `TRICKSHOT_PROD=1 cargo run`
 
 # Do today
 
+- Look at all lights including things like from the rampage inducer. Try to have as few lights cast shadows as possible. Just decrease area of light so that it doesn't shine through walls.
 - Go to notes/security-performance.md and read how to do a baseline performance test
 - Upgrade to the lastest bevy version
 - Do another performance test
