@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use bevy::animation::prelude::AnimationTransitions;
-use bevy::animation::AnimationTarget;
+use bevy::animation::AnimationTargetId;
 use bevy::animation::RepeatAnimation;
 use bevy::prelude::*;
 use bevy::camera::visibility::NoFrustumCulling;
@@ -728,7 +728,7 @@ fn soldier_mask_groups(
     root: Entity,
     spine: Entity,
     children: &Query<&Children>,
-    targets: &Query<&AnimationTarget>,
+    targets: &Query<&AnimationTargetId>,
     parents: &Query<&ChildOf>,
 ) {
     if !graph.mask_groups.is_empty() {
@@ -746,7 +746,7 @@ fn soldier_mask_groups(
                 _ => break false,
             }
         };
-        graph.add_target_to_mask_group(target.id, if upper { UPPER_BODY } else { LOWER_BODY });
+        graph.add_target_to_mask_group(*target, if upper { UPPER_BODY } else { LOWER_BODY });
     }
 }
 
@@ -772,7 +772,7 @@ pub(crate) fn start_soldier_animation(
     names: Query<&Name>,
     meshes: Query<&Mesh3d>,
     anims: Res<SoldierAnimations>,
-    (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTarget>, Query<&ChildOf>),
+    (mut graphs, targets, parents): (ResMut<Assets<AnimationGraph>>, Query<&AnimationTargetId>, Query<&ChildOf>),
 ) {
     let root = trigger.entity;
     let Ok(holds) = soldiers.get(root) else {

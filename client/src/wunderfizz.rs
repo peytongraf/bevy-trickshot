@@ -385,10 +385,10 @@ fn spawn_control(
             align_items: AlignItems::Center,
             column_gap: Val::Px(10.0),
             padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if which == WfButton::Exit {
         button.insert(ui_sound(UiSound::BUTTON_BACK));
@@ -402,10 +402,10 @@ fn spawn_control(
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 border: UiRect::all(Val::Px(2.0)),
+                border_radius: BorderRadius::all(Val::Px(16.0)),
                 ..default()
             },
             BorderColor::all(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(16.0)),
         ))
         .with_child((
             Text::new(key),
@@ -446,11 +446,11 @@ fn spawn_cell(
                 align_items: AlignItems::Center,
                 row_gap: Val::Px(4.0),
                 border: UiRect::all(Val::Px(3.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
             BackgroundColor(Color::NONE),
             BorderColor::all(Color::NONE),
-            BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|cell| {
             cell.spawn((
@@ -506,9 +506,9 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                     width: Val::Px(PANEL_W),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Stretch,
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|panel| {
                 // Title.
@@ -517,10 +517,10 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                         Node {
                             justify_content: JustifyContent::Center,
                             padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
+                            border_radius: BorderRadius::top(Val::Px(6.0)),
                             ..default()
                         },
                         BackgroundColor(TITLE_BG),
-                        BorderRadius::top(Val::Px(6.0)),
                     ))
                     .with_child((Text::new("DER WUNDERFIZZ"), hfont(46.0), TextColor(Color::WHITE)));
                 // The hovered perk: its name, what it does and its cost.
@@ -564,10 +564,10 @@ fn spawn_wunderfizz_menu(commands: &mut Commands, asset_server: &AssetServer) {
                             flex_direction: FlexDirection::Column,
                             padding: UiRect::new(Val::Px(22.0), Val::Px(22.0), Val::Px(18.0), Val::Px(14.0)),
                             row_gap: Val::Px(18.0),
+                            border_radius: BorderRadius::bottom(Val::Px(6.0)),
                             ..default()
                         },
                         BackgroundColor(BODY_BG),
-                        BorderRadius::bottom(Val::Px(6.0)),
                     ))
                     .with_children(|b| {
                         b.spawn(Node {

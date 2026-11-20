@@ -264,9 +264,10 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                 align_items: AlignItems::Center,
                 column_gap: Val::Px(18.0),
                 padding: UiRect::axes(Val::Px(16.0), Val::Px(4.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             })
-            .insert((BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)), BorderRadius::all(Val::Px(6.0))))
+            .insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)))
             .with_children(|row| {
                 row.spawn((ScoreWins(Team::Red), Text::new("0"), text(34.0), TextColor(team_color(Team::Red)), shadow));
                 row.spawn((ScoreClock, Text::new(""), text(30.0), TextColor::WHITE, shadow));
@@ -324,11 +325,11 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
                     padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)),
                     justify_content: JustifyContent::Center,
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
                 BorderColor::all(Color::WHITE),
-                BorderRadius::all(Val::Px(4.0)),
                 Visibility::Hidden,
             ))
             .with_child((MarkerText, Text::new(label), text(22.0), TextColor::WHITE, shadow));

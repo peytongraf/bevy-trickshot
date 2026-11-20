@@ -177,6 +177,7 @@ pub(crate) struct AudioSource {
 /// The file extensions [`AudioLoader`] takes.
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "oga", "flac"];
 
+#[derive(TypePath)]
 struct AudioLoader;
 
 impl AssetLoader for AudioLoader {

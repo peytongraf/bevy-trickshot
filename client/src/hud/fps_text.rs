@@ -216,7 +216,7 @@ pub(crate) fn update_fps_ui(
                     let s = secs as u64;
                     format!("{}:{:02}", s / 60, s % 60)
                 }),
-                _ => entities.len().to_string(),
+                _ => entities.count_spawned().to_string(),
             };
             if text.0 != wanted {
                 text.0 = wanted;

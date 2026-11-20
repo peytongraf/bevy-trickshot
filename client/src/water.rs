@@ -126,6 +126,15 @@ pub(crate) struct WaterSurface {
 }
 
 impl MaterialExtension for WaterSurface {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         WATER_SHADER_ASSET_PATH.into()
     }
@@ -142,6 +151,15 @@ pub(crate) struct WaterfallSheet {
 }
 
 impl MaterialExtension for WaterfallSheet {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         WATERFALL_SHADER_ASSET_PATH.into()
     }
@@ -161,6 +179,15 @@ pub(crate) struct SprayPuffs {
 }
 
 impl MaterialExtension for SprayPuffs {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SPRAY_SHADER_ASSET_PATH.into()
     }
@@ -178,21 +205,9 @@ impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
         // (None of it casts a shadow or needs a prepass.)
         app.add_plugins((
-            MaterialPlugin::<WaterMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
-            MaterialPlugin::<WaterfallMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
-            MaterialPlugin::<SprayMaterial> {
-                prepass_enabled: false,
-                shadows_enabled: false,
-                ..default()
-            },
+            MaterialPlugin::<WaterMaterial>::default(),
+            MaterialPlugin::<WaterfallMaterial>::default(),
+            MaterialPlugin::<SprayMaterial>::default(),
         ))
         .add_systems(Startup, setup_assets)
         // (Ungated: leaving the game is what takes them away.)

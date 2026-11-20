@@ -212,11 +212,11 @@ fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     row_gap: Val::Px(10.0),
                     padding: UiRect::all(Val::Px(16.0)),
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor::all(AMMO_GREEN),
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {
@@ -260,10 +260,10 @@ fn spawn_ammo_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     Node {
                         justify_content: JustifyContent::Center,
                         padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
                 ))
                 .with_child((AmmoCardText::Action, Text::new(""), heading(24.0), TextColor::WHITE));
             });

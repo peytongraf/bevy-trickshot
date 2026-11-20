@@ -40,10 +40,10 @@ pub(crate) fn spawn_debug_readout(mut commands: Commands, asset_server: Res<Asse
             row.spawn((
                 Node {
                     padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_child((
                 DebugReadoutText,

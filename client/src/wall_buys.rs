@@ -273,11 +273,11 @@ fn spawn_wall_buy_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                 WallBuyCard,
                 Node {
                     border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.88)),
                 BorderColor::all(CHALK_GREEN),
-                BorderRadius::all(Val::Px(4.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {

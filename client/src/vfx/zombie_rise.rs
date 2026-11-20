@@ -102,7 +102,7 @@ pub(crate) fn zombie_rise_debris(
         while fx.owed >= 1.0 {
             fx.owed -= 1.0;
             *seq = seq.wrapping_add(1);
-            let s = seq.wrapping_mul(2_654_435_761) ^ entity.index();
+            let s = seq.wrapping_mul(2_654_435_761) ^ entity.index_u32();
             let angle = rand01(s ^ 0x1) * core::f32::consts::TAU;
             let r = lerp(RADIUS, t) * rand01(s ^ 0x2).sqrt();
             let at = Vec3::new(feet.x + r * angle.cos(), fx.ground_y, feet.z + r * angle.sin());

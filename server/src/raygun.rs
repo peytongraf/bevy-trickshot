@@ -123,7 +123,7 @@ pub(crate) fn fire(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fly_bolts(
     time: Res<Time>,
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     server: Single<&Server>,
     mut sender: ServerMultiMessageSender,
     mut bolts: ResMut<RayGunBolts>,

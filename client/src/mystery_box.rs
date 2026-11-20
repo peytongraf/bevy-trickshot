@@ -985,11 +985,11 @@ fn spawn_box_card(mut commands: Commands, asset_server: Res<AssetServer>) {
                     padding: UiRect::axes(Val::Px(22.0), Val::Px(8.0)),
                     row_gap: Val::Px(2.0),
                     min_width: Val::Px(260.0),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.88)),
                 BorderColor::all(AMBER),
-                BorderRadius::all(Val::Px(4.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {

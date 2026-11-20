@@ -216,7 +216,7 @@ fn record_frame(
     if rec.last_round != Some(round) {
         rec.last_round = Some(round);
         if zombies {
-            rec.round_starts.push((round, entities.len(), mem));
+            rec.round_starts.push((round, entities.count_spawned(), mem));
         }
     }
     if rec.frames.len() < MAX_FRAMES {
@@ -242,7 +242,7 @@ fn record_frame(
         fps: s.frames as f32 / s.secs,
         worst_ms: s.worst * 1000.0,
         enemies: s.enemies,
-        entities: entities.len(),
+        entities: entities.count_spawned(),
         draw_calls: draw_calls.get().min(u32::MAX as usize) as u32,
         mem_gb: mem,
         cpu_pct: diagnostic(&diagnostics, &SystemInformationDiagnosticsPlugin::PROCESS_CPU_USAGE),
@@ -784,10 +784,10 @@ fn section(
                 width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::new(Val::Px(14.0), Val::Px(14.0), Val::Px(10.0), Val::Px(8.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
                 ..default()
             },
             BackgroundColor(SECTION),
-            BorderRadius::all(Val::Px(4.0)),
         ))
         .with_children(|s| {
             s.spawn(Node {
@@ -887,10 +887,10 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                     max_height: Val::Percent(96.0),
                     flex_direction: FlexDirection::Column,
                     overflow: Overflow::clip(),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(PANEL),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|panel| {
                 // The header bar.
@@ -956,10 +956,10 @@ fn spawn_panel(commands: &mut Commands, asset_server: &AssetServer, finished: Op
                             Node {
                                 padding: UiRect::axes(Val::Px(26.0), Val::Px(8.0)),
                                 flex_shrink: 0.0,
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 ..default()
                             },
                             BackgroundColor(CLOSE_BG),
-                            BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child(hud_text(asset_server, "CLOSE", 22.0, TEXT));
                     });
@@ -1123,10 +1123,10 @@ fn round_chart(s: &mut ChildSpawnerCommands, asset_server: &AssetServer, rounds:
                             width: Val::Percent(100.0),
                             max_width: Val::Px(34.0),
                             height: Val::Px((CHART_H * low / top).max(2.0)),
+                            border_radius: BorderRadius::top(Val::Px(2.0)),
                             ..default()
                         },
                         BackgroundColor(fps_color(low)),
-                        BorderRadius::top(Val::Px(2.0)),
                     ));
                     let label = if i % every == 0 || i + 1 == rounds.len() { r.round.to_string() } else { String::new() };
                     col.spawn((

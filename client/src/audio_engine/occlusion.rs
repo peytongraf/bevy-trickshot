@@ -82,7 +82,7 @@ pub(super) fn occlude(
             continue;
         }
         // (A fresh sound now; otherwise in turn, a few frames apart.)
-        if sink.probed && (entity.index().wrapping_add(*frame)) % every != 0 {
+        if sink.probed && (entity.index_u32().wrapping_add(*frame)) % every != 0 {
             sink.occlusion += (sink.occlusion_target - sink.occlusion).clamp(-step, step);
             continue;
         }

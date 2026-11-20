@@ -547,11 +547,11 @@ fn sync_icons(
                     icon.insert((
                         Node {
                             border: UiRect::all(Val::Px(1.5)),
+                            border_radius: BorderRadius::MAX,
                             ..node
                         },
                         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
                         BorderColor::all(color),
-                        BorderRadius::MAX,
                     ));
                     if matches!(spec.art, IconArt::BadgeImage(..)) {
                         icon.with_child((
@@ -711,11 +711,11 @@ fn sync_enemy_dots(
                 width: Val::Px(ENEMY_DOT_SIZE),
                 height: Val::Px(ENEMY_DOT_SIZE),
                 border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::MAX,
                 ..default()
             },
             BackgroundColor(ENEMY_RED),
             BorderColor::all(Color::BLACK.with_alpha(0.7)),
-            BorderRadius::MAX,
             Visibility::Hidden,
             Pickable::IGNORE,
         ));

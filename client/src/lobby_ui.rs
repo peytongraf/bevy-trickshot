@@ -2469,10 +2469,10 @@ fn rebuild_scoreboard(
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(Val::Px(10.0)),
                 row_gap: Val::Px(4.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-            BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|panel| {
             let header = match lobby.mode {

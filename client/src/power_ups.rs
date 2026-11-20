@@ -138,6 +138,15 @@ pub(crate) struct PowerUpPuffMaterial {
 }
 
 impl Material for PowerUpPuffMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         PUFF_SHADER_ASSET_PATH.into()
     }
@@ -169,6 +178,15 @@ pub(crate) struct PowerUpColumnMaterial {
 }
 
 impl Material for PowerUpColumnMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         COLUMN_SHADER_ASSET_PATH.into()
     }
@@ -219,6 +237,15 @@ pub(crate) struct PowerUpGlowMaterial {
 }
 
 impl Material for PowerUpGlowMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -656,21 +683,9 @@ pub(crate) struct PowerUpsPlugin;
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<GoldMaterial>::default())
-        .add_plugins(MaterialPlugin::<PowerUpPuffMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<PowerUpColumnMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<PowerUpGlowMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        .add_plugins(MaterialPlugin::<PowerUpPuffMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpColumnMaterial>::default())
+        .add_plugins(MaterialPlugin::<PowerUpGlowMaterial>::default())
         .init_resource::<PowerUpSettings>()
         .init_resource::<NukeAnnouncers>()
         .add_systems(OnEnter(AppState::InGame), spawn_timed_row)
@@ -785,7 +800,7 @@ fn sync_drop_avatars(
                 DespawnOnExit(AppState::InGame),
                 DropAvatar {
                     src,
-                    phase: (src.index() as f32 * 1.618).fract() * std::f32::consts::TAU,
+                    phase: (src.index_u32() as f32 * 1.618).fract() * std::f32::consts::TAU,
                     blink_age: 0.0,
                     blink_phase: 0.0,
                     lit: true,

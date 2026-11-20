@@ -68,11 +68,7 @@ pub(super) struct AscensionPlugin;
 
 impl Plugin for AscensionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<GhostMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<GhostMaterial>::default())
         .init_resource::<EggSoul>()
             .init_resource::<EggSoulView>()
             .init_resource::<EggSoulSettings>()
@@ -439,6 +435,15 @@ pub(crate) struct GhostMaterial {
 }
 
 impl Material for GhostMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn fragment_shader() -> ShaderRef {
         "shaders/ghost.wgsl".into()
     }

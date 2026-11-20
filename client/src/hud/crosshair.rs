@@ -64,10 +64,10 @@ pub(crate) fn setup_crosshair(mut commands: Commands) {
             Node {
                 width: Val::Px(width),
                 height: Val::Px(height),
+                border_radius: BorderRadius::MAX,
                 ..default()
             },
             BackgroundColor(Color::WHITE),
-            BorderRadius::MAX,
         )
     };
 
@@ -90,11 +90,11 @@ pub(crate) fn setup_crosshair(mut commands: Commands) {
                     width: Val::Px(5.0),
                     height: Val::Px(5.0),
                     border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::MAX,
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
                 BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                BorderRadius::MAX,
             ));
 
             root.spawn((

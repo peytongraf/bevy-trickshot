@@ -259,7 +259,7 @@ fn shots_to_resolve(
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_shots(
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     server: Single<&Server>,
     colliders: Res<MapColliders>,
     mut sender: ServerMultiMessageSender,

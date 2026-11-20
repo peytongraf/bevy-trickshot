@@ -363,10 +363,10 @@ fn spawn_control(
             align_items: AlignItems::Center,
             column_gap: Val::Px(12.0),
             padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             ..default()
         },
         BackgroundColor(Color::NONE),
-        BorderRadius::all(Val::Px(6.0)),
     ));
     if let Some(sound) = sound {
         button.insert(sound);
@@ -380,10 +380,10 @@ fn spawn_control(
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 border: UiRect::all(Val::Px(2.0)),
+                border_radius: BorderRadius::all(Val::Px(18.0)),
                 ..default()
             },
             BorderColor::all(LIGHT_TEXT),
-            BorderRadius::all(Val::Px(18.0)),
         ))
         .with_child((
             Text::new(key),
@@ -436,10 +436,10 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                     flex_direction: FlexDirection::Column,
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border_radius: BorderRadius::all(Val::Percent(50.0)),
                     ..default()
                 },
                 BackgroundColor(Color::WHITE),
-                BorderRadius::all(Val::Percent(50.0)),
             ))
             .with_children(|lock| {
                 // Shackle, then body.
@@ -453,19 +453,19 @@ fn spawn_link(parent: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, into: u8)
                             top: Val::Px(3.0),
                             bottom: Val::Px(0.0),
                         },
+                        border_radius: BorderRadius::top(Val::Px(6.0)),
                         ..default()
                     },
                     BorderColor::all(DARK_TEXT),
-                    BorderRadius::top(Val::Px(6.0)),
                 ));
                 lock.spawn((
                     Node {
                         width: Val::Px(18.0),
                         height: Val::Px(12.0),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         ..default()
                     },
                     BackgroundColor(DARK_TEXT),
-                    BorderRadius::all(Val::Px(2.0)),
                 ));
             });
         });
@@ -605,10 +605,10 @@ fn spawn_pap_menu(commands: &mut Commands, asset_server: &AssetServer, label: &s
                         bar.spawn((
                             Node {
                                 padding: UiRect::axes(Val::Px(56.0), Val::Px(4.0)),
+                                border_radius: BorderRadius::all(Val::Px(3.0)),
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.85, 0.85, 0.85)),
-                            BorderRadius::all(Val::Px(3.0)),
                         ))
                         .with_child((
                             Text::new(format!("PACK {}", label.to_uppercase())),

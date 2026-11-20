@@ -141,6 +141,15 @@ pub(crate) struct FireMaterial {
 }
 
 impl Material for FireMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         SHADER_ASSET_PATH.into()
     }
@@ -181,6 +190,15 @@ pub(crate) struct FireGroundMaterial {
 }
 
 impl Material for FireGroundMaterial {
+    // No depth prepass / shadows: it never writes depth or casts anything.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         GROUND_SHADER_ASSET_PATH.into()
     }
@@ -799,16 +817,8 @@ pub(crate) struct MolotovPlugin;
 
 impl Plugin for MolotovPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<FireMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
-        .add_plugins(MaterialPlugin::<FireGroundMaterial> {
-            prepass_enabled: false,
-            shadows_enabled: false,
-            ..default()
-        })
+        app.add_plugins(MaterialPlugin::<FireMaterial>::default())
+        .add_plugins(MaterialPlugin::<FireGroundMaterial>::default())
         .init_resource::<MolotovSettings>()
         .init_resource::<HeldMotion>()
         .init_resource::<PendingCorpseFires>()
@@ -1042,7 +1052,7 @@ fn sync_molotov_avatars(
                         }
                         bottle.spawn((
                             RagLight {
-                                seed: (src.index() % 97) as f32,
+                                seed: (src.index_u32() % 97) as f32,
                             },
                             PointLight {
                                 color: settings.light_color(),
@@ -1151,9 +1161,9 @@ fn sync_fire_patches(
         let smoke = materials.add(FireMaterial {
             params: settings.smoke_params(0.0),
         });
-        let seed = (src.index() % 997) as f32;
+        let seed = (src.index_u32() % 997) as f32;
         let hash = |i: u32, k: u32| {
-            crate::util::rand01(src.index().wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9))
+            crate::util::rand01(src.index_u32().wrapping_mul(7919) ^ i.wrapping_mul(31) ^ k.wrapping_mul(0x9E37_79B9))
         };
         let tiny = Vec3::new(0.001, 0.001, 0.0015);
         let ground = settings.ground.then(|| {

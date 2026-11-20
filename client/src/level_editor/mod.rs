@@ -1450,7 +1450,7 @@ fn exit(
     mut lighting: ResMut<LightingBackup>,
     mut transforms: Query<&mut Transform>,
     mut view_model: Query<&mut Camera, With<ViewModelCamera>>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {
@@ -1488,7 +1488,7 @@ fn apply_editor_lighting(
     editor: Res<Editor>,
     current: Res<CurrentMap>,
     mut backup: ResMut<LightingBackup>,
-    mut ambient: ResMut<AmbientLight>,
+    mut ambient: ResMut<GlobalAmbientLight>,
     mut fog: Single<&mut DistanceFog, With<WorldModelCamera>>,
     mut ground_fog: ResMut<crate::GroundFogHidden>,
 ) {

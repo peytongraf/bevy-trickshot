@@ -480,10 +480,10 @@ fn member_rows(panel: &mut ChildSpawnerCommands, lobby: &shared::Lobby, me: Peer
                     justify_content: JustifyContent::SpaceBetween,
                     column_gap: Val::Px(16.0),
                     padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(TRACK),
-                BorderRadius::all(Val::Px(6.0)),
             ))
             .with_children(|row| {
                 row.spawn(label(member.name.clone(), 16.0, name_color));
@@ -530,10 +530,10 @@ fn build_party_card(commands: &mut Commands, asset_server: &AssetServer, lobby: 
                         flex_direction: FlexDirection::Column,
                         padding: UiRect::all(Val::Px(14.0)),
                         row_gap: Val::Px(6.0),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
                         ..default()
                     },
                     BackgroundColor(PANEL_SOLID),
-                    BorderRadius::all(Val::Px(8.0)),
                 ))
                 .with_children(|panel| member_rows(panel, lobby, me));
             });
@@ -571,10 +571,10 @@ fn build_zombies_loading(commands: &mut Commands, asset_server: &AssetServer, lo
                             margin: UiRect::top(Val::Px(36.0)),
                             padding: UiRect::all(Val::Px(14.0)),
                             row_gap: Val::Px(6.0),
+                            border_radius: BorderRadius::all(Val::Px(8.0)),
                             ..default()
                         },
                         BackgroundColor(Color::BLACK.with_alpha(0.6)),
-                        BorderRadius::all(Val::Px(8.0)),
                     ))
                     .with_children(|panel| {
                         panel.spawn(label("WAITING FOR PLAYERS…", 14.0, TEXT_DIM));
@@ -601,11 +601,11 @@ fn objective_box(boxes: &mut ChildSpawnerCommands, asset_server: &AssetServer, n
                 top: Val::Px(3.0),
                 ..UiRect::all(Val::Px(1.0))
             },
+            border_radius: BorderRadius::all(Val::Px(4.0)),
             ..default()
         },
         BackgroundColor(faded(bg)),
         BorderColor::all(faded(border)),
-        BorderRadius::all(Val::Px(4.0)),
     ));
     card.insert(IntroFade { bg: Some(bg), border: Some(border), text: None });
     card.with_children(|card| {

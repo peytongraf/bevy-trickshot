@@ -381,11 +381,11 @@ fn spawn_exfil_ui(
                     padding: UiRect::all(Val::Px(14.0)),
                     border: UiRect::all(Val::Px(2.0)),
                     max_width: Val::Px(440.0),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba(0.03, 0.03, 0.05, 0.85)),
                 BorderColor::all(EXFIL_BLUE),
-                BorderRadius::all(Val::Px(6.0)),
                 Visibility::Hidden,
             ))
             .with_children(|card| {

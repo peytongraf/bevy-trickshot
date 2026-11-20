@@ -353,7 +353,7 @@ fn main() {
         .add_plugins(PhdTrailPlugin)
         .add_plugins(ZombieAvatarPlugin)
         .add_plugins(zombie_sounds::ZombieSoundsPlugin)
-        .insert_resource(AmbientLight {
+        .insert_resource(GlobalAmbientLight {
             color: SKY_AMBIENT_COLOR,
             brightness: SKY_AMBIENT_LUX,
             ..default()
@@ -1157,8 +1157,8 @@ fn setup_player(
                                         ScopeCamera,
                                         Camera3d::default(),
                                         bevy::render::view::Hdr,
+                                        bevy::camera::RenderTarget::Image(scope_image.clone().into()),
                                         Camera {
-                                            target: scope_image.clone().into(),
                                             order: -2,
                                             is_active: false,
                                             clear_color: Color::srgb(0.0, 0.0, 0.0).into(),
@@ -1193,8 +1193,8 @@ fn setup_player(
                                         ScopeReticleCamera,
                                         Camera3d::default(),
                                         bevy::render::view::Hdr,
+                                        bevy::camera::RenderTarget::Image(scope_image.clone().into()),
                                         Camera {
-                                            target: scope_image.clone().into(),
                                             order: -1,
                                             is_active: false,
                                             clear_color: ClearColorConfig::None,

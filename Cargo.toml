@@ -11,10 +11,12 @@ version = "0.4.10"
 edition = "2021"
 
 [workspace.dependencies]
-# The networking library. Pinned to 0.23 so it lines up with Bevy 0.16, which is
-# what `client/` runs. Both `client` and `server` compile the *same* protocol out
-# of `shared/`, so keep this version in lockstep with the Bevy version below.
-lightyear = { version = "0.25", default-features = false, features = [
+# The networking library. Pinned to 0.26, which lines up with Bevy 0.18 (what
+# `client/` runs) and is the last release before lightyear moved its
+# replication onto bevy_replicon (0.27, also Bevy 0.18). Both `client` and
+# `server` compile the *same* protocol out of `shared/`, so keep this version
+# in lockstep with the Bevy version below.
+lightyear = { version = "0.26.4", default-features = false, features = [
     "std",
     "client",
     "server",
@@ -33,7 +35,7 @@ lightyear = { version = "0.25", default-features = false, features = [
 # system libraries. `client/` declares its own full-featured `bevy` line instead;
 # Cargo's v2 resolver keeps the two feature sets separate because the client and
 # server binaries don't depend on each other.
-bevy = { version = "0.17", default-features = false, features = [
+bevy = { version = "0.18", default-features = false, features = [
     "bevy_state",
     "bevy_log",
     "serialize",

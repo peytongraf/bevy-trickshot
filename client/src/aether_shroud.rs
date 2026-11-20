@@ -342,10 +342,10 @@ pub(crate) fn spawn_shroud_hud(
                             padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)),
                             min_width: Val::Px(24.0),
                             justify_content: JustifyContent::Center,
+                            border_radius: BorderRadius::all(Val::Px(3.0)),
                             ..default()
                         },
                         BackgroundColor(Color::WHITE),
-                        BorderRadius::all(Val::Px(3.0)),
                         box_shadow(),
                     ))
                     .with_child((
